@@ -326,39 +326,20 @@ mod tests {
     }
 
     #[test]
-    fn the_empty_state_waits_for_the_rows_to_go() {
+    fn filtering_lands_in_the_keystroke() {
         let mut rt = runtime();
         tap(&mut rt, "model");
         for _ in 0..60 { rt.frame(1.0 / 60.0); }
-        rt.key(KeyEvent { key: Key::Text("missing".into()), mods: Default::default() });
-        let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
-        for _ in 0..90 {
-            rt.frame(1.0 / 120.0);
-            let row = find(&rt, "option-openai:gpt-6-astra").unwrap();
-            let empty = find(&rt, "picker-empty").map_or(0.0, |e| e.opacity);
-            assert!(row.opacity < 0.05 || empty < 0.05, "the empty state lands on a row: {} over {}", empty, row.opacity);
-        }
-        assert_eq!(find(&rt, "picker-empty").unwrap().opacity, 1.0);
-    }
-
-    #[test]
-    fn interrupted_reopen_uses_one_layout_curve() {
-        let mut rt = runtime();
-        tap(&mut rt, "model");
+        let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
         key(&mut rt, Key::Text("missing".into()));
-        for _ in 0..90 { rt.frame(1.0 / 120.0); }
-        key(&mut rt, Key::Escape);
-        for _ in 0..10 { rt.frame(1.0 / 120.0); }
-        tap(&mut rt, "model");
-        let mut previous = None;
-        for _ in 0..120 {
-            rt.frame(1.0 / 120.0);
-            let option = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("option-openai:gpt-6-astra")).unwrap();
-            if option.opacity > 0.1 {
-                let distance = (option.rect[1] - option.target[1]).abs();
-                if let Some(last) = previous { assert!(distance <= last + 0.03, "reopening must not dog-leg: {last} -> {distance}"); }
-                previous = Some(distance);
-            }
-        }
+        assert!(find(&rt, "option-openai:gpt-6-astra").is_none(), "a row that stops matching goes at once");
+        let empty = find(&rt, "picker-empty").unwrap();
+        assert_eq!(empty.opacity, 1.0);
+        let scroll = find(&rt, "picker-scroll").unwrap();
+        assert!((scroll.rect[3] - 48.0).abs() < 0.1, "the menu is the empty state's height at once: {}", scroll.rect[3]);
+        key(&mut rt, Key::Backspace);
+        for _ in 0..6 { key(&mut rt, Key::Backspace); }
+        let row = find(&rt, "option-openai:gpt-6-astra").unwrap();
+        assert!((row.opacity - 1.0).abs() < 1e-3 && (row.rect[1] - row.target[1]).abs() < 0.1, "a row that matches again lands in place");
     }
 }

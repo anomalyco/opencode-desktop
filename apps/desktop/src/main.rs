@@ -311,6 +311,7 @@ impl App {
     }
 
     pub fn close_tab(&mut self, id: &str, tx: &mut Tx) {
+        tx.instant();
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
         let tab = self.tabs.remove(i);
         self.closed.push((i, tab));

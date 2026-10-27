@@ -42,7 +42,11 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let mut inner = shell(s, cx);
     if s.pickers.open.is_some() {
         inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
-            .on_press(|s: &mut App| s.close_picker(false)))
+            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                // Nothing gets focus back, so the search field can unmount in this frame.
+                tx.instant();
+                s.close_picker(false);
+            }))
             .child(picker(s, p));
     }
     if let Route::Session(id) = &s.route
@@ -85,7 +89,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(sidebar(s, p))
         .child(
-            col()
+            rim(col(), p)
                 .key("panel")
                 .grow(1.0)
                 .shrink()
@@ -95,7 +99,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .mb(8.0)
                 .radius(10.0)
                 .fill(p.bg_base)
-                .border(0.5, p.ring)
                 .shadow(2.0, 4.0, p.shadow)
                 .shadow(1.0, 2.0, p.shadow)
                 .clip_soft(0.0)
@@ -114,11 +117,27 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     root
 }
 
+/// How strongly the panel's rim is lit from above. 0 is a flat ring; 1 matches Beta's dark
+/// `--v2-elevation-raised`, whose `0 -0.5px 0 alpha-light-6` layer brightens the top edge while
+/// the drop shadows under the panel darken the bottom one.
+const RIM: f32 = 1.0;
+
+/// The panel's 0.5 px ring, brighter at the top and dimmer at the bottom by [`RIM`] (Seer's rim
+/// light, without its fill gradient).
+fn rim(e: El, p: &Pal) -> El {
+    let a = p.ring.a;
+    if !p.dark {
+        // Light has no highlight layer; only the drop shadows weigh the bottom edge.
+        return e.border_gradient(0.5, p.ring.alpha(a * (1.0 - 0.25 * RIM)), p.ring.alpha(a * (1.0 + 0.5 * RIM)));
+    }
+    e.border_gradient(0.5, p.ring.alpha(a + 0.05 * RIM), p.ring.alpha(a * (1.0 - 0.4 * RIM)))
+}
+
 // ---------------------------------------------------------------------------------------------
 // Pieces
 
 pub(crate) fn avatar(p: &Pal, name: &str) -> El {
-    let k = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) as usize % 8;
+    let k = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) as usize % p.avatars.len();
     let (bg, border) = p.avatars[k];
     let letter = name.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
     el().size(16.0, 16.0)
@@ -937,7 +956,9 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
             .center_y()
             // "Thinking" crossfades to "Thought for Ns" while the chevron slides over.
             .animate_layout()
-            .on_press(move |s: &mut App| {
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                // Opening and closing is instant; only the streaming label change animates.
+                tx.instant();
                 if !s.expanded.remove(&k) {
                     s.expanded.insert(k.clone());
                 }
@@ -959,15 +980,13 @@ fn working(p: &Pal) -> El {
 }
 
 fn turn_actions(p: &Pal, busy: bool, session: &str, message: &Message) -> El {
-    use rune::AnimExt;
-    // These share a footprint: let the outgoing label/icon finish before the other arrives.
-    // Otherwise the copy icon's outline reads as a missing glyph over the W in Working.
-    let fade = |show| rune::Curve::ease_in_out(0.18).delay(if show { 0.18 } else { 0.0 });
+    // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
+    // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
     let mut button = row().key("copy").role("button").label("Copy response")
         .size(28.0, 28.0).pb(12.0).center().radius(4.0).hover(p.hover).press(p.pressed)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
-        .opacity_motion(fade(!busy && has_text))
+        .opacity_motion(INSTANT)
         .child(icon(&ic::OUTLINE_COPY, 16.0).color(p.muted));
     if !busy && has_text {
         let session = session.to_owned();
@@ -984,7 +1003,7 @@ fn turn_actions(p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     el().w_full().h(28.0).motion(rune::Spring::new(0.34, 0.0))
-        .child(working(p).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(fade(busy)))
+        .child(working(p).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
 }
 
@@ -1057,7 +1076,10 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
             }
             let b = |key: &str, label: &str, decision: &'static str, primary: bool| {
                 let rid = rid.clone();
-                small_button(p, format!("{key}-{rid}"), label, primary).on_press(move |s: &mut App| s.reply_permission(&rid, decision))
+                small_button(p, format!("{key}-{rid}"), label, primary).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.reply_permission(&rid, decision);
+                })
             };
             c.child(
                 row()
@@ -1100,7 +1122,10 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
                         .fill(if on { p.pressed } else { Color::TRANSPARENT })
                         .border(0.5, if on { p.text } else { p.border_muted })
                         .hover(p.hover)
-                        .on_press(move |s: &mut App| s.pick(&rid, &key, &v, multi))
+                        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                            tx.instant();
+                            s.pick(&rid, &key, &v, multi);
+                        })
                         .child(text(label).font(UI_MED).color(p.text));
                     if !desc.is_empty() {
                         o = o.child(text(desc).font(UI_SMALL).color(p.muted).wrap());
@@ -1123,7 +1148,10 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
                             .caret(p.text, p.selection)
                             .on_edit(move |s: &mut App| s.typed_mut(&rid2, &key2))
                             .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx))
-                            .on_submit(move |s: &mut App, _: &mut Tx| s.submit_form(&rid3)),
+                            .on_submit(move |s: &mut App, tx: &mut Tx| {
+                                tx.instant();
+                                s.submit_form(&rid3);
+                            }),
                     );
                 }
                 c = c.child(q);
@@ -1134,8 +1162,14 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
                 row()
                     .key("actions")
                     .gap(6.0)
-                    .child(small_button(p, format!("submit-{rid}"), "Submit", ready).on_press(move |s: &mut App| s.submit_form(&a)))
-                    .child(small_button(p, format!("dismiss-{rid}"), "Dismiss", false).on_press(move |s: &mut App| s.dismiss_form(&b))),
+                    .child(small_button(p, format!("submit-{rid}"), "Submit", ready).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                        tx.instant();
+                        s.submit_form(&a);
+                    }))
+                    .child(small_button(p, format!("dismiss-{rid}"), "Dismiss", false).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                        tx.instant();
+                        s.dismiss_form(&b);
+                    })),
             )
         }
     }
@@ -1273,6 +1307,8 @@ fn picker(s: &App, p: &Pal) -> El {
         .above(kind.key(), 6.0).w(if kind == Kind::Model { 284.0 } else { 180.0 })
         .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::opacity().springs(no_motion()))
+        // Its height and rows follow the filter in the keystroke.
+        .motion(no_motion().enter)
         // Empty space in the menu consumes pointer presses instead of dismissing it.
         .on_press(|_: &mut App| {});
     if kind == Kind::Model {
@@ -1284,53 +1320,35 @@ fn picker(s: &App, p: &Pal) -> El {
                 .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))))
             .child(el().h(0.5).w_full().fill(p.border_muted));
     }
+    // Filtering is instant, like Desktop's list: rows come and go in the keystroke.
+    let appear = rune::Transition::opacity().springs(no_motion());
     let mut list = col().key("picker-options").w_full();
-    // Retain identities while filtering. Row slots and their neighbours share one layout
-    // spring; each slot clips its own sharp text while its opacity leaves more quickly.
-    let all_items = if kind == Kind::Model {
-        s.pickers.models.iter().map(|m| crate::pickers::Item { key: m.key.clone(), label: m.name.clone(), group: m.group.clone() }).collect()
-    } else { items.clone() };
     let mut group = "";
     let mut height = 0.0_f32;
-    for item in &all_items {
-        let shown = items.iter().any(|i| i.key == item.key);
+    for item in &items {
         if !item.group.is_empty() && item.group != group {
-            let shown = items.iter().any(|i| i.group == item.group);
-            list = list.child(col().key(format!("group-{}", item.group)).h(if shown { 24.0 } else { 0.0 })
-                .opacity(if shown { 1.0 } else { 0.0 }).opacity_motion(rune::Curve::ease_in_out(0.15))
-                .clip_fade(0.0, 6.0, 0.0, 6.0)
+            list = list.child(col().key(format!("group-{}", item.group)).h(24.0).transition(appear.clone())
                 .child(text(item.group.clone()).font(UI_SMALL).color(p.faint).h(24.0).px(10.0).pt(4.0)));
-            if shown { height += 24.0; }
+            height += 24.0;
             group = &item.group;
         }
         let key = item.key.clone();
         let hover_key = key.clone();
         let mut option = row().key(format!("option-{key}")).role("menuitemradio").label(item.label.clone())
-            .h(if shown { 28.0 } else { 0.0 }).w_full().px(10.0).gap(8.0).center_y().radius(4.0)
-            .opacity(if shown { 1.0 } else { 0.0 }).opacity_motion(rune::Curve::ease_in_out(0.15))
-            .clip_fade(0.0, 6.0, 0.0, 6.0)
+            .h(28.0).w_full().px(10.0).gap(8.0).center_y().radius(4.0).transition(appear.clone())
             .fill(if active.as_deref() == Some(&key) { p.hover } else { Color::TRANSPARENT })
             .hover(p.hover).press(p.pressed)
+            .on_hover(move |s: &mut App| s.pickers.activate(hover_key.clone()))
+            .on_press(move |s: &mut App| s.choose_picker(&key))
             .child(text(item.label.clone()).font(UI).color(p.text)).child(spacer());
-        if shown {
-            option = option.on_hover(move |s: &mut App| s.pickers.activate(hover_key.clone()))
-                .on_press(move |s: &mut App| s.choose_picker(&key));
-        }
         if item.key == selected { option = option.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon)); }
         list = list.child(option);
-        if shown { height += 28.0; }
+        height += 28.0;
     }
-    if kind == Kind::Model {
-        // Mounted while there are matches too, so it rides up under the collapsing rows and
-        // fades in once they're gone instead of landing on top of them.
-        use rune::AnimExt;
-        let empty = items.is_empty();
-        list = list.child(col().key("picker-empty").h(if empty { 48.0 } else { 0.0 })
-            .opacity(if empty { 1.0 } else { 0.0 })
-            .opacity_motion(rune::Curve::ease_in_out(0.15).delay(if empty { 0.15 } else { 0.0 }))
-            .clip_fade(0.0, 6.0, 0.0, 6.0)
+    if kind == Kind::Model && items.is_empty() {
+        list = list.child(col().key("picker-empty").h(48.0).transition(appear)
             .child(text("No models found").font(UI).color(p.faint).h(48.0).px(10.0).pt(16.0)));
-        if empty { height = 48.0; }
+        height = 48.0;
     }
     menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
         .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list))

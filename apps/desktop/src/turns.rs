@@ -186,7 +186,7 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
 }
 
 /// The folded row: its label and chevron, and when open, every step in order. Opening and
-/// closing springs on the growth stack's row height, as a thought's own disclosure does.
+/// closing is instant, as a thought's own disclosure is.
 pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
     let open = s.expanded.contains(key);
     let l = label(steps, busy);
@@ -200,7 +200,8 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         .center_y()
         // A step joining or the label changing crossfades the words while the chevron slides over.
         .animate_layout()
-        .on_press(move |s: &mut App| {
+        .on_press_tx(move |s: &mut App, tx: &mut rune::Tx| {
+            tx.instant();
             if !s.expanded.remove(&k) {
                 s.expanded.insert(k.clone());
             }

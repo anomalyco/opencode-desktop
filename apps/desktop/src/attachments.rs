@@ -22,6 +22,9 @@ use crate::palette::Pal;
 /// The server's cap on one attachment.
 const MAX_BYTES: usize = 20 << 20;
 const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
+/// `attachment-card.css`: 11/14, with room for Inter's descenders where it truncates.
+const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
+const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
 
 pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"];
 
@@ -133,51 +136,69 @@ pub fn reconcile(echoes: &mut Vec<(String, String, String)>, t: &mut Transcript,
     });
 }
 
-/// The composer's attachment chips: thumbnail, name and a remove button.
+/// The composer's attachments (`editor.tsx`): an image is a 58×46 thumbnail, any other file a
+/// 160 px card with its name and type, and each shows a round remove button on hover.
 pub fn chips(s: &App, p: &Pal) -> Option<El> {
     if s.attach.files.is_empty() {
         return None;
     }
-    let mut r = row().key("attachments").w_full().px(12.0).pt(12.0).gap(8.0).flex_wrap();
-    for (i, f) in s.attach.files.iter().enumerate() {
-        let thumb = match s.attach.image(f) {
+    let mut r = row().key("attachments").w_full().px(8.0).pt(8.0).pb(4.0).gap(8.0).flex_wrap();
+    for f in &s.attach.files {
+        let id = identity(f);
+        let img = s.attach.image(f);
+        let w = if img.is_some() { 58.0 } else { 160.0 };
+        let body = match img {
             Some(img) => {
-                let thumb = el().key("thumb").size(32.0, 32.0).radius(4.0).fill(p.layer3).pixels_fit(img.pixels(), SurfaceFit::Fill);
-                opens(s, thumb, el().key("held").size(32.0, 32.0), format!("composer:{}", identity(f)), f, img)
+                let thumb = el()
+                    .key("thumb")
+                    .size(58.0, 46.0)
+                    .radius(6.0)
+                    .fill(p.layer2)
+                    .pixels_fit(img.pixels(), SurfaceFit::Fill)
+                    // A ring over the image, not in place of its edge.
+                    .child(el().key("thumb-ring").absolute(0.0, 0.0).size(58.0, 46.0).radius(6.0).border(0.5, p.border));
+                opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img)
             }
-            None => el().key("thumb").size(32.0, 32.0).radius(4.0).fill(p.layer3).center().child(icon(&ic::FOLDER, 14.0).color(p.icon_faint)),
+            None => col()
+                .key("card")
+                .w(160.0)
+                .padding(8.0)
+                .gap(6.0)
+                .radius(6.0)
+                .fill(p.hover)
+                .border(0.5, p.border)
+                .child(text(f.name.clone()).font(CARD_TITLE).color(p.text).truncate().w_full())
+                .child(text(type_label(f)).font(CARD_SUBTITLE).color(p.muted).truncate()),
         };
+        let gone = id.clone();
         let remove = el()
             .key("remove")
             .role("button")
             .label(format!("Remove {}", f.name))
-            .size(20.0, 20.0)
-            .radius(4.0)
+            // Desktop's `-top-1 -end-1`.
+            .absolute(w - 12.0, -4.0)
+            .size(16.0, 16.0)
+            .radius(8.0)
             .center()
-            .hover(p.hover)
-            .on_press(move |s: &mut App| {
-                if i < s.attach.files.len() {
-                    s.attach.files.remove(i);
-                }
+            .fill(p.icon_muted)
+            .outline(1.0, 0.0, p.icon_contrast)
+            .group_opacity(0.0, 1.0)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.attach.files.retain(|f| identity(f) != gone);
             })
-            .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted));
-        r = r.child(
-            row()
-                .key(format!("chip-{i}-{}", f.name))
-                .h(40.0)
-                .max_w(220.0)
-                .pl(4.0)
-                .pr(4.0)
-                .gap(6.0)
-                .center_y()
-                .radius(8.0)
-                .fill(p.layer2)
-                .child(thumb)
-                .child(text(f.name.clone()).font(SMALL).color(p.muted).truncate().shrink())
-                .child(remove),
-        );
+            .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
+        r = r.child(el().key(format!("chip-{id}")).hover_group().child(body).child(remove));
     }
     Some(r)
+}
+
+/// A file's type as the card's second line: its extension, upper-cased (Desktop's `typeLabel`).
+fn type_label(f: &Attachment) -> String {
+    match f.name.rsplit_once('.') {
+        Some((_, ext)) if !ext.is_empty() => ext.to_uppercase(),
+        _ => "File".into(),
+    }
 }
 
 /// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user.
@@ -400,7 +421,7 @@ mod tests {
         for _ in 0..40 {
             rt.frame(1.0 / 60.0);
         }
-        let chip = "chip-0-shot.png/thumb";
+        let chip = &format!("chip-{}/thumb", identity(&a));
         let thumb = rect(&rt, chip).unwrap();
         let (x, y) = rt.find(chip).unwrap();
         rt.pointer_down(x, y);
