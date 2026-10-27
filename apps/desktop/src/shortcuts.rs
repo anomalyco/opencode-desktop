@@ -1,0 +1,130 @@
+//! OpenCode Desktop's macOS keyboard defaults, as pure functions: which key is which action
+//! (`packages/app` `tab-strip.tsx`, `use-session-commands.tsx`, the View menu) and how tabs and
+//! zoom step.
+
+use rune::{Key, KeyEvent};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    /// Previous or next tab, wrapping.
+    Tab(i32),
+    /// Previous or next tab with an unread mark, wrapping.
+    UnreadTab(i32),
+    /// ⌘1 to ⌘8 pick that tab, ⌘9 the last.
+    TabAt(usize),
+    NewSession,
+    CloseTab,
+    ReopenTab,
+}
+
+pub fn action(ev: &KeyEvent) -> Option<Action> {
+    let m = ev.mods;
+    match &ev.key {
+        Key::Up | Key::Down if m.alt && !m.cmd && !m.ctrl => {
+            let offset = if ev.key == Key::Up { -1 } else { 1 };
+            Some(if m.shift { Action::UnreadTab(offset) } else { Action::Tab(offset) })
+        }
+        Key::Left | Key::Right if m.cmd && m.alt && !m.ctrl && !m.shift => Some(Action::Tab(if ev.key == Key::Left { -1 } else { 1 })),
+        Key::Tab if m.ctrl && !m.cmd && !m.alt => Some(Action::Tab(if m.shift { -1 } else { 1 })),
+        Key::Command(_) if m.alt || m.ctrl => None,
+        Key::Command('=' | '+') => Some(Action::ZoomIn),
+        Key::Command('-' | '_') => Some(Action::ZoomOut),
+        Key::Command('0') if !m.shift => Some(Action::ZoomReset),
+        Key::Command('t') if m.shift => Some(Action::ReopenTab),
+        Key::Command('t' | 'n') if !m.shift => Some(Action::NewSession),
+        Key::Command('w') if !m.shift => Some(Action::CloseTab),
+        Key::Command(c @ '1'..='9') if !m.shift => Some(Action::TabAt(*c as usize - '1' as usize)),
+        _ => None,
+    }
+}
+
+/// The nearest other tab in `offset`'s direction, wrapping, that `include` accepts
+/// (`adjacentTabKey`). Without a current tab, the first (forward) or last (backward) one.
+pub fn adjacent(order: &[&str], current: Option<&str>, offset: i32, include: impl Fn(&str) -> bool) -> Option<String> {
+    let n = order.len() as i32;
+    let Some(index) = current.and_then(|c| order.iter().position(|k| *k == c)) else {
+        let mut all: Vec<&str> = order.to_vec();
+        if offset < 0 {
+            all.reverse();
+        }
+        return all.into_iter().find(|k| include(k)).map(str::to_owned);
+    };
+    (1..n).map(|step| order[(index as i32 + offset * step).rem_euclid(n) as usize]).find(|k| include(k)).map(str::to_owned)
+}
+
+pub const ZOOM_MIN: f32 = 0.5;
+pub const ZOOM_MAX: f32 = 3.0;
+
+/// One 10% step, clamped to 50%–300%; `dir` 0 resets.
+pub fn step_zoom(zoom: f32, dir: i32) -> f32 {
+    if dir == 0 {
+        return 1.0;
+    }
+    let percent = (zoom * 100.0).round() as i32 + dir.signum() * 10;
+    (percent as f32 / 100.0).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rune::Mods;
+
+    fn ev(key: Key, f: impl FnOnce(&mut Mods)) -> KeyEvent {
+        let mut mods = Mods::default();
+        f(&mut mods);
+        KeyEvent { key, mods }
+    }
+
+    #[test]
+    fn maps_desktop_defaults() {
+        let alt = |m: &mut Mods| m.alt = true;
+        assert_eq!(action(&ev(Key::Up, alt)), Some(Action::Tab(-1)));
+        assert_eq!(action(&ev(Key::Down, alt)), Some(Action::Tab(1)));
+        assert_eq!(action(&ev(Key::Down, |m| (m.alt, m.shift) = (true, true))), Some(Action::UnreadTab(1)));
+        assert_eq!(action(&ev(Key::Up, |_| {})), None);
+        assert_eq!(action(&ev(Key::Left, alt)), None);
+        assert_eq!(action(&ev(Key::Right, |m| (m.cmd, m.alt) = (true, true))), Some(Action::Tab(1)));
+        assert_eq!(action(&ev(Key::Tab, |m| m.ctrl = true)), Some(Action::Tab(1)));
+        assert_eq!(action(&ev(Key::Tab, |m| (m.ctrl, m.shift) = (true, true))), Some(Action::Tab(-1)));
+        assert_eq!(action(&ev(Key::Tab, |_| {})), None);
+        let cmd = |m: &mut Mods| m.cmd = true;
+        assert_eq!(action(&ev(Key::Command('='), cmd)), Some(Action::ZoomIn));
+        assert_eq!(action(&ev(Key::Command('+'), |m| (m.cmd, m.shift) = (true, true))), Some(Action::ZoomIn));
+        assert_eq!(action(&ev(Key::Command('-'), cmd)), Some(Action::ZoomOut));
+        assert_eq!(action(&ev(Key::Command('0'), cmd)), Some(Action::ZoomReset));
+        assert_eq!(action(&ev(Key::Command('t'), cmd)), Some(Action::NewSession));
+        assert_eq!(action(&ev(Key::Command('t'), |m| (m.cmd, m.shift) = (true, true))), Some(Action::ReopenTab));
+        assert_eq!(action(&ev(Key::Command('w'), cmd)), Some(Action::CloseTab));
+        assert_eq!(action(&ev(Key::Command('3'), cmd)), Some(Action::TabAt(2)));
+        assert_eq!(action(&ev(Key::Command('a'), cmd)), None);
+    }
+
+    #[test]
+    fn adjacent_wraps_and_filters() {
+        let order = ["a", "b", "c"];
+        assert_eq!(adjacent(&order, Some("c"), 1, |_| true).as_deref(), Some("a"));
+        assert_eq!(adjacent(&order, Some("a"), -1, |_| true).as_deref(), Some("c"));
+        assert_eq!(adjacent(&order, Some("a"), 1, |k| k == "c").as_deref(), Some("c"));
+        assert_eq!(adjacent(&order, Some("a"), 1, |k| k == "a"), None);
+        assert_eq!(adjacent(&order, None, 1, |_| true).as_deref(), Some("a"));
+        assert_eq!(adjacent(&order, None, -1, |_| true).as_deref(), Some("c"));
+        assert_eq!(adjacent(&[], Some("a"), 1, |_| true), None);
+    }
+
+    #[test]
+    fn zoom_steps_and_clamps() {
+        assert_eq!(step_zoom(1.0, 1), 1.1);
+        assert_eq!(step_zoom(1.1, -1), 1.0);
+        assert_eq!(step_zoom(0.5, -1), 0.5);
+        assert_eq!(step_zoom(3.0, 1), 3.0);
+        assert_eq!(step_zoom(2.3, 0), 1.0);
+        let mut z = 1.0;
+        for _ in 0..30 {
+            z = step_zoom(z, 1);
+        }
+        assert_eq!(z, 3.0);
+    }
+}

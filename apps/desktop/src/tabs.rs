@@ -63,6 +63,25 @@ pub fn save(server: &str, tabs: &[Tab]) {
     }
 }
 
+/// The saved UI zoom (1.0 is 100%), kept in the same file under its own key.
+pub fn load_zoom() -> Option<f32> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
+    v["zoom"].as_f64().map(|z| z as f32)
+}
+
+pub fn save_zoom(zoom: f32) {
+    let Some(path) = file() else { return };
+    let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
+    v["zoom"] = json!(f64::from((zoom * 100.0).round()) / 100.0);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, v.to_string()).is_ok() {
+        let _ = std::fs::rename(tmp, path);
+    }
+}
+
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
 /// written window first. Read-only: `mode=ro` and `-readonly`.
 pub fn from_beta() -> Option<Vec<Tab>> {

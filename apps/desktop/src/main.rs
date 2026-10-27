@@ -4,6 +4,7 @@
 
 mod palette;
 mod pickers;
+mod shortcuts;
 mod tabs;
 mod view;
 
@@ -49,6 +50,12 @@ pub struct App {
     pub expanded: HashSet<String>,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
+    /// Tabs closed this run, newest last, with the index they had (⌘⇧T reopens).
+    closed: Vec<(usize, Tab)>,
+    /// UI zoom, 1.0 = 100% (see `view::app`).
+    pub zoom: f32,
+    /// The window's size in points at zoom 1, from the root's layout; zero before the first.
+    pub viewport: [f32; 2],
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
     /// Pending permission and form requests: (session, request id).
@@ -106,6 +113,9 @@ impl App {
             transcripts: HashMap::new(),
             expanded: HashSet::new(),
             tabs: Vec::new(),
+            closed: Vec::new(),
+            zoom: 1.0,
+            viewport: [0.0; 2],
             running: HashSet::new(),
             requests: HashSet::new(),
             pending: Vec::new(),
@@ -189,6 +199,9 @@ impl App {
         self.tabs = tabs::load(&server.base)
             .or_else(|| if server.base == DEFAULT_SERVER { tabs::from_beta() } else { None })
             .unwrap_or_else(|| self.recent_tabs());
+        if let Some(z) = tabs::load_zoom() {
+            self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
+        }
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         self.status = format!("Live · {}", server.base.trim_start_matches("http://"));
@@ -261,7 +274,8 @@ impl App {
 
     pub fn close_tab(&mut self, id: &str, tx: &mut Tx) {
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
-        self.tabs.remove(i);
+        let tab = self.tabs.remove(i);
+        self.closed.push((i, tab));
         if self.route == Route::Session(id.to_owned()) {
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {
                 Some(next) => self.open(&next, tx),
@@ -272,6 +286,69 @@ impl App {
             }
         }
         self.save_tabs();
+    }
+
+    /// The tab the open page belongs to, if any.
+    fn current_tab(&self) -> Option<String> {
+        let Route::Session(id) = &self.route else { return None };
+        let root = self.root_of(id);
+        self.tabs.iter().any(|t| t.id == root).then(|| root.to_owned())
+    }
+
+    fn select_adjacent(&mut self, offset: i32, unread_only: bool, tx: &mut Tx) {
+        let order: Vec<&str> = self.tabs.iter().map(|t| t.id.as_str()).collect();
+        let current = self.current_tab();
+        let next = shortcuts::adjacent(&order, current.as_deref(), offset, |k| {
+            !unread_only || (Some(k) != current.as_deref() && self.tab_status(k) == Some(TabStatus::Unread))
+        });
+        if let Some(id) = next {
+            self.open(&id, tx);
+        }
+    }
+
+    fn set_zoom(&mut self, dir: i32) {
+        self.zoom = shortcuts::step_zoom(self.zoom, dir);
+        if self.live() {
+            tabs::save_zoom(self.zoom);
+        }
+    }
+
+    /// OpenCode Desktop's key defaults; true when `ev` was one.
+    pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        use shortcuts::Action;
+        let Some(action) = shortcuts::action(ev) else { return false };
+        match action {
+            Action::ZoomIn => self.set_zoom(1),
+            Action::ZoomOut => self.set_zoom(-1),
+            Action::ZoomReset => self.set_zoom(0),
+            Action::Tab(offset) => self.select_adjacent(offset, false, tx),
+            Action::UnreadTab(offset) => self.select_adjacent(offset, true, tx),
+            Action::TabAt(i) => {
+                let id = if i == 8 { self.tabs.last() } else { self.tabs.get(i) }.map(|t| t.id.clone());
+                if let Some(id) = id {
+                    self.open(&id, tx);
+                }
+            }
+            Action::NewSession => self.new_session(tx),
+            Action::CloseTab => {
+                if let Some(id) = self.current_tab() {
+                    self.close_tab(&id, tx);
+                }
+            }
+            Action::ReopenTab => {
+                while let Some((i, tab)) = self.closed.pop() {
+                    if self.tabs.iter().any(|t| t.id == tab.id) {
+                        continue;
+                    }
+                    let id = tab.id.clone();
+                    self.tabs.insert(i.min(self.tabs.len()), tab);
+                    self.open(&id, tx);
+                    self.save_tabs();
+                    break;
+                }
+            }
+        }
+        true
     }
 
     pub fn live(&self) -> bool {
@@ -725,7 +802,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.picker_key(ev) { return true; }
+    if s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();
@@ -738,10 +815,6 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Command('b') => {
             s.route = if s.route == Route::Home { s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone())) } else { Route::Home };
             tx.settle();
-            true
-        }
-        Key::Command('n') | Key::Command('t') => {
-            s.new_session(tx);
             true
         }
         Key::Escape if s.composer.focused && matches!(&s.route, Route::Session(id) if s.busy(id)) => {

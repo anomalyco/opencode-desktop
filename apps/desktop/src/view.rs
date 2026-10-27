@@ -32,7 +32,18 @@ const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 /// `--container-session`: 744 including 24 px padding on each side.
 const CONTENT_W: f32 = 696.0;
 
+/// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
+/// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
+    let body = shell(s, cx);
+    let [w, h] = s.viewport;
+    if (s.zoom - 1.0).abs() < 0.005 || w <= 0.0 || h <= 0.0 {
+        return body;
+    }
+    el().key("zoom").w_full().h_full().center().child(el().w(w / s.zoom).h(h / s.zoom).scale(s.zoom).child(body))
+}
+
+fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(cx.system_dark());
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
@@ -40,6 +51,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let mut root = row()
         .key("window")
         .role("window")
+        .on_layout(|s: &mut App, r| s.viewport = [r[2] * s.zoom, r[3] * s.zoom])
         .fill(p.bg_deep)
         .w_full()
         .h_full()
@@ -542,7 +554,8 @@ fn home(s: &App, p: &Pal) -> El {
                 .h(20.0)
                 .placeholder("Search sessions", p.faint)
                 .caret(p.text, p.selection)
-                .on_edit(|s: &mut App| &mut s.search),
+                .on_edit(|s: &mut App| &mut s.search)
+                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx)),
         );
 
     col()
@@ -1096,6 +1109,7 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
                             .placeholder(if f.options.is_empty() { "Your answer" } else { "Or type your own answer" }, p.faint)
                             .caret(p.text, p.selection)
                             .on_edit(move |s: &mut App| s.typed_mut(&rid2, &key2))
+                            .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx))
                             .on_submit(move |s: &mut App, _: &mut Tx| s.submit_form(&rid3)),
                     );
                 }
@@ -1177,7 +1191,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .placeholder("Ask anything… \"Fix a TODO in the codebase\"", p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
-                    .on_input_key(|s: &mut App, ev, _| s.picker_key(ev))
+                    .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
             ),
         )
@@ -1229,7 +1243,7 @@ fn picker(s: &App, p: &Pal) -> El {
             .child(text_input(&s.pickers.search, UI).key("picker-search").grow(1.0).shrink().h(28.0).animate_edit_layout()
                 .placeholder("Search models", p.faint).caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.pickers.search)
-                .on_input_key(|s: &mut App, ev, _| s.picker_key(ev))))
+                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))))
             .child(el().h(0.5).w_full().fill(p.border_muted));
     }
     let mut list = col().key("picker-options").w_full();
