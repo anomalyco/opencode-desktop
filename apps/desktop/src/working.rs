@@ -60,13 +60,15 @@ impl Working {
 pub fn sync(s: &mut App) -> bool {
     let App { working, transcripts, running, clock, .. } = s;
     let live = |id: &str| running.contains(id) || transcripts.get(id).is_some_and(|t| t.busy());
+    let runs = working.since.len();
     working.since.retain(|id, _| live(id));
+    let mut changed = working.since.len() != runs;
     for id in transcripts.keys().chain(running.iter()) {
         if !working.since.contains_key(id) && live(id) {
             working.since.insert(id.clone(), *clock);
+            changed = true;
         }
     }
-    let mut changed = false;
     if let Some((old, at)) = s.working.relabeled {
         let since = match &s.route {
             crate::Route::Session(id) => s.working.since.get(id).copied(),
