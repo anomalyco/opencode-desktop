@@ -1954,6 +1954,7 @@ mod tests {
     /// its glow's opacity, if it has one this frame.
     struct Bubble {
         rect: [f32; 4],
+        text: [f32; 4],
         visible_h: f32,
         text_h: f32,
         glow: Option<f32>,
@@ -1966,7 +1967,7 @@ mod tests {
         let fill = els.iter().filter(inside).find(|e| e.key.as_deref() == Some("bubble"))?;
         let text = els.iter().filter(inside).find(|e| e.key.as_deref() == Some(&format!("text-{id}")))?;
         let glow = els.iter().filter(inside).find(|e| e.key.as_deref() == Some("glow")).map(|e| e.opacity);
-        Some(Bubble { rect: fill.rect, visible_h: fill.visible[3], text_h: text.visible[3], glow })
+        Some(Bubble { rect: fill.rect, text: text.rect, visible_h: fill.visible[3], text_h: text.visible[3], glow })
     }
 
     fn deliver(rt: &mut Runtime<App>, messages: Vec<Message>) {
@@ -1999,11 +2000,13 @@ mod tests {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
+        let typed = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("prompt")).unwrap().rect;
         match via {
             Via::Enter => rt.key(KeyEvent { key: Key::Enter, mods: Default::default() }),
             Via::Click => tap(&mut rt, "submit"),
         }
         let id = "msg_zzzzsent0001";
+        let mut texts = Vec::new();
         let working = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("working")).map(|e| e.rect[1]);
         let (mut ys, mut work, mut worst) = (Vec::new(), Vec::new(), 0.0f64);
         let mut t = 0.0;
@@ -2018,22 +2021,51 @@ mod tests {
             }
             assert!(rt.state.composer.text.is_empty(), "{via:?}: the composer clears");
             let b = bubble(&rt, id).unwrap_or_else(|| panic!("{via:?} frame {f}: the message has a bubble"));
-            assert!(b.text_h <= 0.0 || b.visible_h > 0.0, "{via:?} frame {f}: text shows without its bubble");
+            assert!(b.text_h <= 0.0 || b.visible_h > 0.0, "{via:?} frame {f}: text shows without its bubble: {:?} {} {}", b.rect, b.visible_h, b.text_h);
             assert!(b.glow.is_none(), "{via:?} frame {f}: this app's own send doesn't glow");
             let rows: Vec<String> = rt.elements().into_iter().filter(|e| !e.exiting).filter_map(|e| e.key).filter(|k| k.starts_with("u-")).collect();
             assert_eq!(rows.iter().filter(|k| *k == &format!("u-{id}")).count(), 1, "frame {f}: one row, same key");
             assert!(rows.iter().collect::<std::collections::HashSet<_>>().len() == rows.len(), "frame {f}: duplicate row keys {rows:?}");
             ys.push((t, b.rect[1]));
+            texts.push(b.text);
             work.extend(working(&rt).map(|y| (t, y)));
         }
         eprintln!("{via:?}: bubble y per frame {:?}", ys.iter().map(|p| (p.1 * 10.0).round() / 10.0).collect::<Vec<_>>());
         eprintln!("{via:?}: slowest frame {:.1} ms", worst * 1000.0);
-        assert!(ys[0].1 > ys[ys.len() - 1].1 + 40.0, "{via:?}: it rises into place: {ys:?}");
-        // One smooth rise: never back down, and no faster than ~700 pt/s in any frame (a snap
-        // of the whole 70 pt height would be one frame).
+        eprintln!("{via:?}: typed at {typed:?}, text per frame {:?}", texts.iter().map(|r| r.map(|v| (v * 10.0).round() / 10.0)).collect::<Vec<_>>());
+        // It leaves from the composer: its words start where they were typed, at full size.
+        // The first frame is a frame into the flight: a few points at 120 Hz.
+        let (first, last) = (texts[0], texts[texts.len() - 1]);
+        let near = if dts[0] < 0.01 { 5.0 } else { 15.0 };
+        assert!((first[0] - typed[0]).abs() < near && (first[1] - typed[1]).abs() < near,
+            "{via:?}: the first frame's words sit on the typed ones: {first:?} vs {typed:?}");
+        for (f, r) in texts.iter().enumerate() {
+            assert!((r[2] - last[2]).abs() < 0.5 && (r[3] - last[3]).abs() < 0.5, "{via:?} frame {f}: the words keep their size: {r:?} vs {last:?}");
+        }
+        // Then it flies up over several frames, not in one.
+        let land = ys.iter().position(|y| (y.1 - ys[ys.len() - 1].1).abs() < 0.5).unwrap();
+        assert!(ys[land].0 > 0.25 && ys[land].0 < 0.7, "{via:?}: lands in {:.2} s: {ys:?}", ys[land].0);
+        let rise = ys[0].1 - ys[ys.len() - 1].1;
+        assert!(rise > 40.0, "{via:?}: it rises into place: {ys:?}");
+        // One smooth flight: never back, and never a tenth of the way in a 1/120 s frame (a
+        // snap would be all of it in one frame).
         for w in ys.windows(2) {
             let speed = (w[0].1 - w[1].1) / (w[1].0 - w[0].0) as f32;
-            assert!(w[1].1 <= w[0].1 + 0.01 && speed < 700.0, "{via:?}: bubble y {ys:?}");
+            assert!(w[1].1 <= w[0].1 + 0.01 && speed < rise * 12.0, "{via:?}: bubble y {ys:?}");
+        }
+        // It slows into its slot: past its fastest frame, no step outgrows the one before (a
+        // flight that ends short snaps the rest in one frame).
+        for axis in 0..2 {
+            let speeds: Vec<f32> = texts.windows(2).zip(ys.windows(2)).map(|(w, t)| (w[1][axis] - w[0][axis]).abs() / (t[1].0 - t[0].0) as f32).collect();
+            let peak = (0..speeds.len()).max_by(|&a, &b| speeds[a].total_cmp(&speeds[b])).unwrap();
+            for k in peak + 1..speeds.len() {
+                assert!(speeds[k] <= speeds[k - 1] * 1.5 + 30.0, "{via:?}: text {axis} snaps at frame {k}: {texts:?}");
+            }
+        }
+        let across = last[0] - first[0];
+        for (w, t) in texts.windows(2).zip(ys.windows(2)) {
+            let speed = (w[1][0] - w[0][0]) / (t[1].0 - t[0].0) as f32;
+            assert!(w[1][0] >= w[0][0] - 0.01 && speed < across.abs().max(40.0) * 12.0, "{via:?}: text x {texts:?}");
         }
         assert!(work.len() == ys.len(), "{via:?}: Working shows below it throughout");
         for w in work.windows(2) {

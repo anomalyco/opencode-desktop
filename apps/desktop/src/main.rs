@@ -633,7 +633,9 @@ impl App {
         if let Route::Session(id) = self.route.clone()
             && self.busy(&id)
         {
+            let local = prompt.id.clone().unwrap_or_default();
             self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
+            tx.launch("prompt", if alternate { format!("queued-{local}") } else { format!("u-{local}/bubble") });
             return;
         }
         let id = match self.route.clone() {
@@ -683,6 +685,8 @@ impl App {
             }
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
+        // It rises out of the composer, its words where they were typed.
+        tx.launch("prompt", format!("u-{local}/bubble"));
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         t.messages.push(Message::User { id: local, text: wire.display });
         self.composer.clear();
