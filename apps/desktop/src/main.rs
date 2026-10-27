@@ -54,8 +54,6 @@ pub struct App {
     closed: Vec<(usize, Tab)>,
     /// UI zoom, 1.0 = 100% (see `view::app`).
     pub zoom: f32,
-    /// The window's size in points at zoom 1, from the root's layout; zero before the first.
-    pub viewport: [f32; 2],
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
     /// Pending permission and form requests: (session, request id).
@@ -115,7 +113,6 @@ impl App {
             tabs: Vec::new(),
             closed: Vec::new(),
             zoom: 1.0,
-            viewport: [0.0; 2],
             running: HashSet::new(),
             requests: HashSet::new(),
             pending: Vec::new(),
@@ -280,6 +277,7 @@ impl App {
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {
                 Some(next) => self.open(&next, tx),
                 None => {
+                    self.close_picker(false);
                     self.route = Route::Home;
                     tx.settle();
                 }
@@ -598,6 +596,7 @@ impl App {
     }
 
     pub fn new_session(&mut self, tx: &mut Tx) {
+        self.close_picker(false);
         if let Route::Session(id) = &self.route
             && let Some(dir) = self.session(id).map(|s| s.directory.clone()).filter(|d| !d.is_empty())
         {

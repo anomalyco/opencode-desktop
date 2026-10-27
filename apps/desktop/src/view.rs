@@ -33,14 +33,24 @@ const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const CONTENT_W: f32 = 696.0;
 
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
-/// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn.
+/// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The
+/// outer, unscaled element is always mounted (it reports the window's size and keeps every
+/// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
-    let body = shell(s, cx);
-    let [w, h] = s.viewport;
-    if (s.zoom - 1.0).abs() < 0.005 || w <= 0.0 || h <= 0.0 {
-        return body;
+    let p = pal(cx.system_dark());
+    let mut inner = shell(s, cx);
+    if s.pickers.open.is_some() {
+        inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
+            .on_press(|s: &mut App| s.close_picker(false)))
+            .child(picker(s, p));
     }
-    el().key("zoom").w_full().h_full().center().child(el().w(w / s.zoom).h(h / s.zoom).scale(s.zoom).child(body))
+    let (w, h) = cx.layout("zoom").map_or((0.0, 0.0), |r| (r[2], r[3]));
+    let sized = if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() };
+    el().key("zoom")
+        .w_full()
+        .h_full()
+        .center()
+        .child(sized.key("zoomed").scale(s.zoom).child(inner))
 }
 
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
@@ -51,7 +61,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let mut root = row()
         .key("window")
         .role("window")
-        .on_layout(|s: &mut App, r| s.viewport = [r[2] * s.zoom, r[3] * s.zoom])
         .fill(p.bg_deep)
         .w_full()
         .h_full()
@@ -83,11 +92,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         root = root.child(resize_handle(s, p, w));
     }
     root = root.child(sidebar_toggle(p, open, w));
-    if s.pickers.open.is_some() {
-        root = root.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
-            .on_press(|s: &mut App| s.close_picker(false)))
-            .child(picker(s, p));
-    }
     root
 }
 
@@ -343,7 +347,7 @@ fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
                 Phase::Down => s.sidebar_drag = Some(s.sidebar_w),
                 Phase::Move => {
                     let from = s.sidebar_drag.unwrap_or(s.sidebar_w);
-                    s.sidebar_w = (from + d.dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    s.sidebar_w = (from + d.dx / s.zoom).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
                 }
                 Phase::Up => {
                     if d.cancelled() && let Some(w) = s.sidebar_drag { s.sidebar_w = w; }

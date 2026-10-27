@@ -47,7 +47,27 @@ fn parse(list: &Value) -> Vec<Tab> {
 /// This example's saved list for `server`, if you've changed tabs here before.
 pub fn load(server: &str) -> Option<Vec<Tab>> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
+    saved(&v, server)
+}
+
+/// `server`'s list in the file's JSON; none when only other keys (such as `zoom`) are there.
+fn saved(v: &Value, server: &str) -> Option<Vec<Tab>> {
+    v.get(server)?.as_array()?;
     Some(parse(&v[server]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_with_only_zoom_has_no_saved_tabs() {
+        let v = json!({ "zoom": 1.2 });
+        assert_eq!(saved(&v, "http://x"), None);
+        let v = json!({ "zoom": 1.2, "http://x": [{ "id": "a", "title": "A", "directory": "/d" }] });
+        assert_eq!(saved(&v, "http://x").map(|t| t.len()), Some(1));
+        assert_eq!(saved(&json!({ "http://x": [] }), "http://x"), Some(vec![]));
+    }
 }
 
 pub fn save(server: &str, tabs: &[Tab]) {
