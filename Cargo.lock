@@ -2620,6 +2620,7 @@ dependencies = [
  "opencode-kit",
  "rune",
  "rune-theme-opencode",
+ "serde_json",
 ]
 
 [[package]]
