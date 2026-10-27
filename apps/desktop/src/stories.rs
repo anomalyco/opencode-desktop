@@ -93,6 +93,11 @@ const STEER_KEYS: &[Action<App>] = &[
     Action { cap: "Q", label: "Queue one", run: |s, tx| prompt(s, QUEUED_TEXT, true, tx) },
     Action { cap: "F", label: "Finish the turn", run: finish },
 ];
+const QUEUE_KEYS: &[Action<App>] = &[
+    REPLAY,
+    Action { cap: "Q", label: "Queue one", run: queue },
+    Action { cap: "D", label: "Deliver the oldest", run: deliver_queued },
+];
 const SUBAGENT_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "S", label: "Start the subagent", run: start_child }, Action { cap: "F", label: "Finish it", run: finish_child }];
 const IMAGE_KEYS: &[Action<App>] = &[
     REPLAY,
@@ -107,6 +112,7 @@ const JUMP_KEYS: &[Action<App>] = &[
 
 pub static STORIES: &[Story] = &[
     Story { group: "Composer", name: "Composer", knobs: COMPOSER_KNOBS, keys: &[], open: composer_open, view: composer_view },
+    Story { group: "Composer", name: "Queue dock", knobs: ROW_KNOBS, keys: QUEUE_KEYS, open: queue_open, view: session_view },
     Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
     Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
@@ -520,6 +526,29 @@ fn deliver(s: &mut App, tx: &mut Tx) {
     emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
 }
 
+/// Two prompts queued while the session works open the dock out of the composer's top edge;
+/// delivered one by one, they leave it and it closes back behind the composer.
+fn queue_open(s: &mut App, tx: &mut Tx) {
+    s.finish_stream();
+    let id = sid(s);
+    s.running.insert(id);
+    s.play.after(0.4, queue, tx);
+    s.play.after(1.2, queue, tx);
+    s.play.after(2.4, deliver_queued, tx);
+    s.play.after(3.2, deliver_queued, tx);
+}
+
+fn queue(s: &mut App, tx: &mut Tx) {
+    let queued = s.inbox_for(&sid(s)).map_or(0, |i| i.queued().count());
+    prompt(s, [QUEUED_TEXT, STEER_AGAIN][queued % 2], true, tx);
+}
+
+/// The server delivers the oldest queued prompt.
+fn deliver_queued(s: &mut App, tx: &mut Tx) {
+    let Some(id) = s.inbox_for(&sid(s)).and_then(|i| i.queued().next()).map(|i| i.id.clone()) else { return };
+    emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
+}
+
 /// The review subagent runs, with the capsule over the composer, and finishes.
 fn subagent_open(s: &mut App, tx: &mut Tx) {
     s.finish_stream();
@@ -674,6 +703,31 @@ mod tests {
         assert!(matches!(rt.state.source, Source::Live { .. }));
         assert_eq!(rt.state.composer.text, "a real draft");
         assert!(writes.try_recv().is_err(), "nothing reached the server");
+    }
+
+    /// The queue dock story fills the dock from the composer and empties it into the timeline.
+    #[test]
+    fn the_queue_dock_story_fills_and_empties_the_dock() {
+        let (mut rt, _) = real();
+        book(&mut rt);
+        open(&mut rt.state, story("Queue dock"), &mut rune::Tx::default());
+        let id = super::sid(&rt.state);
+        let queued = |rt: &Runtime<App>| rt.state.inbox_for(&id).map_or(0, |i| i.queued().count());
+        let dock = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("queue")).map_or(0.0, |e| e.rect[3]);
+        run(&mut rt, 2.0);
+        assert_eq!(queued(&rt), 2, "two prompts wait in the dock");
+        assert!(dock(&rt) > 40.0, "the dock is open");
+        run(&mut rt, 2.5);
+        assert_eq!(queued(&rt), 0, "both delivered");
+        assert_eq!(dock(&rt), 0.0, "the dock closed behind the composer");
+        let last = rt.state.transcripts[&id].messages.last().unwrap();
+        assert!(matches!(last, opencode_kit::model::Message::User { text, .. } if text == super::STEER_AGAIN));
+        letter(&mut rt, "q");
+        run(&mut rt, 0.1);
+        assert_eq!(queued(&rt), 1, "Q queues another");
+        letter(&mut rt, "d");
+        run(&mut rt, 0.1);
+        assert_eq!(queued(&rt), 0, "D delivers it");
     }
 
     /// R plays a story from the start the same way every time: the glow lands at the same

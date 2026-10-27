@@ -1314,6 +1314,7 @@ fn main() {
             ("story-tools", |s| stories::scene(s, "Tool rows")),
             ("story-working", |s| stories::scene(s, "Working")),
             ("story-steer", |s| stories::scene(s, "Steer and Pending")),
+            ("story-queue", |s| stories::scene(s, "Queue dock")),
             ("story-subagent", |s| stories::scene(s, "Subagent")),
             ("story-images", |s| stories::scene(s, "Images")),
             ("story-jump", |s| stories::scene(s, "Jump to latest")),
