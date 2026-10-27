@@ -49,10 +49,63 @@ pub struct Attach {
     waker: Option<Waker>,
     cache: RefCell<Option<ImageCache>>,
     /// Decoded handles by the bytes' address, so a view doesn't re-hash megabytes each frame.
-    images: RefCell<HashMap<(usize, usize), (Arc<[u8]>, Image)>>,
+    images: RefCell<HashMap<(usize, usize), PreparedImage>>,
     /// `media:<hash>` refs: fetched once, decoded once, by hash.
     media: Media,
     refs: RefCell<HashMap<String, Image>>,
+}
+
+/// Header dimensions are available before decode; the same handle crosses from prefetch to view.
+#[derive(Clone)]
+pub(crate) struct PreparedImage {
+    bytes: Arc<[u8]>,
+    image: Image,
+    size: Option<[u32; 2]>,
+}
+
+fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
+    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
+    (w > 0 && h > 0).then_some([w, h])
+}
+
+impl PreparedImage {
+    fn new(cache: &ImageCache, bytes: Arc<[u8]>) -> Self {
+        Self { size: dimensions(&bytes), image: cache.load(bytes.clone()), bytes }
+    }
+
+    pub fn weight(&self) -> usize {
+        // RGBA plus the mip chain; encoded bytes are counted by the page cache.
+        self.size.map_or(0, |[w, h]| w as usize * h as usize * 16 / 3)
+    }
+
+    #[cfg(test)]
+    pub fn wait(&self) { self.image.wait().unwrap(); }
+}
+
+/// Called only on the page worker. Newest attachments first, at most eight megapixels per
+/// page; older history stays demand-loaded. The page cache also counts decoded pixel weight.
+pub(crate) fn prepare_images(messages: &[Message], cache: &ImageCache) -> Vec<PreparedImage> {
+    use opencode_kit::model::{Part, user_files};
+    let mut prepared = Vec::new();
+    let mut pixels = 0u64;
+    let mut add = |f: &Attachment| {
+        if !decodable(&f.mime) || f.media.is_some() { return; }
+        let Some([w, h]) = dimensions(&f.bytes) else { return };
+        let count = u64::from(w) * u64::from(h);
+        if pixels + count > 8_000_000 || prepared.len() >= 8 { return; }
+        pixels += count;
+        prepared.push(PreparedImage::new(cache, f.bytes.clone()));
+    };
+    for m in messages.iter().rev() {
+        match m {
+            Message::User { id, .. } => { for f in user_files(id).iter().rev() { add(f); } }
+            Message::Assistant(a) => for p in a.parts.iter().rev() {
+                if let Part::Tool { files, .. } = p { for f in files.iter().rev() { add(f); } }
+            },
+            _ => {}
+        }
+    }
+    prepared
 }
 
 /// Reads a `media:` ref's bytes (`Server::media` live; a stub in tests).
@@ -154,7 +207,22 @@ impl Default for Attach {
 impl Attach {
     #[cfg(test)]
     pub(crate) fn image_handles(&self) -> Vec<Image> {
-        self.images.borrow().values().map(|(_, image)| image.clone()).chain(self.refs.borrow().values().cloned()).collect()
+        self.images.borrow().values().map(|p| p.image.clone()).chain(self.refs.borrow().values().cloned()).collect()
+    }
+
+    pub(crate) fn adopt(&self, prepared: &[PreparedImage]) {
+        let mut images = self.images.borrow_mut();
+        // A refreshed page has new byte addresses. Release handles once neither a page nor
+        // the transcript owns their source; repeated opens must not retain every old copy.
+        images.retain(|_, p| Arc::strong_count(&p.bytes) > 1);
+        for p in prepared { images.insert((p.bytes.as_ptr() as usize, p.bytes.len()), p.clone()); }
+    }
+
+    fn thumbnail_size(&self, f: &Attachment) -> (f32, f32) {
+        // Refs carry no dimensions: keep their reserved box after the fetch as well.
+        if f.media.is_some() { return (160.0, 120.0); }
+        self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size)
+            .map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
     }
 
     /// Something to send besides text.
@@ -194,11 +262,11 @@ impl Attach {
             return Some(img);
         }
         let key = (a.bytes.as_ptr() as usize, a.bytes.len());
-        if let Some((_, img)) = self.images.borrow().get(&key) {
-            return Some(img.clone());
+        if let Some(p) = self.images.borrow().get(&key) {
+            return Some(p.image.clone());
         }
         let img = self.load(a.bytes.clone());
-        self.images.borrow_mut().insert(key, (a.bytes.clone(), img.clone()));
+        self.images.borrow_mut().insert(key, PreparedImage { bytes: a.bytes.clone(), image: img.clone(), size: dimensions(&a.bytes) });
         Some(img)
     }
 
@@ -575,10 +643,10 @@ pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> 
         let k = format!("img-{i}");
         r = r.child(match s.attach.image(f) {
             Some(img) => {
-                let (w, h) = img.size().map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0));
+                let (w, h) = s.attach.thumbnail_size(f);
                 let held = el().key(format!("{k}-held")).size(w, h);
                 let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
-                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fill), held, format!("{key}:{}", identity(f)), f, img)
+                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fit), held, format!("{key}:{}", identity(f)), f, img)
             }
             None if s.attach.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
             None => {
@@ -1001,7 +1069,7 @@ mod tests {
             rt.frame(1.0 / 60.0);
         }
         assert!(rect(&rt, "img-0-loading").is_none());
-        assert_eq!(rect(&rt, "/img-0").map(|r| [r[2], r[3]]), Some([200.0, 100.0]));
+        assert_eq!(rect(&rt, "/img-0").map(|r| [r[2], r[3]]), Some([160.0, 120.0]), "a ref keeps its reserved box");
         opencode_kit::model::set_user_files(GALLERY, Vec::new());
     }
 
@@ -1040,6 +1108,29 @@ mod tests {
     fn fits_in_the_box() {
         assert_eq!(fit(1280.0, 800.0, 320.0, 240.0), (320.0, 200.0));
         assert_eq!(fit(100.0, 50.0, 320.0, 240.0), (100.0, 50.0));
+    }
+
+    #[test]
+    fn prefetched_pixels_and_header_dimensions_survive_the_first_paint() {
+        use opencode_kit::model::{Assistant, Part, ToolStatus};
+        let f = Attachment { mime: "image/png".into(), name: "wide.png".into(), bytes: png(800, 200).into(), media: None };
+        let messages = vec![Message::Assistant(Assistant { parts: vec![Part::Tool {
+            id: "shot".into(), name: "read".into(), title: "image".into(), status: ToolStatus::Completed,
+            input: serde_json::Value::Null, metadata: serde_json::Value::Null, files: vec![f.clone()],
+        }], ..Default::default() })];
+        let (wake, woke) = channel();
+        let cache = ImageCache::new(Arc::new(move || { let _ = wake.send(()); }));
+        let prepared = std::thread::spawn(move || prepare_images(&messages, &cache)).join().unwrap();
+        assert_eq!(prepared.len(), 1);
+        let attach = Attach::default();
+        attach.adopt(&prepared);
+        let before = attach.thumbnail_size(&f);
+        assert_eq!(before, (320.0, 80.0));
+        prepared[0].wait();
+        woke.recv_timeout(std::time::Duration::from_secs(5)).expect("prefetched decode wakes without input");
+        assert_eq!(attach.image(&f).unwrap().id(), prepared[0].image.id());
+        assert!(attach.image(&f).unwrap().is_ready(), "the click adopts ready pixels rather than starting another decode");
+        assert_eq!(attach.thumbnail_size(&f), before, "no size change when pixels land");
     }
 
     #[test]

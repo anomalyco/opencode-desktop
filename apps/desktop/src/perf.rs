@@ -266,6 +266,7 @@ fn latest_page_benchmark() {
             let mut app = App::empty();
             app.route = Route::Session(id.into());
             app.zoom = 1.3;
+            app.attach.adopt(&page.images);
             app.transcripts.insert(id.into(), Transcript { session: id.into(), messages: page.messages.clone() });
             let frame = Instant::now();
             let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
@@ -286,5 +287,48 @@ fn latest_page_benchmark() {
         }
         report(&format!("{name}_latest_cold_ms"), &mut cold);
         report(&format!("{name}_prefetched_click_ms"), &mut warm);
+    }
+}
+
+#[test]
+#[ignore = "private captured pages; --release COLD_SESSION_DIR"]
+fn prefetched_image_benchmark() {
+    use std::{sync::Arc, time::Instant};
+    let dir = std::env::var("COLD_SESSION_DIR").unwrap();
+    assert!(!cfg!(debug_assertions));
+    let cases: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/cases.json")).unwrap()).unwrap();
+    for case in cases.as_array().unwrap() {
+        let (name, id) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+        let mut value: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/{name}.json")).unwrap()).unwrap();
+        // Captures are newest-first 80-message pages. Production only prepares the latest 12;
+        // older history remains demand-loaded, and deliberately exceeds the predecode budget.
+        value["data"].as_array_mut().unwrap().truncate(crate::session_pages::LATEST);
+        let mut clicks = vec![];
+        let mut preparation = vec![];
+        for n in 0..8 {
+            let mut app = App::empty();
+            app.zoom = 1.3;
+            app.route = Route::Session(id.into());
+            let messages = opencode_kit::model::parse_messages(&value);
+            let source = messages.clone();
+            let start = Instant::now();
+            let images = std::thread::spawn(move || {
+                let cache = rune::ImageCache::new(Arc::new(|| {}));
+                let images = crate::attachments::prepare_images(&source, &cache);
+                for image in &images { image.wait(); }
+                images
+            }).join().unwrap();
+            if n > 0 { preparation.push(start.elapsed().as_secs_f64() * 1000.0); }
+            let start = Instant::now();
+            app.attach.adopt(&images);
+            app.transcripts.insert(id.into(), Transcript { session: id.into(), messages });
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            rt.frame(0.0);
+            let mounted = rt.state.attach.image_handles();
+            assert!(mounted.iter().all(|img| img.is_ready()), "{name}: every requested image must have pixels on first paint");
+            if n > 0 { clicks.push(start.elapsed().as_secs_f64() * 1000.0); }
+        }
+        report(&format!("{name}_image_preparation_ms"), &mut preparation);
+        report(&format!("{name}_prefetched_images_click_ms"), &mut clicks);
     }
 }

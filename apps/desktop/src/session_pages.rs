@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 pub const LATEST: usize = 12;
 const ENTRIES: usize = 12;
 const DISK_BYTES: u64 = 32 << 20;
+const MEMORY_BYTES: usize = 64 << 20;
 const PAGE_BYTES: usize = 4 << 20;
 pub const WARM: usize = 6;
 
@@ -25,6 +26,7 @@ pub struct Page {
     pub cursor: Option<String>,
     pub cached: bool,
     pub history: bool,
+    pub images: Vec<super::attachments::PreparedImage>,
     bytes: usize,
 }
 
@@ -110,6 +112,7 @@ impl Pages {
 }
 
 fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
+    let images = rune::ImageCache::new(wake.clone());
     loop {
         let job = {
             let mut state = q.0.lock().unwrap();
@@ -125,17 +128,20 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             }
         };
         let publish = |value: &Value, cached| {
+            let messages = model::parse_messages(value);
+            let prepared = if job.cursor.is_none() { super::attachments::prepare_images(&messages, &images) } else { vec![] };
             let page = Arc::new(Page {
-                key: job.key.clone(), messages: model::parse_messages(value),
+                key: job.key.clone(), messages,
                 cursor: value["cursor"]["next"].as_str().map(str::to_owned), cached, history: job.cursor.is_some(),
-                bytes: serde_json::to_vec(value).map_or(0, |v| v.len()),
+                bytes: serde_json::to_vec(value).map_or(0, |v| v.len()) + prepared.iter().map(|p| p.weight()).sum::<usize>(),
+                images: prepared,
             });
             if !page.history {
                 let mut state = q.0.lock().unwrap();
                 if state.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated) {
                     state.ready.retain(|p| p.key.id != page.key.id);
                     state.ready.push_back(page.clone());
-                    while state.ready.len() > ENTRIES || state.ready.iter().map(|p| p.bytes).sum::<usize>() > DISK_BYTES as usize {
+                    while state.ready.len() > ENTRIES || state.ready.iter().map(|p| p.bytes).sum::<usize>() > MEMORY_BYTES {
                         state.ready.pop_front();
                     }
                 }
@@ -240,6 +246,7 @@ impl super::App {
     }
 
     fn show_page(&mut self, page: &Page, tx: &mut rune::Tx) {
+        self.attach.adopt(&page.images);
         let id = &page.key.id;
         let stale = self.page_key(id).updated > page.key.updated;
         let first = !self.transcripts.contains_key(id);
@@ -357,7 +364,7 @@ mod tests {
     fn cached_page_and_history_do_not_rewind_live_messages() {
         let mut app = App::empty();
         app.route = Route::Session("ses_a".into());
-        let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, bytes: 0 };
+        let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, images: vec![], bytes: 0 };
         app.show_page(&p, &mut Tx::default());
         p.messages = model::parse_messages(&page("old"));
         p.cached = true;
