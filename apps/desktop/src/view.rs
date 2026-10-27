@@ -40,6 +40,7 @@ pub(crate) const CONTENT_W: f32 = 696.0;
 /// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(cx.system_dark());
+    crate::icons::prepare(s, cx);
     let mut inner = shell(s, cx);
     if s.pickers.open.is_some() {
         inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
@@ -81,6 +82,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
 }
 
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
+    if s.playground {
+        return crate::icons::playground(s);
+    }
     let p = pal(cx.system_dark());
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
@@ -376,7 +380,7 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, c
                 .gap(6.0)
                 .center_y()
                 .clip_fade(0.0, 0.0, 16.0, 0.0)
-                .child(s.icons.badge(p, project, &proj))
+                .child(crate::icons::badge(s, p, project, &proj))
                 .child(text(title).font(UI_MED).color(if active { p.text } else { p.faint })),
         )
         .child(
@@ -682,7 +686,7 @@ fn home(s: &App, p: &Pal) -> El {
                     .hover(p.hover)
                     .press(p.pressed)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
-                    .child(s.icons.badge(p, project, proj))
+                    .child(crate::icons::badge(s, p, project, proj))
                     .child(text(title_of(ses)).font(UI_MED).color(p.text).truncate())
                     .child(text(proj.to_owned()).font(UI).color(p.faint).truncate())
                     .child(spacer())
@@ -810,7 +814,7 @@ fn location(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { tx.instant(); } })
-        .child(s.icons.badge(p, project, &name))
+        .child(crate::icons::badge(s, p, project, &name))
         .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate());
     row()
         .key("location")
@@ -852,7 +856,7 @@ fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) 
         let project = s.project(&info.project);
         let proj = project.map_or("", |x| x.name.as_str());
         crumbs = crumbs
-            .child(s.icons.badge(p, project, proj).mr(8.0))
+            .child(crate::icons::badge(s, p, project, proj).mr(8.0))
             .child(text(proj.to_owned()).font(UI_MED).color(p.faint))
             .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(8.0).pr(4.0));
         if let Some(parent) = info.parent.as_deref().and_then(|pid| s.session(pid)) {

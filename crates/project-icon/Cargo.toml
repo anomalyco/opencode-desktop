@@ -1,0 +1,11 @@
+[package]
+name = "project-icon"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+opencode-kit = { path = "../opencode-kit" }
+rune.workspace = true
+serde_json.workspace = true

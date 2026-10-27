@@ -1,21 +1,25 @@
 [workspace]
 resolver = "3"
-members = ["app", "apps/desktop", "apps/sketch", "crates/opencode-kit", "crates/mac-app", "crates/rune-knobs"]
+members = ["app", "apps/desktop", "apps/sketch", "crates/opencode-kit", "crates/mac-app", "crates/rune-knobs", "crates/project-icon"]
 
 [workspace.package]
 edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "d5644d83caa6c762f8789d3cfbb668ebcdd78970" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "d5644d83caa6c762f8789d3cfbb668ebcdd78970" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "d5644d83caa6c762f8789d3cfbb668ebcdd78970" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "d5644d83caa6c762f8789d3cfbb668ebcdd78970" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
+
+# Procedural icons shade every pixel on the CPU.
+[profile.dev.package.project-icon]
 opt-level = 3
 
 [profile.release]

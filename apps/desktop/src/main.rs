@@ -4,13 +4,13 @@
 
 mod add_menu;
 mod attachments;
+mod icons;
 mod knobs;
 mod mentions;
 mod palette;
 #[cfg(test)]
 mod perf;
 mod pickers;
-mod project_icon;
 mod queue;
 mod question;
 mod restore;
@@ -124,6 +124,8 @@ pub struct App {
     sends: u32,
     waker: Option<Waker>,
     pub icons: project_icon::Icons,
+    /// The `icon-playground` scene: every icon style instead of the panel.
+    pub playground: bool,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -202,6 +204,7 @@ impl App {
             sends: 0,
             waker: None,
             icons: Default::default(),
+            playground: false,
         }
     }
 
@@ -1011,6 +1014,10 @@ fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
+    s.icons.set_sync(headless());
+    if let Some(style) = icons::style_arg() {
+        s.knobs.set(&knobs::ICON_STYLE, style);
+    }
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
@@ -1141,6 +1148,7 @@ fn main() {
                 }
             }),
             ("draft", |s| s.route = Route::Draft),
+            ("icon-playground", |s| s.playground = true),
             ("question", |s| {
                 open_scene(s);
                 s.finish_stream();
