@@ -123,6 +123,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Working", knobs: WORKING_KNOBS, keys: WORKING_KEYS, open: working_open, view: session_view },
     Story { group: "Timeline", name: "Steer and Pending", knobs: ROW_KNOBS, keys: STEER_KEYS, open: steer_open, view: session_view },
     Story { group: "Timeline", name: "Subagent", knobs: SUBAGENT_KNOBS, keys: SUBAGENT_KEYS, open: subagent_open, view: session_view },
+    Story { group: "Timeline", name: "Background agents", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
     Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
     Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
     Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: WORKING_KEYS, open: actions_open, view: session_view },
@@ -315,7 +316,7 @@ fn opening_view(s: &App, p: &Pal) -> El {
 
 // Setting up.
 
-fn sid(s: &App) -> String {
+pub(crate) fn sid(s: &App) -> String {
     match &s.route {
         Route::Session(id) => id.clone(),
         _ => String::new(),
@@ -327,7 +328,7 @@ fn scroll_key(s: &App) -> String {
 }
 
 /// Plays a server event now, in this poll's playback, after the arrivals check.
-fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
+pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     if data["sessionID"].is_null() {
         data["sessionID"] = sid(s).into();
     }

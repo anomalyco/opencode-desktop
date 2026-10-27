@@ -3,6 +3,11 @@
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
 mod add_menu;
+mod agent_stories;
+mod agents;
+#[cfg(test)]
+mod agents_tests;
+mod agents_view;
 mod arrivals;
 mod attachments;
 mod icons;
@@ -124,6 +129,8 @@ pub struct App {
     pub opened: Vec<String>,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
+    /// What subagents are doing and how their runs ended, for the live styles.
+    pub agents: agents::Live,
     /// Whether AppKit is saving the window frame yet (`mac_app::remember_frame`).
     framed: bool,
     pub edge: usize,
@@ -220,6 +227,7 @@ impl App {
             restore: restore::Restore::default(),
             opened: Vec::new(),
             activity_open: false,
+            agents: Default::default(),
             knobs: rune_knobs::Knobs::default(),
             framed: false,
             edge,
@@ -932,7 +940,8 @@ impl App {
     fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
-        let mut changed = self.apply_status(ty, data, &sid);
+        let mut changed = self.note_agent(ty, data, &sid);
+        changed |= self.apply_status(ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);
         }
@@ -1077,6 +1086,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         tx.wake_after(std::time::Duration::ZERO);
         changed = true;
     }
+    changed |= agents::poll(s, tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands();
@@ -1299,6 +1309,19 @@ fn main() {
             ("story-images", |s| stories::scene(s, "Images")),
             ("story-jump", |s| stories::scene(s, "Jump to latest")),
             ("story-actions", |s| stories::scene(s, "Turn actions")),
+            // Background agents in each ⌘⇧K Subagents style, with 1, 3 or 6 running.
+            ("story-agents-desktop-1", |s| agent_stories::scene(s, 0, 0)),
+            ("story-agents-desktop-3", |s| agent_stories::scene(s, 0, 1)),
+            ("story-agents-desktop-6", |s| agent_stories::scene(s, 0, 2)),
+            ("story-agents-stack-1", |s| agent_stories::scene(s, 1, 0)),
+            ("story-agents-stack-3", |s| agent_stories::scene(s, 1, 1)),
+            ("story-agents-stack-6", |s| agent_stories::scene(s, 1, 2)),
+            ("story-agents-inline-1", |s| agent_stories::scene(s, 2, 0)),
+            ("story-agents-inline-3", |s| agent_stories::scene(s, 2, 1)),
+            ("story-agents-inline-6", |s| agent_stories::scene(s, 2, 2)),
+            ("story-agents-capsule-1", |s| agent_stories::scene(s, 3, 0)),
+            ("story-agents-capsule-3", |s| agent_stories::scene(s, 3, 1)),
+            ("story-agents-capsule-6", |s| agent_stories::scene(s, 3, 2)),
             ("sidebar-closed", |s| {
                 open_scene(s);
                 s.finish_stream();

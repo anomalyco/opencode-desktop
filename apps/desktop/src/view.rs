@@ -51,16 +51,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(picker(s, p));
     }
-    if let Route::Session(id) = &s.route
-        && let Some(panel) = crate::subagents::panel(s, p, id)
-    {
-        inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full()
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.activity_open = false;
-            }))
-            .child(panel);
-    }
+    inner = inner.children(crate::agents_view::overlay(s, p));
     let composer_w = cx.layout("composer").map_or(0.0, |r| r[2]);
     inner = inner.children(crate::mentions::view(s, p, composer_w));
     inner = inner.children(crate::add_menu::commands_view(s, p, composer_w));
@@ -865,8 +856,7 @@ fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     page = if child {
         page.child(crate::subagents::bar(s, p, id))
     } else {
-        page.children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
-            .child(composer_dock(s, p))
+        page.children(crate::agents_view::dock(s, p, id)).child(composer_dock(s, p))
     };
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
@@ -888,7 +878,7 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session(id) = &s.route else { return composer_dock(s, p) };
     col().key("session")
         .w_full()
-        .children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
+        .children(crate::agents_view::dock(s, p, id))
         .child(composer_dock(s, p))
 }
 
@@ -1059,7 +1049,7 @@ impl RowSpec {
                     Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
                     Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
                     Block::Agent { agent, title, status, session, background, .. } =>
-                        crate::subagents::card(s, p, &t.session, agent, title, status, *session, *background).pt(*pt),
+                        crate::agents_view::card(s, p, &t.session, agent, title, status, *session, *background).pt(*pt),
                     Block::Tool(Step::Tool { id, name, title, status, .. }) =>
                         row().pt(*pt).child(turns::tool_row(p, id, name, title, status)),
                     Block::Tool(Step::Thought { .. }) => unreachable!(),
@@ -1089,6 +1079,8 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .pt(8.0)
         .pb(24.0)
         .growth(GrowthSpec { spring: crate::knobs::growth(&s.knobs), edge: e });
+    let vis = specs.clone();
+    stack = stack.on_visible_rows(move |s: &mut App, r| crate::agents::style(s) == crate::agents::Style::Inline && s.agents.seen(vis.iter().map(|x| x.key.as_str()), r));
     #[cfg(test)]
     let eager = EAGER_ROWS.get();
     #[cfg(not(test))]
