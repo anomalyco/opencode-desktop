@@ -800,6 +800,7 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .key("timeline")
         .w_full()
         .center()
+        .px(24.0)
         .pt(8.0)
         .pb(24.0)
         .virtualize(80.0)
