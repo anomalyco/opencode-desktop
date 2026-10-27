@@ -2472,5 +2472,36 @@
    "type": "session.execution.succeeded",
    "data": {}
   }
- ]
+ ],
+ "question": {
+  "id": "frm_fx0001",
+  "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+  "title": "",
+  "fields": [
+   {
+    "key": "q0",
+    "type": "string",
+    "title": "Backoff test",
+    "description": "How should the backoff test control time?",
+    "custom": true,
+    "options": [
+     {"value": "Fake clock", "label": "Fake clock", "description": "Inject a clock into the reconnect loop and step it by hand."},
+     {"value": "Real timers", "label": "Real timers", "description": "Shrink the delays to milliseconds and wait for them."},
+     {"value": "Only the math", "label": "Only the math", "description": "Test the delay sequence as a pure function."}
+    ]
+   },
+   {
+    "key": "q1",
+    "type": "multiselect",
+    "title": "Cases",
+    "description": "Which cases should it cover?",
+    "custom": true,
+    "options": [
+     {"value": "Reset after success", "label": "Reset after success"},
+     {"value": "Cap at 30 s", "label": "Cap at 30 s"},
+     {"value": "Jitter stays in range", "label": "Jitter stays in range"}
+    ]
+   }
+  ]
+ }
 }

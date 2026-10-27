@@ -12,6 +12,7 @@ mod perf;
 mod pickers;
 mod project_icon;
 mod queue;
+mod question;
 mod restore;
 mod shortcuts;
 mod subagents;
@@ -79,6 +80,8 @@ pub struct App {
     /// Form answers in progress, by `form/key`: picked option values and typed text.
     pub picks: HashMap<String, Vec<String>>,
     pub typed: HashMap<String, TextEdit>,
+    /// The question dock's place in the form it shows.
+    pub question: question::Dock,
     /// Where "New session" creates its session.
     pub draft_dir: String,
     pub sidebar_open: bool,
@@ -169,6 +172,7 @@ impl App {
             inboxes: HashMap::new(),
             picks: HashMap::new(),
             typed: HashMap::new(),
+            question: question::Dock::default(),
             draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
             sidebar_open: !flag("--sidebar-closed"),
             sidebar_w: view::SIDEBAR_W,
@@ -671,6 +675,7 @@ impl App {
         let prefix = format!("{id}/");
         self.picks.retain(|k, _| !k.starts_with(&prefix));
         self.typed.retain(|k, _| !k.starts_with(&prefix));
+        self.question.forget(id);
     }
 
     pub fn reply_permission(&mut self, id: &str, decision: &str) {
@@ -678,25 +683,6 @@ impl App {
         let w = Write::Permission { session: p.session().to_owned(), request: id.to_owned(), decision: decision.to_owned() };
         if self.write(w) {
             self.forget(id);
-        }
-    }
-
-    /// Toggles an option: one pick for a single-choice field, any number for a multiselect.
-    pub fn pick(&mut self, form: &str, key: &str, value: &str, multi: bool) {
-        let picks = self.picks.entry(format!("{form}/{key}")).or_default();
-        match picks.iter().position(|v| v == value) {
-            Some(i) => {
-                picks.remove(i);
-            }
-            None => {
-                if !multi {
-                    picks.clear();
-                }
-                picks.push(value.to_owned());
-            }
-        }
-        if !multi {
-            self.typed.remove(&format!("{form}/{key}"));
         }
     }
 
@@ -710,7 +696,7 @@ impl App {
         let mut answer = serde_json::Map::new();
         for f in fields {
             let k = format!("{id}/{}", f.key);
-            let typed = self.typed.get(&k).map(|t| t.text.trim().to_owned()).filter(|t| !t.is_empty());
+            let typed = self.typed.get(&k).filter(|_| self.question.custom_on(&k)).map(|t| t.text.trim().to_owned()).filter(|t| !t.is_empty());
             let picks = self.picks.get(&k).cloned().unwrap_or_default();
             let v = match f.kind {
                 FieldKind::Multi => {
@@ -887,6 +873,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     let mut changed = false;
     let arrivals = Arrivals::before(s);
+    let asked = s.question_shown();
     if let Some(inbox) = s.inbox.take() {
         for m in inbox.try_iter() {
             match m {
@@ -959,6 +946,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     arrivals.glow(s, now);
+    if s.question_shown() != asked {
+        s.morph(tx);
+    }
     s.glows.retain(|_, at| now - *at < view::GLOW_SECS);
     if !s.glows.is_empty() {
         tx.wake_after(std::time::Duration::ZERO);
@@ -1065,7 +1055,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
+    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();
@@ -1140,6 +1130,21 @@ fn main() {
                 }
             }),
             ("draft", |s| s.route = Route::Draft),
+            ("question", |s| {
+                open_scene(s);
+                s.finish_stream();
+                let q = s.fixture["question"].clone();
+                s.apply_event("form.created", &q);
+            }),
+            // Answered elsewhere at 1.5 s, asked again at 2.5 s: the morph both ways.
+            ("question-morph", |s| {
+                open_scene(s);
+                s.finish_stream();
+                let q = s.fixture["question"].clone();
+                s.apply_event("form.created", &q);
+                let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
+                s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+            }),
             ("sidebar-closed", |s| {
                 open_scene(s);
                 s.finish_stream();

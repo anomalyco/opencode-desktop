@@ -39,6 +39,24 @@ pub struct Pal {
     pub selection: Color,
     pub avatar_fg: Color,
     pub avatars: [(Color, Color); 9],
+    /// The question dock's tokens (`question-prompt.css`, `button.css`).
+    pub q: Question,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Question {
+    pub layer4: Color,
+    pub border_strong: Color,
+    pub focus: Color,
+    /// `--v2-question-answer-bg-selected`: the highlighted answer.
+    pub selected: Color,
+    pub neutral: Color,
+    pub neutral_ring: Color,
+    pub neutral_shadow: Color,
+    pub submit: Color,
+    pub submit_ring: Color,
+    pub submit_text: Color,
+    pub contrast_text: Color,
 }
 
 const THEME: &str = include_str!("../assets/theme.json");
@@ -93,6 +111,19 @@ fn build(dark: bool) -> Pal {
             avatar("purple"),
             avatar("gray"),
         ],
+        q: Question {
+            layer4: c("background-bg-layer-04"),
+            border_strong: c("border-border-strong"),
+            focus: c("border-border-focus"),
+            selected: if dark { t.alpha(c("blue-500"), 0x26 as f32 / 255.0) } else { rune::color::hex("#f5f8ff").unwrap_or(Color::WHITE) },
+            neutral: c("background-bg-button-neutral"),
+            neutral_ring: if dark { c("alpha-light-20") } else { c("alpha-dark-14") },
+            neutral_shadow: if dark { c("alpha-dark-40") } else { c("alpha-dark-10") },
+            submit: c("background-bg-icon-button-contrast"),
+            submit_ring: if dark { c("alpha-light-40") } else { c("grey-800") },
+            submit_text: if dark { c("text-text-inverse") } else { c("text-text-contrast") },
+            contrast_text: c("text-text-contrast"),
+        },
     }
 }
 

@@ -11,7 +11,7 @@ use rune::{
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, FieldKind, Message, Part, Pending, SessionInfo, Transcript};
+use opencode_kit::model::{self, Assistant, Message, Part, Pending, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::pickers::Kind;
@@ -1344,13 +1344,14 @@ fn small_button(p: &Pal, key: String, label: &str, primary: bool) -> El {
 
 fn requests(s: &App, p: &Pal, id: &str) -> El {
     let mut dock = col().key("requests").w_full().center().px(24.0).gap(8.0);
-    for r in s.pending_for(id) {
-        dock = dock.child(request_card(s, p, r));
+    // Questions take the composer's place (`question.rs`).
+    for r in s.pending_for(id).into_iter().filter(|r| matches!(r, Pending::Permission { .. })) {
+        dock = dock.child(request_card(p, r));
     }
     dock
 }
 
-fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
+fn request_card(p: &Pal, r: &Pending) -> El {
     let rid = r.id().to_owned();
     let card = col()
         .key(format!("request-{rid}"))
@@ -1386,88 +1387,7 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
                     .child(b("reject", "Reject", "reject", false)),
             )
         }
-        Pending::Form { title, fields, .. } => {
-            let mut c = card.child(text(if title.is_empty() { "Questions".to_owned() } else { title.clone() }).font(UI_MED).color(p.text));
-            for f in fields {
-                let k = format!("{rid}/{}", f.key);
-                let picks = s.picks.get(&k).cloned().unwrap_or_default();
-                let mut q = col().key(format!("field-{}", f.key)).w_full().gap(6.0);
-                if !f.title.is_empty() {
-                    q = q.child(text(f.title.clone()).font(UI_SMALL).color(p.faint));
-                }
-                if !f.description.is_empty() {
-                    q = q.child(text(f.description.clone()).font(BUBBLE).color(p.text).wrap());
-                }
-                let mut opts: Vec<(String, String, String)> =
-                    f.options.iter().map(|o| (o.value.clone(), if o.label.is_empty() { o.value.clone() } else { o.label.clone() }, o.description.clone())).collect();
-                if f.kind == FieldKind::Boolean {
-                    opts = vec![("true".into(), "Yes".into(), String::new()), ("false".into(), "No".into(), String::new())];
-                }
-                let multi = f.kind == FieldKind::Multi;
-                for (value, label, desc) in opts {
-                    let on = picks.contains(&value);
-                    let (rid, key, v) = (rid.clone(), f.key.clone(), value.clone());
-                    let mut o = col()
-                        .key(format!("opt-{value}"))
-                        .role("button")
-                        .label(label.clone())
-                        .w_full()
-                        .px(10.0)
-                        .py(6.0)
-                        .radius(6.0)
-                        .fill(if on { p.pressed } else { Color::TRANSPARENT })
-                        .border(0.5, if on { p.text } else { p.border_muted })
-                        .hover(p.hover)
-                        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                            tx.instant();
-                            s.pick(&rid, &key, &v, multi);
-                        })
-                        .child(text(label).font(UI_MED).color(p.text));
-                    if !desc.is_empty() {
-                        o = o.child(text(desc).font(UI_SMALL).color(p.muted).wrap());
-                    }
-                    q = q.child(o);
-                }
-                if f.kind == FieldKind::Number || (f.kind != FieldKind::Boolean && (f.options.is_empty() || f.custom)) {
-                    let edit = s.typed.get(&k).cloned().unwrap_or_else(|| rune::TextEdit::new(""));
-                    let (rid2, key2) = (rid.clone(), f.key.clone());
-                    let rid3 = rid.clone();
-                    q = q.child(
-                        text_input(&edit, PROMPT)
-                            .key(format!("typed-{}", f.key))
-                            .w_full()
-                            .px(10.0)
-                            .py(6.0)
-                            .radius(6.0)
-                            .border(0.5, p.border_muted)
-                            .placeholder(if f.options.is_empty() { "Your answer" } else { "Or type your own answer" }, p.faint)
-                            .caret(p.text, p.selection)
-                            .on_edit(move |s: &mut App| s.typed_mut(&rid2, &key2))
-                            .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx))
-                            .on_submit(move |s: &mut App, tx: &mut Tx| {
-                                tx.instant();
-                                s.submit_form(&rid3);
-                            }),
-                    );
-                }
-                c = c.child(q);
-            }
-            let ready = s.form_answer(&rid).is_some();
-            let (a, b) = (rid.clone(), rid.clone());
-            c.child(
-                row()
-                    .key("actions")
-                    .gap(6.0)
-                    .child(small_button(p, format!("submit-{rid}"), "Submit", ready).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        tx.instant();
-                        s.submit_form(&a);
-                    }))
-                    .child(small_button(p, format!("dismiss-{rid}"), "Dismiss", false).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        tx.instant();
-                        s.dismiss_form(&b);
-                    })),
-            )
-        }
+        Pending::Form { .. } => card,
     }
 }
 
@@ -1523,7 +1443,7 @@ fn composer(s: &App, p: &Pal) -> El {
             icon(&ic::ARROW_UP, 16.0).color(if ready { p.text } else { p.icon_faint })
         });
     let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
-    col()
+    let composer = col()
         .key("composer")
         .w_full()
         .max_w(CONTENT_W)
@@ -1532,9 +1452,13 @@ fn composer(s: &App, p: &Pal) -> El {
         .fill(if p.dark { p.layer1 } else { p.bg_base })
         .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
-        .children(crate::attachments::chips(s, p))
+        // The question dock's face springs in and out under this edge.
+        .clip_soft(0.0);
+    match crate::question::face(s, p) {
+        Some(face) => composer.children(face),
+        None => composer.children(crate::attachments::chips(s, p))
         .child(
-            col().key("editor").w_full().px(16.0).pt(16.0).pb(8.0).child(
+            col().key("editor").transition(crate::question::face_transition()).w_full().px(16.0).pt(16.0).pb(8.0).child(
                 text_input(&s.composer, if s.add.shell { SHELL_PROMPT } else { PROMPT })
                     .key("prompt")
                     .w_full()
@@ -1562,6 +1486,7 @@ fn composer(s: &App, p: &Pal) -> El {
         .child(
             row()
                 .key("toolbar")
+                .transition(crate::question::face_transition())
                 .h(44.0)
                 .px(8.0)
                 .gap(4.0)
@@ -1577,7 +1502,8 @@ fn composer(s: &App, p: &Pal) -> El {
                 .child(spacer())
                 .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
                 .child(submit),
-        )
+        ),
+    }
 }
 
 fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
