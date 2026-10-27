@@ -334,11 +334,11 @@ impl App {
         self.mentions.open = self.mention_trigger(open).is_some();
     }
 
-    /// After the composer's text changes: the popover opens or closes with this frame.
+    /// After the composer's text changes: the popover opens, closes and refilters with this frame.
     pub fn mentions_changed(&mut self, tx: &mut Tx) {
         let was = self.mentions.open;
         self.sync_mentions();
-        if was != self.mentions.open {
+        if was || self.mentions.open {
             tx.instant();
         }
     }
@@ -529,7 +529,17 @@ impl App {
 
     /// Takes in fetched lists, and asks the server for what the open popover needs: the
     /// directory's agents and skills once, and sessions by the query's first word.
-    pub fn poll_mentions(&mut self) -> bool {
+    /// Fetched rows land with this frame: no fading in or sliding.
+    pub fn poll_mentions(&mut self, tx: &mut Tx) -> bool {
+        let was = self.mentions.open;
+        let changed = self.take_mentions();
+        if changed && (was || self.mentions.open) {
+            tx.instant();
+        }
+        changed
+    }
+
+    fn take_mentions(&mut self) -> bool {
         let mut changed = false;
         for f in self.mentions.fetched.try_iter() {
             match f {
@@ -732,7 +742,13 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
                 .center_y()
                 .radius(6.0)
                 .fill(if active.as_deref() == Some(item.key.as_str()) { p.hover } else { Color::TRANSPARENT })
-                .on_hover(move |s: &mut App| s.mention_activate(hover.clone()))
+                // Not `on_hover`: its commit would animate the highlight's fill from row to row.
+                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                    if inside {
+                        tx.instant();
+                        s.mention_activate(hover.clone());
+                    }
+                })
                 .on_press(move |s: &mut App| {
                     s.pick_mention(&key);
                     s.composer.focused = true;
@@ -906,6 +922,39 @@ mod tests {
         key(&mut rt, Key::Escape);
         assert!(shown(&rt, "mentions").is_none());
         assert!(rt.state.composer.focused);
+    }
+
+    #[test]
+    fn filtering_and_hover_land_in_one_frame() {
+        let mut rt = runtime();
+        tap(&mut rt, "prompt");
+        let settled = |rt: &Runtime<App>, when: &str| {
+            for e in rt.elements() {
+                let Some(k) = e.key.as_deref() else { continue };
+                if k == "mentions" || k.starts_with("mention-") {
+                    let moved = e.rect.iter().zip(e.target.iter()).any(|(a, b)| (a - b).abs() > 0.01);
+                    assert!(!moved && (e.opacity - 1.0).abs() < 1e-3, "{k} after {when}: rect {:?} target {:?} opacity {}", e.rect, e.target, e.opacity);
+                }
+            }
+        };
+        for c in "@exp".chars() {
+            key(&mut rt, Key::Text(c.to_string()));
+            settled(&rt, &format!("typing {c}"));
+        }
+        key(&mut rt, Key::Backspace);
+        settled(&rt, "backspace");
+        let items = keys(&rt);
+        let (a, b) = (format!("mention-{}", items[0]), format!("mention-{}", items[1]));
+        let (x, y) = rt.find(&a).unwrap();
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        let (x, y) = rt.find(&b).unwrap();
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        assert!(shown(&rt, &a).unwrap().fill.a < 1e-3, "the old row clears at once");
+        let lit = shown(&rt, &b).unwrap().fill.a;
+        rt.frame(1.0 / 60.0);
+        assert!(lit > 0.0 && (lit - shown(&rt, &b).unwrap().fill.a).abs() < 1e-3, "the new row lights at once");
     }
 
     #[test]

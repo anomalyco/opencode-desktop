@@ -924,7 +924,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.poll_switcher(tx);
-    changed |= s.poll_mentions();
+    changed |= s.poll_mentions(tx);
     if let Source::Live { server, .. } = &s.source
         && s.persists()
     {
