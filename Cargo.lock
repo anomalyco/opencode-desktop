@@ -2685,6 +2685,7 @@ dependencies = [
  "mac-app",
  "objc2 0.5.3",
  "opencode-kit",
+ "project-icon",
  "rune",
  "rune-kit",
  "rune-knobs",
