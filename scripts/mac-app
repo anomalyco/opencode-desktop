@@ -5,7 +5,7 @@
 # window opens exactly where the old one was, so the swap is invisible.
 #   scripts/mac-app --name Seer --id com.kitlangton.seer --exe seer --bin target/release/seer-sketch \
 #     --icon apps/sketch/assets/icon.icns [--scheme seer] [-- APP ARGS]
-# `--scheme NAME` registers NAME:// links with macOS for the app (mac_app::urls takes them).
+# `--scheme NAME` registers NAME:// links with macOS for the app (Rune's App::on_open_url takes them).
 # `--mic "WHY"` lets the app record from the microphone; macOS shows WHY in its first-run prompt.
 # For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
 # keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
