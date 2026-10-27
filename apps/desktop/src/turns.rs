@@ -15,7 +15,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, chevron, reasoning};
+use crate::view::{UI, UI_MED, chevron, readable, reasoning};
 
 /// One step inside a group.
 #[derive(Debug)]
@@ -179,8 +179,8 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
         .gap(8.0)
         .center_y()
         .child(icon(tool_icon(name), 14.0).color(p.icon_muted))
-        .child(text(tool_title(name).to_owned()).font(UI_MED).color(color))
-        .child(text(title.to_owned()).font(UI).color(p.faint).truncate())
+        .child(readable(p, text(tool_title(name).to_owned()).font(UI_MED).color(color)))
+        .child(readable(p, text(title.to_owned()).font(UI).color(p.faint).truncate()))
 }
 
 /// The folded row: its label and chevron, and when open, every step in order. Opening and

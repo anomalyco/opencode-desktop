@@ -29,6 +29,7 @@ mod question_stories;
 mod restore;
 mod revert;
 mod scenes;
+mod selection_stories;
 mod send;
 mod session_open;
 mod session_pages;

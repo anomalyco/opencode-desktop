@@ -138,6 +138,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Send", knobs: ROW_KNOBS, keys: SEND_KEYS, open: send_open, view: session_view },
     Story { group: "Timeline", name: "Streaming text", knobs: ROW_KNOBS, keys: STREAM_KEYS, open: stream_open, view: session_view },
     Story { group: "Timeline", name: "Tool rows", knobs: ROW_KNOBS, keys: TOOL_KEYS, open: tools_open, view: session_view },
+    Story { group: "Timeline", name: "Selection", knobs: &[], keys: crate::selection_stories::KEYS, open: crate::selection_stories::open, view: session_view },
     Story { group: "Timeline", name: "Question answers", knobs: crate::question_stories::KNOBS, keys: crate::question_stories::KEYS, open: crate::question_stories::open, view: session_view },
     Story { group: "Timeline", name: "Working", knobs: WORKING_KNOBS, keys: WORKING_KEYS, open: working_open, view: session_view },
     Story { group: "Timeline", name: "Steer and Pending", knobs: ROW_KNOBS, keys: STEER_KEYS, open: steer_open, view: session_view },

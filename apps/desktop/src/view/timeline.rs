@@ -270,7 +270,7 @@ impl RowSpec {
                 }
             }
             RowContent::Note(i) => match &t.messages[*i] {
-                Message::Note { text: body, .. } => row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)),
+                Message::Note { text: body, .. } => row().pt(16.0).child(readable(p, text(body.clone()).font(UI).color(p.faint))),
                 _ => unreachable!(),
             },
             RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
@@ -326,6 +326,9 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El
         .px(24.0)
         .pt(8.0)
         .pb(24.0)
+        // One selection across the whole timeline, as a page's: a drag runs from a prompt
+        // through tools and replies, and Cmd+A takes every message on screen.
+        .selection_group(true)
         .growth(GrowthSpec { spring: crate::knobs::growth(&s.knobs), edge: e });
     #[cfg(test)]
     let eager = EAGER_ROWS.get();
@@ -489,7 +492,7 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
         && let Some(err) = &a.error
     {
         let pt = if prev.is_some() { 24.0 } else { 0.0 };
-        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Built(Box::new(row().pt(pt).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()))), streaming: false });
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Built(Box::new(row().pt(pt).child(readable(p, text(err.clone()).font(UI).color(p.danger).wrap().w_full())))), streaming: false });
     }
 }
 
@@ -556,7 +559,7 @@ pub(super) fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: boo
         );
     }
     let ink = if pending.is_some() { p.muted } else { p.text };
-    bubble = bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap());
+    bubble = bubble.child(readable(p, text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap()));
     let copy = if below {
         let x = if pending.is_some() { -52.0 } else { -28.0 };
         bubble = bubble.child(copy.absolute(x, 8.5));
@@ -605,7 +608,7 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
     );
     if open {
         c = c.child(
-            row().key("thought").pl(22.0).pt(4.0).child(text(body.to_owned()).font(UI.lh(20.0)).color(p.muted).wrap().reveal(fade).w_full()),
+            row().key("thought").pl(22.0).pt(4.0).child(readable(p, text(body.to_owned()).font(UI.lh(20.0)).color(p.muted).wrap().reveal(fade).w_full())),
         );
     }
     c
@@ -656,8 +659,18 @@ pub(super) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> E
         .heading_font(1, H1)
         .heading_font(2, H2)
         .heading_font(3, H3)
-        .code_block_font(CODE);
-    Markdown::new(src).style(style).reveal(fade).streaming(streaming).on_link(|s: &mut App, url: &str| s.open_link(url)).build(&kit)
+        .code_block_font(CODE)
+        .selection(p.selection);
+    // Its texts join the timeline's selection group rather than forming one of their own, so
+    // a drag runs on out of this reply into the rest of the timeline.
+    Markdown::new(src).style(style).reveal(fade).streaming(streaming).selectable(true)
+        .on_link(|s: &mut App, url: &str| s.open_link(url)).build(&kit).selection_group(false)
+}
+
+/// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome
+/// around it (triggers, labels, buttons) stays unselectable.
+pub(crate) fn readable(p: &Pal, t: El) -> El {
+    t.selectable(true).selection_color(p.selection)
 }
 
 // ---------------------------------------------------------------------------------------------

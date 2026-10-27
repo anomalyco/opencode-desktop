@@ -589,7 +589,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .w_full()
                 .gap(4.0)
                 .transition(arrival(s, s.question.step))
-                .child(text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap())
+                .child(crate::view::readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
                 .children(multi.then(|| text("Pick any").key("q-hint").font(HINT).color(p.faint))),
         );
 

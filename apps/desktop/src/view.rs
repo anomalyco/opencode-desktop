@@ -166,4 +166,6 @@ fn home_dir() -> String {
 }
 
 #[cfg(test)]
+mod selection_tests;
+#[cfg(test)]
 mod tests;

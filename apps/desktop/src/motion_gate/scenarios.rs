@@ -311,6 +311,28 @@ const ACTIONS: &[Action] = &[
         r.act("tap jump-latest", |rt| Run::tap(rt, "jump-latest"));
         r.play(1.5);
     } },
+    // A drag selects a reply (its highlight is instant), then a prompt sends under it.
+    Action { name: "select", circs: || wide_and_narrow(Circ::default()), run: |r| {
+        let els = r.rt.elements();
+        let words: Vec<_> = els.iter().filter(|e| !e.exiting && e.text.is_some() && e.path.contains("/t-msg_") && e.visible[3] >= 16.0 && e.visible[2] >= 40.0).collect();
+        let (Some(first), Some(last)) = (words.first(), words.last()) else { panic!("no reply text on screen") };
+        let (x0, y0) = (first.visible[0] + 1.0, first.visible[1] + 8.0);
+        let (x1, y1) = (last.visible[0] + last.visible[2] - 1.0, last.visible[1] + last.visible[3] - 6.0);
+        r.act("press on a reply", |rt| {
+            rt.pointer_move(x0, y0);
+            rt.pointer_down(x0, y0);
+        });
+        for i in 1..=6 {
+            let t = i as f32 / 6.0;
+            r.act("drag", |rt| rt.pointer_move(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t));
+        }
+        r.act("release", |rt| rt.pointer_up(x1, y1));
+        assert!(r.rt.selected_text().is_some_and(|t| !t.is_empty()), "the drag selects the reply");
+        r.play(0.4);
+        r.type_prompt();
+        r.enter(false);
+        r.play_out(1.0);
+    } },
 ];
 
 /// Background agents: two start a beat apart (the second joins the first's card) and step

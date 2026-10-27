@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, chevron};
+use crate::view::{UI, UI_MED, chevron, readable};
 
 /// Each question's text, and its answer once the call has them (`None` before).
 pub fn answers(input: &Value, metadata: &Value) -> (Vec<String>, Option<Vec<String>>) {
@@ -93,8 +93,8 @@ fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El 
                 .key(format!("qa-{i}"))
                 .w_full()
                 .gap(2.0)
-                .child(text(q).key("q").font(UI.lh(20.0)).color(p.muted).wrap().w_full())
-                .child(text(a).key("a").font(UI.lh(20.0)).color(p.text).wrap().w_full())
+                .child(readable(p, text(q).key("q").font(UI.lh(20.0)).color(p.muted).wrap().w_full()))
+                .child(readable(p, text(a).key("a").font(UI.lh(20.0)).color(p.text).wrap().w_full()))
         });
         c = c.child(col().key("answers").w_full().pl(12.0).py(8.0).gap(12.0).children(items));
     }
@@ -124,7 +124,7 @@ fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
     trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if open {
-        c = c.child(row().key("error").w_full().pl(24.0).py(4.0).child(text(e.to_owned()).font(UI.lh(20.0)).color(p.danger).wrap().w_full()));
+        c = c.child(row().key("error").w_full().pl(24.0).py(4.0).child(readable(p, text(e.to_owned()).font(UI.lh(20.0)).color(p.danger).wrap().w_full())));
     }
     c
 }
