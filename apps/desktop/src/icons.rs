@@ -44,15 +44,26 @@ pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
     }
 }
 
+const MORE_NAMES: [&str; 12] =
+    ["atlas", "bramble", "cobalt", "drift", "ember", "fjord", "gizmo", "harbor", "ink", "juniper", "kiwi", "lumen"];
+
 /// Every style, by family, for twelve project names at 16, 24 and 48 pt; light above dark.
+/// `--icon-family <name>` shows one family; `--icon-seeds` shows the knob's style for 24 names.
 pub fn playground(s: &App) -> El {
+    if crate::flag("--icon-seeds") {
+        return seeds(s);
+    }
     let base = look(s);
+    let only = crate::arg("--icon-family");
     let panel = |dark: bool| {
         let p = pal(dark);
         let icons = palette(p);
         let mut rows = col().gap(14.0).px(20.0).py(20.0).fill(p.bg_base).w_full();
         rows = rows.child(text(if dark { "Dark" } else { "Light" }).font(UI_MED).color(p.text));
         for family in Family::ALL {
+            if only.as_deref().is_some_and(|f| !f.eq_ignore_ascii_case(family.name())) {
+                continue;
+            }
             rows = rows.child(text(family.name().to_uppercase()).font(UI_SMALL).color(p.faint).mt(8.0));
             for style in family.styles() {
                 let look = Look { style, ..base };
@@ -72,6 +83,30 @@ pub fn playground(s: &App) -> El {
             sizes = sizes.child(text(format!("{size:.0} pt")).font(UI_SMALL).color(p.faint).w(12.0 * size + 11.0 * gap));
         }
         rows.child(sizes)
+    };
+    let panels = s.playground.iter().map(|&dark| panel(dark));
+    col().key("icon-playground").w_full().h_full().scroll(rune::ScrollSpec { stick_bottom: false }).children(panels)
+}
+
+/// The knob's style for 24 project names, at 16 and 24 pt in a line and 48 pt with names.
+fn seeds(s: &App) -> El {
+    let look = look(s);
+    let names = || NAMES.iter().chain(MORE_NAMES.iter()).copied();
+    let panel = |dark: bool| {
+        let p = pal(dark);
+        let icons = palette(p);
+        let mark = |name: &str, size: f32| s.icons.mark(&icons, project_icon::Project::named(name), size, look);
+        let title = format!("{} · {}", look.style.name(), if dark { "Dark" } else { "Light" });
+        let mut rows = col().gap(14.0).px(20.0).py(20.0).fill(p.bg_base).w_full();
+        rows = rows.child(text(title).font(UI_MED).color(p.text));
+        for (size, gap) in [(16.0, 6.0), (24.0, 8.0)] {
+            rows = rows.child(row().gap(gap).center_y().children(names().map(|n| mark(n, size))));
+        }
+        for half in [&NAMES, &MORE_NAMES] {
+            let cells = half.iter().map(|&n| col().gap(4.0).items_center().w(64.0).child(mark(n, 48.0)).child(text(n).font(UI_SMALL).color(p.faint)));
+            rows = rows.child(row().gap(8.0).children(cells));
+        }
+        rows
     };
     let panels = s.playground.iter().map(|&dark| panel(dark));
     col().key("icon-playground").w_full().h_full().scroll(rune::ScrollSpec { stick_bottom: false }).children(panels)

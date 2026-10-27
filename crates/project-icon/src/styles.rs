@@ -61,6 +61,26 @@ pub enum Style {
     Lava,
     /// A glowing tube shape on a dark tile, with scan lines.
     Neon,
+    /// A Tamagotchi-style critter: seeded body, ears or antennae, eyes, mouth and feet.
+    Critter,
+    /// A mushroom, ghost, slime or robot in PICO-8 colours.
+    Monster,
+    /// A potion, gem, heart or sword in NES colours.
+    Loot,
+    /// A critter in the Game Boy's four greens, on a dithered ground.
+    GameBoy,
+    /// A space invader in CGA cyan and magenta on black.
+    Cga,
+    /// Two initials in a 3×5 pixel font, light on the hue, with a pixel shadow.
+    Duo,
+    /// A bold 5×7 initial in the hue with an ink outline, on a pale tile.
+    Chunky,
+    /// A 1-bit dithered landscape: sky, sun and hills in two tones of the hue.
+    Dusk,
+    /// An 8×8 Bayer-dithered blend between two PICO-8 colours.
+    Blend,
+    /// Error-diffused (Floyd–Steinberg) 1-bit grain of a seeded glow.
+    Static,
 }
 
 /// A group of styles in the playground.
@@ -90,7 +110,7 @@ impl Family {
 }
 
 impl Style {
-    pub const ALL: [Style; 25] = [
+    pub const ALL: [Style; 35] = [
         Style::Desktop,
         Style::Gradient,
         Style::Mesh,
@@ -116,18 +136,42 @@ impl Style {
         Style::Face,
         Style::Lava,
         Style::Neon,
+        Style::Critter,
+        Style::Monster,
+        Style::Loot,
+        Style::GameBoy,
+        Style::Cga,
+        Style::Duo,
+        Style::Chunky,
+        Style::Dusk,
+        Style::Blend,
+        Style::Static,
     ];
 
-    pub const NAMES: [&str; 25] = [
+    pub const NAMES: [&str; 35] = [
         "Desktop", "Gradient", "Mesh", "Conic", "Grain", "Blob", "Monogram", "Glyph", "Quilt", "Rings", "Band", "Horizon", "Pixel", "Sticker", "Pop", "Bauhaus", "Orb",
         "Squiggle", "Sprite", "Dither", "Bitmap", "Truchet", "Face", "Lava", "Neon",
+        "Critter", "Monster", "Loot", "GameBoy", "CGA", "Duo", "Chunky", "Dusk", "Blend", "Static",
     ];
 
     pub fn family(self) -> Family {
         match self {
             Style::Desktop | Style::Gradient | Style::Mesh | Style::Conic | Style::Grain | Style::Blob | Style::Monogram | Style::Orb => Family::Gradient,
             Style::Glyph | Style::Quilt | Style::Rings | Style::Band | Style::Horizon | Style::Bauhaus | Style::Truchet => Family::Geometric,
-            Style::Pixel | Style::Sprite | Style::Dither | Style::Bitmap => Family::Pixel,
+            Style::Pixel
+            | Style::Sprite
+            | Style::Dither
+            | Style::Bitmap
+            | Style::Critter
+            | Style::Monster
+            | Style::Loot
+            | Style::GameBoy
+            | Style::Cga
+            | Style::Duo
+            | Style::Chunky
+            | Style::Dusk
+            | Style::Blend
+            | Style::Static => Family::Pixel,
             Style::Sticker | Style::Pop | Style::Squiggle | Style::Face | Style::Lava | Style::Neon => Family::Playful,
         }
     }
@@ -199,7 +243,7 @@ fn around(variant: usize, steps: i32) -> usize {
 
 pub(crate) type Rgb = [f32; 3];
 
-fn rgb(c: Color) -> Rgb {
+pub(crate) fn rgb(c: Color) -> Rgb {
     [c.r, c.g, c.b]
 }
 
@@ -252,6 +296,9 @@ pub(crate) const RADIUS: f32 = 0.25;
 pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt: f32, px: u32) -> Vec<u8> {
     if crate::funky::funky(look.style) {
         return crate::funky::draw(look.style, seed, size_pt, px);
+    }
+    if crate::sprites::owns(look.style) {
+        return crate::sprites::draw(p, seed, variant, look, px);
     }
     let h = hash(seed);
     let dir = if h >> 8 & 1 == 0 { 1 } else { -1 };

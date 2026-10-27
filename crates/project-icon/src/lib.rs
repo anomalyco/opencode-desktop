@@ -15,6 +15,7 @@
 mod find;
 mod funky;
 mod retro;
+mod sprites;
 mod pixels;
 mod styles;
 

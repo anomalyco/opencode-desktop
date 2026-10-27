@@ -20,16 +20,16 @@ pub(crate) struct Ctx {
 const BLACK: Rgb = [0.0; 3];
 const WHITE: Rgb = [1.0; 3];
 
-fn srgb(r: u8, g: u8, b: u8) -> Rgb {
+pub(crate) fn srgb(r: u8, g: u8, b: u8) -> Rgb {
     [r, g, b].map(|v| lin(v as f32 / 255.0))
 }
 
-fn lum(c: Rgb) -> f32 {
+pub(crate) fn lum(c: Rgb) -> f32 {
     0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
 }
 
 /// The hue at full strength: its brightest channel at 1.
-fn vivid(c: Rgb, s: f32) -> Rgb {
+pub(crate) fn vivid(c: Rgb, s: f32) -> Rgb {
     let m = c[0].max(c[1]).max(c[2]).max(1e-3);
     saturate(c.map(|v| v / m), 1.2 * s)
 }
@@ -198,7 +198,7 @@ pub(crate) fn shade(style: Style, k: &Ctx, u: f32, v: f32) -> Rgb {
 }
 
 /// A 5×7 bitmap glyph: seven rows, the high bit of five on the left.
-fn font(c: char) -> [u8; 7] {
+pub(crate) fn font(c: char) -> [u8; 7] {
     match c.to_ascii_uppercase() {
         'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
         'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
