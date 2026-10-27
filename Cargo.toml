@@ -7,10 +7,10 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "c0cbe5947d5bac73f9b06be2c60340f237d22591" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "c0cbe5947d5bac73f9b06be2c60340f237d22591" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "c0cbe5947d5bac73f9b06be2c60340f237d22591" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "c0cbe5947d5bac73f9b06be2c60340f237d22591" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 

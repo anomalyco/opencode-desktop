@@ -21,7 +21,6 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("offset-jump", "t-msg_001a162cb6dbc013fixture00-2", "send-during-reflow", "the row under an instantly opened tool group moves with it (turns::group)"),
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
-    ("fade-snap", "queued-", "/pending-open", "a new queued row slides up through the pointer still resting where the composer was tapped, so its hover reveals its actions for the 3 frames it's under it (Rune hovers rows a layout animation carries under a still pointer)"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
 ];
