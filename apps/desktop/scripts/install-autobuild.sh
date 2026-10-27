@@ -16,7 +16,7 @@ cat > "$PLIST" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key><array><string>$WT/apps/desktop/scripts/dev.sh</string><string>--watch</string></array>
+  <key>ProgramArguments</key><array><string>$WT/apps/desktop/scripts/dev.sh</string><string>--watch</string><string>--release</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>

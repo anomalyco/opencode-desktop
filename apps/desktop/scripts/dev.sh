@@ -3,6 +3,7 @@
 #   scripts/dev.sh              build (dev profile), install, relaunch with --live
 #   scripts/dev.sh --release    same with the release profile
 #   scripts/dev.sh --watch      follow origin/main in the autobuild worktree and rebuild on change
+#                               (the installed autobuild runs `--watch --release`: dev frames cost 3x)
 # Builds run through HiveMind on Studio. The relaunch is skipped when the binary is unchanged.
 set -uo pipefail
 export PATH="$HOME/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"

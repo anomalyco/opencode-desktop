@@ -411,7 +411,7 @@ impl App {
             key: format!("skill:{}", s.id),
             kind: Kind::Skill,
             label: format!("@{}", s.id),
-            description: s.description.clone(),
+            description: s.description.split_whitespace().collect::<Vec<_>>().join(" "),
             content: format!("@{}", s.id),
         });
         let agents = self.mentions.agents.iter().map(|(name, _)| Item {
@@ -722,7 +722,7 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
     }
     let items = s.mention_items();
     let active = s.mention_active(&items);
-    let mut list = col().key("mentions-list").w_full();
+    let mut list = col().key("mentions-list").w_full().padding(PAD);
     for item in &items {
         let key = item.key.clone();
         let hover = item.key.clone();
@@ -757,10 +757,18 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
         );
     }
     let body = if items.is_empty() {
-        col().key("mentions-scroll").w_full().child(text("No matching items").font(UI).color(p.muted).px(8.0).py(4.0))
+        col().key("mentions-scroll").w_full().padding(PAD).child(text("No matching items").font(UI).color(p.muted).px(8.0).py(4.0))
     } else {
-        let h = (items.len() as f32 * ROW_H).min(MAX_H - 2.0 * PAD);
-        col().key("mentions-scroll").w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).child(list)
+        // Edge to edge: rows scroll under the popover's border, fading only while hidden there.
+        let h = (items.len() as f32 * ROW_H + 2.0 * PAD).min(MAX_H);
+        col()
+            .key("mentions-scroll")
+            .w_full()
+            .h(h)
+            .scroll(rune::ScrollSpec { stick_bottom: false })
+            .scroll_edge_fade(16.0)
+            .scroll_margin(PAD)
+            .child(list)
     };
     Some(
         col()
@@ -769,11 +777,11 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
             .label("Mentions")
             .above("composer", 8.0)
             .w(width)
-            .padding(PAD)
             .radius(12.0)
             .fill(p.bg_base)
             .border(0.5, p.ring)
             .shadow(4.0, 12.0, p.shadow)
+            .clip_soft(0.0)
             .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
             .on_press(|_: &mut App| {})
             .child(body),
@@ -955,6 +963,55 @@ mod tests {
         let lit = shown(&rt, &b).unwrap().fill.a;
         rt.frame(1.0 / 60.0);
         assert!(lit > 0.0 && (lit - shown(&rt, &b).unwrap().fill.a).abs() < 1e-3, "the new row lights at once");
+    }
+
+    #[test]
+    fn row_text_stays_inside_its_row() {
+        let mut rt = runtime();
+        let long = "Find and complete requested reviews and items across every account, with receipts and notes";
+        rt.state.mentions.skills = ["opencode", "opentui", "opencode-drive", "opencode-session-control", "loop-me", "psychopomp", "clean-copy", "fieldwork-operate", "computer-use", "to-spec", "ramp-complete-tasks", "ramp-complete-expenses", "prototype", "fieldwork-prove", "ramp-incorporate-with-ramp", "animation-principles", "google-workspace"]
+            .iter()
+            .map(|id| Skill { id: (*id).into(), name: (*id).into(), description: format!("{id}: {long}\nsecond line") })
+            .collect();
+        tap(&mut rt, "prompt");
+        let check = |rt: &Runtime<App>, when: &str| {
+            let els = rt.elements();
+            for (i, e) in els.iter().enumerate() {
+                if e.role != "text" {
+                    continue;
+                }
+                let mut p = e.parent;
+                while let Some(j) = p {
+                    if els[j].key.as_deref().is_some_and(|k| k.starts_with("mention-")) {
+                        let r = els[j].rect;
+                        assert!(e.rect[1] >= r[1] - 0.5 && e.rect[1] + e.rect[3] <= r[1] + r[3] + 0.5, "{when}: {:?} at {:?} outside its row {:?} {:?}", e.text, e.rect, els[j].key, r);
+                        break;
+                    }
+                    p = els[j].parent;
+                }
+                let _ = i;
+            }
+        };
+        for c in "@ope".chars() {
+            key(&mut rt, Key::Text(c.to_string()));
+            check(&rt, &format!("typing {c}"));
+            for _ in 0..20 {
+                rt.frame(1.0 / 60.0);
+            }
+            check(&rt, &format!("after {c}"));
+        }
+        for _ in 0..12 {
+            key(&mut rt, Key::Down);
+        }
+        for _ in 0..20 {
+            rt.frame(1.0 / 60.0);
+        }
+        check(&rt, "scrolled");
+        key(&mut rt, Key::Backspace);
+        for _ in 0..20 {
+            rt.frame(1.0 / 60.0);
+        }
+        check(&rt, "backspace");
     }
 
     #[test]
