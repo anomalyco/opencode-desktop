@@ -31,9 +31,9 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
-    ("pop-in", "dictation/", "dictate", "dictation's recording row (dot, Listening…, meter) and Transcribing… show at once on the key or the mic, as Desktop's toolbar does (dictation::toolbar)"),
-    ("pop-out", "dictation/", "dictate", "dictation's recording row goes at once on the key, the mic, Esc or the words landing (dictation::toolbar)"),
-    ("jump", "toolbar/dictation", "dictate", "the recording row hugs what it says and changes with it at once, growing leftward from the mic, which stays put (dictation::toolbar)"),
+    ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
+    ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
+    ("jump", "toolbar/mic", "/narrow", "in a narrow window the queue hint (queue::alternate_hint) takes the toolbar's last free space in the frame it shows or clears, and the mic beside Send steps aside with it"),
 ];
 
 struct Action {
@@ -285,10 +285,28 @@ const ACTIONS: &[Action] = &[
     Action { name: "dictate", circs: dictation_circs, run: |r| {
         r.type_prompt();
         r.act("⇧⌘M", |rt| rt.key(dictation_key()));
-        r.act("talk", |rt| rt.update(|s, _| s.dictation.talk()));
         r.play(1.0);
         r.act("⇧⌘M", |rt| rt.key(dictation_key()));
-        r.play(1.2);
+        r.play(1.6);
+    } },
+    // Send while it listens: the words land, then the prompt goes as any send does.
+    Action { name: "dictate-send", circs: dictation_circs, run: |r| {
+        r.type_prompt();
+        r.act("⇧⌘M", |rt| rt.key(dictation_key()));
+        r.play(0.6);
+        r.act("Send", |rt| Run::tap(rt, "submit"));
+        r.play(1.6);
+    } },
+    // A slow Hex: "Preparing dictation…" opens a line under the toolbar and closes it.
+    Action { name: "dictate-slow", circs: dictation_circs, run: |r| {
+        r.type_prompt();
+        r.act("⇧⌘M", |rt| {
+            rt.update(|s, _| s.dictation.slow_fake());
+            rt.key(dictation_key());
+        });
+        r.play(1.8);
+        r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
+        r.play(0.6);
     } },
     Action { name: "dictate-cancel", circs: dictation_circs, run: |r| {
         r.type_prompt();

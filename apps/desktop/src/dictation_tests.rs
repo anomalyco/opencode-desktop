@@ -55,7 +55,6 @@ fn happy(path: &str) -> (u16, &'static str) {
     match path {
         "/dictations" => (201, r#"{"id":4,"ownerToken":"owner-token-owner-token-owner-token","sampleRate":16000}"#),
         p if p.ends_with("/finish") => (200, r#"{"transcript":" check the retry budget ","durationMs":4000}"#),
-        p if p.ends_with("/levels") => (200, "data: {\"rmsDb\":-20.0,\"peakDb\":-12.0}\n\n"),
         _ => (204, ""),
     }
 }
@@ -132,27 +131,29 @@ fn the_mic_records_and_a_second_press_puts_the_words_at_the_caret() {
     let mut rt = app(Dictation::at(file));
     let mut t = 0.0;
     draft(&mut rt, &mut t);
+    assert!(has(&rt, "mic") && !has(&rt, "mic/stop-glyph"));
     tap(&mut rt, "mic");
     step(&mut rt, &mut t, 2);
     assert!(rt.state.dictation.recording());
-    assert!(shows(&rt, "Listening…"));
+    assert!(has(&rt, "mic/stop-glyph"), "the mic is a stop while it listens");
     assert!(rt.state.composer.focused, "the composer keeps focus");
-    until(&mut rt, &mut t, |s| s.dictation.level > 0.5);
-    assert!(rt.find("dictation-level").is_some());
+    until(&mut rt, &mut t, |_| seen.lock().unwrap().iter().any(|p| p == "/dictations"));
+    step(&mut rt, &mut t, 30);
+    assert!(!has(&rt, "dictation-status"), "a quick start says nothing under the toolbar");
 
     rt.key(shortcut());
     step(&mut rt, &mut t, 1);
-    assert!(shows(&rt, "Transcribing…"));
+    assert!(has(&rt, "mic/ring") && !has(&rt, "mic/stop-glyph"), "a spinner in the stop while the words come");
     until(&mut rt, &mut t, |s| !s.composer.text.starts_with("Before merge"));
     assert_eq!(rt.state.composer.text, "Before check the retry budget merge");
     assert_eq!(rt.state.composer.focus, "Before check the retry budget".len(), "the caret after the words");
     assert!(rt.state.composer.focused);
     step(&mut rt, &mut t, 1);
-    assert!(!shows(&rt, "Listening…") && !shows(&rt, "Transcribing…"));
+    assert!(!has(&rt, "mic/ring") && !has(&rt, "mic/stop-glyph"));
     assert_eq!(rt.state.sends, 0, "never sent");
     let seen = seen.lock().unwrap();
     assert_eq!(seen.first().map(String::as_str), Some("/dictations"));
-    assert!(seen.contains(&"/dictations/4/levels".to_owned()) && seen.contains(&"/dictations/4/finish".to_owned()), "{seen:?}");
+    assert!(seen.contains(&"/dictations/4/finish".to_owned()), "{seen:?}");
 }
 
 #[test]
@@ -167,7 +168,7 @@ fn escape_throws_the_recording_away() {
     until(&mut rt, &mut t, |_| seen.lock().unwrap().iter().any(|p| p == "/dictations"));
     rt.key(key(Key::Escape));
     step(&mut rt, &mut t, 1);
-    assert!(!rt.state.dictation.recording() && !shows(&rt, "Listening…"));
+    assert!(!rt.state.dictation.active() && !has(&rt, "mic/stop-glyph"));
     let deadline = Instant::now() + Duration::from_secs(3);
     while !seen.lock().unwrap().iter().any(|p| p == "/dictations/4/cancel") {
         assert!(Instant::now() < deadline, "no cancel: {:?}", seen.lock().unwrap());
@@ -180,7 +181,7 @@ fn escape_throws_the_recording_away() {
 }
 
 #[test]
-fn hex_refusing_says_why_beside_the_mic() {
+fn hex_refusing_says_why_under_the_toolbar() {
     for (name, reply, why) in [
         ("busy", (|_: &str| (409, r#"{"code":"dictation-busy"}"#)) as fn(&str) -> (u16, &'static str), hex_client::BUSY),
         ("outdated", |_: &str| (503, r#"{"code":"service-capture-unavailable"}"#), hex_client::OUTDATED),
@@ -194,10 +195,13 @@ fn hex_refusing_says_why_beside_the_mic() {
         step(&mut rt, &mut t, 1);
         assert!(shows(&rt, why), "{name}: {:?}", rt.state.dictation.error());
         assert!(!rt.state.dictation.recording() && rt.state.composer.text == "Before merge");
-        // It goes after a few seconds.
-        rt.frame(4.1);
+        // It stays until the next press or send, as on iOS.
+        rt.frame(10.0);
         step(&mut rt, &mut t, 1);
-        assert!(!shows(&rt, why));
+        assert!(shows(&rt, why));
+        rt.key(key(Key::Escape));
+        step(&mut rt, &mut t, 1);
+        assert!(shows(&rt, why), "Esc only throws a recording away");
     }
 
     // An endpoint file left behind by a Hex that crashed: nobody on its port.
@@ -251,7 +255,52 @@ fn holding_the_shortcut_talks_until_it_comes_up_and_a_tap_toggles() {
     rt.key_up(m_up);
     step(&mut rt, &mut t, 1);
     assert!(!rt.state.dictation.recording(), "a hold past 300 ms is push-to-talk");
-    assert!(shows(&rt, "Transcribing…"));
+    assert!(has(&rt, "mic/ring"));
+}
+
+#[test]
+fn send_while_listening_finishes_and_sends_with_the_words() {
+    let mut rt = app(Dictation::fake());
+    let mut t = 0.0;
+    draft(&mut rt, &mut t);
+    rt.key(shortcut());
+    step(&mut rt, &mut t, 6);
+    let sends = rt.state.sends;
+    tap(&mut rt, "submit");
+    step(&mut rt, &mut t, 1);
+    assert!(rt.state.dictation.active() && !rt.state.dictation.recording(), "Send finishes first");
+    assert_eq!(rt.state.sends, sends, "and waits for the words");
+    // A second Send while the words come does nothing more.
+    tap(&mut rt, "submit");
+    step(&mut rt, &mut t, 60);
+    assert!(!rt.state.dictation.active());
+    assert_eq!(rt.state.sends, sends + 1, "sent once, with the words");
+    assert_eq!(rt.state.composer.text, "");
+}
+
+#[test]
+fn a_slow_hex_says_preparing_under_the_toolbar() {
+    let slow = |path: &str| {
+        if path == "/dictations" {
+            std::thread::sleep(Duration::from_millis(600));
+        }
+        happy(path)
+    };
+    let (file, _) = fake_hex("slow", slow);
+    let mut rt = app(Dictation::at(file));
+    let mut t = 0.0;
+    draft(&mut rt, &mut t);
+    rt.key(shortcut());
+    step(&mut rt, &mut t, 1);
+    assert!(has(&rt, "mic/stop-glyph") && !shows(&rt, "Preparing dictation…"), "the stop at once, no line yet");
+    std::thread::sleep(Duration::from_millis(300));
+    step(&mut rt, &mut t, 20);
+    assert!(shows(&rt, "Preparing dictation…"));
+    until(&mut rt, &mut t, |s| !s.dictation.preparing_shown());
+    step(&mut rt, &mut t, 1);
+    assert!(!shows(&rt, "Preparing dictation…") && rt.state.dictation.recording());
+    rt.key(key(Key::Escape));
+    step(&mut rt, &mut t, 1);
 }
 
 #[test]
@@ -260,11 +309,14 @@ fn the_storybook_story_listens_on_the_fake() {
     rt.update(|s, _| crate::stories::scene(s, "Dictation"));
     let mut t = 0.0;
     step(&mut rt, &mut t, 30);
-    assert!(rt.state.dictation.recording() && shows(&rt, "Listening…"));
-    assert!(rt.state.dictation.level > 0.05, "the fake talks: {}", rt.state.dictation.level);
-    rt.key(key(Key::Text("f".into())));
-    step(&mut rt, &mut t, 40);
+    assert!(rt.state.dictation.recording() && has(&rt, "mic/stop-glyph"));
+    // It finishes on its own, and the words land.
+    step(&mut rt, &mut t, 120);
     assert_eq!(rt.state.composer.text, format!("Looks right. Before you merge, {FAKE_WORDS}"));
+    // P: a slow start says so.
+    rt.key(key(Key::Text("p".into())));
+    step(&mut rt, &mut t, 30);
+    assert!(shows(&rt, "Preparing dictation…"));
     rt.key(key(Key::Text("e".into())));
     step(&mut rt, &mut t, 1);
     assert!(shows(&rt, hex_client::NOT_RUNNING));

@@ -39,7 +39,8 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
     let ready = !s.composer.text.trim().is_empty() || (s.attach.any() && !s.add.shell);
     let busy = matches!(&s.route, Route::Session(id) if s.busy(id));
-    let stop = busy && !ready;
+    // While dictating, Send finishes and sends with the words (dictation::submit), as on iOS.
+    let stop = busy && !ready && !s.dictation.active();
     let submit = el()
         .key("submit")
         .role("button")
@@ -53,7 +54,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .child(if stop {
             el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text)
         } else {
-            icon(&ic::ARROW_UP, 16.0).color(if ready { p.text } else { p.icon_faint })
+            icon(&ic::ARROW_UP, 16.0).color(match (ready, p.dark) { (false, _) => p.icon_faint, (true, true) => p.text, (true, false) => p.q.contrast_text })
         });
     let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
     let composer = col()
@@ -74,6 +75,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
             col().key("editor").transition(crate::question::face_transition(s)).w_full().px(16.0).pt(16.0).pb(8.0).child(
                 text_input(&s.composer, if s.add.shell { SHELL_PROMPT } else { PROMPT })
                     .key("prompt")
+                    .color(p.text)
                     .w_full()
                     .min_h(40.0)
                     .animate_edit_layout()
@@ -116,7 +118,8 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
                 .children(crate::dictation::toolbar(s, p))
                 .child(submit),
-        ),
+        )
+        .children(crate::dictation::status(s, p)),
     }
 }
 

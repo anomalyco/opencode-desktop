@@ -1,14 +1,16 @@
 //! Dictation through Hex: the mic in the composer's toolbar, or ⇧⌘M, borrows Hex's microphone
 //! and model and puts the words at the caret, ready to edit. A press starts and a second press
-//! (or the mic) finishes; holding ⇧⌘M past `HOLD` talks until it comes up. Esc throws the
-//! recording away. Nothing is ever sent.
+//! (or the stop) finishes; holding ⇧⌘M past `HOLD` talks until it comes up. Esc throws the
+//! recording away. Send or ⏎ while it listens finishes and sends with the words, as the iOS
+//! app's Send does; otherwise nothing is sent.
 //!
-//! The words come from Hex's capture API (`hex_client`): the app owns the recording, so a pause
-//! never ends it, the transcript comes back whole and Hex pastes nothing, so the composer keeps
-//! its focus. Hex has no partial transcripts, so while it listens the toolbar shows "Listening…"
-//! and the microphone's level. The mic shows while Hex's endpoint file is there (Hex removes it
-//! when it quits). Tests, headless runs and the storybook use a fake Hex unless `SEER_HEX` names
-//! an endpoint file, so they never open the microphone.
+//! It looks like the OpenCode iOS app's composer: while it listens the mic is a quiet stop beside
+//! Send, which shows a spinner while the words come; "Preparing dictation…" and Hex's refusals
+//! sit under the toolbar. The words come from Hex's capture API (`hex_client`): the app owns the
+//! recording, so a pause never ends it, the transcript comes back whole (Hex has no partials) and
+//! Hex pastes nothing, so the composer keeps its focus. The mic shows while Hex's endpoint file
+//! is there (Hex removes it when it quits). Tests, headless runs and the storybook use a fake Hex
+//! unless `SEER_HEX` names an endpoint file, so they never open the microphone.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -20,7 +22,7 @@ use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI, no_motion};
+use crate::view::{UI_SMALL, activity_ring_on, no_motion};
 
 /// Who Hex says is recording.
 const SOURCE: &str = "OpenCode";
@@ -29,12 +31,15 @@ const HOLD: f64 = 0.3;
 /// How long the microphone stays open after the stop, so a last word said as he presses lands.
 /// Hex's own shortcut keeps 200 ms after release, but its capture API stops at once.
 const TAIL: Duration = Duration::from_millis(350);
-/// Seconds an error stays beside the mic.
-const ERROR_SECS: f64 = 4.0;
+/// "Preparing dictation…" shows once Hex has taken this long to start, so a quick start shows
+/// nothing but the stop.
+const PREPARING_AFTER: f64 = 0.25;
 /// Seconds between looks for Hex's endpoint file while idle.
 const LOOK_SECS: f64 = 2.0;
 /// The fake's transcription time.
-const FAKE_TRANSCRIBE: f64 = 0.4;
+const FAKE_TRANSCRIBE: f64 = 0.6;
+/// The fake's start when the storybook asks for a slow one.
+const FAKE_SLOW_START: f64 = 1.2;
 pub const FAKE_WORDS: &str = "keep the retry budget as it is and add a test for the reconnect";
 
 const MIC: Icon = Icon {
@@ -44,7 +49,7 @@ const MIC: Icon = Icon {
 };
 
 enum Backend {
-    /// In-process: words on stop, levels from the clock while `talking`.
+    /// In-process: ready after `Dictation::prepare`, words `FAKE_TRANSCRIBE` after the stop.
     Fake,
     /// The real Hex, found through this endpoint file.
     Hex(PathBuf),
@@ -83,18 +88,23 @@ pub struct Dictation {
     round: u64,
     /// Seconds since launch, from the last frame.
     now: f64,
-    error: Option<(String, f64)>,
+    /// What Hex refused with, until the next press or send (as iOS keeps it).
+    error: Option<String>,
     hold: Hold,
-    /// The meter as drawn, 0–1, eased toward the microphone's level.
-    pub(crate) level: f32,
-    /// The fake is hearing words (the storybook's W), since this time.
-    talking: Option<f64>,
+    /// Seconds the fake takes to start.
+    prepare: f64,
 }
 
 struct Rec {
     round: u64,
+    /// When the press started it.
+    since: f64,
+    /// Hex is listening.
+    ready: bool,
     /// Waiting for the words.
     stopping: bool,
+    /// Send or ⏎ finished it: the words are sent when they land (true for ⌘⏎).
+    send_after: Option<bool>,
     /// Tells the real Hex's thread to stop or cancel; None with the fake.
     cmd: Option<Sender<Cmd>>,
     /// The fake's words are due at this time.
@@ -104,8 +114,6 @@ struct Rec {
 #[derive(Default)]
 struct Shared {
     heard: Vec<(u64, Heard)>,
-    /// The latest level reading in dBFS, and its recording.
-    db: Option<(u64, f32)>,
 }
 
 enum Cmd {
@@ -115,6 +123,8 @@ enum Cmd {
 
 #[derive(Debug)]
 enum Heard {
+    /// Hex took the microphone.
+    Ready,
     Words(String),
     Failed(String),
 }
@@ -128,7 +138,7 @@ impl Default for Dictation {
 impl Dictation {
     fn with(backend: Backend) -> Dictation {
         let installed = backend.installed();
-        Dictation { backend, installed, looked: None, rec: None, shared: Arc::default(), round: 0, now: 0.0, error: None, hold: Hold::None, level: 0.0, talking: None }
+        Dictation { backend, installed, looked: None, rec: None, shared: Arc::default(), round: 0, now: 0.0, error: None, hold: Hold::None, prepare: 0.0 }
     }
 
     /// The storybook's Hex, whatever the app runs on.
@@ -142,26 +152,38 @@ impl Dictation {
         Self::with(Backend::Hex(file))
     }
 
-    /// The fake hears words from now on, so its meter moves.
-    pub fn talk(&mut self) {
-        if self.recording() {
-            self.talking = Some(self.now);
-        }
-    }
-
     pub fn recording(&self) -> bool {
         self.rec.as_ref().is_some_and(|r| !r.stopping)
     }
 
+    /// A recording is on: preparing, listening or finishing.
+    pub fn active(&self) -> bool {
+        self.rec.is_some()
+    }
+
     pub fn error(&self) -> Option<&str> {
-        self.error.as_ref().map(|(e, _)| e.as_str())
+        self.error.as_deref()
+    }
+
+    /// The fake starts slowly from now on, as a Hex loading its model would.
+    pub fn slow_fake(&mut self) {
+        self.prepare = FAKE_SLOW_START;
+    }
+
+    #[cfg(test)]
+    pub fn preparing_shown(&self) -> bool {
+        self.preparing()
+    }
+
+    /// Hex is slow to start, so "Preparing dictation…" shows.
+    fn preparing(&self) -> bool {
+        self.rec.as_ref().is_some_and(|r| !r.ready && !r.stopping && self.now - r.since >= PREPARING_AFTER)
     }
 
     fn fail(&mut self, why: impl Into<String>) {
         self.rec = None;
         self.hold = Hold::None;
-        self.talking = None;
-        self.error = Some((why.into(), self.now));
+        self.error = Some(why.into());
     }
 }
 
@@ -176,7 +198,6 @@ pub fn start(s: &mut App) {
         return;
     }
     d.error = None;
-    d.level = 0.0;
     d.round += 1;
     let round = d.round;
     let cmd = match &d.backend {
@@ -193,14 +214,14 @@ pub fn start(s: &mut App) {
             Some(tx)
         }
     };
-    d.rec = Some(Rec { round, stopping: false, cmd, due: None });
+    let fake = cmd.is_none();
+    d.rec = Some(Rec { round, since: d.now, ready: fake && d.prepare <= 0.0, stopping: false, send_after: None, cmd, due: None });
 }
 
 /// Stops the microphone; the words land at the caret when Hex has them.
 pub fn stop(s: &mut App) {
     let d = &mut s.dictation;
     d.hold = Hold::None;
-    d.talking = None;
     let now = d.now;
     let Some(rec) = d.rec.as_mut().filter(|r| !r.stopping) else { return };
     rec.stopping = true;
@@ -215,7 +236,6 @@ pub fn stop(s: &mut App) {
 pub fn cancel(s: &mut App) {
     let d = &mut s.dictation;
     d.hold = Hold::None;
-    d.talking = None;
     if let Some(Rec { cmd: Some(cmd), .. }) = d.rec.take() {
         let _ = cmd.send(Cmd::Cancel);
     }
@@ -227,6 +247,22 @@ fn toggle(s: &mut App) {
         None => start(s),
         Some(r) if !r.stopping => stop(s),
         Some(_) => {}
+    }
+}
+
+/// Send or ⏎ (`alternate` for ⌘⏎): while it listens, finishes and sends with the words, as the
+/// iOS app's Send does; while the words come, waits for them. True when dictation took it.
+pub fn submit(s: &mut App, alternate: bool) -> bool {
+    let d = &mut s.dictation;
+    d.error = None;
+    match &mut d.rec {
+        None => false,
+        Some(r) if r.stopping => true,
+        Some(r) => {
+            r.send_after = Some(alternate);
+            stop(s);
+            true
+        }
     }
 }
 
@@ -272,10 +308,10 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// Each frame: looks for Hex, eases the meter, and puts Hex's words at the caret.
+/// Each frame: looks for Hex, follows Hex's thread, and puts Hex's words at the caret.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let d = &mut s.dictation;
-    let dt = (now - d.now).max(0.0) as f32;
+    let was_preparing = d.preparing();
     d.now = now;
     let mut changed = false;
     if d.rec.is_none() && d.looked.is_none_or(|t| now - t >= LOOK_SECS) {
@@ -284,46 +320,48 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= installed != d.installed;
         d.installed = installed;
     }
-    if d.error.as_ref().is_some_and(|(_, at)| now - at >= ERROR_SECS) {
-        d.error = None;
-        changed = true;
-    }
-    if let Some((_, at)) = &d.error {
-        tx.wake_after(Duration::from_secs_f64((at + ERROR_SECS - now).max(0.0)));
-    }
-    let Some(rec) = &d.rec else { return changed };
-    let (round, stopping, due) = (rec.round, rec.stopping, rec.due);
+    let Some(rec) = &mut d.rec else { return changed };
+    let round = rec.round;
     if d.hold == Hold::Pressed {
         d.hold = Hold::Since(now);
     }
-    tx.wake_after(Duration::from_millis(if stopping { 100 } else { 33 }));
-    let heard: Vec<Heard> = {
-        let mut sh = d.shared.lock().unwrap_or_else(|e| e.into_inner());
-        let target = match (&d.backend, sh.db) {
-            _ if stopping => 0.0,
-            (Backend::Fake, _) => fake_level(d.talking.map(|t| now - t)),
-            (Backend::Hex(_), Some((r, db))) if r == round => meter(db),
-            _ => 0.0,
-        };
-        // The bar jumps up with a word and settles back more slowly, as a VU meter does.
-        let rate = if target > d.level { 30.0 } else { 8.0 };
-        d.level += (target - d.level) * (rate * dt).min(1.0);
-        sh.heard.drain(..).filter(|(r, _)| *r == round).map(|(_, h)| h).collect()
-    };
-    let mut heard = heard;
-    if due.is_some_and(|t| now >= t) {
+    let mut heard: Vec<Heard> = d.shared.lock().unwrap_or_else(|e| e.into_inner()).heard.drain(..).filter(|(r, _)| *r == round).map(|(_, h)| h).collect();
+    if rec.cmd.is_none() && !rec.ready && now - rec.since >= d.prepare {
+        heard.push(Heard::Ready);
+    }
+    if rec.due.is_some_and(|t| now >= t) {
         heard.push(Heard::Words(std::env::var("SEER_FAKE_WORDS").unwrap_or_else(|_| FAKE_WORDS.into())));
     }
+    // Hex's thread can't wake the app, so look again soon; and on time for the slow-start line
+    // and the fake's next step.
+    let mut next = 0.1_f64;
+    if !rec.ready && !rec.stopping {
+        next = next.min(rec.since + PREPARING_AFTER - now).min(if rec.cmd.is_none() { rec.since + d.prepare - now } else { next });
+    }
+    if let Some(t) = rec.due {
+        next = next.min(t - now);
+    }
+    tx.wake_after(Duration::from_secs_f64(next.max(0.001)));
+    changed |= was_preparing != d.preparing();
     for h in heard {
+        changed = true;
         match h {
+            Heard::Ready => {
+                if let Some(r) = s.dictation.rec.as_mut() {
+                    r.ready = true;
+                }
+            }
             Heard::Words(words) => {
-                s.dictation.rec = None;
+                let send = s.dictation.rec.take().and_then(|r| r.send_after);
                 insert(s, &words);
+                if let Some(alternate) = send {
+                    s.submit(alternate, tx);
+                }
             }
             Heard::Failed(why) => s.dictation.fail(why),
         }
     }
-    true
+    changed
 }
 
 /// The words at the caret, replacing a selection, with a space from the text either side.
@@ -347,69 +385,53 @@ fn insert(s: &mut App, words: &str) {
     c.insert(&put);
 }
 
-/// dBFS to the meter's 0–1: quiet rooms sit near the bottom, speech fills most of it.
-fn meter(db: f32) -> f32 {
-    ((db + 55.0) / 40.0).clamp(0.0, 1.0)
-}
-
-/// A voice-like level for the fake: syllables over a breath, silence when not talking.
-fn fake_level(talking: Option<f64>) -> f32 {
-    let Some(t) = talking else { return meter(-58.0) };
-    let syllable = (t * 11.0).sin().abs() * (t * 2.3).sin().abs();
-    meter(-46.0 + 34.0 * syllable as f32)
-}
-
-/// What sits before the Send button: the mic, and beside it "Listening…" with the level,
-/// "Transcribing…", or what went wrong. Nothing while Hex isn't there.
+/// What sits before Send, as in the iOS app's composer: the mic, a quiet stop while it listens,
+/// and a spinner in the stop while the words come. Nothing while Hex isn't there.
 pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
     let d = &s.dictation;
-    if !d.installed && d.rec.is_none() && d.error.is_none() {
+    if !d.installed && d.rec.is_none() {
         return None;
     }
-    let listening = d.recording();
-    let stopping = d.rec.as_ref().is_some_and(|r| r.stopping);
-    // What it says changes at once and the row hugs it from the mic leftward: nothing glides.
+    let finishing = d.rec.as_ref().is_some_and(|r| r.stopping);
+    // The mic and the stop swap at once on the press, as iOS's do.
     let still = no_motion().enter;
-    let mut r = row().key("dictation").h(28.0).gap(8.0).center_y().shrink().motion(still);
-    let label = |s: &str, color: rune::Color| text(s.to_owned()).font(UI).color(color).truncate().shrink().motion(still);
-    if listening {
-        r = r.child(el().key("dictation-dot").size(6.0, 6.0).radius(3.0).fill(p.danger).motion(still))
-            .child(label("Listening…", p.muted))
-            .child(
-                el().key("dictation-meter").size(32.0, 4.0).radius(2.0).fill(p.layer3).motion(still)
-                    // The fill follows the microphone frame by frame; a spring would lag the voice.
-                    .child(el().key("dictation-level").w(32.0 * d.level).h(4.0).radius(2.0).fill(p.accent).motion(still)),
-            );
-    } else if stopping {
-        r = r.child(label("Transcribing…", p.faint));
-    } else if let Some(why) = d.error() {
-        r = r.child(label(why, p.danger));
-    }
-    let mut mic = el()
+    let mut b = el()
         .key("mic")
         .role("button")
-        .label(if listening { "Stop dictation" } else { "Dictate with Hex" })
-        .help(if listening { "Stop dictation ⇧⌘M" } else { "Dictate with Hex ⇧⌘M" })
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .motion(still)
-        .preserve_focus_on_press(true)
-        .child(icon(&MIC, 16.0).color(if listening { p.text } else if stopping { p.icon_faint } else { p.icon_muted }));
-    if listening {
-        mic = mic.fill(p.hover);
-    }
-    if !stopping {
-        mic = mic.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .preserve_focus_on_press(true);
+    b = match &d.rec {
+        None => b.label("Dictate with Hex").help("Dictate with Hex ⇧⌘M").child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
+        Some(_) if finishing => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_on(p, p.layer2, 14.0)),
+        // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
+        Some(_) => b.label("Stop dictation").help("Stop dictation ⇧⌘M").fill(p.layer2)
+            .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
+    };
+    if !finishing {
+        b = b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             toggle(s);
         });
     }
-    Some(r.child(mic))
+    Some(b)
 }
 
-/// The real Hex, on its own thread: borrows Hex's microphone, streams its level on another,
-/// keeps the capture alive until Stop or Cancel, then waits for the whole transcript.
+/// Under the toolbar, as in iOS: "Preparing dictation…" while Hex is slow to start, or what Hex
+/// refused with.
+pub fn status(s: &App, p: &Pal) -> Option<El> {
+    let d = &s.dictation;
+    let line = row().key("dictation-status").px(16.0).pb(12.0).gap(8.0).center_y();
+    if d.preparing() {
+        let bg = crate::view::composer_fill(p);
+        return Some(line.child(activity_ring_on(p, bg, 12.0)).child(text("Preparing dictation…").font(UI_SMALL).color(p.muted)));
+    }
+    d.error().map(|why| line.child(text(why.to_owned()).font(UI_SMALL).color(p.danger)))
+}
+
+/// The real Hex, on its own thread: borrows Hex's microphone, keeps the capture alive until Stop or Cancel, then waits for the whole transcript.
 fn listen(file: &std::path::Path, rx: &mpsc::Receiver<Cmd>, shared: &Arc<Mutex<Shared>>, round: u64) -> Option<Heard> {
     let hex = match Hex::connect_at(file, SOURCE) {
         Ok(h) => h,
@@ -419,15 +441,7 @@ fn listen(file: &std::path::Path, rx: &mpsc::Receiver<Cmd>, shared: &Arc<Mutex<S
         Ok(c) => c,
         Err(why) => return Some(Heard::Failed(why)),
     };
-    if let Ok(levels) = Hex::connect_at(file, SOURCE) {
-        let (cap, shared) = (cap.clone(), shared.clone());
-        std::thread::spawn(move || {
-            let _ = levels.levels(&cap, |db| {
-                shared.lock().unwrap_or_else(|e| e.into_inner()).db = Some((round, db));
-                true
-            });
-        });
-    }
+    shared.lock().unwrap_or_else(|e| e.into_inner()).heard.push((round, Heard::Ready));
     let mut beat = std::time::Instant::now();
     let mut missed = 0;
     loop {
@@ -468,9 +482,15 @@ pub const STORY_KEYS: &[rune_knobs::Action<App>] = &[
     crate::stories::REPLAY,
     rune_knobs::Action { cap: "S", label: "Start", run: |s, tx| {
         tx.instant();
+        s.dictation.prepare = 0.0;
         start(s);
     } },
-    rune_knobs::Action { cap: "W", label: "Say words", run: |s, _| s.dictation.talk() },
+    rune_knobs::Action { cap: "P", label: "Slow start", run: |s, tx| {
+        tx.instant();
+        cancel(s);
+        s.dictation.slow_fake();
+        start(s);
+    } },
     rune_knobs::Action { cap: "F", label: "Finish", run: |s, tx| {
         tx.instant();
         stop(s);
@@ -487,11 +507,15 @@ pub const STORY_KEYS: &[rune_knobs::Action<App>] = &[
     } },
 ];
 
-/// A draft with the caret after it, listening and hearing words.
-pub fn story_open(s: &mut App, _: &mut Tx) {
+/// A draft with the caret after it, then the loop iOS shows: the stop while it listens, the
+/// spinner while the words come, the words at the caret.
+pub fn story_open(s: &mut App, tx: &mut Tx) {
     s.dictation = Dictation::fake();
     s.dictation.now = s.clock;
     s.composer = rune::TextEdit::new("Looks right. Before you merge,");
     start(s);
-    s.dictation.talking = Some(s.clock);
+    s.play.after(1.6, |s, tx| {
+        tx.instant();
+        stop(s);
+    }, tx);
 }

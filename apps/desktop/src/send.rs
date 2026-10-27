@@ -9,6 +9,7 @@ impl App {
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
         if self.opening.is_some() { return; }
+        if crate::dictation::submit(self, alternate) { return; }
         if self.add.shell {
             return self.submit_shell(alternate, tx);
         }
