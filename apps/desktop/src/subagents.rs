@@ -250,8 +250,9 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
 }
 
 /// "2 subagents" over the composer while anything below the session runs; it opens a list.
-/// Desktop's capsule (`activity-chips.tsx`): a 28pt hairline capsule on the page, no fill of its
-/// own, 10pt insets, the 16pt spinner and the count in 13pt text.
+/// Desktop's capsule (`activity-chips.tsx`): a 28pt hairline capsule filled like the composer
+/// (layer 1 in dark, the page in light) with its raised shadow, 10pt insets, the 16pt spinner and
+/// the count in 13pt text. The fill's strength is the "Capsule fill" knob.
 pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     let n = s.running_subagents(id).len();
     if n == 0 {
@@ -267,7 +268,9 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         .gap(8.0)
         .center_y()
         .radius(12.0)
+        .fill(if p.dark { p.layer1 } else { p.bg_base }.alpha(s.knobs.get(&crate::knobs::CAPSULE_FILL)))
         .border(0.5, p.border_muted)
+        .shadow(1.0, 2.0, p.shadow.alpha(p.shadow.a * s.knobs.get(&crate::knobs::CAPSULE_FILL)))
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -275,7 +278,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
             tx.instant();
             s.activity_open = !s.activity_open;
         })
-        .child(activity_ring_on(p, p.bg_base, 16.0))
+        .child(activity_ring_on(p, if p.dark { p.layer1 } else { p.bg_base }, 16.0))
         .child(text(label).font(UI).color(p.text));
     if s.activity_open {
         chip = chip.fill(p.pressed);
@@ -441,6 +444,30 @@ mod tests {
         press(&mut rt, &format!("sub-{REVIEW}"));
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
         assert!(!rt.state.activity_open);
+    }
+
+    #[test]
+    fn the_capsule_is_filled_like_the_composer_and_the_knob_clears_it() {
+        let mut rt = rt();
+        rt.update(|s, _| {
+            s.running.insert(REVIEW.into());
+        });
+        rt.frame(1.0 / 120.0);
+        let fill = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap().fill;
+        let (chip, composer) = (fill(&rt, "activity-chip"), fill(&rt, "composer"));
+        assert!(chip.a > 0.99 && (chip.r - composer.r).abs() < 1e-3 && (chip.g - composer.g).abs() < 1e-3, "{chip:?} vs {composer:?}");
+        rt.key(rune::KeyEvent { key: rune::Key::Command('k'), mods: rune::Mods { cmd: true, shift: true, ..Default::default() } });
+        rt.frame(1.0 / 120.0);
+        assert!(rt.state.knobs.open);
+        rt.update(|s, tx| {
+            tx.instant();
+            s.knobs.set(&crate::knobs::CAPSULE_FILL, 0.0);
+        });
+        for _ in 0..30 {
+            rt.frame(1.0 / 120.0);
+        }
+        let after = fill(&rt, "activity-chip");
+        assert!(after.a < 1e-3, "{after:?} knob {}", rt.state.knobs.get(&crate::knobs::CAPSULE_FILL));
     }
 
     #[test]

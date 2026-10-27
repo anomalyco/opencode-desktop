@@ -1950,6 +1950,7 @@ dependencies = [
  "procwatch",
  "rune",
  "rune-kit",
+ "rune-knobs",
  "rune-theme-opencode",
  "serde_json",
 ]

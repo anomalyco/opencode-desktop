@@ -4,6 +4,7 @@
 
 mod add_menu;
 mod attachments;
+mod knobs;
 mod mentions;
 mod palette;
 #[cfg(test)]
@@ -90,6 +91,8 @@ pub struct App {
     pub pickers: pickers::Pickers,
     /// The composer's `@` popover and what it lists.
     pub mentions: mentions::Mentions,
+    /// Live look-and-feel sliders (⌘⇧K).
+    pub knobs: rune_knobs::Knobs,
     /// The + menu, the `/` command popover and shell mode.
     pub add: add_menu::AddMenu,
     pub switcher: switcher::Switcher,
@@ -178,6 +181,7 @@ impl App {
             restore: restore::Restore::default(),
             opened: Vec::new(),
             activity_open: false,
+            knobs: rune_knobs::Knobs::default(),
             framed: false,
             edge,
             reduced_motion: flag("--reduced-motion"),
@@ -1054,7 +1058,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.switcher_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
+    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();

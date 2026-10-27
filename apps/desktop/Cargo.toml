@@ -10,6 +10,7 @@ hot = ["rune/hot"]
 [dependencies]
 mac-app = { path = "../../crates/mac-app" }
 opencode-kit = { path = "../../crates/opencode-kit" }
+rune-knobs = { path = "../../crates/rune-knobs" }
 rune = { workspace = true, features = ["native-file-dialog"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
