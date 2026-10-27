@@ -1,0 +1,10 @@
+{
+  "scene": "home", "secs": 2.2,
+  "events": [
+    {"t": 0.3, "type": "move", "key": "r-ses_fx0001aaaaaaaaaaaaaaaaaa", "expect": "instant"},
+    {"t": 0.5, "type": "move", "key": "r-ses_fx0003aaaaaaaaaaaaaaaaaa", "expect": "instant"},
+    {"t": 0.7, "type": "move", "key": "r-ses_fx0004aaaaaaaaaaaaaaaaaa", "expect": "instant"},
+    {"t": 0.9, "type": "move", "key": "new-session", "expect": "instant"},
+    {"t": 1.2, "type": "move", "x": 1200, "y": 790, "expect": "instant"}
+  ]
+}

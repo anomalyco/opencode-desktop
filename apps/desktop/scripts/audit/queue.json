@@ -1,0 +1,13 @@
+{
+  "scene": "streaming", "secs": 4.0,
+  "events": [
+    {"t": 0.2, "type": "tap", "key": "prompt"},
+    {"t": 0.3, "type": "paste", "text": "Steer: keep the retry budget."},
+    {"t": 0.5, "type": "key", "name": "Enter"},
+    {"t": 0.9, "type": "paste", "text": "Queue: then write the changelog."},
+    {"t": 1.1, "type": "key", "name": "Enter", "cmd": true},
+    {"t": 1.4, "type": "paste", "text": "Queue: and a second one."},
+    {"t": 1.6, "type": "key", "name": "Enter", "cmd": true},
+    {"t": 2.2, "type": "move", "key": "queue-list", "expect": "instant", "scope": "queue"}
+  ]
+}

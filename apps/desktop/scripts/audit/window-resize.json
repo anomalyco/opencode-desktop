@@ -1,0 +1,7 @@
+{
+  "scene": "session", "secs": 3.0,
+  "events": [
+    {"t": 0.3, "type": "resize", "dw": -360, "dh": -180, "dur": 0.6},
+    {"t": 1.5, "type": "resize", "dw": 240, "dh": 120, "dur": 0.5}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "scene": "session", "secs": 6.0,
+  "events": [
+    {"t": 0.3, "type": "move", "key": "sidebar-resize"},
+    {"t": 0.9, "type": "drag", "key": "sidebar-resize", "dx": 140, "dur": 0.5, "expect": "follow", "element": "sidebar-resize"},
+    {"t": 1.8, "type": "drag", "key": "sidebar-resize", "dx": -320, "dur": 0.6, "expect": "follow", "element": "sidebar-resize"},
+    {"t": 2.8, "type": "move", "x": 700, "y": 400},
+    {"t": 3.2, "type": "tap", "key": "sidebar-toggle"},
+    {"t": 4.2, "type": "move", "x": 700, "y": 400},
+    {"t": 4.4, "type": "tap", "key": "sidebar-toggle"},
+    {"t": 5.4, "type": "move", "x": 700, "y": 400}
+  ]
+}
