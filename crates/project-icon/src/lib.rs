@@ -13,6 +13,7 @@
 //! they show at.
 
 mod find;
+mod funky;
 mod pixels;
 mod styles;
 
@@ -297,6 +298,16 @@ impl Icons {
             // Desktop's 11 px semibold letter in a 16 px tile.
             let font = TextStyle::new(size_pt * 11.0 / 16.0, 530.0).lh(size_pt);
             tile = tile.center().child(text(letter).font(font).color(pal.fg));
+        }
+        if look.style == Style::Pop {
+            let letter = seed.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
+            let font = TextStyle::new(size_pt * 0.74, 860.0).lh(size_pt);
+            let (ink, shadow) = funky::pop_ink();
+            let off = (size_pt * 0.07).max(1.0);
+            let layer = |dx: f32, color: Color| {
+                el().absolute(dx, dx).size(size_pt, size_pt).center().child(text(letter.clone()).font(font).color(color))
+            };
+            tile = tile.child(layer(off * 0.5, shadow)).child(layer(-off * 0.5, ink));
         }
         tile
     }

@@ -35,10 +35,22 @@ pub enum Style {
     Band,
     /// A low sun on a horizon.
     Horizon,
+    /// A mirrored 5×5 pixel sprite on a bright tile, snapped to whole device pixels.
+    Pixel,
+    /// A wobbly blob with a white die-cut edge and a hard shadow, like a laptop sticker.
+    Sticker,
+    /// A heavy first letter with a hard offset shadow, halftone dots when it's big.
+    Pop,
+    /// Four Bauhaus blocks: quarter circles, discs and triangles in red, yellow, blue and ink.
+    Bauhaus,
+    /// A glossy two-hue ball with a highlight and a contact shadow.
+    Orb,
+    /// A hand-drawn wave, zigzag or loop and a dot on a bright tile.
+    Squiggle,
 }
 
 impl Style {
-    pub const ALL: [Style; 12] = [
+    pub const ALL: [Style; 18] = [
         Style::Desktop,
         Style::Gradient,
         Style::Mesh,
@@ -51,9 +63,18 @@ impl Style {
         Style::Rings,
         Style::Band,
         Style::Horizon,
+        Style::Pixel,
+        Style::Sticker,
+        Style::Pop,
+        Style::Bauhaus,
+        Style::Orb,
+        Style::Squiggle,
     ];
 
-    pub const NAMES: [&str; 12] = ["Desktop", "Gradient", "Mesh", "Conic", "Grain", "Blob", "Monogram", "Glyph", "Quilt", "Rings", "Band", "Horizon"];
+    pub const NAMES: [&str; 18] = [
+        "Desktop", "Gradient", "Mesh", "Conic", "Grain", "Blob", "Monogram", "Glyph", "Quilt", "Rings", "Band", "Horizon", "Pixel", "Sticker", "Pop", "Bauhaus", "Orb",
+        "Squiggle",
+    ];
 
     pub fn name(self) -> &'static str {
         Self::NAMES[self as usize]
@@ -163,7 +184,7 @@ fn noise(x: f32, y: f32) -> f32 {
 }
 
 /// Signed distance to a rounded box centred at the origin.
-fn round_box(x: f32, y: f32, half: f32, r: f32) -> f32 {
+pub(crate) fn round_box(x: f32, y: f32, half: f32, r: f32) -> f32 {
     let (qx, qy) = (x.abs() - half + r, y.abs() - half + r);
     (qx.max(0.0).hypot(qy.max(0.0))) + qx.max(qy).min(0.0) - r
 }
@@ -173,6 +194,9 @@ pub(crate) const RADIUS: f32 = 0.25;
 
 /// A mark's pixels as straight-alpha sRGB, `px` square, for a tile `size_pt` points wide.
 pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt: f32, px: u32) -> Vec<u8> {
+    if crate::funky::funky(look.style) {
+        return crate::funky::draw(look.style, seed, size_pt, px);
+    }
     let h = hash(seed);
     let dir = if h >> 8 & 1 == 0 { 1 } else { -1 };
     let s = look.saturation;
@@ -276,6 +300,7 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
                     a
                 }
             }
+            Style::Pixel | Style::Sticker | Style::Pop | Style::Bauhaus | Style::Orb | Style::Squiggle => a,
             Style::Horizon => {
                 let horizon = 0.62 + (unit(h, 4) - 0.5) * 0.12;
                 let sx = 0.5 + (unit(h, 28) - 0.5) * 0.36;
