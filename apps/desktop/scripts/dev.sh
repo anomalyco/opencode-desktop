@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 APP="$HOME/Applications/OpenCode (Rune).app"
 INSTALLED="$APP/Contents/MacOS/opencode-desktop"
-STAMP="$APP/Contents/Resources/.build-sha"
+STAMP="$HOME/.cache/opencode-rune-build-sha"
 LOG="$HOME/Library/Logs/opencode-rune-autobuild.log"
 WATCH_DIR="${AUTOBUILD_DIR:-$HOME/code/worktrees/seer/desktop-autobuild}"
 PROFILE=debug; CARGO_FLAGS=(); WATCH=0; OPEN_FLAGS=""
@@ -40,7 +40,7 @@ build_install() {
   fi
   local before; before="$(pids)"
   OPEN_FLAGS="$OPEN_FLAGS" "$root/apps/desktop/scripts/bundle.sh" "$bin" --live >/dev/null || { say "bundle.sh failed"; return 1; }
-  echo "$sha" > "$STAMP"
+  mkdir -p "$(dirname "$STAMP")"; echo "$sha" > "$STAMP"
   local i after
   for i in $(seq 1 50); do
     after="$(pids)"
