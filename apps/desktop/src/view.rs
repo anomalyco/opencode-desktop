@@ -89,7 +89,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(sidebar(s, p))
         .child(
-            rim(col(), p)
+            col()
                 .key("panel")
                 .grow(1.0)
                 .shrink()
@@ -99,6 +99,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .mb(8.0)
                 .radius(10.0)
                 .fill(p.bg_base)
+                .border(0.5, p.ring)
                 .shadow(2.0, 4.0, p.shadow)
                 .shadow(1.0, 2.0, p.shadow)
                 .clip_soft(0.0)
@@ -120,22 +121,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     }
     root = root.child(sidebar_toggle(p, open, w));
     root
-}
-
-/// How strongly the panel's rim is lit from above. 0 is a flat ring; 1 matches Beta's dark
-/// `--v2-elevation-raised`, whose `0 -0.5px 0 alpha-light-6` layer brightens the top edge while
-/// the drop shadows under the panel darken the bottom one.
-const RIM: f32 = 1.0;
-
-/// The panel's 0.5 px ring, brighter at the top and dimmer at the bottom by [`RIM`] (Seer's rim
-/// light, without its fill gradient).
-fn rim(e: El, p: &Pal) -> El {
-    let a = p.ring.a;
-    if !p.dark {
-        // Light has no highlight layer; only the drop shadows weigh the bottom edge.
-        return e.border_gradient(0.5, p.ring.alpha(a * (1.0 - 0.25 * RIM)), p.ring.alpha(a * (1.0 + 0.5 * RIM)));
-    }
-    e.border_gradient(0.5, p.ring.alpha(a + 0.05 * RIM), p.ring.alpha(a * (1.0 - 0.4 * RIM)))
 }
 
 // ---------------------------------------------------------------------------------------------
