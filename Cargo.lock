@@ -2612,6 +2612,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "seer-sketch"
+version = "0.0.1"
+dependencies = [
+ "objc2 0.5.3",
+ "rune",
+ "rune-theme-opencode",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
