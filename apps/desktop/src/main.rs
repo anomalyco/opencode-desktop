@@ -719,6 +719,7 @@ fn dock_icon() {
 }
 
 fn main() {
+    mac_app::launch();
     rune::prewarm_gpu();
     #[cfg(target_os = "macos")]
     dock_icon();

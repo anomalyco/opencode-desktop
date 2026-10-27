@@ -8,8 +8,10 @@
 # `--scheme NAME` registers NAME:// links with macOS for the app (mac_app::urls takes them).
 # For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
 # keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
-# when the app isn't. A running copy that called `mac_app::busy(true)` (Seer, while Kit talks)
-# holds the swap until it calls `busy(false)`, for up to 15 minutes.
+# when the app isn't (`open -g` plus MAC_APP_QUIET for `mac_app::launch`: winit activates an app
+# at launch even under `open -g`, and Spaceman would follow that focus to the app's workspace).
+# A running copy that called `mac_app::busy(true)` (Seer, while Kit talks) holds the swap until it
+# calls `busy(false)`, for up to 15 minutes.
 set -euo pipefail
 IDLE=""
 SCHEME=""
@@ -40,7 +42,7 @@ busy() { for pid in $(running); do [ -e "$BUSY/$pid" ] && return 0; done; return
 OPEN=()
 if [ -n "$IDLE" ]; then
   while front && [ "$(idle_s)" -lt "$IDLE" ]; do sleep 2; done
-  front || OPEN=(-g)
+  front || OPEN=(-g --env MAC_APP_QUIET=1)
 fi
 for _ in $(seq 450); do busy || break; sleep 2; done
 OLD=$(running)
