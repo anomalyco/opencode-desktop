@@ -2,7 +2,7 @@
 # Refresh with scripts/file-size.sh --update-exceptions.
 app/src/main.rs 830
 app/src/view.rs 1321
-apps/desktop/src/main.rs 1358
+apps/desktop/src/main.rs 1322
 apps/desktop/src/view.rs 1752
 apps/sketch/src/main.rs 2304
 apps/sketch/src/messages.rs 1347
