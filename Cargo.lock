@@ -2617,6 +2617,7 @@ name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
  "objc2 0.5.3",
+ "opencode-kit",
  "rune",
  "rune-theme-opencode",
 ]
