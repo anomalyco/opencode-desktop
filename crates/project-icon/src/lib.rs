@@ -235,27 +235,32 @@ impl Icons {
     /// The project's icon at `size_pt` square: its image, else a mark in the current look.
     pub fn view<'a>(&self, pal: &Palette, project: impl Into<Project<'a>>, size_pt: f32) -> El {
         let project = project.into();
+        self.image(pal, project, size_pt).unwrap_or_else(|| self.mark(pal, project, size_pt, self.look()))
+    }
+
+    /// The project's real icon at `size_pt` square, or None while there's none (no mark).
+    pub fn image<'a>(&self, pal: &Palette, project: impl Into<Project<'a>>, size_pt: f32) -> Option<El> {
+        let project = project.into();
         let radius = size_pt * styles::RADIUS;
         let variant = chosen_color(project.color);
-        match self.found(&project) {
-            Some(Shown::Tile(img)) => {
+        Some(match self.found(&project)? {
+            Shown::Tile(img) => {
                 let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, pal.ring);
                 el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring)
             }
-            Some(Shown::Mark(img)) => {
+            Shown::Mark(img) => {
                 let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, pal.ring);
                 let inner = el().size(size_pt * 0.75, size_pt * 0.75).pixels_fit(img.pixels(), SurfaceFit::Fit);
                 el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner).child(ring)
             }
-            Some(Shown::Vector(bytes, hash)) => {
+            Shown::Vector(bytes, hash) => {
                 let img = self.vector(&bytes, hash, size_pt);
                 let (bg, border) = pal.avatars[variant.unwrap_or(8)];
                 let pic = el().absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
                 let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, border);
                 el().size(size_pt, size_pt).radius(radius).fill(bg).child(pic).child(ring)
             }
-            None => self.mark(pal, project, size_pt, self.look()),
-        }
+        })
     }
 
     /// The procedural mark alone, in `look`.
