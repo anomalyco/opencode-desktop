@@ -3,11 +3,17 @@
 //! Unlike `hex dictation start`, nothing ends it but the app (Smart Turn never stops it on a
 //! pause), and nothing is pasted. `transcribe` turns a WAV the app recorded itself into words.
 //! Hex writes where it listens to `local-api.json`, and removes the file when it quits.
+//!
+//! For live text, `stream` is the other way round: the app records and pushes the audio, and
+//! Hex sends partials, segments, and the final (`stream.rs`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+
+mod stream;
+pub use stream::*;
 
 /// Why a capture Hex has already ended can't be finished, from the code Hex answers a
 /// heartbeat or finish with: a mic event cleared it, the app's cancel or a lapsed lease ended it,
