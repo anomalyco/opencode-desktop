@@ -8,7 +8,10 @@ BIN=${1:-../../target/release/opencode-desktop}
 shift || true
 APP="$HOME/Applications/OpenCode (Rune).app"
 test -x "$BIN" || { echo "no binary at $BIN (build with: cargo build --release -p opencode-desktop)" >&2; exit 1; }
-pkill -f "$APP/Contents/MacOS/opencode-desktop" 2>/dev/null || true
+# `open` only re-activates a running copy, so quit it first.
+pkill -f "Contents/MacOS/opencode-desktop" 2>/dev/null || true
+for _ in $(seq 50); do pgrep -f "Contents/MacOS/opencode-desktop" >/dev/null || break; sleep 0.1; done
+pkill -9 -f "Contents/MacOS/opencode-desktop" 2>/dev/null || true
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/opencode-desktop"
@@ -29,5 +32,5 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </dict></plist>
 EOF
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
-open "$APP" --args "$@"
+open -n "$APP" --args "$@"
 echo "$APP"

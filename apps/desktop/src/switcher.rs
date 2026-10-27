@@ -463,9 +463,6 @@ fn ink(dark: bool) -> &'static Ink {
 }
 
 /// Snappy, no bounce; the exit a little shorter.
-fn springs() -> SpringPair {
-    SpringPair { enter: Spring::new(0.25, 0.0), exit: Spring::new(0.2, 0.0) }
-}
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
@@ -513,6 +510,10 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
         r = r.child(spacer()).child(text(e.hint).key("hint").font(UI).color(p.faint));
     }
     r
+}
+
+fn no_motion() -> SpringPair {
+    SpringPair { enter: Spring::new(0.001, 0.0), exit: Spring::new(0.001, 0.0) }
 }
 
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
@@ -592,7 +593,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .shadow(8.0, 16.0, k.shadow_far)
         .shadow(4.0, 8.0, k.shadow_near)
         .clip_soft(0.0)
-        .transition(Transition::scale(0.96).springs(springs()))
+        .transition(Transition::opacity().springs(no_motion()))
         .modal(true, |s: &mut App| s.close_switcher(true))
         .child(col().key("switcher-search").w_full().padding(6.0).child(search))
         .child(
@@ -607,8 +608,10 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(results),
         );
 
-    // Two roots, so each plays its own transition: the scrim fades, the dialog scales and fades.
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(springs()));
+    // Overrides the default fade: the palette opens and closes on the keypress. (`tx.instant()`
+    // would also skip it, but an instant unmount of the focused search drops the composer's
+    // restored focus.)
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(no_motion()));
     [scrim, dialog.absolute(((win[2] - w) / 2.0).round(), ((win[3] - h) / 2.0).round())]
 }
 
@@ -789,23 +792,17 @@ mod tests {
     }
 
     #[test]
-    fn it_scales_in_and_fades_out() {
+    fn it_opens_and_closes_instantly() {
         let mut rt = runtime();
         let info = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k));
+        rt.frame(1.0 / 60.0);
         cmd_k(&mut rt);
         rt.frame(1.0 / 60.0);
         let d = info(&rt, "switcher").unwrap();
-        assert!(d.scale > 0.95 && d.scale < 1.0, "mid-enter scale {}", d.scale);
-        for _ in 0..60 {
-            rt.frame(1.0 / 60.0);
-        }
-        assert!((info(&rt, "switcher").unwrap().scale - 1.0).abs() < 1e-3);
+        assert!((d.scale - 1.0).abs() < 1e-3 && (d.opacity - 1.0).abs() < 1e-3, "first frame is final: scale {} opacity {}", d.scale, d.opacity);
+        assert!((info(&rt, "switcher-scrim").unwrap().opacity - 1.0).abs() < 1e-3);
         key(&mut rt, Key::Escape);
-        assert!(info(&rt, "switcher").is_some_and(|e| e.exiting), "the exit plays");
-        assert!(info(&rt, "switcher-scrim").is_some_and(|e| e.exiting));
-        for _ in 0..60 {
-            rt.frame(1.0 / 60.0);
-        }
+        rt.frame(1.0 / 60.0);
         assert!(info(&rt, "switcher").is_none() && info(&rt, "switcher-scrim").is_none());
     }
 

@@ -803,9 +803,9 @@ fn setup(s: &mut App, waker: Waker) {
         s.inbox = Some(inbox);
     }
     // `--session <id or title words>` opens a session at start.
-    if let Some(q) = arg("--session") {
-        let q = q.to_lowercase();
-        let found = s.sessions.iter().find(|x| x.id == q || x.title.to_lowercase().contains(&q)).map(|x| x.id.clone());
+    if let Some(raw) = arg("--session") {
+        let q = raw.to_lowercase();
+        let found = s.sessions.iter().find(|x| x.id == raw).or_else(|| s.sessions.iter().find(|x| x.title.to_lowercase().contains(&q))).map(|x| x.id.clone());
         if let Some(id) = found {
             s.open(&id, &mut Tx::default());
         }
@@ -855,7 +855,24 @@ fn open_scene(s: &mut App) {
     }
 }
 
+/// The Dock icon, set at launch so it shows for bare binaries and survives a reinstall
+/// that LaunchServices hasn't re-read.
+#[cfg(target_os = "macos")]
+fn dock_icon() {
+    use objc2::{class, msg_send, runtime::AnyObject};
+    static ICNS: &[u8] = include_bytes!("../assets/icon.icns");
+    unsafe {
+        let data: *mut AnyObject = msg_send![class!(NSData), dataWithBytes: ICNS.as_ptr().cast::<std::ffi::c_void>(), length: ICNS.len()];
+        let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
+        let image: *mut AnyObject = msg_send![image, initWithData: data];
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, setApplicationIconImage: image];
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    dock_icon();
     #[cfg(feature = "hot")]
     {
         let args: Vec<_> = std::env::args().collect();
