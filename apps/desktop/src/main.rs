@@ -5,6 +5,7 @@
 mod add_menu;
 mod attachments;
 mod icons;
+mod jump;
 mod knobs;
 mod mentions;
 mod palette;
@@ -119,6 +120,8 @@ pub struct App {
     pub reduced_motion: bool,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
+    /// Sessions whose timeline you're reading more than a screen up (`jump.rs`).
+    pub far_from_bottom: HashSet<String>,
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: bool,
     pub status: String,
@@ -207,6 +210,7 @@ impl App {
             edge,
             reduced_motion: flag("--reduced-motion"),
             glows: HashMap::new(),
+            far_from_bottom: HashSet::new(),
             debug: flag("--debug"),
             status: String::new(),
             now_ms: 0,

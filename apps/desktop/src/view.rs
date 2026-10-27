@@ -854,7 +854,7 @@ fn session_page(s: &App, p: &Pal, id: &str) -> El {
         .grow(1.0)
         .w_full()
         .child(header(s, p, info, t))
-        .child(timeline(s, p, id, t))
+        .child(crate::jump::over(s, p, id, timeline(s, p, id, t)))
         .child(requests(s, p, id));
     // A subagent takes no prompts: its status line stands where the composer would.
     page = if child {
