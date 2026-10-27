@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use rune::{
     Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
-    Shadow, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
+    Align, Shadow, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
 
 use rune_kit::{Kit, Markdown, MarkdownStyle};
@@ -112,7 +112,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
-                    Route::Draft => draft_page(s, p),
+                    Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),
                 })
                 .children(crate::attachments::drop_overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
         )
@@ -282,6 +282,12 @@ const TAB_PITCH: f32 = TAB_H + TAB_GAP;
 const REORDER_SPRING: Spring = Spring::new(0.25, 0.0);
 
 /// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
+/// `t` of the way from `a` to `b` in gamma-encoded sRGB, as CSS opacity blends.
+fn srgb_mix(a: Color, b: Color, t: f32) -> Color {
+    let m = |x: f32, y: f32| { use rune::color::{srgb_decode as dec, srgb_encode as enc}; dec(enc(x) + (enc(y) - enc(x)) * t) };
+    Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: 1.0 }
+}
+
 fn over(top: Color, bottom: Color) -> Color {
     let a = top.a + bottom.a * (1.0 - top.a);
     if a <= 0.0 {
@@ -710,32 +716,88 @@ fn home(s: &App, p: &Pal) -> El {
 // ---------------------------------------------------------------------------------------------
 // Session
 
-fn draft_page(s: &App, p: &Pal) -> El {
+/// The new-session page, as Desktop's `new-session/view.tsx`: the wordmark about a quarter of
+/// the way down, the composer 32 below it with where the session will start under that.
+/// `width`: the panel's width last frame.
+fn draft_page(s: &App, p: &Pal, width: f32) -> El {
+    let content = col()
+        .key("draft-content")
+        .w_full()
+        .max_w(880.0)
+        .child(wordmark(p, width))
+        .child(col().key("draft-composer").w_full().mt(32.0).gap(4.0).child(composer(s, p).max_w(880.0)).child(location(s, p)));
     col()
         .key("draft")
         .grow(1.0)
         .w_full()
-        .child(
-            row()
-                .key("header")
-                .h(48.0)
-                .pl(14.0)
-                .center_y()
-                .window_drag()
-                .child(collapsed_slot(s))
-                .child(text("New session").font(UI_MED).color(p.text)),
-        )
-        .child(
-            col()
-                .key("draft-hero")
-                .grow(1.0)
-                .center()
-                .gap(6.0)
-                .child(text("What should we build?").font(TextStyle::new(20.0, 530.0).lh(28.0)).color(p.text))
-                .child(text(format!("New session in {}", s.draft_dir.replace(&home_dir(), "~"))).font(UI).color(p.faint)),
-        )
-        .child(composer_dock(s, p))
+        .child(row().key("header").h(48.0).pl(14.0).center_y().window_drag().child(collapsed_slot(s)))
+        // Flex shares that put the wordmark near Desktop's 25.375% from the top at usual sizes.
+        .child(el().key("above").grow(0.3))
+        .child(col().key("draft-column").w_full().px(24.0).center().child(content))
+        .child(el().key("below").grow(0.7))
         .children(s.debug.then(|| status_bar(s, p, None)))
+}
+
+/// OpenCode's wordmark (`ui/logo.tsx`) as Desktop's new-session page draws it at rest: every
+/// letter in the icon colour at 16%, the counters fainter still. It spans 80% of up to 720 pt,
+/// scaled so its 6-unit grid lands on whole points.
+fn wordmark(p: &Pal, width: f32) -> El {
+    // x, y, w, h in the logo's 234×42 units; `true` for a counter's lower half.
+    const RECTS: [(f32, f32, f32, f32, bool); 40] = [
+        (0., 6., 24., 6., false), (0., 12., 6., 24., false), (18., 12., 6., 24., false), (6., 30., 12., 6., false), (6., 18., 12., 12., true),
+        (30., 6., 24., 6., false), (30., 12., 6., 30., false), (48., 12., 6., 24., false), (36., 30., 12., 6., false), (36., 18., 12., 12., true),
+        (60., 6., 24., 6., false), (60., 12., 6., 24., false), (78., 12., 6., 12., false), (66., 18., 12., 6., false), (66., 30., 18., 6., false), (66., 24., 18., 6., true),
+        (90., 6., 18., 6., false), (90., 12., 6., 24., false), (108., 12., 6., 24., false), (96., 18., 12., 18., true),
+        (120., 6., 24., 6., false), (120., 12., 6., 18., false), (120., 30., 24., 6., false), (126., 18., 18., 12., true),
+        (150., 6., 24., 6., false), (150., 12., 6., 24., false), (168., 12., 6., 24., false), (156., 30., 12., 6., false), (156., 18., 12., 12., true),
+        (180., 6., 18., 6., false), (198., 0., 6., 36., false), (180., 12., 6., 24., false), (186., 30., 12., 6., false), (186., 18., 12., 12., true),
+        (210., 6., 24., 6., false), (210., 12., 6., 24., false), (228., 12., 6., 12., false), (216., 18., 12., 6., false), (216., 30., 18., 6., false), (216., 24., 18., 6., true),
+    ];
+    let span = 0.8 * if width > 0.0 { (width - 48.0).min(720.0) } else { 720.0 };
+    let k = ((span / 39.0).round().max(2.0)) / 6.0;
+    // Mixed in sRGB as the browser composites the 16% group, so it's as faint as Desktop's.
+    let (stem, weak) = (srgb_mix(p.bg_base, p.icon, 0.16), srgb_mix(p.bg_base, p.icon, 0.16 * 0.3));
+    let mut logo = el().key("wordmark").size(234.0 * k, 42.0 * k);
+    for (x, y, w, h, counter) in RECTS {
+        logo = logo.child(el().absolute(x * k, y * k).size(w * k, h * k).fill(if counter { weak } else { stem }));
+    }
+    row().key("wordmark-row").w_full().justify_center().child(logo)
+}
+
+/// Where the new session starts: the project's avatar and name, which open the project
+/// picker, and its folder, faint at the end.
+fn location(s: &App, p: &Pal) -> El {
+    let project = s.draft_project();
+    let name = project.map_or_else(|| s.draft_dir.rsplit('/').next().unwrap_or("").to_owned(), |x| x.name.clone());
+    let dir = s.draft_dir.replace(&home_dir(), "~");
+    let open = s.pickers.open == Some(Kind::Project);
+    let button = row()
+        .key("project")
+        .role("button")
+        .label("Choose a project")
+        .h(28.0)
+        .pl(6.0)
+        .pr(8.0)
+        .gap(6.0)
+        .center_y()
+        .radius(4.0)
+        .fill(if open { p.hover } else { Color::TRANSPARENT })
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press(|s: &mut App| s.open_picker(Kind::Project))
+        .child(avatar(p, &name))
+        .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate());
+    row()
+        .key("location")
+        .w_full()
+        .min_h(36.0)
+        .pl(8.0)
+        .pr(6.0)
+        .gap(12.0)
+        .center_y()
+        .child(button)
+        .child(spacer())
+        .child(text(dir).font(UI).color(p.faint).truncate().shrink().pr(6.0))
 }
 
 fn session_page(s: &App, p: &Pal, id: &str) -> El {
@@ -1408,6 +1470,14 @@ fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color) -> El {
 }
 
 fn composer_dock(s: &App, p: &Pal) -> El {
+    let queue = match &s.route {
+        Route::Session(id) => crate::queue::panel(s, p, id, s.busy(id)),
+        _ => None,
+    };
+    col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer(s, p))
+}
+
+fn composer(s: &App, p: &Pal) -> El {
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
@@ -1430,7 +1500,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
             icon(&ic::ARROW_UP, 16.0).color(if ready { p.text } else { p.icon_faint })
         });
     let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
-    let composer = col()
+    col()
         .key("composer")
         .w_full()
         .max_w(CONTENT_W)
@@ -1484,12 +1554,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                 .child(spacer())
                 .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
                 .child(submit),
-        );
-    let queue = match &s.route {
-        Route::Session(id) => crate::queue::panel(s, p, id, busy),
-        _ => None,
-    };
-    col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer)
+        )
 }
 
 fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
@@ -1516,7 +1581,8 @@ fn picker(s: &App, p: &Pal) -> El {
     let selected = s.picker_current(kind);
     let items = s.picker_items();
     let mut menu = col().key(format!("picker-{}", kind.key())).role("menu").label(format!("Choose {}", kind.key()))
-        .above(kind.key(), 6.0).w(if kind == Kind::Model { 284.0 } else { 180.0 })
+        .anchored(kind.key(), if kind == Kind::Project { Side::Bottom } else { Side::Top }, Align::Start, 6.0)
+        .w(match kind { Kind::Model => 284.0, Kind::Project => 240.0, _ => 180.0 })
         .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::opacity().springs(no_motion()))
         // Its height and rows follow the filter in the keystroke.
@@ -1666,6 +1732,31 @@ mod tests {
             }
         }
         super::EAGER_ROWS.set(false);
+    }
+
+    #[test]
+    fn the_new_session_page_picks_its_project() {
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        app.draft_dir = "/Users/demo/code/lumen/src".into();
+        app.route = crate::Route::Draft;
+        let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
+        rt.frame(0.0);
+        let tap = |rt: &mut Runtime<App>, key: &str| {
+            let e = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap();
+            let (x, y) = (e.rect[0] + e.rect[2] / 2.0, e.rect[1] + e.rect[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            rt.frame(1.0 / 60.0);
+        };
+        assert_eq!(rt.state.draft_project().map(|p| p.name.as_str()), Some("lumen"));
+        tap(&mut rt, "project");
+        assert_eq!(rt.state.pickers.open, Some(crate::pickers::Kind::Project));
+        let harbor = rt.state.projects.iter().find(|p| p.name == "harbor").unwrap().id.clone();
+        tap(&mut rt, &format!("option-{harbor}"));
+        assert_eq!(rt.state.draft_dir, "/Users/demo/code/harbor");
+        assert_eq!(rt.state.pickers.open, None);
     }
 
     #[test]

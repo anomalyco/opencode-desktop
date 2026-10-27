@@ -11,6 +11,8 @@ use serde_json::Value;
 pub struct Project {
     pub id: String,
     pub name: String,
+    /// The project's root folder.
+    pub directory: String,
     pub active: i64,
 }
 
@@ -297,7 +299,7 @@ pub fn parse_projects(v: &Value) -> Vec<Project> {
                 return None;
             }
             let name = dir.rsplit('/').next().unwrap_or(&dir).to_owned();
-            Some(Project { id: s(&p["id"]), name, active: i(&p["time"]["active"]).max(i(&p["time"]["updated"])) })
+            Some(Project { id: s(&p["id"]), name, directory: dir.clone(), active: i(&p["time"]["active"]).max(i(&p["time"]["updated"])) })
         })
         .collect()
 }

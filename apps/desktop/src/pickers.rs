@@ -9,11 +9,11 @@ use crate::{App, Route};
 use opencode_kit::model::{ModelRef, capitalize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Agent, Model, Effort }
+pub enum Kind { Agent, Model, Effort, Project }
 
 impl Kind {
     pub fn key(self) -> &'static str {
-        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort" }
+        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
     }
 }
 
@@ -104,8 +104,18 @@ impl App {
                 std::iter::once(Item { key: "default".into(), label: "Default".into(), group: String::new() })
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item { key: v.clone(), label: capitalize(v), group: String::new() })).collect()
             }
+            Some(Kind::Project) => self.projects.iter().map(|p| Item { key: p.id.clone(), label: p.name.clone(), group: String::new() }).collect(),
             None => vec![],
         }
+    }
+
+    /// The project a new session would start in: the one whose folder holds the draft's.
+    pub fn draft_project(&self) -> Option<&opencode_kit::model::Project> {
+        let dir = self.draft_dir.as_str();
+        self.projects
+            .iter()
+            .filter(|p| !p.directory.is_empty() && (dir == p.directory || dir.starts_with(&format!("{}/", p.directory))))
+            .max_by_key(|p| p.directory.len())
     }
 
     /// Whether the selected model has an effort to choose: Desktop hides the picker for a model
@@ -121,6 +131,7 @@ impl App {
             Kind::Model => format!("{}:{}", s.model.provider, s.model.id),
             Kind::Agent => s.agent,
             Kind::Effort => if s.model.variant.is_empty() { "default".into() } else { s.model.variant },
+            Kind::Project => self.draft_project().map_or_else(String::new, |p| p.id.clone()),
         }
     }
 
@@ -131,7 +142,8 @@ impl App {
     }
 
     pub fn open_picker(&mut self, kind: Kind) {
-        if self.live() { return; }
+        // A live session's model and agent aren't chosen here yet; where a new one starts is.
+        if self.live() && kind != Kind::Project { return; }
         if self.pickers.open == Some(kind) { self.close_picker(true); return; }
         self.pickers.open = Some(kind);
         self.pickers.search = TextEdit::new("");
@@ -155,6 +167,11 @@ impl App {
     pub fn choose_picker(&mut self, key: &str) {
         // Never accept a stale, filtered-out item or a non-option (including empty results).
         if !self.picker_items().iter().any(|i| i.key == key) { return; }
+        if self.pickers.open == Some(Kind::Project) {
+            if let Some(p) = self.projects.iter().find(|p| p.id == key) { self.draft_dir = p.directory.clone(); }
+            self.close_picker(true);
+            return;
+        }
         let mut selected = self.selection();
         match self.pickers.open {
             Some(Kind::Model) => {
@@ -165,7 +182,7 @@ impl App {
             }
             Some(Kind::Agent) => selected.agent = key.into(),
             Some(Kind::Effort) => selected.model.variant = if key == "default" { String::new() } else { key.into() },
-            None => return,
+            Some(Kind::Project) | None => return,
         }
         self.pickers.selections.insert(self.selection_key().to_owned(), selected);
         self.close_picker(true);
@@ -176,8 +193,8 @@ impl App {
             match &ev.key {
                 Key::Escape => self.close_picker(true),
                 Key::Tab => {
-                    let kind = self.pickers.open;
-                    self.close_picker(false);
+                    let kind = self.pickers.open.filter(|k| *k != Kind::Project);
+                    self.close_picker(kind.is_none());
                     self.pickers.toolbar_focus = kind;
                 }
                 Key::Up | Key::Down if !ev.mods.alt && !ev.mods.cmd => {

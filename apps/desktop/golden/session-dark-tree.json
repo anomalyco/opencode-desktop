@@ -6476,6 +6476,48 @@
       "focusVisible": false,
       "focusable": false,
       "focused": false,
+      "help": "Add images and files ⌘U",
+      "inert": false,
+      "key": "add",
+      "label": "Add images and files",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/add",
+      "rect": [
+        430.0,
+        764.0,
+        28.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/add/#0",
+      "rect": [
+        436.0,
+        770.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
       "inert": false,
       "key": "agent",
       "label": "Choose agent",
@@ -6483,7 +6525,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent",
       "rect": [
-        430.0,
+        462.0,
         764.0,
         64.5,
         28.0
@@ -6503,7 +6545,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#0",
       "rect": [
-        438.0,
+        470.0,
         770.0,
         30.5,
         16.0
@@ -6524,7 +6566,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#1",
       "rect": [
-        470.5,
+        502.5,
         770.0,
         16.0,
         16.0
@@ -6545,7 +6587,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model",
       "rect": [
-        498.5,
+        530.5,
         764.0,
         135.5,
         28.0
@@ -6565,7 +6607,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#0",
       "rect": [
-        506.5,
+        538.5,
         770.0,
         101.5,
         16.0
@@ -6586,7 +6628,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#1",
       "rect": [
-        610.0,
+        642.0,
         770.0,
         16.0,
         16.0
@@ -6607,7 +6649,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort",
       "rect": [
-        638.0,
+        670.0,
         764.0,
         62.5,
         28.0
@@ -6627,7 +6669,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#0",
       "rect": [
-        646.0,
+        678.0,
         770.0,
         28.5,
         16.0
@@ -6648,7 +6690,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#1",
       "rect": [
-        676.5,
+        708.5,
         770.0,
         16.0,
         16.0
@@ -6665,11 +6707,11 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/#3",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/#4",
       "rect": [
-        704.5,
+        736.5,
         778.0,
-        373.5,
+        341.5,
         0.0
       ],
       "role": "group",
