@@ -1,0 +1,11 @@
+{
+  "events": [
+    { "t": 0.3, "type": "tap", "key": "prompt" },
+    { "t": 0.5, "type": "type", "text": "Use tabs, not spaces, everywhere", "every": 0.02 },
+    { "t": 1.4, "type": "key", "name": "Enter" },
+    { "t": 1.9, "type": "type", "text": "Then update the docs for the new parser", "every": 0.02 },
+    { "t": 3.0, "type": "key", "name": "Enter", "cmd": true },
+    { "t": 3.5, "type": "type", "text": "And keep the reconnect cap at 30s.", "every": 0.02 },
+    { "t": 4.5, "type": "key", "name": "Enter", "cmd": true }
+  ]
+}

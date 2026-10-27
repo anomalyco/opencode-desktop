@@ -1545,10 +1545,14 @@ fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color) -> El {
 
 fn composer_dock(s: &App, p: &Pal) -> El {
     let queue = match &s.route {
-        Route::Session(id) => crate::queue::panel(s, p, id, s.busy(id)),
+        Route::Session(id) => Some(crate::queue::panel(s, p, id, s.busy(id))),
         _ => None,
     };
     col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer(s, p))
+}
+
+pub fn composer_fill(p: &Pal) -> Color {
+    if p.dark { p.layer1 } else { p.bg_base }
 }
 
 fn composer(s: &App, p: &Pal) -> El {
@@ -1579,8 +1583,8 @@ fn composer(s: &App, p: &Pal) -> El {
         .w_full()
         .max_w(CONTENT_W)
         .min_h(96.0)
-        .radius(12.0)
-        .fill(if p.dark { p.layer1 } else { p.bg_base })
+        .corners(if crate::queue::docked(s) { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
+        .fill(composer_fill(p))
         .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
         // The question dock's face springs in and out under this edge.

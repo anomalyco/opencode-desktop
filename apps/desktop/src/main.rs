@@ -1040,7 +1040,13 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.inbox = Some(inbox);
     }
     while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
-        let (_, ty, data) = s.playback.pop_front().unwrap();
+        let (_, ty, mut data) = s.playback.pop_front().unwrap();
+        // A scripted delivery names the oldest prompt of its kind, which has no id until sent.
+        if let Some(kind) = Delivery::parse(&data["next"])
+            && let Some(item) = s.inboxes.get(data["sessionID"].as_str().unwrap_or("")).and_then(|i| i.items.iter().find(|i| i.delivery == kind))
+        {
+            data["inboxID"] = item.id.clone().into();
+        }
         s.apply_event(&ty, &data);
         changed = true;
     }
@@ -1230,6 +1236,17 @@ fn dock_icon() {
     }
 }
 
+fn busy_scene(s: &mut App) {
+    open_scene(s);
+    s.finish_stream();
+    if let Route::Session(id) = s.route.clone() {
+        if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
+            a.completed = None;
+        }
+        s.running.insert(id);
+    }
+}
+
 fn main() {
     #[cfg(target_os = "macos")]
     dock_icon();
@@ -1250,15 +1267,14 @@ fn main() {
                 }
             }),
             // The open session's turn still running, so Enter steers and ⌘⏎ queues.
-            ("busy", |s| {
-                open_scene(s);
-                s.finish_stream();
-                if let Route::Session(id) = s.route.clone() {
-                    if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
-                        a.completed = None;
-                    }
-                    s.running.insert(id);
-                }
+            ("busy", busy_scene),
+            // Busy, then the server takes the steer at 5.6 s and the queued prompts at 6.6 and
+            // 7.6 s: with `scripts/steer-dock.json`, a steer and two queued prompts delivered.
+            ("busy-deliver", |s| {
+                busy_scene(s);
+                let Route::Session(id) = s.route.clone() else { return };
+                let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
+                s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
             }),
             ("draft", |s| s.route = Route::Draft),
             ("icon-playground", |s| s.playground = &[false, true]),

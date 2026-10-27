@@ -184,11 +184,23 @@ fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, side: f32,
         .child(icon(glyph, size).color(p.icon_muted))
 }
 
-/// The queue: a panel tucked under the composer's top edge, one row per queued prompt.
-pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
-    let queued: Vec<&InboxItem> = s.inbox_for(session)?.queued().collect();
+/// How far the queue tucks under the composer's top edge.
+const TUCK: f32 = 12.0;
+
+/// The queue: one shape with the composer, its square bottom tucked under the composer's top
+/// edge. Empty, it is a line along that edge, so it opens and closes as its height springs and
+/// every queued prompt comes and goes through the composer.
+pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
+    let queued: Vec<&InboxItem> = s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default();
+    let panel = col()
+        .key("queue")
+        .w_full()
+        .max_w(crate::view::CONTENT_W)
+        .corners([12.0, 12.0, 0.0, 0.0])
+        .fill(crate::view::composer_fill(p))
+        .border(0.5, p.ring);
     if queued.is_empty() {
-        return None;
+        return panel.h(0.0);
     }
     let n = queued.len();
     let mut list = col().key("queue-list").w_full();
@@ -198,20 +210,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
         list = list.child(queue_row(p, session, item, busy, !busy && k == 0));
     }
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
-    let mut panel = col()
-        .key("queue")
-        .role("list")
-        .label("Queued prompts")
-        .w_full()
-        .max_w(crate::view::CONTENT_W)
-        .px(6.0)
-        .pt(6.0)
-        .pb(if n > 4 { 12.0 } else { 18.0 })
-        .mb(-12.0)
-        .radius(12.0)
-        .fill(p.bg_base)
-        .border(0.5, p.border)
-        .transition(rune::Transition::opacity().springs(crate::view::no_motion()));
+    let mut panel = panel.role("list").label("Queued prompts").mb(-TUCK).px(6.0).pt(6.0).pb(if n > 4 { TUCK } else { 18.0 });
     if n > 3 {
         panel = panel.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(text(format!("{n} QUEUED")).font(LABEL).color(p.muted)));
     }
@@ -220,7 +219,12 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     } else {
         list
     };
-    Some(panel.child(list))
+    panel.child(list)
+}
+
+/// Whether the open session has prompts in the queue, which squares the composer's top corners.
+pub fn docked(s: &App) -> bool {
+    matches!(&s.route, crate::Route::Session(id) if s.inbox_for(id).is_some_and(|i| i.queued().next().is_some()))
 }
 
 fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool) -> El {
@@ -262,6 +266,8 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         .center_y()
         .radius(6.0)
         .hover_group()
+        // It leaves at once, and the queue closes up on its height spring.
+        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
         .child(left)
         .child(
             reveal(row().key("actions").gap(6.0).center_y())
@@ -521,5 +527,80 @@ mod tests {
         assert!(!shows(&rt, "Pending"));
         assert!(shows(&rt, "use tabs, not spaces"));
         assert!(rt.state.transcripts[&sid].messages.iter().any(|m| m.id() == id));
+    }
+
+    fn element(rt: &Runtime<App>, key: &str) -> rune::ElementInfo {
+        rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("no {key}"))
+    }
+
+    /// The queue's top edge, frame by frame, with the composer's top-left radius.
+    fn dock_edges(rt: &mut Runtime<App>, frames: usize) -> Vec<(f32, f32)> {
+        (0..frames)
+            .map(|f| {
+                if f > 0 {
+                    rt.frame(1.0 / 120.0);
+                }
+                let queue = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("queue"));
+                let composer = element(rt, "composer");
+                (queue.map_or(composer.rect[1], |q| q.rect[1]), composer.radius)
+            })
+            .collect()
+    }
+
+    fn monotonic(at: &[f32], what: &str) {
+        let total = at[at.len() - 1] - at[0];
+        for w in at.windows(2) {
+            assert!((w[1] - w[0]) * total.signum() >= -0.01, "{what} turns back: {at:?}");
+            assert!((w[1] - w[0]).abs() <= total.abs().max(20.0) / 8.0, "{what} jumps: {at:?}");
+        }
+    }
+
+    #[test]
+    fn the_queue_and_the_composer_are_one_shape() {
+        let mut rt = settled_busy_app();
+        type_and_submit(&mut rt, "then update the docs", true);
+        for _ in 0..90 {
+            rt.frame(1.0 / 120.0);
+        }
+        let (queue, composer) = (element(&rt, "queue"), element(&rt, "composer"));
+        assert!((queue.rect[0] - composer.rect[0]).abs() < 0.5 && (queue.rect[2] - composer.rect[2]).abs() < 0.5, "same edges: {:?} {:?}", queue.rect, composer.rect);
+        assert!(queue.rect[1] + queue.rect[3] >= composer.rect[1] + 11.5, "tucked under the composer's top edge: {:?} {:?}", queue.rect, composer.rect);
+        assert_eq!(queue.fill, composer.fill, "the composer's surface");
+        assert!(composer.radius < 0.5, "the composer's top corners meet the queue square: {}", composer.radius);
+    }
+
+    #[test]
+    fn the_queue_rises_from_behind_the_composer() {
+        let mut rt = settled_busy_app();
+        let top = element(&rt, "composer").rect[1];
+        type_and_submit(&mut rt, "then update the docs", true);
+        let edges: Vec<f32> = dock_edges(&mut rt, 90).iter().map(|e| e.0).collect();
+        assert!(edges[0] >= top - 1.0, "starts hidden behind the composer: {edges:?}");
+        assert!(edges[edges.len() - 1] < top - 30.0, "opens: {edges:?}");
+        monotonic(&edges, "the queue's edge");
+        let land = edges.iter().position(|y| (y - edges[edges.len() - 1]).abs() < 0.5).unwrap();
+        assert!(land >= 24, "opens over {land} frames: {edges:?}");
+    }
+
+    #[test]
+    fn the_last_delivery_closes_the_queue_back_behind_the_composer() {
+        let mut rt = settled_busy_app();
+        let top = element(&rt, "composer").rect[1];
+        let id = type_and_submit(&mut rt, "then update the docs", true);
+        for _ in 0..90 {
+            rt.frame(1.0 / 120.0);
+        }
+        let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
+        let at = rt.state.clock;
+        rt.state.playback.push_back((at, "session.inbox.delivered".into(), serde_json::json!({"sessionID": sid, "inboxID": id})));
+        let closing = dock_edges(&mut rt, 90);
+        let edges: Vec<f32> = closing.iter().map(|e| e.0).collect();
+        assert!(edges[0] < top - 30.0, "still open the frame it's delivered: {edges:?}");
+        monotonic(&edges, "the queue's edge");
+        let land = edges.iter().position(|y| (y - edges[edges.len() - 1]).abs() < 0.5).unwrap();
+        assert!(land >= 24, "closes over {land} frames: {edges:?}");
+        assert!(edges[edges.len() - 1] >= top - 0.5, "closes behind the composer: {edges:?}");
+        assert!((closing[closing.len() - 1].1 - 12.0).abs() < 0.5, "the composer's corners round again: {closing:?}");
+        assert!(!rt.elements().iter().any(|e| e.path.contains(&format!("queued-{id}")) && e.opacity > 0.01), "its row doesn't linger");
     }
 }
