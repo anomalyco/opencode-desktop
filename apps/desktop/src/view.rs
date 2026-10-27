@@ -1058,8 +1058,7 @@ impl RowSpec {
                 match &blocks[*block] {
                     Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
                     Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
-                    Block::Agent { agent, title, status, session, background, .. } =>
-                        crate::subagents::card(s, p, &t.session, agent, title, status, *session, *background).pt(*pt),
+                    Block::Agent { .. } => crate::agent_rows_view::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Block::Tool(Step::Tool { id, name, title, status, .. }) =>
                         row().pt(*pt).child(turns::tool_row(p, id, name, title, status)),
                     Block::Tool(Step::Thought { .. }) => unreachable!(),
@@ -1213,9 +1212,10 @@ fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
+    let skip: Vec<bool> = (0..n).map(|i| crate::agent_rows_view::skip(s, &blocks, i)).collect();
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
-    for (i, b) in blocks.into_iter().enumerate() {
+    for (i, b) in blocks.into_iter().enumerate().filter(|(i, _)| !skip[*i]) {
         let tool = !matches!(b, Block::Text { .. });
         let pt = part_gap(prev, tool);
         let content = RowContent::Turn { start, end, block: i, live, pt };

@@ -221,7 +221,10 @@ const ACTIONS: &[Action] = &[
         r.rec.loads.push(r.rec.frames - 1);
         r.play(1.0);
     } },
-    Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
+    Action { name: "agents-today", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 0) },
+    Action { name: "agents-status", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 1) },
+    Action { name: "agents-expanding", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
+    Action { name: "agents-grouped", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
     Action { name: "jump-latest", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: |r| {
         r.swipe_up(1400.0, 1.0);
         if r.rt.find("jump-latest").is_none() { return; }
@@ -230,10 +233,18 @@ const ACTIONS: &[Action] = &[
     } },
 ];
 
-/// Background agents: two start a beat apart and step along, then one finishes and the other
-/// fails.
-fn agents(r: &mut Run) {
+/// Background agents in the ⌘⇧K Subagent rows style `style`: two start a beat apart and step
+/// along, then one finishes and the other fails.
+fn agents(r: &mut Run, style: usize) {
     use crate::agent_stories as st;
+    r.rt.update(|s, tx| {
+        tx.instant();
+        s.knobs.set(&crate::knobs::SUBAGENT_ROWS, style as f32);
+    });
+    r.idle(0.5);
+    // The style's look is the settled start, frame 0.
+    r.rec = Recording::new(r.circ.size(), 1.0 / DT);
+    r.step();
     r.act("an agent starts", |rt| rt.update(st::spawn));
     r.play(1.0);
     r.act("it steps", |rt| rt.update(st::advance));

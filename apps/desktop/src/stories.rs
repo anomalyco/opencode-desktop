@@ -128,7 +128,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Working", knobs: WORKING_KNOBS, keys: WORKING_KEYS, open: working_open, view: session_view },
     Story { group: "Timeline", name: "Steer and Pending", knobs: ROW_KNOBS, keys: STEER_KEYS, open: steer_open, view: session_view },
     Story { group: "Timeline", name: "Subagent", knobs: SUBAGENT_KNOBS, keys: SUBAGENT_KEYS, open: subagent_open, view: session_view },
-    Story { group: "Timeline", name: "Background agents", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
+    Story { group: "Timeline", name: "Subagent rows", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
     Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
     Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
     Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: TURN_KEYS, open: actions_open, view: session_view },
