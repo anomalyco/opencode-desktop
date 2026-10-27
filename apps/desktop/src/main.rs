@@ -53,6 +53,8 @@ pub struct App {
     pub expanded: HashSet<String>,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
+    /// A tab being dragged to a new place in the sidebar.
+    pub tab_drag: tabs::Reorder,
     /// Tabs closed this run, newest last, with the index they had (⌘⇧T reopens).
     closed: Vec<(usize, Tab)>,
     /// UI zoom, 1.0 = 100% (see `view::app`).
@@ -117,6 +119,7 @@ impl App {
             transcripts: HashMap::new(),
             expanded: HashSet::new(),
             tabs: Vec::new(),
+            tab_drag: tabs::Reorder::default(),
             closed: Vec::new(),
             zoom: 1.0,
             running: HashSet::new(),
@@ -241,9 +244,21 @@ impl App {
                 t.directory = s.directory.clone();
             }
         }
+        #[cfg(test)]
+        tabs::SAVED.with(|saved| *saved.borrow_mut() = Some(self.tabs.iter().map(|t| t.id.clone()).collect()));
         if let Source::Live { server, .. } = &self.source {
             tabs::save(&server.base, &self.tabs);
         }
+    }
+
+    /// A dropped tab: it takes its new place, and ⌘1–9 follow the new order.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.tabs.len() || to >= self.tabs.len() {
+            return;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.save_tabs();
     }
 
     /// The root of a session's family.

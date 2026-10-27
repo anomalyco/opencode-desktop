@@ -172,9 +172,9 @@ fn sidebar(s: &App, p: &Pal) -> El {
         Route::Session(id) => Some(s.root_of(id)),
         _ => None,
     };
-    let mut list = col().key("tabs").w_full().gap(4.0).pb(16.0);
-    for t in &s.tabs {
-        list = list.child(tab_row(s, p, t, current == Some(t.id.as_str())));
+    let mut list = col().key("tabs").w_full().gap(TAB_GAP).pb(16.0);
+    for (i, t) in s.tabs.iter().enumerate() {
+        list = list.child(tab_row(s, p, t, i, current == Some(t.id.as_str())));
     }
 
     let w = s.sidebar_w;
@@ -250,7 +250,25 @@ fn sidebar(s: &App, p: &Pal) -> El {
         .child(inner)
 }
 
-fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, active: bool) -> El {
+const TAB_H: f32 = 28.0;
+const TAB_GAP: f32 = 4.0;
+/// How far a tab steps aside for a dragged one.
+const TAB_PITCH: f32 = TAB_H + TAB_GAP;
+/// The tabs a dragged one passes step aside, and a dropped one settles, on this: Beta's
+/// sortable transition (250 ms, `cubic-bezier(0.25, 1, 0.5, 1)`) as a spring with no bounce.
+const REORDER_SPRING: Spring = Spring::new(0.25, 0.0);
+
+/// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
+fn over(top: Color, bottom: Color) -> Color {
+    let a = top.a + bottom.a * (1.0 - top.a);
+    if a <= 0.0 {
+        return Color::TRANSPARENT;
+    }
+    let mix = |t: f32, b: f32| (t * top.a + b * bottom.a * (1.0 - top.a)) / a;
+    Color { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a }
+}
+
+fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -> El {
     let info = s.session(&t.id);
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
@@ -270,13 +288,32 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, active: bool) -> El {
         .role("button")
         .label(title.clone())
         .w_full()
-        .h(28.0)
-        
+        .h(TAB_H)
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
+            // tabs don't open on a drag either).
+            if !s.tab_drag.was_drag() {
+                s.open(&id, tx);
+            }
+        })
+        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match d.phase {
+            Phase::Down => s.tab_drag.press(),
+            Phase::Move => {
+                tx.animated();
+                let count = s.tabs.len();
+                s.tab_drag.follow(index, count, d.dy / s.zoom, TAB_PITCH);
+            }
+            Phase::Up => {
+                let on_tab = (0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y);
+                if let Some((from, to)) = s.tab_drag.end(d.cancelled(), on_tab) {
+                    s.move_tab(from, to);
+                }
+            }
+        })
         .child(
             row()
                 .key("link")
@@ -330,6 +367,15 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, active: bool) -> El {
         );
     if active {
         r = r.fill(p.pressed);
+    }
+    // Its layout and its step aside share one spring, so a drop that swaps one for the other
+    // leaves a passed tab still and slides the dropped one from where it was drawn.
+    r = r.motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
+    if s.tab_drag.dragging() == Some(index) {
+        // Beta lifts it with the pressed overlay alone; here it's opaque on the sidebar's deep
+        // background so the rows it passes don't show through. It follows the pointer exactly.
+        let lifted = over(p.pressed, p.bg_deep);
+        r = r.raise().offset_motion(INSTANT).fill(lifted).hover(lifted);
     }
     r
 }
@@ -1323,5 +1369,143 @@ mod tests {
         let step = xs.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         // A spring, not a jump: no frame covers more than a tenth of the way.
         assert!(step < (hi - lo) / 10.0, "the chevron moves at most {step} pt in a frame");
+    }
+
+    fn sidebar() -> Runtime<App> {
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut app);
+        app.finish_stream();
+        let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
+        rt.poll = Some(crate::poll);
+        rt.frame(0.0);
+        for _ in 0..90 {
+            rt.frame(1.0 / 60.0);
+        }
+        rt
+    }
+
+    fn tab_key(rt: &Runtime<App>, i: usize) -> String {
+        format!("t-{}", rt.state.tabs[i].id)
+    }
+
+    fn tab_y(rt: &Runtime<App>, key: &str) -> f32 {
+        rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect[1]).unwrap_or_else(|| panic!("no {key}"))
+    }
+
+    fn ids(rt: &Runtime<App>) -> Vec<String> {
+        rt.state.tabs.iter().map(|t| t.id.clone()).collect()
+    }
+
+    #[test]
+    fn dragging_a_tab_moves_it_saves_the_order_and_slides_every_row() {
+        let mut rt = sidebar();
+        let before = ids(&rt);
+        let keys: Vec<String> = (0..before.len()).map(|i| tab_key(&rt, i)).collect();
+        let rest: Vec<f32> = keys.iter().map(|k| tab_y(&rt, k)).collect();
+        let pitch = super::TAB_PITCH;
+        assert!((rest[1] - rest[0] - pitch).abs() < 0.5, "rows sit one pitch apart: {rest:?}");
+
+        // Row 1 dragged two rows down, in steps, then dropped.
+        let (x, y) = rt.find(&keys[1]).unwrap();
+        crate::tabs::SAVED.with(|s| *s.borrow_mut() = None);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        let mut drawn: Vec<Vec<f32>> = Vec::new();
+        let steps = 40;
+        for i in 1..=steps {
+            let dy = 2.0 * pitch * i as f32 / steps as f32;
+            rt.pointer_move(x, y + dy);
+            rt.frame(1.0 / 120.0);
+            let dragged = tab_y(&rt, &keys[1]);
+            if dy >= 4.0 {
+                assert!((dragged - (rest[1] + dy)).abs() < 0.01, "the lifted row follows the pointer 1:1: {dragged} vs {}", rest[1] + dy);
+            } else {
+                assert_eq!(dragged, rest[1], "inside the 4 pt slop it's still a press");
+            }
+            drawn.push(keys.iter().map(|k| tab_y(&rt, k)).collect());
+        }
+        assert_eq!(rt.state.tab_drag.dragging(), Some(1));
+        for _ in 0..60 {
+            rt.frame(1.0 / 120.0);
+            drawn.push(keys.iter().map(|k| tab_y(&rt, k)).collect());
+        }
+        let held: Vec<f32> = keys.iter().map(|k| tab_y(&rt, k)).collect();
+        assert!((held[2] - rest[1]).abs() < 0.5 && (held[3] - rest[2]).abs() < 0.5, "the passed rows stepped up: {held:?}");
+        assert!((held[4] - rest[4]).abs() < 0.01, "rows past the target stay put");
+
+        // Dropped 10 pt short of the slot it takes.
+        rt.pointer_move(x, y + 2.0 * pitch - 10.0);
+        rt.frame(1.0 / 120.0);
+        drawn.push(keys.iter().map(|k| tab_y(&rt, k)).collect());
+        rt.pointer_up(x, y + 2.0 * pitch - 10.0);
+        for _ in 0..90 {
+            rt.frame(1.0 / 120.0);
+            drawn.push(keys.iter().map(|k| tab_y(&rt, k)).collect());
+        }
+        let mut want = before.clone();
+        let moved = want.remove(1);
+        want.insert(3, moved);
+        assert_eq!(ids(&rt), want, "the drop moves it");
+        assert_eq!(crate::tabs::SAVED.with(|s| s.borrow().clone()), Some(want), "and saves the new order");
+        assert_eq!(rt.state.route, crate::Route::Session(before[0].clone()), "a drag doesn't open the tab");
+
+        // Every row's drawn top, frame to frame: no jumps, no reversals once it starts toward
+        // its place, and each lands where it rests.
+        for (r, key) in keys.iter().enumerate() {
+            let ys: Vec<f32> = drawn.iter().map(|f| f[r]).collect();
+            let biggest = ys.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+            // The dragged row moves with the hand (one 10 pt step); the rest spring.
+            let limit = if r == 1 { 10.5 } else { 6.0 };
+            assert!(biggest < limit, "{key} jumps {biggest} pt in a frame: {ys:?}");
+            let settled = *ys.last().unwrap();
+            let slot = tab_y(&rt, key);
+            assert!((settled - slot).abs() < 0.01, "{key} lands in its slot");
+        }
+        // From where it was let go, it settles straight down into its slot.
+        let dropped: Vec<f32> = drawn[drawn.len() - 91..].iter().map(|f| f[1]).collect();
+        assert!((dropped[0] - (rest[3] - 10.0)).abs() < 0.01, "let go 10 pt short: {}", dropped[0]);
+        assert!(dropped[1] > dropped[0] && dropped[1] < dropped[0] + 5.0, "it starts from where it was drawn: {dropped:?}");
+        assert!(dropped.windows(2).all(|w| w[1] >= w[0] - 0.01), "one way, no bounce: {dropped:?}");
+        assert!((tab_y(&rt, &keys[1]) - rest[3]).abs() < 0.5, "the dropped row ends in row 3's slot");
+    }
+
+    #[test]
+    fn a_click_without_a_drag_still_opens_the_tab() {
+        let mut rt = sidebar();
+        let before = ids(&rt);
+        let key = tab_key(&rt, 2);
+        let (x, y) = rt.find(&key).unwrap();
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_move(x, y + 2.0);
+        rt.frame(1.0 / 60.0);
+        rt.pointer_up(x, y + 2.0);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.route, crate::Route::Session(before[2].clone()), "the click opens it");
+        assert_eq!(ids(&rt), before, "and moves nothing");
+        assert_eq!(rt.state.tab_drag.dragging(), None);
+    }
+
+    #[test]
+    fn escape_puts_a_dragged_tab_back() {
+        let mut rt = sidebar();
+        rt.on_key = Some(crate::on_key);
+        let before = ids(&rt);
+        let key = tab_key(&rt, 0);
+        let rest = tab_y(&rt, &key);
+        let (x, y) = rt.find(&key).unwrap();
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_move(x, y + 3.0 * super::TAB_PITCH);
+        rt.frame(1.0 / 60.0);
+        rt.key(rune::KeyEvent { key: rune::Key::Escape, mods: rune::Mods::default() });
+        rt.frame(1.0 / 60.0);
+        rt.pointer_up(x, y + 3.0 * super::TAB_PITCH);
+        for _ in 0..90 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(ids(&rt), before);
+        assert!((tab_y(&rt, &key) - rest).abs() < 0.01, "back in its place");
     }
 }
