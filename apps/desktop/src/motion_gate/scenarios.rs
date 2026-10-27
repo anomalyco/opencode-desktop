@@ -221,10 +221,7 @@ const ACTIONS: &[Action] = &[
         r.rec.loads.push(r.rec.frames - 1);
         r.play(1.0);
     } },
-    Action { name: "agents-desktop", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 0) },
-    Action { name: "agents-stack", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 1) },
-    Action { name: "agents-inline", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
-    Action { name: "agents-capsule", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
+    Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
     Action { name: "jump-latest", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: |r| {
         r.swipe_up(1400.0, 1.0);
         if r.rt.find("jump-latest").is_none() { return; }
@@ -233,19 +230,10 @@ const ACTIONS: &[Action] = &[
     } },
 ];
 
-/// Background agents in the ⌘⇧K Subagents style `style`: two start a beat apart and step
-/// along, then one finishes and the other fails, each holding its mark before it folds away.
-fn agents(r: &mut Run, style: usize) {
+/// Background agents: two start a beat apart and step along, then one finishes and the other
+/// fails.
+fn agents(r: &mut Run) {
     use crate::agent_stories as st;
-    r.rt.update(|s, tx| {
-        tx.instant();
-        s.knobs.set(&crate::knobs::AGENTS_STYLE, style as f32);
-    });
-    r.idle(0.5);
-    // The style's look is the settled start, frame 0.
-    r.rec = Recording::new(r.circ.size(), 1.0 / DT);
-    r.step();
-    let fold = (crate::agents::HOLD_MS + crate::agents::FOLD_MS) as f64 / 1000.0 + 0.6;
     r.act("an agent starts", |rt| rt.update(st::spawn));
     r.play(1.0);
     r.act("it steps", |rt| rt.update(st::advance));
@@ -255,9 +243,9 @@ fn agents(r: &mut Run, style: usize) {
     r.act("both step", |rt| rt.update(st::advance));
     r.play(0.6);
     r.act("the first finishes", |rt| rt.update(st::finish_oldest));
-    r.play(fold);
+    r.play(1.0);
     r.act("the second fails", |rt| rt.update(st::fail_newest));
-    r.play(fold);
+    r.play(1.0);
 }
 
 /// Opening a session through the real gate: cold (ready at 100 ms), prefetched, slow.

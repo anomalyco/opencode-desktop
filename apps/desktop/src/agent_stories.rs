@@ -1,6 +1,6 @@
 //! The storybook's Background agents story (Timeline › Background agents): agents start one
-//! after another, work through their steps and finish, in whichever ⌘⇧K Subagents style is
-//! picked. S starts another, F finishes the oldest, E fails the newest, R replays.
+//! after another, work through their steps and finish. S starts another, F finishes the oldest,
+//! E fails the newest, R replays.
 
 use opencode_kit::model::{Message, Part, SessionInfo, ToolStatus};
 use rune::Tx;
@@ -8,14 +8,13 @@ use rune_knobs::{Action, Group, Knob};
 use serde_json::json;
 
 use crate::App;
-use crate::knobs::AGENTS_STYLE;
 use crate::stories::{emit, replay, sid};
 
 /// How many agents the story starts.
 pub const COUNT: Knob = Knob::choice("Agents", &["1", "3", "6"], 1);
 const COUNTS: [usize; 3] = [1, 3, 6];
 
-pub const KNOBS: &[Group] = &[Group::new("Subagents", "stage", &[AGENTS_STYLE, COUNT])];
+pub const KNOBS: &[Group] = &[Group::new("Subagents", "stage", &[COUNT])];
 pub const KEYS: &[Action<App>] = &[
     Action { cap: "R", label: "Replay", run: replay },
     Action { cap: "S", label: "Start another", run: spawn },
@@ -45,10 +44,8 @@ fn started(s: &App) -> Vec<String> {
     (0..).map(child).take_while(|c| s.session(c).is_some()).collect()
 }
 
-/// A snapshot scene: the story in `style` (a [`crate::agents::NAMES`] index) with `count` (a
-/// [`COUNT`] index) agents.
-pub fn scene(s: &mut App, style: usize, count: usize) {
-    s.knobs.set(&AGENTS_STYLE, style as f32);
+/// A snapshot scene: the story with `count` (a [`COUNT`] index) agents.
+pub fn scene(s: &mut App, count: usize) {
     s.knobs.set(&COUNT, count as f32);
     crate::stories::scene(s, "Background agents");
 }

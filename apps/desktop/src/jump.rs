@@ -102,7 +102,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
     } else {
         // The capsule's row sits right under the timeline unless a request card comes between.
         let capsule = !s.session(id).is_some_and(|i| i.parent.is_some())
-            && crate::agents_view::shares_lane(s, id)
+            && !s.running_subagents(id).is_empty()
             && !s.pending_for(id).iter().any(|r| matches!(r, Pending::Permission { .. }));
         let bottom = if capsule { GAP - CAPSULE_LANE } else { GAP };
         row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(bottom)).px(24.0).center()

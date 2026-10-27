@@ -18,7 +18,7 @@ use crate::{App, Route};
 const INSTANT: Anim = Anim::INSTANT;
 
 /// One running subagent of a session, for the capsule's list.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Running {
     pub session: String,
     pub agent: String,
@@ -50,12 +50,6 @@ impl App {
     /// The sessions running below `id`, oldest first, named by their latest call in `id`'s
     /// transcript when there is one.
     pub fn running_subagents(&self, id: &str) -> Vec<Running> {
-        let running = self.running.iter().map(String::as_str).filter(|r| *r != id && self.descends(r, id));
-        self.subagents_named(id, running)
-    }
-
-    /// `children` of `id`, oldest first, named as [`App::running_subagents`] names them.
-    pub fn subagents_named<'a>(&self, id: &str, children: impl Iterator<Item = &'a str>) -> Vec<Running> {
         let mut calls: Vec<(&str, &str, &str)> = Vec::new();
         for m in self.transcripts.get(id).map_or(&[][..], |t| &t.messages[..]) {
             let Message::Assistant(a) = m else { continue };
@@ -68,13 +62,16 @@ impl App {
                 }
             }
         }
-        let mut out: Vec<Running> = children
+        let mut out: Vec<Running> = self
+            .running
+            .iter()
+            .filter(|r| r.as_str() != id && self.descends(r, id))
             .map(|r| {
                 let info = self.session(r);
                 let call = calls.iter().rev().find(|c| c.0 == r);
                 let agent = call.map(|c| c.2).filter(|a| !a.is_empty()).or(info.map(|i| i.agent.as_str())).unwrap_or("");
-                let label = call.map(|c| c.1.to_owned()).filter(|l| !l.is_empty()).or(info.map(|i| i.title.clone())).unwrap_or_else(|| r.to_owned());
-                Running { session: r.to_owned(), agent: agent.to_owned(), label, started: info.map_or(0, |i| i.created) }
+                let label = call.map(|c| c.1.to_owned()).filter(|l| !l.is_empty()).or(info.map(|i| i.title.clone())).unwrap_or_else(|| r.clone());
+                Running { session: r.clone(), agent: agent.to_owned(), label, started: info.map_or(0, |i| i.created) }
             })
             .collect();
         out.sort_by(|a, b| (a.started, &a.session).cmp(&(b.started, &b.session)));
@@ -174,7 +171,7 @@ pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &T
     }
     surface = surface
         .child(text(model::capitalize(agent)).key("agent").font(UI_MED.lh(20.0)).color(p.text))
-        .child(fit(s, text(subtitle).key("subtitle").font(UI.lh(20.0)).color(p.text)).shrink())
+        .child(text(subtitle).key("subtitle").font(UI.lh(20.0)).color(p.text).truncate().shrink())
         .child(spacer());
     if let Some(c) = child {
         let (parent, c, title, agent) = (parent.to_owned(), c.to_owned(), title.to_owned(), agent.to_owned());
@@ -186,11 +183,6 @@ pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &T
             });
     }
     row().w_full().child(surface)
-}
-
-/// One line cut as Desktop cuts it, or with a soft fade in the live Subagents styles.
-fn fit(s: &App, t: El) -> El {
-    if crate::agents::style(s) == crate::agents::Style::Desktop { t.truncate() } else { t.truncate_fade() }
 }
 
 /// Inside a subagent's session, in the composer's place: how the run is going, the agent and
@@ -361,7 +353,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
 }
 
 /// The run time in the list: 11pt, tabular figures.
-pub(crate) const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
+const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 #[cfg(test)]
 mod tests {
