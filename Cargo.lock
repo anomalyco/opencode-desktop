@@ -1953,6 +1953,7 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-knobs",
+ "rune-playground",
  "rune-theme-opencode",
  "serde_json",
 ]

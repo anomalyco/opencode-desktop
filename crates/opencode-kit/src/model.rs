@@ -277,6 +277,9 @@ pub fn user_files(id: &str) -> Arc<[Attachment]> {
 /// Records the files on user message `id`, as a local echo of a sent prompt has them.
 pub fn set_user_files(id: &str, files: Vec<Attachment>) {
     let mut store = user_file_store().lock().unwrap();
+    // A cached page and its refresh describe the same immutable prompt. Preserve the bytes'
+    // identity so clients can keep already-decoded images while the refresh is parsed.
+    if store.get(id).is_some_and(|old| old.as_ref() == files.as_slice()) { return; }
     if files.is_empty() {
         store.remove(id);
     } else {
@@ -959,6 +962,18 @@ mod tests {
         let Part::Tool { files, .. } = &a.parts[0] else { panic!() };
         assert_eq!((files.len(), files[0].mime.as_str(), &files[0].bytes[..]), (1, "image/jpeg", &[0xff, 0xd8, 0xff][..]));
         assert!(user_files("msg_none").is_empty());
+    }
+
+    #[test]
+    fn identical_user_file_refresh_preserves_byte_identity() {
+        let mut value = serde_json::json!({"data":[{"id":"msg_file_refresh", "type":"user", "files":[{"mime":"image/png", "name":"shot.png", "uri":"data:image/png;base64,iVBORw=="}]}]});
+        parse_messages(&value);
+        let original = user_files("msg_file_refresh")[0].bytes.clone();
+        parse_messages(&value);
+        assert!(Arc::ptr_eq(&original, &user_files("msg_file_refresh")[0].bytes));
+        value["data"][0]["files"][0]["uri"] = "data:image/png;base64,iVBORwE=".into();
+        parse_messages(&value);
+        assert!(!Arc::ptr_eq(&original, &user_files("msg_file_refresh")[0].bytes));
     }
 
     #[test]

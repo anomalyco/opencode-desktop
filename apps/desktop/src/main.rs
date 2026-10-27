@@ -17,6 +17,9 @@ mod question;
 mod restore;
 mod revert;
 mod session_pages;
+mod open_story;
+#[cfg(test)]
+mod open_story_tests;
 mod shortcuts;
 mod stories;
 mod subagents;
@@ -62,6 +65,8 @@ pub struct App {
     pub source: Source,
     inbox: Option<Receiver<Incoming>>,
     pages: Option<session_pages::Pages>,
+    opening: Option<session_pages::Opening>,
+    open_demo: Option<open_story::Demo>,
     page_history: Option<(std::time::Instant, session_pages::Key, String)>,
     page_history_loaded: HashSet<String>,
     pub projects: Vec<Project>,
@@ -174,6 +179,8 @@ impl App {
             source: Source::Fixture,
             inbox: None,
             pages: None,
+            opening: None,
+            open_demo: None,
             page_history: None,
             page_history_loaded: HashSet::new(),
             projects: Vec::new(),
@@ -524,6 +531,17 @@ impl App {
 
     /// Opens a session: lands at the bottom on the first frame with nothing animating in.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
+        self.cancel_open(tx);
+        if self.pages.is_some() && self.route != Route::Session(id.to_owned()) {
+            self.begin_open(id, tx);
+        } else {
+            self.open_now(id, tx);
+            self.open_page(id, tx);
+        }
+    }
+
+    /// Commits the route, header and transcript together, once the opening gate is ready.
+    fn open_now(&mut self, id: &str, tx: &mut Tx) {
         self.close_picker(false);
         self.activity_open = false;
         self.route = Route::Session(id.to_owned());
@@ -538,7 +556,6 @@ impl App {
             self.save_tabs();
         }
         tx.settle();
-        self.open_page(id, tx);
         match &self.source {
             Source::Live { requests: Some(r), .. } => {
                 if self.pages.is_none() { let _ = r.send(Request::Session(id.to_owned())); }
@@ -596,6 +613,7 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        if self.opening.is_some() { return; }
         if self.add.shell {
             return self.submit_shell(alternate, tx);
         }
@@ -804,6 +822,7 @@ impl App {
         {
             self.draft_dir = dir;
         }
+        self.opening = None;
         self.route = Route::Draft;
         tx.settle();
     }
@@ -951,6 +970,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     let mut changed = false;
+    changed |= open_story::poll(s, now, tx);
     changed |= s.poll_pages(tx);
     let arrivals = Arrivals::before(s);
     let asked = s.question_shown();
@@ -1145,7 +1165,8 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || stories::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
+    if open_story::key(s, ev, tx) { return true; }
+    if knobs::key(s, ev, tx) || stories::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();
@@ -1156,8 +1177,13 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             true
         }
         Key::Command('b') => {
+            s.opening = None;
             s.route = if s.route == Route::Home { s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone())) } else { Route::Home };
             tx.settle();
+            true
+        }
+        Key::Escape if s.opening.is_some() => {
+            s.cancel_open(tx);
             true
         }
         Key::Escape if s.composer.focused && matches!(&s.route, Route::Session(id) if s.busy(id)) => {
@@ -1212,6 +1238,8 @@ fn main() {
     let spec = AppSpec {
         scenes: &[
             ("home", |_| {}),
+            ("open-before", |s| open_story::scene(s, true)),
+            ("open-after", |s| open_story::scene(s, false)),
             ("session", |s| {
                 open_scene(s);
                 s.finish_stream();

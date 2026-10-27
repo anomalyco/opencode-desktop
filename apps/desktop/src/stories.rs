@@ -40,6 +40,9 @@ pub const ALL: &[Story] = &[
     Story { name: "Composer, draft", build: |s| s.composer = TextEdit::new("Also check that the sidebar recovers after the stream reconnects, and add a test for it") },
     Story { name: "Composer, pending", build: pending },
     Story { name: "Composer, subagent", build: |s| { s.running.insert(CHILD.into()); } },
+    Story { name: "Session opening, cold", build: |s| crate::open_story::setup(s, 0) },
+    Story { name: "Session opening, prefetched", build: |s| crate::open_story::setup(s, 1) },
+    Story { name: "Session opening, slow", build: |s| crate::open_story::setup(s, 2) },
 ];
 
 /// Opens story `i`, keeping the app as it was to come back to.

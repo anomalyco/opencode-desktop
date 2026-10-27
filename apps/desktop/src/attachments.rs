@@ -205,6 +205,39 @@ impl Default for Attach {
 }
 
 impl Attach {
+    /// A story controls byte arrival with the replay clock, then uses the real decoder.
+    pub(crate) fn fixture_media(&self, hash: &str, bytes: Option<Vec<u8>>) {
+        let ready = bytes.is_some();
+        self.media.state.lock().unwrap().insert(hash.into(), bytes.map_or(Fetched::Loading, |b| Fetched::Ready(b.into())));
+        if ready {
+            let f = Attachment { mime: "image/png".into(), media: Some(hash.into()), ..Default::default() };
+            self.image(&f).unwrap().wait().unwrap();
+        }
+    }
+
+    /// Start uncached/ref reads in the newest message window too. Older history stays
+    /// demand-loaded; preparing a page is not the same as finishing its image decodes.
+    pub(crate) fn transcript_ready(&self, t: &Transcript) -> bool {
+        use opencode_kit::model::{Part, user_files};
+        let mut ready = true;
+        let mut check = |f: &Attachment| {
+            if !decodable(&f.mime) { return; }
+            let loaded = self.image(f).is_some_and(|i| i.is_ready())
+                || matches!(self.fetched(f), Some(Fetched::Failed(_)));
+            ready &= loaded;
+        };
+        for message in t.messages.iter().rev().take(crate::session_pages::LATEST) {
+            match message {
+                Message::User { id, .. } => for file in user_files(id).iter() { check(file); },
+                Message::Assistant(a) => for part in &a.parts {
+                    if let Part::Tool { files, .. } = part { for file in files { check(file); } }
+                },
+                _ => {}
+            }
+        }
+        ready
+    }
+
     #[cfg(test)]
     pub(crate) fn image_handles(&self) -> Vec<Image> {
         self.images.borrow().values().map(|p| p.image.clone()).chain(self.refs.borrow().values().cloned()).collect()
@@ -215,7 +248,15 @@ impl Attach {
         // A refreshed page has new byte addresses. Release handles once neither a page nor
         // the transcript owns their source; repeated opens must not retain every old copy.
         images.retain(|_, p| Arc::strong_count(&p.bytes) > 1);
-        for p in prepared { images.insert((p.bytes.as_ptr() as usize, p.bytes.len()), p.clone()); }
+        for p in prepared {
+            let mut p = p.clone();
+            // A foreground refresh has its own decoder. Identical bytes already on screen
+            // keep their ready pixels, instead of replacing them with a pending handle.
+            if let Some(old) = images.values().find(|old| old.image.id() == p.image.id() && old.image.is_ready()) {
+                p.image = old.image.clone();
+            }
+            images.insert((p.bytes.as_ptr() as usize, p.bytes.len()), p);
+        }
     }
 
     fn thumbnail_size(&self, f: &Attachment) -> (f32, f32) {
@@ -642,14 +683,14 @@ pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> 
     for (i, f) in images.into_iter().enumerate() {
         let k = format!("img-{i}");
         r = r.child(match s.attach.image(f) {
-            Some(img) => {
+            Some(img) if img.error().is_none() => {
                 let (w, h) = s.attach.thumbnail_size(f);
                 let held = el().key(format!("{k}-held")).size(w, h);
                 let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
                 opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fit), held, format!("{key}:{}", identity(f)), f, img)
             }
             None if s.attach.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
-            None => {
+            _ => {
                 let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
                 row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted))
             }
@@ -746,6 +787,18 @@ mod tests {
 
     fn user(id: &str, text: &str) -> Message {
         Message::User { id: id.into(), text: text.into() }
+    }
+
+    #[test]
+    fn opening_does_not_fetch_images_from_older_history() {
+        let mut attach = Attach::default();
+        attach.set_fetch(Arc::new(|_| panic!("older image fetched before its row mounted")));
+        let file = Attachment { mime:"image/png".into(), media:Some("b".repeat(64)), ..Default::default() };
+        opencode_kit::model::set_user_files("older_open_image", vec![file]);
+        let mut messages = vec![user("older_open_image", "Old screenshot")];
+        messages.extend((0..crate::session_pages::LATEST).map(|i| user(&format!("newer_open_{i}"), "Recent text")));
+        assert!(attach.transcript_ready(&Transcript { session:"history_open".into(), messages }));
+        assert!(attach.image_handles().is_empty());
     }
 
     #[test]

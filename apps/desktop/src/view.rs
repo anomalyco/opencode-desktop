@@ -87,6 +87,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     }
     let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);
+    if s.open_demo.is_some() { return crate::open_story::view(s, p); }
     let w = s.sidebar_w;
     let open = s.sidebar_open;
     let mut root = row()
@@ -244,12 +245,14 @@ fn sidebar(s: &App, p: &Pal) -> El {
                 .gap(4.0)
                 .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
                     |s: &mut App, tx: &mut Tx| {
+                        s.opening = None;
                         s.route = Route::Home;
                         tx.settle();
                     },
                 ))
                 .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "", false).on_press_tx(
                     |s: &mut App, tx: &mut Tx| {
+                        s.opening = None;
                         s.route = Route::Home;
                         s.search.focused = true;
                         tx.settle();
@@ -845,9 +848,9 @@ fn location(s: &App, p: &Pal) -> El {
         .child(text(dir).font(UI).color(p.faint).truncate().shrink().pr(6.0))
 }
 
-fn session_page(s: &App, p: &Pal, id: &str) -> El {
+pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
     let info = s.session(id);
-    let t = s.transcripts.get(id);
+    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
     let mut page = col()
         .key("session")
@@ -863,7 +866,8 @@ fn session_page(s: &App, p: &Pal, id: &str) -> El {
         page.children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
             .child(composer_dock(s, p))
     };
-    page.children(s.debug.then(|| status_bar(s, p, info)))
+    page = page.children(s.debug.then(|| status_bar(s, p, info)));
+    if s.opening.is_some() { page.inert() } else { page }
 }
 
 fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
@@ -928,7 +932,7 @@ fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) 
         .child(collapsed_slot(s))
         .child(crumbs)
         .child(spacer())
-        .child(usage)
+        .children(t.filter(|_| last.is_some()).map(|_| usage))
 }
 
 /// Context ring: a track circle and an arc, both icons built once per 1/32 step.
@@ -1089,7 +1093,7 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
                 .gap(8.0)
                 .center()
                 .child(activity_ring(p))
-                .child(text("Loading messages…").font(UI).color(p.faint)),
+                .child(text(s.opening.as_ref().filter(|o| o.id == id).and_then(|o| o.error.as_deref()).unwrap_or("Loading messages…")).font(UI).color(p.faint)),
         );
     }
     col()
