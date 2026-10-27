@@ -4,7 +4,7 @@
 //! composer until the turn ends, where it can be steered (Send once the turn has stopped),
 //! taken back into the composer, or removed.
 
-use rune::{El, Icon, Tx, col, el, icon, row, text};
+use rune::{El, Icon, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use opencode_kit::client::{Prompt, Write};
@@ -46,8 +46,9 @@ impl App {
     }
 
     /// Admits a prompt sent while the session is busy: shown at once, as Desktop does, and
-    /// replaced by the server's copy when `session.inbox.enqueued` echoes it.
-    pub fn admit(&mut self, session: &str, mut prompt: Prompt, delivery: Delivery, tx: &mut Tx) {
+    /// replaced by the server's copy when `session.inbox.enqueued` echoes it. A steer rises whole
+    /// into the timeline as a send does, and the queue panel rises from behind the composer.
+    pub fn admit(&mut self, session: &str, mut prompt: Prompt, delivery: Delivery) {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
@@ -56,10 +57,6 @@ impl App {
         }
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));
         self.inboxes.entry(session.to_owned()).or_default().upsert(item);
-        match delivery {
-            Delivery::Steer => tx.fly_text("prompt", format!("text-{id}")),
-            Delivery::Queue => tx.instant(),
-        }
         self.composer.clear();
     }
 
@@ -133,60 +130,49 @@ impl App {
     }
 }
 
-/// Pending steers, below the running turn: muted bubbles marked Pending, with Move to queue and
-/// Delete.
-pub fn pending_rows(s: &App, p: &Pal, session: &str) -> Vec<(String, El)> {
-    let Some(inbox) = s.inbox_for(session) else { return Vec::new() };
-    inbox.steering().map(|item| (format!("p-{}", item.id), pending_bubble(p, session, item))).collect()
+/// What a pending steer's bubble says: its words, or its attachment count when it has none.
+pub fn pending_label(item: &InboxItem) -> String {
+    let files = model::user_files(&item.id).len().max(item.files.len());
+    if item.text.trim().is_empty() { attachments_label(files) } else { item.text.clone() }
 }
 
-fn pending_bubble(p: &Pal, session: &str, item: &InboxItem) -> El {
-    let (sq, iq) = (session.to_owned(), item.id.clone());
-    let (sd, id) = (session.to_owned(), item.id.clone());
-    let files = model::user_files(&item.id);
-    let label = if item.text.trim().is_empty() { attachments_label(files.len()) } else { item.text.clone() };
-    col()
-        .w_full()
-        .items_end()
-        .pt(20.0)
-        .pb(16.0)
+/// A pending steer's Move to queue and Delete, where a prompt's copy button goes (see
+/// `view::user_bubble`): beside the bubble while hovered inside a run (`beside`), or on the
+/// line under the run's last steer, marked Pending.
+pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
+    let (sq, iq) = (session.to_owned(), id.to_owned());
+    let (sd, id) = (session.to_owned(), id.to_owned());
+    let buttons = row()
+        .key("pending-actions")
         .gap(4.0)
-        .child(
-            col()
-                .max_w(460.0)
-                .shrink()
-                .px(12.0)
-                .py(8.0)
-                .radius(10.0)
-                .fill(p.layer1)
-                .child(text(label).key(format!("text-{}", item.id)).font(crate::view::BUBBLE).color(p.muted).wrap()),
-        )
-        .child(
-            row()
-                .key("pending-meta")
-                .h(24.0)
-                .gap(4.0)
-                .center_y()
-                .child(icon(&STEER, 14.0).color(p.icon_faint))
-                .child(text("Pending").font(UI).color(p.faint))
-                .child(el().w(4.0))
-                .child(icon_button(p, "move-to-queue", "Move to queue", &TO_QUEUE, 16.0, move |s: &mut App| s.queue_pending(&sq, &iq)))
-                .child(icon_button(p, "delete-pending", "Delete", &ic::TRASH, 16.0, move |s: &mut App| {
-                    s.withdraw(&sd, &id);
-                })),
-        )
+        .center_y()
+        .child(icon_button(p, "move-to-queue", "Move to queue", &TO_QUEUE, 20.0, 14.0, move |s: &mut App| s.queue_pending(&sq, &iq)))
+        .child(icon_button(p, "delete-pending", "Delete", &ic::TRASH, 20.0, 14.0, move |s: &mut App| {
+            s.withdraw(&sd, &id);
+        }));
+    if beside {
+        return buttons.group_opacity(0.0, 1.0);
+    }
+    row()
+        .key("pending-meta")
+        .h(20.0)
+        .gap(4.0)
+        .center_y()
+        .child(icon(&STEER, 14.0).color(p.icon_faint))
+        .child(text("Pending").font(UI).color(p.faint))
+        .child(buttons)
 }
 
 fn attachments_label(n: usize) -> String {
     if n == 1 { "1 attachment".into() } else { format!("{n} attachments") }
 }
 
-fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, size: f32, f: impl Fn(&mut App) + 'static) -> El {
+fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, side: f32, size: f32, f: impl Fn(&mut App) + 'static) -> El {
     row()
         .key(key.to_owned())
         .role("button")
         .label(label.to_owned())
-        .size(24.0, 24.0)
+        .size(side, side)
         .center()
         .radius(4.0)
         .hover(p.hover)
@@ -280,8 +266,8 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         .child(
             reveal(row().key("actions").gap(6.0).center_y())
                 .child(steer)
-                .child(icon_button(p, "undo", "Undo", &UNDO, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
-                .child(icon_button(p, "remove", "Remove", &XMARK, 16.0, move |s: &mut App| {
+                .child(icon_button(p, "undo", "Undo", &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
+                .child(icon_button(p, "remove", "Remove", &XMARK, 24.0, 16.0, move |s: &mut App| {
                     s.withdraw(&sr, &ir);
                 })),
         )
@@ -316,7 +302,7 @@ fn keycap(p: &Pal, key: &str) -> El {
 
 #[cfg(test)]
 mod tests {
-    use rune::{Env, Runtime, TextEdit};
+    use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
 
     use crate::{App, Route};
 
@@ -364,6 +350,152 @@ mod tests {
         rt.frame(1.0 / 120.0);
         assert_eq!(rt.state.composer.text, "then update the docs");
         assert!(texts(&rt, "queue").is_empty());
+    }
+
+    fn settled_busy_app() -> Runtime<App> {
+        let mut rt = busy_app();
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        rt
+    }
+
+    fn tap(rt: &mut Runtime<App>, key: &str) {
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no {key}"));
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+    }
+
+    /// Types `body` into the composer through real input and presses Enter (⌘⏎ when `queue`).
+    fn type_and_submit(rt: &mut Runtime<App>, body: &str, queue: bool) -> String {
+        tap(rt, "prompt");
+        rt.frame(1.0 / 60.0);
+        rt.key(KeyEvent { key: Key::Text(body.into()), mods: Default::default() });
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.composer.text, body, "typed into the composer");
+        rt.key(KeyEvent { key: Key::Enter, mods: Mods { cmd: queue, ..Default::default() } });
+        rt.frame(1.0 / 120.0);
+        assert!(rt.state.composer.text.is_empty(), "the composer clears: {:?} {}", rt.state.composer.text, rt.state.status);
+        let inbox = rt.state.inboxes.values().find(|i| !i.items.is_empty()).expect("the prompt waits in the inbox");
+        inbox.items.last().unwrap().id.clone()
+    }
+
+    /// The drawn rect of the text keyed `key`; exactly one copy shows.
+    fn text_rect(rt: &Runtime<App>, key: &str) -> Option<([f32; 4], [f32; 4])> {
+        let found: Vec<_> = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some(key)).collect();
+        assert!(found.len() <= 1, "{key} shows {} times", found.len());
+        found.first().map(|e| (e.rect, e.target))
+    }
+
+    /// Frames each prompt's text through `frames` frames of 120 Hz: every frame at its own
+    /// full size, and one monotonic path (never back, never a one-frame snap).
+    fn trace(rt: &mut Runtime<App>, keys: &[String], frames: usize) -> Vec<Vec<[f32; 4]>> {
+        let mut drawn = vec![Vec::new(); keys.len()];
+        for f in 0..frames {
+            // Frame 0 is the one Enter committed in.
+            if f > 0 {
+                rt.frame(1.0 / 120.0);
+            }
+            for (k, key) in keys.iter().enumerate() {
+                let (rect, target) = text_rect(rt, key).unwrap_or_else(|| panic!("frame {f}: {key} shows"));
+                assert!(
+                    (rect[2] - target[2]).abs() < 0.01 && (rect[3] - target[3]).abs() < 0.01,
+                    "frame {f}: {key} drawn at {:.0}% size: {rect:?} vs {target:?}",
+                    100.0 * rect[3] / target[3]
+                );
+                drawn[k].push(rect);
+            }
+        }
+        for (key, rects) in keys.iter().zip(&drawn) {
+            let ys: Vec<f32> = rects.iter().map(|r| r[1]).collect();
+            let sign = (ys[ys.len() - 1] - ys[0]).signum();
+            for w in ys.windows(2) {
+                let step = w[1] - w[0];
+                assert!(step * sign >= -0.01, "{key} turns back: {ys:?}");
+                assert!(step.abs() * 120.0 < 700.0, "{key} snaps {step} pt in a frame: {ys:?}");
+            }
+        }
+        drawn
+    }
+
+    #[test]
+    fn a_steer_rises_whole_at_full_size_and_keeps_its_identity_when_delivered() {
+        let mut rt = settled_busy_app();
+        let first = type_and_submit(&mut rt, "Use tabs, not spaces, everywhere in the parser module please", false);
+        let a = format!("text-{first}");
+        let drawn = trace(&mut rt, std::slice::from_ref(&a), 90);
+        let ys: Vec<f32> = drawn[0].iter().map(|r| r[1]).collect();
+        assert!(ys[0] > ys[ys.len() - 1] + 20.0, "it rises into place: {ys:?}");
+
+        // A second Enter stacks a second steer under the first; both travel on one path.
+        let second = type_and_submit(&mut rt, "And keep the cap at 30s.", false);
+        let b = format!("text-{second}");
+        let drawn = trace(&mut rt, &[a.clone(), b.clone()], 90);
+        let ys: Vec<f32> = drawn[1].iter().map(|r| r[1]).collect();
+        assert!(ys[0] > ys[ys.len() - 1] + 20.0, "the second rises into place: {ys:?}");
+
+        // The server takes the first: it stays the same element, where it was, at full size.
+        let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
+        let before = text_rect(&rt, &a).unwrap().0;
+        rt.update(|s, _| {
+            s.apply_event("session.inbox.delivered", &serde_json::json!({"sessionID": sid, "inboxID": first}));
+        });
+        let drawn = trace(&mut rt, &[a.clone(), b], 90);
+        let travel = drawn[0].iter().map(|r| (r[1] - before[1]).abs()).fold(0.0, f32::max);
+        assert!(travel < 1.0, "the delivered prompt stays put: moved {travel} pt");
+    }
+
+    #[test]
+    fn stacked_steers_share_borders_and_keep_their_own_actions() {
+        let mut rt = settled_busy_app();
+        let a = type_and_submit(&mut rt, "Use tabs, not spaces.", false);
+        let b = type_and_submit(&mut rt, "And keep the cap at 30s.", false);
+        for _ in 0..90 {
+            rt.frame(1.0 / 120.0);
+        }
+        let els = rt.elements();
+        let inside = |row: &str, key: &str| {
+            els.iter().find(|e| !e.exiting && e.path.contains(&format!("u-{row}/")) && e.key.as_deref() == Some(key)).cloned()
+        };
+        let (ba, bb) = (inside(&a, "bubble").unwrap(), inside(&b, "bubble").unwrap());
+        assert!((bb.rect[1] - (ba.rect[1] + ba.rect[3]) - 4.0).abs() < 0.5, "4 apart: {:?} {:?}", ba.rect, bb.rect);
+        assert!(inside(&a, "pending-meta").is_none() && inside(&b, "pending-meta").is_some(), "only the run's last says Pending");
+        let working = els.iter().find(|e| !e.exiting && e.key.as_deref() == Some("working")).unwrap();
+        assert!(working.rect[1] > bb.rect[1] + bb.rect[3], "Working stays under the steers");
+
+        // Hovering the first shows its own actions beside it; its Delete removes only it.
+        let actions = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&format!("u-{a}/")) && e.key.as_deref() == Some("pending-actions")).unwrap();
+        assert!(actions(&rt).opacity < 0.01, "hidden until hovered");
+        let (x, y) = (ba.rect[0] + ba.rect[2] / 2.0, ba.rect[1] + ba.rect[3] / 2.0);
+        rt.pointer_move(x, y);
+        for _ in 0..30 {
+            rt.frame(1.0 / 120.0);
+        }
+        assert!(actions(&rt).opacity > 0.99, "shown while hovered");
+        let delete = rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&format!("u-{a}/")) && e.key.as_deref() == Some("delete-pending")).unwrap();
+        let (x, y) = (delete.rect[0] + delete.rect[2] / 2.0, delete.rect[1] + delete.rect[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 120.0);
+        let left: Vec<String> = rt.state.inboxes.values().flat_map(|i| i.items.iter().map(|i| i.id.clone())).collect();
+        assert_eq!(left, vec![b]);
+    }
+
+    #[test]
+    fn a_queued_prompt_shows_at_full_size() {
+        let mut rt = settled_busy_app();
+        let id = type_and_submit(&mut rt, "then update the docs", true);
+        let row = format!("queued-{id}");
+        for f in 0..60 {
+            rt.frame(1.0 / 120.0);
+            let e = rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&row) && e.text.as_deref() == Some("then update the docs"));
+            let e = e.unwrap_or_else(|| panic!("frame {f}: the queued row shows"));
+            assert!((e.rect[3] - e.target[3]).abs() < 0.01 && e.scale == 1.0, "frame {f}: full size: {:?} {}", e.rect, e.scale);
+        }
     }
 
     #[test]

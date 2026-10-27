@@ -1,0 +1,9 @@
+{
+  "events": [
+    { "t": 0.3, "type": "tap", "key": "prompt" },
+    { "t": 0.5, "type": "type", "text": "Use tabs, not spaces, everywhere in the parser module please", "every": 0.02 },
+    { "t": 2.0, "type": "key", "name": "Enter" },
+    { "t": 2.6, "type": "type", "text": "And keep the reconnect cap at 30s.", "every": 0.02 },
+    { "t": 3.6, "type": "key", "name": "Enter" }
+  ]
+}

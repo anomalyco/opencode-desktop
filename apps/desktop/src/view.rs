@@ -11,7 +11,7 @@ use rune::{
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, Message, Part, Pending, SessionInfo, Transcript};
+use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, Pending, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::pickers::Kind;
@@ -951,12 +951,15 @@ struct RowSpec {
 
 enum RowContent {
     User { message: usize, tight: bool, above: bool, below: bool },
+    /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
+    /// under the same row key so delivery keeps it in place.
+    Pending { id: String, tight: bool, above: bool, below: bool },
     Note(usize),
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
     /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
     /// fetched and decoded, only when the row mounts.
-    UserImages { message: usize, pt: f32 },
+    UserImages { id: String, pt: f32 },
     ToolImages { start: usize, end: usize, tool: String },
     Built(Box<El>),
 }
@@ -967,16 +970,26 @@ impl RowSpec {
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
             RowContent::User { message, tight, above, below } => match &t.messages[*message] {
-                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))),
+                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at)), None),
                 _ => unreachable!(),
             },
+            RowContent::Pending { id, tight, above, below } => {
+                let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
+                match item {
+                    Some(item) => {
+                        let label = crate::queue::pending_label(item);
+                        user_bubble(p, id, &label, *tight, *above, *below, 0.0, Some(&t.session))
+                    }
+                    None => col(),
+                }
+            }
             RowContent::Note(i) => match &t.messages[*i] {
                 Message::Note { text: body, .. } => row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)),
                 _ => unreachable!(),
             },
             RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, &t.session, &t.messages[*message])),
-            RowContent::UserImages { message, pt } => {
-                let files = model::user_files(t.messages[*message].id());
+            RowContent::UserImages { id, pt } => {
+                let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
             }
             RowContent::ToolImages { start, end, tool } => {
@@ -1073,6 +1086,7 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
     let busy = t.busy();
     let last_assistant = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(_)));
+    let pending: Vec<&InboxItem> = s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default();
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
@@ -1085,14 +1099,12 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
             Message::User { id, text: body, .. } => {
                 turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
-                let below = t.messages.get(mi + 1).is_some_and(|n| joins(m, n));
-                let gallery = crate::attachments::shows(&model::user_files(id));
-                // A prompt's own images sit 8 above its bubble.
-                let tight = out.is_empty() || gallery;
-                if gallery {
-                    let pt = if out.is_empty() { 8.0 } else { 16.0 };
-                    out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { message: mi, pt }, streaming: false });
-                }
+                // The last prompt runs on into the pending steers under it.
+                let below = match t.messages.get(mi + 1) {
+                    Some(n) => joins(m, n),
+                    None => pending.first().is_some_and(|n| prompts_join(body, n)),
+                };
+                let tight = prompt_images(&mut out, id);
                 if !body.trim().is_empty() {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below }, streaming: false });
                 }
@@ -1104,14 +1116,35 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         }
     }
     turn_rows(s, p, &mut out, &steps, start, t.messages.len(), busy);
+    // Undelivered steers wait below the running work and above Working, as Desktop shows them,
+    // in the row each becomes when the server delivers it to the end of the transcript.
+    let mut prev = match t.messages.last() {
+        Some(Message::User { text, .. }) if steps.is_empty() => Some(text.as_str()),
+        _ => None,
+    };
+    for (k, item) in pending.iter().enumerate() {
+        let above = prev.is_some_and(|x| prompts_join(x, item));
+        let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n));
+        let tight = prompt_images(&mut out, &item.id);
+        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below }, streaming: false });
+        prev = Some(&item.text);
+    }
     if let Some(last) = last_assistant {
         out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
-    // Undelivered steers wait below the running work, as Desktop shows them.
-    for (key, el) in crate::queue::pending_rows(s, p, &t.session) {
-        out.push(RowSpec { key, content: RowContent::Built(Box::new(el)), streaming: false });
-    }
     out
+}
+
+/// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
+/// under what's above it.
+fn prompt_images(out: &mut Vec<RowSpec>, id: &str) -> bool {
+    let gallery = crate::attachments::shows(&model::user_files(id));
+    let tight = out.is_empty() || gallery;
+    if gallery {
+        let pt = if out.is_empty() { 8.0 } else { 16.0 };
+        out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false });
+    }
+    tight
 }
 
 /// Space above a turn's row, as Desktop spaces assistant parts: none under the prompt, 8 between
@@ -1203,23 +1236,34 @@ fn joins(a: &Message, b: &Message) -> bool {
     }
 }
 
+/// Whether pending steer `b` joins the run of the prompt (or steer) with text `a` above it.
+fn prompts_join(a: &str, b: &InboxItem) -> bool {
+    !a.trim().is_empty() && !b.text.trim().is_empty() && b.files.is_empty() && model::user_files(&b.id).is_empty()
+}
+
 /// A prompt's bubble. A run of prompts sits 4 apart with the trailing corners tightened where
 /// they meet (`above`, `below`); the run's last prompt has a copy line under it, and the others
 /// show copy beside the bubble, all only while hovered.
-fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32) -> El {
+///
+/// `pending` (the session) draws an undelivered steer: muted, with Move to queue and Delete in
+/// copy's place, and the run's last one marked Pending under its bubble at all times.
+fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>) -> El {
     let words = body.to_owned();
-    let copy = row()
-        .key("copy")
-        .role("button")
-        .label("Copy message")
-        .size(20.0, 20.0)
-        .center()
-        .radius(4.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .group_opacity(0.0, 1.0)
-        .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(words.clone()))
-        .child(icon(&ic::OUTLINE_COPY, 14.0).color(p.icon_muted));
+    let copy = match pending {
+        Some(session) => crate::queue::pending_actions(p, session, id, below),
+        None => row()
+            .key("copy")
+            .role("button")
+            .label("Copy message")
+            .size(20.0, 20.0)
+            .center()
+            .radius(4.0)
+            .hover(p.hover)
+            .press(p.pressed)
+            .group_opacity(0.0, 1.0)
+            .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(words.clone()))
+            .child(icon(&ic::OUTLINE_COPY, 14.0).color(p.icon_muted)),
+    };
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
     let mut bubble = col()
         .key("bubble")
@@ -1228,7 +1272,7 @@ fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: b
         .px(12.0)
         .py(8.0)
         .corners([10.0, top, end, 10.0])
-        .fill(p.layer2);
+        .fill(if pending.is_some() { p.layer1 } else { p.layer2 });
     if glow > 0.0 {
         // A soft inner glow and a slight lift, under the text.
         let (rim, lift) = if p.dark { (p.accent.mix(Color::WHITE, 0.45), p.text) } else { (p.accent, Color::WHITE) };
@@ -1240,9 +1284,11 @@ fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: b
                 .opacity_motion(INSTANT),
         );
     }
-    bubble = bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(p.text).wrap());
+    let ink = if pending.is_some() { p.muted } else { p.text };
+    bubble = bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap());
     let copy = if below {
-        bubble = bubble.child(copy.absolute(-28.0, 8.5));
+        let x = if pending.is_some() { -52.0 } else { -28.0 };
+        bubble = bubble.child(copy.absolute(x, 8.5));
         None
     } else {
         Some(copy)

@@ -1026,7 +1026,7 @@ mod tests {
         );
         // Queued again, it keeps the ref.
         app.attach.add(media(&hash, "again.png"));
-        app.admit("ses_q", opencode_kit::client::Prompt { files: inputs(&app.attach.files), ..Default::default() }, Delivery::Queue, &mut Tx::default());
+        app.admit("ses_q", opencode_kit::client::Prompt { files: inputs(&app.attach.files), ..Default::default() }, Delivery::Queue);
         let Ok(Write::Send { prompt, .. }) = writes.try_recv() else { panic!("no queued prompt") };
         assert_eq!((prompt.files[0].uri.as_str(), prompt.delivery), (format!("media:{hash}").as_str(), Some(Delivery::Queue)));
     }

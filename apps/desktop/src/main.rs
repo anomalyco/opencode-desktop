@@ -598,7 +598,7 @@ impl App {
         if let Route::Session(id) = self.route.clone()
             && self.busy(&id)
         {
-            self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer }, tx);
+            self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
             return;
         }
         let id = match self.route.clone() {
@@ -1127,6 +1127,17 @@ fn main() {
                 // Playback starts on the first poll.
                 if let Some(id) = s.fixture["open"].as_str().map(str::to_owned) {
                     s.start_stream_if_due(&id);
+                }
+            }),
+            // The open session's turn still running, so Enter steers and ⌘⏎ queues.
+            ("busy", |s| {
+                open_scene(s);
+                s.finish_stream();
+                if let Route::Session(id) = s.route.clone() {
+                    if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
+                        a.completed = None;
+                    }
+                    s.running.insert(id);
                 }
             }),
             ("draft", |s| s.route = Route::Draft),
