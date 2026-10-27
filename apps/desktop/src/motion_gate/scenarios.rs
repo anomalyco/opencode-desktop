@@ -21,6 +21,8 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("offset-jump", "t-msg_001a162cb6dbc013fixture00-2", "send-during-reflow", "the row under an instantly opened tool group moves with it (turns::group)"),
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
+    ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
+    ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
     ("fade-snap", "queued-", "", "Rune: a group_opacity rest level changes at once, so the parked queue's actions cut in and out when a turn starts or stops (reported to Rune)"),
     ("fade-snap", "actions/copy", "jump-latest", "Rune: hover follows rows scrolling under a still pointer, so hover reveals flash as Jump to latest scrolls past (reported to Rune)"),
     ("fade-snap", "chip/open", "jump-latest", "Rune: hover follows rows scrolling under a still pointer, so hover reveals flash as Jump to latest scrolls past (reported to Rune)"),
@@ -115,6 +117,23 @@ const ACTIONS: &[Action] = &[
         let Some(id) = r.rt.state.inboxes.get(SID).and_then(|i| i.items.last()).map(|i| i.id.clone()) else { return };
         r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
         r.play_out(1.0);
+    } },
+    Action { name: "queue-lands", circs: || {
+        let mut v = places(streaming());
+        v.push(Circ { dock: Dock::Pending, ..streaming() });
+        v
+    }, run: |r| {
+        r.start_stream();
+        r.play(1.2);
+        r.type_prompt();
+        r.enter(true);
+        r.play(0.8);
+        // The oldest queued prompt: the one just queued, or the dock's own when it had one.
+        let Some(id) = r.rt.state.inboxes.get(SID).and_then(|i| i.queued().next()).map(|i| i.id.clone()) else { return };
+        r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        // A flight from the queue's left end to a right-aligned bubble crosses ~400 pt; its
+        // spring's tail outlasts a 1 s tail.
+        r.play_out(1.5);
     } },
     Action { name: "stream", circs: || {
         let mut v = places(streaming());

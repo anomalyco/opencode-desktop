@@ -1061,7 +1061,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.apply_event(&ty, &data);
         changed = true;
     }
-    arrivals.glow(s, now);
+    arrivals.land(s, now, tx);
     if s.question_shown() != asked {
         s.morph(tx);
     }

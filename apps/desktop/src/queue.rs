@@ -251,7 +251,7 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         })
         .child(icon(&ic::ARROW_UP, 14.0).color(p.icon_faint))
         .child(text(if busy { "Steer" } else { "Send" }).font(UI_MED).color(p.faint));
-    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).font(UI).color(p.text).truncate());
+    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(p.text).truncate());
     if files > 0 && !item.text.trim().is_empty() {
         left = left.child(text(attachments_label(files)).font(UI).color(p.muted));
     }
@@ -625,5 +625,24 @@ mod tests {
         assert!(edges[edges.len() - 1] >= top - 0.5, "closes behind the composer: {edges:?}");
         assert!((closing[closing.len() - 1].1 - 12.0).abs() < 0.5, "the composer's corners round again: {closing:?}");
         assert!(!rt.elements().iter().any(|e| e.path.contains(&format!("queued-{id}")) && e.opacity > 0.01), "its row doesn't linger");
+    }
+
+    #[test]
+    fn a_delivered_queued_prompt_flies_from_its_row_into_the_timeline() {
+        let mut rt = settled_busy_app();
+        let id = type_and_submit(&mut rt, "then update the docs", true);
+        for _ in 0..90 {
+            rt.frame(1.0 / 120.0);
+        }
+        let row = rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&format!("queued-{id}")) && e.text.as_deref() == Some("then update the docs")).expect("its row").rect;
+        let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
+        rt.update(|s, _| s.playback.push_back((s.clock, "session.inbox.delivered".into(), serde_json::json!({"sessionID": sid, "inboxID": id}))));
+        rt.frame(1.0 / 120.0);
+        let drawn = trace(&mut rt, &[format!("text-{id}")], 90);
+        let (first, last) = (drawn[0][0], drawn[0][89]);
+        assert!((first[0] - row[0]).abs() < 5.0 && (first[1] - row[1]).abs() < 5.0, "leaves from its row: {first:?} vs {row:?}");
+        assert!(first[1] > last[1] + 20.0, "rises into the timeline: {first:?} to {last:?}");
+        let land = drawn[0].iter().position(|r| (r[0] - last[0]).abs() < 0.5 && (r[1] - last[1]).abs() < 0.5).unwrap();
+        assert!(land >= 24, "flies over {land} frames");
     }
 }

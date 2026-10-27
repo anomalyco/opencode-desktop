@@ -29,6 +29,8 @@ static ARROW_DOWN: Icon = Icon {
 pub struct Ends {
     /// Sessions whose timeline you're reading more than a screen up.
     far: HashSet<String>,
+    /// Sessions whose timeline doesn't show its end, where nothing lands in view.
+    off_end: HashSet<String>,
 }
 
 impl Ends {
@@ -36,9 +38,14 @@ impl Ends {
         self.far.contains(id)
     }
 
+    pub fn at_end(&self, id: &str) -> bool {
+        !self.off_end.contains(id)
+    }
+
     /// A timeline that mounts afresh starts on its end.
     pub fn forget(&mut self, id: &str) {
         self.far.remove(id);
+        self.off_end.remove(id);
     }
 }
 
@@ -47,6 +54,14 @@ fn far(id: &str) -> impl Fn(&mut App, bool) + 'static {
     let id = id.to_owned();
     move |s: &mut App, far| {
         if far { s.ends.far.insert(id.clone()); } else { s.ends.far.remove(&id); }
+    }
+}
+
+/// Records whether session `id`'s timeline shows its end.
+fn at_end(id: &str) -> impl Fn(&mut App, bool) + 'static {
+    let id = id.to_owned();
+    move |s: &mut App, at| {
+        if at { s.ends.off_end.remove(&id); } else { s.ends.off_end.insert(id.clone()); }
     }
 }
 
@@ -98,7 +113,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
         .grow(1.0)
         .shrink()
         .w_full()
-        .child(scroll.on_far_from_bottom(THRESHOLD, far(id)))
+        .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
         .child(lane)
 }
 
