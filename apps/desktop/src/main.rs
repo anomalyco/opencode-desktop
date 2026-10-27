@@ -8,6 +8,7 @@ mod pickers;
 mod shortcuts;
 mod switcher;
 mod tabs;
+mod turns;
 mod view;
 
 use std::collections::{HashMap, HashSet, VecDeque};

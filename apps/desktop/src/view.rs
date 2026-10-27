@@ -11,10 +11,11 @@ use rune::{
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, FieldKind, Message, Part, Pending, SessionInfo, ToolStatus, Transcript};
+use opencode_kit::model::{self, Assistant, FieldKind, Message, Part, Pending, SessionInfo, ToolStatus, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::pickers::Kind;
+use crate::turns::{self, Block, Step};
 
 // Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
 pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -746,22 +747,13 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
     let mut out = Vec::new();
     let busy = t.busy();
     let last_assistant = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(_)));
-    // Consecutive tool calls (across steps) collapse into one "Used N tools" row.
-    let mut group: Vec<(&str, &str, &str, &ToolStatus)> = Vec::new();
-    let mut group_key = String::new();
-    let flush = |out: &mut Vec<RowSpec>, group: &mut Vec<(&str, &str, &str, &ToolStatus)>, key: &str| {
-        if group.is_empty() {
-            return;
-        }
-        let k = format!("g-{key}");
-        let open = s.expanded.contains(&k);
-        out.push(RowSpec { el: tool_group(p, &k, group, open), key: k, streaming: false });
-        group.clear();
-    };
-    for (mi, m) in t.messages.iter().enumerate() {
+    // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
+    let mut steps: Vec<&Assistant> = Vec::new();
+    for m in &t.messages {
         match m {
+            Message::Assistant(a) => steps.push(a),
             Message::User { id, text: body, .. } => {
-                flush(&mut out, &mut group, &group_key);
+                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), false, fade);
                 if let Some(g) = crate::attachments::gallery(s, p, "images", &model::user_files(id), true) {
                     out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 20.0 }), streaming: false });
                 }
@@ -770,61 +762,52 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
                 }
             }
             Message::Note { id, text: body } => {
-                flush(&mut out, &mut group, &group_key);
+                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), false, fade);
                 out.push(RowSpec { key: format!("n-{id}"), el: row().pb(12.0).child(text(body.clone()).font(UI).color(p.faint)), streaming: false });
-            }
-            Message::Assistant(a) => {
-                let live_msg = Some(mi) == last_assistant && a.completed.is_none() && a.error.is_none();
-                for (pi, part) in a.parts.iter().enumerate() {
-                    let is_last = live_msg && pi + 1 == a.parts.len();
-                    match part {
-                        Part::Tool { id, name, title, status, input, .. } if name == "task" || name == "subagent" => {
-                            flush(&mut out, &mut group, &group_key);
-                            let agent = input["subagent_type"].as_str().unwrap_or("general");
-                            out.push(RowSpec { key: format!("a-{id}"), el: subagent_chip(p, agent, title, status), streaming: false });
-                        }
-                        Part::Tool { id, name, title, status, files, .. } => {
-                            if group.is_empty() {
-                                group_key = id.clone();
-                            }
-                            group.push((id, name, title, status));
-                            if let Some(g) = crate::attachments::gallery(s, p, "images", files, false) {
-                                flush(&mut out, &mut group, &group_key);
-                                out.push(RowSpec { key: format!("ti-{id}"), el: g, streaming: false });
-                            }
-                        }
-                        Part::Text { text: body } => {
-                            flush(&mut out, &mut group, &group_key);
-                            if body.trim().is_empty() && !is_last {
-                                continue;
-                            }
-                            out.push(RowSpec {
-                                key: format!("t-{}-{pi}", a.id),
-                                el: markdown_view(p, body, fade, is_last).pb(12.0),
-                                streaming: is_last,
-                            });
-                        }
-                        Part::Reasoning { text: body, started, completed } => {
-                            flush(&mut out, &mut group, &group_key);
-                            let k = format!("r-{}-{pi}", a.id);
-                            let open = s.expanded.contains(&k);
-                            let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(1.0) as i64);
-                            out.push(RowSpec { el: reasoning(p, &k, body, secs, open, fade), key: k, streaming: is_last && open });
-                        }
-                    }
-                }
-                if let Some(err) = &a.error {
-                    flush(&mut out, &mut group, &group_key);
-                    out.push(RowSpec { key: format!("e-{}", a.id), el: row().pb(12.0).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()), streaming: false });
-                }
             }
         }
     }
-    flush(&mut out, &mut group, &group_key);
+    turn_rows(s, p, &mut out, &steps, busy, fade);
     if let Some(last) = last_assistant {
         out.push(RowSpec { key: "turn-actions".into(), el: turn_actions(p, busy, &t.session, &t.messages[last]), streaming: false });
     }
     out
+}
+
+/// `live`: these steps end the transcript and the last one is still running.
+fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], live: bool, fade: f32) {
+    let blocks = turns::fold(steps, live);
+    let n = blocks.len();
+    for (i, b) in blocks.into_iter().enumerate() {
+        out.push(match b {
+            Block::Group { key, steps } => {
+                let busy = live && i + 1 == n;
+                let el = turns::group(s, p, &key, &steps, busy, fade);
+                out.push(RowSpec { streaming: busy && s.expanded.contains(&key), el, key });
+                // An image a tool returned shows even while its group is closed.
+                for st in &steps {
+                    if let Step::Tool { id, files, .. } = st
+                        && let Some(g) = crate::attachments::gallery(s, p, "images", files, false)
+                    {
+                        out.push(RowSpec { key: format!("ti-{id}"), el: g, streaming: false });
+                    }
+                }
+                continue;
+            }
+            Block::Text { key, body, live } => RowSpec { el: markdown_view(p, body, fade, live).pb(12.0), key, streaming: live },
+            Block::Agent { id, agent, title, status } => RowSpec { key: format!("a-{id}"), el: subagent_chip(p, agent, title, status), streaming: false },
+            Block::Tool(Step::Tool { id, name, title, status, .. }) => {
+                RowSpec { key: format!("q-{id}"), el: row().pb(12.0).child(turns::tool_row(p, id, name, title, status)), streaming: false }
+            }
+            Block::Tool(Step::Thought { .. }) => continue,
+        });
+    }
+    // Like Desktop, only the turn's last step reports its error.
+    if let Some(a) = steps.last()
+        && let Some(err) = &a.error
+    {
+        out.push(RowSpec { key: format!("e-{}", a.id), el: row().pb(12.0).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()), streaming: false });
+    }
 }
 
 fn user_bubble(p: &Pal, id: &str, body: &str, first: bool) -> El {
@@ -845,65 +828,11 @@ fn user_bubble(p: &Pal, id: &str, body: &str, first: bool) -> El {
         )
 }
 
-fn chevron(open: bool) -> &'static Icon {
+pub(crate) fn chevron(open: bool) -> &'static Icon {
     if open { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }
 }
 
-fn tool_icon(name: &str) -> &'static Icon {
-    match name {
-        "shell" | "bash" => &ic::CONSOLE,
-        "grep" | "glob" => &ic::MAGNIFYING_GLASS,
-        "read" | "edit" | "write" => &ic::CODE_LINES,
-        "todowrite" | "todoread" => &ic::CHECKLIST,
-        _ => &ic::FILE_TREE,
-    }
-}
-
-fn tool_group(p: &Pal, key: &str, tools: &[(&str, &str, &str, &ToolStatus)], open: bool) -> El {
-    let n = tools.len();
-    let running = tools.iter().any(|t| matches!(t.3, ToolStatus::Running | ToolStatus::Pending));
-    let k = key.to_owned();
-    let trigger = row()
-        .key("trigger")
-        .role("button")
-        .h(28.0)
-        .center_y()
-        // A tool joining or finishing crossfades the words while the chevron slides over.
-        .animate_layout()
-        .on_press(move |s: &mut App| {
-            if !s.expanded.remove(&k) {
-                s.expanded.insert(k.clone());
-            }
-        })
-        .child(text(if running { "Using " } else { "Used " }).key(if running { "using" } else { "used" }).font(UI).color(p.muted))
-        .child(text(n.to_string()).key(format!("n{n}")).font(UI).color(p.text))
-        .child(text(if n == 1 { " tool" } else { " tools" }).key(if n == 1 { "tool" } else { "tools" }).font(UI).color(p.muted))
-        .child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint).ml(2.0));
-    let mut c = col().w_full().pb(12.0).child(trigger);
-    if open {
-        let mut list = col().key("tools").gap(0.0).pl(4.0);
-        for (id, name, title, status) in tools {
-            let color = match status {
-                ToolStatus::Error => p.danger,
-                _ => p.muted,
-            };
-            list = list.child(
-                row()
-                    .key(format!("tool-{id}"))
-                    .h(28.0)
-                    .gap(8.0)
-                    .center_y()
-                    .child(icon(tool_icon(name), 14.0).color(p.icon_muted))
-                    .child(text(name.to_string()).font(UI_MED).color(color))
-                    .child(text(title.to_string()).font(UI).color(p.faint).truncate()),
-            );
-        }
-        c = c.child(list);
-    }
-    c
-}
-
-fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open: bool, fade: f32) -> El {
+pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open: bool, fade: f32) -> El {
     let k = key.to_owned();
     let label = match secs {
         Some(s) => format!("Thought for {s}s"),
@@ -1373,9 +1302,9 @@ mod tests {
             s.composer = TextEdit::new("Can you also check the reconnect jitter?");
             s.send(tx);
         });
-        // The reply reads a file, then greps: "Using 1 tool", "Used 1 tool", "Using 2 tools", "Used 2 tools".
+        // The reply reads a file, then greps: "Used 1 Read", then "Used 2 Read, Grep".
         let chevron = |rt: &Runtime<App>| rt.elements().into_iter()
-            .find(|e| !e.exiting && e.path.contains("g-call_reply_read-0001/") && e.key.as_deref() == Some("chevron"))
+            .find(|e| !e.exiting && e.path.contains("c-call_reply_read-0001/") && e.key.as_deref() == Some("chevron"))
             .map(|e| e.rect[0]);
         let mut xs = Vec::new();
         for _ in 0..(4.5 * 120.0) as usize {
@@ -1385,6 +1314,7 @@ mod tests {
         let (lo, hi) = xs.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
         assert!(hi - lo > 4.0, "the header changes width: {lo}..{hi}");
         let step = xs.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
-        assert!(step < 2.0, "the chevron moves at most {step} pt in a frame");
+        // A spring, not a jump: no frame covers more than a tenth of the way.
+        assert!(step < (hi - lo) / 10.0, "the chevron moves at most {step} pt in a frame");
     }
 }

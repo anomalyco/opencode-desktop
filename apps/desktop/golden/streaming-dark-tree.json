@@ -5,6 +5,46 @@
   "elements": [
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "zoom",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom",
+      "rect": [
+        0.0,
+        0.0,
+        1280.0,
+        820.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "zoomed",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed",
+      "rect": [
+        0.0,
+        0.0,
+        1280.0,
+        820.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
       "fill": "#080808ff",
       "focusVisible": false,
       "focusable": false,
@@ -13,7 +53,7 @@
       "key": "window",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window",
+      "path": "zoom/zoomed/window",
       "rect": [
         0.0,
         0.0,
@@ -33,7 +73,7 @@
       "key": "sidebar",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar",
+      "path": "zoom/zoomed/window/sidebar",
       "rect": [
         0.0,
         0.0,
@@ -53,7 +93,7 @@
       "key": "sidebar-inner",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner",
       "rect": [
         0.0,
         0.0,
@@ -73,7 +113,7 @@
       "key": "sidebar-header",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/sidebar-header",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/sidebar-header",
       "rect": [
         10.0,
         8.0,
@@ -93,7 +133,7 @@
       "key": "lights",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/sidebar-header/lights",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/sidebar-header/lights",
       "rect": [
         10.0,
         18.0,
@@ -112,7 +152,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/sidebar-header/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/sidebar-header/#1",
       "rect": [
         93.0,
         32.0,
@@ -132,7 +172,7 @@
       "key": "toggle-slot",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/sidebar-header/toggle-slot",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/sidebar-header/toggle-slot",
       "rect": [
         230.0,
         18.0,
@@ -152,7 +192,7 @@
       "key": "actions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions",
       "rect": [
         10.0,
         64.0,
@@ -173,7 +213,7 @@
       "label": "Home",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/home",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/home",
       "rect": [
         10.0,
         64.0,
@@ -193,7 +233,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/home/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/home/#0",
       "rect": [
         16.0,
         70.0,
@@ -213,7 +253,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/home/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/home/#1",
       "rect": [
         38.0,
         70.0,
@@ -233,7 +273,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/home/#2",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/home/#2",
       "rect": [
         80.5,
         78.0,
@@ -253,7 +293,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/actions/home/#3",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/home/#3",
       "rect": [
         228.5,
         70.0,
@@ -275,7 +315,7 @@
       "label": "Search sessions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/search",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/search",
       "rect": [
         10.0,
         96.0,
@@ -295,7 +335,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/search/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/search/#0",
       "rect": [
         16.0,
         102.0,
@@ -315,7 +355,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/search/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/search/#1",
       "rect": [
         38.0,
         102.0,
@@ -337,7 +377,7 @@
       "label": "New session",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/new",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/new",
       "rect": [
         10.0,
         128.0,
@@ -357,7 +397,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/new/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/new/#0",
       "rect": [
         16.0,
         134.0,
@@ -377,7 +417,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/new/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/new/#1",
       "rect": [
         38.0,
         134.0,
@@ -397,7 +437,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/actions/new/#2",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/new/#2",
       "rect": [
         122.5,
         142.0,
@@ -417,7 +457,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/actions/new/#3",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/new/#3",
       "rect": [
         228.5,
         134.0,
@@ -438,7 +478,7 @@
       "key": "tabs-gap",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-gap",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-gap",
       "rect": [
         10.0,
         156.0,
@@ -458,7 +498,7 @@
       "key": "tabs-scroll",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll",
       "rect": [
         10.0,
         172.0,
@@ -478,7 +518,7 @@
       "key": "tabs",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs",
       "rect": [
         10.0,
         172.0,
@@ -499,7 +539,7 @@
       "label": "Fix flaky reconnect in the event stream",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         172.0,
@@ -519,7 +559,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         172.0,
@@ -538,7 +578,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         178.0,
@@ -558,7 +598,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         20.75,
         178.0,
@@ -579,7 +619,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         178.0,
@@ -600,7 +640,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         176.0,
@@ -619,7 +659,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         244.0,
         186.0,
@@ -640,7 +680,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         176.0,
@@ -660,7 +700,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         176.0,
@@ -680,7 +720,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         178.0,
@@ -701,7 +741,7 @@
       "label": "Sidebar shows stale session titles",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         204.0,
@@ -721,7 +761,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         204.0,
@@ -740,7 +780,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         210.0,
@@ -760,7 +800,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         20.75,
         210.0,
@@ -781,7 +821,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         210.0,
@@ -802,7 +842,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         208.0,
@@ -821,7 +861,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         244.0,
         218.0,
@@ -842,7 +882,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         208.0,
@@ -862,7 +902,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         208.0,
@@ -882,7 +922,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         210.0,
@@ -903,7 +943,7 @@
       "label": "Migrate config loader to the new schema",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         236.0,
@@ -923,7 +963,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         236.0,
@@ -942,7 +982,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         242.0,
@@ -962,7 +1002,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         19.75,
         242.0,
@@ -983,7 +1023,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         242.0,
@@ -1004,7 +1044,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         240.0,
@@ -1024,7 +1064,7 @@
       "key": "ring",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring",
       "rect": [
         237.0,
         243.0,
@@ -1045,7 +1085,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.5460000038146973,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d0",
       "rect": [
         237.88,
         243.88,
@@ -1066,7 +1106,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.6150000095367432,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d1",
       "rect": [
         240.5,
         243.88,
@@ -1087,7 +1127,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d2",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d2",
       "rect": [
         243.13,
         243.88,
@@ -1108,7 +1148,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d3",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d3",
       "rect": [
         245.75,
         243.88,
@@ -1129,7 +1169,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d4",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d4",
       "rect": [
         248.38,
         243.88,
@@ -1150,7 +1190,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.42500001192092896,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d5",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d5",
       "rect": [
         237.88,
         246.5,
@@ -1171,7 +1211,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.5460000038146973,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d6",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d6",
       "rect": [
         240.5,
         246.5,
@@ -1192,7 +1232,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d7",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d7",
       "rect": [
         243.13,
         246.5,
@@ -1213,7 +1253,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d8",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d8",
       "rect": [
         245.75,
         246.5,
@@ -1234,7 +1274,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d9",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d9",
       "rect": [
         248.38,
         246.5,
@@ -1255,7 +1295,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.2939999997615814,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d10",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d10",
       "rect": [
         237.88,
         249.13,
@@ -1276,7 +1316,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.2939999997615814,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d11",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d11",
       "rect": [
         240.5,
         249.13,
@@ -1296,7 +1336,7 @@
       "key": "d12",
       "loopPhase": null,
       "opacity": 0.6399999856948853,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d12",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d12",
       "rect": [
         243.13,
         249.13,
@@ -1317,7 +1357,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d13",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d13",
       "rect": [
         245.75,
         249.13,
@@ -1338,7 +1378,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d14",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d14",
       "rect": [
         248.38,
         249.13,
@@ -1359,7 +1399,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.23399999737739563,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d15",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d15",
       "rect": [
         237.88,
         251.75,
@@ -1380,7 +1420,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.21400000154972076,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d16",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d16",
       "rect": [
         240.5,
         251.75,
@@ -1401,7 +1441,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d17",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d17",
       "rect": [
         243.13,
         251.75,
@@ -1422,7 +1462,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d18",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d18",
       "rect": [
         245.75,
         251.75,
@@ -1443,7 +1483,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d19",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d19",
       "rect": [
         248.38,
         251.75,
@@ -1464,7 +1504,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.21400000154972076,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d20",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d20",
       "rect": [
         237.88,
         254.38,
@@ -1485,7 +1525,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20399999618530273,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d21",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d21",
       "rect": [
         240.5,
         254.38,
@@ -1506,7 +1546,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d22",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d22",
       "rect": [
         243.13,
         254.38,
@@ -1527,7 +1567,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d23",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d23",
       "rect": [
         245.75,
         254.38,
@@ -1548,7 +1588,7 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.20000000298023224,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d24",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d24",
       "rect": [
         248.38,
         254.38,
@@ -1569,7 +1609,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         240.0,
@@ -1589,7 +1629,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         240.0,
@@ -1609,7 +1649,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         242.0,
@@ -1630,7 +1670,7 @@
       "label": "Add keyboard shortcuts to the command palette",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         268.0,
@@ -1650,7 +1690,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         268.0,
@@ -1669,7 +1709,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         274.0,
@@ -1689,7 +1729,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         20.75,
         274.0,
@@ -1710,7 +1750,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         274.0,
@@ -1731,7 +1771,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         272.0,
@@ -1750,7 +1790,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         240.5,
         278.5,
@@ -1771,7 +1811,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         272.0,
@@ -1791,7 +1831,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         272.0,
@@ -1811,7 +1851,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         274.0,
@@ -1832,7 +1872,7 @@
       "label": "Explain the tile cache eviction policy",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         300.0,
@@ -1852,7 +1892,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         300.0,
@@ -1871,7 +1911,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         306.0,
@@ -1891,7 +1931,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         20.25,
         306.0,
@@ -1912,7 +1952,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         306.0,
@@ -1933,7 +1973,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         304.0,
@@ -1952,7 +1992,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         240.5,
         310.5,
@@ -1973,7 +2013,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         304.0,
@@ -1993,7 +2033,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         304.0,
@@ -2013,7 +2053,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         306.0,
@@ -2034,7 +2074,7 @@
       "label": "Fix footnote numbering in exported PDFs",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         332.0,
@@ -2054,7 +2094,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         332.0,
@@ -2073,7 +2113,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         338.0,
@@ -2093,7 +2133,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         19.75,
         338.0,
@@ -2114,7 +2154,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         338.0,
@@ -2135,7 +2175,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         336.0,
@@ -2154,7 +2194,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         244.0,
         346.0,
@@ -2175,7 +2215,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         336.0,
@@ -2195,7 +2235,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         336.0,
@@ -2215,7 +2255,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         338.0,
@@ -2236,7 +2276,7 @@
       "label": "Retry uploads after a dropped connection",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         364.0,
@@ -2256,7 +2296,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         364.0,
@@ -2275,7 +2315,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         370.0,
@@ -2295,7 +2335,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         19.75,
         370.0,
@@ -2316,7 +2356,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         370.0,
@@ -2337,7 +2377,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         368.0,
@@ -2356,7 +2396,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         240.5,
         374.5,
@@ -2377,7 +2417,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         368.0,
@@ -2397,7 +2437,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         368.0,
@@ -2417,7 +2457,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         370.0,
@@ -2438,7 +2478,7 @@
       "label": "Profile scroll jank in long transcripts",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
         396.0,
@@ -2458,7 +2498,7 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link",
       "rect": [
         10.0,
         396.0,
@@ -2477,7 +2517,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0",
       "rect": [
         16.0,
         402.0,
@@ -2497,7 +2537,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0/#0",
       "rect": [
         20.75,
         402.0,
@@ -2518,7 +2558,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#1",
       "rect": [
         38.0,
         402.0,
@@ -2539,7 +2579,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status",
       "rect": [
         234.0,
         400.0,
@@ -2558,7 +2598,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status/#0",
       "rect": [
         244.0,
         410.0,
@@ -2579,7 +2619,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close",
       "rect": [
         234.0,
         400.0,
@@ -2599,7 +2639,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink",
       "rect": [
         234.0,
         400.0,
@@ -2619,7 +2659,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
       "rect": [
         236.0,
         402.0,
@@ -2639,7 +2679,7 @@
       "key": "panel",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel",
+      "path": "zoom/zoomed/window/panel",
       "rect": [
         268.0,
         8.0,
@@ -2659,7 +2699,7 @@
       "key": "session",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session",
+      "path": "zoom/zoomed/window/panel/session",
       "rect": [
         268.0,
         8.0,
@@ -2679,7 +2719,7 @@
       "key": "header",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header",
+      "path": "zoom/zoomed/window/panel/session/header",
       "rect": [
         268.0,
         8.0,
@@ -2699,7 +2739,7 @@
       "key": "toggle-space",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/toggle-space",
+      "path": "zoom/zoomed/window/panel/session/header/toggle-space",
       "rect": [
         282.0,
         18.0,
@@ -2719,7 +2759,7 @@
       "key": "crumbs",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs",
       "rect": [
         290.0,
         24.0,
@@ -2738,7 +2778,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs/#0",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/#0",
       "rect": [
         290.0,
         24.0,
@@ -2758,7 +2798,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/#0/#0",
       "rect": [
         294.75,
         24.0,
@@ -2779,7 +2819,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs/#1",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/#1",
       "rect": [
         314.0,
         24.0,
@@ -2800,7 +2840,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs/#2",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/#2",
       "rect": [
         352.5,
         25.0,
@@ -2821,7 +2861,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/crumbs/#3",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/#3",
       "rect": [
         369.0,
         24.0,
@@ -2841,7 +2881,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/#2",
+      "path": "zoom/zoomed/window/panel/session/header/#2",
       "rect": [
         621.0,
         32.0,
@@ -2861,7 +2901,7 @@
       "key": "usage",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage",
+      "path": "zoom/zoomed/window/panel/session/header/usage",
       "rect": [
         1164.5,
         24.0,
@@ -2881,7 +2921,7 @@
       "key": "ring",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage/ring",
+      "path": "zoom/zoomed/window/panel/session/header/usage/ring",
       "rect": [
         1164.5,
         24.0,
@@ -2901,7 +2941,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage/ring/#0",
+      "path": "zoom/zoomed/window/panel/session/header/usage/ring/#0",
       "rect": [
         1164.5,
         24.0,
@@ -2921,7 +2961,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage/ring/#1",
+      "path": "zoom/zoomed/window/panel/session/header/usage/ring/#1",
       "rect": [
         1164.5,
         24.0,
@@ -2941,7 +2981,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage/#1",
+      "path": "zoom/zoomed/window/panel/session/header/usage/#1",
       "rect": [
         1186.5,
         24.0,
@@ -2962,7 +3002,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/header/usage/#2",
+      "path": "zoom/zoomed/window/panel/session/header/usage/#2",
       "rect": [
         1226.5,
         24.0,
@@ -2983,7 +3023,7 @@
       "key": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
       "rect": [
         268.0,
         56.0,
@@ -3003,7 +3043,7 @@
       "key": "timeline",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline",
       "rect": [
         268.0,
         -618.0,
@@ -3029,7 +3069,7 @@
       "key": "u-msg_001a162c32a80001fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00",
       "rect": [
         422.0,
         -610.0,
@@ -3054,7 +3094,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0",
       "rect": [
         422.0,
         -610.0,
@@ -3079,7 +3119,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
       "rect": [
         658.0,
         -602.0,
@@ -3106,7 +3146,7 @@
       "key": "text-msg_001a162c32a80001fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/text-msg_001a162c32a80001fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/text-msg_001a162c32a80001fixture00",
       "rect": [
         670.0,
         -594.0,
@@ -3130,10 +3170,10 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "r-msg_001a162c33250002fixture00-0",
+      "key": "c-msg_001a162c33250002fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0",
       "rect": [
         422.0,
         -528.0,
@@ -3158,7 +3198,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0",
       "rect": [
         422.0,
         -528.0,
@@ -3182,9 +3222,10 @@
       "focused": false,
       "inert": false,
       "key": "trigger",
+      "label": "Used 1 Thought",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger",
       "rect": [
         422.0,
         -528.0,
@@ -3202,57 +3243,87 @@
     },
     {
       "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0/#0/trigger/#0",
-      "rect": [
-        422.0,
-        -522.0,
-        16.0,
-        16.0
-      ],
-      "role": "icon",
-      "scale": 1.0,
-      "target": [
-        422.0,
-        152.0,
-        16.0,
-        16.0
-      ]
-    },
-    {
-      "blur": 0.0,
       "color": "#aeaeaeff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "thought",
+      "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0/#0/trigger/thought",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/used",
       "rect": [
-        444.0,
+        422.0,
         -522.0,
-        91.5,
+        32.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        444.0,
+        422.0,
         152.0,
-        91.5,
+        32.5,
         16.0
       ],
-      "text": "Thought for 4s"
+      "text": "Used"
+    },
+    {
+      "blur": 0.0,
+      "color": "#fafafaff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "n1",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/n1",
+      "rect": [
+        458.5,
+        -522.0,
+        5.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        458.5,
+        152.0,
+        5.5,
+        16.0
+      ],
+      "text": "1"
+    },
+    {
+      "blur": 0.0,
+      "color": "#fafafaff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "title-Thought",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/title-Thought",
+      "rect": [
+        468.0,
+        -522.0,
+        52.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        468.0,
+        152.0,
+        52.5,
+        16.0
+      ],
+      "text": "Thought"
     },
     {
       "blur": 0.0,
@@ -3262,11 +3333,12 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/r-msg_001a162c33250002fixture00-0/#0/trigger/#2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/chevron",
       "rect": [
-        541.5,
+        524.5,
         -521.0,
         14.0,
         14.0
@@ -3274,7 +3346,7 @@
       "role": "icon",
       "scale": 1.0,
       "target": [
-        541.5,
+        524.5,
         153.0,
         14.0,
         14.0
@@ -3290,7 +3362,7 @@
       "key": "t-msg_001a162c33250002fixture00-1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1",
       "rect": [
         422.0,
         -488.0,
@@ -3315,7 +3387,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0",
       "rect": [
         422.0,
         -488.0,
@@ -3342,7 +3414,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/b0",
       "rect": [
         422.0,
         -488.0,
@@ -3366,10 +3438,10 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "g-call_grep_27000",
+      "key": "c-call_grep_27000",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000",
       "rect": [
         422.0,
         -453.5,
@@ -3394,7 +3466,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0",
       "rect": [
         422.0,
         -453.5,
@@ -3418,9 +3490,10 @@
       "focused": false,
       "inert": false,
       "key": "trigger",
+      "label": "Used 3 Grep, Read",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger",
       "rect": [
         422.0,
         -453.5,
@@ -3447,11 +3520,11 @@
       "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0/trigger/used",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/used",
       "rect": [
         422.0,
         -447.5,
-        36.0,
+        32.5,
         16.0
       ],
       "role": "text",
@@ -3459,10 +3532,10 @@
       "target": [
         422.0,
         226.5,
-        36.0,
+        32.5,
         16.0
       ],
-      "text": "Used "
+      "text": "Used"
     },
     {
       "blur": 0.0,
@@ -3475,9 +3548,9 @@
       "key": "n3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0/trigger/n3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/n3",
       "rect": [
-        458.0,
+        458.5,
         -447.5,
         8.5,
         16.0
@@ -3485,7 +3558,7 @@
       "role": "text",
       "scale": 1.0,
       "target": [
-        458.0,
+        458.5,
         226.5,
         8.5,
         16.0
@@ -3494,31 +3567,31 @@
     },
     {
       "blur": 0.0,
-      "color": "#aeaeaeff",
+      "color": "#fafafaff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "tools",
+      "key": "title-Grep, Read",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0/trigger/tools",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/title-Grep, Read",
       "rect": [
-        466.5,
+        471.0,
         -447.5,
-        33.5,
+        69.0,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        466.5,
+        471.0,
         226.5,
-        33.5,
+        69.0,
         16.0
       ],
-      "text": " tools"
+      "text": "Grep, Read"
     },
     {
       "blur": 0.0,
@@ -3531,9 +3604,9 @@
       "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_grep_27000/#0/trigger/chevron",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/chevron",
       "rect": [
-        502.0,
+        544.0,
         -446.5,
         14.0,
         14.0
@@ -3541,7 +3614,7 @@
       "role": "icon",
       "scale": 1.0,
       "target": [
-        502.0,
+        544.0,
         227.5,
         14.0,
         14.0
@@ -3557,7 +3630,7 @@
       "key": "t-msg_001a162c36130003fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0",
       "rect": [
         422.0,
         -413.5,
@@ -3582,7 +3655,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0",
       "rect": [
         422.0,
         -413.5,
@@ -3609,7 +3682,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b0",
       "rect": [
         422.0,
         -413.5,
@@ -3637,7 +3710,7 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b1",
       "rect": [
         422.0,
         -379.5,
@@ -3665,7 +3738,7 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b2",
       "rect": [
         422.0,
         -299.5,
@@ -3692,7 +3765,7 @@
       "key": "b3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3",
       "rect": [
         422.0,
         -265.0,
@@ -3718,7 +3791,7 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0",
       "rect": [
         422.0,
         -265.0,
@@ -3744,7 +3817,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#0",
       "rect": [
         422.0,
         -265.0,
@@ -3770,7 +3843,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1",
       "rect": [
         454.0,
         -265.0,
@@ -3797,7 +3870,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1/b0",
       "rect": [
         454.0,
         -265.0,
@@ -3824,7 +3897,7 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1",
       "rect": [
         422.0,
         -238.0,
@@ -3850,7 +3923,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#0",
       "rect": [
         422.0,
         -238.0,
@@ -3876,7 +3949,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1",
       "rect": [
         454.0,
         -238.0,
@@ -3903,7 +3976,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1/b0",
       "rect": [
         454.0,
         -238.0,
@@ -3931,7 +4004,7 @@
       "key": "b4",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b4",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b4",
       "rect": [
         422.0,
         -195.0,
@@ -3959,7 +4032,7 @@
       "key": "b5",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b5",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b5",
       "rect": [
         422.0,
         -167.0,
@@ -3986,7 +4059,7 @@
       "key": "b6",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6",
       "rect": [
         422.0,
         -110.0,
@@ -4012,7 +4085,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6/#0",
       "rect": [
         434.0,
         -98.0,
@@ -4040,7 +4113,7 @@
       "key": "b7",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b7",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b7",
       "rect": [
         422.0,
         198.0,
@@ -4064,10 +4137,10 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "g-call_edit_50000",
+      "key": "c-call_edit_50000",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000",
       "rect": [
         422.0,
         232.5,
@@ -4092,7 +4165,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0",
       "rect": [
         422.0,
         232.5,
@@ -4116,9 +4189,10 @@
       "focused": false,
       "inert": false,
       "key": "trigger",
+      "label": "Used 3 Edit, Shell",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger",
       "rect": [
         422.0,
         232.5,
@@ -4145,11 +4219,11 @@
       "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0/trigger/used",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/used",
       "rect": [
         422.0,
         238.5,
-        36.0,
+        32.5,
         16.0
       ],
       "role": "text",
@@ -4157,10 +4231,10 @@
       "target": [
         422.0,
         912.5,
-        36.0,
+        32.5,
         16.0
       ],
-      "text": "Used "
+      "text": "Used"
     },
     {
       "blur": 0.0,
@@ -4173,9 +4247,9 @@
       "key": "n3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0/trigger/n3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/n3",
       "rect": [
-        458.0,
+        458.5,
         238.5,
         8.5,
         16.0
@@ -4183,7 +4257,7 @@
       "role": "text",
       "scale": 1.0,
       "target": [
-        458.0,
+        458.5,
         912.5,
         8.5,
         16.0
@@ -4192,31 +4266,31 @@
     },
     {
       "blur": 0.0,
-      "color": "#aeaeaeff",
+      "color": "#fafafaff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "tools",
+      "key": "title-Edit, Shell",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0/trigger/tools",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/title-Edit, Shell",
       "rect": [
-        466.5,
+        471.0,
         238.5,
-        33.5,
+        61.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        466.5,
+        471.0,
         912.5,
-        33.5,
+        61.5,
         16.0
       ],
-      "text": " tools"
+      "text": "Edit, Shell"
     },
     {
       "blur": 0.0,
@@ -4229,9 +4303,9 @@
       "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/g-call_edit_50000/#0/trigger/chevron",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/chevron",
       "rect": [
-        502.0,
+        536.5,
         239.5,
         14.0,
         14.0
@@ -4239,7 +4313,7 @@
       "role": "icon",
       "scale": 1.0,
       "target": [
-        502.0,
+        536.5,
         913.5,
         14.0,
         14.0
@@ -4255,7 +4329,7 @@
       "key": "a-call_task_60500",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500",
       "rect": [
         422.0,
         272.5,
@@ -4280,7 +4354,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0",
       "rect": [
         422.0,
         272.5,
@@ -4306,7 +4380,7 @@
       "key": "chip",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip",
       "rect": [
         422.0,
         272.5,
@@ -4332,7 +4406,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#0",
       "rect": [
         432.0,
         280.5,
@@ -4358,7 +4432,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#1",
       "rect": [
         456.0,
         280.5,
@@ -4385,7 +4459,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#2",
       "rect": [
         512.5,
         280.5,
@@ -4412,7 +4486,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_task_60500/#0/chip/#3",
       "rect": [
         702.5,
         280.5,
@@ -4439,7 +4513,7 @@
       "key": "t-msg_001a162c52a38005fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0",
       "rect": [
         422.0,
         316.5,
@@ -4464,7 +4538,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0",
       "rect": [
         422.0,
         316.5,
@@ -4491,7 +4565,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b0",
       "rect": [
         422.0,
         316.5,
@@ -4518,7 +4592,7 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1",
       "rect": [
         422.0,
         351.0,
@@ -4544,7 +4618,7 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0",
       "rect": [
         422.0,
         351.0,
@@ -4570,7 +4644,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#0",
       "rect": [
         422.0,
         351.0,
@@ -4596,7 +4670,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1",
       "rect": [
         454.0,
         351.0,
@@ -4623,7 +4697,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1/b0",
       "rect": [
         454.0,
         351.0,
@@ -4650,7 +4724,7 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1",
       "rect": [
         422.0,
         378.0,
@@ -4676,7 +4750,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#0",
       "rect": [
         422.0,
         378.0,
@@ -4702,7 +4776,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1",
       "rect": [
         454.0,
         378.0,
@@ -4729,7 +4803,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1/b0",
       "rect": [
         454.0,
         378.0,
@@ -4756,7 +4830,7 @@
       "key": "i2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2",
       "rect": [
         422.0,
         404.5,
@@ -4782,7 +4856,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#0",
       "rect": [
         422.0,
         404.5,
@@ -4808,7 +4882,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1",
       "rect": [
         454.0,
         404.5,
@@ -4835,7 +4909,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1/b0",
       "rect": [
         454.0,
         404.5,
@@ -4863,7 +4937,7 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b2",
       "rect": [
         422.0,
         439.5,
@@ -4890,7 +4964,7 @@
       "key": "u-msg_001a162cb67e0006fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00",
       "rect": [
         422.0,
         520.0,
@@ -4915,7 +4989,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0",
       "rect": [
         422.0,
         520.0,
@@ -4940,7 +5014,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
       "rect": [
         658.0,
         540.0,
@@ -4967,7 +5041,7 @@
       "key": "text-msg_001a162cb67e0006fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/text-msg_001a162cb67e0006fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/text-msg_001a162cb67e0006fixture00",
       "rect": [
         670.0,
         548.0,
@@ -4994,7 +5068,7 @@
       "key": "turn-actions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions",
       "rect": [
         422.0,
         614.0,
@@ -5019,7 +5093,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0",
       "rect": [
         422.0,
         614.0,
@@ -5045,7 +5119,7 @@
       "key": "working",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working",
       "rect": [
         422.0,
         614.0,
@@ -5070,7 +5144,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#0",
       "rect": [
         422.0,
         619.0,
@@ -5096,7 +5170,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#1",
       "rect": [
         436.0,
         614.0,
@@ -5124,7 +5198,7 @@
       "label": "Copy response",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy",
       "rect": [
         422.0,
         614.0,
@@ -5150,7 +5224,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy/#0",
       "rect": [
         428.0,
         614.0,
@@ -5173,10 +5247,30 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "requests",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/requests",
+      "rect": [
+        268.0,
+        666.0,
+        1004.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
       "key": "dock",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock",
+      "path": "zoom/zoomed/window/panel/session/dock",
       "rect": [
         268.0,
         666.0,
@@ -5196,7 +5290,7 @@
       "key": "composer",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer",
+      "path": "zoom/zoomed/window/panel/session/dock/composer",
       "rect": [
         422.0,
         666.0,
@@ -5216,7 +5310,7 @@
       "key": "editor",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/editor",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/editor",
       "rect": [
         422.0,
         666.0,
@@ -5237,7 +5331,7 @@
       "key": "prompt",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/editor/prompt",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/editor/prompt",
       "rect": [
         438.0,
         682.0,
@@ -5258,7 +5352,7 @@
       "key": "toolbar",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar",
       "rect": [
         422.0,
         730.0,
@@ -5279,7 +5373,7 @@
       "label": "Choose agent",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/agent",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent",
       "rect": [
         430.0,
         738.0,
@@ -5299,7 +5393,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/agent/#0",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#0",
       "rect": [
         438.0,
         744.0,
@@ -5320,7 +5414,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/agent/#1",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#1",
       "rect": [
         470.5,
         744.0,
@@ -5341,7 +5435,7 @@
       "label": "Choose model",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/model",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model",
       "rect": [
         498.5,
         738.0,
@@ -5361,7 +5455,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/model/#0",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#0",
       "rect": [
         506.5,
         744.0,
@@ -5382,7 +5476,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/model/#1",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#1",
       "rect": [
         610.0,
         744.0,
@@ -5403,7 +5497,7 @@
       "label": "Choose effort",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/effort",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort",
       "rect": [
         638.0,
         738.0,
@@ -5423,7 +5517,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/effort/#0",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#0",
       "rect": [
         646.0,
         744.0,
@@ -5444,7 +5538,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/effort/#1",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#1",
       "rect": [
         676.5,
         744.0,
@@ -5463,7 +5557,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/#3",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/#3",
       "rect": [
         704.5,
         752.0,
@@ -5484,7 +5578,7 @@
       "label": "Send",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/submit",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/submit",
       "rect": [
         1082.0,
         738.0,
@@ -5504,7 +5598,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/dock/composer/toolbar/submit/#0",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/submit/#0",
       "rect": [
         1088.0,
         744.0,
@@ -5524,7 +5618,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status",
+      "path": "zoom/zoomed/window/panel/session/status",
       "rect": [
         268.0,
         784.0,
@@ -5544,7 +5638,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/#0",
+      "path": "zoom/zoomed/window/panel/session/status/#0",
       "rect": [
         284.0,
         791.0,
@@ -5564,7 +5658,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/#1",
+      "path": "zoom/zoomed/window/panel/session/status/#1",
       "rect": [
         310.0,
         790.0,
@@ -5584,7 +5678,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/#2",
+      "path": "zoom/zoomed/window/panel/session/status/#2",
       "rect": [
         402.5,
         798.0,
@@ -5605,7 +5699,7 @@
       "label": "Streaming edge",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/edge",
+      "path": "zoom/zoomed/window/panel/session/status/edge",
       "rect": [
         1097.5,
         787.0,
@@ -5625,7 +5719,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/edge/#0",
+      "path": "zoom/zoomed/window/panel/session/status/edge/#0",
       "rect": [
         1103.5,
         790.0,
@@ -5645,7 +5739,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/#4",
+      "path": "zoom/zoomed/window/panel/session/status/#4",
       "rect": [
         1198.5,
         795.0,
@@ -5665,7 +5759,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/panel/session/status/#5",
+      "path": "zoom/zoomed/window/panel/session/status/#5",
       "rect": [
         1216.5,
         790.0,
@@ -5686,7 +5780,7 @@
       "key": "drag-inset",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/drag-inset",
+      "path": "zoom/zoomed/window/drag-inset",
       "rect": [
         0.0,
         0.0,
@@ -5706,7 +5800,7 @@
       "key": "sidebar-resize",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar-resize",
+      "path": "zoom/zoomed/window/sidebar-resize",
       "rect": [
         260.0,
         0.0,
@@ -5726,7 +5820,7 @@
       "key": "pill",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar-resize/pill",
+      "path": "zoom/zoomed/window/sidebar-resize/pill",
       "rect": [
         262.0,
         390.0,
@@ -5747,7 +5841,7 @@
       "label": "Toggle sidebar",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar-toggle",
+      "path": "zoom/zoomed/window/sidebar-toggle",
       "rect": [
         230.0,
         18.0,
@@ -5767,7 +5861,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "window/sidebar-toggle/#0",
+      "path": "zoom/zoomed/window/sidebar-toggle/#0",
       "rect": [
         234.0,
         22.0,
@@ -5787,7 +5881,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "window/sidebar-toggle/#1",
+      "path": "zoom/zoomed/window/sidebar-toggle/#1",
       "rect": [
         234.0,
         22.0,
