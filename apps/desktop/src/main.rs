@@ -145,6 +145,8 @@ pub struct App {
     pub playground: &'static [bool],
     /// The storybook (⌘⇧D) is open, with the app as it was beside it.
     pub story: Option<stories::Storybook>,
+    /// The storybook's keys, folds and queued trigger steps, carried from story to story.
+    pub play: rune_playground::Play<App>,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -232,6 +234,7 @@ impl App {
             icons: Default::default(),
             playground: &[],
             story: None,
+            play: Default::default(),
         }
     }
 
@@ -965,8 +968,8 @@ impl App {
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
-    let mut changed = false;
-    changed |= open_story::poll(s, now, tx);
+    // A story's steps first: the events they play land below as arrivals.
+    let mut changed = stories::poll(s, now, tx);
     changed |= s.poll_pages(tx);
     let arrivals = Arrivals::before(s);
     let asked = s.question_shown();
@@ -1045,8 +1048,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.question_shown() != asked {
         s.morph(tx);
     }
-    stories::poll(s);
-    s.glows.retain(|_, at| now - *at < view::GLOW_SECS);
+    let glow = knobs::glow_secs(&s.knobs);
+    s.glows.retain(|_, at| now - *at < glow);
     if !s.glows.is_empty() {
         tx.wake_after(std::time::Duration::ZERO);
         changed = true;
@@ -1161,7 +1164,6 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if open_story::key(s, ev, tx) { return true; }
     if knobs::key(s, ev, tx) || stories::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command('e') => {
@@ -1282,12 +1284,24 @@ fn main() {
                 let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
                 s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
             }),
-            // The storybook's morph loop (⌘⇧D): the dock opens and closes on a loop. Pick the
-            // curve with `--preset NAME` (a Question dock preset, see `knobs.rs`).
-            ("story-morph", |s| stories::scene(s, "Morph loop")),
-            ("story-long", |s| stories::scene(s, "Question, long")),
-            ("story-typing", |s| stories::scene(s, "Question, typing")),
-            ("story-pending", |s| stories::scene(s, "Composer, pending")),
+            // The storybook (⌘⇧D) on a story: `story-morph` is the dock opening and closing on a
+            // loop (pick the curve with `--preset NAME`, a Question dock preset in `knobs.rs`);
+            // `story` alone opens the first. Scripts replay a story with its trigger keys.
+            ("story", |s| stories::scene(s, "Composer")),
+            ("story-morph", |s| stories::scene(s, "Morph")),
+            ("story-long", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 3)),
+            ("story-typing", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 4)),
+            ("story-pending", |s| stories::scene_variant(s, "Composer", crate::stories::COMPOSER, 2)),
+            ("story-glow", |s| stories::scene(s, "Arrival glow")),
+            ("story-send", |s| stories::scene(s, "Send")),
+            ("story-stream", |s| stories::scene(s, "Streaming text")),
+            ("story-tools", |s| stories::scene(s, "Tool rows")),
+            ("story-working", |s| stories::scene(s, "Working")),
+            ("story-steer", |s| stories::scene(s, "Steer and Pending")),
+            ("story-subagent", |s| stories::scene(s, "Subagent")),
+            ("story-images", |s| stories::scene(s, "Images")),
+            ("story-jump", |s| stories::scene(s, "Jump to latest")),
+            ("story-actions", |s| stories::scene(s, "Turn actions")),
             ("sidebar-closed", |s| {
                 open_scene(s);
                 s.finish_stream();

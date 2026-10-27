@@ -87,7 +87,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     }
     let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);
-    if s.open_demo.is_some() { return crate::open_story::view(s, p); }
     let w = s.sidebar_w;
     let open = s.sidebar_open;
     let mut root = row()
@@ -115,7 +114,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::attachments::drop_files)
                 .on_drop_hover(crate::attachments::drop_hover)
-                .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
+                .child(if s.story.is_some() { crate::stories::page(s, p) } else if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),
@@ -237,7 +236,7 @@ fn sidebar(s: &App, p: &Pal) -> El {
         );
     // The storybook (⌘⇧D) lists its stories in place of the tabs.
     let inner = match crate::stories::list(s, p) {
-        Some(stories) => inner.child(stories),
+        Some(stories) => inner.child(col().key("stories").w_full().grow(1.0).shrink().min_h(0.0).child(stories)),
         None => inner.child(
             col()
                 .key("actions")
@@ -849,14 +848,17 @@ fn location(s: &App, p: &Pal) -> El {
 }
 
 pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
+    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
+    let page = col().key("session").grow(1.0).w_full().child(header(s, p, s.session(id), t));
+    session_body(s, p, id, page)
+}
+
+/// The session page under its header: the timeline, and what sits under it.
+fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let info = s.session(id);
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
-    let mut page = col()
-        .key("session")
-        .grow(1.0)
-        .w_full()
-        .child(header(s, p, info, t))
+    let mut page = page
         .child(crate::jump::over(s, p, id, timeline(s, p, id, t)))
         .child(requests(s, p, id));
     // A subagent takes no prompts: its status line stands where the composer would.
@@ -868,6 +870,26 @@ pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
     };
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
+}
+
+/// The storybook's stages (`stories.rs`): the open session's timeline and what sits under it,
+/// its header, and its composer with the subagent capsule over it.
+pub(crate) fn story_session(s: &App, p: &Pal) -> El {
+    let Route::Session(id) = &s.route else { return el() };
+    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0))
+}
+
+pub(crate) fn story_header(s: &App, p: &Pal) -> El {
+    let Route::Session(id) = &s.route else { return el() };
+    header(s, p, s.session(id), s.transcripts.get(id))
+}
+
+pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
+    let Route::Session(id) = &s.route else { return composer_dock(s, p) };
+    col().key("session")
+        .w_full()
+        .children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
+        .child(composer_dock(s, p))
 }
 
 fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
@@ -994,7 +1016,7 @@ impl RowSpec {
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
             RowContent::User { message, tight, above, below } => match &t.messages[*message] {
-                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at)), None),
+                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at)), None),
                 _ => unreachable!(),
             },
             RowContent::Pending { id, tight, above, below } => {
@@ -1011,7 +1033,7 @@ impl RowSpec {
                 Message::Note { text: body, .. } => row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)),
                 _ => unreachable!(),
             },
-            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, s.reduced_motion, &t.session, &t.messages[*message])),
+            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -1066,7 +1088,7 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .px(24.0)
         .pt(8.0)
         .pb(24.0)
-        .growth(GrowthSpec { edge: e, ..Default::default() });
+        .growth(GrowthSpec { spring: crate::knobs::growth(&s.knobs), edge: e });
     #[cfg(test)]
     let eager = EAGER_ROWS.get();
     #[cfg(not(test))]
@@ -1235,23 +1257,6 @@ fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], sta
     }
 }
 
-/// How long a message from another client glows as it lands.
-pub const GLOW_SECS: f64 = 0.9;
-
-/// The arrival glow `t` seconds in: a quick rise, then a fast decay with a slower tail, faded
-/// to nothing by `GLOW_SECS` (the iOS app's message reveal, shortened).
-fn glow(t: f64) -> f32 {
-    const RISE: f64 = 0.07;
-    let g = if t < RISE {
-        1.0 - (1.0 - t.max(0.0) / RISE).powi(3)
-    } else {
-        let d = t - RISE;
-        0.78 * 0.5f64.powf(d / 0.11) + 0.22 * 0.5f64.powf(d / 0.2)
-    };
-    let end = ((t - 0.7) / (GLOW_SECS - 0.7)).clamp(0.0, 1.0);
-    (g * (1.0 - end * end * (3.0 - 2.0 * end))) as f32
-}
-
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
 const BUBBLE_MAX: f32 = 565.0;
 
@@ -1372,35 +1377,36 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
 
 /// The spinner and a shimmering "Working". Hidden, it is drawn still: its loops would keep
 /// waking frames.
-fn working(p: &Pal, live: bool, reduced: bool) -> El {
+fn working(s: &App, p: &Pal, live: bool) -> El {
     let ring = if live { activity_ring(p) } else { el().key("ring").size(14.0, 14.0) };
-    row().h(28.0).gap(8.0).center_y().pb(12.0).child(ring).child(shimmer(p, "Working", live && !reduced))
+    row().h(28.0).gap(8.0).center_y().pb(12.0).child(ring).child(shimmer(s, p, "Working", live && !s.reduced_motion))
 }
 
 /// "Working" at 13 px Inter.
 const WORKING_W: f32 = 52.0;
-/// Desktop's `TextShimmer` highlight: ±5.2ch of text-strong over text-weak.
-const SHEEN: f32 = 84.0;
 
 /// Desktop's `TextShimmer`: a soft band of the strong colour sweeps left to right across the
 /// muted label every 1.2 s, from a gutter (spread + 1ch) before it to one after. The band is a
 /// soft-edged window sliding over the label, with a copy inside sliding back so it stays put.
-fn shimmer(p: &Pal, label: &'static str, on: bool) -> El {
+/// Its highlight is ±5.2ch of text-strong over text-weak (84 pt); both are Timeline knobs.
+fn shimmer(s: &App, p: &Pal, label: &'static str, on: bool) -> El {
     let base = text(label).key("label").font(UI).color(p.muted);
     if !on {
         return row().child(base);
     }
-    let gutter = SHEEN / 2.0 + 8.0;
-    let (from, to) = ((-gutter - SHEEN / 2.0) / SHEEN, (WORKING_W + gutter - SHEEN / 2.0) / SHEEN);
-    let sweep = |a: f32, b: f32| rune::LoopSpec::slide(1.2, [a, 0.0], [b, 0.0]).easing(Easing::LINEAR);
-    let lit = el().key("lit").absolute(0.0, 0.0).w(SHEEN).h_full().looping(sweep(-from, -to))
+    let sheen = s.knobs.get(&crate::knobs::SHIMMER_WIDTH);
+    let period = crate::knobs::secs(&s.knobs, &crate::knobs::SHIMMER_PERIOD);
+    let gutter = sheen / 2.0 + 8.0;
+    let (from, to) = ((-gutter - sheen / 2.0) / sheen, (WORKING_W + gutter - sheen / 2.0) / sheen);
+    let sweep = |a: f32, b: f32| rune::LoopSpec::slide(period, [a, 0.0], [b, 0.0]).easing(Easing::LINEAR);
+    let lit = el().key("lit").absolute(0.0, 0.0).w(sheen).h_full().looping(sweep(-from, -to))
         .child(text(label).font(UI).color(p.text).absolute(0.0, 0.0));
     row().child(base).child(
-        el().key("sheen").absolute(0.0, 0.0).w(SHEEN).h_full().clip_fade(SHEEN / 2.0, 0.0, SHEEN / 2.0, 0.0).looping(sweep(from, to)).child(lit),
+        el().key("sheen").absolute(0.0, 0.0).w(sheen).h_full().clip_fade(sheen / 2.0, 0.0, sheen / 2.0, 0.0).looping(sweep(from, to)).child(lit),
     )
 }
 
-fn turn_actions(p: &Pal, busy: bool, reduced: bool, session: &str, message: &Message) -> El {
+fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -1423,8 +1429,8 @@ fn turn_actions(p: &Pal, busy: bool, reduced: bool, session: &str, message: &Mes
     }
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
-    el().w_full().h(28.0).motion(rune::Spring::new(0.34, 0.0))
-        .child(working(p, busy, reduced).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
+    el().w_full().h(28.0).motion(crate::knobs::actions_tail(&s.knobs))
+        .child(working(s, p, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
 }
 
@@ -2150,7 +2156,7 @@ mod tests {
         let top = glows.iter().position(|&g| g == peak).unwrap();
         assert!(top <= 12, "the glow rises within 0.1 s: {glows:?}");
         assert!(glows[top..].windows(2).all(|w| w[1] <= w[0] + 1e-4), "then only fades: {glows:?}");
-        assert!(glows[(super::GLOW_SECS * 120.0) as usize + 2..].iter().all(|&g| g == 0.0), "settled by {}s: {glows:?}", super::GLOW_SECS);
+        assert!(glows[(0.9 * 120.0) as usize + 2..].iter().all(|&g| g == 0.0), "settled by 0.9 s: {glows:?}");
 
         // The pinned timeline follows the ~300 pt insert in one glide: its bubble rises without
         // stopping or stepping (speed up, then down, once) and lands within half a second.

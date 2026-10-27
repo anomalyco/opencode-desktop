@@ -2,7 +2,7 @@
 //! up (`session/timeline/virtualizer.tsx`, `interaction.ts`). Pressing it glides to the end, and
 //! the timeline follows new content again once it lands.
 use opencode_kit::model::Pending;
-use rune::{Anim, Curve, Easing, El, Icon, Tx, col, el, icon, row, spacer};
+use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 
 use crate::App;
 use crate::palette::Pal;
@@ -15,8 +15,6 @@ const LIFT: f32 = 32.0;
 const GAP: f32 = 8.0;
 /// The capsule's lane: its 28 pt chip and that gap.
 const CAPSULE_LANE: f32 = 28.0 + GAP;
-/// It rises this far as it shows (`translate-y-1`).
-const RISE: f32 = 4.0;
 
 static ARROW_DOWN: Icon = Icon {
     name: "arrow-down",
@@ -37,12 +35,9 @@ fn far(id: &str) -> impl Fn(&mut App, bool) + 'static {
 /// ends where the composer ends, on the capsule's row when that shows; centred, it's Desktop's.
 pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
     let shown = s.far_from_bottom.contains(id);
-    let curve = if shown {
-        Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0))
-    } else {
-        Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0))
-    };
-    let rise = if shown || s.reduced_motion { 0.0 } else { RISE };
+    // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
+    let curve = crate::knobs::jump(&s.knobs, shown);
+    let rise = if shown || s.reduced_motion { 0.0 } else { s.knobs.get(&crate::knobs::JUMP_RISE) };
     let target = format!("scroll-{id}");
     let surface = if p.dark { p.layer1 } else { p.bg_base };
     let mut button = el()

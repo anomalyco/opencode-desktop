@@ -2,7 +2,7 @@
 //! clipboard to paste back to an agent.
 
 use rune::{Anim, Curve, El, Easing, KeyEvent, Spring, Tx};
-use rune_knobs::{Group, Knob, Preset};
+use rune_knobs::{Group, Knob, Knobs, Preset};
 
 use crate::App;
 
@@ -38,6 +38,35 @@ pub const ARRIVE: Knob = Knob::new("Arrive", 0.1, 0.8, 0.3).step(0.01);
 /// How far they slide, in points.
 pub const ARRIVE_SLIDE: Knob = Knob::new("Arrive slide", 0.0, 32.0, 12.0).step(1.0);
 
+/// The timeline's motion. The defaults are the curves it shipped with, and stay those exactly
+/// (`timeline_defaults_are_what_shipped`).
+///
+/// A message from another client glows as it lands: a quick rise, then a fast decay with a
+/// slower tail (half-lives in seconds), faded to nothing between "Glow fades at" and its length.
+pub const GLOW_LENGTH: Knob = Knob::new("Glow length", 0.3, 2.0, 0.9);
+pub const GLOW_RISE: Knob = Knob::new("Glow rise", 0.0, 0.3, 0.07);
+pub const GLOW_DECAY: Knob = Knob::new("Glow decay", 0.02, 0.5, 0.11);
+pub const GLOW_TAIL: Knob = Knob::new("Glow tail", 0.02, 0.8, 0.2);
+pub const GLOW_FADE: Knob = Knob::new("Glow fades at", 0.1, 1.9, 0.7);
+/// Rows growing in and finished content gliding open, as a spring's duration.
+pub const ROW_GROWTH: Knob = Knob::new("Row growth", 0.1, 0.8, 0.32);
+/// Working's shimmer: seconds per sweep, and the band's width in points.
+pub const SHIMMER_PERIOD: Knob = Knob::new("Shimmer period", 0.4, 3.0, 1.2);
+pub const SHIMMER_WIDTH: Knob = Knob::new("Shimmer width", 24.0, 160.0, 84.0).step(1.0);
+/// The tail under a turn, where Working hands over to the turn's actions, as a spring.
+pub const ACTIONS_TAIL: Knob = Knob::new("Actions tail", 0.1, 0.8, 0.34);
+/// Jump to latest showing and hiding (tweens, seconds) and how far it rises as it shows.
+pub const JUMP_IN: Knob = Knob::new("Jump in", 0.05, 0.5, 0.15);
+pub const JUMP_OUT: Knob = Knob::new("Jump out", 0.05, 0.5, 0.11);
+pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0);
+/// An image flying out of its thumbnail into the viewer and back, as a spring.
+pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25);
+
+pub const TIMELINE: &[Knob] = &[
+    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, SHIMMER_PERIOD, SHIMMER_WIDTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
+    IMAGE_FLIGHT,
+];
+
 /// The defaults are Desktop's (`docks.morph`); the presets are the curves worth comparing.
 const QUESTION_PRESETS: &[Preset] = &[
     Preset { name: "iOS", values: &[("Morph duration", 0.5), ("Face in", 0.5)] },
@@ -47,14 +76,59 @@ const QUESTION_PRESETS: &[Preset] = &[
     Preset { name: "Expo out", values: &[("Morph curve", 3.0), ("Morph duration", 0.45), ("Face in", 0.35), ("Fade out", 0.1)] },
 ];
 
+pub const QUESTION_DOCK: Group =
+    Group::new("Question dock", "question", &[MORPH_CURVE, MORPH_DURATION, MORPH_BOUNCE, FACE_IN, FACE_RISE, FADE_OUT, ARRIVE, ARRIVE_SLIDE])
+        .presets(QUESTION_PRESETS)
+        .default_label("Desktop");
+
 pub const GROUPS: &[Group] = &[
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
     Group::new("Icons", "sidebar", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
     Group::new("Icon playground", "icon-playground", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
-    Group::new("Question dock", "question", &[MORPH_CURVE, MORPH_DURATION, MORPH_BOUNCE, FACE_IN, FACE_RISE, FADE_OUT, ARRIVE, ARRIVE_SLIDE])
-        .presets(QUESTION_PRESETS)
-        .default_label("Desktop"),
+    QUESTION_DOCK,
+    Group::new("Timeline", "timeline", TIMELINE),
 ];
+
+/// A knob in seconds as an `f64`, to the microsecond: the decimal it was written as, not its
+/// nearest `f32`.
+pub fn secs(k: &Knobs, knob: &Knob) -> f64 {
+    (f64::from(k.get(knob)) * 1e6).round() / 1e6
+}
+
+/// The arrival glow `t` seconds in (the iOS app's message reveal, shortened).
+pub fn glow(k: &Knobs, t: f64) -> f32 {
+    let (rise, fade, end) = (secs(k, &GLOW_RISE), secs(k, &GLOW_FADE), secs(k, &GLOW_LENGTH));
+    let g = if t < rise {
+        1.0 - (1.0 - t.max(0.0) / rise).powi(3)
+    } else {
+        let d = t - rise;
+        0.78 * 0.5f64.powf(d / secs(k, &GLOW_DECAY)) + 0.22 * 0.5f64.powf(d / secs(k, &GLOW_TAIL))
+    };
+    let out = ((t - fade) / (end - fade).max(1e-3)).clamp(0.0, 1.0);
+    (g * (1.0 - out * out * (3.0 - 2.0 * out))) as f32
+}
+
+/// How long a glow lasts.
+pub fn glow_secs(k: &Knobs) -> f64 {
+    secs(k, &GLOW_LENGTH)
+}
+
+pub fn growth(k: &Knobs) -> Spring {
+    Spring::new(k.get(&ROW_GROWTH), 0.0)
+}
+
+pub fn actions_tail(k: &Knobs) -> Spring {
+    Spring::new(k.get(&ACTIONS_TAIL), 0.0)
+}
+
+/// Jump to latest's fade and rise: a quick ease out as it shows, a quicker ease in as it hides.
+pub fn jump(k: &Knobs, shown: bool) -> Curve {
+    if shown {
+        Curve::tween(k.get(&JUMP_IN), Easing::cubic(0.2, 0.8, 0.2, 1.0))
+    } else {
+        Curve::tween(k.get(&JUMP_OUT), Easing::cubic(0.4, 0.0, 1.0, 1.0))
+    }
+}
 
 /// The morph as the knobs have it: ease-out cubic, ease-in-out cubic and expo-out are the CSS
 /// curves of those names.
@@ -94,4 +168,44 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 pub fn layer(s: &App) -> El {
     rune_knobs::layer(&s.knobs, GROUPS, rune_knobs::Style::dark(), |s: &mut App| &mut s.knobs)
+}
+
+#[cfg(test)]
+mod tests {
+    use rune::{Curve, Easing, Spring};
+    use rune_knobs::Knobs;
+
+    use super::*;
+
+    /// The arrival glow as it shipped, before its numbers moved onto knobs.
+    fn shipped_glow(t: f64) -> f32 {
+        const GLOW_SECS: f64 = 0.9;
+        const RISE: f64 = 0.07;
+        let g = if t < RISE {
+            1.0 - (1.0 - t.max(0.0) / RISE).powi(3)
+        } else {
+            let d = t - RISE;
+            0.78 * 0.5f64.powf(d / 0.11) + 0.22 * 0.5f64.powf(d / 0.2)
+        };
+        let end = ((t - 0.7) / (GLOW_SECS - 0.7)).clamp(0.0, 1.0);
+        (g * (1.0 - end * end * (3.0 - 2.0 * end))) as f32
+    }
+
+    #[test]
+    fn timeline_defaults_are_what_shipped() {
+        let k = Knobs::default();
+        for i in 0..=150 {
+            let t = i as f64 / 120.0 - 0.05;
+            assert_eq!(glow(&k, t), shipped_glow(t), "glow at {t}s");
+        }
+        assert_eq!(glow_secs(&k), 0.9);
+        assert_eq!(growth(&k), rune::GROWTH);
+        assert_eq!(actions_tail(&k), Spring::new(0.34, 0.0));
+        assert_eq!(jump(&k, true), Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)));
+        assert_eq!(jump(&k, false), Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0)));
+        assert_eq!(k.get(&JUMP_RISE), 4.0);
+        assert_eq!(secs(&k, &SHIMMER_PERIOD), 1.2);
+        assert_eq!(k.get(&SHIMMER_WIDTH), 84.0);
+        assert_eq!(Spring::new(k.get(&IMAGE_FLIGHT), 0.0), Spring::new(0.25, 0.0));
+    }
 }

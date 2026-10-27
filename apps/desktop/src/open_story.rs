@@ -1,17 +1,15 @@
 //! The actual session page and opening path, with deterministic page and image delivery.
 use std::sync::{Arc, mpsc::Sender};
 use opencode_kit::model::{self, Message, Transcript};
-use rune::{El, KeyEvent, Tx, col, row, text};
-use rune_playground::{Action, Look, Move, Play, Story};
+use rune::{El, Tx, col, text};
+use rune_knobs::Action;
 use serde_json::json;
 use crate::{App, Route, palette::Pal, session_pages::{Key, Page, Pages}};
 
 const TARGET: &str = "ses_open_story";
 const MEDIA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-pub const FIRST: usize = 10;
 
 pub struct Demo {
-    play: Play<App>,
     page: Arc<Page>,
     send: Sender<Result<Arc<Page>, (Key, String)>>,
     png: Vec<u8>,
@@ -20,15 +18,9 @@ pub struct Demo {
     before: bool,
 }
 
-struct Case(&'static str);
-impl Story<App> for Case {
-    fn group(&self) -> &'static str { "Session opening" }
-    fn name(&self) -> &'static str { self.0 }
-    fn keys(&self) -> &'static [Action<App>] {
-        &[Action { cap: "R", label: "Replay", run: replay }, Action { cap: "O", label: "Open now", run: click }]
-    }
-}
-const CASES: &[Case] = &[Case("Cold · ready at 100 ms"), Case("Prefetched · ready now"), Case("Slow · 150 ms fallback")];
+/// The storybook's Session opening stories, in order.
+pub const NAMES: [&str; 3] = ["Cold · ready at 100 ms", "Prefetched · ready now", "Slow · 150 ms fallback"];
+pub const KEYS: &[Action<App>] = &[Action { cap: "R", label: "Replay", run: crate::stories::replay }, Action { cap: "O", label: "Open now", run: click }];
 
 pub fn setup(s: &mut App, at: usize) {
     let png = picture();
@@ -54,35 +46,28 @@ pub fn setup(s: &mut App, at: usize) {
         s.sessions.push(info);
     }
     s.composer.focused = false;
-    s.open_demo = Some(Demo { play:Play::default(), page, send, png, at, before:false });
+    s.open_demo = Some(Demo { page, send, png, at, before:false });
+}
+
+/// A Session opening story's setup: the click lands 0.75 s in.
+pub fn open(s: &mut App, at: usize, tx: &mut Tx) {
+    setup(s, at);
+    s.play.after(0.75, click, tx);
 }
 
 pub fn scene(s: &mut App, before: bool) {
-    crate::stories::open(s, FIRST, &mut Tx::default());
+    crate::stories::scene(s, NAMES[0]);
     s.open_demo.as_mut().unwrap().before = before;
-    replay(s, &mut Tx::default());
-}
-
-fn replay(s: &mut App, tx: &mut Tx) {
-    let d = s.open_demo.as_ref().unwrap();
-    let (at, before) = (d.at, d.before);
-    setup(s, at);
-    s.open_demo.as_mut().unwrap().before = before;
-    // Sync the shared replay clock before scheduling relative steps.
-    rune_playground::poll(s, |s| &mut s.open_demo.as_mut().unwrap().play, s.clock, tx);
-    s.open_demo.as_mut().unwrap().play.after(0.75, click, tx);
-    tx.settle();
 }
 
 fn click(s: &mut App, tx: &mut Tx) {
-    let d = s.open_demo.as_mut().unwrap();
-    d.play.clear();
+    s.play.clear();
+    let Some(d) = s.open_demo.as_ref() else { return };
     let (at, before) = (d.at, d.before);
     if before { s.open_now(TARGET, tx); s.open_page(TARGET, tx); } else { s.open(TARGET, tx); }
-    let d = s.open_demo.as_mut().unwrap();
     if at != 1 {
-        d.play.after(if at == 2 { 0.25 } else { 0.05 }, deliver, tx);
-        d.play.after(if at == 2 { 0.4 } else { 0.1 }, pixels, tx);
+        s.play.after(if at == 2 { 0.25 } else { 0.05 }, deliver, tx);
+        s.play.after(if at == 2 { 0.4 } else { 0.1 }, pixels, tx);
     }
 }
 
@@ -93,31 +78,14 @@ fn deliver(s: &mut App, _: &mut Tx) {
 fn pixels(s: &mut App, _: &mut Tx) {
     s.attach.fixture_media(MEDIA, Some(s.open_demo.as_ref().unwrap().png.clone()));
 }
-pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    if s.open_demo.is_none() { return false; }
-    rune_playground::poll(s, |s| &mut s.open_demo.as_mut().unwrap().play, now, tx)
-}
-pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let Some(d) = &mut s.open_demo else { return false };
-    match rune_playground::key(CASES, Some(d.at), &mut d.play, &mut s.knobs, ev) {
-        Move::Pass => false,
-        Move::Done => true,
-        Move::Leave => { crate::stories::close(s, tx); true },
-        Move::Open(i) => { crate::stories::open(s, FIRST + i, tx); true },
-        Move::Run(step) => { step(s, tx); true },
-    }
-}
-fn look(p: &Pal) -> Look { Look { text:p.text, muted:p.muted, faint:p.faint, selected:p.pressed, hover:p.hover, panel:p.bg_deep, line:p.border, top:44.0 } }
+
 pub fn view(s: &App, p: &Pal) -> El {
-    let d = s.open_demo.as_ref().unwrap();
+    let Some(d) = s.open_demo.as_ref() else { return col() };
     let Route::Session(id) = &s.route else { return col() };
     let label = if d.before { "Before · immediate route switch" } else { "After · wait for complete content" };
-    let stage = col().key("opening-stage").grow(1.0).shrink().h_full().fill(p.bg_base)
+    col().key("opening-stage").w_full().h_full()
         .child(text(label).font(crate::view::UI).color(p.muted).px(16.0).py(16.0))
-        .child(crate::view::session_page(s, p, id));
-    row().w_full().h_full().fill(p.bg_deep)
-        .child(col().w(210.0).h_full().child(rune_playground::list(CASES, Some(d.at), &d.play, look(p), |s| &mut s.open_demo.as_mut().unwrap().play, |s, i, tx| crate::stories::open(s, FIRST+i, tx))))
-        .child(rune_playground::page(stage, rune_playground::side(&CASES[d.at], &s.knobs, &d.play, rune_knobs::Style::dark(), |s| &mut s.knobs, look(p))).shrink())
+        .child(crate::view::session_page(s, p, id))
 }
 
 fn picture() -> Vec<u8> {

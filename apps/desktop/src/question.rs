@@ -912,7 +912,7 @@ mod tests {
         let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
         for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
             let mut app = App::empty();
-            crate::stories::scene(&mut app, "Morph loop");
+            crate::stories::scene(&mut app, "Morph");
             crate::knobs::apply_preset(&mut app, p);
             let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
             rt.poll = Some(crate::poll);

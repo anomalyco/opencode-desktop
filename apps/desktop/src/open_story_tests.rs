@@ -4,7 +4,7 @@ use rune::{Env, Key, KeyEvent, Mods, Runtime};
 #[test]
 fn slow_image_opening_keeps_loading_until_pixels_arrive() {
     let mut app = App::empty();
-    open_story::setup(&mut app, 2);
+    crate::stories::scene(&mut app, open_story::NAMES[2]);
     let mut rt = Runtime::new(app, view::app, (1280.0,820.0), Env::new(true,1.0));
     rt.poll = Some(crate::poll);
     rt.on_key = Some(crate::on_key);

@@ -716,8 +716,10 @@ pub struct Viewing {
 }
 
 /// Desktop flies on a 0.3 s spring launched with a push, as a spring from rest starts slowly;
-/// from rest, 0.25 s lands on the same shape.
-const FLIGHT: Spring = Spring::new(0.25, 0.0);
+/// from rest, 0.25 s lands on the same shape (the Timeline knob's default).
+fn flight(s: &App) -> Spring {
+    Spring::new(s.knobs.get(&crate::knobs::IMAGE_FLIGHT), 0.0)
+}
 
 /// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
 /// shared-element id.
@@ -736,9 +738,17 @@ fn opens(s: &App, thumb: El, held: El, id: String, f: &Attachment, image: Image)
         return held;
     }
     let name = f.name.clone();
-    thumb.matched(id.clone()).motion(FLIGHT).on_press(move |s: &mut App| {
+    thumb.matched(id.clone()).motion(flight(s)).on_press(move |s: &mut App| {
         s.attach.viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
     })
+}
+
+/// Opens the viewer on `f` in the gallery keyed `key`, as pressing its thumbnail does (the
+/// storybook's images story). False while its image isn't loaded.
+pub fn view_image(s: &mut App, key: &str, f: &Attachment) -> bool {
+    let Some(image) = s.attach.image(f) else { return false };
+    s.attach.viewing = Some(Viewing { id: format!("{key}:{}", identity(f)), name: f.name.clone(), image });
+    true
 }
 
 /// Where the viewer shows an image of `size` pixels in a `w`×`h` window: a pixel a point, shrunk
@@ -771,7 +781,7 @@ pub fn viewer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .role("dialog")
         .label(v.name.clone())
         .matched(v.id.clone())
-        .motion(FLIGHT)
+        .motion(flight(s))
         .size(w, h)
         .radius(6.0)
         .pixels_fit(v.image.pixels(), SurfaceFit::Fill)
