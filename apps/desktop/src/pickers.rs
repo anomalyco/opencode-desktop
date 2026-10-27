@@ -59,6 +59,20 @@ impl Pickers {
         self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
     }
 
+    /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
+    pub fn load_live(&mut self, models: &Value, agents: &Value) {
+        let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
+        self.models = models.as_array().into_iter().flatten().filter(|v| v["enabled"].as_bool().unwrap_or(true)).map(|v| {
+            let (id, provider) = (s(v, "id"), s(v, "providerID"));
+            Model { key: format!("{provider}:{id}"), id, group: provider.clone(), provider, name: s(v, "name"),
+                variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
+        }).collect();
+        self.load_limits(models);
+        self.agents = agents.as_array().into_iter().flatten()
+            .filter(|a| a["mode"].as_str() != Some("subagent") && !a["hidden"].as_bool().unwrap_or(false))
+            .filter_map(|a| a["id"].as_str()).map(str::to_owned).collect();
+    }
+
     /// Reads `limit.context` from a list of models, keyed by `provider` or `providerID`.
     pub fn load_limits(&mut self, models: &Value) {
         for m in models.as_array().into_iter().flatten() {
@@ -118,11 +132,11 @@ impl App {
             .max_by_key(|p| p.directory.len())
     }
 
-    /// Whether the selected model has an effort to choose: Desktop hides the picker for a model
-    /// with one variant or none.
+    /// Whether the selected model has an effort to choose: Desktop shows the picker (with
+    /// "Default" for no choice) for any model that has variants.
     pub fn has_effort(&self) -> bool {
         let m = self.selection().model;
-        self.pickers.models.iter().find(|x| x.id == m.id && x.provider == m.provider).is_some_and(|x| x.variants.len() > 1)
+        self.pickers.models.iter().find(|x| x.id == m.id && x.provider == m.provider).is_some_and(|x| !x.variants.is_empty())
     }
 
     pub fn picker_current(&self, kind: Kind) -> String {
@@ -224,7 +238,8 @@ impl App {
         }
         if self.composer.focused { self.pickers.toolbar_focus = None; }
         if ev.key == Key::Tab && (self.composer.focused || self.pickers.toolbar_focus.is_some()) {
-            let order: &[Kind] = if self.has_effort() { &[Kind::Agent, Kind::Model, Kind::Effort] } else { &[Kind::Agent, Kind::Model] };
+            let order: Vec<Kind> = [Kind::Agent, Kind::Model, Kind::Effort].into_iter()
+                .filter(|k| match k { Kind::Agent => self.settings.show_agent, Kind::Effort => self.has_effort(), _ => true }).collect();
             // The composer is the last stop after the pickers.
             let n = order.len();
             let next = self.pickers.toolbar_focus.and_then(|k| order.iter().position(|i| *i == k))
@@ -317,6 +332,9 @@ mod tests {
     #[test]
     fn agent_effort_tab_pointer_and_session_isolation() {
         let mut rt = runtime();
+        rt.state.settings.show_agent = true;
+        rt.invalidate();
+        rt.frame(1.0 / 60.0);
         tap(&mut rt, "prompt");
         for expected in [Some(Kind::Agent), Some(Kind::Model), Some(Kind::Effort), None] {
             key(&mut rt, Key::Tab);

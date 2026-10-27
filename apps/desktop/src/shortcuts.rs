@@ -18,6 +18,7 @@ pub enum Action {
     NewSession,
     CloseTab,
     ReopenTab,
+    Settings,
 }
 
 pub fn action(ev: &KeyEvent) -> Option<Action> {
@@ -33,6 +34,7 @@ pub fn action(ev: &KeyEvent) -> Option<Action> {
         Key::Command('=' | '+') => Some(Action::ZoomIn),
         Key::Command('-' | '_') => Some(Action::ZoomOut),
         Key::Command('0') if !m.shift => Some(Action::ZoomReset),
+        Key::Command(',') if !m.shift => Some(Action::Settings),
         Key::Command('t') if m.shift => Some(Action::ReopenTab),
         Key::Command('t' | 'n') if !m.shift => Some(Action::NewSession),
         Key::Command('w') if !m.shift => Some(Action::CloseTab),
@@ -98,6 +100,7 @@ mod tests {
         assert_eq!(action(&ev(Key::Command('t'), cmd)), Some(Action::NewSession));
         assert_eq!(action(&ev(Key::Command('t'), |m| (m.cmd, m.shift) = (true, true))), Some(Action::ReopenTab));
         assert_eq!(action(&ev(Key::Command('w'), cmd)), Some(Action::CloseTab));
+        assert_eq!(action(&ev(Key::Command(','), cmd)), Some(Action::Settings));
         assert_eq!(action(&ev(Key::Command('3'), cmd)), Some(Action::TabAt(2)));
         assert_eq!(action(&ev(Key::Command('a'), cmd)), None);
     }

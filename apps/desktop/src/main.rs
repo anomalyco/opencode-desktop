@@ -16,6 +16,7 @@ mod question;
 mod restore;
 mod shortcuts;
 mod subagents;
+mod settings;
 mod switcher;
 mod tabs;
 mod turns;
@@ -100,6 +101,7 @@ pub struct App {
     /// The + menu, the `/` command popover and shell mode.
     pub add: add_menu::AddMenu,
     pub switcher: switcher::Switcher,
+    pub settings: settings::Settings,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
     /// Links opened from messages, newest last.
@@ -186,6 +188,7 @@ impl App {
             mentions: mentions::Mentions::default(),
             add: add_menu::AddMenu::default(),
             switcher: switcher::Switcher::default(),
+            settings: settings::Settings::default(),
             restore: restore::Restore::default(),
             opened: Vec::new(),
             activity_open: false,
@@ -259,7 +262,8 @@ impl App {
             self.sessions = opencode_kit::model::parse_sessions(&s);
         }
         if let Ok(m) = server.get("/api/model") {
-            self.pickers.load_limits(m.get("data").unwrap_or(&m));
+            let agents = server.get("/api/agent").unwrap_or_default();
+            self.pickers.load_live(m.get("data").unwrap_or(&m), agents.get("data").unwrap_or(&agents));
         }
         if let Ok(a) = server.get("/api/session/active") {
             let map = a.get("data").unwrap_or(&a);
@@ -271,6 +275,7 @@ impl App {
         if let Some(z) = tabs::load_zoom() {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
+        self.settings = settings::load();
         self.restore_ui(&server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
@@ -392,7 +397,7 @@ impl App {
         }
     }
 
-    fn set_zoom(&mut self, dir: i32) {
+    pub fn set_zoom(&mut self, dir: i32) {
         self.zoom = shortcuts::step_zoom(self.zoom, dir);
         if self.persists() {
             tabs::save_zoom(self.zoom);
@@ -417,6 +422,7 @@ impl App {
                 }
             }
             Action::NewSession => self.new_session(tx),
+            Action::Settings => self.toggle_settings(tx),
             Action::CloseTab => {
                 if let Some(id) = self.current_tab() {
                     self.close_tab(&id, tx);
@@ -1062,7 +1068,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
+    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();
@@ -1149,6 +1155,11 @@ fn main() {
             }),
             ("draft", |s| s.route = Route::Draft),
             ("icon-playground", |s| s.playground = true),
+            ("settings", |s| {
+                open_scene(s);
+                s.finish_stream();
+                s.open_settings();
+            }),
             ("question", |s| {
                 open_scene(s);
                 s.finish_stream();

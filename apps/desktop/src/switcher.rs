@@ -32,12 +32,14 @@ pub enum Command {
     NewSession,
     Home,
     ToggleSidebar,
+    Settings,
 }
 
-const COMMANDS: [(Command, &str, &str, &str); 3] = [
+const COMMANDS: [(Command, &str, &str, &str); 4] = [
     (Command::NewSession, "new", "New session", "⌘T"),
     (Command::Home, "home", "Home", "⌘B"),
     (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
+    (Command::Settings, "settings", "Settings", "⌘,"),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -306,6 +308,7 @@ impl App {
                 tx.settle();
             }
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
+            Action::Command(Command::Settings) => self.open_settings(),
         }
     }
 
@@ -671,13 +674,13 @@ mod tests {
         a.open_switcher();
         let e = a.switcher_entries();
         let groups: Vec<&str> = e.iter().map(|e| e.group).collect();
-        assert_eq!(groups, [["Commands"; 3].as_slice(), ["Recent sessions"; 5].as_slice()].concat());
+        assert_eq!(groups, [["Commands"; 4].as_slice(), ["Recent sessions"; 5].as_slice()].concat());
         assert_eq!(e[0].title, "New session");
         // Roots only, newest first: the subagent session never lists.
-        assert_eq!(e[3].key, "session:ses_fx0001aaaaaaaaaaaaaaaaaa");
-        assert_eq!(e[4].key, "session:ses_fx0003aaaaaaaaaaaaaaaaaa");
+        assert_eq!(e[4].key, "session:ses_fx0001aaaaaaaaaaaaaaaaaa");
+        assert_eq!(e[5].key, "session:ses_fx0003aaaaaaaaaaaaaaaaaa");
         assert!(!keys(&a).iter().any(|k| k.contains("fx0002")));
-        assert_eq!(e[3].description, "lumen");
+        assert_eq!(e[4].description, "lumen");
     }
 
     #[test]

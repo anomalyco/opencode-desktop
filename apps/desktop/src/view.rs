@@ -39,7 +39,7 @@ pub(crate) const CONTENT_W: f32 = 696.0;
 /// outer, unscaled element is always mounted (it reports the window's size and keeps every
 /// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
-    let p = pal(cx.system_dark());
+    let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
     let mut inner = shell(s, cx);
     if s.pickers.open.is_some() {
@@ -85,7 +85,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if s.playground {
         return crate::icons::playground(s);
     }
-    let p = pal(cx.system_dark());
+    let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
@@ -114,11 +114,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::attachments::drop_files)
                 .on_drop_hover(crate::attachments::drop_hover)
-                .child(match &s.route {
+                .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),
-                })
+                } })
                 .children(crate::attachments::drop_overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
         )
         // The empty inset above the panels moves the window, as the titlebar does.
@@ -1594,7 +1594,7 @@ fn composer(s: &App, p: &Pal) -> El {
                 .gap(4.0)
                 .center_y()
                 .child(crate::add_menu::trigger(s, p))
-                .child(picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted))
+                .children(s.settings.show_agent.then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
                 .child(picker_trigger(s, p, Kind::Model, &s.pickers.models.iter()
                     .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone()), p.muted))
                 // "Default" is the absence of a choice, so it reads fainter than a picked effort.
