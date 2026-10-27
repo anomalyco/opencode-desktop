@@ -196,9 +196,10 @@ fn sidebar(s: &App, p: &Pal) -> El {
         Route::Session(id) => Some(s.root_of(id)),
         _ => None,
     };
-    let mut list = col().key("tabs").w_full().gap(TAB_GAP).pb(16.0);
+    // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
+    let mut list = col().key("tabs").w_full().pb(16.0);
     for (i, t) in s.tabs.iter().enumerate() {
-        list = list.child(tab_row(s, p, t, i, current == Some(t.id.as_str())));
+        list = list.child(tab_row(s, p, t, i, current == Some(t.id.as_str()), s.tabs.len()));
     }
 
     let w = s.sidebar_w;
@@ -298,7 +299,9 @@ fn over(top: Color, bottom: Color) -> Color {
     Color { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a }
 }
 
-fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -> El {
+/// A tab's hit area spans half the gap to each neighbour, so the pointer is always over one tab
+/// (Beta's "fill vertical tab hover gaps"). Only the 28pt pill inside it paints.
+fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, count: usize) -> El {
     let info = s.session(&t.id);
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
@@ -313,15 +316,18 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -
     let slot_x = s.sidebar_w - 12.0 - 24.0;
     let id = t.id.clone();
     let close_id = t.id.clone();
-    let mut r = row()
+    let before = if index > 0 { TAB_GAP / 2.0 } else { 0.0 };
+    let after = if index + 1 < count { TAB_GAP / 2.0 } else { 0.0 };
+    let dragging = s.tab_drag.dragging() == Some(index);
+    let mut hit = col()
         .key(format!("t-{}", t.id))
         .role("button")
         .label(title.clone())
         .w_full()
-        .h(TAB_H)
-        .radius(6.0)
-        .hover(p.hover)
-        .press(p.pressed)
+        .h(before + TAB_H + after)
+        .pt(before)
+        .pb(after)
+        .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
@@ -343,7 +349,21 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -
                     s.move_tab(from, to);
                 }
             }
-        })
+        });
+    let mut r = row()
+        .key("pill")
+        .w_full()
+        .h(TAB_H)
+        .radius(6.0)
+        .child(
+            el().key("hover")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h(TAB_H)
+                .radius(6.0)
+                .fill(p.hover)
+                .group_opacity(0.0, if dragging { 0.0 } else { 1.0 }),
+        )
         .child(
             row()
                 .key("link")
@@ -398,16 +418,19 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -
     if active {
         r = r.fill(p.pressed);
     }
+    if dragging {
+        // Beta lifts it with the pressed overlay alone; here it's opaque on the sidebar's deep
+        // background so the rows it passes don't show through.
+        r = r.fill(over(p.pressed, p.bg_deep));
+    }
     // Its layout and its step aside share one spring, so a drop that swaps one for the other
     // leaves a passed tab still and slides the dropped one from where it was drawn.
-    r = r.motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
-    if s.tab_drag.dragging() == Some(index) {
-        // Beta lifts it with the pressed overlay alone; here it's opaque on the sidebar's deep
-        // background so the rows it passes don't show through. It follows the pointer exactly.
-        let lifted = over(p.pressed, p.bg_deep);
-        r = r.raise().offset_motion(INSTANT).fill(lifted).hover(lifted);
+    hit = hit.child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
+    if dragging {
+        // It follows the pointer exactly.
+        hit = hit.raise().offset_motion(INSTANT);
     }
-    r
+    hit
 }
 
 /// The sidebar edge's resize handle: an 8px hit area across the gap, with a pill that waits a
@@ -2009,8 +2032,30 @@ mod tests {
         format!("t-{}", rt.state.tabs[i].id)
     }
 
+    /// The top of a tab's painted pill (its hit area reaches into the gaps).
     fn tab_y(rt: &Runtime<App>, key: &str) -> f32 {
-        rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect[1]).unwrap_or_else(|| panic!("no {key}"))
+        pill(rt, key).rect[1]
+    }
+
+    fn pill(rt: &Runtime<App>, key: &str) -> rune::ElementInfo {
+        rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&format!("{key}/")) && e.key.as_deref() == Some("pill")).unwrap_or_else(|| panic!("no {key}"))
+    }
+
+    #[test]
+    fn the_gap_between_tabs_belongs_to_a_tab() {
+        let mut rt = sidebar();
+        let (a, b) = (pill(&rt, &tab_key(&rt, 1)), pill(&rt, &tab_key(&rt, 2)));
+        assert!(b.rect[1] - (a.rect[1] + a.rect[3]) > 3.5, "the pills keep their gap: {:?} {:?}", a.rect, b.rect);
+        // Just under tab 1's pill, in the gap: a click there opens tab 1.
+        let (x, y) = (a.rect[0] + a.rect[2] / 2.0, a.rect[1] + a.rect[3] + 1.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        for _ in 0..4 {
+            rt.frame(1.0 / 60.0);
+        }
+        let id = rt.state.tabs[1].id.clone();
+        assert_eq!(rt.state.route, crate::Route::Session(id));
     }
 
     fn ids(rt: &Runtime<App>) -> Vec<String> {

@@ -8,8 +8,12 @@ use crate::App;
 
 /// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
 pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0);
+/// Its corner radius in points: 12 is Desktop's; 14 makes a full pill.
+pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0);
+/// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
+pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0);
 
-const GROUPS: &[Group] = &[Group::new("Composer", "composer", &[CAPSULE_FILL])];
+const GROUPS: &[Group] = &[Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
 
 /// ⌘⇧K toggles the layer; Esc closes it.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {

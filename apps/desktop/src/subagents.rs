@@ -267,9 +267,10 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         .px(10.0)
         .gap(8.0)
         .center_y()
-        .radius(12.0)
+        .radius(s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
         .fill(if p.dark { p.layer1 } else { p.bg_base }.alpha(s.knobs.get(&crate::knobs::CAPSULE_FILL)))
-        .border(0.5, p.border_muted)
+        // Desktop's `--v2-elevation-raised` rings the muted border with the composer's hairline.
+        .border(0.5, p.border_muted.mix(p.ring, s.knobs.get(&crate::knobs::CAPSULE_RING)))
         .shadow(1.0, 2.0, p.shadow.alpha(p.shadow.a * s.knobs.get(&crate::knobs::CAPSULE_FILL)))
         .hover(p.hover)
         .press(p.pressed)
