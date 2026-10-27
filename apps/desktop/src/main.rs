@@ -2,6 +2,7 @@
 //! from a synthetic fixture. Live, it sends prompts, answers permission requests and questions,
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
+mod attachments;
 mod palette;
 mod pickers;
 mod shortcuts;
@@ -14,7 +15,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker, edge};
 use serde_json::Value;
 
-use opencode_kit::client::{DEFAULT_SERVER, Incoming, Request, Server, Write};
+use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
 use opencode_kit::model::{FieldKind, Message, Pending, Project, SessionInfo, Transcript};
 use tabs::Tab;
 
@@ -70,6 +71,8 @@ pub struct App {
     /// The width when a resize drag started.
     pub sidebar_drag: Option<f32>,
     pub composer: TextEdit,
+    /// The composer's images, and sent prompts waiting on the server's copy.
+    pub attach: attachments::Attach,
     pub search: TextEdit,
     pub pickers: pickers::Pickers,
     pub edge: usize,
@@ -123,6 +126,7 @@ impl App {
             sidebar_w: view::SIDEBAR_W,
             sidebar_drag: None,
             composer: TextEdit::new(""),
+            attach: Default::default(),
             search: TextEdit::new(""),
             pickers: pickers::Pickers::default(),
             edge,
@@ -427,15 +431,18 @@ impl App {
 
     pub fn send(&mut self, tx: &mut Tx) {
         let text = self.composer.text.trim().to_owned();
-        if text.is_empty() {
+        if text.is_empty() && self.attach.files.is_empty() {
             return;
         }
+        // The server's user message takes this id, so it replaces the local copy below.
+        let prompt = Prompt { id: Some(opencode_kit::client::message_id()), text: text.clone(), files: attachments::inputs(&self.attach.files) };
         let id = match self.route.clone() {
             Route::Session(id) => id,
             Route::Draft if self.live() => {
-                if self.write(Write::Create { directory: self.draft_dir.clone(), text }) {
+                if self.write(Write::Start { directory: self.draft_dir.clone(), prompt }) {
                     self.status = "Starting a session…".into();
                     self.composer.clear();
+                    self.attach.files.clear();
                 }
                 return;
             }
@@ -444,11 +451,14 @@ impl App {
                 return;
             }
         };
-        match &self.source {
+        let local = match &self.source {
             Source::Live { .. } => {
-                if !self.write(Write::Prompt { session: id.clone(), text: text.clone() }) {
+                let local = prompt.id.clone().unwrap_or_default();
+                if !self.write(Write::Send { session: id.clone(), prompt }) {
                     return;
                 }
+                self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
+                local
             }
             Source::Fixture => {
                 let selection = self.selection();
@@ -469,11 +479,13 @@ impl App {
                     self.playback.push_back((at + e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), d));
                 }
                 self.wake_at_playback();
+                format!("msg_zzzzsent{:04}", self.sends)
             }
-        }
+        };
+        opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
-        t.messages.push(Message::User { id: format!("msg_zzzzsent{:04}", self.sends), text });
-        tx.fly_text("prompt", format!("text-msg_zzzzsent{:04}", self.sends));
+        t.messages.push(Message::User { id: local.clone(), text });
+        tx.fly_text("prompt", format!("text-{local}"));
         self.composer.clear();
     }
 
@@ -725,6 +737,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 Incoming::Messages { session, messages } => {
                     let first = !s.transcripts.contains_key(&session);
                     let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
+                    attachments::reconcile(&mut s.attach.echoes, t, &messages);
                     t.merge(messages);
                     if first && s.route == Route::Session(session) {
                         // Guarantee 8: the first load of the open session lands, nothing grows in.
@@ -767,6 +780,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 
 fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
+    s.attach.set_waker(waker.clone());
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }

@@ -2,6 +2,9 @@
 //! from the server's JSON (`/api/project`, `/api/session`, `/api/session/:id/message`) and
 //! kept current by the same events `/api/event` streams.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
 use serde_json::Value;
 
 #[derive(Clone, Debug)]
@@ -116,7 +119,102 @@ pub enum ToolStatus {
 pub enum Part {
     Text { text: String },
     Reasoning { text: String, started: i64, completed: Option<i64> },
-    Tool { id: String, name: String, status: ToolStatus, title: String, input: Value },
+    /// `files`: what the tool returned besides text, such as the image a `read` loaded.
+    Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment> },
+}
+
+/// A file on a user message or a tool result, with its bytes (the server inlines them unless a
+/// client opts into `media:` refs, which this one doesn't).
+#[derive(Clone, PartialEq)]
+pub struct Attachment {
+    pub mime: String,
+    pub name: String,
+    pub bytes: Arc<[u8]>,
+}
+
+impl std::fmt::Debug for Attachment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Attachment({}, {}, {} bytes)", self.mime, self.name, self.bytes.len())
+    }
+}
+
+impl Attachment {
+    pub fn is_image(&self) -> bool {
+        self.mime.starts_with("image/")
+    }
+}
+
+/// Standard base64, padding optional; None on anything else.
+pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let s = s.trim_end_matches('=').as_bytes();
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    for chunk in s.chunks(4) {
+        let mut n = 0u32;
+        for (k, &c) in chunk.iter().enumerate() {
+            n |= (val(c)? as u32) << (18 - 6 * k);
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        match chunk.len() {
+            4 => out.extend_from_slice(&bytes),
+            3 => out.extend_from_slice(&bytes[..2]),
+            2 => out.push(bytes[0]),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// One file: `{data, mime, name}` (base64) or `{uri: "data:…;base64,…", mime, name}`. Files
+/// without bytes here (`file://`, `media:`) are skipped.
+pub fn parse_attachment(f: &Value) -> Option<Attachment> {
+    let (mime, bytes) = match (f["data"].as_str(), f["uri"].as_str()) {
+        (Some(data), _) => (s(&f["mime"]), base64_decode(data)?),
+        (None, Some(uri)) => {
+            let (head, data) = uri.strip_prefix("data:")?.split_once(',')?;
+            let head_mime = head.split(';').next().unwrap_or("");
+            if !head.ends_with(";base64") {
+                return None;
+            }
+            let mime = f["mime"].as_str().unwrap_or(head_mime).to_owned();
+            (mime, base64_decode(data)?)
+        }
+        _ => return None,
+    };
+    Some(Attachment { mime, name: s(&f["name"]), bytes: bytes.into() })
+}
+
+fn parse_attachments(list: &Value) -> Vec<Attachment> {
+    list.as_array().into_iter().flatten().filter(|c| c["type"].as_str().is_none_or(|t| t == "file")).filter_map(parse_attachment).collect()
+}
+
+/// User messages' files, by message id. `Message::User` has no field for them, so apps that
+/// build one as a literal keep compiling; `parse_message` fills this and apps read it.
+fn user_file_store() -> &'static Mutex<HashMap<String, Arc<[Attachment]>>> {
+    static STORE: OnceLock<Mutex<HashMap<String, Arc<[Attachment]>>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// The files on user message `id` (empty when it has none).
+pub fn user_files(id: &str) -> Arc<[Attachment]> {
+    user_file_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+}
+
+/// Records the files on user message `id`, as a local echo of a sent prompt has them.
+pub fn set_user_files(id: &str, files: Vec<Attachment>) {
+    let mut store = user_file_store().lock().unwrap();
+    if files.is_empty() {
+        store.remove(id);
+    } else {
+        store.insert(id.to_owned(), files.into());
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -234,6 +332,7 @@ fn parse_part(c: &Value) -> Option<Part> {
                 name,
                 status: tool_status(&c["state"]["status"]),
                 input,
+                files: parse_attachments(&c["state"]["content"]),
             }
         }
         _ => return None,
@@ -243,7 +342,13 @@ fn parse_part(c: &Value) -> Option<Part> {
 pub fn parse_message(m: &Value) -> Option<Message> {
     let id = s(&m["id"]);
     Some(match m["type"].as_str()? {
-        "user" => Message::User { id, text: s(&m["text"]) },
+        "user" => {
+            let files = parse_attachments(&m["files"]);
+            if !files.is_empty() {
+                set_user_files(&id, files);
+            }
+            Message::User { id, text: s(&m["text"]) }
+        }
         "assistant" => Message::Assistant(Assistant {
             id,
             completed: m["time"]["completed"].as_i64(),
@@ -395,6 +500,7 @@ impl Transcript {
                             name,
                             status: if ty == "session.tool.called" { ToolStatus::Running } else { ToolStatus::Pending },
                             input,
+                            files: Vec::new(),
                         });
                     }
                 }
@@ -403,10 +509,14 @@ impl Transcript {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let id = s(&d["id"]);
                 for p in &mut a.parts {
-                    if let Part::Tool { id: tid, status, .. } = p
+                    if let Part::Tool { id: tid, status, files, .. } = p
                         && *tid == id
                     {
                         *status = if ty == "session.tool.success" { ToolStatus::Completed } else { ToolStatus::Error };
+                        let got = parse_attachments(&d["content"]);
+                        if !got.is_empty() {
+                            *files = got;
+                        }
                     }
                 }
             }
@@ -584,6 +694,37 @@ mod tests {
         assert!(fields[0].custom);
         assert_eq!(fields[0].options[0].description, "default");
         assert_eq!(fields[1].kind, FieldKind::Multi);
+    }
+
+    #[test]
+    fn decodes_base64() {
+        assert_eq!(base64_decode("b3BlbmNvZGU6cHc=").unwrap(), b"opencode:pw");
+        assert_eq!(base64_decode("YWI=").unwrap(), b"ab");
+        assert_eq!(base64_decode("YWJj").unwrap(), b"abc");
+        assert!(base64_decode("a$==").is_none());
+    }
+
+    #[test]
+    fn parses_user_and_tool_images() {
+        // As `GET /api/session/:id/message` returns them.
+        let v = serde_json::json!({"data": [
+            {"id": "msg_u1", "type": "user", "text": "look", "files": [
+                {"data": "iVBORw==", "mime": "image/png", "source": {"type": "inline"}, "name": "shot.png"}
+            ]},
+            {"id": "msg_a1", "type": "assistant", "content": [
+                {"type": "tool", "id": "t1", "name": "read", "state": {"status": "completed", "input": {"path": "/x.jpg"},
+                 "content": [{"type": "text", "text": "Image read successfully"},
+                             {"type": "file", "uri": "data:image/jpeg;base64,/9j/", "mime": "image/jpeg", "name": "/x.jpg"}]}}
+            ]}
+        ]});
+        let msgs = parse_messages(&v);
+        let files = user_files("msg_u1");
+        assert_eq!(files.len(), 1);
+        assert_eq!((files[0].mime.as_str(), files[0].name.as_str(), &files[0].bytes[..]), ("image/png", "shot.png", &[0x89, b'P', b'N', b'G'][..]));
+        let Some(Message::Assistant(a)) = msgs.iter().find(|m| matches!(m, Message::Assistant(_))) else { panic!() };
+        let Part::Tool { files, .. } = &a.parts[0] else { panic!() };
+        assert_eq!((files.len(), files[0].mime.as_str(), &files[0].bytes[..]), (1, "image/jpeg", &[0xff, 0xd8, 0xff][..]));
+        assert!(user_files("msg_none").is_empty());
     }
 
     #[test]

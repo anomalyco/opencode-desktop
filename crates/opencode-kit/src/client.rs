@@ -44,6 +44,80 @@ pub enum Write {
     Interrupt(String),
     /// A new session in `directory`, then `text` as its first prompt.
     Create { directory: String, text: String },
+    /// `Prompt` with its client id and files.
+    Send { session: String, prompt: Prompt },
+    /// `Create` with a full first prompt.
+    Start { directory: String, prompt: Prompt },
+}
+
+/// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
+/// so a local copy shown before the server's arrives is replaced rather than doubled.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Prompt {
+    pub id: Option<String>,
+    pub text: String,
+    pub files: Vec<FileInput>,
+}
+
+/// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]) or `file://`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileInput {
+    pub uri: String,
+    pub name: String,
+}
+
+impl Prompt {
+    pub fn body(&self) -> Value {
+        let mut body = serde_json::json!({ "text": self.text });
+        if let Some(id) = &self.id {
+            body["id"] = id.clone().into();
+        }
+        if !self.files.is_empty() {
+            body["files"] = self.files.iter().map(|f| serde_json::json!({ "uri": f.uri, "name": f.name })).collect();
+        }
+        body
+    }
+}
+
+/// `data:<mime>;base64,<bytes>`.
+pub fn data_url(mime: &str, bytes: &[u8]) -> String {
+    format!("data:{mime};base64,{}", base64(bytes))
+}
+
+/// A new `SessionMessage.ID` as the server makes them (`Identifier.ascending`): `msg_`, 12 hex
+/// digits of `ms * 0x1000 + counter` (its low 48 bits) and 14 random base62 characters. They
+/// sort by time, so a message sent now lands after the transcript's others.
+pub fn message_id() -> String {
+    message_id_at(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64))
+}
+
+fn message_id_at(ms: u64) -> String {
+    use std::hash::{BuildHasher, Hasher};
+    use std::sync::Mutex;
+    static LAST: Mutex<(u64, u64)> = Mutex::new((0, 0));
+    let counter = {
+        let mut last = LAST.lock().unwrap();
+        if last.0 != ms {
+            *last = (ms, 0);
+        }
+        last.1 += 1;
+        last.1
+    };
+    let value = ms.wrapping_mul(0x1000).wrapping_add(counter) & 0xffff_ffff_ffff;
+    const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let mut out = format!("msg_{value:012x}");
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u64(value);
+    let mut r = h.finish();
+    for k in 0..14 {
+        if k == 7 {
+            h.write_u64(r);
+            r = h.finish();
+        }
+        out.push(CHARS[(r % 62) as usize] as char);
+        r /= 62;
+    }
+    out
 }
 
 fn list(v: &Value) -> Vec<Value> {
@@ -149,6 +223,13 @@ impl Server {
         self.write("POST", &format!("/api/session/{session}/prompt"), Some(serde_json::json!({ "text": text }))).map(|_| ())
     }
 
+    /// `POST /session/:id/prompt` with an id and files; returns the id the server gave the
+    /// message (`data.id`), which is `prompt.id` when that was set.
+    pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
+        let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
+        Ok(v["data"]["id"].as_str().map(str::to_owned))
+    }
+
     /// `decision`: `once`, `always` or `reject`.
     pub fn reply_permission(&self, session: &str, request: &str, decision: &str) -> Result<(), String> {
         let path = format!("/api/session/{session}/permission/{request}/reply");
@@ -235,6 +316,12 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         Write::Interrupt(session) => server.interrupt(&session),
                         Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
                             server.send_prompt(&info.id, &text)?;
+                            let _ = inbox_tx.send(Incoming::Created(info));
+                            Ok(())
+                        }),
+                        Write::Send { session, prompt } => server.send(&session, &prompt).map(|_| ()),
+                        Write::Start { directory, prompt } => server.create_session(&directory).and_then(|info| {
+                            server.send(&info.id, &prompt)?;
                             let _ = inbox_tx.send(Incoming::Created(info));
                             Ok(())
                         }),
@@ -378,6 +465,41 @@ mod tests {
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/form/frm_c/reply HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"answer":{"q0":"dev"}}"#), "{req}");
+    }
+
+    #[test]
+    fn message_ids_match_the_servers_and_sort_by_time() {
+        let a = message_id_at(1_793_064_618_018);
+        let b = message_id_at(1_793_064_618_018);
+        let c = message_id_at(1_793_064_618_019);
+        for id in [&a, &b, &c] {
+            assert_eq!(id.len(), 4 + 26, "{id}");
+            assert!(id.starts_with("msg_") && id[4..16].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{id}");
+            assert!(id[16..].chars().all(|c| c.is_ascii_alphanumeric()), "{id}");
+        }
+        // The server's id for a message created at that millisecond starts the same way.
+        assert_eq!(&a[..16], "msg_17afac822001");
+        assert!(a < b && b < c, "{a} {b} {c}");
+    }
+
+    #[test]
+    fn sends_a_prompt_with_its_id_and_an_image() {
+        let (base, h) = mock_once();
+        let prompt = Prompt {
+            id: Some("msg_17afac822001abcdefghijklmn".into()),
+            text: "see this".into(),
+            files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into() }],
+        };
+        Server { base, auth: None }.send("ses_a", &prompt).unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{req}");
+        let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"id": "msg_17afac822001abcdefghijklmn", "text": "see this",
+                "files": [{"uri": "data:image/png;base64,YWI=", "name": "shot.png"}]})
+        );
+        assert_eq!(Prompt { text: "hi".into(), ..Default::default() }.body(), serde_json::json!({"text": "hi"}));
     }
 
     #[test]

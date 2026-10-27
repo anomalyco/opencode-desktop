@@ -759,7 +759,12 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
         match m {
             Message::User { id, text: body, .. } => {
                 flush(&mut out, &mut group, &group_key);
-                out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, out.is_empty()), streaming: false });
+                if let Some(g) = crate::attachments::gallery(s, p, "images", &model::user_files(id), true) {
+                    out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 20.0 }), streaming: false });
+                }
+                if !body.trim().is_empty() {
+                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, out.is_empty()), streaming: false });
+                }
             }
             Message::Note { id, text: body } => {
                 flush(&mut out, &mut group, &group_key);
@@ -775,11 +780,15 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
                             let agent = input["subagent_type"].as_str().unwrap_or("general");
                             out.push(RowSpec { key: format!("a-{id}"), el: subagent_chip(p, agent, title, status), streaming: false });
                         }
-                        Part::Tool { id, name, title, status, .. } => {
+                        Part::Tool { id, name, title, status, files, .. } => {
                             if group.is_empty() {
                                 group_key = id.clone();
                             }
                             group.push((id, name, title, status));
+                            if let Some(g) = crate::attachments::gallery(s, p, "images", files, false) {
+                                flush(&mut out, &mut group, &group_key);
+                                out.push(RowSpec { key: format!("ti-{id}"), el: g, streaming: false });
+                            }
                         }
                         Part::Text { text: body } => {
                             flush(&mut out, &mut group, &group_key);
@@ -1157,7 +1166,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
-    let ready = !s.composer.text.trim().is_empty();
+    let ready = !s.composer.text.trim().is_empty() || !s.attach.files.is_empty();
     let busy = matches!(&s.route, Route::Session(id) if s.busy(id));
     let stop = busy && !ready;
     let submit = el()
@@ -1183,8 +1192,12 @@ fn composer_dock(s: &App, p: &Pal) -> El {
         .min_h(96.0)
         .radius(12.0)
         .fill(if p.dark { p.layer1 } else { p.bg_base })
-        .border(0.5, p.ring)
+        .border(if s.attach.drop_over { 1.0 } else { 0.5 }, if s.attach.drop_over { p.accent } else { p.ring })
         .shadow(1.0, 2.0, p.shadow)
+        .on_drop_files(crate::attachments::drop_files)
+        .accepts_extensions(crate::attachments::IMAGE_EXTENSIONS)
+        .on_drop_hover(|s: &mut App, over, _| s.attach.drop_over = over)
+        .children(crate::attachments::chips(s, p))
         .child(
             col().key("editor").w_full().px(16.0).pt(16.0).pb(8.0).child(
                 text_input(&s.composer, PROMPT)
@@ -1196,6 +1209,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
                     .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))
+                    .on_input_paste(crate::attachments::paste)
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
             ),
         )
