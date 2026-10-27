@@ -134,18 +134,24 @@ pub fn subagent_session<'a>(input: &'a Value, metadata: &'a Value) -> Option<&'a
     metadata["sessionID"].as_str().or_else(|| input["sessionID"].as_str()).filter(|s| !s.is_empty())
 }
 
-/// A file on a user message or a tool result, with its bytes (the server inlines them unless a
-/// client opts into `media:` refs, which this one doesn't).
-#[derive(Clone, PartialEq)]
+/// A file on a user message or a tool result. The server inlines its bytes, or, for a client
+/// that opts in (see [`crate::client::MEDIA_CAPABILITY`]) on a session with
+/// `experimental.media_blob` on, sends a `media:<hash>` ref: then `media` is the hash, `bytes`
+/// is empty, and `GET /api/experimental/media/:hash` has the bytes.
+#[derive(Clone, Default, PartialEq)]
 pub struct Attachment {
     pub mime: String,
     pub name: String,
     pub bytes: Arc<[u8]>,
+    pub media: Option<String>,
 }
 
 impl std::fmt::Debug for Attachment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Attachment({}, {}, {} bytes)", self.mime, self.name, self.bytes.len())
+        match &self.media {
+            Some(hash) => write!(f, "Attachment({}, {}, media:{hash})", self.mime, self.name),
+            None => write!(f, "Attachment({}, {}, {} bytes)", self.mime, self.name, self.bytes.len()),
+        }
     }
 }
 
@@ -153,6 +159,21 @@ impl Attachment {
     pub fn is_image(&self) -> bool {
         self.mime.starts_with("image/")
     }
+
+    /// The server's `[media unavailable: <name> (<mime>)]`, which stands in for a ref whose
+    /// stored bytes are gone.
+    pub fn unavailable(&self) -> Option<&str> {
+        if self.mime != "text/plain" || self.media.is_some() {
+            return None;
+        }
+        std::str::from_utf8(&self.bytes).ok().filter(|t| t.starts_with("[media unavailable: ") && t.ends_with(']'))
+    }
+}
+
+/// The blob hash in a `media:<hash>` ref (64 lowercase hex digits), the only form the server
+/// sends stored media in.
+pub fn media_hash(uri: &str) -> Option<&str> {
+    uri.strip_prefix("media:").filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 /// Standard base64, padding optional; None on anything else.
@@ -183,9 +204,12 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// One file: `{data, mime, name}` (base64) or `{uri: "data:…;base64,…", mime, name}`. Files
-/// without bytes here (`file://`, `media:`) are skipped.
+/// One file: `{data, mime, name}` (base64), `{uri: "data:…;base64,…", mime, name}` or a
+/// `{uri: "media:<hash>", mime, name, bytes}` ref. Other URIs (`file://`) are skipped.
 pub fn parse_attachment(f: &Value) -> Option<Attachment> {
+    if let Some(hash) = f["uri"].as_str().and_then(media_hash) {
+        return Some(Attachment { mime: s(&f["mime"]), name: s(&f["name"]), media: Some(hash.to_owned()), ..Default::default() });
+    }
     let (mime, bytes) = match (f["data"].as_str(), f["uri"].as_str()) {
         (Some(data), _) => (s(&f["mime"]), base64_decode(data)?),
         (None, Some(uri)) => {
@@ -199,7 +223,7 @@ pub fn parse_attachment(f: &Value) -> Option<Attachment> {
         }
         _ => return None,
     };
-    Some(Attachment { mime, name: s(&f["name"]), bytes: bytes.into() })
+    Some(Attachment { mime, name: s(&f["name"]), bytes: bytes.into(), media: None })
 }
 
 fn parse_attachments(list: &Value) -> Vec<Attachment> {
@@ -884,6 +908,38 @@ mod tests {
         let Part::Tool { files, .. } = &a.parts[0] else { panic!() };
         assert_eq!((files.len(), files[0].mime.as_str(), &files[0].bytes[..]), (1, "image/jpeg", &[0xff, 0xd8, 0xff][..]));
         assert!(user_files("msg_none").is_empty());
+    }
+
+    #[test]
+    fn parses_media_refs_and_the_unavailable_placeholder() {
+        let hash = "a".repeat(64);
+        // As an opted-in read returns them: a ref, an inline file, and a ref whose blob is gone.
+        let v = serde_json::json!({"data": [
+            {"id": "msg_m1", "type": "user", "text": "", "files": [
+                {"uri": format!("media:{hash}"), "mime": "image/png", "source": {"type": "inline"}, "name": "shot.png", "bytes": 1234},
+                {"data": "iVBORw==", "mime": "image/png", "source": {"type": "inline"}, "name": "inline.png"},
+                {"data": "W21lZGlhIHVuYXZhaWxhYmxlOiBnb25lLnBuZyAoaW1hZ2UvcG5nKV0=", "mime": "text/plain", "source": {"type": "inline"}, "name": "gone.png"},
+                {"uri": "media:deadbeef", "mime": "image/png", "name": "bad.png"}
+            ]},
+            {"id": "msg_m2", "type": "assistant", "content": [
+                {"type": "tool", "id": "t1", "name": "read", "state": {"status": "completed", "input": {},
+                 "content": [{"type": "file", "uri": format!("media:{hash}"), "mime": "image/png", "name": "shot.png"}]}}
+            ]}
+        ]});
+        let msgs = parse_messages(&v);
+        let files = user_files("msg_m1");
+        assert_eq!(files.len(), 3, "a malformed ref is skipped: {files:?}");
+        assert_eq!((files[0].media.as_deref(), files[0].bytes.len(), files[0].mime.as_str()), (Some(hash.as_str()), 0, "image/png"));
+        assert!(files[0].is_image() && files[0].unavailable().is_none());
+        assert_eq!((files[1].media.as_deref(), files[1].bytes.len()), (None, 4));
+        assert_eq!(files[2].unavailable(), Some("[media unavailable: gone.png (image/png)]"));
+        let Some(Message::Assistant(a)) = msgs.iter().find(|m| matches!(m, Message::Assistant(_))) else { panic!() };
+        let Part::Tool { files, .. } = &a.parts[0] else { panic!() };
+        assert_eq!(files[0].media.as_deref(), Some(hash.as_str()));
+        let item = parse_inbox_item(&serde_json::json!({"id": "msg_q", "type": "user", "delivery": "queue",
+            "payload": {"text": "again", "files": [{"uri": format!("media:{hash}"), "mime": "image/png", "name": "again.png", "bytes": 3}]}}))
+        .unwrap();
+        assert_eq!(item.files[0].media.as_deref(), Some(hash.as_str()));
     }
 
     #[test]

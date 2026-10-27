@@ -188,7 +188,7 @@ impl App {
     fn new() -> App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
-        let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into()));
+        let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into())).with_media_refs();
         let want_live = fixture_path.is_none() && (flag("--live") || (!headless() && server.reachable()));
         if want_live && app.load_live(server) { return app; }
         let src = match &fixture_path {
@@ -985,6 +985,8 @@ fn setup(s: &mut App, waker: Waker) {
     missing.sort();
     missing.dedup();
     if let Source::Live { server, requests, writes, .. } = &mut s.source {
+        let media = server.clone();
+        s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
         let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.

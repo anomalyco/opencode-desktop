@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 
 use rune::{
     ClipboardContent, Color, Cx, El, Image, ImageCache, Spring, SpringPair, SurfaceFit, TextStyle, Theme, Transition, Tx, Waker, col, el,
@@ -42,6 +42,84 @@ pub struct Attach {
     cache: RefCell<Option<ImageCache>>,
     /// Decoded handles by the bytes' address, so a view doesn't re-hash megabytes each frame.
     images: RefCell<HashMap<(usize, usize), (Arc<[u8]>, Image)>>,
+    /// `media:<hash>` refs: fetched once, decoded once, by hash.
+    media: Media,
+    refs: RefCell<HashMap<String, Image>>,
+}
+
+/// Reads a `media:` ref's bytes (`Server::media` live; a stub in tests).
+pub type Fetch = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
+
+/// Where a ref's bytes are.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Fetched {
+    Loading,
+    Ready(Arc<[u8]>),
+    Failed(String),
+    /// Handed to the image cache, which holds the pixels now.
+    Decoded,
+}
+
+/// Ref fetches, on one worker thread that takes the newest request first: a view asks top to
+/// bottom, and the bottom of a transcript is what shows.
+#[derive(Default)]
+struct Media {
+    fetch: Option<Fetch>,
+    state: Arc<Mutex<HashMap<String, Fetched>>>,
+    queue: RefCell<Option<Arc<(Mutex<Vec<String>>, Condvar)>>>,
+}
+
+impl Media {
+    fn get(&self, hash: &str, waker: Option<&Waker>) -> Fetched {
+        let mut state = self.state.lock().unwrap();
+        if let Some(f) = state.get(hash) {
+            return f.clone();
+        }
+        let Some(fetch) = self.fetch.clone() else { return Fetched::Failed("no server".into()) };
+        state.insert(hash.to_owned(), Fetched::Loading);
+        drop(state);
+        let mut queue = self.queue.borrow_mut();
+        let q = queue.get_or_insert_with(|| {
+            let q = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+            spawn_fetcher(Arc::downgrade(&q), self.state.clone(), fetch, waker.cloned().unwrap_or_else(|| Arc::new(|| {})));
+            q
+        });
+        q.0.lock().unwrap().push(hash.to_owned());
+        q.1.notify_one();
+        Fetched::Loading
+    }
+}
+
+fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, fetch: Fetch, wake: Waker) {
+    std::thread::Builder::new()
+        .name("opencode-media".into())
+        .spawn(move || {
+            loop {
+                // Ends once the app (the queue's owner) is gone.
+                let Some(q) = queue.upgrade() else { return };
+                let next = {
+                    let mut stack = q.0.lock().unwrap();
+                    if stack.is_empty() {
+                        stack = q.1.wait_timeout(stack, std::time::Duration::from_secs(1)).unwrap().0;
+                    }
+                    stack.pop()
+                };
+                drop(q);
+                let Some(hash) = next else { continue };
+                let result = match fetch(&hash) {
+                    Ok(bytes) => Fetched::Ready(bytes.into()),
+                    Err(e) => Fetched::Failed(e),
+                };
+                state.lock().unwrap().insert(hash, result);
+                wake();
+            }
+        })
+        .expect("spawn media thread");
+}
+
+/// What the cache decodes; other types show as a named chip.
+fn decodable(mime: &str) -> bool {
+    matches!(mime, "image/png" | "image/jpeg" | "image/jpg")
 }
 
 impl Attach {
@@ -49,24 +127,49 @@ impl Attach {
         self.waker = Some(waker);
     }
 
-    /// The decoded image (PNG and JPEG; None for other types, which show as a named chip).
+    /// Where `media:` refs' bytes come from.
+    pub fn set_fetch(&mut self, fetch: Fetch) {
+        self.media.fetch = Some(fetch);
+    }
+
+    /// The decoded image (PNG and JPEG; None for other types, which show as a named chip, and
+    /// for a ref whose bytes haven't arrived, which starts fetching them).
     pub fn image(&self, a: &Attachment) -> Option<Image> {
-        if !matches!(a.mime.as_str(), "image/png" | "image/jpeg" | "image/jpg") {
+        if !decodable(&a.mime) {
             return None;
+        }
+        if let Some(hash) = &a.media {
+            if let Some(img) = self.refs.borrow().get(hash) {
+                return Some(img.clone());
+            }
+            let Fetched::Ready(bytes) = self.media.get(hash, self.waker.as_ref()) else { return None };
+            let img = self.load(bytes);
+            self.refs.borrow_mut().insert(hash.clone(), img.clone());
+            self.media.state.lock().unwrap().insert(hash.clone(), Fetched::Decoded);
+            return Some(img);
         }
         let key = (a.bytes.as_ptr() as usize, a.bytes.len());
         if let Some((_, img)) = self.images.borrow().get(&key) {
             return Some(img.clone());
         }
-        let mut cache = self.cache.borrow_mut();
-        let cache = cache.get_or_insert_with(|| ImageCache::new(self.waker.clone().unwrap_or_else(|| Arc::new(|| {}))));
-        let img = cache.load(a.bytes.clone());
+        let img = self.load(a.bytes.clone());
         self.images.borrow_mut().insert(key, (a.bytes.clone(), img.clone()));
         Some(img)
     }
 
+    /// A ref's fetch, once `image` has asked for it (None for inline files).
+    pub fn fetched(&self, a: &Attachment) -> Option<Fetched> {
+        let hash = a.media.as_ref()?;
+        self.media.state.lock().unwrap().get(hash).cloned()
+    }
+
+    fn load(&self, bytes: Arc<[u8]>) -> Image {
+        let mut cache = self.cache.borrow_mut();
+        cache.get_or_insert_with(|| ImageCache::new(self.waker.clone().unwrap_or_else(|| Arc::new(|| {})))).load(bytes)
+    }
+
     pub fn add(&mut self, a: Attachment) {
-        if !self.files.iter().any(|f| f.bytes == a.bytes) {
+        if !self.files.iter().any(|f| f.bytes == a.bytes && f.media == a.media) {
             self.files.push(a);
         }
     }
@@ -90,19 +193,26 @@ pub fn from_path(path: &Path) -> Result<Attachment, String> {
     if bytes.len() > MAX_BYTES {
         return Err(format!("{name} is over 20 MB"));
     }
-    Ok(Attachment { mime: mime_for(path).into(), name, bytes: bytes.into() })
+    Ok(Attachment { mime: mime_for(path).into(), name, bytes: bytes.into(), media: None })
 }
 
-/// The prompt's `files`: each attachment inline as a data URL.
+/// The prompt's `files`: each attachment inline as a data URL, or a ref the server sent as its
+/// `media:` URI, which the server re-admits from what it stored.
 pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
-    files.iter().map(|f| FileInput { uri: data_url(&f.mime, &f.bytes), name: f.name.clone(), ..Default::default() }).collect()
+    files
+        .iter()
+        .map(|f| match &f.media {
+            Some(hash) => FileInput { uri: format!("media:{hash}"), name: f.name.clone(), mime: Some(f.mime.clone()), mention: None },
+            None => FileInput { uri: data_url(&f.mime, &f.bytes), name: f.name.clone(), ..Default::default() },
+        })
+        .collect()
 }
 
 /// A paste into the composer: an image becomes an attachment (true: the editor skips it).
 pub fn paste(s: &mut App, content: &ClipboardContent, _: &mut Tx) -> bool {
     let Some(img) = content.image() else { return false };
     let n = s.attach.files.len() + 1;
-    s.attach.add(Attachment { mime: "image/png".into(), name: format!("pasted-image-{n}.png"), bytes: img.png().into() });
+    s.attach.add(Attachment { mime: "image/png".into(), name: format!("pasted-image-{n}.png"), bytes: img.png().into(), media: None });
     true
 }
 
@@ -271,9 +381,10 @@ fn type_label(f: &Attachment) -> String {
     }
 }
 
-/// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user.
+/// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user. A
+/// ref still on its way holds a box; one whose bytes are gone shows the server's placeholder.
 pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> Option<El> {
-    let images: Vec<&Attachment> = files.iter().filter(|f| f.is_image()).collect();
+    let images: Vec<&Attachment> = files.iter().filter(|f| f.is_image() || f.unavailable().is_some()).collect();
     if images.is_empty() {
         return None;
     }
@@ -290,7 +401,11 @@ pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> 
                 let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
                 opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fill), held, format!("{key}:{}", identity(f)), f, img)
             }
-            None => row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(f.name.clone()).font(SMALL).color(p.muted)),
+            None if s.attach.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
+            None => {
+                let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
+                row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted))
+            }
         });
     }
     Some(col().w_full().pb(8.0).child(r))
@@ -316,9 +431,13 @@ pub struct Viewing {
 /// from rest, 0.25 s lands on the same shape.
 const FLIGHT: Spring = Spring::new(0.25, 0.0);
 
-/// One attachment's bytes, so each thumbnail has its own shared-element id.
+/// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
+/// shared-element id.
 fn identity(f: &Attachment) -> String {
-    format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len())
+    match &f.media {
+        Some(hash) => format!("{:x}:{hash}", f as *const Attachment as usize),
+        None => format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len()),
+    }
 }
 
 /// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
@@ -415,7 +534,7 @@ mod tests {
         app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
         app.route = crate::Route::Session("ses_a".into());
         app.composer = rune::TextEdit::new("look at this");
-        app.attach.add(Attachment { mime: "image/png".into(), name: "a.png".into(), bytes: Arc::from(&b"ab"[..]) });
+        app.attach.add(Attachment { mime: "image/png".into(), name: "a.png".into(), bytes: Arc::from(&b"ab"[..]), media: None });
         app.send(&mut Tx::default());
         let Ok(Write::Send { session, prompt }) = writes.try_recv() else { panic!("no prompt") };
         let id = prompt.id.clone().unwrap();
@@ -516,7 +635,7 @@ mod tests {
         rt.on_key = Some(crate::on_key);
         rt.poll = Some(crate::poll);
         rt.frame(0.0);
-        let a = Attachment { mime: "image/png".into(), name: "shot.png".into(), bytes: png(1600, 1000).into() };
+        let a = Attachment { mime: "image/png".into(), name: "shot.png".into(), bytes: png(1600, 1000).into(), media: None };
         let added = a.clone();
         rt.update(move |s, _| s.attach.add(added));
         rt.state.attach.image(&a).unwrap().wait().unwrap();
@@ -563,7 +682,7 @@ mod tests {
         app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
         app.route = crate::Route::Session("ses_a".into());
         app.composer = rune::TextEdit::new("look");
-        let a = Attachment { mime: "image/png".into(), name: "sent.png".into(), bytes: png(800, 400).into() };
+        let a = Attachment { mime: "image/png".into(), name: "sent.png".into(), bytes: png(800, 400).into(), media: None };
         app.attach.add(a.clone());
         app.send(&mut Tx::default());
         let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
@@ -598,6 +717,137 @@ mod tests {
         }
         assert!(rt.state.attach.viewing.is_none());
         flies(&close, large, thumb);
+    }
+
+    fn media(hash: &str, name: &str) -> Attachment {
+        Attachment { mime: "image/png".into(), name: name.into(), media: Some(hash.into()), ..Default::default() }
+    }
+
+    /// A fetcher that counts its calls and answers from `bytes` (Err when None).
+    fn stub(bytes: Option<Vec<u8>>) -> (Fetch, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let fetch: Fetch = Arc::new(move |hash: &str| {
+            seen.lock().unwrap().push(hash.to_owned());
+            bytes.clone().ok_or_else(|| format!("GET /api/experimental/media/{hash}: 404"))
+        });
+        (fetch, calls)
+    }
+
+    fn settle(a: &Attach, f: &Attachment) -> Fetched {
+        for _ in 0..500 {
+            match a.fetched(f) {
+                Some(Fetched::Loading) | None => std::thread::sleep(std::time::Duration::from_millis(2)),
+                Some(done) => return done,
+            }
+        }
+        panic!("the fetch never finished")
+    }
+
+    #[test]
+    fn a_ref_fetches_once_by_hash_and_decodes() {
+        let (fetch, calls) = stub(Some(png(6, 4)));
+        let mut a = Attach::default();
+        a.set_fetch(fetch);
+        let hash = "c".repeat(64);
+        let (first, again) = (media(&hash, "shot.png"), media(&hash, "same.png"));
+        assert!(a.image(&first).is_none(), "nothing until the bytes land");
+        assert_eq!(a.fetched(&first), Some(Fetched::Loading));
+        assert!(matches!(settle(&a, &first), Fetched::Ready(_)));
+        assert_eq!(a.image(&first).unwrap().wait().unwrap(), [6, 4]);
+        // The pixels are the cache's now; the same hash elsewhere is a hit.
+        assert_eq!(a.fetched(&first), Some(Fetched::Decoded));
+        assert_eq!(a.image(&again).unwrap().id(), a.image(&first).unwrap().id());
+        assert_eq!(*calls.lock().unwrap(), [hash]);
+        // An inline file never fetches.
+        let inline = Attachment { mime: "image/png".into(), name: "inline.png".into(), bytes: png(2, 2).into(), media: None };
+        assert_eq!(a.image(&inline).unwrap().wait().unwrap(), [2, 2]);
+        assert_eq!((a.fetched(&inline), calls.lock().unwrap().len()), (None, 1));
+    }
+
+    #[test]
+    fn a_failed_fetch_shows_the_name_and_isnt_retried_each_frame() {
+        let (fetch, calls) = stub(None);
+        let mut a = Attach::default();
+        a.set_fetch(fetch);
+        let f = media(&"d".repeat(64), "gone.png");
+        assert!(a.image(&f).is_none());
+        assert!(matches!(settle(&a, &f), Fetched::Failed(e) if e.contains("404")));
+        assert!(a.image(&f).is_none());
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        // Without a server (fixtures), a ref is a named chip at once.
+        assert!(matches!(Attach::default().media.get("e", None), Fetched::Failed(_)));
+    }
+
+    const GALLERY: &str = "msg_gallery_test";
+
+    fn gallery_view(s: &App, _: &mut Cx<App>) -> El {
+        let p = crate::palette::pal(true);
+        col().key("root").children(gallery(s, p, "images", &opencode_kit::model::user_files(GALLERY), true))
+    }
+
+    #[test]
+    fn the_transcript_holds_a_box_for_a_ref_then_the_image_and_shows_the_unavailable_placeholder() {
+        let (fetch, _) = stub(Some(png(400, 200)));
+        let mut app = App::empty();
+        app.attach.set_fetch(fetch);
+        let hash = "f".repeat(64);
+        let placeholder = Attachment {
+            mime: "text/plain".into(),
+            name: "gone.png".into(),
+            bytes: Arc::from(&b"[media unavailable: gone.png (image/png)]"[..]),
+            media: None,
+        };
+        opencode_kit::model::set_user_files(GALLERY, vec![media(&hash, "shot.png"), placeholder]);
+        let mut rt = rune::Runtime::new(app, gallery_view, (800.0, 600.0), rune::Env::new(true, 1.0));
+        rt.frame(0.0);
+        assert_eq!(rect(&rt, "img-0-loading").map(|r| [r[2], r[3]]), Some([160.0, 120.0]));
+        let unavailable = rt.elements().into_iter().filter_map(|e| e.text).find(|t| t.starts_with("[media unavailable"));
+        assert_eq!(unavailable.as_deref(), Some("[media unavailable: gone.png (image/png)]"));
+        let first = media(&hash, "shot.png");
+        settle(&rt.state.attach, &first);
+        // The worker's wake re-runs the view.
+        rt.update(|_, _| {});
+        rt.frame(1.0 / 60.0);
+        rt.state.attach.image(&first).unwrap().wait().unwrap();
+        rt.update(|_, _| {});
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(rect(&rt, "img-0-loading").is_none());
+        assert_eq!(rect(&rt, "/img-0").map(|r| [r[2], r[3]]), Some([200.0, 100.0]));
+        opencode_kit::model::set_user_files(GALLERY, Vec::new());
+    }
+
+    #[test]
+    fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
+        use opencode_kit::client::{Server, Write};
+        use opencode_kit::model::Delivery;
+        let (w, writes) = std::sync::mpsc::channel();
+        let mut app = App::empty();
+        app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+        app.route = crate::Route::Session("ses_q".into());
+        let hash = "a1".repeat(32);
+        // As an opted-in `session.inbox.list` returns a queued prompt with a ref.
+        let listed = serde_json::json!({"sessionID": "ses_q", "items": [{"id": "msg_queued", "type": "user", "delivery": "queue",
+            "payload": {"text": "again", "files": [{"uri": format!("media:{hash}"), "mime": "image/png", "name": "again.png", "bytes": 3}]}}]});
+        app.apply_inbox("session.inbox.listed", &listed, "ses_q");
+        app.undo_queued("ses_q", "msg_queued");
+        let Ok(Write::Cancel { item, .. }) = writes.try_recv() else { panic!("no cancel") };
+        assert_eq!(item, "msg_queued");
+        assert_eq!(app.attach.files, [media(&hash, "again.png")]);
+        app.composer = rune::TextEdit::new("again");
+        app.send(&mut Tx::default());
+        let Ok(Write::Send { prompt, .. }) = writes.try_recv() else { panic!("no prompt") };
+        assert_eq!(
+            prompt.files,
+            [FileInput { uri: format!("media:{hash}"), name: "again.png".into(), mime: Some("image/png".into()), mention: None }]
+        );
+        // Queued again, it keeps the ref.
+        app.attach.add(media(&hash, "again.png"));
+        app.admit("ses_q", opencode_kit::client::Prompt { files: inputs(&app.attach.files), ..Default::default() }, Delivery::Queue, &mut Tx::default());
+        let Ok(Write::Send { prompt, .. }) = writes.try_recv() else { panic!("no queued prompt") };
+        assert_eq!((prompt.files[0].uri.as_str(), prompt.delivery), (format!("media:{hash}").as_str(), Some(Delivery::Queue)));
     }
 
     #[test]

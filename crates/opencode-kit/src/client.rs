@@ -16,6 +16,11 @@ use crate::model::{self, Delivery, Message, Pending, SessionInfo};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
+/// Sent as `X-OpenCode-Capabilities` on message and inbox reads by a [`Server`] built with
+/// [`Server::with_media_refs`]: the server may answer with `media:<hash>` refs (see
+/// [`model::Attachment`]) instead of inline bytes. Servers without it ignore the header.
+pub const MEDIA_CAPABILITY: &str = "experimental-media-uri";
+
 pub enum Incoming {
     Sessions(Vec<SessionInfo>),
     Info(SessionInfo),
@@ -75,7 +80,8 @@ pub struct Prompt {
     pub display_text: Option<String>,
 }
 
-/// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]) or `file://`.
+/// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]), `file://`, or a
+/// `media:<hash>` ref the server sent, which it re-admits from its stored bytes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FileInput {
     pub uri: String,
@@ -219,6 +225,7 @@ fn list(v: &Value) -> Vec<Value> {
 pub struct Server {
     pub base: String,
     auth: Option<String>,
+    media_refs: bool,
 }
 
 impl std::fmt::Debug for Server {
@@ -250,7 +257,19 @@ impl Server {
             std::fs::read_to_string(format!("{home}/.local/share/opencode-studio-migration/password")).ok()
         });
         let auth = password.map(|p| format!("Basic {}", base64(format!("opencode:{}", p.trim()).as_bytes())));
-        Server { base: base.trim_end_matches('/').to_owned(), auth }
+        Server { base: base.trim_end_matches('/').to_owned(), auth, media_refs: false }
+    }
+
+    /// Opts `connect`'s message and inbox reads into `media:` refs ([`MEDIA_CAPABILITY`]). Off by
+    /// default: only an app that fetches refs (`Server::media`) should ask for them.
+    pub fn with_media_refs(mut self) -> Server {
+        self.media_refs = true;
+        self
+    }
+
+    /// A read `connect` makes: with the capability header when opted in.
+    fn read(&self, path: &str) -> Result<Value, String> {
+        self.get_with(path, self.media_refs.then_some(MEDIA_CAPABILITY))
     }
 
     fn addr(&self) -> Option<SocketAddr> {
@@ -269,9 +288,16 @@ impl Server {
     }
 
     pub fn get(&self, path: &str) -> Result<Value, String> {
+        self.get_with(path, None)
+    }
+
+    fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, String> {
         let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
+        }
+        if let Some(c) = capabilities {
+            req = req.header("X-OpenCode-Capabilities", c);
         }
         let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
         let text = resp
@@ -281,6 +307,18 @@ impl Server {
             .read_to_string()
             .map_err(|e| format!("GET {path}: {e}"))?;
         serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))
+    }
+
+    /// The bytes behind a `media:<hash>` ref (`GET /api/experimental/media/:hash`). They never
+    /// change, so callers cache them by hash; a 404 means nothing references them anymore.
+    pub fn media(&self, hash: &str) -> Result<Vec<u8>, String> {
+        let path = format!("/api/experimental/media/{hash}");
+        let mut req = Self::agent(Some(Duration::from_secs(60))).get(format!("{}{path}", self.base));
+        if let Some(a) = &self.auth {
+            req = req.header("Authorization", a);
+        }
+        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
+        resp.body_mut().with_config().limit(64 << 20).read_to_vec().map_err(|e| format!("GET {path}: {e}"))
     }
 
     /// A write: `method` with an optional JSON body; an empty (204) reply is `Value::Null`.
@@ -461,7 +499,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                 let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
                 for r in req_rx {
                     let ok = match r {
-                        Request::Session(id) => match server.get(&format!("/api/session/{id}/message?limit=80&order=desc")) {
+                        Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
                             Ok(v) => send(Incoming::Messages { session: id, messages: model::parse_messages(&v) }),
                             Err(e) => send(Incoming::Status(e)),
                         },
@@ -474,7 +512,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Err(e) => send(Incoming::Status(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
-                        Request::Inbox(id) => match server.get(&format!("/api/session/{id}/inbox")) {
+                        Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
                             Ok(v) => send(Incoming::Event {
                                 ty: "session.inbox.listed".into(),
                                 data: serde_json::json!({ "sessionID": id, "items": list(&v) }),
@@ -560,7 +598,7 @@ mod tests {
     #[test]
     fn send_posts_prompt_to_mock() {
         let (base, h) = mock_once();
-        let server = Server { base, auth: Some("Basic dGVzdA==".into()) };
+        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false };
         server.send_prompt("ses_test", "hello there").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_test/prompt HTTP/1.1"), "{req}");
@@ -571,13 +609,13 @@ mod tests {
     #[test]
     fn replies_to_a_permission_and_a_form() {
         let (base, h) = mock_once();
-        Server { base, auth: None }.reply_permission("ses_a", "per_b", "once").unwrap();
+        Server { base, auth: None, media_refs: false }.reply_permission("ses_a", "per_b", "once").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/permission/per_b/reply HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"decision":"once"}"#), "{req}");
 
         let (base, h) = mock_once();
-        Server { base, auth: None }.reply_form("ses_a", "frm_c", serde_json::json!({"q0": "dev"})).unwrap();
+        Server { base, auth: None, media_refs: false }.reply_form("ses_a", "frm_c", serde_json::json!({"q0": "dev"})).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/form/frm_c/reply HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"answer":{"q0":"dev"}}"#), "{req}");
@@ -607,7 +645,7 @@ mod tests {
             files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into(), ..Default::default() }],
             ..Default::default()
         };
-        Server { base, auth: None }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{req}");
         let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
@@ -623,19 +661,19 @@ mod tests {
     fn queues_moves_and_withdraws_a_prompt() {
         let (base, h) = mock_once();
         let prompt = Prompt { text: "after this".into(), delivery: Some(Delivery::Queue), ..Default::default() };
-        Server { base, auth: None }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
         let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
         assert_eq!(body, serde_json::json!({"text": "after this", "delivery": "queue"}));
 
         let (base, h) = mock_once();
-        Server { base, auth: None }.set_delivery("ses_a", "msg_1", Delivery::Steer).unwrap();
+        Server { base, auth: None, media_refs: false }.set_delivery("ses_a", "msg_1", Delivery::Steer).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("PATCH /api/session/ses_a/inbox/msg_1 HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"delivery":"steer"}"#), "{req}");
 
         let (base, h) = mock_once();
-        Server { base, auth: None }.cancel_inbox("ses_a", "msg_1").unwrap();
+        Server { base, auth: None, media_refs: false }.cancel_inbox("ses_a", "msg_1").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a/inbox/msg_1 HTTP/1.1"));
     }
 
@@ -671,9 +709,46 @@ mod tests {
     }
 
     #[test]
+    fn message_reads_opt_into_media_refs_and_media_reads_bytes() {
+        let (base, h) = mock_once();
+        Server::new(&base).with_media_refs().read("/api/session/ses_a/message").unwrap();
+        let req = h.join().unwrap().to_ascii_lowercase();
+        assert!(req.contains("x-opencode-capabilities: experimental-media-uri"), "{req}");
+
+        // Off by default, and never on other reads.
+        let (base, h) = mock_once();
+        Server::new(&base).read("/api/session/ses_a/message").unwrap();
+        assert!(!h.join().unwrap().to_ascii_lowercase().contains("x-opencode-capabilities"));
+        let (base, h) = mock_once();
+        Server::new(&base).with_media_refs().get("/api/session").unwrap();
+        assert!(!h.join().unwrap().to_ascii_lowercase().contains("x-opencode-capabilities"));
+
+        let hash = "a".repeat(64);
+        let (base, h) = mock_once();
+        assert_eq!(Server { base, auth: None, media_refs: false }.media(&hash).unwrap(), b"{}");
+        assert!(h.join().unwrap().starts_with(&format!("GET /api/experimental/media/{hash} HTTP/1.1")));
+    }
+
+    #[test]
+    fn a_media_ref_goes_back_as_its_uri() {
+        let hash = "b".repeat(64);
+        let prompt = Prompt {
+            text: "again".into(),
+            files: vec![FileInput { uri: format!("media:{hash}"), name: "again.png".into(), mime: Some("image/png".into()), mention: None }],
+            delivery: Some(Delivery::Queue),
+            ..Default::default()
+        };
+        assert_eq!(
+            prompt.body(),
+            serde_json::json!({"text": "again", "delivery": "queue",
+                "files": [{"uri": format!("media:{hash}"), "name": "again.png", "mime": "image/png"}]})
+        );
+    }
+
+    #[test]
     fn interrupts() {
         let (base, h) = mock_once();
-        Server { base, auth: None }.interrupt("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false }.interrupt("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("POST /api/session/ses_a/interrupt HTTP/1.1"));
     }
 }

@@ -94,7 +94,9 @@ impl App {
         let merged = if draft.is_empty() { item.text } else { format!("{draft}\n\n{}", item.text) };
         self.composer.replace_text(merged);
         self.composer.focused = true;
-        self.attach.files.extend(model::user_files(&item.id).iter().cloned());
+        // An item listed by the server has its files only on the item.
+        let files = model::user_files(&item.id);
+        self.attach.files.extend(if files.is_empty() { item.files } else { files.to_vec() });
         model::set_user_files(&item.id, Vec::new());
     }
 
