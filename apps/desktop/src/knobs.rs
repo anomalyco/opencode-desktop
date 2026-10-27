@@ -17,11 +17,6 @@ pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"]
 /// How a subagent call's row in the timeline looks (`agent_rows.rs`), for Kit to pick one.
 pub const SUBAGENT_ROWS: Knob = Knob::choice("Subagent rows", &crate::agent_rows::NAMES, 0);
 
-/// Project icon marks (`project_icon::Look`); `--icon-style <name>` sets the style at launch.
-pub const ICON_STYLE: Knob = Knob::choice("Icon style", &project_icon::Style::NAMES, 1);
-pub const ICON_SATURATION: Knob = Knob::new("Icon saturation", 0.0, 1.6, 1.0);
-pub const ICON_GRAIN: Knob = Knob::new("Icon grain", 0.0, 0.4, 0.12);
-
 /// The composer ⇄ question morph's curve: a spring (duration and bounce) or an eased tween
 /// over the duration.
 pub const MORPH_CURVE: Knob = Knob::choice("Morph curve", &["Spring", "Ease out", "In-out", "Expo out"], 0);
@@ -105,8 +100,6 @@ pub const WORKING: Group = Group::new(
 
 pub const GROUPS: &[Group] = &[
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
-    Group::new("Icons", "sidebar", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
-    Group::new("Icon playground", "icon-playground", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
     QUESTION_DOCK,
     Group::new("Timeline", "timeline", TIMELINE),
     Group::new("Subagent rows", "timeline", &[SUBAGENT_ROWS]),

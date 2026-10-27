@@ -44,9 +44,6 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
             s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
         }),
         ("draft", |s| s.route = Route::Draft),
-        ("icon-playground", |s| s.playground = &[false, true]),
-        ("icon-playground-light", |s| s.playground = &[false]),
-        ("icon-playground-dark", |s| s.playground = &[true]),
         ("settings", |s| {
             open_scene(s);
             s.finish_stream();

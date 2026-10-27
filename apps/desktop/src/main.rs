@@ -168,9 +168,6 @@ pub struct App {
     waker: Option<Waker>,
     launch: launch::Launch,
     pub icons: project_icon::Icons,
-    /// The `icon-playground` scenes: every icon style instead of the panel, in these
-    /// appearances (dark or not); empty shows the app.
-    pub playground: &'static [bool],
     /// The storybook (⌘⇧D) is open, with the app as it was beside it.
     pub story: Option<stories::Storybook>,
     /// The storybook's keys, folds and queued trigger steps, carried from story to story.
@@ -264,7 +261,6 @@ impl App {
             waker: None,
             launch: Default::default(),
             icons: Default::default(),
-            playground: &[],
             story: None,
             play: Default::default(),
         }
@@ -700,9 +696,6 @@ fn setup(s: &mut App, waker: Waker) {
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
     s.icons.set_sync(headless());
-    if let Some(style) = icons::style_arg() {
-        s.knobs.set(&knobs::ICON_STYLE, style);
-    }
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }

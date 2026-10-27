@@ -296,7 +296,9 @@ impl Icons {
             el().size(size_pt, size_pt).radius(radius).fill(bg).border(0.5, border)
         };
         if look.style.lettered() {
-            let letter = seed.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
+            // Desktop: the name's first character, upper-cased; the others skip punctuation.
+            let first = if look.style == Style::Desktop { seed.chars().next() } else { seed.chars().find(|c| c.is_alphanumeric()) };
+            let letter = first.map_or("?".into(), |c| c.to_uppercase().to_string());
             // Desktop's 11 px semibold letter in a 16 px tile.
             let font = TextStyle::new(size_pt * 11.0 / 16.0, 530.0).lh(size_pt);
             tile = tile.center().child(text(letter).font(font).color(pal.fg));
