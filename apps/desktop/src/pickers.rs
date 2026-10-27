@@ -36,6 +36,8 @@ pub struct Item { pub key: String, pub label: String, pub group: String }
 #[derive(Default)]
 pub struct Pickers {
     pub models: Vec<Model>,
+    /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
+    pub limits: HashMap<String, u64>,
     pub agents: Vec<String>,
     pub open: Option<Kind>,
     pub search: TextEdit,
@@ -53,7 +55,18 @@ impl Pickers {
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
                     .filter_map(Value::as_str).map(str::to_owned).collect() }
         }).collect();
+        self.load_limits(&fixture["models"]);
         self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+    }
+
+    /// Reads `limit.context` from a list of models, keyed by `provider` or `providerID`.
+    pub fn load_limits(&mut self, models: &Value) {
+        for m in models.as_array().into_iter().flatten() {
+            let provider = m["providerID"].as_str().or(m["provider"].as_str()).unwrap_or("");
+            if let (Some(id), Some(n)) = (m["id"].as_str(), m["limit"]["context"].as_u64()) {
+                self.limits.insert(format!("{provider}:{id}"), n);
+            }
+        }
     }
 
     pub fn activate(&mut self, key: String) {
@@ -93,6 +106,13 @@ impl App {
             }
             None => vec![],
         }
+    }
+
+    /// Whether the selected model has an effort to choose: Desktop hides the picker for a model
+    /// with one variant or none.
+    pub fn has_effort(&self) -> bool {
+        let m = self.selection().model;
+        self.pickers.models.iter().find(|x| x.id == m.id && x.provider == m.provider).is_some_and(|x| x.variants.len() > 1)
     }
 
     pub fn picker_current(&self, kind: Kind) -> String {
@@ -179,11 +199,13 @@ impl App {
         }
         if self.composer.focused { self.pickers.toolbar_focus = None; }
         if ev.key == Key::Tab && (self.composer.focused || self.pickers.toolbar_focus.is_some()) {
-            let order = [Kind::Agent, Kind::Model, Kind::Effort];
+            let order: &[Kind] = if self.has_effort() { &[Kind::Agent, Kind::Model, Kind::Effort] } else { &[Kind::Agent, Kind::Model] };
+            // The composer is the last stop after the pickers.
+            let n = order.len();
             let next = self.pickers.toolbar_focus.and_then(|k| order.iter().position(|i| *i == k))
-                .map_or(if ev.mods.shift { 2 } else { 0 }, |i| if ev.mods.shift { (i + 3) % 4 } else { i + 1 });
+                .map_or(if ev.mods.shift { n - 1 } else { 0 }, |i| if ev.mods.shift { (i + n) % (n + 1) } else { i + 1 });
             self.pickers.toolbar_focus = order.get(next).copied();
-            self.composer.focused = next == 3;
+            self.composer.focused = next == n;
             return true;
         }
         if matches!(ev.key, Key::Enter | Key::Down | Key::Up)
@@ -192,7 +214,7 @@ impl App {
             if ev.key == Key::Command('\'') { self.open_picker(Kind::Model); return true; }
             let cycle = match ev.key {
                 Key::Command('.') => Some((Kind::Agent, ev.mods.shift)),
-                Key::Command('d') if ev.mods.shift => Some((Kind::Effort, false)),
+                Key::Command('d') if ev.mods.shift && self.has_effort() => Some((Kind::Effort, false)),
                 _ => None,
             };
             if let Some((kind, backwards)) = cycle {

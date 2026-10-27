@@ -19,10 +19,10 @@
   {"id": "opencode", "name": "OpenCode", "description": "Questions about OpenCode itself."}
  ],
  "models": [
-  {"id": "claude-opus-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Opus 5.5", "variants": ["low", "medium", "high"]},
-  {"id": "claude-sonnet-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Sonnet 5.5", "variants": ["low", "medium", "high"]},
-  {"id": "gpt-6-astra", "provider": "openai", "group": "OpenAI", "name": "GPT-6 Astra", "variants": ["low", "medium", "high"]},
-  {"id": "gemini-4-argon", "provider": "google", "group": "Google", "name": "Gemini 4 Argon", "variants": ["low", "high"]}
+  {"id": "claude-opus-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Opus 5.5", "variants": ["low", "medium", "high"], "limit": {"context": 1000000}},
+  {"id": "claude-sonnet-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Sonnet 5.5", "variants": ["low", "medium", "high"], "limit": {"context": 1000000}},
+  {"id": "gpt-6-astra", "provider": "openai", "group": "OpenAI", "name": "GPT-6 Astra", "variants": ["low", "medium", "high"], "limit": {"context": 400000}},
+  {"id": "gemini-4-argon", "provider": "google", "group": "Google", "name": "Gemini 4 Argon", "variants": ["low", "high"], "limit": {"context": 1048576}}
  ],
  "projects": [
   {

@@ -214,13 +214,13 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         None => trigger.child(text(l.title.clone()).key("thinking").font(UI).color(p.muted)),
     };
     trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
-    let mut c = col().w_full().pb(12.0).child(trigger);
+    let mut c = col().w_full().child(trigger);
     if open {
         let mut list = col().key("steps").w_full().pl(4.0);
         for step in steps {
             list = list.child(match step {
                 Step::Thought { key, body, secs } => {
-                    reasoning(p, key, body, *secs, s.expanded.contains(key), fade).key(key.clone()).pb(0.0)
+                    reasoning(p, key, body, *secs, s.expanded.contains(key), fade).key(key.clone())
                 }
                 Step::Tool { id, name, title, status, files } => {
                     let r = tool_row(p, id, name, title, status);

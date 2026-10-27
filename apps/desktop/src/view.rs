@@ -733,7 +733,7 @@ fn draft_page(s: &App, p: &Pal) -> El {
                 .child(text(format!("New session in {}", s.draft_dir.replace(&home_dir(), "~"))).font(UI).color(p.faint)),
         )
         .child(composer_dock(s, p))
-        .child(status_bar(s, p, None))
+        .children(s.debug.then(|| status_bar(s, p, None)))
 }
 
 fn session_page(s: &App, p: &Pal, id: &str) -> El {
@@ -754,7 +754,7 @@ fn session_page(s: &App, p: &Pal, id: &str) -> El {
         page.children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
             .child(composer_dock(s, p))
     };
-    page.child(status_bar(s, p, info))
+    page.children(s.debug.then(|| status_bar(s, p, info)))
 }
 
 fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
@@ -796,7 +796,10 @@ fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) 
     // The session's own total (it includes subagents); the transcript's sum when it's ahead.
     let summed = t.map_or(0.0, |t| t.messages.iter().map(|m| if let Message::Assistant(a) = m { a.cost } else { 0.0 }).sum::<f64>());
     let cost = info.map_or(0.0, |i| i.cost).max(summed);
-    let limit = 200_000.0;
+    // The session model's context window, or 200k when the server doesn't say.
+    let limit = info
+        .and_then(|i| s.pickers.limits.get(&format!("{}:{}", i.model.provider, i.model.id)))
+        .map_or(200_000.0, |&n| n.max(1) as f32);
     let usage = row()
         .key("usage")
         .gap(6.0)
@@ -875,7 +878,15 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
     }
     if t.is_none() {
         stack = stack.child(
-            col().key("loading").w_full().max_w(CONTENT_W).h(40.0).center().child(text("Loading…").font(UI).color(p.faint)),
+            row()
+                .key("loading")
+                .w_full()
+                .max_w(CONTENT_W)
+                .h(40.0)
+                .gap(8.0)
+                .center()
+                .child(activity_ring(p))
+                .child(text("Loading messages…").font(UI).color(p.faint)),
         );
     }
     col()
@@ -894,27 +905,32 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
     let last_assistant = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(_)));
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
-    for m in &t.messages {
+    for (i, m) in t.messages.iter().enumerate() {
         match m {
             Message::Assistant(a) => steps.push(a),
             Message::User { id, text: body, .. } => {
                 turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
-                if let Some(g) = crate::attachments::gallery(s, p, "images", &model::user_files(id), true) {
-                    out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 20.0 }), streaming: false });
+                let above = i > 0 && joins(&t.messages[i - 1], m);
+                let below = t.messages.get(i + 1).is_some_and(|n| joins(m, n));
+                let gallery = crate::attachments::gallery(s, p, "images", &model::user_files(id), true);
+                // A prompt's own images sit 8 above its bubble.
+                let tight = out.is_empty() || gallery.is_some();
+                if let Some(g) = gallery {
+                    out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 16.0 }), streaming: false });
                 }
                 if !body.trim().is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, out.is_empty(), s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))), streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, tight, above, below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))), streaming: false });
                 }
             }
             Message::Note { id, text: body } => {
                 turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
-                out.push(RowSpec { key: format!("n-{id}"), el: row().pb(12.0).child(text(body.clone()).font(UI).color(p.faint)), streaming: false });
+                out.push(RowSpec { key: format!("n-{id}"), el: row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)), streaming: false });
             }
         }
     }
     turn_rows(s, p, &t.session, &mut out, &steps, busy, fade);
     if let Some(last) = last_assistant {
-        out.push(RowSpec { key: "turn-actions".into(), el: turn_actions(p, busy, &t.session, &t.messages[last]), streaming: false });
+        out.push(RowSpec { key: "turn-actions".into(), el: col().w_full().pt(8.0).child(turn_actions(p, busy, &t.session, &t.messages[last])), streaming: false });
     }
     // Undelivered steers wait below the running work, as Desktop shows them.
     for (key, el) in crate::queue::pending_rows(s, p, &t.session) {
@@ -923,43 +939,60 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
     out
 }
 
+/// Space above a turn's row, as Desktop spaces assistant parts: none under the prompt, 8 between
+/// two tools, 16 before anything else.
+fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
+    match prev {
+        None => 0.0,
+        Some(true) if tool => 8.0,
+        Some(_) => 16.0,
+    }
+}
+
 /// `live`: these steps end the transcript and the last one is still running.
 fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&Assistant], live: bool, fade: f32) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
+    // Whether the row above was a tool; `None` above the turn's first row.
+    let mut prev: Option<bool> = None;
     for (i, b) in blocks.into_iter().enumerate() {
+        let tool = !matches!(b, Block::Text { .. });
+        let pt = part_gap(prev, tool);
         out.push(match b {
             Block::Group { key, steps } => {
                 let busy = live && i + 1 == n;
-                let el = turns::group(s, p, &key, &steps, busy, fade);
+                let el = turns::group(s, p, &key, &steps, busy, fade).pt(pt);
                 out.push(RowSpec { streaming: busy && s.expanded.contains(&key), el, key });
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
                         && let Some(g) = crate::attachments::gallery(s, p, "images", files, false)
                     {
-                        out.push(RowSpec { key: format!("ti-{id}"), el: g, streaming: false });
+                        out.push(RowSpec { key: format!("ti-{id}"), el: g.pt(8.0), streaming: false });
                     }
                 }
+                prev = Some(true);
                 continue;
             }
-            Block::Text { key, body, live } => RowSpec { el: markdown_view(p, body, fade, live).pb(12.0), key, streaming: live },
+            Block::Text { key, body, live } => RowSpec { el: col().w_full().pt(pt).child(markdown_view(p, body, fade, live)), key, streaming: live },
             Block::Agent { id, agent, title, status, session, background } => RowSpec {
                 key: format!("a-{id}"),
-                el: crate::subagents::card(s, p, parent, agent, title, status, session, background),
+                el: crate::subagents::card(s, p, parent, agent, title, status, session, background).pt(pt),
                 streaming: false,
             },
             Block::Tool(Step::Tool { id, name, title, status, .. }) => {
-                RowSpec { key: format!("q-{id}"), el: row().pb(12.0).child(turns::tool_row(p, id, name, title, status)), streaming: false }
+                RowSpec { key: format!("q-{id}"), el: row().pt(pt).child(turns::tool_row(p, id, name, title, status)), streaming: false }
             }
             Block::Tool(Step::Thought { .. }) => continue,
         });
+        prev = Some(tool);
     }
-    // Like Desktop, only the turn's last step reports its error.
+    // Like Desktop, only the turn's last step reports its error, 24 below the work above it.
     if let Some(a) = steps.last()
         && let Some(err) = &a.error
     {
-        out.push(RowSpec { key: format!("e-{}", a.id), el: row().pb(12.0).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()), streaming: false });
+        let pt = if prev.is_some() { 24.0 } else { 0.0 };
+        out.push(RowSpec { key: format!("e-{}", a.id), el: row().pt(pt).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()), streaming: false });
     }
 }
 
@@ -980,25 +1013,71 @@ fn glow(t: f64) -> f32 {
     (g * (1.0 - end * end * (3.0 - 2.0 * end))) as f32
 }
 
-fn user_bubble(p: &Pal, id: &str, body: &str, first: bool, glow: f32) -> El {
-    let mut bubble = col().max_w(460.0).shrink().px(12.0).py(8.0).radius(10.0).fill(p.layer2);
+/// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
+const BUBBLE_MAX: f32 = 565.0;
+
+/// Whether prompt `b` joins the run of prompt `a` just above it: both have words and `b` brings
+/// no files (Desktop's `user-runs.ts`).
+fn joins(a: &Message, b: &Message) -> bool {
+    match (a, b) {
+        (Message::User { text: x, .. }, Message::User { id, text: y }) => {
+            !x.trim().is_empty() && !y.trim().is_empty() && model::user_files(id).is_empty()
+        }
+        _ => false,
+    }
+}
+
+/// A prompt's bubble. A run of prompts sits 4 apart with the trailing corners tightened where
+/// they meet (`above`, `below`); the run's last prompt has a copy line under it, and the others
+/// show copy beside the bubble, all only while hovered.
+fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32) -> El {
+    let words = body.to_owned();
+    let copy = row()
+        .key("copy")
+        .role("button")
+        .label("Copy message")
+        .size(20.0, 20.0)
+        .center()
+        .radius(4.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .group_opacity(0.0, 1.0)
+        .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(words.clone()))
+        .child(icon(&ic::OUTLINE_COPY, 14.0).color(p.icon_muted));
+    let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
+    let mut bubble = col()
+        .key("bubble")
+        .max_w(BUBBLE_MAX)
+        .shrink()
+        .px(12.0)
+        .py(8.0)
+        .corners([10.0, top, end, 10.0])
+        .fill(p.layer2);
     if glow > 0.0 {
         // A soft inner glow and a slight lift, under the text.
         let (rim, lift) = if p.dark { (p.accent.mix(Color::WHITE, 0.45), p.text) } else { (p.accent, Color::WHITE) };
         bubble = bubble.child(
-            el().key("glow").absolute(0.0, 0.0).w_full().h_full().radius(10.0)
+            el().key("glow").absolute(0.0, 0.0).w_full().h_full().corners([10.0, top, end, 10.0])
                 .fill(lift.alpha(0.1))
                 .box_shadow(Shadow { blur: 14.0, color: rim.alpha(0.55), inset: true, ..Shadow::default() })
                 .opacity(glow)
                 .opacity_motion(INSTANT),
         );
     }
-    row()
+    bubble = bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(p.text).wrap());
+    let copy = if below {
+        bubble = bubble.child(copy.absolute(-28.0, 8.5));
+        None
+    } else {
+        Some(copy)
+    };
+    let c = col()
         .w_full()
-        .justify_end()
-        .pt(if first { 8.0 } else { 20.0 })
-        .pb(16.0)
-        .child(bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(p.text).wrap()))
+        .pt(if above { 4.0 } else if tight { 8.0 } else { 16.0 })
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(bubble)));
+    c.children(copy.map(|copy| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(copy)))
 }
 
 pub(crate) fn chevron(open: bool) -> &'static Icon {
@@ -1011,7 +1090,7 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
         Some(s) => format!("Thought for {s}s"),
         None => "Thinking".into(),
     };
-    let mut c = col().w_full().pb(12.0).child(
+    let mut c = col().w_full().child(
         row()
             .key("trigger")
             .role("button")
@@ -1242,7 +1321,7 @@ fn request_card(s: &App, p: &Pal, r: &Pending) -> El {
 // ---------------------------------------------------------------------------------------------
 // Composer and status bar
 
-fn ghost(p: &Pal, key: &str, label: &str, chevron: bool) -> El {
+fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color) -> El {
     let mut r = row()
         .key(key)
         .role("button")
@@ -1253,7 +1332,7 @@ fn ghost(p: &Pal, key: &str, label: &str, chevron: bool) -> El {
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .child(text(label.to_owned()).font(UI).color(p.muted));
+        .child(text(label.to_owned()).font(UI).color(color));
     if chevron {
         r = r.child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_faint));
     }
@@ -1300,7 +1379,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .w_full()
                     .min_h(40.0)
                     .animate_edit_layout()
-                    .placeholder("Ask anything… \"Fix a TODO in the codebase\"", p.faint)
+                    .placeholder("Ask anything, / for commands, @ for context…", p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
                     .pill_style(crate::mentions::pill_style(p))
@@ -1326,10 +1405,13 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                 .px(8.0)
                 .gap(4.0)
                 .center_y()
-                .child(picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent)))
+                .child(picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted))
                 .child(picker_trigger(s, p, Kind::Model, &s.pickers.models.iter()
-                    .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone())))
-                .child(picker_trigger(s, p, Kind::Effort, &effort))
+                    .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone()), p.muted))
+                // "Default" is the absence of a choice, so it reads fainter than a picked effort.
+                .children(s.has_effort().then(|| {
+                    picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted })
+                }))
                 .child(spacer())
                 .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
                 .child(submit),
@@ -1338,11 +1420,11 @@ fn composer_dock(s: &App, p: &Pal) -> El {
         Route::Session(id) => crate::queue::panel(s, p, id, busy),
         _ => None,
     };
-    col().key("dock").w_full().center().px(24.0).pb(10.0).children(queue).child(composer)
+    col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer)
 }
 
-fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str) -> El {
-    let mut button = ghost(p, kind.key(), label, true).label(format!("Choose {}", kind.key()));
+fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
+    let mut button = ghost(p, kind.key(), label, true, color).label(format!("Choose {}", kind.key()));
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }
@@ -1537,7 +1619,7 @@ mod tests {
         let els = rt.elements();
         let row = format!("u-{id}");
         let inside = |e: &&rune::ElementInfo| !e.exiting && e.path.split('/').any(|p| p == row);
-        let fill = els.iter().filter(inside).find(|e| e.fill.a > 0.0 && e.key.is_none())?;
+        let fill = els.iter().filter(inside).find(|e| e.key.as_deref() == Some("bubble"))?;
         let text = els.iter().filter(inside).find(|e| e.key.as_deref() == Some(&format!("text-{id}")))?;
         let glow = els.iter().filter(inside).find(|e| e.key.as_deref() == Some("glow")).map(|e| e.opacity);
         Some(Bubble { rect: fill.rect, visible_h: fill.visible[3], text_h: text.visible[3], glow })
@@ -1659,6 +1741,33 @@ mod tests {
         let land = bottoms.iter().position(|&y| (y - bottoms[bottoms.len() - 1]).abs() < 0.5).unwrap();
         assert!(land <= 60, "landed in {} s: {bottoms:?}", land as f32 / 120.0);
         assert!(!rt.state.glows.contains_key(id));
+    }
+
+    #[test]
+    fn a_run_of_prompts_sits_close_with_tight_trailing_corners() {
+        use opencode_kit::model::Message;
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut app);
+        let crate::Route::Session(id) = app.route.clone() else { panic!("no open session") };
+        let t = app.transcripts.get_mut(&id).unwrap();
+        t.messages.truncate(1);
+        for (n, text) in ["Also the toast says reconnected twice.", "And keep the cap at 30s."].iter().enumerate() {
+            t.messages.push(Message::User { id: format!("run{n}"), text: (*text).into() });
+        }
+        let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
+        rt.frame(0.0);
+        let bubble = |rt: &Runtime<App>, row: &str| rt.elements().into_iter()
+            .find(|e| !e.exiting && e.path.contains(&format!("{row}/")) && e.key.as_deref() == Some("bubble"))
+            .unwrap_or_else(|| panic!("no bubble in {row}"));
+        let first = format!("u-{}", rt.state.transcripts[&id].messages[0].id());
+        let (a, b, c) = (bubble(&rt, &first), bubble(&rt, "u-run0"), bubble(&rt, "u-run1"));
+        assert!((b.rect[1] - (a.rect[1] + a.rect[3]) - 4.0).abs() < 0.5, "4 apart: {:?} {:?}", a.rect, b.rect);
+        assert!((c.rect[1] - (b.rect[1] + b.rect[3]) - 4.0).abs() < 0.5, "4 apart: {:?} {:?}", b.rect, c.rect);
+        assert!(a.rect[2] <= super::BUBBLE_MAX + 0.5, "64ch at most: {:?}", a.rect);
+        // Only the run's last prompt has a copy line under it.
+        let lines = rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/u-") && e.key.as_deref() == Some("actions")).count();
+        assert_eq!(lines, 1);
     }
 
     fn sidebar() -> Runtime<App> {

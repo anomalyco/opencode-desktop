@@ -100,6 +100,8 @@ pub struct App {
     pub reduced_motion: bool,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
+    /// `--debug`: the status bar with the edge, the source and the last status.
+    pub debug: bool,
     pub status: String,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
@@ -174,6 +176,7 @@ impl App {
             edge,
             reduced_motion: flag("--reduced-motion"),
             glows: HashMap::new(),
+            debug: flag("--debug"),
             status: String::new(),
             now_ms: 0,
             base_ms: 0,
@@ -233,6 +236,9 @@ impl App {
         self.projects = opencode_kit::model::parse_projects(&p);
         if let Ok(s) = server.get("/api/session?limit=120") {
             self.sessions = opencode_kit::model::parse_sessions(&s);
+        }
+        if let Ok(m) = server.get("/api/model") {
+            self.pickers.load_limits(m.get("data").unwrap_or(&m));
         }
         if let Ok(a) = server.get("/api/session/active") {
             let map = a.get("data").unwrap_or(&a);

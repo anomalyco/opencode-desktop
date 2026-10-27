@@ -135,7 +135,7 @@ pub fn child_of<'a>(s: &'a App, parent: &str, named: Option<&'a str>, descriptio
 pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &ToolStatus, named: Option<&str>, background: bool) -> El {
     if *status == ToolStatus::Pending {
         // The call is still being written: Desktop's "Delegating agent…" pill.
-        return row().w_full().pb(12.0).child(
+        return row().w_full().child(
             row()
                 .key("delegating")
                 .h(36.0)
@@ -180,7 +180,7 @@ pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &T
                 s.open_child(&parent, &c, &title, &agent, tx);
             });
     }
-    row().w_full().pb(12.0).child(surface)
+    row().w_full().child(surface)
 }
 
 /// Inside a subagent's session, in the composer's place: how the run is going, the agent and

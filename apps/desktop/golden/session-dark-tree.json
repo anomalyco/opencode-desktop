@@ -3028,7 +3028,7 @@
         268.0,
         56.0,
         1004.0,
-        610.0
+        636.0
       ],
       "role": "group",
       "scale": 1.0
@@ -3046,9 +3046,9 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline",
       "rect": [
         268.0,
-        -1186.0,
+        -1155.0,
         1004.0,
-        1852.0
+        1847.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3056,7 +3056,7 @@
         268.0,
         56.0,
         1004.0,
-        1852.0
+        1847.0
       ]
     },
     {
@@ -3072,9 +3072,9 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00",
       "rect": [
         422.0,
-        -1178.0,
+        -1147.0,
         696.0,
-        82.0
+        90.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3082,7 +3082,7 @@
         422.0,
         64.0,
         696.0,
-        82.0
+        90.0
       ]
     },
     {
@@ -3097,9 +3097,9 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0",
       "rect": [
         422.0,
-        -1178.0,
+        -1147.0,
         696.0,
-        82.0
+        90.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3107,7 +3107,57 @@
         422.0,
         64.0,
         696.0,
-        82.0
+        90.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
+      "rect": [
+        422.0,
+        -1139.0,
+        696.0,
+        58.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        72.0,
+        696.0,
+        58.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0",
+      "rect": [
+        547.28,
+        -1139.0,
+        570.72,
+        58.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        547.28,
+        72.0,
+        570.72,
+        58.0
       ]
     },
     {
@@ -3117,21 +3167,22 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "bubble",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble",
       "rect": [
-        658.0,
-        -1170.0,
-        460.0,
+        553.0,
+        -1139.0,
+        565.0,
         58.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
-        658.0,
+        553.0,
         72.0,
-        460.0,
+        565.0,
         58.0
       ]
     },
@@ -3146,22 +3197,101 @@
       "key": "text-msg_001a162c32a80001fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/text-msg_001a162c32a80001fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble/text-msg_001a162c32a80001fixture00",
       "rect": [
-        670.0,
-        -1162.0,
-        436.0,
+        565.0,
+        -1131.0,
+        541.0,
         42.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        670.0,
+        565.0,
         80.0,
-        436.0,
+        541.0,
         42.0
       ],
       "text": "The event stream drops after the laptop sleeps, and the sidebar stops updating until I reload. Can you find out why and fix it?"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "actions",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions",
+      "rect": [
+        422.0,
+        -1077.0,
+        696.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        134.0,
+        696.0,
+        20.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "copy",
+      "label": "Copy message",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy",
+      "rect": [
+        1098.0,
+        -1077.0,
+        20.0,
+        20.0
+      ],
+      "role": "button",
+      "scale": 1.0,
+      "target": [
+        1098.0,
+        134.0,
+        20.0,
+        20.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy/#0",
+      "rect": [
+        1101.0,
+        -1074.0,
+        14.0,
+        14.0
+      ],
+      "role": "icon",
+      "scale": 1.0,
+      "target": [
+        1101.0,
+        137.0,
+        14.0,
+        14.0
+      ]
     },
     {
       "blur": 0.0,
@@ -3176,17 +3306,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0",
       "rect": [
         422.0,
-        -1096.0,
+        -1057.0,
         696.0,
-        40.0
+        28.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        146.0,
+        154.0,
         696.0,
-        40.0
+        28.0
       ]
     },
     {
@@ -3201,17 +3331,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0",
       "rect": [
         422.0,
-        -1096.0,
+        -1057.0,
         696.0,
-        40.0
+        28.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        146.0,
+        154.0,
         696.0,
-        40.0
+        28.0
       ]
     },
     {
@@ -3228,7 +3358,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger",
       "rect": [
         422.0,
-        -1096.0,
+        -1057.0,
         696.0,
         28.0
       ],
@@ -3236,7 +3366,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        146.0,
+        154.0,
         696.0,
         28.0
       ]
@@ -3255,7 +3385,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/used",
       "rect": [
         422.0,
-        -1090.0,
+        -1051.0,
         32.5,
         16.0
       ],
@@ -3263,7 +3393,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        152.0,
+        160.0,
         32.5,
         16.0
       ],
@@ -3283,7 +3413,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/n1",
       "rect": [
         458.5,
-        -1090.0,
+        -1051.0,
         5.5,
         16.0
       ],
@@ -3291,7 +3421,7 @@
       "scale": 1.0,
       "target": [
         458.5,
-        152.0,
+        160.0,
         5.5,
         16.0
       ],
@@ -3311,7 +3441,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/title-Thought",
       "rect": [
         468.0,
-        -1090.0,
+        -1051.0,
         52.5,
         16.0
       ],
@@ -3319,7 +3449,7 @@
       "scale": 1.0,
       "target": [
         468.0,
-        152.0,
+        160.0,
         52.5,
         16.0
       ],
@@ -3339,7 +3469,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/chevron",
       "rect": [
         524.5,
-        -1089.0,
+        -1050.0,
         14.0,
         14.0
       ],
@@ -3347,7 +3477,7 @@
       "scale": 1.0,
       "target": [
         524.5,
-        153.0,
+        161.0,
         14.0,
         14.0
       ]
@@ -3365,17 +3495,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1",
       "rect": [
         422.0,
-        -1056.0,
+        -1029.0,
         696.0,
-        34.5
+        38.5
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        186.0,
+        182.0,
         696.0,
-        34.5
+        38.5
       ]
     },
     {
@@ -3390,17 +3520,42 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0",
       "rect": [
         422.0,
-        -1056.0,
+        -1029.0,
         696.0,
-        34.5
+        38.5
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        186.0,
+        182.0,
         696.0,
-        34.5
+        38.5
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/#0",
+      "rect": [
+        422.0,
+        -1013.0,
+        696.0,
+        22.5
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        198.0,
+        696.0,
+        22.5
       ]
     },
     {
@@ -3414,10 +3569,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/#0/b0",
       "rect": [
         422.0,
-        -1056.0,
+        -1013.0,
         696.0,
         22.5
       ],
@@ -3425,7 +3580,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        186.0,
+        198.0,
         696.0,
         22.5
       ],
@@ -3444,9 +3599,9 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000",
       "rect": [
         422.0,
-        -1021.5,
+        -990.5,
         696.0,
-        40.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3454,7 +3609,7 @@
         422.0,
         220.5,
         696.0,
-        40.0
+        44.0
       ]
     },
     {
@@ -3469,9 +3624,9 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0",
       "rect": [
         422.0,
-        -1021.5,
+        -990.5,
         696.0,
-        40.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3479,7 +3634,7 @@
         422.0,
         220.5,
         696.0,
-        40.0
+        44.0
       ]
     },
     {
@@ -3496,7 +3651,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger",
       "rect": [
         422.0,
-        -1021.5,
+        -974.5,
         696.0,
         28.0
       ],
@@ -3504,7 +3659,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        220.5,
+        236.5,
         696.0,
         28.0
       ]
@@ -3523,7 +3678,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/used",
       "rect": [
         422.0,
-        -1015.5,
+        -968.5,
         32.5,
         16.0
       ],
@@ -3531,7 +3686,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        226.5,
+        242.5,
         32.5,
         16.0
       ],
@@ -3551,7 +3706,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/n3",
       "rect": [
         458.5,
-        -1015.5,
+        -968.5,
         8.5,
         16.0
       ],
@@ -3559,7 +3714,7 @@
       "scale": 1.0,
       "target": [
         458.5,
-        226.5,
+        242.5,
         8.5,
         16.0
       ],
@@ -3579,7 +3734,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/title-Grep, Read",
       "rect": [
         471.0,
-        -1015.5,
+        -968.5,
         69.0,
         16.0
       ],
@@ -3587,7 +3742,7 @@
       "scale": 1.0,
       "target": [
         471.0,
-        226.5,
+        242.5,
         69.0,
         16.0
       ],
@@ -3607,7 +3762,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/chevron",
       "rect": [
         544.0,
-        -1014.5,
+        -967.5,
         14.0,
         14.0
       ],
@@ -3615,7 +3770,7 @@
       "scale": 1.0,
       "target": [
         544.0,
-        227.5,
+        243.5,
         14.0,
         14.0
       ]
@@ -3633,17 +3788,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0",
       "rect": [
         422.0,
-        -981.5,
+        -946.5,
         696.0,
-        646.0
+        650.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        260.5,
+        264.5,
         696.0,
-        646.0
+        650.0
       ]
     },
     {
@@ -3658,17 +3813,42 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0",
       "rect": [
         422.0,
-        -981.5,
+        -946.5,
         696.0,
-        646.0
+        650.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        260.5,
+        264.5,
         696.0,
-        646.0
+        650.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0",
+      "rect": [
+        422.0,
+        -930.5,
+        696.0,
+        634.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        280.5,
+        696.0,
+        634.0
       ]
     },
     {
@@ -3682,10 +3862,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b0",
       "rect": [
         422.0,
-        -981.5,
+        -930.5,
         696.0,
         24.0
       ],
@@ -3693,7 +3873,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        260.5,
+        280.5,
         696.0,
         24.0
       ],
@@ -3710,10 +3890,10 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b1",
       "rect": [
         422.0,
-        -947.5,
+        -896.5,
         696.0,
         68.0
       ],
@@ -3721,7 +3901,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        294.5,
+        314.5,
         696.0,
         68.0
       ],
@@ -3738,10 +3918,10 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b2",
       "rect": [
         422.0,
-        -867.5,
+        -816.5,
         696.0,
         22.5
       ],
@@ -3749,7 +3929,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        374.5,
+        394.5,
         696.0,
         22.5
       ],
@@ -3765,10 +3945,10 @@
       "key": "b3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3",
       "rect": [
         422.0,
-        -833.0,
+        -782.0,
         696.0,
         50.0
       ],
@@ -3776,7 +3956,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        409.0,
+        429.0,
         696.0,
         50.0
       ]
@@ -3791,10 +3971,10 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0",
       "rect": [
         422.0,
-        -833.0,
+        -782.0,
         696.0,
         23.0
       ],
@@ -3802,7 +3982,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        409.0,
+        429.0,
         696.0,
         23.0
       ]
@@ -3817,10 +3997,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#0",
       "rect": [
         422.0,
-        -833.0,
+        -782.0,
         32.0,
         23.0
       ],
@@ -3828,7 +4008,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        409.0,
+        429.0,
         32.0,
         23.0
       ],
@@ -3843,10 +4023,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1",
       "rect": [
         454.0,
-        -833.0,
+        -782.0,
         664.0,
         23.0
       ],
@@ -3854,7 +4034,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        409.0,
+        429.0,
         664.0,
         23.0
       ]
@@ -3870,10 +4050,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1/b0",
       "rect": [
         454.0,
-        -833.0,
+        -782.0,
         664.0,
         23.0
       ],
@@ -3881,7 +4061,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        409.0,
+        429.0,
         664.0,
         23.0
       ],
@@ -3897,10 +4077,10 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1",
       "rect": [
         422.0,
-        -806.0,
+        -755.0,
         696.0,
         23.0
       ],
@@ -3908,7 +4088,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        436.0,
+        456.0,
         696.0,
         23.0
       ]
@@ -3923,10 +4103,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#0",
       "rect": [
         422.0,
-        -806.0,
+        -755.0,
         32.0,
         23.0
       ],
@@ -3934,7 +4114,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        436.0,
+        456.0,
         32.0,
         23.0
       ],
@@ -3949,10 +4129,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1",
       "rect": [
         454.0,
-        -806.0,
+        -755.0,
         664.0,
         23.0
       ],
@@ -3960,7 +4140,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        436.0,
+        456.0,
         664.0,
         23.0
       ]
@@ -3976,10 +4156,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b3/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1/b0",
       "rect": [
         454.0,
-        -806.0,
+        -755.0,
         664.0,
         23.0
       ],
@@ -3987,7 +4167,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        436.0,
+        456.0,
         664.0,
         23.0
       ],
@@ -4004,10 +4184,10 @@
       "key": "b4",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b4",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b4",
       "rect": [
         422.0,
-        -763.0,
+        -712.0,
         696.0,
         20.0
       ],
@@ -4015,7 +4195,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        479.0,
+        499.0,
         696.0,
         20.0
       ],
@@ -4032,10 +4212,10 @@
       "key": "b5",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b5",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b5",
       "rect": [
         422.0,
-        -735.0,
+        -684.0,
         696.0,
         45.0
       ],
@@ -4043,7 +4223,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        507.0,
+        527.0,
         696.0,
         45.0
       ],
@@ -4059,10 +4239,10 @@
       "key": "b6",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6",
       "rect": [
         422.0,
-        -678.0,
+        -627.0,
         696.0,
         284.0
       ],
@@ -4070,7 +4250,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        564.0,
+        584.0,
         696.0,
         284.0
       ]
@@ -4085,10 +4265,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b6/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6/#0",
       "rect": [
         434.0,
-        -666.0,
+        -615.0,
         672.0,
         260.0
       ],
@@ -4096,7 +4276,7 @@
       "scale": 1.0,
       "target": [
         434.0,
-        576.0,
+        596.0,
         672.0,
         260.0
       ],
@@ -4113,10 +4293,10 @@
       "key": "b7",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/b7",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b7",
       "rect": [
         422.0,
-        -370.0,
+        -319.0,
         696.0,
         22.5
       ],
@@ -4124,7 +4304,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        872.0,
+        892.0,
         696.0,
         22.5
       ],
@@ -4143,17 +4323,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000",
       "rect": [
         422.0,
-        -335.5,
+        -296.5,
         696.0,
-        40.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        906.5,
+        914.5,
         696.0,
-        40.0
+        44.0
       ]
     },
     {
@@ -4168,17 +4348,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0",
       "rect": [
         422.0,
-        -335.5,
+        -296.5,
         696.0,
-        40.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        906.5,
+        914.5,
         696.0,
-        40.0
+        44.0
       ]
     },
     {
@@ -4195,7 +4375,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger",
       "rect": [
         422.0,
-        -335.5,
+        -280.5,
         696.0,
         28.0
       ],
@@ -4203,7 +4383,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        906.5,
+        930.5,
         696.0,
         28.0
       ]
@@ -4222,7 +4402,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/used",
       "rect": [
         422.0,
-        -329.5,
+        -274.5,
         32.5,
         16.0
       ],
@@ -4230,7 +4410,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        912.5,
+        936.5,
         32.5,
         16.0
       ],
@@ -4250,7 +4430,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/n3",
       "rect": [
         458.5,
-        -329.5,
+        -274.5,
         8.5,
         16.0
       ],
@@ -4258,7 +4438,7 @@
       "scale": 1.0,
       "target": [
         458.5,
-        912.5,
+        936.5,
         8.5,
         16.0
       ],
@@ -4278,7 +4458,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/title-Edit, Shell",
       "rect": [
         471.0,
-        -329.5,
+        -274.5,
         61.5,
         16.0
       ],
@@ -4286,7 +4466,7 @@
       "scale": 1.0,
       "target": [
         471.0,
-        912.5,
+        936.5,
         61.5,
         16.0
       ],
@@ -4306,7 +4486,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/chevron",
       "rect": [
         536.5,
-        -328.5,
+        -273.5,
         14.0,
         14.0
       ],
@@ -4314,7 +4494,7 @@
       "scale": 1.0,
       "target": [
         536.5,
-        913.5,
+        937.5,
         14.0,
         14.0
       ]
@@ -4332,17 +4512,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500",
       "rect": [
         422.0,
-        -295.5,
+        -252.5,
         696.0,
-        48.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        946.5,
+        958.5,
         696.0,
-        48.0
+        44.0
       ]
     },
     {
@@ -4357,17 +4537,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0",
       "rect": [
         422.0,
-        -295.5,
+        -252.5,
         696.0,
-        48.0
+        44.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        946.5,
+        958.5,
         696.0,
-        48.0
+        44.0
       ]
     },
     {
@@ -4384,7 +4564,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip",
       "rect": [
         422.0,
-        -295.5,
+        -244.5,
         696.0,
         36.0
       ],
@@ -4392,7 +4572,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        946.5,
+        966.5,
         696.0,
         36.0
       ]
@@ -4411,7 +4591,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/agent",
       "rect": [
         434.0,
-        -287.5,
+        -236.5,
         48.5,
         20.0
       ],
@@ -4419,7 +4599,7 @@
       "scale": 1.0,
       "target": [
         434.0,
-        954.5,
+        974.5,
         48.5,
         20.0
       ],
@@ -4439,7 +4619,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/subtitle",
       "rect": [
         490.5,
-        -287.5,
+        -236.5,
         182.0,
         20.0
       ],
@@ -4447,7 +4627,7 @@
       "scale": 1.0,
       "target": [
         490.5,
-        954.5,
+        974.5,
         182.0,
         20.0
       ],
@@ -4465,7 +4645,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/#2",
       "rect": [
         680.5,
-        -277.5,
+        -226.5,
         401.5,
         0.0
       ],
@@ -4473,7 +4653,7 @@
       "scale": 1.0,
       "target": [
         680.5,
-        964.5,
+        984.5,
         401.5,
         0.0
       ]
@@ -4492,7 +4672,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/open",
       "rect": [
         1090.0,
-        -285.5,
+        -234.5,
         16.0,
         16.0
       ],
@@ -4500,7 +4680,7 @@
       "scale": 1.0,
       "target": [
         1090.0,
-        956.5,
+        976.5,
         16.0,
         16.0
       ]
@@ -4518,17 +4698,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0",
       "rect": [
         422.0,
-        -247.5,
+        -208.5,
         696.0,
-        203.5
+        207.5
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        994.5,
+        1002.5,
         696.0,
-        203.5
+        207.5
       ]
     },
     {
@@ -4543,17 +4723,42 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0",
       "rect": [
         422.0,
-        -247.5,
+        -208.5,
         696.0,
-        203.5
+        207.5
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        994.5,
+        1002.5,
         696.0,
-        203.5
+        207.5
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0",
+      "rect": [
+        422.0,
+        -192.5,
+        696.0,
+        191.5
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        1018.5,
+        696.0,
+        191.5
       ]
     },
     {
@@ -4567,10 +4772,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b0",
       "rect": [
         422.0,
-        -247.5,
+        -192.5,
         696.0,
         22.5
       ],
@@ -4578,7 +4783,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        994.5,
+        1018.5,
         696.0,
         22.5
       ],
@@ -4594,10 +4799,10 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1",
       "rect": [
         422.0,
-        -213.0,
+        -158.0,
         696.0,
         76.5
       ],
@@ -4605,7 +4810,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1029.0,
+        1053.0,
         696.0,
         76.5
       ]
@@ -4620,10 +4825,10 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0",
       "rect": [
         422.0,
-        -213.0,
+        -158.0,
         696.0,
         23.0
       ],
@@ -4631,7 +4836,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1029.0,
+        1053.0,
         696.0,
         23.0
       ]
@@ -4646,10 +4851,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#0",
       "rect": [
         422.0,
-        -213.0,
+        -158.0,
         32.0,
         23.0
       ],
@@ -4657,7 +4862,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1029.0,
+        1053.0,
         32.0,
         23.0
       ],
@@ -4672,10 +4877,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1",
       "rect": [
         454.0,
-        -213.0,
+        -158.0,
         664.0,
         23.0
       ],
@@ -4683,7 +4888,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1029.0,
+        1053.0,
         664.0,
         23.0
       ]
@@ -4699,10 +4904,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1/b0",
       "rect": [
         454.0,
-        -213.0,
+        -158.0,
         664.0,
         23.0
       ],
@@ -4710,7 +4915,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1029.0,
+        1053.0,
         664.0,
         23.0
       ],
@@ -4726,10 +4931,10 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1",
       "rect": [
         422.0,
-        -186.0,
+        -131.0,
         696.0,
         22.5
       ],
@@ -4737,7 +4942,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1056.0,
+        1080.0,
         696.0,
         22.5
       ]
@@ -4752,10 +4957,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#0",
       "rect": [
         422.0,
-        -186.0,
+        -131.0,
         32.0,
         22.5
       ],
@@ -4763,7 +4968,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1056.0,
+        1080.0,
         32.0,
         22.5
       ],
@@ -4778,10 +4983,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1",
       "rect": [
         454.0,
-        -186.0,
+        -131.0,
         664.0,
         22.5
       ],
@@ -4789,7 +4994,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1056.0,
+        1080.0,
         664.0,
         22.5
       ]
@@ -4805,10 +5010,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1/b0",
       "rect": [
         454.0,
-        -186.0,
+        -131.0,
         664.0,
         22.5
       ],
@@ -4816,7 +5021,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1056.0,
+        1080.0,
         664.0,
         22.5
       ],
@@ -4832,10 +5037,10 @@
       "key": "i2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2",
       "rect": [
         422.0,
-        -159.5,
+        -104.5,
         696.0,
         23.0
       ],
@@ -4843,7 +5048,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1082.5,
+        1106.5,
         696.0,
         23.0
       ]
@@ -4858,10 +5063,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#0",
       "rect": [
         422.0,
-        -159.5,
+        -104.5,
         32.0,
         23.0
       ],
@@ -4869,7 +5074,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1082.5,
+        1106.5,
         32.0,
         23.0
       ],
@@ -4884,10 +5089,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1",
       "rect": [
         454.0,
-        -159.5,
+        -104.5,
         664.0,
         23.0
       ],
@@ -4895,7 +5100,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1082.5,
+        1106.5,
         664.0,
         23.0
       ]
@@ -4911,10 +5116,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b1/i2/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1/b0",
       "rect": [
         454.0,
-        -159.5,
+        -104.5,
         664.0,
         23.0
       ],
@@ -4922,7 +5127,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1082.5,
+        1106.5,
         664.0,
         23.0
       ],
@@ -4939,10 +5144,10 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b2",
       "rect": [
         422.0,
-        -124.5,
+        -69.5,
         696.0,
         68.5
       ],
@@ -4950,7 +5155,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1117.5,
+        1141.5,
         696.0,
         68.5
       ],
@@ -4969,17 +5174,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00",
       "rect": [
         422.0,
-        -44.0,
+        -1.0,
         696.0,
-        94.0
+        77.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1198.0,
+        1210.0,
         696.0,
-        94.0
+        77.0
       ]
     },
     {
@@ -4994,17 +5199,67 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0",
       "rect": [
         422.0,
-        -44.0,
+        -1.0,
         696.0,
-        94.0
+        77.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1198.0,
+        1210.0,
         696.0,
-        94.0
+        77.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
+      "rect": [
+        422.0,
+        15.0,
+        696.0,
+        37.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        1226.0,
+        696.0,
+        37.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0",
+      "rect": [
+        547.28,
+        15.0,
+        570.72,
+        37.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        547.28,
+        1226.0,
+        570.72,
+        37.0
       ]
     },
     {
@@ -5014,22 +5269,23 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "bubble",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble",
       "rect": [
-        658.0,
-        -24.0,
-        460.0,
-        58.0
+        647.5,
+        15.0,
+        470.5,
+        37.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
-        658.0,
-        1218.0,
-        460.0,
-        58.0
+        647.5,
+        1226.0,
+        470.5,
+        37.0
       ]
     },
     {
@@ -5043,22 +5299,101 @@
       "key": "text-msg_001a162cb67e0006fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/text-msg_001a162cb67e0006fixture00",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble/text-msg_001a162cb67e0006fixture00",
       "rect": [
-        670.0,
-        -16.0,
-        436.0,
-        42.0
+        659.5,
+        23.0,
+        446.5,
+        21.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        670.0,
-        1226.0,
-        436.0,
-        42.0
+        659.5,
+        1234.0,
+        446.5,
+        21.0
       ],
       "text": "Nice. Can you add a test for the backoff, so the reset can't regress?"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "actions",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions",
+      "rect": [
+        422.0,
+        56.0,
+        696.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        1267.0,
+        696.0,
+        20.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "copy",
+      "label": "Copy message",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy",
+      "rect": [
+        1098.0,
+        56.0,
+        20.0,
+        20.0
+      ],
+      "role": "button",
+      "scale": 1.0,
+      "target": [
+        1098.0,
+        1267.0,
+        20.0,
+        20.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy/#0",
+      "rect": [
+        1101.0,
+        59.0,
+        14.0,
+        14.0
+      ],
+      "role": "icon",
+      "scale": 1.0,
+      "target": [
+        1101.0,
+        1270.0,
+        14.0,
+        14.0
+      ]
     },
     {
       "blur": 0.0,
@@ -5073,17 +5408,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0",
       "rect": [
         422.0,
-        50.0,
+        76.0,
         696.0,
-        40.0
+        28.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1292.0,
+        1287.0,
         696.0,
-        40.0
+        28.0
       ]
     },
     {
@@ -5098,17 +5433,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0",
       "rect": [
         422.0,
-        50.0,
+        76.0,
         696.0,
-        40.0
+        28.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1292.0,
+        1287.0,
         696.0,
-        40.0
+        28.0
       ]
     },
     {
@@ -5125,7 +5460,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0/trigger",
       "rect": [
         422.0,
-        50.0,
+        76.0,
         696.0,
         28.0
       ],
@@ -5133,7 +5468,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1292.0,
+        1287.0,
         696.0,
         28.0
       ]
@@ -5152,7 +5487,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0/trigger/used",
       "rect": [
         422.0,
-        56.0,
+        82.0,
         32.5,
         16.0
       ],
@@ -5160,7 +5495,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1298.0,
+        1293.0,
         32.5,
         16.0
       ],
@@ -5180,7 +5515,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0/trigger/n1",
       "rect": [
         458.5,
-        56.0,
+        82.0,
         5.5,
         16.0
       ],
@@ -5188,7 +5523,7 @@
       "scale": 1.0,
       "target": [
         458.5,
-        1298.0,
+        1293.0,
         5.5,
         16.0
       ],
@@ -5208,7 +5543,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0/trigger/title-Read",
       "rect": [
         468.0,
-        56.0,
+        82.0,
         31.5,
         16.0
       ],
@@ -5216,7 +5551,7 @@
       "scale": 1.0,
       "target": [
         468.0,
-        1298.0,
+        1293.0,
         31.5,
         16.0
       ],
@@ -5236,7 +5571,7 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162cb6dbc013fixture00-0/#0/trigger/chevron",
       "rect": [
         503.5,
-        57.0,
+        83.0,
         14.0,
         14.0
       ],
@@ -5244,7 +5579,7 @@
       "scale": 1.0,
       "target": [
         503.5,
-        1299.0,
+        1294.0,
         14.0,
         14.0
       ]
@@ -5262,17 +5597,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2",
       "rect": [
         422.0,
-        90.0,
+        104.0,
         696.0,
-        524.0
+        528.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1332.0,
+        1315.0,
         696.0,
-        524.0
+        528.0
       ]
     },
     {
@@ -5287,17 +5622,42 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0",
       "rect": [
         422.0,
-        90.0,
+        104.0,
         696.0,
-        524.0
+        528.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1332.0,
+        1315.0,
         696.0,
-        524.0
+        528.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0",
+      "rect": [
+        422.0,
+        120.0,
+        696.0,
+        512.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        1331.0,
+        696.0,
+        512.0
       ]
     },
     {
@@ -5311,10 +5671,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b0",
       "rect": [
         422.0,
-        90.0,
+        120.0,
         696.0,
         22.5
       ],
@@ -5322,7 +5682,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1332.0,
+        1331.0,
         696.0,
         22.5
       ],
@@ -5339,10 +5699,10 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b1",
       "rect": [
         422.0,
-        124.5,
+        154.5,
         696.0,
         22.5
       ],
@@ -5350,7 +5710,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1366.5,
+        1365.5,
         696.0,
         22.5
       ],
@@ -5366,10 +5726,10 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2",
       "rect": [
         422.0,
-        159.0,
+        189.0,
         696.0,
         75.5
       ],
@@ -5377,7 +5737,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1401.0,
+        1400.0,
         696.0,
         75.5
       ]
@@ -5392,10 +5752,10 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i0",
       "rect": [
         422.0,
-        159.0,
+        189.0,
         696.0,
         22.5
       ],
@@ -5403,7 +5763,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1401.0,
+        1400.0,
         696.0,
         22.5
       ]
@@ -5418,10 +5778,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i0/#0",
       "rect": [
         422.0,
-        159.0,
+        189.0,
         32.0,
         22.5
       ],
@@ -5429,7 +5789,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1401.0,
+        1400.0,
         32.0,
         22.5
       ],
@@ -5444,10 +5804,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i0/#1",
       "rect": [
         454.0,
-        159.0,
+        189.0,
         664.0,
         22.5
       ],
@@ -5455,7 +5815,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1401.0,
+        1400.0,
         664.0,
         22.5
       ]
@@ -5471,10 +5831,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i0/#1/b0",
       "rect": [
         454.0,
-        159.0,
+        189.0,
         664.0,
         22.5
       ],
@@ -5482,7 +5842,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1401.0,
+        1400.0,
         664.0,
         22.5
       ],
@@ -5498,10 +5858,10 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i1",
       "rect": [
         422.0,
-        185.5,
+        215.5,
         696.0,
         22.5
       ],
@@ -5509,7 +5869,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1427.5,
+        1426.5,
         696.0,
         22.5
       ]
@@ -5524,10 +5884,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i1/#0",
       "rect": [
         422.0,
-        185.5,
+        215.5,
         32.0,
         22.5
       ],
@@ -5535,7 +5895,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1427.5,
+        1426.5,
         32.0,
         22.5
       ],
@@ -5550,10 +5910,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i1/#1",
       "rect": [
         454.0,
-        185.5,
+        215.5,
         664.0,
         22.5
       ],
@@ -5561,7 +5921,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1427.5,
+        1426.5,
         664.0,
         22.5
       ]
@@ -5577,10 +5937,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i1/#1/b0",
       "rect": [
         454.0,
-        185.5,
+        215.5,
         664.0,
         22.5
       ],
@@ -5588,7 +5948,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1427.5,
+        1426.5,
         664.0,
         22.5
       ],
@@ -5604,10 +5964,10 @@
       "key": "i2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i2",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i2",
       "rect": [
         422.0,
-        212.0,
+        242.0,
         696.0,
         22.5
       ],
@@ -5615,7 +5975,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1454.0,
+        1453.0,
         696.0,
         22.5
       ]
@@ -5630,10 +5990,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i2/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i2/#0",
       "rect": [
         422.0,
-        212.0,
+        242.0,
         32.0,
         22.5
       ],
@@ -5641,7 +6001,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1454.0,
+        1453.0,
         32.0,
         22.5
       ],
@@ -5656,10 +6016,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i2/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i2/#1",
       "rect": [
         454.0,
-        212.0,
+        242.0,
         664.0,
         22.5
       ],
@@ -5667,7 +6027,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1454.0,
+        1453.0,
         664.0,
         22.5
       ]
@@ -5683,10 +6043,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b2/i2/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b2/i2/#1/b0",
       "rect": [
         454.0,
-        212.0,
+        242.0,
         664.0,
         22.5
       ],
@@ -5694,7 +6054,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1454.0,
+        1453.0,
         664.0,
         22.5
       ],
@@ -5710,10 +6070,10 @@
       "key": "b3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b3",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b3",
       "rect": [
         422.0,
-        246.5,
+        276.5,
         696.0,
         264.0
       ],
@@ -5721,7 +6081,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1488.5,
+        1487.5,
         696.0,
         264.0
       ]
@@ -5736,10 +6096,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b3/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b3/#0",
       "rect": [
         434.0,
-        258.5,
+        288.5,
         672.0,
         240.0
       ],
@@ -5747,7 +6107,7 @@
       "scale": 1.0,
       "target": [
         434.0,
-        1500.5,
+        1499.5,
         672.0,
         240.0
       ],
@@ -5764,10 +6124,10 @@
       "key": "b4",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/b4",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162cb6dbc013fixture00-2/#0/#0/b4",
       "rect": [
         422.0,
-        534.5,
+        564.5,
         696.0,
         67.5
       ],
@@ -5775,7 +6135,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1776.5,
+        1775.5,
         696.0,
         67.5
       ],
@@ -5794,17 +6154,17 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions",
       "rect": [
         422.0,
-        614.0,
+        632.0,
         696.0,
-        28.0
+        36.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1856.0,
+        1843.0,
         696.0,
-        28.0
+        36.0
       ]
     },
     {
@@ -5819,7 +6179,32 @@
       "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0",
       "rect": [
         422.0,
-        614.0,
+        632.0,
+        696.0,
+        36.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.0,
+        1843.0,
+        696.0,
+        36.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0",
+      "rect": [
+        422.0,
+        640.0,
         696.0,
         28.0
       ],
@@ -5827,7 +6212,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1856.0,
+        1851.0,
         696.0,
         28.0
       ]
@@ -5842,10 +6227,10 @@
       "key": "working",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working",
       "rect": [
         422.0,
-        614.0,
+        640.0,
         65.5,
         28.0
       ],
@@ -5853,7 +6238,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1856.0,
+        1851.0,
         65.5,
         28.0
       ]
@@ -5867,10 +6252,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#0",
       "rect": [
         422.0,
-        619.0,
+        645.0,
         6.0,
         6.0
       ],
@@ -5878,7 +6263,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1861.0,
+        1856.0,
         6.0,
         6.0
       ]
@@ -5893,10 +6278,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/working/#1",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1",
       "rect": [
         436.0,
-        614.0,
+        640.0,
         51.5,
         16.0
       ],
@@ -5904,7 +6289,7 @@
       "scale": 1.0,
       "target": [
         436.0,
-        1856.0,
+        1851.0,
         51.5,
         16.0
       ],
@@ -5921,10 +6306,10 @@
       "label": "Copy response",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy",
       "rect": [
         422.0,
-        614.0,
+        640.0,
         28.0,
         28.0
       ],
@@ -5932,7 +6317,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1856.0,
+        1851.0,
         28.0,
         28.0
       ]
@@ -5947,10 +6332,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/copy/#0",
+      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy/#0",
       "rect": [
         428.0,
-        614.0,
+        640.0,
         16.0,
         16.0
       ],
@@ -5958,7 +6343,7 @@
       "scale": 1.0,
       "target": [
         428.0,
-        1856.0,
+        1851.0,
         16.0,
         16.0
       ]
@@ -5976,7 +6361,7 @@
       "path": "zoom/zoomed/window/panel/session/requests",
       "rect": [
         268.0,
-        666.0,
+        692.0,
         1004.0,
         0.0
       ],
@@ -5996,9 +6381,9 @@
       "path": "zoom/zoomed/window/panel/session/dock",
       "rect": [
         268.0,
-        666.0,
+        692.0,
         1004.0,
-        118.0
+        120.0
       ],
       "role": "group",
       "scale": 1.0
@@ -6016,7 +6401,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer",
       "rect": [
         422.0,
-        666.0,
+        692.0,
         696.0,
         108.0
       ],
@@ -6036,7 +6421,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/editor",
       "rect": [
         422.0,
-        666.0,
+        692.0,
         696.0,
         64.0
       ],
@@ -6057,7 +6442,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/editor/prompt",
       "rect": [
         438.0,
-        682.0,
+        708.0,
         664.0,
         40.0
       ],
@@ -6078,7 +6463,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar",
       "rect": [
         422.0,
-        730.0,
+        756.0,
         696.0,
         44.0
       ],
@@ -6099,7 +6484,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent",
       "rect": [
         430.0,
-        738.0,
+        764.0,
         64.5,
         28.0
       ],
@@ -6119,7 +6504,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#0",
       "rect": [
         438.0,
-        744.0,
+        770.0,
         30.5,
         16.0
       ],
@@ -6140,7 +6525,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#1",
       "rect": [
         470.5,
-        744.0,
+        770.0,
         16.0,
         16.0
       ],
@@ -6161,7 +6546,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model",
       "rect": [
         498.5,
-        738.0,
+        764.0,
         135.5,
         28.0
       ],
@@ -6181,7 +6566,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#0",
       "rect": [
         506.5,
-        744.0,
+        770.0,
         101.5,
         16.0
       ],
@@ -6202,7 +6587,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#1",
       "rect": [
         610.0,
-        744.0,
+        770.0,
         16.0,
         16.0
       ],
@@ -6223,7 +6608,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort",
       "rect": [
         638.0,
-        738.0,
+        764.0,
         62.5,
         28.0
       ],
@@ -6243,7 +6628,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#0",
       "rect": [
         646.0,
-        744.0,
+        770.0,
         28.5,
         16.0
       ],
@@ -6264,7 +6649,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#1",
       "rect": [
         676.5,
-        744.0,
+        770.0,
         16.0,
         16.0
       ],
@@ -6283,7 +6668,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/#3",
       "rect": [
         704.5,
-        752.0,
+        778.0,
         373.5,
         0.0
       ],
@@ -6304,7 +6689,7 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/submit",
       "rect": [
         1082.0,
-        738.0,
+        764.0,
         28.0,
         28.0
       ],
@@ -6324,174 +6709,12 @@
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/submit/#0",
       "rect": [
         1088.0,
-        744.0,
+        770.0,
         16.0,
         16.0
       ],
       "role": "icon",
       "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "status",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status",
-      "rect": [
-        268.0,
-        784.0,
-        1004.0,
-        28.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#5c5c5cff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/#0",
-      "rect": [
-        284.0,
-        791.0,
-        14.0,
-        14.0
-      ],
-      "role": "icon",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/#1",
-      "rect": [
-        310.0,
-        790.0,
-        80.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "~/code/lumen"
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/#2",
-      "rect": [
-        402.5,
-        798.0,
-        683.0,
-        0.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "edge",
-      "label": "Streaming edge",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/edge",
-      "rect": [
-        1097.5,
-        787.0,
-        89.0,
-        22.0
-      ],
-      "role": "button",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/edge/#0",
-      "rect": [
-        1103.5,
-        790.0,
-        77.0,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Edge: feather"
-    },
-    {
-      "blur": 0.0,
-      "fill": "#5c5c5cff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/#4",
-      "rect": [
-        1198.5,
-        795.0,
-        6.0,
-        6.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/status/#5",
-      "rect": [
-        1216.5,
-        790.0,
-        39.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Fixture"
     },
     {
       "blur": 0.0,
