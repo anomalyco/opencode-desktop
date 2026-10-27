@@ -2573,6 +2573,14 @@ version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=3a915458e84070671e9cef5ad6db56bff5d1ff25#3a915458e84070671e9cef5ad6db56bff5d1ff25"
 
 [[package]]
+name = "rune-playground"
+version = "0.0.1"
+dependencies = [
+ "rune",
+ "rune-knobs",
+]
+
+[[package]]
 name = "rune-theme-opencode"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=3a915458e84070671e9cef5ad6db56bff5d1ff25#3a915458e84070671e9cef5ad6db56bff5d1ff25"
@@ -2689,6 +2697,7 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-knobs",
+ "rune-playground",
  "rune-theme-opencode",
  "serde_json",
  "ureq",
