@@ -12,7 +12,7 @@ use opencode_kit::model::{self, Message, Part, ToolStatus};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, UI_SMALL, activity_ring};
+use crate::view::{UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
 use crate::{App, Route};
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -165,7 +165,7 @@ pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &T
         .hover_group()
         .hover_motion(INSTANT, INSTANT);
     if running {
-        surface = surface.child(activity_ring(p).key("spinner"));
+        surface = surface.child(activity_ring_on(p, p.layer2, 14.0).key("spinner"));
     }
     surface = surface
         .child(text(model::capitalize(agent)).key("agent").font(UI_MED.lh(20.0)).color(p.text))
@@ -250,86 +250,104 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
 }
 
 /// "2 subagents" over the composer while anything below the session runs; it opens a list.
+/// Desktop's capsule (`activity-chips.tsx`): a 28pt hairline capsule on the page, no fill of its
+/// own, 10pt insets, the 16pt spinner and the count in 13pt text.
 pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     let n = s.running_subagents(id).len();
     if n == 0 {
         return None;
     }
     let label = format!("{n} subagent{}", if n == 1 { "" } else { "s" });
-    Some(
-        row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).pb(8.0).child(
-            row()
-                .key("activity-chip")
-                .role("button")
-                .label(label.clone())
-                .h(28.0)
-                .px(10.0)
-                .gap(8.0)
-                .center_y()
-                .radius(12.0)
-                .fill(p.bg_base)
-                .border(0.5, p.border_muted)
-                .shadow(1.0, 2.0, p.shadow)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.activity_open = !s.activity_open;
-                })
-                .child(activity_ring(p))
-                .child(text(label).font(UI).color(p.text)),
-        ),
-    )
+    let mut chip = row()
+        .key("activity-chip")
+        .role("button")
+        .label(label.clone())
+        .h(28.0)
+        .px(10.0)
+        .gap(8.0)
+        .center_y()
+        .radius(12.0)
+        .border(0.5, p.border_muted)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.activity_open = !s.activity_open;
+        })
+        .child(activity_ring_on(p, p.bg_base, 16.0))
+        .child(text(label).font(UI).color(p.text));
+    if s.activity_open {
+        chip = chip.fill(p.pressed);
+    }
+    Some(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).pb(8.0).child(chip))
 }
 
-/// The capsule's list, one row per running subagent; a row opens its session.
+/// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start
+/// edges aligned, one 28pt row per running subagent with the spinner, the agent in medium, its
+/// task in muted text and the run time in 11pt at the end. Agents and run times line up in
+/// columns; the task takes the rest and truncates once the menu reaches 360pt.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let items = s.running_subagents(id);
     if !s.activity_open || items.is_empty() {
         return None;
     }
+    let name_of = |it: &Running| if it.agent.is_empty() { "Agent".to_owned() } else { model::capitalize(&it.agent) };
+    let time_of = |it: &Running| if it.started > 0 { elapsed(s.now_ms - it.started) } else { String::new() };
+    let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
+    let agent_w = items.iter().map(|it| width(&name_of(it), UI_MED)).fold(0.0, f32::max);
+    let time_w = items.iter().map(|it| width(&time_of(it), ELAPSED)).fold(0.0, f32::max);
+    let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
+    // Panel inset 4 + hairline 0.5, row inset 6, then spinner, agent, task and time, 8 apart,
+    // with 8 more before the time.
+    let natural = 2.0 * (4.5 + 6.0) + 16.0 + 8.0 + agent_w + 8.0 + label_w + 16.0 + time_w;
     let mut menu = col()
         .key("activity-panel")
         .role("menu")
         .label("Subagents")
         .above("activity-chip", 8.0)
-        .w(340.0)
-        .padding(4.0)
-        .radius(8.0)
+        .w(natural.clamp(240.0, 360.0).ceil())
+        .max_h(270.0)
+        .padding(4.5)
+        .radius(10.0)
         .fill(p.layer1)
-        .border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow)
+        // --v2-elevation-floating: two drops and a hairline ring.
+        .border(0.5, p.ring)
+        .shadow(8.0, 16.0, p.shadow_far)
+        .shadow(4.0, 8.0, p.shadow)
+        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
         .on_press(|_: &mut App| {});
-    for it in items {
+    for it in &items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
-        let name = if it.agent.is_empty() { "Agent".to_owned() } else { model::capitalize(&it.agent) };
+        let name = name_of(it);
         menu = menu.child(
             row()
                 .key(format!("sub-{}", it.session))
                 .role("menuitem")
                 .label(format!("{name} {}", it.label))
                 .w_full()
-                .h(32.0)
-                .px(8.0)
+                .h(28.0)
+                .px(6.0)
                 .gap(8.0)
                 .center_y()
-                .radius(6.0)
+                .radius(4.0)
                 .hover(p.hover)
-                .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.open_child(&parent, &child, &title, &agent, tx);
                 })
-                .child(activity_ring(p))
-                .child(text(name).font(UI_MED).color(p.text))
-                .child(text(it.label.clone()).font(UI).color(p.muted).truncate().shrink())
-                .child(spacer())
-                .child(text(if it.started > 0 { elapsed(s.now_ms - it.started) } else { String::new() }).font(UI_SMALL).color(p.muted)),
+                .child(activity_ring_on(p, p.layer1, 16.0))
+                .child(text(name).font(UI_MED).color(p.text).w(agent_w))
+                .child(text(it.label.clone()).font(UI).color(p.muted).truncate().grow(1.0).shrink())
+                .child(row().w(time_w).ml(8.0).justify_end().child(text(time_of(it)).font(ELAPSED).color(p.muted))),
         );
     }
     Some(menu)
 }
+
+/// The run time in the list: 11pt, tabular figures.
+const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 #[cfg(test)]
 mod tests {

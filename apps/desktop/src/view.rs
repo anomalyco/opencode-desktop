@@ -475,16 +475,19 @@ fn collapsed_slot(s: &App) -> El {
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
-/// around each square ring, leaving a fading trail (`spinner-variants.ts`), 14px, icon-muted.
+/// around each square ring, leaving a fading trail (`spinner-radar.ts`), 14px, icon-muted, over
+/// the page.
 pub(crate) fn activity_ring(p: &Pal) -> El {
-    let mut r = el().key("ring").size(14.0, 14.0);
-    for (k, d) in radar().iter().enumerate() {
-        let mut dot = el()
-            .key(format!("d{k}"))
-            .absolute(d.x, d.y)
-            .size(d.size, d.size)
-            .radius(d.size * 0.24)
-            .fill(p.icon_muted);
+    activity_ring_on(p, p.bg_base, 14.0)
+}
+
+/// The spinner at `size` over the opaque `bg`. Its dots' opacities are Desktop's (0.2 at rest, 1
+/// lit), re-solved so a dot over `bg` comes out the pixel a browser blends in sRGB; blended as is
+/// in linear light, a resting dot would show at about twice its brightness.
+pub(crate) fn activity_ring_on(p: &Pal, bg: Color, size: f32) -> El {
+    let mut r = el().key("ring").size(size, size);
+    for (k, d) in ring_dots(p.icon_muted, bg, size).iter().enumerate() {
+        let mut dot = el().key(format!("d{k}")).absolute(d.x, d.y).size(d.size, d.size).radius(d.size * 0.24).fill(p.icon_muted);
         dot = match d.cycle {
             Some(c) => dot.cycle(c),
             None => dot.opacity(d.still),
@@ -502,11 +505,62 @@ struct RadarDot {
     cycle: Option<Cycle>,
 }
 
-fn radar() -> &'static [RadarDot] {
-    static DOTS: OnceLock<Vec<RadarDot>> = OnceLock::new();
+/// The opacity that, blended in linear light, gives the pixel `a` gives in sRGB.
+fn srgb_opacity(a: f32, fg: Color, bg: Color) -> f32 {
+    use rune::theme::{srgb_decode, srgb_encode};
+    let solve = |f: f32, b: f32| {
+        let t = srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));
+        ((t - b) / (f - b)).clamp(0.0, 1.0)
+    };
+    let pairs = [(fg.r, bg.r), (fg.g, bg.g), (fg.b, bg.b)];
+    let solved: Vec<f32> = pairs.iter().filter(|(f, b)| (f - b).abs() > 1e-4).map(|&(f, b)| solve(f, b)).collect();
+    if solved.is_empty() { a } else { solved.iter().sum::<f32>() / solved.len() as f32 }
+}
+
+/// The radar's dots for one colour, backdrop and size, built once each.
+fn ring_dots(fg: Color, bg: Color, size: f32) -> &'static [RadarDot] {
+    type Key = [u32; 7];
+    static BUILT: std::sync::Mutex<Vec<(Key, &'static [RadarDot])>> = std::sync::Mutex::new(Vec::new());
+    let key: Key = [fg.r, fg.g, fg.b, bg.r, bg.g, bg.b, size].map(f32::to_bits);
+    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(_, dots)) = built.iter().find(|(k, _)| *k == key) {
+        return dots;
+    }
+    let scale = size / 16.0;
+    let op = |a: f32| srgb_opacity(a, fg, bg);
+    let dots: Vec<RadarDot> = radar()
+        .iter()
+        .map(|d| {
+            let (x, y, side) = (d.x * scale, d.y * scale, d.size * scale);
+            let still = op(d.still);
+            let cycle = d.stops.as_ref().map(|(at, stops)| {
+                let stops: Vec<(f32, f32)> = stops.iter().map(|&(t, a)| (t, op(a))).collect();
+                Cycle { period: RADAR_LOOP, phase: *at, stops: Box::leak(stops.into_boxed_slice()), still, fps: 30.0 }
+            });
+            RadarDot { x, y, size: side, still, cycle }
+        })
+        .collect();
+    let dots: &'static [RadarDot] = Box::leak(dots.into_boxed_slice());
+    built.push((key, dots));
+    dots
+}
+
+const RADAR_LOOP: f32 = 1.8;
+
+/// One dot in Desktop's 16-unit viewBox, with its opacities as the browser blends them:
+/// `stops` is where in the loop it lights and its keyframes; none for the steady centre.
+struct Dot16 {
+    x: f32,
+    y: f32,
+    size: f32,
+    still: f32,
+    stops: Option<(f32, Vec<(f32, f32)>)>,
+}
+
+fn radar() -> &'static [Dot16] {
+    static DOTS: OnceLock<Vec<Dot16>> = OnceLock::new();
     DOTS.get_or_init(|| {
         const SPAN: i32 = 5;
-        const LOOP: f32 = 1.8;
         const DIM: f32 = 0.2;
         const EDGE: f32 = 1.5;
         let r3 = |v: f32| (v * 1000.0).round() / 1000.0;
@@ -526,14 +580,13 @@ fn radar() -> &'static [RadarDot] {
         let cells: Vec<(i32, i32)> = (0..SPAN * SPAN).map(|i| (i % SPAN - SPAN / 2, i / SPAN - SPAN / 2)).collect();
         let angle = |(gx, gy): (i32, i32)| frac((gx as f32).atan2(-(gy as f32)) / std::f32::consts::TAU);
         let ring_of = |(gx, gy): (i32, i32)| gx.abs().max(gy.abs());
-        let scale = 14.0 / 16.0;
         cells
             .iter()
             .map(|&c| {
-                let (x, y, size) = ((8.0 + c.0 as f32 * 3.0 - 1.0) * scale, (8.0 + c.1 as f32 * 3.0 - 1.0) * scale, 2.0 * scale);
+                let (x, y, size) = (8.0 + c.0 as f32 * 3.0 - 1.0, 8.0 + c.1 as f32 * 3.0 - 1.0, 2.0);
                 if c == (0, 0) {
                     // The steady centre glows like the fresh trail.
-                    return RadarDot { x, y, size, still: DIM + (1.0 - DIM) * trail[0].1, cycle: None };
+                    return Dot16 { x, y, size, still: DIM + (1.0 - DIM) * trail[0].1, stops: None };
                 }
                 let at = r3(angle(c));
                 let others = cells.iter().filter(|&&o| o != c && o != (0, 0) && ring_of(o) == ring_of(c));
@@ -546,9 +599,8 @@ fn radar() -> &'static [RadarDot] {
                 shape.extend(trail.iter().copied().filter(|&(pc, _)| pc > off && pc < 100.0 && pc < on - EDGE));
                 shape.extend([(on - EDGE, 0.0), (on, 1.0), (100.0, 1.0)]);
                 let still = DIM + (1.0 - DIM) * level_at(&shape, frac(0.22 - at) * 100.0);
-                let stops: Vec<(f32, f32)> = shape.iter().map(|&(pc, l)| (pc / 100.0, DIM + (1.0 - DIM) * l)).collect();
-                let stops: &'static [(f32, f32)] = Box::leak(stops.into_boxed_slice());
-                RadarDot { x, y, size, still, cycle: Some(Cycle { period: LOOP, phase: at, stops, still, fps: 30.0 }) }
+                let stops = shape.iter().map(|&(pc, l)| (pc / 100.0, DIM + (1.0 - DIM) * l)).collect();
+                Dot16 { x, y, size, still, stops: Some((at, stops)) }
             })
             .collect()
     })

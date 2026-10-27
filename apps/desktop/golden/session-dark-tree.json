@@ -1084,7 +1084,7 @@
       "key": "d0",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.5460000038146973,
+      "opacity": 0.34700000286102295,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d0",
       "rect": [
         237.88,
@@ -1105,7 +1105,7 @@
       "key": "d1",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.6150000095367432,
+      "opacity": 0.421999990940094,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d1",
       "rect": [
         240.5,
@@ -1147,7 +1147,7 @@
       "key": "d3",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d3",
       "rect": [
         245.75,
@@ -1168,7 +1168,7 @@
       "key": "d4",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d4",
       "rect": [
         248.38,
@@ -1189,7 +1189,7 @@
       "key": "d5",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.42500001192092896,
+      "opacity": 0.23399999737739563,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d5",
       "rect": [
         237.88,
@@ -1210,7 +1210,7 @@
       "key": "d6",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.5460000038146973,
+      "opacity": 0.34700000286102295,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d6",
       "rect": [
         240.5,
@@ -1252,7 +1252,7 @@
       "key": "d8",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d8",
       "rect": [
         245.75,
@@ -1273,7 +1273,7 @@
       "key": "d9",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d9",
       "rect": [
         248.38,
@@ -1294,7 +1294,7 @@
       "key": "d10",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.2939999997615814,
+      "opacity": 0.1340000033378601,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d10",
       "rect": [
         237.88,
@@ -1315,7 +1315,7 @@
       "key": "d11",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.2939999997615814,
+      "opacity": 0.1340000033378601,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d11",
       "rect": [
         240.5,
@@ -1335,7 +1335,7 @@
       "inert": false,
       "key": "d12",
       "loopPhase": null,
-      "opacity": 0.6399999856948853,
+      "opacity": 0.4519999921321869,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d12",
       "rect": [
         243.13,
@@ -1356,7 +1356,7 @@
       "key": "d13",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d13",
       "rect": [
         245.75,
@@ -1377,7 +1377,7 @@
       "key": "d14",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d14",
       "rect": [
         248.38,
@@ -1398,7 +1398,7 @@
       "key": "d15",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.23399999737739563,
+      "opacity": 0.09700000286102295,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d15",
       "rect": [
         237.88,
@@ -1419,7 +1419,7 @@
       "key": "d16",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.21400000154972076,
+      "opacity": 0.0860000029206276,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d16",
       "rect": [
         240.5,
@@ -1440,7 +1440,7 @@
       "key": "d17",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d17",
       "rect": [
         243.13,
@@ -1461,7 +1461,7 @@
       "key": "d18",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d18",
       "rect": [
         245.75,
@@ -1482,7 +1482,7 @@
       "key": "d19",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d19",
       "rect": [
         248.38,
@@ -1503,7 +1503,7 @@
       "key": "d20",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.21400000154972076,
+      "opacity": 0.0860000029206276,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d20",
       "rect": [
         237.88,
@@ -1524,7 +1524,7 @@
       "key": "d21",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20399999618530273,
+      "opacity": 0.07999999821186066,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d21",
       "rect": [
         240.5,
@@ -1545,7 +1545,7 @@
       "key": "d22",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d22",
       "rect": [
         243.13,
@@ -1566,7 +1566,7 @@
       "key": "d23",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d23",
       "rect": [
         245.75,
@@ -1587,7 +1587,7 @@
       "key": "d24",
       "loopPhase": 0.0,
       "moving": true,
-      "opacity": 0.20000000298023224,
+      "opacity": 0.07900000363588333,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d24",
       "rect": [
         248.38,

@@ -28,6 +28,8 @@ pub struct Pal {
     pub pressed: Color,
     pub ring: Color,
     pub shadow: Color,
+    /// --v2-elevation-floating's far drop.
+    pub shadow_far: Color,
     pub success: Color,
     pub danger: Color,
     pub warning: Color,
@@ -70,6 +72,7 @@ fn build(dark: bool) -> Pal {
         // --v2-elevation-raised: a 0.5px ring over two drop shadows.
         ring: if dark { c("alpha-light-16") } else { c("alpha-dark-8") },
         shadow: if dark { c("alpha-dark-30") } else { c("alpha-dark-8") },
+        shadow_far: if dark { c("alpha-dark-30") } else { c("alpha-dark-4") },
         success: c("state-fg-success"),
         danger: c("state-fg-danger"),
         warning: c("state-fg-warning"),
