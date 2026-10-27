@@ -1935,6 +1935,7 @@ version = "0.0.1"
 dependencies = [
  "objc2 0.5.3",
  "opencode-kit",
+ "png 0.18.1",
  "rune",
  "rune-kit",
  "rune-theme-opencode",
