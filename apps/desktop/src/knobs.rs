@@ -78,40 +78,28 @@ pub const QUESTION_DOCK: Group =
         .presets(QUESTION_PRESETS)
         .default_label("Desktop");
 
-/// The Working row's label (`working.rs`): which shimmer, and its numbers. Picking a style loads
-/// its preset; Desktop is drawn exactly as Desktop draws it and reads none of the others.
-pub const WORKING_STYLE: Knob = Knob::choice("Style", &crate::working::STYLES, 0);
-/// Seconds per pass: a sweep's in "Fixed period", and a breath's, wave's or dots' cycle.
+/// The Working row's sweep (`working.rs`): a wide soft band at a steady speed.
+/// Seconds per pass in "Fixed period".
 pub const WORKING_PERIOD: Knob = Knob::new("Period", 0.4, 4.0, 1.2).step(0.05);
-/// A sweep's pace: one pass per period whatever the label's width, or a steady speed.
-pub const WORKING_PACE: Knob = Knob::choice("Pace", &["Fixed period", "pt/s"], 0);
-pub const WORKING_SPEED: Knob = Knob::new("Speed (pt/s)", 20.0, 400.0, 110.0).step(5.0);
-/// The band's width, in points or as a percentage of the label's; a wave's length in points.
-pub const WORKING_BAND: Knob = Knob::new("Band width", 8.0, 240.0, 84.0).step(1.0);
+/// One pass per period whatever the label's width, or a steady speed.
+pub const WORKING_PACE: Knob = Knob::choice("Pace", &["Fixed period", "pt/s"], 1);
+pub const WORKING_SPEED: Knob = Knob::new("Speed (pt/s)", 20.0, 400.0, 90.0).step(5.0);
+/// The band's width, in points or as a percentage of the label's.
+pub const WORKING_BAND: Knob = Knob::new("Band width", 8.0, 240.0, 140.0).step(1.0);
 pub const WORKING_UNIT: Knob = Knob::choice("Band unit", &["pt", "% of label"], 0);
 /// How far the highlight goes from the weak colour to the strong one.
-pub const WORKING_INTENSITY: Knob = Knob::new("Intensity", 0.0, 1.0, 1.0);
-/// How much of the band's half-width is a soft edge (sweeps and glints).
+pub const WORKING_INTENSITY: Knob = Knob::new("Intensity", 0.0, 1.0, 0.85);
+/// How much of the band's half-width is a soft edge.
 pub const WORKING_SOFTNESS: Knob = Knob::new("Softness", 0.0, 1.0, 1.0);
 pub const WORKING_DIRECTION: Knob = Knob::choice("Direction", &["Left to right", "Right to left"], 0);
-/// Seconds of rest between a sweep's or glint's passes.
+/// Seconds of rest between passes.
 pub const WORKING_PAUSE: Knob = Knob::new("Pause", 0.0, 3.0, 0.0).step(0.05);
-
-const WORKING_PRESETS: &[Preset] = &[
-    Preset { name: "Smooth sweep", values: &[("Style", 1.0), ("Pace", 1.0), ("Speed (pt/s)", 90.0), ("Band width", 140.0), ("Intensity", 0.85)] },
-    Preset { name: "Breath", values: &[("Style", 2.0), ("Period", 2.4), ("Intensity", 0.9)] },
-    Preset { name: "Wave", values: &[("Style", 3.0), ("Period", 1.6), ("Band width", 160.0)] },
-    Preset { name: "Glint", values: &[("Style", 4.0), ("Pace", 1.0), ("Speed (pt/s)", 260.0), ("Band width", 16.0), ("Softness", 0.5), ("Pause", 1.4)] },
-    Preset { name: "Dots", values: &[("Style", 5.0), ("Period", 1.4)] },
-];
 
 pub const WORKING: Group = Group::new(
     "Working",
     "working",
-    &[WORKING_STYLE, WORKING_PERIOD, WORKING_PACE, WORKING_SPEED, WORKING_BAND, WORKING_UNIT, WORKING_INTENSITY, WORKING_SOFTNESS, WORKING_DIRECTION, WORKING_PAUSE],
-)
-.presets(WORKING_PRESETS)
-.default_label("Desktop");
+    &[WORKING_PACE, WORKING_SPEED, WORKING_PERIOD, WORKING_BAND, WORKING_UNIT, WORKING_INTENSITY, WORKING_SOFTNESS, WORKING_DIRECTION, WORKING_PAUSE],
+);
 
 pub const GROUPS: &[Group] = &[
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),

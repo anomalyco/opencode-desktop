@@ -2,17 +2,16 @@ use rune::{ElementInfo, Env, Runtime};
 use serde_json::json;
 
 use super::*;
-use crate::knobs::{WORKING_SPEED, WORKING_STYLE};
+use crate::knobs::{WORKING_PAUSE, WORKING_SPEED};
 
 const DT: f64 = 1.0 / 120.0;
 
-fn runtime(style: usize, reduced: bool) -> (Runtime<App>, String) {
+fn runtime(reduced: bool) -> (Runtime<App>, String) {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
     let crate::Route::Session(sid) = app.route.clone() else { panic!("no open session") };
-    app.knobs.set(&WORKING_STYLE, style as f32);
     app.reduced_motion = reduced;
     // Only this session runs, so a quiet frame is the row's doing.
     app.running.retain(|id| *id == sid);
@@ -38,138 +37,131 @@ fn loops(rt: &Runtime<App>) -> Vec<ElementInfo> {
     rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/working/") && !e.path.contains("/ring") && e.loop_phase.is_some()).collect()
 }
 
-fn phase(rt: &Runtime<App>, key: &str) -> f64 {
-    let els = rt.elements();
-    els.iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && e.path.contains("/working/")).and_then(|e| e.loop_phase).unwrap_or_else(|| panic!("no {key} loop"))
+fn sheen(rt: &Runtime<App>) -> ElementInfo {
+    rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("sheen")).expect("the sheen")
 }
 
 #[test]
 fn a_loop_that_mounts_mid_run_waits_for_its_place_in_the_runs_rhythm() {
     let run = Run { since: 10.0, now: 10.3 };
-    assert!((run.delay(1.2, 0.0) - 0.9).abs() < 1e-9);
-    assert_eq!(Run { since: 10.0, now: 10.0 }.delay(1.2, 0.0), 0.0, "mounting with the run starts at once");
-    assert!(Run { since: 10.0, now: 12.4 }.delay(1.2, 0.0) < 1e-6, "on a boundary, no wait");
-    // A cycle reads the clock from the run's start, whenever it mounted.
-    let c = Cycle { period: 1.2, phase: run.phase(1.2, 0.25), stops: &[(0.0, 0.0), (1.0, 1.0)], still: 0.0, fps: 120.0 };
-    for t in [10.0_f64, 10.3, 11.7, 25.0] {
-        let want = ((t - 10.0) / 1.2 + 0.25).rem_euclid(1.0) as f32;
-        assert!((c.sample(t) - want).abs() < 1e-4, "at {t}: {} vs {want}", c.sample(t));
-    }
+    assert!((run.delay(1.2) - 0.9).abs() < 1e-9);
+    assert_eq!(Run { since: 10.0, now: 10.0 }.delay(1.2), 0.0, "mounting with the run starts at once");
+    assert!(Run { since: 10.0, now: 12.4 }.delay(1.2) < 1e-6, "on a boundary, no wait");
 }
 
 #[test]
-fn desktop_is_the_default_and_sweeps_its_band_once_every_1_2_s() {
-    assert_eq!(rune_knobs::Knobs::default().get(&WORKING_STYLE), 0.0);
-    let (mut rt, sid) = runtime(DESKTOP, false);
+fn the_band_sweeps_at_a_steady_speed_whatever_the_label() {
+    let app = App::empty();
+    let speed = WORKING_SPEED.default;
+    for w in [52.0, 150.0] {
+        let b = band(&app, w);
+        assert!((((b.x1 - b.x0) / b.period as f32) - speed).abs() < 1e-3, "{w} pt: {b:?}");
+        assert!(b.x0 + b.width <= 0.0 && b.x1 >= w, "starts and ends off the label: {b:?}");
+    }
+    let (mut rt, sid) = runtime(false);
     event(&mut rt, "session.execution.started", &sid);
     play(&mut rt, 0.5);
-    let a = phase(&rt, "sheen");
-    play(&mut rt, 0.3);
-    let b = phase(&rt, "sheen");
-    assert!(((b - a).rem_euclid(1.0) - 0.3 / 1.2).abs() < 1e-6, "{a} -> {b}");
+    let a = sheen(&rt).rect[0];
+    play(&mut rt, 0.2);
+    let b = sheen(&rt).rect[0];
+    assert!(((b - a) / 0.2 - speed).abs() < 2.0, "{a} -> {b}");
 }
 
 #[test]
-fn a_new_label_keeps_every_styles_phase() {
-    for style in 0..STYLES.len() {
-        let (mut rt, sid) = runtime(style, false);
-        event(&mut rt, "session.execution.started", &sid);
-        play(&mut rt, 0.55);
-        let before: Vec<(String, f64)> = loops(&rt).into_iter().map(|e| (e.path, e.loop_phase.unwrap())).collect();
-        assert!(!before.is_empty(), "{} has loops", STYLES[style]);
-        rt.update(|s, _| {
-            let now = s.clock;
-            s.working.relabel("Running the tests", now);
-        });
-        rt.frame(DT);
-        let after = loops(&rt);
-        for (path, p) in &before {
-            // A glyph past the shorter label goes; the rest step on by one frame.
-            let Some(e) = after.iter().find(|e| &e.path == path) else { continue };
-            let step = (e.loop_phase.unwrap() - p).rem_euclid(1.0);
-            assert!(step < 0.02, "{}: {path} stepped {step}", STYLES[style]);
-        }
+fn a_pause_rests_out_of_sight_between_passes() {
+    let mut app = App::empty();
+    let w = 52.0;
+    let moving = band(&app, w);
+    app.knobs.set(&WORKING_PAUSE, 1.0);
+    let paused = band(&app, w);
+    assert!((paused.period - moving.period - 1.0).abs() < 1e-6);
+    assert!((((paused.x1 - paused.x0) / paused.period as f32) - ((moving.x1 - moving.x0) / moving.period as f32)).abs() < 1e-3, "same speed");
+}
+
+#[test]
+fn a_new_label_keeps_the_sweeps_phase() {
+    let (mut rt, sid) = runtime(false);
+    event(&mut rt, "session.execution.started", &sid);
+    play(&mut rt, 0.55);
+    let before: Vec<(String, f64)> = loops(&rt).into_iter().map(|e| (e.path, e.loop_phase.unwrap())).collect();
+    assert!(!before.is_empty());
+    rt.update(|s, _| {
+        let now = s.clock;
+        s.working.relabel("Running the tests", now);
+    });
+    rt.frame(DT);
+    let after = loops(&rt);
+    for (path, p) in &before {
+        let e = after.iter().find(|e| &e.path == path).unwrap_or_else(|| panic!("{path} went"));
+        let step = (e.loop_phase.unwrap() - p).rem_euclid(1.0);
+        assert!(step < 0.02, "{path} stepped {step}");
     }
 }
 
-/// A sweep a new label interrupts carries on from where it was, then sweeps the new label: the
-/// band never jumps, only wraps out of sight, and never changes speed by more than it must to
-/// clear the longer words in the pass.
+/// A sweep a new label interrupts carries on from where it was, then sweeps the new label: on
+/// the words the band never jumps, and never changes speed by more than it must to clear the
+/// longer words in the pass. A row that mounts again afterwards keeps the rhythm.
 #[test]
 fn a_sweep_glides_through_a_new_label() {
-    for style in [DESKTOP, SMOOTH, GLINT] {
-        let (mut rt, sid) = runtime(style, false);
-        event(&mut rt, "session.execution.started", &sid);
-        play(&mut rt, 0.55);
-        let x = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("sheen")).map(|e| e.rect[0]).unwrap();
-        let mut xs = vec![x(&rt)];
-        for k in 0..360 {
-            if k == 1 {
-                rt.update(|s, _| {
-                    let now = s.clock;
-                    s.working.relabel("Searching the codebase", now);
-                });
-            }
-            rt.frame(DT);
-            xs.push(x(&rt));
+    let (mut rt, sid) = runtime(false);
+    event(&mut rt, "session.execution.started", &sid);
+    play(&mut rt, 0.55);
+    let label = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("label") && e.path.contains("/working/")).unwrap().rect;
+    // Where the band is, and whether more than its faded tip is on the words.
+    let at = |rt: &Runtime<App>| {
+        let (s, l) = (sheen(rt).rect, label(rt));
+        (s[0], s[0] + s[2] > l[0] + 2.0 && s[0] < l[0] + l[2] - 2.0)
+    };
+    let mut xs = vec![at(&rt)];
+    for k in 0..600 {
+        if k == 1 {
+            rt.update(|s, _| {
+                let now = s.clock;
+                s.working.relabel("Searching the codebase", now);
+            });
         }
-        let steps: Vec<f32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
-        for (k, pair) in steps.windows(2).enumerate() {
-            if pair.iter().any(|d| d.abs() > 40.0) {
-                continue; // a wrap
-            }
-            assert!(pair[1].abs() < 4.0, "{} at frame {k}: stepped {} pt", STYLES[style], pair[1]);
-        }
-        assert!(rt.state.working.relabeled.is_none(), "{}: the new label's sweep took over", STYLES[style]);
+        rt.frame(DT);
+        xs.push(at(&rt));
     }
+    for (k, w) in xs.windows(2).enumerate() {
+        if w[0].1 && w[1].1 {
+            assert!((w[1].0 - w[0].0).abs() < 4.0, "at frame {k}: stepped {} pt on the words", w[1].0 - w[0].0);
+        }
+    }
+    assert!(rt.state.working.relabeled.is_none(), "the new label's sweep took over");
+    let running = sheen(&rt).loop_phase.unwrap();
+    // Off screen and back: the same row, mounted again.
+    rt.update(|s, _| s.reduced_motion = true);
+    rt.frame(DT);
+    rt.update(|s, _| s.reduced_motion = false);
+    rt.frame(DT);
+    play(&mut rt, 0.6);
+    let b = band(&rt.state, crate::working::width("Searching the codebase"));
+    let again = sheen(&rt).loop_phase.unwrap();
+    let want = (running + (3.0 * DT + 0.6) / b.period).rem_euclid(1.0);
+    assert!((again - want).abs() < 0.01, "remounted at {again}, the rhythm says {want}");
 }
 
 #[test]
-fn every_style_stops_asking_for_frames_when_the_run_ends() {
-    for style in 0..STYLES.len() {
-        let (mut rt, sid) = runtime(style, false);
-        event(&mut rt, "session.execution.started", &sid);
-        play(&mut rt, 1.0);
-        assert!(!loops(&rt).is_empty(), "{} runs while working", STYLES[style]);
-        event(&mut rt, "session.execution.succeeded", &sid);
-        let mut quiet = None;
-        for k in 0..120 {
-            if !rt.frame(DT) {
-                quiet = Some(k);
-                break;
-            }
-        }
-        assert!(quiet.is_some(), "{} still animating 1 s after the run: running {:?} busy {:?} loops {:?}", STYLES[style], rt.state.running, rt.state.transcripts.get(&sid).map(|t| t.busy()), rt.elements().into_iter().filter(|e| e.loop_phase.is_some()).map(|e| e.path.chars().rev().take(50).collect::<String>().chars().rev().collect::<String>()).take(6).collect::<Vec<_>>());
-        assert!(loops(&rt).is_empty(), "{} left a loop", STYLES[style]);
-        assert!((0..60).all(|_| !rt.frame(DT)), "{} woke again", STYLES[style]);
-    }
+fn the_sweep_stops_asking_for_frames_when_the_run_ends() {
+    let (mut rt, sid) = runtime(false);
+    event(&mut rt, "session.execution.started", &sid);
+    play(&mut rt, 1.0);
+    assert!(!loops(&rt).is_empty(), "runs while working");
+    event(&mut rt, "session.execution.succeeded", &sid);
+    assert!((0..120).any(|_| !rt.frame(DT)), "still animating 1 s after the run");
+    assert!(loops(&rt).is_empty(), "left a loop");
+    assert!((0..60).all(|_| !rt.frame(DT)), "woke again");
 }
 
 #[test]
-fn reduced_motion_draws_every_style_still() {
-    for style in 0..STYLES.len() {
-        let (mut rt, sid) = runtime(style, true);
-        event(&mut rt, "session.execution.started", &sid);
-        play(&mut rt, 0.5);
-        assert!(loops(&rt).is_empty(), "{} loops under reduced motion", STYLES[style]);
-        let label = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("label") && e.path.contains("/working/")).expect("the label");
-        assert!(label.opacity > 0.99);
-    }
-}
-
-#[test]
-fn picking_a_style_loads_its_preset_and_desktop_resets_them() {
-    let mut app = App::empty();
-    app.knobs.set(&WORKING_STYLE, 4.0);
-    assert!(sync(&mut app));
-    assert_eq!(app.knobs.get(&WORKING_SPEED), 260.0);
-    assert!(!sync(&mut app), "once");
-    app.knobs.set(&WORKING_SPEED, 300.0);
-    assert!(!sync(&mut app), "a tweak stays");
-    assert_eq!(app.knobs.get(&WORKING_SPEED), 300.0);
-    app.knobs.set(&WORKING_STYLE, 0.0);
-    sync(&mut app);
-    assert_eq!(app.knobs.get(&WORKING_SPEED), WORKING_SPEED.default);
+fn reduced_motion_draws_the_label_still() {
+    let (mut rt, sid) = runtime(true);
+    event(&mut rt, "session.execution.started", &sid);
+    play(&mut rt, 0.5);
+    assert!(loops(&rt).is_empty(), "loops under reduced motion");
+    let label = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("label") && e.path.contains("/working/")).expect("the label");
+    assert!(label.opacity > 0.99);
 }
 
 #[test]
@@ -184,5 +176,3 @@ fn desktops_colours_are_its_tokens_blended_in_srgb() {
     assert!((enc(weak) - (bg + (1.0 - bg) * 0.422)).abs() < 1e-4);
     assert!((enc(strong) - (bg + (1.0 - bg) * 0.936)).abs() < 1e-4);
 }
-
-

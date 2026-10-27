@@ -213,7 +213,6 @@ fn carry(from: &mut App, to: &mut App) {
     to.edge = from.edge;
     to.reduced_motion = from.reduced_motion;
     to.debug = from.debug;
-    to.working.style = from.working.style;
 }
 
 /// The triggers' queued steps, and a new variant setting its story up again. First thing in

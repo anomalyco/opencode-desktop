@@ -1146,9 +1146,6 @@ fn setup(s: &mut App, waker: Waker) {
     if let Some(style) = icons::style_arg() {
         s.knobs.set(&knobs::ICON_STYLE, style);
     }
-    if let Some(style) = working::style_arg() {
-        s.knobs.set(&knobs::WORKING_STYLE, style);
-    }
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
