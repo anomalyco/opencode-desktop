@@ -15,6 +15,7 @@ mod pickers;
 mod queue;
 mod question;
 mod restore;
+mod revert;
 mod session_pages;
 mod shortcuts;
 mod stories;
@@ -859,12 +860,45 @@ impl App {
         }
     }
 
+    /// `session.revert.staged` hides the transcript from its boundary on, `cleared` shows it again, and
+    /// `committed` ends the revert and drops what it hid: the steers waiting behind it and their glows
+    /// (the transcript's own rows go in `Transcript::apply`).
+    fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        let next = match ty {
+            "session.revert.staged" => data["revert"]["messageID"].as_str().map(str::to_owned),
+            "session.revert.cleared" | "session.revert.committed" => None,
+            _ => return false,
+        };
+        let mut changed = false;
+        if let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid) {
+            changed |= std::mem::replace(&mut info.revert, next) != info.revert;
+        }
+        if ty == "session.revert.committed"
+            && let Some(to) = data["to"].as_str()
+        {
+            if let Some(inbox) = self.inboxes.get_mut(sid) {
+                let before = inbox.items.len();
+                inbox.items.retain(|i| i.id.as_str() < to);
+                changed |= inbox.items.len() != before;
+            }
+            if let Some(t) = self.transcripts.get(sid) {
+                for m in &t.messages[t.visible_len(Some(to))..] {
+                    changed |= self.glows.remove(m.id()).is_some();
+                }
+            }
+        }
+        changed
+    }
+
     fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
         let mut changed = self.apply_status(ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);
+        }
+        if ty.starts_with("session.revert.") && !sid.is_empty() {
+            changed |= self.apply_revert(ty, data, &sid);
         }
         if let Some(t) = self.transcripts.get_mut(&sid) {
             changed |= t.apply(ty, data, now);

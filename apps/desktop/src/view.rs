@@ -1105,12 +1105,15 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
 fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
     let busy = t.busy();
-    let last_assistant = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(_)));
-    let pending: Vec<&InboxItem> = s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default();
+    // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
+    let revert = s.session(&t.session).and_then(|i| i.revert.as_deref());
+    let shown = t.visible_len(revert);
+    let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
+    let pending: Vec<&InboxItem> = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
-    for (mi, m) in t.messages.iter().enumerate() {
+    for (mi, m) in t.messages[..shown].iter().enumerate() {
         match m {
             Message::Assistant(a) => {
                 if steps.is_empty() { start = mi; }
@@ -1120,7 +1123,7 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 // The last prompt runs on into the pending steers under it.
-                let below = match t.messages.get(mi + 1) {
+                let below = match t.messages[..shown].get(mi + 1) {
                     Some(n) => joins(m, n),
                     None => pending.first().is_some_and(|n| prompts_join(body, n)),
                 };
@@ -1135,10 +1138,10 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
             }
         }
     }
-    turn_rows(s, p, &mut out, &steps, start, t.messages.len(), busy);
+    turn_rows(s, p, &mut out, &steps, start, shown, busy && revert.is_none());
     // Undelivered steers wait below the running work and above Working, as Desktop shows them,
     // in the row each becomes when the server delivers it to the end of the transcript.
-    let mut prev = match t.messages.last() {
+    let mut prev = match t.messages[..shown].last() {
         Some(Message::User { text, .. }) if steps.is_empty() => Some(text.as_str()),
         _ => None,
     };

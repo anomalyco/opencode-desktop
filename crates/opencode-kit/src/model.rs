@@ -134,6 +134,8 @@ pub struct SessionInfo {
     pub agent: String,
     pub created: i64,
     pub outcome: Option<String>,
+    /// The message a staged revert rewinds to (`revert.messageID`): it and everything after it is hidden.
+    pub revert: Option<String>,
 }
 
 impl SessionInfo {
@@ -353,6 +355,7 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         agent: s(&p["agent"]),
         created: i(&p["time"]["created"]),
         outcome: p["outcome"].as_str().map(str::to_owned),
+        revert: p["revert"]["messageID"].as_str().map(str::to_owned),
     }
 }
 
@@ -610,6 +613,11 @@ impl Transcript {
         }
     }
 
+    /// How many messages show under a staged revert at `boundary`: those before it (ids sort by time).
+    pub fn visible_len(&self, boundary: Option<&str>) -> usize {
+        boundary.map_or(self.messages.len(), |b| self.messages.partition_point(|m| m.id() < b))
+    }
+
     /// Applies one `/api/event` payload for this session; returns whether anything changed.
     pub fn apply(&mut self, ty: &str, d: &Value, now: i64) -> bool {
         if d["sessionID"].as_str() != Some(self.session.as_str()) {
@@ -749,6 +757,13 @@ impl Transcript {
                 if ty == "session.step.failed" {
                     a.error = Some(d["error"]["message"].as_str().unwrap_or("The step failed").to_owned());
                 }
+            }
+            "session.revert.committed" => {
+                let at = self.visible_len(d["to"].as_str());
+                if at == self.messages.len() {
+                    return false;
+                }
+                self.messages.truncate(at);
             }
             _ => return false,
         }
