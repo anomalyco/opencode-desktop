@@ -158,7 +158,8 @@ impl Run {
 
     fn step(&mut self) {
         let queued = self.rt.state.playback.len();
-        self.rt.frame(DT);
+        let awake = self.rt.frame(DT);
+        self.rec.awake.push(awake);
         if self.rt.state.playback.len() < queued {
             let what = self.rt.state.playback.len();
             self.rec.input(format!("event ({what} left)"));
@@ -188,6 +189,12 @@ impl Run {
         self.rec.input(what);
         f(&mut self.rt);
         self.step();
+    }
+
+    /// Marks the cell's motion as over from the next frame: frames asked for well after it
+    /// are `wakes-after-end`.
+    pub fn quiet(&mut self) {
+        self.rec.quiet_from = Some(self.rec.frames);
     }
 
     /// A server event, arriving through playback as a live one would.

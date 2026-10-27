@@ -140,6 +140,8 @@ pub struct App {
     pub glows: HashMap<String, f64>,
     /// Where each session's timeline stands against its end (`jump.rs`).
     pub ends: jump::Ends,
+    /// When each run started, for the Working label's rhythm (`working.rs`).
+    pub working: working::Working,
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: bool,
     pub status: String,
@@ -236,6 +238,7 @@ impl App {
             reduced_motion: flag("--reduced-motion"),
             glows: HashMap::new(),
             ends: jump::Ends::default(),
+            working: working::Working::default(),
             debug: flag("--debug"),
             status: String::new(),
             now_ms: 0,
@@ -1081,6 +1084,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     arrivals.land(s, now, tx);
+    changed |= working::sync(s);
     if s.question_shown() != asked {
         s.morph(tx);
     }
@@ -1114,6 +1118,9 @@ fn setup(s: &mut App, waker: Waker) {
     s.icons.set_sync(headless());
     if let Some(style) = icons::style_arg() {
         s.knobs.set(&knobs::ICON_STYLE, style);
+    }
+    if let Some(style) = working::style_arg() {
+        s.knobs.set(&knobs::WORKING_STYLE, style);
     }
     if !s.playback.is_empty() {
         s.wake_at_playback();

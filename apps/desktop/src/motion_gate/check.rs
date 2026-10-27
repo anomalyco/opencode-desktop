@@ -36,6 +36,8 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "faint", threshold: 0.25, means: "geometry checks skip frames fainter than this opacity: a row fading out can't be seen to lurch" },
     Rule { kind: "load-motion", threshold: 1.0, means: "a row that loaded with the view moves or fades by more than this after its first frame (no animation on load)" },
     Rule { kind: "never-settles", threshold: 0.05, means: "still changing by more than this in the last half second of the run, long after the last input (loops excepted)" },
+    Rule { kind: "loop-jump", threshold: 0.03, means: "a loop's phase steps this many periods off its usual step in one frame: it restarted or skipped (a remount, or a new loop where one was running)" },
+    Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
 
 pub fn rule(kind: &str) -> f32 {
@@ -60,6 +62,8 @@ pub struct Snap {
     pub op: f32,
     pub scale: f32,
     pub flags: u8,
+    /// A loop's phase (0 to 1); NaN without one.
+    pub phase: f32,
 }
 
 pub struct Track {
@@ -90,6 +94,10 @@ pub struct Recording {
     pub start: usize,
     /// Frames at which the view loaded content that must arrive still (see `load-motion`).
     pub loads: Vec<usize>,
+    /// Per frame: whether the runtime wanted another.
+    pub awake: Vec<bool>,
+    /// The frame the cell's motion ended on (see `wakes-after-end`).
+    pub quiet_from: Option<usize>,
 }
 
 impl Recording {
@@ -150,7 +158,7 @@ impl Recording {
             }
             track.parent = parent.or(track.parent);
             if track.text.is_none() { track.text = e.text.clone().filter(|t| !t.is_empty()); }
-            track.frames.push((k, Snap { rect: e.rect, vis: e.visible, op: e.opacity, scale: e.scale, flags }));
+            track.frames.push((k, Snap { rect: e.rect, vis: e.visible, op: e.opacity, scale: e.scale, flags, phase: e.loop_phase.map_or(f32::NAN, |p| p as f32) }));
         }
     }
 }
@@ -533,6 +541,26 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
             out.push(Finding { kind: "never-settles", element: short(&tr[i].path), frame: n - tail, detail: format!("still moving {moved:.2} pt/frame in the last 0.5 s") });
         }
     }
+    // A loop keeps its rhythm: each frame steps its phase as the last did, through a new label.
+    for t in tr {
+        let steps: Vec<(usize, f32)> = t.frames.windows(2)
+            .filter(|w| w[1].0 == w[0].0 + 1 && !w[0].1.phase.is_nan() && !w[1].1.phase.is_nan())
+            .map(|w| (w[1].0, (w[1].1.phase - w[0].1.phase).rem_euclid(1.0)))
+            .collect();
+        if steps.len() < 4 { continue; }
+        let mut sorted: Vec<f32> = steps.iter().map(|s| s.1).collect();
+        sorted.sort_by(f32::total_cmp);
+        let usual = sorted[sorted.len() / 2];
+        if let Some(&(k, d)) = steps.iter().find(|s| (s.1 - usual).abs() > rule("loop-jump")) {
+            out.push(Finding { kind: "loop-jump", element: short(&t.path), frame: k, detail: format!("phase stepped {d:.3} where it steps {usual:.3} a frame") });
+        }
+    }
+    if let Some(q) = rec.quiet_from {
+        let from = q + (f64::from(rule("wakes-after-end")) * rec.hz) as usize;
+        if let Some(k) = (from..n).find(|&k| rec.awake.get(k) == Some(&true)) {
+            out.push(Finding { kind: "wakes-after-end", element: "frame".into(), frame: k, detail: format!("asked for a frame {:.2} s after the motion ended", (k - q) as f64 / rec.hz) });
+        }
+    }
     // A load swaps the page in on its frame: what mounts, unmounts or moves then is the swap.
     out.retain(|f| !(["pop-in", "pop-out", "jump", "offset-jump", "appear-then-jump", "fade-snap"].contains(&f.kind)
         && rec.loads.iter().any(|&l| f.frame >= l && f.frame <= l + 2)));
@@ -600,7 +628,7 @@ mod tests {
         r.frames = frames;
         for (path, fs) in tracks {
             let i = r.track(path, None);
-            r.tracks[i].frames = fs.into_iter().map(|(k, rect, op)| (k, Snap { rect, vis: rect, op, scale: 1.0, flags: INK })).collect();
+            r.tracks[i].frames = fs.into_iter().map(|(k, rect, op)| (k, Snap { rect, vis: rect, op, scale: 1.0, flags: INK, phase: f32::NAN })).collect();
         }
         r
     }
@@ -639,5 +667,27 @@ mod tests {
         let mut r = rec(vec![("a", blink)], 60);
         for f in &mut r.tracks[0].frames { f.1.flags = 0; }
         assert!(kinds(&r).is_empty());
+    }
+
+    #[test]
+    fn a_loop_that_restarts_jumps_and_a_finished_run_goes_quiet() {
+        let still: Vec<(usize, [f32; 4], f32)> = (0..120).map(|k| (k, [0.0, 0.0, 100.0, 20.0], 1.0)).collect();
+        let looping = |restart: Option<usize>| {
+            let mut r = rec(vec![("a", still.clone())], 120);
+            for (k, f) in r.tracks[0].frames.iter_mut() {
+                let t = restart.filter(|&at| *k >= at).map_or(*k, |at| *k - at);
+                f.phase = (t as f32 / 144.0).rem_euclid(1.0);
+            }
+            r
+        };
+        // Wrapping round from 1 to 0 is a usual step.
+        assert!(kinds(&looping(None)).is_empty());
+        assert_eq!(kinds(&looping(Some(60))), ["loop-jump"]);
+        let mut r = rec(vec![("a", (0..300).map(|k| (k, [0.0, 0.0, 100.0, 20.0], 1.0)).collect())], 300);
+        r.quiet_from = Some(100);
+        r.awake = (0..300).map(|k| k < 180).collect();
+        assert!(kinds(&r).is_empty(), "settling within a second is fine");
+        r.awake[260] = true;
+        assert_eq!(kinds(&r), ["wakes-after-end"]);
     }
 }

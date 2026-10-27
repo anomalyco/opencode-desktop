@@ -58,7 +58,7 @@ const QUESTION_KNOBS: &[Group] = &[Group::new("Question", "stage", &[QUESTION])]
 const MORPH_KNOBS: &[Group] = &[QUESTION_DOCK];
 const GLOW_KNOBS: &[Group] = &[Group::new("Arrival glow", "stage", &[GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH])];
 const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
-const WORKING_KNOBS: &[Group] = &[Group::new("Working", "stage", &[SHIMMER_PERIOD, SHIMMER_WIDTH, ACTIONS_TAIL])];
+const WORKING_KNOBS: &[Group] = &[WORKING];
 const ACTIONS_KNOBS: &[Group] = &[Group::new("Turn actions", "stage", &[ACTIONS_TAIL])];
 const SUBAGENT_KNOBS: &[Group] = &[Group::new("Subagent", "stage", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
 const IMAGE_KNOBS: &[Group] = &[Group::new("Images", "stage", &[IMAGE_FLIGHT, ROW_GROWTH])];
@@ -85,7 +85,12 @@ const GLOW_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "A", label: "Another a
 const SEND_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "S", label: "Send", run: send }];
 const STREAM_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "F", label: "Finish the stream", run: finish_stream }];
 const TOOL_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "T", label: "Fold or unfold the tools", run: fold_tools }];
-const WORKING_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "W", label: "Start working", run: start }, Action { cap: "F", label: "Finish", run: finish }];
+const WORKING_KEYS: &[Action<App>] = &[
+    Action { cap: "R", label: "Restart the run", run: replay },
+    Action { cap: "L", label: "Change the label", run: relabel },
+    Action { cap: "D", label: "End the run", run: finish },
+];
+const TURN_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "W", label: "Start working", run: start }, Action { cap: "F", label: "Finish", run: finish }];
 const STEER_KEYS: &[Action<App>] = &[
     REPLAY,
     Action { cap: "S", label: "Steer", run: steer },
@@ -126,7 +131,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Background agents", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
     Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
     Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
-    Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: WORKING_KEYS, open: actions_open, view: session_view },
+    Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: TURN_KEYS, open: actions_open, view: session_view },
     Story { group: "Session opening", name: open_story::NAMES[0], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 0, tx), view: opening_view },
     Story { group: "Session opening", name: open_story::NAMES[1], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 1, tx), view: opening_view },
     Story { group: "Session opening", name: open_story::NAMES[2], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 2, tx), view: opening_view },
@@ -208,6 +213,7 @@ fn carry(from: &mut App, to: &mut App) {
     to.edge = from.edge;
     to.reduced_motion = from.reduced_motion;
     to.debug = from.debug;
+    to.working.style = from.working.style;
 }
 
 /// The triggers' queued steps, and a new variant setting its story up again. First thing in
@@ -496,6 +502,15 @@ fn start(s: &mut App, tx: &mut Tx) {
 
 fn finish(s: &mut App, tx: &mut Tx) {
     emit(s, "session.execution.succeeded", json!({}), tx);
+}
+
+/// Labels of different widths, for a label that changes mid-sweep.
+const LABELS: &[&str] = &["Working", "Thinking", "Running the tests", "Searching the codebase"];
+
+fn relabel(s: &mut App, _: &mut Tx) {
+    let at = LABELS.iter().position(|l| *l == s.working.label()).unwrap_or(0);
+    let now = s.clock;
+    s.working.relabel(LABELS[(at + 1) % LABELS.len()], now);
 }
 
 /// Working, until the turn finishes and its actions take its place.

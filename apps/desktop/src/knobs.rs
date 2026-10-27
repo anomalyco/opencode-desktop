@@ -52,9 +52,6 @@ pub const GLOW_TAIL: Knob = Knob::new("Glow tail", 0.02, 0.8, 0.2);
 pub const GLOW_FADE: Knob = Knob::new("Glow fades at", 0.1, 1.9, 0.7);
 /// Rows growing in and finished content gliding open, as a spring's duration.
 pub const ROW_GROWTH: Knob = Knob::new("Row growth", 0.1, 0.8, 0.32);
-/// Working's shimmer: seconds per sweep, and the band's width in points.
-pub const SHIMMER_PERIOD: Knob = Knob::new("Shimmer period", 0.4, 3.0, 1.2);
-pub const SHIMMER_WIDTH: Knob = Knob::new("Shimmer width", 24.0, 160.0, 84.0).step(1.0);
 /// The tail under a turn, where Working hands over to the turn's actions, as a spring.
 pub const ACTIONS_TAIL: Knob = Knob::new("Actions tail", 0.1, 0.8, 0.34);
 /// Jump to latest showing and hiding (tweens, seconds) and how far it rises as it shows.
@@ -65,7 +62,7 @@ pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0);
 pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25);
 
 pub const TIMELINE: &[Knob] = &[
-    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, SHIMMER_PERIOD, SHIMMER_WIDTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
+    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
     IMAGE_FLIGHT,
 ];
 
@@ -83,6 +80,41 @@ pub const QUESTION_DOCK: Group =
         .presets(QUESTION_PRESETS)
         .default_label("Desktop");
 
+/// The Working row's label (`working.rs`): which shimmer, and its numbers. Picking a style loads
+/// its preset; Desktop is drawn exactly as Desktop draws it and reads none of the others.
+pub const WORKING_STYLE: Knob = Knob::choice("Style", &crate::working::STYLES, 0);
+/// Seconds per pass: a sweep's in "Fixed period", and a breath's, wave's or dots' cycle.
+pub const WORKING_PERIOD: Knob = Knob::new("Period", 0.4, 4.0, 1.2).step(0.05);
+/// A sweep's pace: one pass per period whatever the label's width, or a steady speed.
+pub const WORKING_PACE: Knob = Knob::choice("Pace", &["Fixed period", "pt/s"], 0);
+pub const WORKING_SPEED: Knob = Knob::new("Speed (pt/s)", 20.0, 400.0, 110.0).step(5.0);
+/// The band's width, in points or as a percentage of the label's; a wave's length in points.
+pub const WORKING_BAND: Knob = Knob::new("Band width", 8.0, 240.0, 84.0).step(1.0);
+pub const WORKING_UNIT: Knob = Knob::choice("Band unit", &["pt", "% of label"], 0);
+/// How far the highlight goes from the weak colour to the strong one.
+pub const WORKING_INTENSITY: Knob = Knob::new("Intensity", 0.0, 1.0, 1.0);
+/// How much of the band's half-width is a soft edge (sweeps and glints).
+pub const WORKING_SOFTNESS: Knob = Knob::new("Softness", 0.0, 1.0, 1.0);
+pub const WORKING_DIRECTION: Knob = Knob::choice("Direction", &["Left to right", "Right to left"], 0);
+/// Seconds of rest between a sweep's or glint's passes.
+pub const WORKING_PAUSE: Knob = Knob::new("Pause", 0.0, 3.0, 0.0).step(0.05);
+
+const WORKING_PRESETS: &[Preset] = &[
+    Preset { name: "Smooth sweep", values: &[("Style", 1.0), ("Pace", 1.0), ("Speed (pt/s)", 90.0), ("Band width", 140.0), ("Intensity", 0.85)] },
+    Preset { name: "Breath", values: &[("Style", 2.0), ("Period", 2.4), ("Intensity", 0.9)] },
+    Preset { name: "Wave", values: &[("Style", 3.0), ("Period", 1.6), ("Band width", 160.0)] },
+    Preset { name: "Glint", values: &[("Style", 4.0), ("Pace", 1.0), ("Speed (pt/s)", 260.0), ("Band width", 16.0), ("Softness", 0.5), ("Pause", 1.4)] },
+    Preset { name: "Dots", values: &[("Style", 5.0), ("Period", 1.4)] },
+];
+
+pub const WORKING: Group = Group::new(
+    "Working",
+    "working",
+    &[WORKING_STYLE, WORKING_PERIOD, WORKING_PACE, WORKING_SPEED, WORKING_BAND, WORKING_UNIT, WORKING_INTENSITY, WORKING_SOFTNESS, WORKING_DIRECTION, WORKING_PAUSE],
+)
+.presets(WORKING_PRESETS)
+.default_label("Desktop");
+
 pub const GROUPS: &[Group] = &[
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
     Group::new("Icons", "sidebar", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
@@ -90,6 +122,7 @@ pub const GROUPS: &[Group] = &[
     QUESTION_DOCK,
     Group::new("Timeline", "timeline", TIMELINE),
     Group::new("Subagents", "dock", &[AGENTS_STYLE]),
+    WORKING,
 ];
 
 /// A knob in seconds as an `f64`, to the microsecond: the decimal it was written as, not its
@@ -207,8 +240,6 @@ mod tests {
         assert_eq!(jump(&k, true), Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)));
         assert_eq!(jump(&k, false), Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0)));
         assert_eq!(k.get(&JUMP_RISE), 4.0);
-        assert_eq!(secs(&k, &SHIMMER_PERIOD), 1.2);
-        assert_eq!(k.get(&SHIMMER_WIDTH), 84.0);
         assert_eq!(Spring::new(k.get(&IMAGE_FLIGHT), 0.0), Spring::new(0.25, 0.0));
     }
 }

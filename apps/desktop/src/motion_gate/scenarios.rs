@@ -13,6 +13,8 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     // (kind, element contains, cell contains, why)
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
+    ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
+    ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-out", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
@@ -167,6 +169,21 @@ const ACTIONS: &[Action] = &[
         r.play(1.0);
         r.event("session.execution.succeeded", m);
         r.play(1.0);
+    } },
+    // The Working label changes mid-shimmer: the sweep keeps its rhythm, and once the run
+    // ends nothing asks for frames.
+    Action { name: "working-relabel", circs: || places(Circ::default()), run: |r| {
+        let m = json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzworking" });
+        r.event("session.execution.started", m.clone());
+        r.play(0.6);
+        r.act("relabel", |rt| rt.update(|s, _| {
+            let now = s.clock;
+            s.working.relabel("Running the tests", now);
+        }));
+        r.play(1.4);
+        r.event("session.execution.succeeded", m);
+        r.quiet();
+        r.play(1.5);
     } },
     Action { name: "question", circs: || {
         let mut v = places(Circ::default());

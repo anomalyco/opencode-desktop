@@ -1391,7 +1391,7 @@ fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) 
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     el().w_full().h(28.0).motion(crate::knobs::actions_tail(&s.knobs))
-        .child(crate::working::row(s, p, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
+        .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
 }
 
@@ -2112,7 +2112,7 @@ mod tests {
                 let label = els.iter().find(|e| e.path.contains("/working/") && e.key.as_deref() == Some("label")).unwrap();
                 let lit = els.iter().find(|e| e.path.contains("/lit/") && e.text.is_some()).unwrap();
                 let (sheen, lit_box) = (els.iter().find(|e| e.key.as_deref() == Some("sheen")).unwrap(), els.iter().find(|e| e.key.as_deref() == Some("lit")).unwrap());
-                assert!((label.rect[2] - crate::working::WORKING_W).abs() < 2.0, "the label is {} wide", label.rect[2]);
+                assert!((label.rect[2] - crate::working::width("Working")).abs() < 2.0, "the label is {} wide", label.rect[2]);
                 assert!((lit.rect[0] - label.rect[0]).abs() < 0.01 && (lit.rect[1] - label.rect[1]).abs() < 0.01, "{t:.3}s: lit {:?} on label {:?}", lit.rect, label.rect);
                 assert_eq!(sheen.loop_phase, lit_box.loop_phase, "{t:.3}s: one sweep");
             }
