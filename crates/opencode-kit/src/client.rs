@@ -1,5 +1,5 @@
-//! The OpenCode server connection: read-only GETs on a worker thread, `/api/event` on another,
-//! both waking the window when data lands. Sending a prompt is a separate, gated path.
+//! The OpenCode server connection: GETs on a worker thread, writes (prompts, replies, stop, new
+//! session) on another, `/api/event` on a third, all waking the window when data lands.
 //!
 //! The password comes from `~/.local/share/opencode-studio-migration/password` (or
 //! `OPENCODE_SERVER_PASSWORD`) and only ever goes into the Authorization header.
@@ -12,7 +12,7 @@ use std::time::Duration;
 use rune::Waker;
 use serde_json::Value;
 
-use crate::model::{self, Message, SessionInfo};
+use crate::model::{self, Message, Pending, SessionInfo};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
@@ -22,6 +22,10 @@ pub enum Incoming {
     Messages { session: String, messages: Vec<Message> },
     Event { ty: String, data: Value },
     Status(String),
+    /// A session's open permission requests and forms.
+    Pending { session: String, items: Vec<Pending> },
+    /// A session this app just created (its first prompt is already sent).
+    Created(SessionInfo),
 }
 
 pub enum Request {
@@ -29,6 +33,21 @@ pub enum Request {
     Sessions,
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
+    Pending(String),
+}
+
+pub enum Write {
+    Prompt { session: String, text: String },
+    Permission { session: String, request: String, decision: String },
+    Form { session: String, form: String, answer: Value },
+    CancelForm { session: String, form: String },
+    Interrupt(String),
+    /// A new session in `directory`, then `text` as its first prompt.
+    Create { directory: String, text: String },
+}
+
+fn list(v: &Value) -> Vec<Value> {
+    v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default()
 }
 
 #[derive(Clone)]
@@ -99,18 +118,74 @@ impl Server {
         serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))
     }
 
-    /// `POST /session/:id/prompt`. Only reachable with `--allow-send`, a flag for a human at the keyboard;
-    /// agents and tests never pass it against the live server (tests use a local mock).
+    /// A write: `method` with an optional JSON body; an empty (204) reply is `Value::Null`.
+    pub fn write(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+        let url = format!("{}{path}", self.base);
+        let agent = Self::agent(Some(Duration::from_secs(15)));
+        let auth = self.auth.as_deref();
+        let resp = match method {
+            "DELETE" => {
+                let mut req = agent.delete(url);
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
+                }
+                req.call()
+            }
+            _ => {
+                let mut req = agent.post(url).header("Content-Type", "application/json");
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
+                }
+                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+            }
+        };
+        let mut resp = resp.map_err(|e| format!("{method} {path}: {e}"))?;
+        let text = resp.body_mut().read_to_string().unwrap_or_default();
+        Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
+    }
+
+    /// `POST /session/:id/prompt`. Tests point this at a local mock, never the live server.
     pub fn send_prompt(&self, session: &str, text: &str) -> Result<(), String> {
-        let path = format!("/api/session/{session}/prompt");
-        let mut req = Self::agent(Some(Duration::from_secs(15)))
-            .post(format!("{}{path}", self.base))
-            .header("Content-Type", "application/json");
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
+        self.write("POST", &format!("/api/session/{session}/prompt"), Some(serde_json::json!({ "text": text }))).map(|_| ())
+    }
+
+    /// `decision`: `once`, `always` or `reject`.
+    pub fn reply_permission(&self, session: &str, request: &str, decision: &str) -> Result<(), String> {
+        let path = format!("/api/session/{session}/permission/{request}/reply");
+        self.write("POST", &path, Some(serde_json::json!({ "decision": decision }))).map(|_| ())
+    }
+
+    /// `answer` maps each field key to a string, number, bool or list of strings.
+    pub fn reply_form(&self, session: &str, form: &str, answer: Value) -> Result<(), String> {
+        let path = format!("/api/session/{session}/form/{form}/reply");
+        self.write("POST", &path, Some(serde_json::json!({ "answer": answer }))).map(|_| ())
+    }
+
+    pub fn cancel_form(&self, session: &str, form: &str) -> Result<(), String> {
+        self.write("DELETE", &format!("/api/session/{session}/form/{form}"), None).map(|_| ())
+    }
+
+    /// Stops the session's current run.
+    pub fn interrupt(&self, session: &str) -> Result<(), String> {
+        self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|_| ())
+    }
+
+    pub fn create_session(&self, directory: &str) -> Result<SessionInfo, String> {
+        let v = self.write("POST", "/api/session", Some(serde_json::json!({ "location": { "directory": directory } })))?;
+        let info = model::parse_session(v.get("data").unwrap_or(&v));
+        if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
+    }
+
+    /// The session's open permission requests and forms.
+    pub fn pending(&self, session: &str) -> Vec<Pending> {
+        let mut out = Vec::new();
+        if let Ok(v) = self.get(&format!("/api/session/{session}/permission")) {
+            out.extend(list(&v).iter().filter_map(model::parse_permission));
         }
-        let body = serde_json::json!({ "text": text }).to_string();
-        req.send(body.as_bytes()).map(|_| ()).map_err(|e| format!("POST {path}: {e}"))
+        if let Ok(v) = self.get(&format!("/api/session/{session}/form")) {
+            out.extend(list(&v).iter().filter_map(model::parse_form));
+        }
+        out
     }
 
     fn events(&self, inbox: &Sender<Incoming>, wake: &Waker) -> Result<(), String> {
@@ -137,11 +212,43 @@ impl Server {
     }
 }
 
-/// Starts the worker and event threads (the first loads already happened). Returns the
-/// request sender and the inbox.
-pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Receiver<Incoming>) {
+/// Starts the worker, writer and event threads (the first loads already happened). Returns the
+/// request and write senders and the inbox.
+pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
     let (inbox_tx, inbox) = channel();
     let (req_tx, req_rx) = channel::<Request>();
+    let (write_tx, write_rx) = channel::<Write>();
+
+    {
+        let server = server.clone();
+        let inbox_tx = inbox_tx.clone();
+        let wake = wake.clone();
+        std::thread::Builder::new()
+            .name("opencode-write".into())
+            .spawn(move || {
+                for w in write_rx {
+                    let result = match w {
+                        Write::Prompt { session, text } => server.send_prompt(&session, &text),
+                        Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
+                        Write::Form { session, form, answer } => server.reply_form(&session, &form, answer),
+                        Write::CancelForm { session, form } => server.cancel_form(&session, &form),
+                        Write::Interrupt(session) => server.interrupt(&session),
+                        Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
+                            server.send_prompt(&info.id, &text)?;
+                            let _ = inbox_tx.send(Incoming::Created(info));
+                            Ok(())
+                        }),
+                    };
+                    if let Err(e) = result
+                        && inbox_tx.send(Incoming::Status(e)).is_err()
+                    {
+                        return;
+                    }
+                    wake();
+                }
+            })
+            .expect("spawn write thread");
+    }
 
     {
         let server = server.clone();
@@ -170,6 +277,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Receiver<Incomi
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Status(e)),
                         },
+                        Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
                     };
                     if !ok {
                         return;
@@ -198,7 +306,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Receiver<Incomi
         })
         .expect("spawn event thread");
 
-    (req_tx, inbox)
+    (req_tx, write_tx, inbox)
 }
 
 /// A one-request HTTP server for tests: answers 200 and returns what it received.
@@ -255,5 +363,27 @@ mod tests {
         assert!(req.starts_with("POST /api/session/ses_test/prompt HTTP/1.1"), "{req}");
         assert!(req.contains("authorization: Basic dGVzdA==") || req.contains("Authorization: Basic dGVzdA=="));
         assert!(req.ends_with(r#"{"text":"hello there"}"#), "{req}");
+    }
+
+    #[test]
+    fn replies_to_a_permission_and_a_form() {
+        let (base, h) = mock_once();
+        Server { base, auth: None }.reply_permission("ses_a", "per_b", "once").unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/permission/per_b/reply HTTP/1.1"), "{req}");
+        assert!(req.ends_with(r#"{"decision":"once"}"#), "{req}");
+
+        let (base, h) = mock_once();
+        Server { base, auth: None }.reply_form("ses_a", "frm_c", serde_json::json!({"q0": "dev"})).unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/form/frm_c/reply HTTP/1.1"), "{req}");
+        assert!(req.ends_with(r#"{"answer":{"q0":"dev"}}"#), "{req}");
+    }
+
+    #[test]
+    fn interrupts() {
+        let (base, h) = mock_once();
+        Server { base, auth: None }.interrupt("ses_a").unwrap();
+        assert!(h.join().unwrap().starts_with("POST /api/session/ses_a/interrupt HTTP/1.1"));
     }
 }

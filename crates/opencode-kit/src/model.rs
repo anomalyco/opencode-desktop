@@ -434,6 +434,106 @@ fn place(parts: &mut Vec<Part>, ordinal: Option<usize>, part: Part) {
     }
 }
 
+/// Something a session is waiting on a person for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pending {
+    /// A tool wants to run: `action` on `resources`.
+    Permission { id: String, session: String, action: String, resources: Vec<String>, message: String },
+    /// A form, such as the question tool's: one field per question.
+    Form { id: String, session: String, title: String, fields: Vec<Field> },
+}
+
+impl Pending {
+    pub fn id(&self) -> &str {
+        match self {
+            Pending::Permission { id, .. } | Pending::Form { id, .. } => id,
+        }
+    }
+    pub fn session(&self) -> &str {
+        match self {
+            Pending::Permission { session, .. } | Pending::Form { session, .. } => session,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldKind {
+    /// Free text, or one of `options` (plus free text when `custom`).
+    Text,
+    Number,
+    Boolean,
+    /// Any number of `options`.
+    Multi,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldOption {
+    pub value: String,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    pub key: String,
+    pub title: String,
+    pub description: String,
+    pub kind: FieldKind,
+    pub options: Vec<FieldOption>,
+    pub custom: bool,
+    pub required: bool,
+}
+
+/// `permission.asked`'s payload or one entry of `GET /session/:id/permission`.
+pub fn parse_permission(v: &Value) -> Option<Pending> {
+    let id = s(&v["id"]);
+    if id.is_empty() {
+        return None;
+    }
+    Some(Pending::Permission {
+        id,
+        session: s(&v["sessionID"]),
+        action: s(&v["action"]),
+        resources: v["resources"].as_array().into_iter().flatten().filter_map(|r| r.as_str().map(str::to_owned)).collect(),
+        message: s(&v["message"]),
+    })
+}
+
+/// `form.created`'s `form` or one entry of `GET /session/:id/form`.
+pub fn parse_form(v: &Value) -> Option<Pending> {
+    let v = if v["form"].is_object() { &v["form"] } else { v };
+    let id = s(&v["id"]);
+    if id.is_empty() || v["state"]["status"].as_str().is_some_and(|st| st != "pending") {
+        return None;
+    }
+    let fields = v["fields"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["hidden"].as_bool() != Some(true) && f["type"] != "external")
+        .map(|f| Field {
+            key: s(&f["key"]),
+            title: s(&f["title"]),
+            description: s(&f["description"]),
+            kind: match f["type"].as_str().unwrap_or("") {
+                "boolean" => FieldKind::Boolean,
+                "number" | "integer" => FieldKind::Number,
+                "multiselect" => FieldKind::Multi,
+                _ => FieldKind::Text,
+            },
+            options: f["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|o| FieldOption { value: s(&o["value"]), label: s(&o["label"]), description: s(&o["description"]) })
+                .collect(),
+            custom: f["custom"].as_bool().unwrap_or(false),
+            required: f["required"].as_bool().unwrap_or(false),
+        })
+        .collect();
+    Some(Pending::Form { id, session: s(&v["sessionID"]), title: s(&v["title"]), fields })
+}
+
 /// "3m ago"-style age from milliseconds, as Desktop's short relative times.
 pub fn ago(now: i64, then: i64) -> String {
     let s = ((now - then) / 1000).max(0);
@@ -468,6 +568,22 @@ mod tests {
         assert_eq!(m("claude-opus-5-5"), "Claude Opus 5.5");
         assert_eq!(m("gpt-6-astra"), "GPT 6 Astra");
         assert_eq!(m("gemini-4-argon"), "Gemini 4 Argon");
+    }
+
+    #[test]
+    fn parses_the_question_form() {
+        let ev = serde_json::json!({"form": {"id": "frm_1", "sessionID": "ses_1", "title": "Questions", "fields": [
+            {"key": "q0", "title": "Base", "description": "Which branch?", "type": "string", "custom": true,
+             "options": [{"value": "dev", "label": "dev", "description": "default"}]},
+            {"key": "q1", "type": "multiselect", "options": [{"value": "a", "label": "A"}]},
+            {"key": "hidden", "type": "string", "hidden": true}
+        ]}});
+        let Some(Pending::Form { id, session, fields, .. }) = parse_form(&ev) else { panic!() };
+        assert_eq!((id.as_str(), session.as_str(), fields.len()), ("frm_1", "ses_1", 2));
+        assert_eq!(fields[0].kind, FieldKind::Text);
+        assert!(fields[0].custom);
+        assert_eq!(fields[0].options[0].description, "default");
+        assert_eq!(fields[1].kind, FieldKind::Multi);
     }
 
     #[test]
