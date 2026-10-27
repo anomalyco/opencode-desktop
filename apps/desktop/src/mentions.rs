@@ -346,6 +346,9 @@ impl App {
     /// The `@`'s byte offset and the query, when the text before the caret has one that isn't
     /// already a pill's.
     fn mention_trigger(&self, open: bool) -> Option<(usize, String)> {
+        if self.add.shell {
+            return None;
+        }
         let text = self.composer.text.get(..self.caret())?;
         let (at, query) = trigger(text, open)?;
         let in_pill = self.composer.pills().any(|(r, _)| r.start <= at && at < r.end);
@@ -789,7 +792,7 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rune::{Env, Runtime};
 
@@ -865,7 +868,7 @@ mod tests {
         assert_eq!(absolute("/repo", "C:/x"), "C:/x");
     }
 
-    fn runtime() -> Runtime<App> {
+    pub(crate) fn runtime() -> Runtime<App> {
         let mut app = App::empty();
         app.load_fixture(crate::FIXTURE);
         crate::open_scene(&mut app);
@@ -876,17 +879,17 @@ mod tests {
         rt.frame(0.0);
         rt
     }
-    fn key(rt: &mut Runtime<App>, key: Key) {
+    pub(crate) fn key(rt: &mut Runtime<App>, key: Key) {
         rt.key(KeyEvent { key, mods: Default::default() });
         rt.frame(1.0 / 60.0);
     }
     /// One keystroke a frame, as a person types.
-    fn typed(rt: &mut Runtime<App>, s: &str) {
+    pub(crate) fn typed(rt: &mut Runtime<App>, s: &str) {
         for c in s.chars() {
             key(rt, Key::Text(c.to_string()));
         }
     }
-    fn tap(rt: &mut Runtime<App>, target: &str) {
+    pub(crate) fn tap(rt: &mut Runtime<App>, target: &str) {
         let (x, y) = rt.find(target).unwrap();
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
@@ -895,7 +898,7 @@ mod tests {
     fn keys(rt: &Runtime<App>) -> Vec<String> {
         rt.state.mention_items().into_iter().map(|i| i.key).collect()
     }
-    fn shown(rt: &Runtime<App>, key: &str) -> Option<rune::ElementInfo> {
+    pub(crate) fn shown(rt: &Runtime<App>, key: &str) -> Option<rune::ElementInfo> {
         rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key))
     }
 

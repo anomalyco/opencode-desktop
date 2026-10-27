@@ -60,6 +60,8 @@ pub enum Write {
     Cancel { session: String, item: String },
     /// Moves an undelivered prompt between the queue and steering (`PATCH …/inbox/:item`).
     Deliver { session: String, item: String, delivery: Delivery },
+    /// Runs one shell command in the session's directory (`POST …/shell`).
+    Shell { session: String, id: Option<String>, command: String },
 }
 
 /// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
@@ -78,6 +80,20 @@ pub struct Prompt {
     /// `metadata.displayText`: the text as typed when `text` differs (session mentions go out as
     /// `@session:ses_…` tokens but read as their titles).
     pub display_text: Option<String>,
+    /// Files the server reads by path, which reach the model as `Attached file:` lines in
+    /// `text` and the message view through `metadata.attachments`.
+    pub attachments: Vec<PathAttachment>,
+    /// A slash command to run with `text` as its arguments (`POST …/command`) instead of a
+    /// prompt.
+    pub command: Option<String>,
+}
+
+/// A file attached by its path on the server (`PromptAttachmentReference`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PathAttachment {
+    pub name: String,
+    pub mime: String,
+    pub path: String,
 }
 
 /// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]), `file://`, or a
@@ -120,10 +136,40 @@ impl Mention {
 
 impl Prompt {
     pub fn body(&self) -> Value {
-        let mut body = serde_json::json!({ "text": self.text });
+        let mut body = self.input();
         if let Some(id) = &self.id {
             body["id"] = id.clone().into();
         }
+        let display = self.display_text.as_ref().filter(|d| **d != self.text);
+        if display.is_some() || !self.attachments.is_empty() {
+            // Desktop reads `displayText` only beside a `comments` list.
+            let attachments: Vec<Value> =
+                self.attachments.iter().map(|a| serde_json::json!({ "name": a.name, "mime": a.mime, "path": a.path })).collect();
+            body["metadata"] = serde_json::json!({
+                "displayText": display.unwrap_or(&self.text),
+                "comments": [],
+                "attachments": attachments,
+            });
+        }
+        if let Some(d) = self.delivery {
+            body["delivery"] = d.as_str().into();
+        }
+        body
+    }
+
+    /// `POST …/command`'s body: the command's name, with `text` as its arguments.
+    pub fn command_body(&self) -> Value {
+        let mut body = self.input();
+        body["name"] = self.command.clone().unwrap_or_default().into();
+        if let Some(d) = self.delivery {
+            body["delivery"] = d.as_str().into();
+        }
+        body
+    }
+
+    /// `PromptInput.Prompt`'s fields: text, files, agents and skills.
+    fn input(&self) -> Value {
+        let mut body = serde_json::json!({ "text": self.text });
         if !self.files.is_empty() {
             body["files"] = self
                 .files
@@ -166,14 +212,18 @@ impl Prompt {
                 })
                 .collect();
         }
-        if let Some(display) = self.display_text.as_ref().filter(|d| **d != self.text) {
-            body["metadata"] = serde_json::json!({ "displayText": display });
-        }
-        if let Some(d) = self.delivery {
-            body["delivery"] = d.as_str().into();
-        }
         body
     }
+}
+
+/// `encodeURIComponent`, for a query value.
+fn encode_component(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// `data:<mime>;base64,<bytes>`.
@@ -283,6 +333,13 @@ impl Server {
         self.addr().is_some_and(|a| TcpStream::connect_timeout(&a, Duration::from_millis(250)).is_ok())
     }
 
+    /// The server shares this machine's filesystem, so a local path means the same file there.
+    pub fn is_local(&self) -> bool {
+        let host = self.base.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("");
+        let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+        matches!(host, "127.0.0.1" | "localhost" | "[::1]")
+    }
+
     fn agent(timeout: Option<Duration>) -> ureq::Agent {
         ureq::Agent::config_builder().timeout_global(timeout).http_status_as_error(true).build().into()
     }
@@ -362,8 +419,41 @@ impl Server {
     /// `POST /session/:id/prompt` with an id and files; returns the id the server gave the
     /// message (`data.id`), which is `prompt.id` when that was set.
     pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
+        if prompt.command.is_some() {
+            return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
+        }
         let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
         Ok(v["data"]["id"].as_str().map(str::to_owned))
+    }
+
+    /// Runs `command` in the session's directory; the server reports it as `shell.*` events.
+    pub fn shell(&self, session: &str, id: Option<&str>, command: &str) -> Result<(), String> {
+        let mut body = serde_json::json!({ "command": command });
+        if let Some(id) = id {
+            body["id"] = id.into();
+        }
+        self.write("POST", &format!("/api/session/{session}/shell"), Some(body)).map(|_| ())
+    }
+
+    /// Copies `bytes` into the server's temporary directory as `name` (one folder per upload,
+    /// as Desktop does) and returns the path there.
+    pub fn upload(&self, directory: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+        let info = self.get("/api/info")?;
+        let tmp = info["paths"]["tmp"].as_str().ok_or("GET /api/info: no paths.tmp")?;
+        let target = format!("{}/uploads/{}/{name}", tmp.trim_end_matches('/'), message_id());
+        let path = format!(
+            "/api/experimental/fs/write?location%5Bdirectory%5D={}&path={}",
+            encode_component(directory),
+            encode_component(&target)
+        );
+        let mut req = Self::agent(Some(Duration::from_secs(120))).post(format!("{}{path}", self.base)).header("Content-Type", "application/octet-stream");
+        if let Some(a) = &self.auth {
+            req = req.header("Authorization", a);
+        }
+        let mut resp = req.send(bytes).map_err(|e| format!("upload {name}: {e}"))?;
+        let text = resp.body_mut().read_to_string().map_err(|e| format!("upload {name}: {e}"))?;
+        let v: Value = serde_json::from_str(&text).map_err(|e| format!("upload {name}: {e}"))?;
+        v["data"]["path"].as_str().map(str::to_owned).ok_or_else(|| format!("upload {name}: no path in the reply"))
     }
 
     /// `decision`: `once`, `always` or `reject`.
@@ -472,6 +562,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         }),
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
+                        Write::Shell { session, id, command } => server.shell(&session, id.as_deref(), &command),
                     };
                     if let Err(e) = result
                         && inbox_tx.send(Incoming::Status(e)).is_err()
@@ -701,7 +792,7 @@ mod tests {
                     "mention": {"start": 14, "end": 23, "text": "@src/a.rs"}}],
                 "agents": [{"name": "explore", "mention": {"start": 0, "end": 8, "text": "@explore"}}],
                 "skills": [{"id": "opencode", "name": "OpenCode", "mention": {"start": 29, "end": 38, "text": "@opencode"}}],
-                "metadata": {"displayText": "@explore read @src/a.rs with @opencode, see @Fix it"},
+                "metadata": {"displayText": "@explore read @src/a.rs with @opencode, see @Fix it", "comments": [], "attachments": []},
             })
         );
         let same = Prompt { text: "hi".into(), display_text: Some("hi".into()), ..Default::default() };
@@ -743,6 +834,46 @@ mod tests {
             serde_json::json!({"text": "again", "delivery": "queue",
                 "files": [{"uri": format!("media:{hash}"), "name": "again.png", "mime": "image/png"}]})
         );
+    }
+
+    #[test]
+    fn path_attachments_and_commands() {
+        let attached = Prompt {
+            text: "look\nAttached file: `/tmp/a.log`".into(),
+            display_text: Some("look".into()),
+            attachments: vec![PathAttachment { name: "a.log".into(), mime: "text/plain".into(), path: "/tmp/a.log".into() }],
+            ..Default::default()
+        };
+        assert_eq!(
+            attached.body(),
+            serde_json::json!({
+                "text": "look\nAttached file: `/tmp/a.log`",
+                "metadata": {"displayText": "look", "comments": [], "attachments": [{"name": "a.log", "mime": "text/plain", "path": "/tmp/a.log"}]},
+            })
+        );
+
+        let (base, h) = mock_once();
+        let prompt = Prompt { id: Some("msg_x".into()), text: "HEAD~1".into(), command: Some("review".into()), delivery: Some(Delivery::Queue), ..Default::default() };
+        assert_eq!(Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap(), None);
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/command HTTP/1.1"), "{req}");
+        let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert_eq!(body, serde_json::json!({"name": "review", "text": "HEAD~1", "delivery": "queue"}));
+
+        let (base, h) = mock_once();
+        Server { base, auth: None, media_refs: false }.shell("ses_a", Some("msg_y"), "ls -la").unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/shell HTTP/1.1"), "{req}");
+        assert!(req.ends_with(r#"{"command":"ls -la","id":"msg_y"}"#), "{req}");
+    }
+
+    #[test]
+    fn local_servers() {
+        let s = |b: &str| Server { base: b.into(), auth: None, media_refs: false };
+        assert!(s("http://127.0.0.1:4096").is_local());
+        assert!(s("http://localhost:4096").is_local());
+        assert!(!s("https://host.example.ts.net:4096").is_local());
+        assert_eq!(encode_component("/a b/é?&"), "%2Fa%20b%2F%C3%A9%3F%26");
     }
 
     #[test]

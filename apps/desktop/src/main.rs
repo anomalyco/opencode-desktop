@@ -2,6 +2,7 @@
 //! from a synthetic fixture. Live, it sends prompts, answers permission requests and questions,
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
+mod add_menu;
 mod attachments;
 mod mentions;
 mod palette;
@@ -87,6 +88,8 @@ pub struct App {
     pub pickers: pickers::Pickers,
     /// The composer's `@` popover and what it lists.
     pub mentions: mentions::Mentions,
+    /// The + menu, the `/` command popover and shell mode.
+    pub add: add_menu::AddMenu,
     pub switcher: switcher::Switcher,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
@@ -168,6 +171,7 @@ impl App {
             search: TextEdit::new(""),
             pickers: pickers::Pickers::default(),
             mentions: mentions::Mentions::default(),
+            add: add_menu::AddMenu::default(),
             switcher: switcher::Switcher::default(),
             restore: restore::Restore::default(),
             opened: Vec::new(),
@@ -206,6 +210,7 @@ impl App {
         let v: Value = serde_json::from_str(src).expect("fixture JSON");
         self.pickers.load(&v);
         self.mentions.load(&v);
+        self.add.commands = add_menu::commands(&v["commands"]);
         self.base_ms = v["now"].as_i64().unwrap_or(0);
         self.now_ms = self.base_ms;
         self.projects = opencode_kit::model::parse_projects(&v["projects"]);
@@ -543,12 +548,25 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        if self.add.shell {
+            return self.submit_shell(alternate, tx);
+        }
         let wire = self.mention_wire();
-        let text = wire.text.clone();
-        if text.is_empty() && self.attach.files.is_empty() {
+        if wire.text.is_empty() && !self.attach.any() {
+            return;
+        }
+        if !self.attach.uploading.is_empty() {
+            self.status = "Waiting for attachments to upload…".into();
             return;
         }
         self.close_mentions();
+        let command = self.slash_command(&wire.text);
+        // Commands take no path attachments; they wait in the composer for the next prompt.
+        let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
+        let text = match &command {
+            Some((_, args)) => args.clone(),
+            None => attachments::path_lines(&wire.text, &refs),
+        };
         // The server's user message takes this id, so it replaces the local copy below.
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
@@ -558,7 +576,12 @@ impl App {
             skills: wire.skills,
             display_text: Some(wire.display.clone()),
             delivery: None,
+            attachments: refs,
+            command: command.map(|(name, _)| name),
         };
+        if prompt.command.is_some() {
+            return self.send_command(prompt, alternate, tx);
+        }
         if let Route::Session(id) = self.route.clone()
             && self.busy(&id)
         {
@@ -931,6 +954,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
+    changed |= s.poll_commands();
+    changed |= s.poll_uploads();
     if let Source::Live { server, .. } = &s.source
         && s.persists()
     {
@@ -1027,7 +1052,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.switcher_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
+    if s.switcher_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();

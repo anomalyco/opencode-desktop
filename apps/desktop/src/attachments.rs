@@ -1,10 +1,15 @@
-//! Images on prompts: the composer's attachments (pasted or dropped), their chips, the images
-//! user messages and tool results carry in the transcript, the local echo of a sent prompt, and
-//! the viewer a thumbnail opens.
+//! Images and files on prompts: the composer's attachments (pasted, dropped or picked with ⌘U),
+//! their chips, the images user messages and tool results carry in the transcript, the local
+//! echo of a sent prompt, and the viewer a thumbnail opens.
+//!
+//! As in Desktop (`composer/attachments/attachments.ts`), media the model reads natively (PNG,
+//! JPEG, GIF, WebP and PDF up to 20 MB) travels inline; any other file reaches it by path: its
+//! own on a local server, else a copy uploaded to the server's temporary directory.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 
 use rune::{
@@ -13,7 +18,7 @@ use rune::{
 };
 use rune_theme_opencode::icons as ic;
 
-use opencode_kit::client::{FileInput, data_url};
+use opencode_kit::client::{FileInput, PathAttachment, data_url};
 use opencode_kit::model::{Attachment, Message, Transcript};
 
 use crate::App;
@@ -26,12 +31,15 @@ const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
 const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
 
-pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp"];
-
-#[derive(Default)]
 pub struct Attach {
-    /// Waiting in the composer for the next send.
+    /// Waiting in the composer for the next send, inline.
     pub files: Vec<Attachment>,
+    /// Waiting in the composer for the next send, by path on the server.
+    pub paths: Vec<PathAttachment>,
+    /// Uploads still copying to a remote server; sending waits for them.
+    pub uploading: Vec<String>,
+    uploads_tx: Sender<Result<PathAttachment, String>>,
+    uploads: Receiver<Result<PathAttachment, String>>,
     /// A file drag is over the page, which shows the drop overlay.
     pub drop_over: bool,
     /// Prompts shown before the server's copy: (session, local id, text).
@@ -122,7 +130,39 @@ fn decodable(mime: &str) -> bool {
     matches!(mime, "image/png" | "image/jpeg" | "image/jpg")
 }
 
+impl Default for Attach {
+    fn default() -> Self {
+        let (uploads_tx, uploads) = channel();
+        Attach {
+            files: Vec::new(),
+            paths: Vec::new(),
+            uploading: Vec::new(),
+            uploads_tx,
+            uploads,
+            drop_over: false,
+            echoes: Vec::new(),
+            viewing: None,
+            waker: None,
+            cache: RefCell::new(None),
+            images: RefCell::new(HashMap::new()),
+            media: Media::default(),
+            refs: RefCell::new(HashMap::new()),
+        }
+    }
+}
+
 impl Attach {
+    /// Something to send besides text.
+    pub fn any(&self) -> bool {
+        !self.files.is_empty() || !self.paths.is_empty()
+    }
+
+    pub fn add_path(&mut self, r: PathAttachment) {
+        if !self.paths.iter().any(|x| x.path == r.path) {
+            self.paths.push(r);
+        }
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.waker = Some(waker);
     }
@@ -175,25 +215,129 @@ impl Attach {
     }
 }
 
-pub fn mime_for(path: &Path) -> &'static str {
+/// The type by extension of what the model reads natively, else None.
+fn native_mime(path: &Path) -> Option<&'static str> {
     match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("heic") => "image/heic",
-        Some("bmp") => "image/bmp",
-        _ => "application/octet-stream",
+        Some("png") => Some("image/png"),
+        Some("jpg" | "jpeg") => Some("image/jpeg"),
+        Some("gif") => Some("image/gif"),
+        Some("webp") => Some("image/webp"),
+        Some("pdf") => Some("application/pdf"),
+        _ => None,
     }
 }
 
+/// `attachmentMime`: native media by extension; otherwise text when the first 4 KB has no NUL
+/// and few control bytes, else binary.
+pub fn mime_for(path: &Path, head: &[u8]) -> &'static str {
+    if let Some(m) = native_mime(path) {
+        return m;
+    }
+    let control = head.iter().filter(|&&b| b < 9 || (b > 13 && b < 32)).count();
+    if head.contains(&0) || (!head.is_empty() && control as f32 / head.len() as f32 > 0.3) {
+        return "application/octet-stream";
+    }
+    "text/plain"
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_owned()
+}
+
+fn head(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut buf = Vec::with_capacity(4096);
+    std::fs::File::open(path).and_then(|f| f.take(4096).read_to_end(&mut buf)).map_err(|e| format!("{}: {e}", name_of(path)))?;
+    Ok(buf)
+}
+
+/// A native file small enough to go inline.
 pub fn from_path(path: &Path) -> Result<Attachment, String> {
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_owned();
+    let name = name_of(path);
+    let mime = native_mime(path).ok_or_else(|| format!("{name} doesn't go inline"))?;
     let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
     if bytes.len() > MAX_BYTES {
         return Err(format!("{name} is over 20 MB"));
     }
-    Ok(Attachment { mime: mime_for(path).into(), name, bytes: bytes.into(), media: None })
+    Ok(Attachment { mime: mime.into(), name, bytes: bytes.into(), media: None })
+}
+
+impl App {
+    /// Attaches a file from disk: inline when the model reads it natively and it fits, else by
+    /// path, uploading a copy first when the server is on another machine.
+    pub fn attach_path(&mut self, path: &Path) {
+        let name = name_of(path);
+        let size = match std::fs::metadata(path) {
+            Ok(m) if m.is_file() => m.len() as usize,
+            Ok(_) => return self.status = format!("{name} isn't a file"),
+            Err(e) => return self.status = format!("{name}: {e}"),
+        };
+        if native_mime(path).is_some() && size <= MAX_BYTES {
+            match from_path(path) {
+                Ok(a) => self.attach.add(a),
+                Err(e) => self.status = e,
+            }
+            return;
+        }
+        let mime = match head(path) {
+            Ok(h) => mime_for(path, &h).to_owned(),
+            Err(e) => return self.status = e,
+        };
+        let server = match &self.source {
+            crate::Source::Live { server, .. } if !server.is_local() => server.clone(),
+            _ => return self.attach.add_path(PathAttachment { name, mime, path: path.to_string_lossy().into_owned() }),
+        };
+        let (out, wake, directory, path) = (self.attach.uploads_tx.clone(), self.attach.waker.clone(), self.composer_directory(), path.to_owned());
+        self.attach.uploading.push(name.clone());
+        std::thread::spawn(move || {
+            let copied = std::fs::read(&path).map_err(|e| format!("{name}: {e}")).and_then(|bytes| server.upload(&directory, &name, &bytes));
+            let _ = out.send(copied.map(|path| PathAttachment { name, mime, path }));
+            if let Some(w) = wake {
+                w();
+            }
+        });
+    }
+
+    /// Takes in finished uploads.
+    pub fn poll_uploads(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(done) = self.attach.uploads.try_recv() {
+            match done {
+                Ok(r) => {
+                    if let Some(i) = self.attach.uploading.iter().position(|n| *n == r.name) {
+                        self.attach.uploading.remove(i);
+                    }
+                    self.attach.add_path(r);
+                }
+                Err(e) => {
+                    self.attach.uploading.pop();
+                    self.status = e;
+                }
+            }
+            changed = true;
+        }
+        changed
+    }
+
+    /// ⌘U and the + menu's first item: the system's file picker, then the file.
+    pub fn pick_attachment(&mut self, tx: &mut Tx) {
+        let options = rune::FileDialogOptions { title: "Attach images and files".into(), directory: Some(self.composer_directory().into()), ..Default::default() };
+        tx.open_file(options, |s: &mut App, result, tx: &mut Tx| match result {
+            Ok(Some(path)) => {
+                tx.instant();
+                s.attach_path(&path);
+                s.composer.focused = true;
+            }
+            Ok(None) => {}
+            Err(e) => s.status = e.to_string(),
+        });
+    }
+}
+
+/// The `Attached file:` lines a prompt's path attachments add to its text.
+pub fn path_lines(text: &str, refs: &[PathAttachment]) -> String {
+    let lines = refs.iter().map(|r| format!("Attached file: `{}`", r.path));
+    (!text.trim().is_empty()).then(|| text.to_owned()).into_iter().chain(lines).collect::<Vec<_>>().join("\n")
 }
 
 /// The prompt's `files`: each attachment inline as a data URL, or a ref the server sent as its
@@ -225,10 +369,7 @@ pub fn drop_files(s: &mut App, paths: &[std::path::PathBuf], tx: &mut Tx) {
     tx.instant();
     s.attach.drop_over = false;
     for p in paths {
-        match from_path(p) {
-            Ok(a) => s.attach.add(a),
-            Err(e) => s.status = e,
-        }
+        s.attach_path(p);
     }
 }
 
@@ -319,7 +460,7 @@ pub fn reconcile(echoes: &mut Vec<(String, String, String)>, t: &mut Transcript,
 /// The composer's attachments (`editor.tsx`): an image is a 58×46 thumbnail, any other file a
 /// 160 px card with its name and type, and each shows a round remove button on hover.
 pub fn chips(s: &App, p: &Pal) -> Option<El> {
-    if s.attach.files.is_empty() {
+    if !s.attach.any() && s.attach.uploading.is_empty() {
         return None;
     }
     let mut r = row().key("attachments").w_full().px(8.0).pt(8.0).pb(4.0).gap(8.0).flex_wrap();
@@ -339,16 +480,7 @@ pub fn chips(s: &App, p: &Pal) -> Option<El> {
                     .child(el().key("thumb-ring").absolute(0.0, 0.0).size(58.0, 46.0).radius(6.0).border(0.5, p.border));
                 opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img)
             }
-            None => col()
-                .key("card")
-                .w(160.0)
-                .padding(8.0)
-                .gap(6.0)
-                .radius(6.0)
-                .fill(p.hover)
-                .border(0.5, p.border)
-                .child(text(f.name.clone()).font(CARD_TITLE).color(p.text).truncate().w_full())
-                .child(text(type_label(f)).font(CARD_SUBTITLE).color(p.muted).truncate()),
+            None => card(p, &f.name, type_label(&f.name)),
         };
         let gone = id.clone();
         let remove = el()
@@ -370,12 +502,48 @@ pub fn chips(s: &App, p: &Pal) -> Option<El> {
             .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
         r = r.child(el().key(format!("chip-{id}")).hover_group().child(body).child(remove));
     }
+    for f in &s.attach.paths {
+        let gone = f.path.clone();
+        let remove = el()
+            .key("remove")
+            .role("button")
+            .label(format!("Remove {}", f.name))
+            .absolute(160.0 - 12.0, -4.0)
+            .size(16.0, 16.0)
+            .radius(8.0)
+            .center()
+            .fill(p.icon_muted)
+            .outline(1.0, 0.0, p.icon_contrast)
+            .group_opacity(0.0, 1.0)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.attach.paths.retain(|f| f.path != gone);
+            })
+            .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
+        r = r.child(el().key(format!("path-{}", f.path)).hover_group().child(card(p, &f.name, type_label(&f.name))).child(remove));
+    }
+    for (i, name) in s.attach.uploading.iter().enumerate() {
+        r = r.child(el().key(format!("uploading-{i}")).child(card(p, name, "Uploading…".into())));
+    }
     Some(r)
 }
 
+fn card(p: &Pal, title: &str, subtitle: String) -> El {
+    col()
+        .key("card")
+        .w(160.0)
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .fill(p.hover)
+        .border(0.5, p.border)
+        .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate().w_full())
+        .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate())
+}
+
 /// A file's type as the card's second line: its extension, upper-cased (Desktop's `typeLabel`).
-fn type_label(f: &Attachment) -> String {
-    match f.name.rsplit_once('.') {
+fn type_label(name: &str) -> String {
+    match name.rsplit_once('.') {
         Some((_, ext)) if !ext.is_empty() => ext.to_uppercase(),
         _ => "File".into(),
     }
@@ -854,5 +1022,19 @@ mod tests {
     fn fits_in_the_box() {
         assert_eq!(fit(1280.0, 800.0, 320.0, 240.0), (320.0, 200.0));
         assert_eq!(fit(100.0, 50.0, 320.0, 240.0), (100.0, 50.0));
+    }
+
+    #[test]
+    fn files_classify_as_desktop_does() {
+        let p = Path::new;
+        assert_eq!(mime_for(p("a.PNG"), b""), "image/png");
+        assert_eq!(mime_for(p("a.pdf"), b"%PDF"), "application/pdf");
+        assert_eq!(mime_for(p("Makefile"), b"all:\n\tcargo build\n"), "text/plain");
+        assert_eq!(mime_for(p("a.bin"), b"ab\0cd"), "application/octet-stream");
+        assert_eq!(mime_for(p("a.dat"), &[1, 2, 3, b'a']), "application/octet-stream");
+        assert_eq!(mime_for(p("empty"), b""), "text/plain");
+        let r = |path: &str| PathAttachment { name: String::new(), mime: String::new(), path: path.into() };
+        assert_eq!(path_lines("  ", &[r("/a"), r("/b")]), "Attached file: `/a`\nAttached file: `/b`");
+        assert_eq!(path_lines("hi", &[]), "hi");
     }
 }

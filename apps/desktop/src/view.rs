@@ -29,6 +29,7 @@ const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
 const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
 const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 
 /// `--container-session`: 744 including 24 px padding on each side.
 pub(crate) const CONTENT_W: f32 = 696.0;
@@ -61,6 +62,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     let composer_w = cx.layout("composer").map_or(0.0, |r| r[2]);
     inner = inner.children(crate::mentions::view(s, p, composer_w));
+    inner = inner.children(crate::add_menu::commands_view(s, p, composer_w));
+    inner = inner.children(crate::add_menu::menu(s, p));
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));
     }
@@ -105,7 +108,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .clip_soft(0.0)
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::attachments::drop_files)
-                .accepts_extensions(crate::attachments::IMAGE_EXTENSIONS)
                 .on_drop_hover(crate::attachments::drop_hover)
                 .child(match &s.route {
                     Route::Home => home(s, p),
@@ -1343,7 +1345,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
-    let ready = !s.composer.text.trim().is_empty() || !s.attach.files.is_empty();
+    let ready = !s.composer.text.trim().is_empty() || (s.attach.any() && !s.add.shell);
     let busy = matches!(&s.route, Route::Session(id) if s.busy(id));
     let stop = busy && !ready;
     let submit = el()
@@ -1374,18 +1376,18 @@ fn composer_dock(s: &App, p: &Pal) -> El {
         .children(crate::attachments::chips(s, p))
         .child(
             col().key("editor").w_full().px(16.0).pt(16.0).pb(8.0).child(
-                text_input(&s.composer, PROMPT)
+                text_input(&s.composer, if s.add.shell { SHELL_PROMPT } else { PROMPT })
                     .key("prompt")
                     .w_full()
                     .min_h(40.0)
                     .animate_edit_layout()
-                    .placeholder("Ask anything, / for commands, @ for context…", p.faint)
+                    .placeholder(if s.add.shell { "Enter shell command…" } else { "Ask anything, / for commands, @ for context…" }, p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
                     .pill_style(crate::mentions::pill_style(p))
                     .on_input_change(|s: &mut App, tx| s.mentions_changed(tx))
                     .on_input_key(|s: &mut App, ev, tx| {
-                        if s.mention_key(ev, tx) {
+                        if s.mention_key(ev, tx) || s.add_key(ev, tx) {
                             return true;
                         }
                         if ev.key == Key::Enter && ev.mods.cmd {
@@ -1405,6 +1407,7 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                 .px(8.0)
                 .gap(4.0)
                 .center_y()
+                .child(crate::add_menu::trigger(s, p))
                 .child(picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted))
                 .child(picker_trigger(s, p, Kind::Model, &s.pickers.models.iter()
                     .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone()), p.muted))
