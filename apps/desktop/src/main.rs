@@ -118,6 +118,17 @@ fn flag(name: &str) -> bool {
     rune::extra_args().iter().any(|x| x == name)
 }
 
+/// A run that renders without a person at it (snapshots, trees, scripts, videos). It can read a
+/// live server but never sends to it or writes the saved tabs, zoom, session and drafts, so a
+/// test can't post or type as Kit.
+fn headless() -> bool {
+    static H: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *H.get_or_init(|| {
+        const FLAGS: &[&str] = &["--snap", "--tree", "--script", "--out", "--video", "--strip", "--frames", "--duration", "--trace", "--list-scenes", "--snap-on-patch"];
+        std::env::args().any(|a| FLAGS.contains(&a.as_str()))
+    })
+}
+
 fn wall_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
@@ -175,7 +186,7 @@ impl App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
         let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into()));
-        let want_live = fixture_path.is_none() && (flag("--live") || server.reachable());
+        let want_live = fixture_path.is_none() && (flag("--live") || (!headless() && server.reachable()));
         if want_live && app.load_live(server) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
@@ -234,7 +245,7 @@ impl App {
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         self.status = format!("Live · {}", server.base.trim_start_matches("http://"));
-        let allow_send = !flag("--read-only");
+        let allow_send = !flag("--read-only") && !headless();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.sort_projects();
         true
@@ -270,7 +281,9 @@ impl App {
         }
         #[cfg(test)]
         tabs::SAVED.with(|saved| *saved.borrow_mut() = Some(self.tabs.iter().map(|t| t.id.clone()).collect()));
-        if let Source::Live { server, .. } = &self.source {
+        if let Source::Live { server, .. } = &self.source
+            && self.persists()
+        {
             tabs::save(&server.base, &self.tabs);
         }
     }
@@ -351,7 +364,7 @@ impl App {
 
     fn set_zoom(&mut self, dir: i32) {
         self.zoom = shortcuts::step_zoom(self.zoom, dir);
-        if self.live() {
+        if self.persists() {
             tabs::save_zoom(self.zoom);
         }
     }
@@ -410,6 +423,11 @@ impl App {
 
     pub fn live(&self) -> bool {
         matches!(self.source, Source::Live { .. })
+    }
+
+    /// Saves tabs, zoom, the open session and drafts: live, with a person at it.
+    pub fn persists(&self) -> bool {
+        self.live() && !headless()
     }
 
     /// Asks the server for one session's info (live only).
@@ -898,7 +916,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions();
-    if let Source::Live { server, .. } = &s.source {
+    if let Source::Live { server, .. } = &s.source
+        && s.persists()
+    {
         let base = server.base.clone();
         s.poll_restore(&base);
         if !s.framed {
