@@ -2678,17 +2678,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "seer"
-version = "0.0.1"
-dependencies = [
- "opencode-kit",
- "rune",
- "rune-kit",
- "rune-theme-opencode",
- "serde_json",
-]
-
-[[package]]
 name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
