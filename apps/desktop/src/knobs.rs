@@ -12,6 +12,8 @@ pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0);
 pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0);
 /// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
 pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0);
+/// Where "Jump to latest" sits: at the composer's right end, or centred above it as on Desktop.
+pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0);
 
 /// Project icon marks (`project_icon::Look`); `--icon-style <name>` sets the style at launch.
 pub const ICON_STYLE: Knob = Knob::choice("Icon style", &project_icon::Style::NAMES, 1);
@@ -46,7 +48,7 @@ const QUESTION_PRESETS: &[Preset] = &[
 ];
 
 pub const GROUPS: &[Group] = &[
-    Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING]),
+    Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
     Group::new("Icons", "sidebar", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
     Group::new("Icon playground", "icon-playground", &[ICON_STYLE, ICON_SATURATION, ICON_GRAIN]),
     Group::new("Question dock", "question", &[MORPH_CURVE, MORPH_DURATION, MORPH_BOUNCE, FACE_IN, FACE_RISE, FADE_OUT, ARRIVE, ARRIVE_SLIDE])
