@@ -1,22 +1,13 @@
 //! Hex's desktop capture API (the one its SDK's `connect()` uses): an app borrows Hex's
 //! microphone and model for one recording and gets the whole transcript back from `finish`.
 //! Unlike `hex dictation start`, nothing ends it but the app (Smart Turn never stops it on a
-//! pause), and nothing is pasted. Hex has no partial transcripts; while it listens it streams
-//! the microphone's level, and can stream the audio itself for a copy the app keeps. Hex writes
-//! where it listens to `local-api.json`, and removes the file when it quits.
+//! pause), and nothing is pasted. `transcribe` turns a WAV the app recorded itself into words.
+//! Hex writes where it listens to `local-api.json`, and removes the file when it quits.
 
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-
-/// How loud the microphone was in the last stretch `keep` wrote, 0–1, as f32 bits.
-static LEVEL: AtomicU32 = AtomicU32::new(0);
-
-/// `keep` is writing audio as it comes, so `level` is live.
-static STREAMING: AtomicBool = AtomicBool::new(false);
 
 /// Why a capture Hex has already ended can't be finished, from the code Hex answers a
 /// heartbeat or finish with: a mic event cleared it, the app's cancel or a lapsed lease ended it,
@@ -41,16 +32,6 @@ pub fn is_ended(why: &str) -> bool {
     [STOPPED, CANCELLED, LOST, NO_MIC].contains(&why)
 }
 
-/// How loud the speaker is now, for a recording's meter.
-pub fn level() -> f32 {
-    f32::from_bits(LEVEL.load(Ordering::Relaxed))
-}
-
-/// Audio is reaching `keep`, so a `level` of 0 means a silent mic, not a missing stream.
-pub fn streaming() -> bool {
-    STREAMING.load(Ordering::Relaxed)
-}
-
 pub struct Hex {
     base: String,
     token: String,
@@ -64,8 +45,6 @@ pub struct Hex {
 pub struct Capture {
     pub id: u64,
     owner: String,
-    /// The microphone's rate, for the copy of the audio the app keeps (`keep`).
-    rate: u32,
 }
 
 pub const NOT_RUNNING: &str = "Hex isn't running";
@@ -127,7 +106,7 @@ impl Hex {
             _ => format!("Hex couldn't start: {code}"),
         })?;
         match (v["id"].as_u64(), v["ownerToken"].as_str()) {
-            (Some(id), Some(owner)) => Ok(Capture { id, owner: owner.to_owned(), rate: v["sampleRate"].as_u64().unwrap_or(48_000) as u32 }),
+            (Some(id), Some(owner)) => Ok(Capture { id, owner: owner.to_owned() }),
             _ => Err("Hex sent an odd reply".into()),
         }
     }
@@ -136,50 +115,6 @@ impl Hex {
     /// has ended it: Escape, or Hex quitting.
     pub fn heartbeat(&self, c: &Capture) -> Result<(), String> {
         self.call(&format!("/dictations/{}/heartbeat", c.id), Some(&c.owner), None, Duration::from_secs(5)).map(|_| ())
-    }
-
-    /// Writes what the microphone hears to `wav` until the capture ends (Hex streams it as f32
-    /// samples), so a recording outlives a transcription or a Hex that goes away (t186).
-    pub fn keep(&self, c: &Capture, wav: &Path) -> Result<(), String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_recv_response(Some(Duration::from_secs(5))).http_status_as_error(false).build().into();
-        let resp = agent.get(format!("{}/dictations/{}/audio", self.base, c.id)).header("Authorization", &format!("Bearer {}", self.token)).header("x-hex-dictation-token", &c.owner).call().map_err(|e| e.to_string())?;
-        if resp.status().as_u16() >= 400 {
-            return Err(format!("Hex refused the audio ({})", resp.status()));
-        }
-        let mut body = resp.into_body().into_reader();
-        let mut out = std::io::BufWriter::new(std::fs::File::create(wav).map_err(|e| e.to_string())?);
-        out.write_all(&wav_header(c.rate, 0)).map_err(|e| e.to_string())?;
-        let (mut buf, mut carry, mut samples) = (vec![0u8; 16 * 1024], Vec::new(), 0u32);
-        loop {
-            let n = match body.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
-            };
-            carry.extend_from_slice(&buf[..n]);
-            let whole = carry.len() / 4 * 4;
-            let mut power = 0.0f32;
-            for b in carry[..whole].chunks_exact(4) {
-                let f = f32::from_le_bytes([b[0], b[1], b[2], b[3]]).clamp(-1.0, 1.0);
-                power += f * f;
-                out.write_all(&((f * i16::MAX as f32) as i16).to_le_bytes()).map_err(|e| e.to_string())?;
-                samples += 1;
-            }
-            if whole > 0 {
-                STREAMING.store(true, Ordering::Relaxed);
-                // -50 dBFS (a quiet room) is 0 and -10 dBFS is 1, so a normal voice sits near half.
-                let db = 10.0 * (power / (whole / 4) as f32).max(1e-10).log10();
-                LEVEL.store(((db + 50.0) / 40.0).clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-            }
-            carry.drain(..whole);
-            // On disk as it comes, so an app that dies mid-sentence leaves the audio so far.
-            out.flush().map_err(|e| e.to_string())?;
-        }
-        LEVEL.store(0, Ordering::Relaxed);
-        STREAMING.store(false, Ordering::Relaxed);
-        out.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-        out.write_all(&wav_header(c.rate, samples)).map_err(|e| e.to_string())?;
-        let file = out.into_inner().map_err(|e| e.to_string())?;
-        file.sync_all().map_err(|e| e.to_string())
     }
 
     /// Transcribes a kept recording with the first model Hex has ready.
@@ -215,30 +150,6 @@ impl Hex {
         let _ = self.call(&format!("/dictations/{}/cancel", c.id), Some(&c.owner), None, Duration::from_secs(5));
     }
 
-    /// The microphone's level while the capture runs, as Hex measures it: `on` gets each
-    /// reading's RMS in dBFS and returns false to stop listening. Returns when the capture ends.
-    /// Hex hands the stream to one listener per capture.
-    pub fn levels(&self, c: &Capture, mut on: impl FnMut(f32) -> bool) -> Result<(), String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_connect(Some(Duration::from_secs(5))).http_status_as_error(false).build().into();
-        let resp = agent
-            .get(format!("{}/dictations/{}/levels", self.base, c.id))
-            .header("Authorization", &format!("Bearer {}", self.token))
-            .header("x-hex-dictation-token", &c.owner)
-            .call()
-            .map_err(|_| NOT_RUNNING.to_owned())?;
-        if resp.status().as_u16() >= 400 {
-            return Err(format!("levels refused: {}", resp.status().as_u16()));
-        }
-        for line in BufReader::new(resp.into_body().into_reader()).lines() {
-            let Ok(line) = line else { break };
-            let Some(data) = line.strip_prefix("data:") else { continue };
-            let Some(db) = serde_json::from_str::<Value>(data.trim()).ok().and_then(|v| v["rmsDb"].as_f64()) else { continue };
-            if !on(db as f32) {
-                break;
-            }
-        }
-        Ok(())
-    }
 }
 
 /// A kept WAV with its sizes set from its length: one the app stopped writing mid-stream still

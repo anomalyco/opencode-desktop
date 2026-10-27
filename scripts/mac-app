@@ -6,6 +6,7 @@
 #   scripts/mac-app --name Seer --id com.kitlangton.seer --exe seer --bin target/release/seer-sketch \
 #     --icon apps/sketch/assets/icon.icns [--scheme seer] [-- APP ARGS]
 # `--scheme NAME` registers NAME:// links with macOS for the app (mac_app::urls takes them).
+# `--mic "WHY"` lets the app record from the microphone; macOS shows WHY in its first-run prompt.
 # For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
 # keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
 # when the app isn't (`open -g` plus MAC_APP_QUIET for `mac_app::launch`: winit activates an app
@@ -15,6 +16,7 @@
 set -euo pipefail
 IDLE=""
 SCHEME=""
+MIC=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name) NAME=$2; shift 2 ;;
@@ -24,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --icon) ICON=$2; shift 2 ;;
     --wait-idle) IDLE=$2; shift 2 ;;
     --scheme) SCHEME=$2; shift 2 ;;
+    --mic) MIC=$2; shift 2 ;;
     --) shift; break ;;
     *) echo "mac-app: unknown flag $1" >&2; exit 2 ;;
   esac
@@ -51,6 +54,8 @@ cp "$BIN" "$APP/Contents/MacOS/$EXE"
 [ -n "${ICON:-}" ] && cp "$ICON" "$APP/Contents/Resources/icon.icns"
 URLS=""
 [ -n "$SCHEME" ] && URLS="<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$ID</string><key>CFBundleURLSchemes</key><array><string>$SCHEME</string></array></dict></array>"
+MICS=""
+[ -n "$MIC" ] && MICS="<key>NSMicrophoneUsageDescription</key><string>$MIC</string>"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -65,6 +70,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   $URLS
+  $MICS
 </dict></plist>
 PLIST
 # A stable identity, so macOS remembers permission answers across rebuilds (ad-hoc changes each build).
