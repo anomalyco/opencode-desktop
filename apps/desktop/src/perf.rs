@@ -1,4 +1,4 @@
-//! CPU-only runtime replay: no window, GPU, network, or saved app state.
+//! Headless CPU benchmarks: synthetic replay and an opt-in, GET-only cold-session profile.
 use crate::{App, Route, view};
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus, Transcript};
 use rune::{Env, Runtime};
@@ -115,6 +115,95 @@ fn timeline_benchmark() {
             for (i, metric) in ["cpu_ms", "view_ms", "layout_ms", "text_ms", "allocations", "commit_ms"].iter().enumerate() {
                 report(&format!("{name}_{label}_{metric}"), &mut all[variant][mode * 6 + i]);
             }
+        }
+    }
+}
+
+/// Opt-in GET-only live benchmark. No setup(), writes, saved UI, window or GPU.
+/// Capture private pages with scripts/bench-cold-fetch.py, then set COLD_SESSION_DIR.
+#[test]
+#[ignore = "live GET benchmark; COLD_SESSION_DIR=... cargo test --release -p opencode-desktop cold_session_benchmark -- --ignored --nocapture"]
+fn cold_session_benchmark() {
+    use opencode_kit::{client::{self, Incoming, Request, Server}, model};
+    use std::{sync::{Arc, mpsc::channel}, time::{Duration, Instant}};
+    assert!(!cfg!(debug_assertions), "use --release");
+    let dir = std::env::var("COLD_SESSION_DIR").expect("capture private pages first");
+    let server = Server::new("http://127.0.0.1:4096");
+    let (requests, writes, inbox) = client::connect(server.clone(), Arc::new(|| {}));
+    drop(writes); // Never send a live write. SSE is read and discarded, not applied.
+    let receive = |id: &str| loop {
+        match inbox.recv_timeout(Duration::from_secs(20)).expect("fetch timeout") {
+            Incoming::Messages { session, messages } if session == id => break messages,
+            Incoming::Status(e) if e.starts_with("GET ") => panic!("{e}"),
+            _ => {}
+        }
+    };
+    let cases: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/cases.json")).unwrap()).unwrap();
+    for case in cases.as_array().unwrap() {
+        let (name, id) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+        let text = std::fs::read_to_string(format!("{dir}/{name}.json")).unwrap();
+        let mut metrics = vec![vec![]; 12];
+        for sample in 0..8 {
+            let start = Instant::now();
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let json_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let start = Instant::now();
+            let parsed = model::parse_messages(&value);
+            let model_ms = start.elapsed().as_secs_f64() * 1000.0;
+            assert!(!parsed.is_empty());
+            let start = Instant::now();
+            let direct = server.get(&format!("/api/session/{id}/message?limit=80&order=desc")).unwrap();
+            let direct_ms = start.elapsed().as_secs_f64() * 1000.0;
+            drop(direct);
+
+            // Fresh transcript/UI state, but the already-running application's text system
+            // and the server's DB caches can be warm. No disk or transcript cache shortcut.
+            let mut app = App::empty();
+            app.tabs.push(crate::Tab { id: id.into(), title: name.into(), directory: String::new() });
+            let (publish, arrivals) = channel();
+            app.inbox = Some(arrivals);
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            rt.frame(0.0);
+
+            // A click immediately after a preceding session's messages arrive. Its pending
+            // and inbox reads are still queued, exactly as App::open enqueues them.
+            requests.send(Request::Session(id.into())).unwrap();
+            requests.send(Request::Pending(id.into())).unwrap();
+            requests.send(Request::Inbox(id.into())).unwrap();
+            drop(receive(id));
+            let click = Instant::now();
+            rt.update(|s, tx| s.open(id, tx)); // Fixture source: no persistence or live writes.
+            requests.send(Request::Session(id.into())).unwrap();
+            rt.frame(0.0); // Loading shell can paint while the worker fetches.
+            let messages = receive(id);
+            let ready_ms = click.elapsed().as_secs_f64() * 1000.0;
+            publish.send(Incoming::Messages { session: id.into(), messages }).unwrap();
+            let start = Instant::now();
+            rt.update(|s, tx| { crate::poll(s, 0.0, tx); });
+            let merge_ms = start.elapsed().as_secs_f64() * 1000.0;
+            rune::take_frame_phases();
+            let start = Instant::now();
+            rt.frame(0.0);
+            let frame_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let phases = rune::take_frame_phases();
+            let painted_ms = click.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(rt.scroll_at_bottom(&format!("scroll-{id}")), Some(true), "first transcript frame is at the tail");
+            let start = Instant::now();
+            rt.wheel(900.0, 350.0, 96.0);
+            rt.frame(1.0 / 120.0);
+            let wheel_ms = start.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(rt.scroll_at_bottom(&format!("scroll-{id}")), Some(false), "first wheel moves away from the tail");
+            if sample > 0 {
+                let p = rune::PHASES;
+                for (values, value) in metrics.iter_mut().zip([
+                    json_ms, model_ms, ready_ms, merge_ms, frame_ms, painted_ms,
+                    wheel_ms, phases[p], phases[p + 1], phases[p + 2], phases[p + 3],
+                    direct_ms,
+                ]) { values.push(value); }
+            }
+        }
+        for (label, values) in ["json_ms", "model_ms", "queued_ready_ms", "merge_ms", "frame_ms", "queued_drawlist_ms", "wheel_ms", "view_cpu_ms", "commit_cpu_ms", "layout_cpu_ms", "text_cpu_ms", "direct_get_ms"].into_iter().zip(&mut metrics) {
+            report(&format!("{name}_{label}"), values);
         }
     }
 }

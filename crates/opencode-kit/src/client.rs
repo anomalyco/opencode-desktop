@@ -614,8 +614,8 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                     if !ok {
                         return;
                     }
-                    // Gentle: at most a few requests a second.
-                    std::thread::sleep(Duration::from_millis(250));
+                    // The channel blocks when idle. User-requested reads should drain without
+                    // a timer between them: opening a session queues several reads together.
                 }
             })
             .expect("spawn fetch thread");
