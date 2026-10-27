@@ -1390,7 +1390,13 @@ fn picker(s: &App, p: &Pal) -> El {
             .h(28.0).w_full().px(10.0).gap(8.0).center_y().radius(4.0).transition(appear.clone())
             .fill(if active.as_deref() == Some(&key) { p.hover } else { Color::TRANSPARENT })
             .hover(p.hover).press(p.pressed)
-            .on_hover(move |s: &mut App| s.pickers.activate(hover_key.clone()))
+            // Not `on_hover`: its commit would animate the highlight's fill from row to row.
+            .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                if inside {
+                    tx.instant();
+                    s.pickers.activate(hover_key.clone());
+                }
+            })
             .on_press(move |s: &mut App| s.choose_picker(&key))
             .child(text(item.label.clone()).font(UI).color(p.text)).child(spacer());
         if item.key == selected { option = option.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon)); }

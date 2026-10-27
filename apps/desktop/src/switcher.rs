@@ -379,6 +379,10 @@ impl App {
         if !self.switcher.open {
             return changed;
         }
+        // Results land at once: no row fades in or slides to its place.
+        if changed {
+            tx.instant();
+        }
         let q = self.switcher.query().to_owned();
         if q == self.switcher.searched {
             return changed;
@@ -501,7 +505,13 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
         .center_y()
         .radius(6.0)
         .fill(if active { k.active } else { Color::TRANSPARENT })
-        .on_hover(move |s: &mut App| s.switcher.activate(hover.clone()))
+        // Not `on_hover`: its commit would animate the highlight's fill from row to row.
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+            if inside {
+                tx.instant();
+                s.switcher.activate(hover.clone());
+            }
+        })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
         .child(main.child(words));
     if let Some(at) = e.updated {
@@ -783,6 +793,29 @@ mod tests {
         rt.frame(1.0 / 60.0);
         assert!(!rt.state.switcher.open);
         assert_eq!(rt.state.route, Route::Session("ses_fx0003aaaaaaaaaaaaaaaaaa".into()));
+    }
+
+    #[test]
+    fn the_hover_highlight_jumps_between_rows() {
+        let mut rt = runtime();
+        cmd_k(&mut rt);
+        for _ in 0..40 {
+            rt.frame(1.0 / 60.0);
+        }
+        let fill = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap().fill.a;
+        let (a, b) = ("sw-session:ses_fx0003aaaaaaaaaaaaaaaaaa", "sw-session:ses_fx0004aaaaaaaaaaaaaaaaaa");
+        let (x, y) = rt.find(a).unwrap();
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        let (x, y) = rt.find(b).unwrap();
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 60.0);
+        let first = fill(&rt, b);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(fill(&rt, a) < 1e-3, "the old row clears at once: {}", fill(&rt, a));
+        assert!(first > 0.0 && (first - fill(&rt, b)).abs() < 1e-3, "the new row lights at once: {first} then {}", fill(&rt, b));
     }
 
     #[test]
