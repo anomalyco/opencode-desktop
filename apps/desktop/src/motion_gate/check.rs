@@ -394,6 +394,23 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
             _ => false,
         }
     };
+    // An instant toggle (a disclosure opening on a tap) reflows what's beside it in that frame.
+    // An element pushed by exactly the height another changed by, the edge between them moving
+    // with it, on an input's frame, is that toggle's; it's reported where the height changed.
+    let inside = |a: &str, b: &str| a.len() > b.len() && a.starts_with(b) && a.as_bytes()[b.len()] == b'/';
+    let pushed = |i: usize, k: usize, axis: usize, d: f32| -> bool {
+        if axis != 1 || !input_between(k - 1, k) { return false; }
+        let Some(a) = tr[i].at(k - 1) else { return false };
+        tr.iter().enumerate().any(|(j, o)| {
+            if j == i || inside(&tr[i].path, &o.path) || inside(&o.path, &tr[i].path) { return false; }
+            let (Some(oa), Some(ob)) = (o.at(k - 1), o.at(k)) else { return false };
+            if ((ob.rect[3] - oa.rect[3]).abs() - d.abs()).abs() > 0.25 { return false; }
+            let (top, bottom) = (ob.rect[1] - oa.rect[1], ob.rect[1] + ob.rect[3] - oa.rect[1] - oa.rect[3]);
+            let above = oa.rect[1] + oa.rect[3] <= a.rect[1] + 0.5 && (bottom - d).abs() < 0.25;
+            let below = oa.rect[1] >= a.rect[1] + a.rect[3] - 0.5 && (top - d).abs() < 0.25;
+            above || below
+        })
+    };
     let mut geo: Vec<(usize, Finding)> = Vec::new();
     for (i, t) in tr.iter().enumerate() {
         if loops.contains(&i) || t.frames.len() < 3 { continue; }
@@ -410,7 +427,7 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
                 let after = d.get(j).copied().flatten().unwrap_or(0.0);
                 let name = short(&t.path);
                 if step.abs() >= rule("jump") && before.abs() < 0.5 && after.abs() < 0.5 {
-                    if riding(i, k, axis, step) { continue; }
+                    if riding(i, k, axis, step) || pushed(i, k, axis, step) { continue; }
                     let appeared = born(t) == Some(fs[j - 1].0) && fs[j - 1].0 > rec.start;
                     let riders = tr.iter().filter(|c| c.path.starts_with(&t.path) && c.path.len() > t.path.len() && c.path.as_bytes()[t.path.len()] == b'/'
                         && c.at(k).is_some_and(|s| seen(s, size))).count();
@@ -684,6 +701,17 @@ mod tests {
         let mut y = 0.0;
         let lurch: Vec<_> = (0..60).map(|k| { if k > 0 && k < 40 { y += if k < 20 { 4.0 } else { 20.0 } } (k, [0.0, y, 100.0, 40.0], 1.0) }).collect();
         assert_eq!(kinds(&rec(vec![("a", lurch)], 60)), ["jerk"]);
+    }
+
+    #[test]
+    fn an_instant_toggle_is_reported_where_the_height_changed() {
+        let group: Vec<_> = (0..60).map(|k| (k, [0.0, 100.0, 100.0, if k < 30 { 28.0 } else { 84.0 }], 1.0)).collect();
+        let below: Vec<_> = (0..60).map(|k| (k, [0.0, if k < 30 { 128.0 } else { 184.0 }, 100.0, 40.0], 1.0)).collect();
+        let mut r = rec(vec![("g", group), ("b", below)], 60);
+        assert_eq!(kinds(&r), ["jump", "jump"], "with no input, the row below jumps on its own");
+        r.inputs.push((30, "tap".into()));
+        let f = check(&r);
+        assert_eq!(f.iter().map(|f| (f.kind, f.element.as_str())).collect::<Vec<_>>(), [("jump", "g")]);
     }
 
     #[test]
