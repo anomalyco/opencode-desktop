@@ -2260,7 +2260,7 @@ dependencies = [
 [[package]]
 name = "procwatch"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=de503af3bcb6981092c5bcb54e75891c51a758d9#de503af3bcb6981092c5bcb54e75891c51a758d9"
+source = "git+https://github.com/anomalyco/rune?rev=c0cbe5947d5bac73f9b06be2c60340f237d22591#c0cbe5947d5bac73f9b06be2c60340f237d22591"
 dependencies = [
  "libc",
 ]
@@ -2486,7 +2486,7 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=de503af3bcb6981092c5bcb54e75891c51a758d9#de503af3bcb6981092c5bcb54e75891c51a758d9"
+source = "git+https://github.com/anomalyco/rune?rev=c0cbe5947d5bac73f9b06be2c60340f237d22591#c0cbe5947d5bac73f9b06be2c60340f237d22591"
 dependencies = [
  "arboard",
  "blake3",
@@ -2553,7 +2553,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=de503af3bcb6981092c5bcb54e75891c51a758d9#de503af3bcb6981092c5bcb54e75891c51a758d9"
+source = "git+https://github.com/anomalyco/rune?rev=c0cbe5947d5bac73f9b06be2c60340f237d22591#c0cbe5947d5bac73f9b06be2c60340f237d22591"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -2571,7 +2571,7 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=de503af3bcb6981092c5bcb54e75891c51a758d9#de503af3bcb6981092c5bcb54e75891c51a758d9"
+source = "git+https://github.com/anomalyco/rune?rev=c0cbe5947d5bac73f9b06be2c60340f237d22591#c0cbe5947d5bac73f9b06be2c60340f237d22591"
 
 [[package]]
 name = "rune-playground"
@@ -2585,7 +2585,7 @@ dependencies = [
 [[package]]
 name = "rune-theme-opencode"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=de503af3bcb6981092c5bcb54e75891c51a758d9#de503af3bcb6981092c5bcb54e75891c51a758d9"
+source = "git+https://github.com/anomalyco/rune?rev=c0cbe5947d5bac73f9b06be2c60340f237d22591#c0cbe5947d5bac73f9b06be2c60340f237d22591"
 dependencies = [
  "rune",
  "rune-kit",
