@@ -1,0 +1,3 @@
+[net]
+# wraith (a private repo) comes over git with the credentials git already has.
+git-fetch-with-cli = true
