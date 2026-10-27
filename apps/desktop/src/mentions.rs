@@ -1,8 +1,8 @@
 //! `@` in the composer: Desktop's context popover (`composer/editor/interaction.ts`,
 //! `suggestions/machine.ts`, `composer/model.ts`). Typing `@` after a space or at the start
-//! opens a list of skills, subagents and sessions; picking one puts an atomic pill in the
-//! text, and sending turns the pills into the prompt's `agents` and `skills` and session tokens
-//! (`composer/request.ts`, `prompt-parts.ts`).
+//! opens a list of skills, subagents, sessions and the server's file search; picking one puts
+//! an atomic pill in the text, and sending turns the pills into the prompt's `agents`, `skills`
+//! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`).
 
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,7 +14,7 @@ use rune::{Color, El, Icon, Key, KeyEvent, PillStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
-use opencode_kit::client::{AgentInput, Mention, SkillInput};
+use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
 use opencode_kit::model::{self, SessionInfo};
 
 use crate::palette::Pal;
@@ -29,17 +29,23 @@ const SESSIONS_EMPTY: usize = 5;
 const ROW_H: f32 = 28.0;
 const PAD: f32 = 6.0;
 const MAX_H: f32 = 306.0;
+/// Desktop waits this long after the last keystroke before searching files.
+const FILE_DEBOUNCE: Duration = Duration::from_millis(150);
+/// The server's default `limit` for `/api/fs/find`.
+const FILE_LIMIT: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Skill,
     Agent,
     Session,
+    File,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
-    /// `kind:value`, also the pill's id: `skill:<id>`, `agent:<name>`, `session:<id>`.
+    /// `kind:value`, also the pill's id: `skill:<id>`, `agent:<name>`, `session:<id>`,
+    /// `file:<path>`.
     pub key: String,
     pub kind: Kind,
     pub label: String,
@@ -59,6 +65,8 @@ enum Fetched {
     /// A directory's subagents (name, description) and skills.
     Catalog { directory: String, agents: Vec<(String, String)>, skills: Vec<Skill> },
     Sessions(Vec<SessionInfo>),
+    /// `/api/fs/find`'s paths (relative to the directory, directories end in `/`) for a query.
+    Files { query: String, paths: Vec<String> },
 }
 
 pub struct Mentions {
@@ -77,6 +85,12 @@ pub struct Mentions {
     found: Vec<SessionInfo>,
     searched: Option<String>,
     generation: Arc<AtomicU64>,
+    /// The last file search's query and paths, and the query asked for since.
+    files: (String, Vec<String>),
+    files_asked: Option<String>,
+    files_generation: Arc<AtomicU64>,
+    /// The fixture's files, searched locally.
+    pub file_index: Vec<String>,
     fetched_tx: Sender<Fetched>,
     fetched: Receiver<Fetched>,
 }
@@ -94,6 +108,10 @@ impl Default for Mentions {
             found: Vec::new(),
             searched: None,
             generation: Arc::new(AtomicU64::new(0)),
+            files: (String::new(), Vec::new()),
+            files_asked: None,
+            files_generation: Arc::new(AtomicU64::new(0)),
+            file_index: Vec::new(),
             fetched_tx,
             fetched,
         }
@@ -105,6 +123,7 @@ impl Mentions {
     pub fn load(&mut self, fixture: &Value) {
         self.agents = subagents(&fixture["agent_list"]);
         self.skills = skills(&fixture["skills"]);
+        self.file_index = found_paths(&fixture["files"]);
     }
 }
 
@@ -117,6 +136,12 @@ fn subagents(v: &Value) -> Vec<(String, String)> {
         .filter(|a| a["hidden"].as_bool() != Some(true) && a["mode"].as_str() != Some("primary"))
         .filter_map(|a| Some((a["id"].as_str().or(a["name"].as_str())?.to_owned(), a["description"].as_str().unwrap_or("").to_owned())))
         .collect()
+}
+
+/// `/api/fs/find`'s paths.
+fn found_paths(v: &Value) -> Vec<String> {
+    let list = v.get("data").unwrap_or(v);
+    list.as_array().into_iter().flatten().filter_map(|f| f["path"].as_str().or(f.as_str()).map(str::to_owned)).collect()
 }
 
 fn skills(v: &Value) -> Vec<Skill> {
@@ -182,6 +207,45 @@ fn session_id_ok(id: &str) -> bool {
     id.strip_prefix("ses_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
+/// `path` under `directory` unless it's already absolute.
+fn absolute(directory: &str, path: &str) -> String {
+    let windows = path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic();
+    if path.starts_with('/') || path.starts_with("\\\\") || windows {
+        return path.to_owned();
+    }
+    format!("{}/{path}", directory.trim_end_matches(['/', '\\']))
+}
+
+/// `encodeFilePath`: each segment percent-encoded as `encodeURIComponent` does, `/` kept, and
+/// a Windows drive rooted (`/C:/…`).
+fn encode_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let drive = |s: &str| s.len() == 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':';
+    let rooted = if normalized.get(..2).is_some_and(drive) { format!("/{normalized}") } else { normalized };
+    rooted
+        .split('/')
+        .enumerate()
+        .map(|(i, seg)| {
+            if i == 1 && drive(seg) {
+                return seg.to_owned();
+            }
+            seg.bytes()
+                .map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
+                    _ => format!("%{b:02X}"),
+                })
+                .collect()
+        })
+        .collect::<Vec<String>>()
+        .join("/")
+}
+
+/// `getFilename`: the last segment, ignoring trailing separators.
+fn filename(path: &str) -> &str {
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed)
+}
+
 /// What a prompt sends for its pills.
 #[derive(Debug, Default, PartialEq)]
 pub struct Wire {
@@ -190,11 +254,14 @@ pub struct Wire {
     pub display: String,
     pub agents: Vec<AgentInput>,
     pub skills: Vec<SkillInput>,
+    /// File mentions as `file://` references the server reads.
+    pub files: Vec<FileInput>,
 }
 
 /// The prompt for `text` (trimmed) and its pills (byte range, id). Session pills become
-/// `@session:<id>`, moving the mentions after them; offsets count UTF-16 units.
-pub fn wire(text: &str, pills: &[(Range<usize>, String)], skill_name: impl Fn(&str) -> String) -> Wire {
+/// `@session:<id>`, moving the mentions after them; offsets count UTF-16 units. File paths
+/// resolve against `directory`.
+pub fn wire(text: &str, pills: &[(Range<usize>, String)], directory: &str, skill_name: impl Fn(&str) -> String) -> Wire {
     let trimmed = text.trim();
     let lead = text.len() - text.trim_start().len();
     let end = lead + trimmed.len();
@@ -220,6 +287,12 @@ pub fn wire(text: &str, pills: &[(Range<usize>, String)], skill_name: impl Fn(&s
         match kind {
             "agent" => out.agents.push(AgentInput { name: value.to_owned(), mention }),
             "skill" => out.skills.push(SkillInput { id: value.to_owned(), name: skill_name(value), mention }),
+            "file" => out.files.push(FileInput {
+                uri: format!("file://{}", encode_path(&absolute(directory, value))),
+                name: filename(value).to_owned(),
+                mime: Some("text/plain".into()),
+                mention,
+            }),
             _ => {}
         }
         at = range.end;
@@ -351,7 +424,33 @@ impl App {
         let mut out = ranked(skills.collect());
         out.extend(ranked(agents.collect()));
         out.extend(sessions);
+        out.extend(self.mention_files(&query).into_iter().map(|path| Item {
+            key: format!("file:{path}"),
+            kind: Kind::File,
+            label: path.clone(),
+            description: String::new(),
+            content: format!("@{path}"),
+        }));
         out
+    }
+
+    /// Files for a query: the fixture's, searched here, or the server's latest answer. Until
+    /// the server answers a new query, the last answer stays, narrowed to what still matches.
+    fn mention_files(&self, query: &str) -> Vec<String> {
+        if query.trim().is_empty() {
+            return Vec::new();
+        }
+        let needle = query.to_lowercase();
+        let narrow = |paths: &[String]| -> Vec<String> {
+            let mut scored: Vec<(i64, &String)> = paths.iter().filter_map(|p| Some((fuzzy(&needle, p)?, p))).collect();
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
+            scored.into_iter().take(FILE_LIMIT).map(|(_, p)| p.clone()).collect()
+        };
+        match &self.source {
+            Source::Live { .. } if self.mentions.files.0 == query => self.mentions.files.1.clone(),
+            Source::Live { .. } => narrow(&self.mentions.files.1),
+            _ => narrow(&self.mentions.file_index),
+        }
     }
 
     /// The highlighted row: the one picked under this query, else the first.
@@ -440,6 +539,11 @@ impl App {
                         self.mentions.skills = skills;
                     }
                 }
+                Fetched::Files { query, paths } => {
+                    if self.mentions.files_asked.as_deref() == Some(query.as_str()) {
+                        self.mentions.files = (query, paths);
+                    }
+                }
                 Fetched::Sessions(list) => {
                     for s in list {
                         match self.mentions.found.iter_mut().find(|x| x.id == s.id) {
@@ -463,13 +567,40 @@ impl App {
         let directory = self.composer_directory();
         if self.mentions.catalog.as_deref() != Some(directory.as_str()) {
             self.mentions.catalog = Some(directory.clone());
+            self.mentions.files = (String::new(), Vec::new());
+            self.mentions.files_asked = None;
             let out = self.mentions.fetched_tx.clone();
-            let (server, wake) = (server.clone(), wake.clone());
+            let (server, wake, directory) = (server.clone(), wake.clone(), directory.clone());
             std::thread::spawn(move || {
                 let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
                 let agents = server.get(&format!("/api/agent?{at}")).map(|v| subagents(&v)).unwrap_or_default();
                 let skills = server.get(&format!("/api/skill?{at}")).map(|v| skills(&v)).unwrap_or_default();
                 let _ = out.send(Fetched::Catalog { directory, agents, skills });
+                if let Some(w) = wake {
+                    w();
+                }
+            });
+        }
+        if !query.trim().is_empty() && !query.contains(char::is_whitespace) && self.mentions.files_asked.as_deref() != Some(query.as_str()) {
+            self.mentions.files_asked = Some(query.clone());
+            let generation = self.mentions.files_generation.fetch_add(1, Ordering::Relaxed) + 1;
+            let (out, current) = (self.mentions.fetched_tx.clone(), self.mentions.files_generation.clone());
+            let (server, wake, directory, query) = (server.clone(), wake.clone(), directory.clone(), query.clone());
+            std::thread::spawn(move || {
+                std::thread::sleep(FILE_DEBOUNCE);
+                if current.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                let path = format!(
+                    "/api/fs/find?location%5Bdirectory%5D={}&query={}",
+                    crate::switcher::encode(&directory),
+                    crate::switcher::encode(&query)
+                );
+                let paths = server.get(&path).map(|v| found_paths(&v)).unwrap_or_default();
+                if current.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                let _ = out.send(Fetched::Files { query, paths });
                 if let Some(w) = wake {
                     w();
                 }
@@ -501,7 +632,7 @@ impl App {
     /// The prompt's text and mentions for what's in the composer.
     pub fn mention_wire(&self) -> Wire {
         let pills: Vec<(Range<usize>, String)> = self.composer.pills().map(|(r, id)| (r, id.to_owned())).collect();
-        wire(&self.composer.text, &pills, |id| self.mentions.skills.iter().find(|s| s.id == id).map_or_else(|| id.to_owned(), |s| s.name.clone()))
+        wire(&self.composer.text, &pills, &self.composer_directory(), |id| self.mentions.skills.iter().find(|s| s.id == id).map_or_else(|| id.to_owned(), |s| s.name.clone()))
     }
 }
 
@@ -520,9 +651,17 @@ static POST_SKILL: Icon = Icon {
     body: r#"<rect x="2.5" y="3.5" width="15" height="13" rx="1.5" stroke="currentColor"/><path d="M5.5 7.5H10.5M5.5 10.5H14.5" stroke="currentColor"/>"#,
 };
 
-/// Colours the shared palette doesn't carry: `syntax-type` for agents, `icon-info-active`.
+static FILE_DOCUMENT: Icon = Icon {
+    name: "file-document",
+    view: 14.0,
+    body: r#"<path d="M7.58331 2.33333V5.25H10.5M2.91664 1.75H7.58331L11.0833 5.25V12.25H2.91664V1.75Z" stroke="currentColor" stroke-linecap="square"/>"#,
+};
+
+/// Colours the shared palette doesn't carry: `syntax-type` for agents, `syntax-property` for
+/// files, `icon-info-active`.
 struct Ink {
     agent: Color,
+    file: Color,
     info: Color,
 }
 
@@ -532,19 +671,24 @@ fn ink(dark: bool) -> &'static Ink {
     let build = || {
         let hex = |s: &str| rune::color::hex(s).unwrap_or(Color::BLACK);
         let theme = rune::Theme::from_json(include_str!("../assets/theme.json"), dark).unwrap_or_else(|e| panic!("{e}"));
-        Ink { agent: if dark { hex("#ecf58c") } else { hex("#596600") }, info: theme.color("state-fg-info") }
+        Ink {
+            agent: if dark { hex("#ecf58c") } else { hex("#596600") },
+            file: if dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
+            info: theme.color("state-fg-info"),
+        }
     };
     if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }
 }
 
-/// A pill's look by its id. Desktop colours agent mentions' text and leaves skills plain, with
-/// no chip; a session gets a raised chip.
+/// A pill's look by its id. Desktop colours agent and file mentions' text and leaves skills
+/// plain, with no chip; a session gets a raised chip.
 pub fn pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
     let (dark, text, layer2) = (p.dark, p.text, p.layer2);
     move |id: &str| {
         let k = ink(dark);
         match id.split_once(':').map(|(kind, _)| kind) {
             Some("agent") => PillStyle::new().bg(Color::TRANSPARENT).fg(k.agent),
+            Some("file") => PillStyle::new().bg(Color::TRANSPARENT).fg(k.file),
             Some("session") => PillStyle::new().bg(layer2).fg(text),
             _ => PillStyle::new().bg(Color::TRANSPARENT).fg(text),
         }
@@ -556,6 +700,7 @@ fn row_icon(p: &Pal, kind: Kind) -> El {
         Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(p.icon),
         Kind::Agent => icon(&ic::BRAIN, 16.0).color(ink(p.dark).info),
         Kind::Skill => icon(&POST_SKILL, 16.0).color(p.icon),
+        Kind::File => icon(&FILE_DOCUMENT, 16.0).color(p.icon),
     }
 }
 
@@ -663,13 +808,37 @@ mod tests {
             (a..a + "@explore".len(), "agent:explore".to_owned()),
             (k..k + "@opencode".len(), "skill:opencode".to_owned()),
         ];
-        let w = wire(text, &pills, |id| if id == "opencode" { "OpenCode".into() } else { id.into() });
+        let w = wire(text, &pills, "/repo", |id| if id == "opencode" { "OpenCode".into() } else { id.into() });
         assert_eq!(w.text, "é @explore then @session:ses_abc123 and @opencode");
         assert_eq!(w.display, "é @explore then @Fix it and @opencode");
         let m = |start, end, t: &str| Some(Mention { start, end, text: t.into() });
         assert_eq!(w.agents, vec![AgentInput { name: "explore".into(), mention: m(2, 10, "@explore") }]);
         let k16 = "é @explore then @session:ses_abc123 and ".encode_utf16().count();
         assert_eq!(w.skills, vec![SkillInput { id: "opencode".into(), name: "OpenCode".into(), mention: m(k16, k16 + 9, "@opencode") }]);
+    }
+
+    #[test]
+    fn file_mentions_go_out_as_file_urls() {
+        let text = "read @src/a b.rs and @/etc/hosts";
+        let a = text.find("@src").unwrap();
+        let e = text.find("@/etc").unwrap();
+        let pills = vec![
+            (a..a + "@src/a b.rs".len(), "file:src/a b.rs".to_owned()),
+            (e..text.len(), "file:/etc/hosts".to_owned()),
+        ];
+        let w = wire(text, &pills, "/repo/", |id| id.into());
+        let m = |start, end, t: &str| Some(Mention { start, end, text: t.into() });
+        assert_eq!(
+            w.files,
+            vec![
+                FileInput { uri: "file:///repo/src/a%20b.rs".into(), name: "a b.rs".into(), mime: Some("text/plain".into()), mention: m(5, 16, "@src/a b.rs") },
+                FileInput { uri: "file:///etc/hosts".into(), name: "hosts".into(), mime: Some("text/plain".into()), mention: m(21, 32, "@/etc/hosts") },
+            ]
+        );
+        assert_eq!(w.text, text);
+        assert_eq!(encode_path("C:\\x\\é#.rs"), "/C:/x/%C3%A9%23.rs");
+        assert_eq!(filename("src/stream/"), "stream");
+        assert_eq!(absolute("/repo", "C:/x"), "C:/x");
     }
 
     fn runtime() -> Runtime<App> {
@@ -784,6 +953,36 @@ mod tests {
         key(&mut rt, Key::Enter);
         assert_eq!(rt.state.composer.text, "hi @Fix footnote numbering in exported PDFs ");
         assert_eq!(rt.state.composer.pills().next().map(|(_, id)| id.to_owned()).as_deref(), Some("session:ses_fx0010aaaaaaaaaaaaaaaaaa"));
+    }
+
+    #[test]
+    fn files_follow_sessions_and_pick_into_a_pill() {
+        let mut rt = runtime();
+        tap(&mut rt, "prompt");
+        typed(&mut rt, "@");
+        assert!(keys(&rt).iter().all(|k| !k.starts_with("file:")), "no file search without a query");
+        typed(&mut rt, "rec");
+        let found = keys(&rt);
+        let first_file = found.iter().position(|k| k.starts_with("file:")).expect("files listed");
+        assert!(found[..first_file].iter().all(|k| !k.starts_with("file:")));
+        assert!(found[first_file..].iter().all(|k| k.starts_with("file:")), "{found:?}");
+        assert_eq!(found[first_file], "file:src/stream/reconnect.rs");
+        typed(&mut rt, "onnect.rs");
+        assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs"]);
+        let row = shown(&rt, "mention-file:src/stream/reconnect.rs").expect("the row shows");
+        assert!(row.target[3] > 0.0);
+        key(&mut rt, Key::Enter);
+        assert_eq!(rt.state.composer.text, "@src/stream/reconnect.rs ");
+        let w = rt.state.mention_wire();
+        assert_eq!(
+            w.files,
+            vec![FileInput {
+                uri: "file:///Users/demo/code/lumen/src/stream/reconnect.rs".into(),
+                name: "reconnect.rs".into(),
+                mime: Some("text/plain".into()),
+                mention: Some(Mention { start: 0, end: 24, text: "@src/stream/reconnect.rs".into() }),
+            }]
+        );
     }
 
     #[test]

@@ -7,6 +7,14 @@
   {"id": "explore", "name": "explore", "mode": "subagent", "description": "Fast agent for exploring codebases."},
   {"id": "title", "name": "title", "mode": "primary", "hidden": true}
  ],
+ "files": [
+  {"path": "src/stream/reconnect.rs", "type": "file"},
+  {"path": "src/stream/mod.rs", "type": "file"},
+  {"path": "src/stream/", "type": "directory"},
+  {"path": "src/sidebar/titles.rs", "type": "file"},
+  {"path": "docs/design notes.md", "type": "file"},
+  {"path": "Cargo.toml", "type": "file"}
+ ],
  "skills": [
   {"id": "opencode", "name": "OpenCode", "description": "Questions about OpenCode itself."}
  ],

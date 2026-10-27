@@ -526,7 +526,7 @@ impl App {
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
             text: text.clone(),
-            files: attachments::inputs(&self.attach.files),
+            files: wire.files.into_iter().chain(attachments::inputs(&self.attach.files)).collect(),
             agents: wire.agents,
             skills: wire.skills,
             display_text: Some(wire.display.clone()),
