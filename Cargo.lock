@@ -2681,6 +2681,7 @@ dependencies = [
 name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
+ "image",
  "mac-app",
  "objc2 0.5.3",
  "opencode-kit",
