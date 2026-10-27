@@ -2619,6 +2619,7 @@ dependencies = [
  "objc2 0.5.3",
  "opencode-kit",
  "rune",
+ "rune-kit",
  "rune-theme-opencode",
  "serde_json",
 ]
