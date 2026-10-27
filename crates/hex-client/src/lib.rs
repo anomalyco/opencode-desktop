@@ -38,6 +38,7 @@ pub fn is_ended(why: &str) -> bool {
     [STOPPED, CANCELLED, LOST, NO_MIC].contains(&why)
 }
 
+#[derive(Clone)]
 pub struct Hex {
     base: String,
     token: String,
