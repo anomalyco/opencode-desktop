@@ -2312,6 +2312,26 @@ mod tests {
     }
 
     #[test]
+    fn switching_tabs_lets_you_type() {
+        let mut rt = sidebar();
+        let before = ids(&rt);
+        for i in [2, 1] {
+            let (x, y) = rt.find(&tab_key(&rt, i)).unwrap();
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            for _ in 0..30 {
+                rt.frame(1.0 / 60.0);
+            }
+            assert_eq!(rt.state.route, crate::Route::Session(before[i].clone()));
+            rt.state.composer.text.clear();
+            rt.key(KeyEvent { key: Key::Text("hi".into()), mods: Default::default() });
+            rt.frame(1.0 / 60.0);
+            assert_eq!(rt.state.composer.text, "hi", "tab {i} takes typing right away");
+        }
+    }
+
+    #[test]
     fn a_click_without_a_drag_still_opens_the_tab() {
         let mut rt = sidebar();
         let before = ids(&rt);

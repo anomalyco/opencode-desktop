@@ -557,6 +557,11 @@ impl App {
         }
         self.route = Route::Session(id.to_owned());
         let root = self.root_of(id).to_owned();
+        // As in Desktop, you can type straight away. A subagent's session has no composer, and
+        // a story's keys stay with the storybook.
+        if root == id && self.story.is_none() && !self.question_shown() {
+            self.composer.focused = true;
+        }
         if let Some(s) = self.sessions.iter_mut().find(|s| s.id == root) {
             // Viewing it reads it (locally: this build never writes to the server).
             s.viewed = s.idle.max(s.viewed);
