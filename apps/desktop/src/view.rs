@@ -857,13 +857,65 @@ fn ring(p: &Pal, frac: f32) -> El {
 /// One timeline row's content, before it becomes a growth-stack child.
 struct RowSpec {
     key: String,
-    el: El,
+    content: RowContent,
     streaming: bool,
+}
+
+enum RowContent {
+    User { message: usize, tight: bool, above: bool, below: bool },
+    Note(usize),
+    Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
+    Actions { message: usize, busy: bool },
+    Built(Box<El>),
+}
+
+impl RowSpec {
+    fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
+        #[cfg(test)]
+        ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+        let el = match &self.content {
+            RowContent::User { message, tight, above, below } => match &t.messages[*message] {
+                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))),
+                _ => unreachable!(),
+            },
+            RowContent::Note(i) => match &t.messages[*i] {
+                Message::Note { text: body, .. } => row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)),
+                _ => unreachable!(),
+            },
+            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, &t.session, &t.messages[*message])),
+            RowContent::Built(el) => (**el).clone(),
+            RowContent::Turn { start, end, block, live, pt } => {
+                let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
+                    Message::Assistant(a) => Some(a), _ => None,
+                }).collect();
+                let blocks = turns::fold(&steps, *live);
+                let busy = *live && *block + 1 == blocks.len();
+                match &blocks[*block] {
+                    Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
+                    Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
+                    Block::Agent { agent, title, status, session, background, .. } =>
+                        crate::subagents::card(s, p, &t.session, agent, title, status, *session, *background).pt(*pt),
+                    Block::Tool(Step::Tool { id, name, title, status, .. }) =>
+                        row().pt(*pt).child(turns::tool_row(p, id, name, title, status)),
+                    Block::Tool(Step::Thought { .. }) => unreachable!(),
+                }
+            }
+        };
+        let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
+        // Finished content opens in one quick glide, which a pinned timeline follows.
+        if self.streaming { row } else { row.arrives_whole() }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static ROW_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
     let e = edge::ALL[s.edge];
-    let rows = t.map(|t| rows(s, p, t, e.word_fade)).unwrap_or_default();
+    let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
     let mut stack = col()
         .key("timeline")
         .w_full()
@@ -871,12 +923,22 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .px(24.0)
         .pt(8.0)
         .pb(24.0)
-        .virtualize(80.0)
         .growth(GrowthSpec { edge: e, ..Default::default() });
-    for r in rows {
-        let row = col().key(r.key).w_full().max_w(CONTENT_W).streaming(r.streaming).child(r.el);
-        // Finished content opens in one quick glide, which a pinned timeline follows.
-        stack = stack.child(if r.streaming { row } else { row.arrives_whole() });
+    #[cfg(test)]
+    let eager = EAGER_ROWS.get();
+    #[cfg(not(test))]
+    let eager = false;
+    // Eager construction is the benchmark and regression-test reference.
+    if eager && let Some(t) = t {
+        stack = stack.virtualize(80.0)
+            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())));
+    } else if t.is_some() {
+        let keys = specs.clone();
+        let id = id.to_owned();
+        let p = *p;
+        stack = stack.virtual_rows(specs.len(), 80.0,
+            move |_: &App, i| keys[i].key.clone().into(),
+            move |s: &App, i| specs[i].build(s, &p, &s.transcripts[&id], e.word_fade));
     }
     if t.is_none() {
         stack = stack.child(
@@ -901,42 +963,46 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .child(stack)
 }
 
-fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
+fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
     let busy = t.busy();
     let last_assistant = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(_)));
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
-    for (i, m) in t.messages.iter().enumerate() {
+    let mut start = 0;
+    for (mi, m) in t.messages.iter().enumerate() {
         match m {
-            Message::Assistant(a) => steps.push(a),
+            Message::Assistant(a) => {
+                if steps.is_empty() { start = mi; }
+                steps.push(a);
+            }
             Message::User { id, text: body, .. } => {
-                turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
-                let above = i > 0 && joins(&t.messages[i - 1], m);
-                let below = t.messages.get(i + 1).is_some_and(|n| joins(m, n));
+                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                let above = mi > 0 && joins(&t.messages[mi - 1], m);
+                let below = t.messages.get(mi + 1).is_some_and(|n| joins(m, n));
                 let gallery = crate::attachments::gallery(s, p, "images", &model::user_files(id), true);
                 // A prompt's own images sit 8 above its bubble.
                 let tight = out.is_empty() || gallery.is_some();
                 if let Some(g) = gallery {
-                    out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 16.0 }), streaming: false });
+                    out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::Built(Box::new(g.pt(if out.is_empty() { 8.0 } else { 16.0 }))), streaming: false });
                 }
                 if !body.trim().is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, tight, above, below, s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))), streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below }, streaming: false });
                 }
             }
-            Message::Note { id, text: body } => {
-                turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
-                out.push(RowSpec { key: format!("n-{id}"), el: row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)), streaming: false });
+            Message::Note { id, .. } => {
+                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
             }
         }
     }
-    turn_rows(s, p, &t.session, &mut out, &steps, busy, fade);
+    turn_rows(s, p, &mut out, &steps, start, t.messages.len(), busy);
     if let Some(last) = last_assistant {
-        out.push(RowSpec { key: "turn-actions".into(), el: col().w_full().pt(8.0).child(turn_actions(p, busy, &t.session, &t.messages[last])), streaming: false });
+        out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     // Undelivered steers wait below the running work, as Desktop shows them.
     for (key, el) in crate::queue::pending_rows(s, p, &t.session) {
-        out.push(RowSpec { key, el, streaming: false });
+        out.push(RowSpec { key, content: RowContent::Built(Box::new(el)), streaming: false });
     }
     out
 }
@@ -952,7 +1018,7 @@ fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 }
 
 /// `live`: these steps end the transcript and the last one is still running.
-fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&Assistant], live: bool, fade: f32) {
+fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
     // Whether the row above was a tool; `None` above the turn's first row.
@@ -960,30 +1026,30 @@ fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&A
     for (i, b) in blocks.into_iter().enumerate() {
         let tool = !matches!(b, Block::Text { .. });
         let pt = part_gap(prev, tool);
+        let content = RowContent::Turn { start, end, block: i, live, pt };
         out.push(match b {
             Block::Group { key, steps } => {
                 let busy = live && i + 1 == n;
-                let el = turns::group(s, p, &key, &steps, busy, fade).pt(pt);
-                out.push(RowSpec { streaming: busy && s.expanded.contains(&key), el, key });
+                out.push(RowSpec { streaming: busy && s.expanded.contains(&key), content, key });
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
                         && let Some(g) = crate::attachments::gallery(s, p, "images", files, false)
                     {
-                        out.push(RowSpec { key: format!("ti-{id}"), el: g.pt(8.0), streaming: false });
+                        out.push(RowSpec { key: format!("ti-{id}"), content: RowContent::Built(Box::new(g.pt(8.0))), streaming: false });
                     }
                 }
                 prev = Some(true);
                 continue;
             }
-            Block::Text { key, body, live } => RowSpec { el: col().w_full().pt(pt).child(markdown_view(p, body, fade, live)), key, streaming: live },
-            Block::Agent { id, agent, title, status, session, background } => RowSpec {
+            Block::Text { key, live, .. } => RowSpec { content, key, streaming: live },
+            Block::Agent { id, .. } => RowSpec {
                 key: format!("a-{id}"),
-                el: crate::subagents::card(s, p, parent, agent, title, status, session, background).pt(pt),
+                content,
                 streaming: false,
             },
-            Block::Tool(Step::Tool { id, name, title, status, .. }) => {
-                RowSpec { key: format!("q-{id}"), el: row().pt(pt).child(turns::tool_row(p, id, name, title, status)), streaming: false }
+            Block::Tool(Step::Tool { id, .. }) => {
+                RowSpec { key: format!("q-{id}"), content, streaming: false }
             }
             Block::Tool(Step::Thought { .. }) => continue,
         });
@@ -994,7 +1060,7 @@ fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&A
         && let Some(err) = &a.error
     {
         let pt = if prev.is_some() { 24.0 } else { 0.0 };
-        out.push(RowSpec { key: format!("e-{}", a.id), el: row().pt(pt).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()), streaming: false });
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Built(Box::new(row().pt(pt).child(text(err.clone()).font(UI).color(p.danger).wrap().w_full()))), streaming: false });
     }
 }
 
@@ -1548,6 +1614,59 @@ mod tests {
     use rune::{Env, Key, KeyEvent, Runtime, TextEdit};
 
     use crate::App;
+
+    #[test]
+    fn lazy_timeline_keeps_visible_rows_and_builds_only_the_window() {
+        fn scene(s: &App, _: &mut rune::Cx<App>) -> rune::El {
+            let crate::Route::Session(id) = &s.route else { unreachable!() };
+            rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), id, s.transcripts.get(id)))
+        }
+        fn visible(rt: &Runtime<App>) -> Vec<(String, Option<String>, [f32; 4])> {
+            rt.elements().into_iter().filter(|e| e.visible[3] > 0.0 && !e.exiting)
+                .map(|e| (e.path, e.text, e.rect)).collect()
+        }
+        let state = || {
+            let mut s = crate::perf::fixture();
+            let mut other = s.transcripts["bench"].clone();
+            other.session = "other".into();
+            s.transcripts.insert("other".into(), other);
+            s.reduced_motion = true;
+            s
+        };
+        super::EAGER_ROWS.set(true);
+        let mut eager = Runtime::new(state(), scene, (800.0, 600.0), Env::new(true, 1.0));
+        eager.frame(0.0);
+        super::EAGER_ROWS.set(false);
+        super::ROW_BUILDS.set(0);
+        let mut lazy = Runtime::new(state(), scene, (800.0, 600.0), Env::new(true, 1.0));
+        lazy.frame(0.0);
+        assert!(super::ROW_BUILDS.get() < 100, "2402 rows must not build at open");
+        // Compare at rest: initial content, a streamed word, a group expanded, a new prompt,
+        // and a session switch. Each has the same keys, content and visible layout.
+        for case in 0..5 {
+            for (is_eager, rt) in [(true, &mut eager), (false, &mut lazy)] {
+                super::EAGER_ROWS.set(is_eager);
+                rt.update(|s, tx| {
+                    tx.settle();
+                    match case {
+                        1 => { s.apply_event("session.text.delta", &serde_json::json!({"sessionID":"bench", "assistantMessageID":"stream", "ordinal":0, "delta":" more text"})); }
+                        2 => { s.expanded.insert("c-a0799-0".into()); }
+                        3 => { s.apply_event("session.prompted", &serde_json::json!({"sessionID":"bench", "messageID":"new", "text":"Next question"})); }
+                        4 => s.route = crate::Route::Session("other".into()),
+                        _ => {}
+                    }
+                });
+                for _ in 0..120 { if !rt.frame(1.0 / 120.0) { break; } }
+            }
+            let (a, b) = (visible(&eager), visible(&lazy));
+            assert_eq!(a.len(), b.len(), "case {case}: visible elements");
+            for ((ak, at, ar), (bk, bt, br)) in a.iter().zip(&b) {
+                assert_eq!((ak, at), (bk, bt), "case {case}: identity and text");
+                for (a, b) in ar.iter().zip(br) { assert!((a-b).abs() < 0.1, "case {case}, {ak}: {ar:?} != {br:?}"); }
+            }
+        }
+        super::EAGER_ROWS.set(false);
+    }
 
     #[test]
     fn a_link_in_a_message_opens() {

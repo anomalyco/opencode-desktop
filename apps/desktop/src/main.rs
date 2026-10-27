@@ -6,6 +6,8 @@ mod add_menu;
 mod attachments;
 mod mentions;
 mod palette;
+#[cfg(test)]
+mod perf;
 mod pickers;
 mod queue;
 mod restore;

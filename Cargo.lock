@@ -1947,6 +1947,7 @@ dependencies = [
  "objc2 0.5.3",
  "opencode-kit",
  "png 0.18.1",
+ "procwatch",
  "rune",
  "rune-kit",
  "rune-theme-opencode",
@@ -2253,6 +2254,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procwatch"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/rune?rev=b673cb74d1145653177fd383f7c5a2db46e96c20#b673cb74d1145653177fd383f7c5a2db46e96c20"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2495,6 +2504,7 @@ dependencies = [
  "png 0.18.1",
  "pollster",
  "portable-atomic",
+ "procwatch",
  "raw-window-handle",
  "resvg",
  "rfd",
