@@ -10,6 +10,7 @@ mod palette;
 #[cfg(test)]
 mod perf;
 mod pickers;
+mod project_icon;
 mod queue;
 mod restore;
 mod shortcuts;
@@ -119,6 +120,7 @@ pub struct App {
     playback: VecDeque<(f64, String, Value)>,
     sends: u32,
     waker: Option<Waker>,
+    pub icons: project_icon::Icons,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -195,6 +197,7 @@ impl App {
             playback: VecDeque::new(),
             sends: 0,
             waker: None,
+            icons: Default::default(),
         }
     }
 
@@ -871,6 +874,9 @@ impl App {
             && let Some(p) = self.projects.iter_mut().find(|p| Some(p.id.as_str()) == data["id"].as_str())
         {
             p.active = data["time"]["active"].as_i64().unwrap_or(p.active);
+            if data.get("canonical").is_some() {
+                p.icon = opencode_kit::model::ProjectIcon::parse(&data["icon"]);
+            }
         }
         changed
     }
@@ -1014,6 +1020,7 @@ impl Arrivals {
 fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
     s.attach.set_waker(waker.clone());
+    s.icons.set_waker(waker.clone());
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }

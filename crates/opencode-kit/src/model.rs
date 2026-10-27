@@ -14,6 +14,34 @@ pub struct Project {
     /// The project's root folder.
     pub directory: String,
     pub active: i64,
+    pub icon: ProjectIcon,
+}
+
+/// The project's `icon`: a discovered image (`url`, usually a data URL), a chosen one
+/// (`override`) or a chosen avatar colour. Empty strings when unset.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProjectIcon {
+    pub url: String,
+    pub override_url: String,
+    pub color: String,
+}
+
+impl ProjectIcon {
+    pub fn parse(v: &Value) -> ProjectIcon {
+        ProjectIcon { url: s(&v["url"]), override_url: s(&v["override"]), color: s(&v["color"]) }
+    }
+
+    /// The image to show, as Desktop picks it (`getProjectAvatarSource`): a chosen image, else
+    /// none when a colour is chosen, else the discovered one.
+    pub fn source(&self) -> Option<&str> {
+        if !self.override_url.is_empty() {
+            return Some(&self.override_url);
+        }
+        if !self.color.is_empty() || self.url.is_empty() {
+            return None;
+        }
+        Some(&self.url)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -299,7 +327,13 @@ pub fn parse_projects(v: &Value) -> Vec<Project> {
                 return None;
             }
             let name = dir.rsplit('/').next().unwrap_or(&dir).to_owned();
-            Some(Project { id: s(&p["id"]), name, directory: dir.clone(), active: i(&p["time"]["active"]).max(i(&p["time"]["updated"])) })
+            Some(Project {
+                id: s(&p["id"]),
+                name,
+                directory: dir.clone(),
+                active: i(&p["time"]["active"]).max(i(&p["time"]["updated"])),
+                icon: ProjectIcon::parse(&p["icon"]),
+            })
         })
         .collect()
 }

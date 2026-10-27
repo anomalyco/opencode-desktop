@@ -8,6 +8,7 @@ license.workspace = true
 hot = ["rune/hot"]
 
 [dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 mac-app = { path = "../../crates/mac-app" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 rune-knobs = { path = "../../crates/rune-knobs" }

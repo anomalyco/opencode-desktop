@@ -302,8 +302,8 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -
     let info = s.session(&t.id);
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
-    let proj = info
-        .and_then(|i| s.project(&i.project))
+    let project = info.and_then(|i| s.project(&i.project));
+    let proj = project
         .map(|x| x.name.clone())
         .unwrap_or_else(|| dir.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned());
     let status = s.tab_status(&t.id);
@@ -356,7 +356,7 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool) -
                 .gap(6.0)
                 .center_y()
                 .clip_fade(0.0, 0.0, 16.0, 0.0)
-                .child(avatar(p, &proj))
+                .child(s.icons.badge(p, project, &proj))
                 .child(text(title).font(UI_MED).color(if active { p.text } else { p.faint })),
         )
         .child(
@@ -642,7 +642,8 @@ fn home(s: &App, p: &Pal) -> El {
         }
         let mut rows = col().key(format!("g-{title}")).gap(1.0).pt(16.0).mb(24.0);
         for ses in items {
-            let proj = s.project(&ses.project).map_or("", |x| x.name.as_str());
+            let project = s.project(&ses.project);
+            let proj = project.map_or("", |x| x.name.as_str());
             let id = ses.id.clone();
             rows = rows.child(
                 row()
@@ -658,7 +659,7 @@ fn home(s: &App, p: &Pal) -> El {
                     .hover(p.hover)
                     .press(p.pressed)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
-                    .child(avatar(p, proj))
+                    .child(s.icons.badge(p, project, proj))
                     .child(text(title_of(ses)).font(UI_MED).color(p.text).truncate())
                     .child(text(proj.to_owned()).font(UI).color(p.faint).truncate())
                     .child(spacer())
@@ -786,7 +787,7 @@ fn location(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .on_press(|s: &mut App| s.open_picker(Kind::Project))
-        .child(avatar(p, &name))
+        .child(s.icons.badge(p, project, &name))
         .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate());
     row()
         .key("location")
@@ -825,9 +826,10 @@ fn session_page(s: &App, p: &Pal, id: &str) -> El {
 fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
     let mut crumbs = row().key("crumbs").gap(0.0).center_y().shrink();
     if let Some(info) = info {
-        let proj = s.project(&info.project).map_or("", |x| x.name.as_str());
+        let project = s.project(&info.project);
+        let proj = project.map_or("", |x| x.name.as_str());
         crumbs = crumbs
-            .child(avatar(p, proj).mr(8.0))
+            .child(s.icons.badge(p, project, proj).mr(8.0))
             .child(text(proj.to_owned()).font(UI_MED).color(p.faint))
             .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(8.0).pr(4.0));
         if let Some(parent) = info.parent.as_deref().and_then(|pid| s.session(pid)) {
