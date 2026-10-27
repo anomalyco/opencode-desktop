@@ -32,5 +32,5 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </dict></plist>
 EOF
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
-open -n "$APP" --args "$@"
+open -n ${OPEN_FLAGS:-} "$APP" --args "$@"
 echo "$APP"
