@@ -13,7 +13,7 @@ INSTALLED="$APP/Contents/MacOS/opencode-desktop"
 STAMP="$HOME/.cache/opencode-rune-build-sha"
 LOG="$HOME/Library/Logs/opencode-rune-autobuild.log"
 WATCH_DIR="${AUTOBUILD_DIR:-$HOME/code/worktrees/seer/desktop-autobuild}"
-PROFILE=debug; CARGO_FLAGS=(); WATCH=0; OPEN_FLAGS=""
+PROFILE=debug; CARGO_FLAGS=(); WATCH=0
 for a in "$@"; do
   case "$a" in
     --release) PROFILE=release; CARGO_FLAGS=(--release) ;;
@@ -27,9 +27,6 @@ pids() { local p; for p in $(pgrep -x opencode-desktop); do ps -o command= -p "$
 
 overlaps() { local p; for p in $1; do case " $2 " in *" $p "*) return 0;; esac; done; return 1; }
 
-front_is_app() { lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | grep -q '"com.kitlangton.opencode-rune"'; }
-idle_s() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
-
 # build_install <root>: build, fetch, install, relaunch. Returns non-zero on any failure.
 build_install() {
   local root="$1" start=$SECONDS bin sha
@@ -41,18 +38,10 @@ build_install() {
   if [ "$(cat "$STAMP" 2>/dev/null)" = "$sha" ] && [ -n "$(pids)" ]; then
     say "binary unchanged, not relaunching ($((SECONDS - start))s)"; return 0
   fi
-  local before; before="$(pids)" flags="$OPEN_FLAGS"
-  if [ "$WATCH" = 1 ]; then
-    # Don't restart under Kit's hands: wait while the app is frontmost and he's been active in
-    # the last 20 s. The app saves its session and drafts, so a restart only costs the moment.
-    local waited=0
-    while front_is_app && [ "$(idle_s)" -lt 20 ]; do
-      [ "$waited" = 0 ] && say "waiting for 20 s of idle before relaunching"; waited=1; sleep 2
-    done
-    # Come back in front if it was in front; otherwise stay behind whatever Kit is using.
-    if front_is_app; then flags=""; else flags="-g"; fi
-  fi
-  OPEN_FLAGS="$flags" "$root/apps/desktop/scripts/bundle.sh" "$bin" --live >/dev/null || { say "bundle.sh failed"; return 1; }
+  local before; before="$(pids)" flags=""
+  # Unattended: don't restart under Kit's hands (the app saves its session and drafts anyway).
+  [ "$WATCH" = 1 ] && flags="--wait-idle 20"
+  MAC_APP_FLAGS="$flags" "$root/apps/desktop/scripts/bundle.sh" "$bin" --live >/dev/null || { say "bundle.sh failed"; return 1; }
   mkdir -p "$(dirname "$STAMP")"; echo "$sha" > "$STAMP"
   local i after
   for i in $(seq 1 50); do
@@ -72,7 +61,6 @@ if [ "$WATCH" = 0 ]; then
   exit 0
 fi
 
-OPEN_FLAGS="-g"
 exec >>"$LOG" 2>&1
 test -d "$WATCH_DIR/.git" -o -f "$WATCH_DIR/.git" || { say "missing worktree $WATCH_DIR (run install-autobuild.sh)"; exit 1; }
 cd "$WATCH_DIR" || exit 1

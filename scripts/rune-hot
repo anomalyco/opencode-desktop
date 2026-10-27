@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Hot reload for any Rune app in this repo, compiled and run on this Mac. Saved edits to function
+# bodies in the --patch files patch into the open window; any other edit restarts the app, so
+# apps should restore their own state (tabs, route, drafts) at launch.
+#   scripts/rune-hot --manifest apps/desktop/Cargo.toml --patch src/view.rs [--patch …] \
+#     [--port 18745] -- APP ARGS
+# Needs Dioxus CLI 0.7.10 at ~/.cargo/bin/dx (RUNE_DX overrides) and a Rune checkout for
+# scripts/rune-dev and its edit guard (RUNE, default ~/code/open-source/rune). The compiler and
+# the app run together in one HiveMind cargo lease (HOT_WORKER, default studio).
+set -euo pipefail
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+RUNE=${RUNE:-$HOME/code/open-source/rune}
+test -x "$RUNE/scripts/rune-dev" || { echo "rune-hot: no scripts/rune-dev in $RUNE (set RUNE)" >&2; exit 1; }
+
+if [[ -z "${HIVEMIND_ACTIVE:-}" ]]; then
+  exec hivemind run --kind cargo --worker "${HOT_WORKER:-studio}" --no-sync -- "$SELF" "$@"
+fi
+
+exec python3 - "$RUNE/scripts/rune-dev" "$@" <<'PY'
+import os, signal, subprocess, sys
+
+rune_dev, argv = sys.argv[1], sys.argv[2:]
+manifest, patches, port, args = None, [], "18745", []
+i = 0
+while i < len(argv):
+    a = argv[i]
+    if a == "--":
+        args = argv[i + 1:]
+        break
+    if a in ("--manifest", "--patch", "--port") and i + 1 < len(argv):
+        v = argv[i + 1]
+        if a == "--manifest": manifest = v
+        elif a == "--patch": patches.append(v)
+        else: port = v
+        i += 2
+        continue
+    sys.exit(f"rune-hot: unknown flag {a}")
+if not manifest:
+    sys.exit("rune-hot: --manifest is required")
+os.chdir(os.path.dirname(os.path.abspath(manifest)))
+# rune-dev assumes the compiler runs on a separate build Mac and refuses to run on Studio.
+# Run its in-lease path (dx, the edit guard and the app) right here instead.
+runner = ("import runpy, socket, sys; socket.gethostname = lambda: 'local'; "
+          "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')")
+command = [sys.executable, "-c", runner, rune_dev, "--manifest-path", "Cargo.toml",
+           *[x for p in patches for x in ("--patch", p)], "--port", port, "--", *args]
+env = dict(os.environ, RUNE_DEV_LEASE="1")
+toolchain = os.path.expanduser("~/.rustup/toolchains/stable-aarch64-apple-darwin/bin")
+if os.path.isdir(toolchain):
+    env["PATH"] = toolchain + os.pathsep + env["PATH"]
+
+while True:
+    child = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    restart = False
+    try:
+        for line in child.stdout:
+            print(line, end="", flush=True)
+            if not restart and "rune-dev: restart needed" in line:
+                restart = True
+                child.send_signal(signal.SIGTERM)
+        child.wait()
+    except KeyboardInterrupt:
+        child.send_signal(signal.SIGTERM)
+        child.wait()
+        sys.exit(130)
+    if not restart:
+        sys.exit(child.returncode)
+    print("rune-hot: restarting with the new build", flush=True)
+PY

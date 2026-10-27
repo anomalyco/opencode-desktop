@@ -5,7 +5,11 @@
 # window opens exactly where the old one was, so the swap is invisible.
 #   scripts/mac-app --name Seer --id com.kitlangton.seer --exe seer --bin target/release/seer-sketch \
 #     --icon apps/sketch/assets/icon.icns [-- APP ARGS]
+# For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
+# keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
+# when the app isn't.
 set -euo pipefail
+IDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name) NAME=$2; shift 2 ;;
@@ -13,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --exe) EXE=$2; shift 2 ;;
     --bin) BIN=$2; shift 2 ;;
     --icon) ICON=$2; shift 2 ;;
+    --wait-idle) IDLE=$2; shift 2 ;;
     --) shift; break ;;
     *) echo "mac-app: unknown flag $1" >&2; exit 2 ;;
   esac
@@ -22,7 +27,16 @@ test -x "$BIN" || { echo "mac-app: no binary at $BIN" >&2; exit 1; }
 LIVE="$HOME/Applications/$NAME.app"
 APP="$LIVE.new"
 rm -rf "$APP"
-OLD=$(pgrep -f "^$LIVE/Contents/MacOS/$EXE" || true)
+# Fixed-string matching: names like "OpenCode (Rune)" are not regexes.
+running() { ps -axo pid=,command= | awk -v exe="$LIVE/Contents/MacOS/$EXE" '{ pid = $1; sub(/^ *[0-9]+ /, ""); if (index($0, exe) == 1) print pid }'; }
+front() { lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | grep -qF "\"$ID\""; }
+idle_s() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+OPEN=()
+if [ -n "$IDLE" ]; then
+  while front && [ "$(idle_s)" -lt "$IDLE" ]; do sleep 2; done
+  front || OPEN=(-g)
+fi
+OLD=$(running)
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXE"
 [ -n "${ICON:-}" ] && cp "$ICON" "$APP/Contents/Resources/icon.icns"
@@ -48,10 +62,10 @@ codesign --force --sign "Developer ID Application: Example Developer (TEAMID0000
 rm -rf "$LIVE.old"
 [ -d "$LIVE" ] && mv "$LIVE" "$LIVE.old"
 mv "$APP" "$LIVE"
-open -n "$LIVE" --args "$@"
+open -n ${OPEN[@]+"${OPEN[@]}"} "$LIVE" --args "$@"
 if [ -n "$OLD" ]; then
   for _ in $(seq 40); do
-    [ -n "$(pgrep -f "^$LIVE/Contents/MacOS/$EXE" | grep -vxF "$OLD" || true)" ] && break
+    [ -n "$(running | grep -vxF "$OLD" || true)" ] && break
     sleep 0.05
   done
   sleep 0.6

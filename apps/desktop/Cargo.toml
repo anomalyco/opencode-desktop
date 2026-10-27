@@ -8,6 +8,7 @@ license.workspace = true
 hot = ["rune/hot"]
 
 [dependencies]
+mac-app = { path = "../../crates/mac-app" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 rune.workspace = true
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }

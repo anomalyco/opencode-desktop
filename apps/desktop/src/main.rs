@@ -86,6 +86,8 @@ pub struct App {
     pub restore: restore::Restore,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
+    /// Whether AppKit is saving the window frame yet (`mac_app::remember_frame`).
+    framed: bool,
     pub edge: usize,
     pub reduced_motion: bool,
     pub status: String,
@@ -144,6 +146,7 @@ impl App {
             switcher: switcher::Switcher::default(),
             restore: restore::Restore::default(),
             activity_open: false,
+            framed: false,
             edge,
             reduced_motion: flag("--reduced-motion"),
             status: String::new(),
@@ -843,6 +846,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if let Source::Live { server, .. } = &s.source {
         let base = server.base.clone();
         s.poll_restore(&base);
+        if !s.framed {
+            s.framed = mac_app::remember_frame("OpenCodeRuneMain");
+        }
     }
     changed
 }
