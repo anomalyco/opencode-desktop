@@ -291,9 +291,18 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
 }
 
 /// "Queue ⌘⏎" (or "Steer ⌘⏎") beside the submit button while a turn runs and the composer holds
-/// a prompt: submits with the delivery Enter doesn't use.
-pub fn alternate_hint(p: &Pal) -> El {
-    row()
+/// a prompt: submits with the delivery Enter doesn't use. It sits in the toolbar's free `room`,
+/// which it never widens, as the word and the keys, the keys alone, or nothing: in a narrow
+/// window it can't push the mic and Send aside.
+pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
+    // The two keycaps and the gap between them, its padding and its right margin.
+    let caps: f32 = ["⌘", "⏎"].iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
+    let keys = caps + 6.0 + 12.0 + 4.0;
+    let word = rune::text::measure("Queue", &[], UI_MED, None).0 + 6.0;
+    if room < keys {
+        return None;
+    }
+    let hint = row()
         .key("alternate-delivery")
         .role("button")
         .label("Queue")
@@ -307,9 +316,10 @@ pub fn alternate_hint(p: &Pal) -> El {
         .press(p.pressed)
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
-        .child(text("Queue").font(UI_MED).color(p.faint))
+        .children((room >= keys + word).then(|| text("Queue").font(UI_MED).color(p.faint)))
         .child(keycap(p, "⌘"))
-        .child(keycap(p, "⏎"))
+        .child(keycap(p, "⏎"));
+    Some(hint)
 }
 
 fn keycap(p: &Pal, key: &str) -> El {

@@ -29,7 +29,6 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
     ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
-    ("jump", "toolbar/mic", "/narrow", "in a narrow window the queue hint (queue::alternate_hint) takes the toolbar's last free space in the frame it shows or clears, and the mic beside Send steps aside with it"),
 ];
 
 struct Action {
