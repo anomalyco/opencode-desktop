@@ -47,10 +47,50 @@ pub enum Style {
     Orb,
     /// A hand-drawn wave, zigzag or loop and a dot on a bright tile.
     Squiggle,
+    /// A mirrored little invader with eyes, on whole device pixels.
+    Sprite,
+    /// A 1-bit ordered-dither (Bayer) glow in a dark and a light tone of the hue.
+    Dither,
+    /// The first letter in a 5×7 bitmap font, with a hard drop shadow.
+    Bitmap,
+    /// Quarter-circle Truchet tiles, 3×3.
+    Truchet,
+    /// A tiny face from seeded eyes and mouth.
+    Face,
+    /// Lopsided lava-lamp metaballs.
+    Lava,
+    /// A glowing tube shape on a dark tile, with scan lines.
+    Neon,
+}
+
+/// A group of styles in the playground.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Family {
+    Gradient,
+    Geometric,
+    Pixel,
+    Playful,
+}
+
+impl Family {
+    pub const ALL: [Family; 4] = [Family::Gradient, Family::Geometric, Family::Pixel, Family::Playful];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Family::Gradient => "Gradient",
+            Family::Geometric => "Geometric",
+            Family::Pixel => "Pixel",
+            Family::Playful => "Playful",
+        }
+    }
+
+    pub fn styles(self) -> impl Iterator<Item = Style> {
+        Style::ALL.into_iter().filter(move |s| s.family() == self)
+    }
 }
 
 impl Style {
-    pub const ALL: [Style; 18] = [
+    pub const ALL: [Style; 25] = [
         Style::Desktop,
         Style::Gradient,
         Style::Mesh,
@@ -69,12 +109,28 @@ impl Style {
         Style::Bauhaus,
         Style::Orb,
         Style::Squiggle,
+        Style::Sprite,
+        Style::Dither,
+        Style::Bitmap,
+        Style::Truchet,
+        Style::Face,
+        Style::Lava,
+        Style::Neon,
     ];
 
-    pub const NAMES: [&str; 18] = [
+    pub const NAMES: [&str; 25] = [
         "Desktop", "Gradient", "Mesh", "Conic", "Grain", "Blob", "Monogram", "Glyph", "Quilt", "Rings", "Band", "Horizon", "Pixel", "Sticker", "Pop", "Bauhaus", "Orb",
-        "Squiggle",
+        "Squiggle", "Sprite", "Dither", "Bitmap", "Truchet", "Face", "Lava", "Neon",
     ];
+
+    pub fn family(self) -> Family {
+        match self {
+            Style::Desktop | Style::Gradient | Style::Mesh | Style::Conic | Style::Grain | Style::Blob | Style::Monogram | Style::Orb => Family::Gradient,
+            Style::Glyph | Style::Quilt | Style::Rings | Style::Band | Style::Horizon | Style::Bauhaus | Style::Truchet => Family::Geometric,
+            Style::Pixel | Style::Sprite | Style::Dither | Style::Bitmap => Family::Pixel,
+            Style::Sticker | Style::Pop | Style::Squiggle | Style::Face | Style::Lava | Style::Neon => Family::Playful,
+        }
+    }
 
     pub fn name(self) -> &'static str {
         Self::NAMES[self as usize]
@@ -125,7 +181,7 @@ pub(crate) fn hash(s: &str) -> u64 {
     mix(fnv(s.as_bytes()))
 }
 
-fn mix(mut z: u64) -> u64 {
+pub(crate) fn mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     z ^ (z >> 31)
@@ -141,22 +197,22 @@ fn around(variant: usize, steps: i32) -> usize {
     WHEEL[(at + steps).rem_euclid(8) as usize]
 }
 
-type Rgb = [f32; 3];
+pub(crate) type Rgb = [f32; 3];
 
 fn rgb(c: Color) -> Rgb {
     [c.r, c.g, c.b]
 }
 
-fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
+pub(crate) fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
     std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
 }
 
-fn saturate(c: Rgb, s: f32) -> Rgb {
+pub(crate) fn saturate(c: Rgb, s: f32) -> Rgb {
     let l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     c.map(|v| (l + (v - l) * s).clamp(0.0, 1.0))
 }
 
-fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
+pub(crate) fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
@@ -206,6 +262,8 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
     let edge = saturate(rgb(p.avatars[variant].1), s);
     let fg = rgb(p.fg);
     let style = look.style;
+    let letter = seed.chars().find(|c| c.is_alphanumeric()).unwrap_or('?');
+    let retro = crate::retro::Ctx { h, a, b, c, dark: p.dark, px, sat: s, letter };
     // A hairline ring half a point wide, in tile units.
     let ring = 0.5 / size_pt;
     let angle = (h >> 16 & 7) as f32 * std::f32::consts::FRAC_PI_4;
@@ -312,6 +370,7 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
                     lerp(lerp(a, edge, 0.35), a, v / horizon)
                 }
             }
+            _ => crate::retro::shade(style, &retro, u, v),
         };
         if style == Style::Desktop {
             // Desktop's sheen: white at 16% at the top, fading out at the bottom.
@@ -326,7 +385,11 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
             col = lerp(col, fg, 0.92 * ink);
         }
         if d > -ring {
-            let strength = if matches!(style, Style::Desktop | Style::Glyph | Style::Quilt) { 1.0 } else { 0.45 };
+            let strength = match style {
+                Style::Desktop | Style::Glyph | Style::Quilt => 1.0,
+                Style::Neon | Style::Dither => 0.2,
+                _ => 0.45,
+            };
             col = lerp(col, edge, strength);
         }
         [col[0], col[1], col[2], 1.0]

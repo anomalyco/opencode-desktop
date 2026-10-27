@@ -134,8 +134,9 @@ pub struct App {
     sends: u32,
     waker: Option<Waker>,
     pub icons: project_icon::Icons,
-    /// The `icon-playground` scene: every icon style instead of the panel.
-    pub playground: bool,
+    /// The `icon-playground` scenes: every icon style instead of the panel, in these
+    /// appearances (dark or not); empty shows the app.
+    pub playground: &'static [bool],
     /// The storybook (⌘⇧D) is open, with the app as it was beside it.
     pub story: Option<stories::Storybook>,
 }
@@ -221,7 +222,7 @@ impl App {
             sends: 0,
             waker: None,
             icons: Default::default(),
-            playground: false,
+            playground: &[],
             story: None,
         }
     }
@@ -1196,7 +1197,9 @@ fn main() {
                 }
             }),
             ("draft", |s| s.route = Route::Draft),
-            ("icon-playground", |s| s.playground = true),
+            ("icon-playground", |s| s.playground = &[false, true]),
+            ("icon-playground-light", |s| s.playground = &[false]),
+            ("icon-playground-dark", |s| s.playground = &[true]),
             ("settings", |s| {
                 open_scene(s);
                 s.finish_stream();

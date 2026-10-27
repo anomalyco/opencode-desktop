@@ -82,7 +82,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
 }
 
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
-    if s.playground {
+    if !s.playground.is_empty() {
         return crate::icons::playground(s);
     }
     let p = pal(s.dark(cx));

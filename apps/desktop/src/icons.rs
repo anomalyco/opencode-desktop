@@ -2,7 +2,7 @@
 //! scene that lays every mark style out for comparing them.
 
 use opencode_kit::model::Project;
-use project_icon::{Look, Palette, Style};
+use project_icon::{Family, Look, Palette, Style};
 use rune::{Cx, El, col, el, row, text};
 
 use crate::App;
@@ -44,7 +44,7 @@ pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
     }
 }
 
-/// Every style for twelve project names at 16, 24 and 48 pt, light above dark.
+/// Every style, by family, for twelve project names at 16, 24 and 48 pt; light above dark.
 pub fn playground(s: &App) -> El {
     let base = look(s);
     let panel = |dark: bool| {
@@ -52,17 +52,20 @@ pub fn playground(s: &App) -> El {
         let icons = palette(p);
         let mut rows = col().gap(14.0).px(20.0).py(20.0).fill(p.bg_base).w_full();
         rows = rows.child(text(if dark { "Dark" } else { "Light" }).font(UI_MED).color(p.text));
-        for style in Style::ALL {
-            let look = Look { style, ..base };
-            let mut line = row().gap(20.0).center_y().child(text(style.name()).font(UI_MED).color(p.muted).w(84.0));
-            for (size, gap) in [(16.0, 6.0), (24.0, 6.0), (48.0, 8.0)] {
-                let mut group = row().gap(gap).center_y();
-                for name in NAMES {
-                    group = group.child(s.icons.mark(&icons, project_icon::Project::named(name), size, look));
+        for family in Family::ALL {
+            rows = rows.child(text(family.name().to_uppercase()).font(UI_SMALL).color(p.faint).mt(8.0));
+            for style in family.styles() {
+                let look = Look { style, ..base };
+                let mut line = row().gap(20.0).center_y().child(text(style.name()).font(UI_MED).color(p.muted).w(84.0));
+                for (size, gap) in [(16.0, 6.0), (24.0, 6.0), (48.0, 8.0)] {
+                    let mut group = row().gap(gap).center_y();
+                    for name in NAMES {
+                        group = group.child(s.icons.mark(&icons, project_icon::Project::named(name), size, look));
+                    }
+                    line = line.child(group);
                 }
-                line = line.child(group);
+                rows = rows.child(line);
             }
-            rows = rows.child(line);
         }
         let mut sizes = row().gap(20.0).child(el().w(84.0));
         for (size, gap) in [(16.0, 6.0), (24.0, 6.0), (48.0, 8.0)] {
@@ -70,5 +73,6 @@ pub fn playground(s: &App) -> El {
         }
         rows.child(sizes)
     };
-    col().key("icon-playground").w_full().h_full().scroll(rune::ScrollSpec { stick_bottom: false }).child(panel(false)).child(panel(true))
+    let panels = s.playground.iter().map(|&dark| panel(dark));
+    col().key("icon-playground").w_full().h_full().scroll(rune::ScrollSpec { stick_bottom: false }).children(panels)
 }

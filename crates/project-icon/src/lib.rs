@@ -14,6 +14,7 @@
 
 mod find;
 mod funky;
+mod retro;
 mod pixels;
 mod styles;
 
@@ -28,7 +29,7 @@ use rune::{Color, El, Image, ImageCache, SurfaceFit, TextStyle, Waker, el, text}
 
 use find::{Data, Key};
 use pixels::Buf;
-pub use styles::{Look, Style};
+pub use styles::{Family, Look, Style};
 
 /// The theme colours icons are built from.
 #[derive(Clone, Copy, Debug)]
