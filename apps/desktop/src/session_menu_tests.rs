@@ -322,3 +322,53 @@ fn control_r_renames_the_open_session() {
     assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Header)));
 }
 
+
+/// Tabs into the list `key` is in (rows in a focus group take the arrows), then steps to it.
+fn focus(rt: &mut Runtime<App>, key: &str) {
+    let on = |rt: &Runtime<App>| rt.elements().iter().find(|e| e.focused).and_then(|e| e.key.clone());
+    let prefix = &key[..2];
+    for _ in 0..40 {
+        if on(rt).is_some_and(|k| k.starts_with(prefix)) {
+            break;
+        }
+        press_key(rt, Key::Tab);
+    }
+    for _ in 0..12 {
+        if on(rt).as_deref() == Some(key) {
+            return;
+        }
+        press_key(rt, Key::Down);
+    }
+    panic!("{key} never took focus, {:?} has it", on(rt));
+}
+
+fn menu_key(rt: &mut Runtime<App>, key: Key, shift: bool) {
+    rt.key(KeyEvent { key, mods: Mods { shift, ..Mods::default() } });
+    frames(rt, 2);
+}
+
+#[test]
+fn the_menu_key_and_shift_f10_open_the_same_menu_as_a_right_click() {
+    let (mut rt, _) = app();
+    let key = tab_key(&rt, 0);
+    focus(&mut rt, &key);
+    menu_key(&mut rt, Key::ContextMenu, false);
+    let menu = rt.popup_menu().expect("the Menu key opens the focused tab's menu");
+    for id in ["rename", "close", "delete"] {
+        assert!(menu.find(id).is_some(), "{id}");
+    }
+    assert_eq!(rt.state.menus.on, Some(Target::new(&rt.state.tabs[0].id.clone(), Spot::Tab)));
+    let count = rt.state.tabs.len();
+    pick(&mut rt, "close");
+    assert_eq!(rt.state.tabs.len(), count - 1, "closing ran");
+
+    let (mut rt, _) = app();
+    go(&mut rt, Route::Home);
+    let id = rt.state.sessions.iter().find(|s| s.parent.is_none()).map(|s| s.id.clone()).unwrap();
+    focus(&mut rt, &format!("r-{id}"));
+    menu_key(&mut rt, Key::Function(10), true);
+    let menu = rt.popup_menu().expect("⇧F10 opens the focused row's menu");
+    assert!(menu.find("export").is_some() && menu.find("delete").is_some());
+    pick(&mut rt, "rename");
+    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Row)));
+}

@@ -102,6 +102,8 @@ pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc
         .key(format!("r-{}", ses.id))
         .role("button")
         .label(ses.title.clone())
+        .focusable(true)
+        .focus_selected(index == 0)
         .h(40.0)
         .pl(12.0)
         .pr(16.0)

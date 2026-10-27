@@ -754,7 +754,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         Some(field) => field.ml(4.0),
         None => {
             let begin = target.clone();
-            let mut t = row().key("title").role("button").label(title_of(info)).h(28.0).px(4.0).center_y().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);

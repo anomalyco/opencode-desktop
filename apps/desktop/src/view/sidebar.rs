@@ -306,7 +306,8 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
     }
     // Its layout and its step aside share one spring, so a drop that swaps one for the other
     // leaves a passed tab still and slides the dropped one from where it was drawn.
-    hit = crate::session_menu::on(hit, Target::new(&t.id, Spot::Tab)).child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
+    // Tab visits the open tab; the arrows rove from there, and the menu key opens its menu.
+    hit = crate::session_menu::on(hit.focusable(true).focus_selected(active), Target::new(&t.id, Spot::Tab)).child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
     if dragging {
         // It follows the pointer exactly.
         hit = hit.raise().offset_motion(INSTANT);
