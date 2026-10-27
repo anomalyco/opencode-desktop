@@ -31,6 +31,7 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "reversal", threshold: 1.0, means: "a travelling edge heads this many pt the wrong way and turns back, with no input mid-flight (one monotonic path)" },
     Rule { kind: "overshoot", threshold: 1.0, means: "passes where it comes to rest by this many pt (bounce 0)" },
     Rule { kind: "jiggle", threshold: 1.0, means: "an edge reverses twice or more within one motion, over at least this many pt" },
+    Rule { kind: "text-swap", threshold: 0.5, means: "a text element's words change in one frame at or above this opacity, with no roll or crossfade (streaming text excepted)" },
     Rule { kind: "fade-snap", threshold: 0.5, means: "a mounted element's opacity steps by at least this in one frame: it blinks on or off instead of fading" },
     Rule { kind: "flicker", threshold: 0.3, means: "opacity dips by at least this much and comes back within 0.3 s, or an element vanishes and comes back at its place" },
     Rule { kind: "faint", threshold: 0.25, means: "geometry checks skip frames fainter than this opacity: a row fading out can't be seen to lurch" },
@@ -39,6 +40,22 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "loop-jump", threshold: 0.03, means: "a loop's phase steps this many periods off its usual step in one frame: it restarted or skipped (a remount, or a new loop where one was running)" },
     Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
+
+/// Whether `old` → `new` is a number changing in otherwise the same words.
+fn ticks(old: &str, new: &str) -> bool {
+    let shape = |t: &str| {
+        let mut out = String::new();
+        for ch in t.chars() {
+            if !ch.is_ascii_digit() {
+                out.push(ch);
+            } else if !out.ends_with('#') {
+                out.push('#');
+            }
+        }
+        out
+    };
+    shape(old) == shape(new)
+}
 
 pub fn rule(kind: &str) -> f32 {
     RULES.iter().find(|r| r.kind == kind).map_or(f32::INFINITY, |r| r.threshold)
@@ -72,6 +89,8 @@ pub struct Track {
     /// Frame index → presented state, for the frames it was mounted (sorted).
     pub frames: Vec<(usize, Snap)>,
     pub text: Option<String>,
+    /// Its words each time they changed, from the frame they showed.
+    pub words: Vec<(usize, String)>,
 }
 
 impl Track {
@@ -110,7 +129,7 @@ impl Recording {
             return i;
         }
         let i = self.tracks.len();
-        self.tracks.push(Track { path: path.to_owned(), parent, frames: Vec::new(), text: None });
+        self.tracks.push(Track { path: path.to_owned(), parent, frames: Vec::new(), text: None, words: Vec::new() });
         self.index.insert(path.to_owned(), i);
         i
     }
@@ -158,6 +177,12 @@ impl Recording {
             }
             track.parent = parent.or(track.parent);
             if track.text.is_none() { track.text = e.text.clone().filter(|t| !t.is_empty()); }
+            // A field's words change as they're typed.
+            if let Some(words) = e.text.as_deref().filter(|t| !t.is_empty() && !e.focusable)
+                && track.words.last().is_none_or(|w| w.1 != words)
+            {
+                track.words.push((k, words.to_owned()));
+            }
             track.frames.push((k, Snap { rect: e.rect, vis: e.visible, op: e.opacity, scale: e.scale, flags, phase: e.loop_phase.map_or(f32::NAN, |p| p as f32) }));
         }
     }
@@ -214,6 +239,8 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
     let input_frames: Vec<usize> = rec.inputs.iter().map(|i| i.0).collect();
     let input_between = |a: usize, b: usize| input_frames.iter().any(|&k| k >= a && k <= b);
     let born = |t: &Track| t.frames.first().map(|f| f.0);
+    // A label over its own glyphs (a rolling text) changes its words as they move.
+    let parents: HashSet<usize> = tr.iter().filter_map(|t| t.parent).collect();
     let died = |t: &Track| t.frames.last().map(|f| f.0 + 1).filter(|&k| k < n);
     let gaps = |t: &Track| t.frames.windows(2).filter(|w| w[1].0 != w[0].0 + 1).map(|w| (w[0].0 + 1, w[1].0)).collect::<Vec<_>>();
 
@@ -473,6 +500,16 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
                 j += 1;
             }
         }
+        // Words that change in place instead of rolling or crossfading. Words that grow or
+        // shrink from the same start (streaming, a reveal) aren't a swap, nor is a count or a
+        // clock ticking ("1s" → "2s", "54.4K" → "64.6K").
+        for w in t.words.windows(2) {
+            let ((_, old), (k, new)) = (&w[0], &w[1]);
+            let (Some(a), Some(b)) = (t.at(k.wrapping_sub(1)), t.at(*k)) else { continue };
+            if *k <= rec.start || parents.contains(&i) || new.starts_with(old.as_str()) || old.starts_with(new.as_str()) || ticks(old, new) { continue; }
+            if (a.flags | b.flags) & (LIVE | LOOP | EXITING | VIRTUAL) != 0 || a.op.min(b.op) < rule("text-swap") || !seen(b, size) { continue; }
+            geo.push((i, Finding { kind: "text-swap", element: short(&t.path), frame: *k, detail: format!("\"{old}\" → \"{new}\" in one frame") }));
+        }
         // Opacity that steps instead of fading.
         for w in fs.windows(2) {
             let (a, b) = (&w[0].1, &w[1].1);
@@ -667,6 +704,19 @@ mod tests {
         let mut r = rec(vec![("a", blink)], 60);
         for f in &mut r.tracks[0].frames { f.1.flags = 0; }
         assert!(kinds(&r).is_empty());
+    }
+
+    #[test]
+    fn words_that_swap_in_place_are_a_text_swap_but_a_ticking_count_is_not() {
+        let still: Vec<(usize, [f32; 4], f32)> = (0..60).map(|k| (k, [0.0, 0.0, 100.0, 20.0], 1.0)).collect();
+        let with = |words: &[(usize, &str)]| {
+            let mut r = rec(vec![("a", still.clone())], 60);
+            r.tracks[0].words = words.iter().map(|(k, w)| (*k, w.to_string())).collect();
+            kinds(&r)
+        };
+        assert_eq!(with(&[(0, "Read backoff.ts"), (30, "Grep retryBudget")]), ["text-swap"]);
+        assert!(with(&[(0, "9s"), (30, "10s")]).is_empty(), "a clock ticks");
+        assert!(with(&[(0, "Looks"), (30, "Looks right")]).is_empty(), "streaming words grow");
     }
 
     #[test]

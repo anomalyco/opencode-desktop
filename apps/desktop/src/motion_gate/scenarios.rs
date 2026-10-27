@@ -14,6 +14,10 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
+    ("text-swap", "working/#1/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
+    ("text-swap", "header/crumbs", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
+    ("text-swap", "activity-lane/activity-chip", "", "the composer's activity capsule counts its subagents in place (subagents::capsule)"),
+    ("reversal", "now/", "agents-", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
@@ -259,8 +263,11 @@ const ACTIONS: &[Action] = &[
     } },
     Action { name: "agents-today", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 0) },
     Action { name: "agents-status", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 1) },
-    Action { name: "agents-expanding", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
-    Action { name: "agents-grouped", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
+    Action { name: "agents-boxes", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
+    Action { name: "agents-stacked", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
+    Action { name: "agents-card", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 4) },
+    Action { name: "agents-summary", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 5) },
+    Action { name: "agents-chips", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 6) },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.
     Action { name: "dictate", circs: dictation_circs, run: |r| {
@@ -286,8 +293,8 @@ const ACTIONS: &[Action] = &[
     } },
 ];
 
-/// Background agents in the ⌘⇧K Subagent rows style `style`: two start a beat apart and step
-/// along, then one finishes and the other fails.
+/// Background agents in the ⌘⇧K Subagent rows style `style`: two start a beat apart (the
+/// second joins the first's group) and step along, then one finishes and the other fails.
 fn agents(r: &mut Run, style: usize) {
     use crate::agent_stories as st;
     r.rt.update(|s, tx| {

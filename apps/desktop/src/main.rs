@@ -3,6 +3,7 @@
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
 mod add_menu;
+mod agent_groups_view;
 mod agent_rows;
 mod agent_rows_view;
 mod agent_stories;

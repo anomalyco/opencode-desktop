@@ -96,12 +96,18 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         // Three agents' timeline rows in each ⌘⇧K Subagent rows style, light and dark.
         ("story-rows-today", |s| agent_stories::scene(s, 0, false)),
         ("story-rows-status", |s| agent_stories::scene(s, 1, false)),
-        ("story-rows-expanding", |s| agent_stories::scene(s, 2, false)),
-        ("story-rows-grouped", |s| agent_stories::scene(s, 3, false)),
+        ("story-rows-boxes", |s| agent_stories::scene(s, 2, false)),
+        ("story-rows-stacked", |s| agent_stories::scene(s, 3, false)),
+        ("story-rows-card", |s| agent_stories::scene(s, 4, false)),
+        ("story-rows-summary", |s| agent_stories::scene(s, 5, false)),
+        ("story-rows-chips", |s| agent_stories::scene(s, 6, false)),
         ("story-rows-today-dark", |s| agent_stories::scene(s, 0, true)),
         ("story-rows-status-dark", |s| agent_stories::scene(s, 1, true)),
-        ("story-rows-expanding-dark", |s| agent_stories::scene(s, 2, true)),
-        ("story-rows-grouped-dark", |s| agent_stories::scene(s, 3, true)),
+        ("story-rows-boxes-dark", |s| agent_stories::scene(s, 2, true)),
+        ("story-rows-stacked-dark", |s| agent_stories::scene(s, 3, true)),
+        ("story-rows-card-dark", |s| agent_stories::scene(s, 4, true)),
+        ("story-rows-summary-dark", |s| agent_stories::scene(s, 5, true)),
+        ("story-rows-chips-dark", |s| agent_stories::scene(s, 6, true)),
         ("sidebar-closed", |s| {
             open_scene(s);
             s.finish_stream();

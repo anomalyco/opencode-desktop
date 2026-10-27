@@ -2,7 +2,7 @@
 //! and how it ended, for the ⌘⇧K Subagent rows styles (`agent_rows_view.rs`). Today's row
 //! (`subagents::card`) needs none of it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rune::Tx;
 use serde_json::Value;
@@ -21,19 +21,35 @@ pub enum Style {
     Today,
     /// One line: the task, what it's doing now or how it ended, its type and its run time.
     Status,
-    /// The task over its last few steps while it runs, then over its result.
-    Expanding,
-    /// Agents started together share one card, a line each, with their overall progress.
-    Grouped,
+    /// Agents started together: a quiet "3 agents" line with their counts, then a box each.
+    Boxes,
+    /// A box each, stacked so neighbours share an edge, with no header.
+    Stacked,
+    /// One card with a live row per agent: no header, no dividers.
+    Card,
+    /// One line, "3 agents · Read live.ts", that opens to a row per agent.
+    Summary,
+    /// A chip per agent, under one line with the latest step from any of them.
+    Chips,
 }
 
-pub const NAMES: [&str; 4] = ["Today", "Live status", "Expanding", "Grouped"];
+impl Style {
+    /// Whether agents started together draw as one group.
+    pub fn groups(self) -> bool {
+        !matches!(self, Style::Today | Style::Status)
+    }
+}
+
+pub const NAMES: [&str; 7] = ["Today", "Live status", "Boxes", "Stacked", "One card", "Summary", "Chips"];
 
 pub fn style(s: &App) -> Style {
     match s.knobs.get(&crate::knobs::SUBAGENT_ROWS) as usize {
         1 => Style::Status,
-        2 => Style::Expanding,
-        3 => Style::Grouped,
+        2 => Style::Boxes,
+        3 => Style::Stacked,
+        4 => Style::Card,
+        5 => Style::Summary,
+        6 => Style::Chips,
         _ => Style::Today,
     }
 }
@@ -47,6 +63,12 @@ pub struct Live {
     ended: HashMap<String, (bool, i64, Option<String>)>,
     /// The last poll's clock, to tell when a second has passed.
     polled: i64,
+    /// Counts what changed, so a session's last change can be told from another's.
+    tick: u64,
+    /// When each session's line last changed, on `tick`.
+    moved: HashMap<String, u64>,
+    /// Summaries opened to a row per agent, by their first call.
+    pub open: HashSet<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,8 +85,11 @@ pub struct Run {
     /// The latest steps, newest last ("Read backoff.ts"), and how many came before them.
     pub steps: Vec<String>,
     pub taken: usize,
-    /// "12s": how long it has run, or ran.
+    /// "12s": how long it has run, or ran, and the same in milliseconds.
     pub time: Option<String>,
+    pub ms: i64,
+    /// When its line last changed, to find a group's latest.
+    pub moved: u64,
     /// Its answer's first line, once done.
     pub result: Option<String>,
     /// What went wrong, once failed.
@@ -111,6 +136,8 @@ impl App {
         if sid.is_empty() || self.session(sid).is_none_or(|i| i.parent.is_none()) {
             return false;
         }
+        self.agent_rows.tick += 1;
+        let tick = self.agent_rows.tick;
         let step = match ty {
             "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
             "session.reasoning.started" => "Thinking".to_owned(),
@@ -121,6 +148,7 @@ impl App {
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
                 self.agent_rows.ended.insert(sid.to_owned(), (ty != "session.execution.succeeded", self.now_ms, error));
+                self.agent_rows.moved.insert(sid.to_owned(), tick);
                 return true;
             }
             _ => return false,
@@ -131,6 +159,7 @@ impl App {
         }
         list.push(step);
         *taken += 1;
+        self.agent_rows.moved.insert(sid.to_owned(), tick);
         if list.len() > KEEP {
             list.remove(0);
         }
@@ -148,17 +177,19 @@ impl App {
             Some((l, n)) => (l.clone(), n.saturating_sub(l.len())),
             None => (child.and_then(|c| self.last_tool(c)).into_iter().collect(), 0),
         };
-        let time = info.filter(|i| i.created > 0).map(|i| {
+        let ms = info.filter(|i| i.created > 0).map(|i| {
             let end = match ended {
                 _ if running => self.now_ms,
                 Some(e) => e.1,
                 None => i.idle.unwrap_or(i.updated).max(i.created),
             };
-            crate::subagents::elapsed(end - i.created)
+            end - i.created
         });
+        let time = ms.map(crate::subagents::elapsed);
+        let moved = child.and_then(|c| self.agent_rows.moved.get(c)).copied().unwrap_or(0);
         let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c))).flatten();
         let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
-        Run { state, steps, taken, time, result, error }
+        Run { state, steps, taken, time, ms: ms.unwrap_or(0), moved, result, error }
     }
 
     fn last_tool(&self, child: &str) -> Option<String> {
@@ -198,3 +229,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     tx.wake_after(std::time::Duration::from_millis((next - now).max(1) as u64));
     now.div_euclid(1000) != last.div_euclid(1000)
 }
+
+#[cfg(test)]
+#[path = "agent_rows_tests.rs"]
+mod tests;
