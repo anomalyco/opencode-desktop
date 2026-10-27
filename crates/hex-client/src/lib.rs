@@ -18,6 +18,27 @@ static LEVEL: AtomicU32 = AtomicU32::new(0);
 /// `keep` is writing audio as it comes, so `level` is live.
 static STREAMING: AtomicBool = AtomicBool::new(false);
 
+/// Why a capture Hex has already ended can't be finished, from the code Hex answers a
+/// heartbeat or finish with: a mic event cleared it, an Escape key-down anywhere cancelled it, or
+/// its recording was gone. None for a code worth trying again.
+pub fn ended(code: &str) -> Option<&'static str> {
+    match code {
+        "dictation-not-active" | "dictation-not-found" => Some(STOPPED),
+        "cancelled" => Some(CANCELLED),
+        "capture-discarded" => Some(LOST),
+        _ => None,
+    }
+}
+
+const STOPPED: &str = "Hex stopped the recording";
+const CANCELLED: &str = "Hex cancelled the recording: Esc anywhere cancels it";
+const LOST: &str = "Hex lost the recording";
+
+/// `finish` failed because Hex had already ended the capture, so asking again won't help.
+pub fn is_ended(why: &str) -> bool {
+    [STOPPED, CANCELLED, LOST].contains(&why)
+}
+
 /// How loud the speaker is now, for a recording's meter.
 pub fn level() -> f32 {
     f32::from_bits(LEVEL.load(Ordering::Relaxed))
@@ -184,10 +205,7 @@ impl Hex {
 
     /// Stops the microphone and waits for the full transcript.
     pub fn finish(&self, c: &Capture) -> Result<String, String> {
-        let v = self.call(&format!("/dictations/{}/finish", c.id), Some(&c.owner), None, Duration::from_secs(130)).map_err(|code| match code.as_str() {
-            "dictation-not-active" | "dictation-not-found" => "Hex stopped the recording".to_owned(),
-            _ => format!("Hex couldn't finish: {code}"),
-        })?;
+        let v = self.call(&format!("/dictations/{}/finish", c.id), Some(&c.owner), None, Duration::from_secs(130)).map_err(|code| ended(&code).map_or_else(|| format!("Hex couldn't finish: {code}"), str::to_owned))?;
         Ok(v["transcript"].as_str().unwrap_or("").to_owned())
     }
 
