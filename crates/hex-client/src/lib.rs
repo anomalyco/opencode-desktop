@@ -7,9 +7,18 @@
 
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+
+/// How loud the microphone was in the last stretch `keep` wrote, 0–1, as f32 bits.
+static LEVEL: AtomicU32 = AtomicU32::new(0);
+
+/// How loud the speaker is now, for a recording's meter.
+pub fn level() -> f32 {
+    f32::from_bits(LEVEL.load(Ordering::Relaxed))
+}
 
 pub struct Hex {
     base: String,
@@ -117,15 +126,23 @@ impl Hex {
             };
             carry.extend_from_slice(&buf[..n]);
             let whole = carry.len() / 4 * 4;
+            let mut power = 0.0f32;
             for b in carry[..whole].chunks_exact(4) {
                 let f = f32::from_le_bytes([b[0], b[1], b[2], b[3]]).clamp(-1.0, 1.0);
+                power += f * f;
                 out.write_all(&((f * i16::MAX as f32) as i16).to_le_bytes()).map_err(|e| e.to_string())?;
                 samples += 1;
+            }
+            if whole > 0 {
+                // -50 dBFS (a quiet room) is 0 and -10 dBFS is 1, so a normal voice sits near half.
+                let db = 10.0 * (power / (whole / 4) as f32).max(1e-10).log10();
+                LEVEL.store(((db + 50.0) / 40.0).clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
             }
             carry.drain(..whole);
             // On disk as it comes, so an app that dies mid-sentence leaves the audio so far.
             out.flush().map_err(|e| e.to_string())?;
         }
+        LEVEL.store(0, Ordering::Relaxed);
         out.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         out.write_all(&wav_header(c.rate, samples)).map_err(|e| e.to_string())?;
         let file = out.into_inner().map_err(|e| e.to_string())?;
