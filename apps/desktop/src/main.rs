@@ -14,6 +14,7 @@ mod pickers;
 mod queue;
 mod question;
 mod restore;
+mod session_pages;
 mod shortcuts;
 mod subagents;
 mod settings;
@@ -57,6 +58,9 @@ pub enum Source {
 pub struct App {
     pub source: Source,
     inbox: Option<Receiver<Incoming>>,
+    pages: Option<session_pages::Pages>,
+    page_history: Option<(std::time::Instant, session_pages::Key, String)>,
+    page_history_loaded: HashSet<String>,
     pub projects: Vec<Project>,
     pub sessions: Vec<SessionInfo>,
     pub route: Route,
@@ -161,6 +165,9 @@ impl App {
         App {
             source: Source::Fixture,
             inbox: None,
+            pages: None,
+            page_history: None,
+            page_history_loaded: HashSet::new(),
             projects: Vec::new(),
             sessions: Vec::new(),
             route: Route::Home,
@@ -513,9 +520,10 @@ impl App {
             self.save_tabs();
         }
         tx.settle();
+        self.open_page(id, tx);
         match &self.source {
             Source::Live { requests: Some(r), .. } => {
-                let _ = r.send(Request::Session(id.to_owned()));
+                if self.pages.is_none() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Pending(id.to_owned()));
                 let _ = r.send(Request::Inbox(id.to_owned()));
             }
@@ -862,7 +870,9 @@ impl App {
                 && self.route == Route::Session(sid.clone())
                 && let Source::Live { requests: Some(r), .. } = &self.source
             {
-                let _ = r.send(Request::Session(sid));
+                if let Some(pages) = &self.pages {
+                    pages.request(session_pages::Key { id: sid.clone(), updated: self.session(&sid).map_or(0, |s| s.updated) }, true);
+                } else { let _ = r.send(Request::Session(sid)); }
             }
         }
         if ty == "project.updated"
@@ -881,6 +891,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     let mut changed = false;
+    changed |= s.poll_pages(tx);
     let arrivals = Arrivals::before(s);
     let asked = s.question_shown();
     if let Some(inbox) = s.inbox.take() {
@@ -1032,6 +1043,7 @@ fn setup(s: &mut App, waker: Waker) {
     missing.sort();
     missing.dedup();
     if let Source::Live { server, requests, writes, .. } = &mut s.source {
+        s.pages = Some(session_pages::Pages::live(server.clone(), waker.clone()));
         let media = server.clone();
         s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
         let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);
@@ -1058,10 +1070,14 @@ fn setup(s: &mut App, waker: Waker) {
             s.open(&id, &mut Tx::default());
         }
     }
-    // The first frame of a live session already has its transcript (one synchronous GET).
-    if let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
+    // Small newest pages, on the speculative lane after foreground startup work is queued.
+    let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
+    recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
+    for session in recent.into_iter().take(session_pages::WARM) { s.prefetch_session(&session.id); }
+    // Deterministic headless snapshots have no wall-clock event loop to await the worker.
+    if headless() && let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
         && !s.transcripts.contains_key(id)
-        && let Ok(v) = server.get(&format!("/api/session/{id}/message?limit=80&order=desc"))
+        && let Ok(v) = server.read(&format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST))
     {
         s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
     }

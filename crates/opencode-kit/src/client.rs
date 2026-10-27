@@ -318,7 +318,7 @@ impl Server {
     }
 
     /// A read `connect` makes: with the capability header when opted in.
-    fn read(&self, path: &str) -> Result<Value, String> {
+    pub fn read(&self, path: &str) -> Result<Value, String> {
         self.get_with(path, self.media_refs.then_some(MEDIA_CAPABILITY))
     }
 

@@ -207,3 +207,84 @@ fn cold_session_benchmark() {
         }
     }
 }
+
+#[test]
+#[ignore = "private captured pages; --release COLD_SESSION_DIR"]
+fn cold_image_benchmark() {
+    use std::{sync::{Arc, mpsc::channel}, time::{Duration, Instant}};
+    let dir = std::env::var("COLD_SESSION_DIR").unwrap();
+    assert!(!cfg!(debug_assertions));
+    let cases: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/cases.json")).unwrap()).unwrap();
+    for case in cases.as_array().unwrap() {
+        let (name, id) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+        let raw = std::fs::read_to_string(format!("{dir}/{name}.json")).unwrap();
+        let value = serde_json::from_str(&raw).unwrap();
+        let mut times = vec![];
+        for n in 0..8 {
+            let mut app = App::empty();
+            app.zoom = 1.3;
+            app.route = Route::Session(id.into());
+            app.transcripts.insert(id.into(), Transcript { session: id.into(), messages: opencode_kit::model::parse_messages(&value) });
+            let (wake, woke) = channel();
+            app.attach.set_waker(Arc::new(move || { let _ = wake.send(()); }));
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            let start = Instant::now();
+            rt.frame(0.0);
+            let images = rt.state.attach.image_handles();
+            if images.is_empty() { println!("METRIC name={name}_mounted_images count=0"); break; }
+            for img in &images { img.wait().unwrap(); }
+            // The worker, not mouse movement or a timer, wakes the redraw.
+            woke.recv_timeout(Duration::from_secs(10)).expect("image completion must wake the app");
+            rt.update(|_, _| {});
+            rt.frame(0.0);
+            if n > 0 { times.push(start.elapsed().as_secs_f64() * 1000.0); }
+        }
+        if !times.is_empty() { report(&format!("{name}_frame_and_images_ms"), &mut times); }
+    }
+}
+
+#[test]
+#[ignore = "live GET-only latest-page benchmark; --release COLD_SESSION_DIR"]
+fn latest_page_benchmark() {
+    use crate::session_pages::{Key, Pages};
+    use opencode_kit::client::Server;
+    use std::{sync::Arc, time::{Duration, Instant}};
+    assert!(!cfg!(debug_assertions));
+    let dir = std::env::var("COLD_SESSION_DIR").unwrap();
+    let cases: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/cases.json")).unwrap()).unwrap();
+    for case in cases.as_array().unwrap() {
+        let (name, id) = (case[0].as_str().unwrap(), case[1].as_str().unwrap());
+        let mut cold = vec![];
+        let mut warm = vec![];
+        for n in 0..8 {
+            let server = Server::new("http://127.0.0.1:4096");
+            let pages = Pages::new(Arc::new(move |path| server.read(path)), None, Arc::new(|| {}));
+            let start = Instant::now();
+            pages.request(Key { id: id.into(), updated: 0 }, true);
+            let page = pages.results.recv_timeout(Duration::from_secs(20)).unwrap().unwrap();
+            let ready = start.elapsed();
+            let mut app = App::empty();
+            app.route = Route::Session(id.into());
+            app.zoom = 1.3;
+            app.transcripts.insert(id.into(), Transcript { session: id.into(), messages: page.messages.clone() });
+            let frame = Instant::now();
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            rt.frame(0.0);
+            let elapsed = (ready + frame.elapsed()).as_secs_f64() * 1000.0;
+            if n > 0 { cold.push(elapsed); }
+            let mut app = App::empty();
+            app.zoom = 1.3;
+            app.pages = Some(pages);
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            rt.frame(0.0);
+            let click = Instant::now();
+            rt.update(|s, tx| s.open(id, tx));
+            rt.frame(0.0);
+            assert!(!rt.state.transcripts[id].messages.is_empty());
+            assert_eq!(rt.scroll_at_bottom(&format!("scroll-{id}")), Some(true));
+            if n > 0 { warm.push(click.elapsed().as_secs_f64() * 1000.0); }
+        }
+        report(&format!("{name}_latest_cold_ms"), &mut cold);
+        report(&format!("{name}_prefetched_click_ms"), &mut warm);
+    }
+}

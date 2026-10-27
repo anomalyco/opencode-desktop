@@ -152,6 +152,11 @@ impl Default for Attach {
 }
 
 impl Attach {
+    #[cfg(test)]
+    pub(crate) fn image_handles(&self) -> Vec<Image> {
+        self.images.borrow().values().map(|(_, image)| image.clone()).chain(self.refs.borrow().values().cloned()).collect()
+    }
+
     /// Something to send besides text.
     pub fn any(&self) -> bool {
         !self.files.is_empty() || !self.paths.is_empty()

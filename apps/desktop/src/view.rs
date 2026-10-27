@@ -260,6 +260,8 @@ fn sidebar(s: &App, p: &Pal) -> El {
         .child(
             col()
                 .key("tabs-scroll")
+                .role("list")
+                .focus_group()
                 .w_full()
                 .grow(1.0)
                 .shrink()
@@ -319,6 +321,8 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, c
     // 4px from the row's end; the row spans the sidebar less its 10 + 2 padding.
     let slot_x = s.sidebar_w - 12.0 - 24.0;
     let id = t.id.clone();
+    let hover_id = t.id.clone();
+    let nav_ids: Vec<_> = s.tabs.iter().map(|t| t.id.clone()).collect();
     let close_id = t.id.clone();
     let before = if index > 0 { TAB_GAP / 2.0 } else { 0.0 };
     let after = if index + 1 < count { TAB_GAP / 2.0 } else { 0.0 };
@@ -333,6 +337,8 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, c
         .pb(after)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
+        .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
+        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
             // tabs don't open on a drag either).
@@ -647,7 +653,8 @@ fn home(s: &App, p: &Pal) -> El {
         let d = day(s.now_ms) - day(ses.updated);
         groups[if d <= 0 { 0 } else if d == 1 { 1 } else { 2 }].1.push(ses);
     }
-    let mut list = col().key("groups").w_full().pr(12.0).pb(64.0);
+    let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|(_, items)| items.iter().map(|s| s.id.clone())).collect::<Vec<_>>());
+    let mut list = col().key("groups").role("list").focus_group().w_full().pr(12.0).pb(64.0);
     let mut first = true;
     for (title, items) in groups.into_iter().filter(|g| !g.1.is_empty()) {
         let mut header = row().key(format!("h-{title}")).h(28.0).pl(12.0).center_y().child(text(title).font(UI).color(p.muted));
@@ -672,6 +679,9 @@ fn home(s: &App, p: &Pal) -> El {
             let project = s.project(&ses.project);
             let proj = project.map_or("", |x| x.name.as_str());
             let id = ses.id.clone();
+            let hover_id = id.clone();
+            let index = nav_ids.iter().position(|x| x == &id).unwrap_or(0);
+            let nav = nav_ids.clone();
             rows = rows.child(
                 row()
                     .key(format!("r-{}", ses.id))
@@ -685,6 +695,8 @@ fn home(s: &App, p: &Pal) -> El {
                     .radius(6.0)
                     .hover(p.hover)
                     .press(p.pressed)
+                    .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
+                    .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
                     .child(crate::icons::badge(s, p, project, proj))
                     .child(text(title_of(ses)).font(UI_MED).color(p.text).truncate())

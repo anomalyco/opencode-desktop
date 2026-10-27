@@ -76,7 +76,7 @@ pub struct Switcher {
     active: Option<(String, String)>,
     restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes.
-    loaded: Vec<SessionInfo>,
+    pub(crate) loaded: Vec<SessionInfo>,
     /// The query last sent to the server, the one still in flight and the one that failed.
     searched: String,
     loading: Option<String>,
@@ -346,6 +346,7 @@ impl App {
                     tx.scroll_into_view_in("switcher-scroll", format!("sw-{key}"));
                 }
                 self.switcher.activate(key);
+                if let Action::Session(id) = &entries[i].action { self.prefetch_session(id); }
             }
             return true;
         }
@@ -384,6 +385,10 @@ impl App {
         if !self.switcher.open {
             return changed;
         }
+        let entries = self.switcher_entries();
+        if let Some(active) = self.switcher_active(&entries)
+            && let Some(Entry { action: Action::Session(id), .. }) = entries.iter().find(|e| e.key == active)
+        { self.prefetch_session(id); }
         // Results land at once: no row fades in or slides to its place.
         if changed {
             tx.instant();
@@ -515,6 +520,7 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
             if inside {
                 tx.instant();
                 s.switcher.activate(hover.clone());
+                if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
             }
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
