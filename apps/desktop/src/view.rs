@@ -1605,7 +1605,9 @@ fn composer(s: &App, p: &Pal) -> El {
 }
 
 fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
-    let mut button = ghost(p, kind.key(), label, true, color).label(format!("Choose {}", kind.key()));
+    // A new label resizes it and moves its neighbours in the choice, with no glide.
+    let mut button = ghost(p, kind.key(), label, true, color).label(format!("Choose {}", kind.key()))
+        .motion(no_motion().enter);
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }

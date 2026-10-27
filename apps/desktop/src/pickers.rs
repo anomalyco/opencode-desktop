@@ -333,6 +333,8 @@ mod tests {
         key(&mut rt, Key::Down); // low
         key(&mut rt, Key::Enter);
         assert_eq!(rt.state.selection().model.variant, "low");
+        let effort = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("effort")).unwrap();
+        assert!(!effort.moving && effort.rect == effort.target, "the new label's width cuts: {:?} → {:?}", effort.rect, effort.target);
         tap(&mut rt, "model");
         for _ in 0..60 { rt.frame(1.0 / 60.0); }
         let (x, y) = rt.find("option-anthropic:claude-sonnet-5-5").unwrap();
