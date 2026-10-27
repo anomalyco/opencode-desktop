@@ -1077,7 +1077,7 @@ fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
         .heading_font(2, H2)
         .heading_font(3, H3)
         .code_block_font(CODE);
-    Markdown::new(src).style(style).reveal(fade).streaming(streaming).build(&kit)
+    Markdown::new(src).style(style).reveal(fade).streaming(streaming).on_link(|s: &mut App, url: &str| s.open_link(url)).build(&kit)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1452,6 +1452,23 @@ mod tests {
     use rune::{Env, Runtime, TextEdit};
 
     use crate::App;
+
+    #[test]
+    fn a_link_in_a_message_opens() {
+        fn view(_: &App, cx: &mut rune::Cx<App>) -> rune::El {
+            let p = super::pal(cx.system_dark());
+            rune::col().w_full().child(super::markdown_view(&p, "[openthislink](https://example.com/pr/1)", 0.0, false))
+        }
+        let mut rt = Runtime::new(App::empty(), view, (600.0, 200.0), Env::new(true, 1.0));
+        rt.frame(0.0);
+        let link = rt.elements().into_iter().find(|e| e.text.as_deref().is_some_and(|t| t.contains("openthislink"))).unwrap();
+        let (x, y) = (link.rect[0] + 8.0, link.rect[1] + link.rect[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.opened, vec!["https://example.com/pr/1".to_owned()]);
+    }
 
     #[test]
     fn a_tool_joining_the_group_slides_its_chevron() {
