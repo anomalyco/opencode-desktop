@@ -5,6 +5,7 @@
 mod attachments;
 mod palette;
 mod pickers;
+mod restore;
 mod shortcuts;
 mod switcher;
 mod tabs;
@@ -80,6 +81,8 @@ pub struct App {
     pub search: TextEdit,
     pub pickers: pickers::Pickers,
     pub switcher: switcher::Switcher,
+    /// The open session and composer drafts, saved for the next launch.
+    pub restore: restore::Restore,
     pub edge: usize,
     pub reduced_motion: bool,
     pub status: String,
@@ -136,6 +139,7 @@ impl App {
             search: TextEdit::new(""),
             pickers: pickers::Pickers::default(),
             switcher: switcher::Switcher::default(),
+            restore: restore::Restore::default(),
             edge,
             reduced_motion: flag("--reduced-motion"),
             status: String::new(),
@@ -207,6 +211,7 @@ impl App {
         if let Some(z) = tabs::load_zoom() {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
+        self.restore_ui(&server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         self.status = format!("Live · {}", server.base.trim_start_matches("http://"));
@@ -793,6 +798,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.poll_switcher(tx);
+    if let Source::Live { server, .. } = &s.source {
+        let base = server.base.clone();
+        s.poll_restore(&base);
+    }
     changed
 }
 
@@ -809,11 +818,12 @@ fn setup(s: &mut App, waker: Waker) {
         for t in s.tabs.iter().filter(|t| !s.sessions.iter().any(|x| x.id == t.id)) {
             let _ = r.send(Request::Info(t.id.clone()));
         }
-        if let Route::Session(id) = &s.route {
-            let _ = r.send(Request::Pending(id.clone()));
-        }
         *requests = Some(r);
         s.inbox = Some(inbox);
+        // The session open at last quit (see `restore`) subscribes like a click on its tab.
+        if let Route::Session(id) = s.route.clone() {
+            s.open(&id, &mut Tx::default());
+        }
     }
     // `--session <id or title words>` opens a session at start.
     if let Some(raw) = arg("--session") {
