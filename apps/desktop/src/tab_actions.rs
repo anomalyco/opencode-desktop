@@ -67,6 +67,7 @@ impl App {
         tx.instant();
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
         let tab = self.tabs.remove(i);
+        self.forget_history(|s, x| s.root_of(x) == id);
         self.closed.push((i, tab));
         if self.route == Route::Session(id.to_owned()) {
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {

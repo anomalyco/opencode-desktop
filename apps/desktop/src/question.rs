@@ -391,6 +391,8 @@ impl App {
             Intent::None => return false,
             Intent::Dismiss => self.dismiss(&f, tx),
             Intent::Advance => self.next(&f, tx),
+            // ⌘[ on the first question isn't the dock's: it goes back through the history.
+            Intent::Question(-1) if tab == 0 && matches!(ev.key, Key::Command(_)) => return false,
             Intent::Question(step) => {
                 if step > 0 && !f.last(tab) {
                     self.jump(&f, tab + 1, tx);

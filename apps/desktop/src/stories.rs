@@ -148,6 +148,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
     Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
     Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: TURN_KEYS, open: actions_open, view: session_view },
+    Story { group: "Navigation", name: "Back and forward", knobs: &[], keys: crate::history_story::KEYS, open: crate::history_story::open, view: history_view },
     Story { group: "Session opening", name: open_story::NAMES[0], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 0, tx), view: opening_view },
     Story { group: "Session opening", name: open_story::NAMES[1], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 1, tx), view: opening_view },
     Story { group: "Session opening", name: open_story::NAMES[2], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 2, tx), view: opening_view },
@@ -333,6 +334,11 @@ fn session_view(s: &App, p: &Pal) -> El {
 /// A session opening, the whole page with its header, before and after the click.
 fn opening_view(s: &App, p: &Pal) -> El {
     frame(p, "story-opening").h_full().max_h(680.0).child(open_story::view(s, p))
+}
+
+/// The history strip over the page it is on.
+fn history_view(s: &App, p: &Pal) -> El {
+    frame(p, "story-history").h_full().max_h(680.0).child(crate::history_story::view(s, p))
 }
 
 // Setting up.

@@ -202,6 +202,7 @@ impl App {
             at += 1;
         }
         tx.instant();
+        self.forget_history(|_, x| gone.iter().any(|g| g == x));
         let open_gone = matches!(&self.route, Route::Session(open) if gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
         self.tabs.retain(|t| !gone.contains(&t.id));

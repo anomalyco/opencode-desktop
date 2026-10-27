@@ -12,6 +12,10 @@ mod dictation;
 #[cfg(test)]
 mod dictation_tests;
 mod events;
+mod history;
+mod history_story;
+#[cfg(test)]
+mod history_tests;
 mod icons;
 mod jump;
 mod keys;
@@ -99,6 +103,8 @@ pub struct App {
     pub projects: Vec<Project>,
     pub sessions: Vec<SessionInfo>,
     pub route: Route,
+    /// Where ⌘[ and ⌘] go (`history.rs`).
+    pub nav: history::History,
     pub transcripts: HashMap<String, Transcript>,
     pub expanded: HashSet<String>,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
@@ -248,6 +254,7 @@ impl App {
             dictation: Default::default(),
             switcher: switcher::Switcher::default(),
             settings: settings::Settings::default(),
+            nav: Default::default(),
             restore: restore::Restore::default(),
             opened: Vec::new(),
             activity_open: false,
@@ -379,6 +386,10 @@ impl App {
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
         if dictation::key(self, ev, tx) {
+            return true;
+        }
+        if let Some(forward) = history::bracket(ev, tx.physical_key()) {
+            self.navigate(forward, tx);
             return true;
         }
         let Some(action) = shortcuts::action(ev) else { return false };
@@ -577,6 +588,7 @@ impl App {
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
+    s.sync_history();
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     // A story's steps first: the events they play land below as arrivals.
     let mut changed = stories::poll(s, now, tx);
@@ -752,11 +764,11 @@ fn main() {
         if !headless() {
             launch::defer();
         }
-        let app = rune::App::new(spec).chrome(rune::Chrome {
+        let app = history::install(rune::App::new(spec).chrome(rune::Chrome {
             full_size_content: true,
             traffic_lights: Some((25.0, 25.0)),
             drag_regions: true,
-        });
+        }));
         let handle = app.handle();
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false })).run();
     }
