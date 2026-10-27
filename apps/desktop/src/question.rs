@@ -309,10 +309,11 @@ impl App {
         }
     }
 
-    /// The dock opened or closed: the surface springs to its new face, and the composer
-    /// gets the keyboard back.
+    /// The dock opened or closed: the surface springs to its new face, the timeline pinned
+    /// above it rides its top edge, and the composer gets the keyboard back.
     pub fn morph(&mut self, tx: &mut Tx) {
         tx.motion_curve(knobs::morph(self));
+        tx.follow_edge();
         if !self.question_shown() {
             self.composer.focused = true;
         }
@@ -901,6 +902,40 @@ mod tests {
         let hs = morph(&mut rt, "form.created", q);
         springs(&hs, "opening", 30..=60);
         assert!(rt.find("q-opt-0").is_some());
+    }
+
+    /// The timeline is pinned to its end while a question is up, so through the storybook's
+    /// morph loop it rides the surface's top edge both ways, frame by frame, on every Question
+    /// dock preset: its last row ends the same distance above the surface throughout.
+    #[test]
+    fn the_timeline_follows_the_morph() {
+        let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
+        for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
+            let mut app = App::empty();
+            crate::stories::scene(&mut app, "Morph loop");
+            crate::knobs::apply_preset(&mut app, p);
+            let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
+            rt.poll = Some(crate::poll);
+            rt.frame(0.0);
+            let gap = |rt: &Runtime<App>| {
+                let els = rt.elements();
+                let top = els.iter().find(|e| e.key.as_deref() == Some("composer")).unwrap().rect[1];
+                let last = els.iter().find(|e| e.key.as_deref() == Some("turn-actions")).expect("the last row").rect;
+                top - (last[1] + last[3])
+            };
+            let (rest, mut shown, mut flips) = (gap(&rt), rt.state.question_shown(), 0);
+            for frame in 0..120 * 7 {
+                rt.frame(1.0 / 120.0);
+                if rt.state.question_shown() != shown {
+                    shown = !shown;
+                    flips += 1;
+                }
+                let off = gap(&rt) - rest;
+                let way = if shown { "opening" } else { "closing" };
+                assert!(off.abs() < 0.5, "{p}, {way}: the timeline leaves the surface by {off} pt at frame {frame}");
+            }
+            assert!(flips >= 4, "{p}: the dock opened and closed twice ({flips} changes)");
+        }
     }
 
     /// Every Question dock preset but the bouncy one morphs without turning back or jumping,
