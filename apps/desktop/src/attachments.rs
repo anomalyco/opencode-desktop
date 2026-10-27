@@ -374,8 +374,9 @@ pub fn drop_files(s: &mut App, paths: &[std::path::PathBuf], tx: &mut Tx) {
 }
 
 /// Desktop's drop overlay (`composer/dropzone.tsx`) over a `w`×`h` page while a file drag is
-/// over it: a wash, faint diagonal stripes fading out from the centre, and an upload badge.
-/// It appears and leaves at once.
+/// over it: a wash, faint diagonal stripes fading out from the centre, an upload badge, and the
+/// label for a model that reads images and PDFs, as `attach_path` sends them. It appears and
+/// leaves at once.
 pub fn drop_overlay(s: &App, p: &Pal, (w, h): (f32, f32)) -> Option<El> {
     if !s.attach.drop_over || w <= 0.0 || h <= 0.0 {
         return None;
@@ -396,7 +397,7 @@ pub fn drop_overlay(s: &App, p: &Pal, (w, h): (f32, f32)) -> Option<El> {
             .fill(p.text.alpha(wash))
             .child(el().absolute(0.0, 0.0).w_full().h_full().fill(p.bg_base.alpha(0.25)).shape(stripes(w, h, p.text.alpha(stripe * 0.6))))
             .center()
-            .child(col().gap(20.0).center().child(badge).child(text("Drop images to add").font(DROP_LABEL).color(p.text))),
+            .child(col().gap(20.0).center().child(badge).child(text("Drop images, PDFs, or files to add").font(DROP_LABEL).color(p.text))),
     )
 }
 
@@ -735,19 +736,26 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let shot = dir.join("CleanShot 2026-10-26 at 8.00.42 PM@2x.png");
         std::fs::write(&shot, png(4, 4)).unwrap();
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, "hello").unwrap();
         let panel = rect(&rt, "panel").unwrap();
         // Over the timeline, well above the composer.
         let at = (panel[0] + panel[2] / 2.0, panel[1] + panel[3] * 0.3);
-        rt.drag_files(vec![shot.clone()], Some(at));
+        rt.drag_files(vec![shot.clone(), notes.clone()], Some(at));
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.drop_hovered().as_deref(), Some("panel"));
         let overlay = rect(&rt, "drop-overlay").expect("the overlay shows");
         assert!(overlay.iter().zip(panel).all(|(a, b)| (a - b).abs() < 0.5), "it covers the page: {overlay:?} vs {panel:?}");
-        rt.drop_files(vec![shot.clone(), dir.join("notes.txt")], Some(at));
+        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Drop images, PDFs, or files to add")), "Desktop's label");
+        rt.drop_files(vec![shot.clone(), notes.clone()], Some(at));
         rt.frame(1.0 / 60.0);
         std::fs::remove_dir_all(&dir).ok();
-        assert_eq!(rt.state.attach.files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["CleanShot 2026-10-26 at 8.00.42 PM@2x.png"]);
         assert!(rect(&rt, "drop-overlay").is_none(), "it leaves at once");
+        // The image travels inline; the text file reaches the model by path, as a file chip.
+        assert_eq!(rt.state.attach.files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["CleanShot 2026-10-26 at 8.00.42 PM@2x.png"]);
+        let paths: Vec<_> = rt.state.attach.paths.iter().map(|f| (f.name.as_str(), f.mime.as_str())).collect();
+        assert_eq!(paths, [("notes.txt", "text/plain")]);
+        assert!(rect(&rt, &format!("path-{}", notes.display())).is_some(), "the file shows as a chip");
     }
 
     #[test]
