@@ -31,6 +31,10 @@ pub enum Incoming {
     Pending { session: String, items: Vec<Pending> },
     /// A session this app just created (its first prompt is already sent).
     Created(SessionInfo),
+    /// The event stream is back after a drop: anything may have changed in the gap.
+    Reconnected,
+    /// The sessions running right now (the reply to `Request::Active`).
+    Active(Vec<String>),
 }
 
 pub enum Request {
@@ -42,6 +46,8 @@ pub enum Request {
     /// A session's undelivered prompts. The reply is `Incoming::Event` with type
     /// `session.inbox.listed` and data `{sessionID, items}` (see [`model::Inbox::apply`]).
     Inbox(String),
+    /// Which sessions are running (`/api/session/active`).
+    Active,
 }
 
 pub enum Write {
@@ -504,12 +510,18 @@ impl Server {
         out
     }
 
-    fn events(&self, inbox: &Sender<Incoming>, wake: &Waker) -> Result<(), String> {
+    fn events(&self, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool) -> Result<(), String> {
         let mut req = Self::agent(None).get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
         }
         let resp = req.call().map_err(|e| format!("events: {e}"))?;
+        if resumed {
+            if inbox.send(Incoming::Reconnected).is_err() {
+                return Ok(());
+            }
+            wake();
+        }
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
             let line = line.map_err(|e| format!("events: {e}"))?;
@@ -602,6 +614,13 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Status(e)),
                         },
+                        Request::Active => match server.get("/api/session/active") {
+                            Ok(v) => {
+                                let map = v.get("data").unwrap_or(&v);
+                                send(Incoming::Active(map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect()))
+                            }
+                            Err(e) => send(Incoming::Status(e)),
+                        },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
                         Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
                             Ok(v) => send(Incoming::Event {
@@ -625,13 +644,15 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
         .name("opencode-events".into())
         .spawn(move || {
             let mut backoff = 2;
+            let mut resumed = false;
             loop {
-                if let Err(e) = server.events(&inbox_tx, &wake) {
+                if let Err(e) = server.events(&inbox_tx, &wake, resumed) {
                     if inbox_tx.send(Incoming::Status(e)).is_err() {
                         return;
                     }
                     wake();
                 }
+                resumed = true;
                 std::thread::sleep(Duration::from_secs(backoff));
                 backoff = (backoff * 2).min(30);
             }

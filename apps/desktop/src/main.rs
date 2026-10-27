@@ -587,6 +587,34 @@ impl App {
         }
     }
 
+    /// The event stream came back: re-reads what a gap may have made stale (what's running, the
+    /// session list, pending requests and the open session's latest page), like the first load.
+    fn resync(&mut self) {
+        let Source::Live { requests: Some(r), .. } = &self.source else { return };
+        let _ = r.send(Request::Active);
+        let _ = r.send(Request::Sessions);
+        let open = match &self.route {
+            Route::Session(id) => Some(id.clone()),
+            _ => None,
+        };
+        let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
+        asked.extend(open.clone());
+        asked.sort();
+        asked.dedup();
+        for id in asked {
+            let _ = r.send(Request::Pending(id));
+        }
+        if let Some(id) = open {
+            let _ = r.send(Request::Inbox(id.clone()));
+            match &self.pages {
+                Some(pages) => pages.request(session_pages::Key { id: id.clone(), updated: self.session(&id).map_or(0, |s| s.updated) }, true),
+                None => {
+                    let _ = r.send(Request::Session(id));
+                }
+            }
+        }
+    }
+
     fn start_stream_if_due(&mut self, id: &str) {
         let stream = &self.fixture["stream"];
         if stream["session"].as_str() != Some(id) || stream["played"].as_bool() == Some(true) || flag("--no-stream") {
@@ -1050,6 +1078,14 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                             s.pending.push(p);
                         }
                     }
+                }
+                Incoming::Reconnected => {
+                    tx.instant();
+                    s.resync();
+                }
+                Incoming::Active(ids) => {
+                    tx.instant();
+                    s.running = ids.into_iter().collect();
                 }
                 Incoming::Created(info) => {
                     let id = info.id.clone();
