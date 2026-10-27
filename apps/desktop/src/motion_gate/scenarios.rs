@@ -196,7 +196,7 @@ const ACTIONS: &[Action] = &[
     } },
     Action { name: "question", circs: || {
         let mut v = places(Circ::default());
-        v.push(Circ { dock: Dock::Pending, ..Circ::default() });
+        v.extend(wide_and_narrow(Circ { dock: Dock::Pending, ..Circ::default() }));
         v
     }, run: |r| {
         let q = r.rt.state.fixture["question"].clone();
@@ -236,6 +236,18 @@ const ACTIONS: &[Action] = &[
         v
     }, run: |r| answer_question(r, 1) },
     Action { name: "question-dismissed", circs: || wide_and_narrow(Circ::default()), run: |r| answer_question(r, 4) },
+    // The queued prompt is delivered while the question shows under it: the queue closes
+    // into the question dock, then the question closes back to the composer.
+    Action { name: "queue-lands-over-question", circs: || wide_and_narrow(Circ { dock: Dock::Pending, ..Circ::default() }), run: |r| {
+        let q = r.rt.state.fixture["question"].clone();
+        r.event("form.created", q);
+        r.play(0.8);
+        r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": "msg_zzpending" }));
+        r.play(1.5);
+        r.event("form.replied", json!({ "id": "frm_fx0001", "sessionID": SID }));
+        // The dock closing ~360 pt settles in about 0.75 s.
+        r.play_out(1.5);
+    } },
     Action { name: "revert", circs: || {
         let mut v = wide_and_narrow(Circ::default());
         v.push(Circ { length: Length::Short, ..Circ::default() });

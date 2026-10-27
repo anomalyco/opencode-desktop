@@ -84,6 +84,13 @@ const MORPH_KEYS: &[Action<App>] = &[
         }
     } },
 ];
+const UNDER_QUEUE_KEYS: &[Action<App>] = &[
+    REPLAY,
+    Action { cap: "Q", label: "Queue one", run: queue },
+    Action { cap: "O", label: "Open the dock", run: |s, tx| if !s.question_shown() { emit(s, "form.created", form(s, &[0]), tx) } },
+    Action { cap: "C", label: "Close it", run: |s, tx| if s.question_shown() { emit(s, "form.replied", replied(s), tx) } },
+    Action { cap: "D", label: "Deliver the oldest", run: deliver_queued },
+];
 const GLOW_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "A", label: "Another arrives", run: arrive }];
 const SEND_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "S", label: "Send", run: send }];
 const STREAM_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "F", label: "Finish the stream", run: finish_stream }];
@@ -125,6 +132,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
     Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
+    Story { group: "Question dock", name: "Under a queue", knobs: MORPH_KNOBS, keys: UNDER_QUEUE_KEYS, open: under_queue_open, view: session_view },
     Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
     Story { group: "Timeline", name: "Arrival glow", knobs: GLOW_KNOBS, keys: GLOW_KEYS, open: glow_open, view: session_view },
     Story { group: "Timeline", name: "Send", knobs: ROW_KNOBS, keys: SEND_KEYS, open: send_open, view: session_view },
@@ -438,6 +446,16 @@ fn ask(s: &mut App, tx: &mut Tx) {
 fn answer(s: &mut App, tx: &mut Tx) {
     emit(s, "form.replied", replied(s), tx);
     s.play.after(BEAT, ask, tx);
+}
+
+/// A prompt waits in the queue while the session works, then the question opens under it:
+/// the queue and the dock share one outline.
+fn under_queue_open(s: &mut App, tx: &mut Tx) {
+    s.finish_stream();
+    let id = sid(s);
+    s.running.insert(id);
+    s.play.after(0.2, queue, tx);
+    s.play.after(1.0, |s, tx| emit(s, "form.created", form(s, &[0]), tx), tx);
 }
 
 /// A prompt from another client lands and glows.

@@ -4,7 +4,7 @@
 //! composer until the turn ends, where it can be steered (Send once the turn has stopped),
 //! taken back into the composer, or removed.
 
-use rune::{El, Icon, Tx, col, icon, row, text};
+use rune::{El, Icon, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use opencode_kit::client::{Prompt, Write};
@@ -184,23 +184,33 @@ fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, side: f32,
         .child(icon(glyph, size).color(p.icon_muted))
 }
 
-/// How far the queue tucks under the composer's top edge.
-const TUCK: f32 = 12.0;
+/// How far the queue tucks under the composer's top edge. Its shadow, like the composer's,
+/// shows through the composer's translucent ring; 8 pt is where the queue's shadow fading out
+/// meets the composer's, so the sides keep one tone across the divider.
+const TUCK: f32 = 8.0;
+/// How far below the composer's top edge the closed queue's face rests.
+const SINK: f32 = 6.0;
 
 /// The queue: one shape with the composer, its square bottom tucked under the composer's top
 /// edge. Empty, it is a line along that edge, so it opens and closes as its height springs and
 /// every queued prompt comes and goes through the composer.
+///
+/// The composer's ring is translucent and shows what's behind it, so the queue's own ring
+/// stops at the composer's top edge (`queue-clip` cuts its sides and drops its bottom edge)
+/// and only its fill tucks under, inset clear of the composer's ring. It casts the composer's
+/// shadow too, so both rings sit over the same backdrop. The two read as one outline, with the
+/// composer's top edge as the one divider.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let queued: Vec<&InboxItem> = s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default();
-    let panel = col()
-        .key("queue")
-        .w_full()
-        .max_w(crate::view::CONTENT_W)
-        .corners([12.0, 12.0, 0.0, 0.0])
-        .fill(crate::view::composer_fill(p))
-        .border(0.5, p.ring);
+    let shadow = if queued.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
+    let shell = col().key("queue").w_full().max_w(crate::view::CONTENT_W).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
+    let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).border(0.5, p.ring);
+    let clip = col().key("queue-clip").w_full().clip_soft(0.0);
+    let tuck = el().key("queue-tuck").mx(0.5).fill(crate::view::composer_fill(p));
     if queued.is_empty() {
-        return panel.h(0.0);
+        // Closed, the face rests below the composer's top edge, so closing it passes behind
+        // that edge rather than creeping up to it as a second line.
+        return shell.h(0.0).child(clip.h(0.0).child(face.mt(SINK).h(1.0))).child(tuck.h(0.0));
     }
     let n = queued.len();
     let mut list = col().key("queue-list").w_full();
@@ -210,16 +220,17 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
         list = list.child(queue_row(p, session, item, busy, !busy && k == 0));
     }
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
-    let mut panel = panel.role("list").label("Queued prompts").mb(-TUCK).px(6.0).pt(6.0).pb(if n > 4 { TUCK } else { 18.0 });
+    // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
+    let mut face = face.px(6.0).pt(6.0).pb(if n > 4 { 1.0 } else { 7.0 });
     if n > 3 {
-        panel = panel.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(text(format!("{n} QUEUED")).font(LABEL).color(p.muted)));
+        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(text(format!("{n} QUEUED")).font(LABEL).color(p.muted)));
     }
     let list = if n > 4 {
         col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 12.0).child(list)
     } else {
         list
     };
-    panel.child(list)
+    shell.role("list").label("Queued prompts").mb(-TUCK).child(clip.child(face.child(list))).child(tuck.h(TUCK))
 }
 
 /// Whether the open session has prompts in the queue, which squares the composer's top corners.
@@ -305,6 +316,25 @@ fn keycap(p: &Pal, key: &str) -> El {
     row().h(16.0).min_w(16.0).px(3.0).center().radius(3.0).fill(p.layer2).child(text(key.to_owned()).font(UI).color(p.faint))
 }
 
+/// The `queue*` scenes: the open session busy with `n` prompts queued, over the question dock
+/// when `ask`.
+pub fn scene(s: &mut App, n: usize, ask: bool) {
+    crate::scenes::busy_scene(s);
+    let crate::Route::Session(id) = s.route.clone() else { return };
+    let words = ["Then write up what changed in the PR description", "And keep the retry budget as it is", "Bump the version and tag it"];
+    for k in 0..n {
+        let item = InboxItem { id: format!("msg_zzqueued{k}"), text: words[k % words.len()].into(), delivery: Delivery::Queue, files: Vec::new() };
+        s.inboxes.entry(id.clone()).or_default().upsert(item);
+    }
+    if ask {
+        let q = s.fixture["question"].clone();
+        s.apply_event("form.created", &q);
+    }
+}
+
+#[cfg(test)]
+#[path = "queue_edges_tests.rs"]
+mod edges_tests;
 
 #[cfg(test)]
 mod tests {
@@ -587,8 +617,8 @@ mod tests {
         }
         let (queue, composer) = (element(&rt, "queue"), element(&rt, "composer"));
         assert!((queue.rect[0] - composer.rect[0]).abs() < 0.5 && (queue.rect[2] - composer.rect[2]).abs() < 0.5, "same edges: {:?} {:?}", queue.rect, composer.rect);
-        assert!(queue.rect[1] + queue.rect[3] >= composer.rect[1] + 11.5, "tucked under the composer's top edge: {:?} {:?}", queue.rect, composer.rect);
-        assert_eq!(queue.fill, composer.fill, "the composer's surface");
+        assert!(queue.rect[1] + queue.rect[3] >= composer.rect[1] + super::TUCK - 0.5, "tucked under the composer's top edge: {:?} {:?}", queue.rect, composer.rect);
+        assert_eq!(element(&rt, "queue-face").fill, composer.fill, "the composer's surface");
         assert!(composer.radius < 0.5, "the composer's top corners meet the queue square: {}", composer.radius);
     }
 
