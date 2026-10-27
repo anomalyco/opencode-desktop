@@ -33,8 +33,8 @@ pub enum Block<'a> {
     /// A subagent call. `session`: its child session, once the call names it. `background`: the
     /// call returned at once and the child runs on.
     Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str>, background: bool },
-    /// A tool that shows on its own (an answered question).
-    Tool(Step<'a>),
+    /// A question call, once answered, dismissed or failed (`question_row`).
+    Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
 }
 
 /// Folds consecutive assistant messages (a turn's steps) into rows. `live`: the last one is
@@ -88,7 +88,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                     "question" => {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
                             flush(&mut out, &mut group, &key);
-                            out.push(Block::Tool(Step::Tool { id, name, title, status, files }));
+                            out.push(Block::Question { id, status, input, metadata });
                         }
                     }
                     _ => fold_in(&mut group, id.clone(), Step::Tool { id, name, title, status, files }),
@@ -259,8 +259,7 @@ mod tests {
                 Block::Group { key, steps } => format!("{key}: {}", label(steps, false).text()),
                 Block::Text { body, .. } => format!("text {body}"),
                 Block::Agent { agent, .. } => format!("agent {agent}"),
-                Block::Tool(Step::Tool { name, .. }) => format!("tool {name}"),
-                Block::Tool(_) => unreachable!(),
+                Block::Question { id, .. } => format!("question {id}"),
             })
             .collect()
     }
@@ -307,7 +306,7 @@ mod tests {
         );
         assert_eq!(
             shape(&fold(&[&a], false)),
-            ["c-r: Used 1 Read", "agent general", "c-g: Used 2 Glob, Write", "tool question", "c-x: Used 1 mcp_thing"]
+            ["c-r: Used 1 Read", "agent general", "c-g: Used 2 Glob, Write", "question q2", "c-x: Used 1 mcp_thing"]
         );
     }
 

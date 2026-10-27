@@ -82,6 +82,12 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-send", |s| stories::scene(s, "Send")),
         ("story-stream", |s| stories::scene(s, "Streaming text")),
         ("story-tools", |s| stories::scene(s, "Tool rows")),
+        // Question answers, one scene per variant: one, several, multi-select, typed, dismissed.
+        ("story-answers-one", |s| crate::question_stories::scene(s, 0)),
+        ("story-answers-several", |s| crate::question_stories::scene(s, 1)),
+        ("story-answers-multi", |s| crate::question_stories::scene(s, 2)),
+        ("story-answers-typed", |s| crate::question_stories::scene(s, 3)),
+        ("story-answers-dismissed", |s| crate::question_stories::scene(s, 4)),
         ("story-working", |s| stories::scene(s, "Working")),
         ("story-steer", |s| stories::scene(s, "Steer and Pending")),
         ("story-queue", |s| stories::scene(s, "Queue dock")),

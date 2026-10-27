@@ -2236,6 +2236,35 @@
     }
    },
    {
+    "t": 8.21,
+    "type": "session.tool.called",
+    "data": {
+     "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+     "assistantMessageID": "msg_001a162cb6dbc013fixture00",
+     "id": "call_question_reply",
+     "name": "question",
+     "input": {
+      "questions": [
+       {"header": "Location", "question": "Where should the test live?", "options": [{"label": "Next to backoff.ts (Recommended)", "description": ""}, {"label": "In test/net/", "description": ""}]},
+       {"header": "Cases", "question": "Which other cases should it cover?", "multiple": true, "options": [{"label": "Cap at 30 s", "description": ""}, {"label": "Jitter stays in range", "description": ""}, {"label": "Two drops in a row", "description": ""}]}
+      ]
+     },
+     "executed": true
+    }
+   },
+   {
+    "t": 8.25,
+    "type": "session.tool.success",
+    "data": {
+     "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+     "assistantMessageID": "msg_001a162cb6dbc013fixture00",
+     "id": "call_question_reply",
+     "content": [{"type": "text", "text": "\u2026"}],
+     "metadata": {"answers": [["Next to backoff.ts (Recommended)"], ["Cap at 30 s", "Jitter stays in range"]]},
+     "executed": true
+    }
+   },
+   {
     "t": 8.281,
     "type": "session.step.ended",
     "data": {

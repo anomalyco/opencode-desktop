@@ -24,6 +24,8 @@ mod perf;
 mod pickers;
 mod queue;
 mod question;
+mod question_row;
+mod question_stories;
 mod restore;
 mod revert;
 mod scenes;

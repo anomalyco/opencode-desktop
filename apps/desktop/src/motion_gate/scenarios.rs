@@ -19,6 +19,8 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-out", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("offset-jump", "t-msg_001a162cb6dbc013fixture00-2", "tool-expand", "the row under an instantly opened tool group moves with it (turns::group)"),
+    ("jump", "t-msg_001a162cb6dbc013fixture00-2", "tool-expand", "the row under an instantly opened tool group moves with it (turns::group)"),
+    ("jerk", "fixture00-", "revert/pinned/long/narrow", "the restored turn glides back from below the fold; the turn's question row lengthens the glide, so its ease-in steps 10.5 pt per frame faster where the threshold is 10"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("offset-jump", "t-msg_001a162cb6dbc013fixture00-2", "send-during-reflow", "the row under an instantly opened tool group moves with it (turns::group)"),
@@ -222,6 +224,14 @@ const ACTIONS: &[Action] = &[
         key(r, "esc", Key::Escape);
         r.play(0.5);
     } },
+    // The agent asks: nothing joins the timeline while the dock asks, then the answer lands as
+    // the call's row, each question over its answer (four questions), or as "Questions dismissed".
+    Action { name: "question-answered", circs: || {
+        let mut v = places(Circ::default());
+        v.push(Circ { dock: Dock::Pending, ..Circ::default() });
+        v
+    }, run: |r| answer_question(r, 1) },
+    Action { name: "question-dismissed", circs: || wide_and_narrow(Circ::default()), run: |r| answer_question(r, 4) },
     Action { name: "revert", circs: || {
         let mut v = wide_and_narrow(Circ::default());
         v.push(Circ { length: Length::Short, ..Circ::default() });
@@ -311,6 +321,21 @@ fn dictation_circs() -> Vec<Circ> {
 
 fn dictation_key() -> KeyEvent {
     KeyEvent { key: Key::Command('m'), mods: Mods { cmd: true, shift: true, ..Mods::default() } }
+}
+
+/// The Question answers story's variant `v`, asked and then answered.
+fn answer_question(r: &mut Run, v: usize) {
+    use crate::question_stories as st;
+    let send = |r: &mut Run, events: Vec<(&str, serde_json::Value)>| {
+        for (ty, mut d) in events {
+            d["sessionID"] = SID.into();
+            r.event(ty, d);
+        }
+    };
+    send(r, st::asked(v));
+    r.play(0.8);
+    send(r, st::answered(v));
+    r.play_out(1.0);
 }
 
 /// Opening a session through the real gate: cold (ready at 100 ms), prefetched, slow.

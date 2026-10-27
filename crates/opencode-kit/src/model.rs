@@ -158,7 +158,25 @@ pub enum Part {
     Reasoning { text: String, started: i64, completed: Option<i64> },
     /// `files`: what the tool returned besides text, such as the image a `read` loaded.
     /// `metadata`: the tool's own state (a subagent call's `sessionID`).
+    /// A failed call keeps its error there too: see [`tool_error`].
     Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment>, metadata: Value },
+}
+
+/// Where a failed tool call's error message is kept in its `metadata`.
+const TOOL_ERROR: &str = "opencode-kit.error";
+
+/// A failed tool call's error message, from its `metadata`.
+pub fn tool_error(metadata: &Value) -> Option<&str> {
+    metadata[TOOL_ERROR].as_str()
+}
+
+/// Keeps `error`'s message (an `{ message }` object or a string) in `metadata`.
+fn keep_tool_error(metadata: &mut Value, error: &Value) {
+    let Some(message) = error["message"].as_str().or(error.as_str()) else { return };
+    if !metadata.is_object() {
+        *metadata = Value::Object(Default::default());
+    }
+    metadata[TOOL_ERROR] = message.into();
 }
 
 /// The child session a subagent call runs in, once the call names it.
@@ -406,6 +424,8 @@ fn parse_part(c: &Value) -> Option<Part> {
         "tool" => {
             let name = s(&c["name"]);
             let input = c["state"]["input"].clone();
+            let mut metadata = c["state"]["metadata"].clone();
+            keep_tool_error(&mut metadata, &c["state"]["error"]);
             Part::Tool {
                 id: s(&c["id"]),
                 title: tool_title(&name, &input),
@@ -413,7 +433,7 @@ fn parse_part(c: &Value) -> Option<Part> {
                 status: tool_status(&c["state"]["status"]),
                 input,
                 files: parse_attachments(&c["state"]["content"]),
-                metadata: c["state"]["metadata"].clone(),
+                metadata,
             }
         }
         _ => return None,
@@ -742,6 +762,9 @@ impl Transcript {
                         *status = if ty == "session.tool.success" { ToolStatus::Completed } else { ToolStatus::Error };
                         if d["metadata"].is_object() {
                             *metadata = d["metadata"].clone();
+                        }
+                        if ty == "session.tool.failed" {
+                            keep_tool_error(metadata, &d["error"]);
                         }
                         let got = parse_attachments(&d["content"]);
                         if !got.is_empty() {
@@ -1096,5 +1119,29 @@ mod tests {
         assert_eq!(child(&t).as_deref(), Some("ses_child"));
         let info = parse_session(&serde_json::json!({"id": "ses_child", "parentID": "s", "agent": "general", "outcome": "failed", "time": {"created": 5}}));
         assert_eq!((info.agent.as_str(), info.created, info.outcome.as_deref()), ("general", 5, Some("failed")));
+    }
+
+    #[test]
+    fn a_failed_tool_keeps_its_error() {
+        let mut t = Transcript { session: "s".into(), messages: vec![] };
+        let d = |v: Value| {
+            let mut base = serde_json::json!({"sessionID": "s", "assistantMessageID": "m", "id": "q1"});
+            base.as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+            base
+        };
+        t.apply("session.step.started", &d(serde_json::json!({})), 0);
+        t.apply("session.tool.called", &d(serde_json::json!({"name": "question", "input": {"questions": []}})), 0);
+        t.apply("session.tool.failed", &d(serde_json::json!({"error": {"type": "unknown", "message": "The user dismissed this question"}})), 0);
+        let Message::Assistant(a) = &t.messages[0] else { panic!() };
+        let Part::Tool { metadata, status, .. } = &a.parts[0] else { panic!() };
+        assert_eq!((status, tool_error(metadata)), (&ToolStatus::Error, Some("The user dismissed this question")));
+        // Stored, the same.
+        let m = parse_message(&serde_json::json!({"id": "m", "type": "assistant", "content": [
+            {"type": "tool", "id": "q1", "name": "question", "state": {"status": "error", "input": {}, "error": {"type": "unknown", "message": "boom"}}},
+            {"type": "tool", "id": "q2", "name": "question", "state": {"status": "completed", "input": {}, "metadata": {"answers": [["A"]]}}},
+        ]}));
+        let Some(Message::Assistant(a)) = m else { panic!() };
+        let errors: Vec<_> = a.parts.iter().map(|p| match p { Part::Tool { metadata, .. } => tool_error(metadata), _ => None }).collect();
+        assert_eq!(errors, [Some("boom"), None]);
     }
 }
