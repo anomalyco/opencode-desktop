@@ -987,7 +987,7 @@ impl RowSpec {
                 Message::Note { text: body, .. } => row().pt(16.0).child(text(body.clone()).font(UI).color(p.faint)),
                 _ => unreachable!(),
             },
-            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, &t.session, &t.messages[*message])),
+            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, s.reduced_motion, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -1130,6 +1130,9 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         prev = Some(&item.text);
     }
     if let Some(last) = last_assistant {
+        // Working lasts the whole run, like Desktop's session status: each step's message
+        // finishes before the next one starts, and those gaps used to blink it out.
+        let busy = busy || s.running.contains(&t.session);
         out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     out
@@ -1340,11 +1343,37 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
     c
 }
 
-fn working(p: &Pal) -> El {
-    row().h(28.0).gap(8.0).center_y().pb(12.0).child(el().size(6.0, 6.0).radius(3.0).fill(p.accent)).child(text("Working").font(UI).color(p.muted))
+/// The spinner and a shimmering "Working". Hidden, it is drawn still: its loops would keep
+/// waking frames.
+fn working(p: &Pal, live: bool, reduced: bool) -> El {
+    let ring = if live { activity_ring(p) } else { el().key("ring").size(14.0, 14.0) };
+    row().h(28.0).gap(8.0).center_y().pb(12.0).child(ring).child(shimmer(p, "Working", live && !reduced))
 }
 
-fn turn_actions(p: &Pal, busy: bool, session: &str, message: &Message) -> El {
+/// "Working" at 13 px Inter.
+const WORKING_W: f32 = 52.0;
+/// Desktop's `TextShimmer` highlight: ±5.2ch of text-strong over text-weak.
+const SHEEN: f32 = 84.0;
+
+/// Desktop's `TextShimmer`: a soft band of the strong colour sweeps left to right across the
+/// muted label every 1.2 s, from a gutter (spread + 1ch) before it to one after. The band is a
+/// soft-edged window sliding over the label, with a copy inside sliding back so it stays put.
+fn shimmer(p: &Pal, label: &'static str, on: bool) -> El {
+    let base = text(label).key("label").font(UI).color(p.muted);
+    if !on {
+        return row().child(base);
+    }
+    let gutter = SHEEN / 2.0 + 8.0;
+    let (from, to) = ((-gutter - SHEEN / 2.0) / SHEEN, (WORKING_W + gutter - SHEEN / 2.0) / SHEEN);
+    let sweep = |a: f32, b: f32| rune::LoopSpec::slide(1.2, [a, 0.0], [b, 0.0]).easing(Easing::LINEAR);
+    let lit = el().key("lit").absolute(0.0, 0.0).w(SHEEN).h_full().looping(sweep(-from, -to))
+        .child(text(label).font(UI).color(p.text).absolute(0.0, 0.0));
+    row().child(base).child(
+        el().key("sheen").absolute(0.0, 0.0).w(SHEEN).h_full().clip_fade(SHEEN / 2.0, 0.0, SHEEN / 2.0, 0.0).looping(sweep(from, to)).child(lit),
+    )
+}
+
+fn turn_actions(p: &Pal, busy: bool, reduced: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -1368,7 +1397,7 @@ fn turn_actions(p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     el().w_full().h(28.0).motion(rune::Spring::new(0.34, 0.0))
-        .child(working(p).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
+        .child(working(p, busy, reduced).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
 }
 
@@ -1996,6 +2025,82 @@ mod tests {
         dts[3] = 0.05;
         dts[10] = 0.05;
         send_and_trace(Via::Enter, &dts);
+    }
+
+    /// A run of several steps (thinking and a tool, a new assistant message that answers, then
+    /// another tool step): Working stays mounted at full opacity from the run's start to its end,
+    /// through the gaps between one step ending and the next starting.
+    #[test]
+    fn working_stays_up_between_steps_until_the_run_ends() {
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut app);
+        let crate::Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+        let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
+        rt.frame(0.0);
+        let ev = |t: f64, ty: &str, step: &str, more: serde_json::Value| {
+            let mut d = serde_json::json!({ "sessionID": sid, "assistantMessageID": step });
+            d.as_object_mut().unwrap().extend(more.as_object().cloned().unwrap_or_default());
+            (t, ty.to_owned(), d)
+        };
+        let none = serde_json::Value::Null;
+        let tool = |id: &str| serde_json::json!({ "id": id, "name": "read", "input": { "filePath": "src/backoff.ts" } });
+        let mut script = vec![
+            ev(0.10, "session.execution.started", "msg_zzzz_step1", none.clone()),
+            ev(0.10, "session.step.started", "msg_zzzz_step1", none.clone()),
+            ev(0.20, "session.reasoning.started", "msg_zzzz_step1", serde_json::json!({ "ordinal": 0 })),
+            ev(0.25, "session.reasoning.delta", "msg_zzzz_step1", serde_json::json!({ "ordinal": 0, "delta": "Read it first." })),
+            ev(0.40, "session.reasoning.ended", "msg_zzzz_step1", serde_json::json!({ "ordinal": 0 })),
+            ev(0.50, "session.tool.input.started", "msg_zzzz_step1", tool("call_zzzz_1")),
+            ev(0.55, "session.tool.called", "msg_zzzz_step1", tool("call_zzzz_1")),
+            ev(0.80, "session.tool.success", "msg_zzzz_step1", tool("call_zzzz_1")),
+            ev(0.85, "session.step.ended", "msg_zzzz_step1", serde_json::json!({ "finish": "tool-calls" })),
+            // The next step's message arrives a beat later.
+            ev(0.95, "session.step.started", "msg_zzzz_step2", none.clone()),
+            ev(1.00, "session.text.started", "msg_zzzz_step2", serde_json::json!({ "ordinal": 0 })),
+        ];
+        for (k, word) in "The backoff resets on every message, so ".split_inclusive(' ').enumerate() {
+            script.push(ev(1.05 + k as f64 * 0.04, "session.text.delta", "msg_zzzz_step2", serde_json::json!({ "ordinal": 0, "delta": word })));
+        }
+        script.extend([
+            ev(1.50, "session.text.ended", "msg_zzzz_step2", serde_json::json!({ "ordinal": 0 })),
+            ev(1.55, "session.tool.input.started", "msg_zzzz_step2", tool("call_zzzz_2")),
+            ev(1.60, "session.tool.called", "msg_zzzz_step2", tool("call_zzzz_2")),
+            ev(1.90, "session.tool.success", "msg_zzzz_step2", tool("call_zzzz_2")),
+            ev(1.95, "session.step.ended", "msg_zzzz_step2", serde_json::json!({ "finish": "tool-calls" })),
+            ev(2.20, "session.step.started", "msg_zzzz_step3", none.clone()),
+            ev(2.25, "session.text.started", "msg_zzzz_step3", serde_json::json!({ "ordinal": 0 })),
+            ev(2.30, "session.text.delta", "msg_zzzz_step3", serde_json::json!({ "ordinal": 0, "delta": "Done." })),
+            ev(2.40, "session.text.ended", "msg_zzzz_step3", serde_json::json!({ "ordinal": 0, "text": "Done." })),
+            ev(2.50, "session.step.ended", "msg_zzzz_step3", serde_json::json!({ "finish": "stop" })),
+            ev(2.50, "session.execution.succeeded", "msg_zzzz_step3", none.clone()),
+        ]);
+        let working = |rt: &Runtime<App>| rt.elements().into_iter().filter(|e| e.key.as_deref() == Some("working")).map(|e| (e.exiting, e.opacity)).collect::<Vec<_>>();
+        let (dt, mut t, mut next) = (1.0 / 120.0, 0.0, 0);
+        while t < 3.0 {
+            while next < script.len() && script[next].0 <= t {
+                let (_, ty, d) = script[next].clone();
+                rt.update(move |s, _| {
+                    s.apply_event(&ty, &d);
+                });
+                next += 1;
+            }
+            rt.frame(dt);
+            t += dt;
+            let w = working(&rt);
+            if t > 0.1 && t < 2.5 {
+                assert!(matches!(w[..], [(false, o)] if o > 0.999), "{t:.3}s: Working is one mounted row at opacity 1: {w:?}");
+                // The shimmer's lit copy sits exactly on the label while its window sweeps.
+                let els = rt.elements();
+                let label = els.iter().find(|e| e.path.contains("/working/") && e.key.as_deref() == Some("label")).unwrap();
+                let lit = els.iter().find(|e| e.path.contains("/lit/") && e.text.is_some()).unwrap();
+                let (sheen, lit_box) = (els.iter().find(|e| e.key.as_deref() == Some("sheen")).unwrap(), els.iter().find(|e| e.key.as_deref() == Some("lit")).unwrap());
+                assert!((label.rect[2] - super::WORKING_W).abs() < 2.0, "the label is {} wide", label.rect[2]);
+                assert!((lit.rect[0] - label.rect[0]).abs() < 0.01 && (lit.rect[1] - label.rect[1]).abs() < 0.01, "{t:.3}s: lit {:?} on label {:?}", lit.rect, label.rect);
+                assert_eq!(sheen.loop_phase, lit_box.loop_phase, "{t:.3}s: one sweep");
+            }
+        }
+        assert!(working(&rt).iter().all(|&(_, o)| o < 0.001), "the finished run hides Working");
     }
 
     #[test]
