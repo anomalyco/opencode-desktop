@@ -380,10 +380,131 @@ pub fn parse_message(m: &Value) -> Option<Message> {
 
 /// Messages in chronological order from one `desc` page.
 pub fn parse_messages(v: &Value) -> Vec<Message> {
-    let mut out: Vec<Message> = v["data"].as_array().into_iter().flatten().filter_map(parse_message).collect();
-    // Message IDs are time-ordered.
-    out.sort_by(|a, b| a.id().cmp(b.id()));
-    out
+    let mut list: Vec<&Value> = v["data"].as_array().into_iter().flatten().collect();
+    // By `time.created`, then id. A steered prompt keeps the id it was sent with but takes its
+    // delivery time, so it sorts after the work it waited behind, as the server orders it.
+    list.sort_by(|a, b| (i(&a["time"]["created"]), a["id"].as_str()).cmp(&(i(&b["time"]["created"]), b["id"].as_str())));
+    list.into_iter().filter_map(parse_message).collect()
+}
+
+/// How the server delivers a prompt sent while the session is busy: `Steer` joins the running
+/// turn at its next step boundary; `Queue` waits for the turn (and every steer) to finish. The
+/// server steers when a prompt names neither.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Delivery {
+    #[default]
+    Steer,
+    Queue,
+}
+
+impl Delivery {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Delivery::Steer => "steer",
+            Delivery::Queue => "queue",
+        }
+    }
+
+    pub fn parse(v: &Value) -> Option<Delivery> {
+        match v.as_str()? {
+            "steer" => Some(Delivery::Steer),
+            "queue" => Some(Delivery::Queue),
+            _ => None,
+        }
+    }
+}
+
+/// A prompt the server admitted but hasn't delivered yet (`GET /api/session/:id/inbox`). Its id
+/// becomes the user message's id once delivered.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InboxItem {
+    pub id: String,
+    pub text: String,
+    pub delivery: Delivery,
+    pub files: Vec<Attachment>,
+}
+
+/// One user item, from the inbox list (`{id, type, payload, delivery}`) or a
+/// `session.inbox.enqueued` event (`{inboxID, item: {type, payload, delivery}}`). Synthetic,
+/// compaction and move items are None.
+pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
+    let (id, item) = if v["item"].is_object() { (&v["inboxID"], &v["item"]) } else { (&v["id"], v) };
+    if item["type"] != "user" {
+        return None;
+    }
+    let payload = &item["payload"];
+    let text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
+    Some(InboxItem { id: s(id), text, delivery: Delivery::parse(&item["delivery"])?, files: parse_attachments(&payload["files"]) })
+}
+
+/// What [`Inbox::apply`] did.
+#[derive(Debug, PartialEq)]
+pub enum InboxChange {
+    None,
+    Changed,
+    /// The item left the inbox for the transcript.
+    Delivered(InboxItem),
+}
+
+/// One session's undelivered prompts, in admission order, kept current from
+/// `session.inbox.*` events.
+#[derive(Clone, Debug, Default)]
+pub struct Inbox {
+    pub items: Vec<InboxItem>,
+}
+
+impl Inbox {
+    pub fn queued(&self) -> impl Iterator<Item = &InboxItem> {
+        self.items.iter().filter(|i| i.delivery == Delivery::Queue)
+    }
+
+    pub fn steering(&self) -> impl Iterator<Item = &InboxItem> {
+        self.items.iter().filter(|i| i.delivery == Delivery::Steer)
+    }
+
+    /// Adds `item`, or replaces the one with its id in place.
+    pub fn upsert(&mut self, item: InboxItem) {
+        match self.items.iter_mut().find(|i| i.id == item.id) {
+            Some(slot) => *slot = item,
+            None => self.items.push(item),
+        }
+    }
+
+    pub fn remove(&mut self, id: &str) -> Option<InboxItem> {
+        let at = self.items.iter().position(|i| i.id == id)?;
+        Some(self.items.remove(at))
+    }
+
+    pub fn set_delivery(&mut self, id: &str, delivery: Delivery) -> bool {
+        self.items.iter_mut().find(|i| i.id == id).is_some_and(|i| std::mem::replace(&mut i.delivery, delivery) != delivery)
+    }
+
+    /// Applies one `session.inbox.*` event, or `session.inbox.listed` (see
+    /// [`crate::client::Request::Inbox`]), which replaces the list.
+    pub fn apply(&mut self, ty: &str, d: &Value) -> InboxChange {
+        let id = d["inboxID"].as_str().unwrap_or("");
+        let changed = match ty {
+            "session.inbox.listed" => {
+                let items: Vec<InboxItem> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_item).collect();
+                let same = items == self.items;
+                self.items = items;
+                !same
+            }
+            "session.inbox.enqueued" => match parse_inbox_item(d) {
+                Some(item) => {
+                    let same = self.items.iter().any(|i| *i == item);
+                    self.upsert(item);
+                    !same
+                }
+                None => false,
+            },
+            "session.inbox.delivery.changed" => Delivery::parse(&d["delivery"]).is_some_and(|to| self.set_delivery(id, to)),
+            "session.inbox.cancelled" => self.remove(id).is_some(),
+            "session.inbox.delivered" => return self.remove(id).map_or(InboxChange::None, InboxChange::Delivered),
+            _ => false,
+        };
+        if changed { InboxChange::Changed } else { InboxChange::None }
+    }
 }
 
 /// One open transcript, kept current from events.
@@ -408,7 +529,10 @@ impl Transcript {
     }
 
     pub fn merge(&mut self, fresh: Vec<Message>) {
+        let mut prev: Option<String> = None;
         for m in fresh {
+            let id = m.id().to_owned();
+            let after = prev.replace(id).and_then(|p| self.messages.iter().position(|o| o.id() == p));
             if let Some(slot) = self.messages.iter_mut().find(|o| o.id() == m.id()) {
                 // Keep live-streamed text when the fetched copy is behind.
                 if let (Message::Assistant(old), Message::Assistant(new)) = (&*slot, &m)
@@ -419,7 +543,8 @@ impl Transcript {
                 }
                 *slot = m;
             } else {
-                let at = self.messages.partition_point(|o| o.id() < m.id());
+                // After the page's previous message, so a steered prompt stays where the server put it.
+                let at = after.map_or_else(|| self.messages.partition_point(|o| o.id() < m.id()), |a| a + 1);
                 self.messages.insert(at, m);
             }
         }
@@ -759,6 +884,51 @@ mod tests {
         let Part::Tool { files, .. } = &a.parts[0] else { panic!() };
         assert_eq!((files.len(), files[0].mime.as_str(), &files[0].bytes[..]), (1, "image/jpeg", &[0xff, 0xd8, 0xff][..]));
         assert!(user_files("msg_none").is_empty());
+    }
+
+    #[test]
+    fn a_delivered_steer_sorts_after_the_work_it_waited_behind() {
+        // As the server returns them: the steer keeps its send-time id, takes its delivery time.
+        let v = serde_json::json!({"data": [
+            {"id": "msg_3", "type": "assistant", "time": {"created": 40}, "content": []},
+            {"id": "msg_2", "type": "user", "text": "also check X", "time": {"created": 30}},
+            {"id": "msg_4", "type": "assistant", "time": {"created": 20}, "content": []},
+            {"id": "msg_1", "type": "user", "text": "go", "time": {"created": 10}},
+        ]});
+        let ids = |m: &[Message]| m.iter().map(|m| m.id().to_owned()).collect::<Vec<_>>();
+        let fresh = parse_messages(&v);
+        assert_eq!(ids(&fresh), ["msg_1", "msg_4", "msg_2", "msg_3"]);
+        // Merged into a transcript that already had the first turn, it lands in the same place.
+        let mut t = Transcript { session: "s".into(), messages: fresh[..2].to_vec() };
+        t.merge(fresh.clone());
+        assert_eq!(ids(&t.messages), ["msg_1", "msg_4", "msg_2", "msg_3"]);
+    }
+
+    #[test]
+    fn follows_the_inbox() {
+        let mut inbox = Inbox::default();
+        // As `GET /api/session/:id/inbox` lists them.
+        let listed = serde_json::json!({"sessionID": "s", "items": [
+            {"id": "msg_1", "type": "user", "delivery": "steer", "payload": {"text": "use tabs"}},
+            {"id": "msg_c", "type": "compaction", "delivery": "steer", "payload": {}},
+            {"id": "msg_2", "type": "user", "delivery": "queue", "payload": {"text": "full", "metadata": {"displayText": "then ship it"}}},
+        ]});
+        assert_eq!(inbox.apply("session.inbox.listed", &listed), InboxChange::Changed);
+        assert_eq!(inbox.steering().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["use tabs"]);
+        assert_eq!(inbox.queued().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["then ship it"]);
+
+        let enqueued = serde_json::json!({"sessionID": "s", "inboxID": "msg_3",
+            "item": {"type": "user", "delivery": "queue", "payload": {"text": "and docs"}}});
+        assert_eq!(inbox.apply("session.inbox.enqueued", &enqueued), InboxChange::Changed);
+        assert_eq!(inbox.apply("session.inbox.enqueued", &enqueued), InboxChange::None);
+        let moved = serde_json::json!({"sessionID": "s", "inboxID": "msg_2", "delivery": "steer"});
+        assert_eq!(inbox.apply("session.inbox.delivery.changed", &moved), InboxChange::Changed);
+        assert_eq!(inbox.steering().count(), 2);
+        let gone = serde_json::json!({"sessionID": "s", "inboxID": "msg_3"});
+        assert_eq!(inbox.apply("session.inbox.cancelled", &gone), InboxChange::Changed);
+        let InboxChange::Delivered(item) = inbox.apply("session.inbox.delivered", &serde_json::json!({"inboxID": "msg_1"})) else { panic!() };
+        assert_eq!((item.id.as_str(), item.text.as_str()), ("msg_1", "use tabs"));
+        assert_eq!(inbox.items.len(), 1);
     }
 
     #[test]

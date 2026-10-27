@@ -12,7 +12,7 @@ use std::time::Duration;
 use rune::Waker;
 use serde_json::Value;
 
-use crate::model::{self, Message, Pending, SessionInfo};
+use crate::model::{self, Delivery, Message, Pending, SessionInfo};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
@@ -34,6 +34,9 @@ pub enum Request {
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     Pending(String),
+    /// A session's undelivered prompts. The reply is `Incoming::Event` with type
+    /// `session.inbox.listed` and data `{sessionID, items}` (see [`model::Inbox::apply`]).
+    Inbox(String),
 }
 
 pub enum Write {
@@ -48,6 +51,10 @@ pub enum Write {
     Send { session: String, prompt: Prompt },
     /// `Create` with a full first prompt.
     Start { directory: String, prompt: Prompt },
+    /// Withdraws an undelivered prompt (`DELETE /api/session/:id/inbox/:item`).
+    Cancel { session: String, item: String },
+    /// Moves an undelivered prompt between the queue and steering (`PATCH …/inbox/:item`).
+    Deliver { session: String, item: String, delivery: Delivery },
 }
 
 /// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
@@ -57,6 +64,8 @@ pub struct Prompt {
     pub id: Option<String>,
     pub text: String,
     pub files: Vec<FileInput>,
+    /// How to deliver it while the session is busy; None lets the server steer.
+    pub delivery: Option<Delivery>,
 }
 
 /// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]) or `file://`.
@@ -74,6 +83,9 @@ impl Prompt {
         }
         if !self.files.is_empty() {
             body["files"] = self.files.iter().map(|f| serde_json::json!({ "uri": f.uri, "name": f.name })).collect();
+        }
+        if let Some(d) = self.delivery {
+            body["delivery"] = d.as_str().into();
         }
         body
     }
@@ -205,6 +217,13 @@ impl Server {
                 }
                 req.call()
             }
+            "PATCH" => {
+                let mut req = agent.patch(url).header("Content-Type", "application/json");
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
+                }
+                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+            }
             _ => {
                 let mut req = agent.post(url).header("Content-Type", "application/json");
                 if let Some(a) = auth {
@@ -255,6 +274,15 @@ impl Server {
         let v = self.write("POST", "/api/session", Some(serde_json::json!({ "location": { "directory": directory } })))?;
         let info = model::parse_session(v.get("data").unwrap_or(&v));
         if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
+    }
+
+    pub fn cancel_inbox(&self, session: &str, item: &str) -> Result<(), String> {
+        self.write("DELETE", &format!("/api/session/{session}/inbox/{item}"), None).map(|_| ())
+    }
+
+    pub fn set_delivery(&self, session: &str, item: &str, delivery: Delivery) -> Result<(), String> {
+        let body = serde_json::json!({ "delivery": delivery.as_str() });
+        self.write("PATCH", &format!("/api/session/{session}/inbox/{item}"), Some(body)).map(|_| ())
     }
 
     /// The session's open permission requests and forms.
@@ -325,6 +353,8 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             let _ = inbox_tx.send(Incoming::Created(info));
                             Ok(())
                         }),
+                        Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
+                        Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
                     };
                     if let Err(e) = result
                         && inbox_tx.send(Incoming::Status(e)).is_err()
@@ -365,6 +395,13 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Err(e) => send(Incoming::Status(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
+                        Request::Inbox(id) => match server.get(&format!("/api/session/{id}/inbox")) {
+                            Ok(v) => send(Incoming::Event {
+                                ty: "session.inbox.listed".into(),
+                                data: serde_json::json!({ "sessionID": id, "items": list(&v) }),
+                            }),
+                            Err(e) => send(Incoming::Status(e)),
+                        },
                     };
                     if !ok {
                         return;
@@ -489,6 +526,7 @@ mod tests {
             id: Some("msg_17afac822001abcdefghijklmn".into()),
             text: "see this".into(),
             files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into() }],
+            delivery: None,
         };
         Server { base, auth: None }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
@@ -500,6 +538,26 @@ mod tests {
                 "files": [{"uri": "data:image/png;base64,YWI=", "name": "shot.png"}]})
         );
         assert_eq!(Prompt { text: "hi".into(), ..Default::default() }.body(), serde_json::json!({"text": "hi"}));
+    }
+
+    #[test]
+    fn queues_moves_and_withdraws_a_prompt() {
+        let (base, h) = mock_once();
+        let prompt = Prompt { text: "after this".into(), delivery: Some(Delivery::Queue), ..Default::default() };
+        Server { base, auth: None }.send("ses_a", &prompt).unwrap();
+        let req = h.join().unwrap();
+        let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert_eq!(body, serde_json::json!({"text": "after this", "delivery": "queue"}));
+
+        let (base, h) = mock_once();
+        Server { base, auth: None }.set_delivery("ses_a", "msg_1", Delivery::Steer).unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("PATCH /api/session/ses_a/inbox/msg_1 HTTP/1.1"), "{req}");
+        assert!(req.ends_with(r#"{"delivery":"steer"}"#), "{req}");
+
+        let (base, h) = mock_once();
+        Server { base, auth: None }.cancel_inbox("ses_a", "msg_1").unwrap();
+        assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a/inbox/msg_1 HTTP/1.1"));
     }
 
     #[test]

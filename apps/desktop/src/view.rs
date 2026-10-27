@@ -4,7 +4,7 @@
 use std::sync::OnceLock;
 
 use rune::{
-    Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Phase, ScrollSpec,
+    Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
     Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
 
@@ -23,7 +23,7 @@ pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracki
 pub(crate) const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const AVATAR: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0);
 const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
-const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
+pub(crate) const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
 const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
 const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
 const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
@@ -850,6 +850,10 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
     if let Some(last) = last_assistant {
         out.push(RowSpec { key: "turn-actions".into(), el: turn_actions(p, busy, &t.session, &t.messages[last]), streaming: false });
     }
+    // Undelivered steers wait below the running work, as Desktop shows them.
+    for (key, el) in crate::queue::pending_rows(s, p, &t.session) {
+        out.push(RowSpec { key, el, streaming: false });
+    }
     out
 }
 
@@ -1201,7 +1205,13 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .placeholder("Ask anything… \"Fix a TODO in the codebase\"", p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
-                    .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))
+                    .on_input_key(|s: &mut App, ev, tx| {
+                        if ev.key == Key::Enter && ev.mods.cmd {
+                            s.submit(true, tx);
+                            return true;
+                        }
+                        s.shortcut(ev, tx) || s.picker_key(ev)
+                    })
                     .on_input_paste(crate::attachments::paste)
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
             ),
@@ -1218,9 +1228,14 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone())))
                 .child(picker_trigger(s, p, Kind::Effort, &effort))
                 .child(spacer())
+                .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
                 .child(submit),
         );
-    col().key("dock").w_full().center().px(24.0).pb(10.0).child(composer)
+    let queue = match &s.route {
+        Route::Session(id) => crate::queue::panel(s, p, id, busy),
+        _ => None,
+    };
+    col().key("dock").w_full().center().px(24.0).pb(10.0).children(queue).child(composer)
 }
 
 fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str) -> El {

@@ -5,6 +5,7 @@
 mod attachments;
 mod palette;
 mod pickers;
+mod queue;
 mod restore;
 mod shortcuts;
 mod subagents;
@@ -20,7 +21,7 @@ use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker, edge};
 use serde_json::Value;
 
 use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
-use opencode_kit::model::{FieldKind, Message, Pending, Project, SessionInfo, Transcript};
+use opencode_kit::model::{Delivery, FieldKind, Inbox, Message, Pending, Project, SessionInfo, Transcript};
 use tabs::Tab;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
@@ -67,6 +68,8 @@ pub struct App {
     pub requests: HashSet<(String, String)>,
     /// The open permission requests and forms we know the details of.
     pub pending: Vec<Pending>,
+    /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
+    pub inboxes: HashMap<String, Inbox>,
     /// Form answers in progress, by `form/key`: picked option values and typed text.
     pub picks: HashMap<String, Vec<String>>,
     pub typed: HashMap<String, TextEdit>,
@@ -133,6 +136,7 @@ impl App {
             running: HashSet::new(),
             requests: HashSet::new(),
             pending: Vec::new(),
+            inboxes: HashMap::new(),
             picks: HashMap::new(),
             typed: HashMap::new(),
             draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
@@ -437,6 +441,7 @@ impl App {
             Source::Live { requests: Some(r), .. } => {
                 let _ = r.send(Request::Session(id.to_owned()));
                 let _ = r.send(Request::Pending(id.to_owned()));
+                let _ = r.send(Request::Inbox(id.to_owned()));
             }
             Source::Live { .. } => {}
             Source::Fixture => self.start_stream_if_due(id),
@@ -483,12 +488,24 @@ impl App {
     }
 
     pub fn send(&mut self, tx: &mut Tx) {
+        self.submit(false, tx);
+    }
+
+    /// Sends the composer's prompt. While the session is busy it steers, or queues when
+    /// `alternate` (⌘⏎); see `queue.rs`.
+    pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
         let text = self.composer.text.trim().to_owned();
         if text.is_empty() && self.attach.files.is_empty() {
             return;
         }
         // The server's user message takes this id, so it replaces the local copy below.
-        let prompt = Prompt { id: Some(opencode_kit::client::message_id()), text: text.clone(), files: attachments::inputs(&self.attach.files) };
+        let prompt = Prompt { id: Some(opencode_kit::client::message_id()), text: text.clone(), files: attachments::inputs(&self.attach.files), delivery: None };
+        if let Route::Session(id) = self.route.clone()
+            && self.busy(&id)
+        {
+            self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer }, tx);
+            return;
+        }
         let id = match self.route.clone() {
             Route::Session(id) => id,
             Route::Draft if self.live() => {
@@ -731,6 +748,9 @@ impl App {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
         let mut changed = self.apply_status(ty, data, &sid);
+        if ty.starts_with("session.inbox.") && !sid.is_empty() {
+            changed |= self.apply_inbox(ty, data, &sid);
+        }
         if let Some(t) = self.transcripts.get_mut(&sid) {
             changed |= t.apply(ty, data, now);
         }
@@ -805,7 +825,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     let first = !s.transcripts.contains_key(&session);
                     let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
                     attachments::reconcile(&mut s.attach.echoes, t, &messages);
+                    let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
                     t.merge(messages);
+                    s.settle_inbox(&session, &delivered);
                     if first && s.route == Route::Session(session) {
                         // Guarantee 8: the first load of the open session lands, nothing grows in.
                         tx.settle();
