@@ -149,12 +149,9 @@ impl App {
     fn new() -> App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
-        #[cfg(not(feature = "hot"))]
-        {
-            let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into()));
-            let want_live = fixture_path.is_none() && (flag("--live") || server.reachable());
-            if want_live && app.load_live(server) { return app; }
-        }
+        let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into()));
+        let want_live = fixture_path.is_none() && (flag("--live") || server.reachable());
+        if want_live && app.load_live(server) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
             None => FIXTURE.to_owned(),
@@ -873,12 +870,6 @@ fn dock_icon() {
 fn main() {
     #[cfg(target_os = "macos")]
     dock_icon();
-    #[cfg(feature = "hot")]
-    {
-        let args: Vec<_> = std::env::args().collect();
-        assert!(args.iter().position(|a| a == "--fixture").and_then(|i| args.get(i + 1)).is_some_and(|p| !p.starts_with("--")), "hot opencode-desktop requires --fixture FILE");
-        assert!(!args.iter().any(|a| a == "--live" || a == "--server"), "hot opencode-desktop is fixture-only");
-    }
     let spec = AppSpec {
         scenes: &[
             ("home", |_| {}),
