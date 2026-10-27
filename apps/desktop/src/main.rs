@@ -8,8 +8,10 @@ mod agent_rows_view;
 mod agent_stories;
 mod arrivals;
 mod attachments;
+mod events;
 mod icons;
 mod jump;
+mod keys;
 mod knobs;
 mod launch;
 mod mentions;
@@ -21,6 +23,8 @@ mod queue;
 mod question;
 mod restore;
 mod revert;
+mod scenes;
+mod send;
 mod session_pages;
 mod open_story;
 #[cfg(test)]
@@ -45,6 +49,8 @@ use serde_json::Value;
 
 use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
 use opencode_kit::model::{Delivery, FieldKind, Inbox, Message, Pending, Project, SessionInfo, Transcript};
+use keys::on_key;
+pub(crate) use scenes::open_scene;
 use tabs::Tab;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
@@ -659,125 +665,6 @@ impl App {
         });
     }
 
-    pub fn send(&mut self, tx: &mut Tx) {
-        self.submit(false, tx);
-    }
-
-    /// Sends the composer's prompt. While the session is busy it steers, or queues when
-    /// `alternate` (⌘⏎); see `queue.rs`.
-    pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
-        if self.opening.is_some() { return; }
-        if self.add.shell {
-            return self.submit_shell(alternate, tx);
-        }
-        let wire = self.mention_wire();
-        if wire.text.is_empty() && !self.attach.any() {
-            return;
-        }
-        if !self.attach.uploading.is_empty() {
-            self.status = "Waiting for attachments to upload…".into();
-            return;
-        }
-        self.close_mentions();
-        let command = self.slash_command(&wire.text);
-        // Commands take no path attachments; they wait in the composer for the next prompt.
-        let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
-        let text = match &command {
-            Some((_, args)) => args.clone(),
-            None => attachments::path_lines(&wire.text, &refs),
-        };
-        // The server's user message takes this id, so it replaces the local copy below.
-        let prompt = Prompt {
-            id: Some(opencode_kit::client::message_id()),
-            text: text.clone(),
-            files: wire.files.into_iter().chain(attachments::inputs(&self.attach.files)).collect(),
-            agents: wire.agents,
-            skills: wire.skills,
-            display_text: Some(wire.display.clone()),
-            delivery: None,
-            attachments: refs,
-            command: command.map(|(name, _)| name),
-        };
-        if prompt.command.is_some() {
-            return self.send_command(prompt, alternate, tx);
-        }
-        if let Route::Session(id) = self.route.clone()
-            && self.busy(&id)
-        {
-            let local = prompt.id.clone().unwrap_or_default();
-            self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
-            tx.launch("prompt", if alternate { format!("queued-{local}") } else { format!("u-{local}/bubble") });
-            return;
-        }
-        let id = match self.route.clone() {
-            Route::Session(id) => id,
-            Route::Draft if self.live() => {
-                if self.write(Write::Start { directory: self.draft_dir.clone(), prompt }) {
-                    self.status = "Starting a session…".into();
-                    self.composer.clear();
-                    self.attach.files.clear();
-                }
-                return;
-            }
-            _ => {
-                self.status = "Pick a session to send to".into();
-                return;
-            }
-        };
-        let local = match &self.source {
-            Source::Live { .. } => {
-                let local = prompt.id.clone().unwrap_or_default();
-                if !self.write(Write::Send { session: id.clone(), prompt }) {
-                    return;
-                }
-                self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
-                local
-            }
-            Source::Fixture => {
-                let selection = self.selection();
-                self.sends += 1;
-                let reply = format!("msg_zzzzreply{:04}", self.sends);
-                let at = self.clock;
-                for e in self.fixture["reply"].as_array().cloned().unwrap_or_default() {
-                    let mut d = e["data"].clone();
-                    d["sessionID"] = id.clone().into();
-                    d["assistantMessageID"] = reply.clone().into();
-                    if let Some(call) = d["id"].as_str() {
-                        d["id"] = format!("{call}-{:04}", self.sends).into();
-                    }
-                    if e["type"] == "session.step.started" {
-                        d["agent"] = selection.agent.clone().into();
-                        d["model"] = serde_json::json!({"id": selection.model.id, "providerID": selection.model.provider, "variant": selection.model.variant});
-                    }
-                    self.playback.push_back((at + e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), d));
-                }
-                self.wake_at_playback();
-                format!("msg_zzzzsent{:04}", self.sends)
-            }
-        };
-        opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
-        // It rises out of the composer, its words where they were typed.
-        tx.launch("prompt", format!("u-{local}/bubble"));
-        let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
-        t.messages.push(Message::User { id: local, text: wire.display });
-        self.composer.clear();
-    }
-
-    /// Queues a write to the server; false (with a status line) when this build can't write.
-    pub fn write(&mut self, w: Write) -> bool {
-        if self.story.is_some() {
-            // A story's answers go nowhere; it acts as if they were sent.
-            self.status = "Storybook: not sent".into();
-            return true;
-        }
-        match &self.source {
-            Source::Live { allow_send: false, .. } => self.status = "Read-only: relaunch without --read-only to act".into(),
-            Source::Live { writes: Some(tx), .. } => return tx.send(w).is_ok(),
-            _ => self.status = "Not connected to an OpenCode server".into(),
-        }
-        false
-    }
-
     /// The open requests in a session's family (a subagent's question shows on its root).
     pub fn pending_for(&self, id: &str) -> Vec<&Pending> {
         let root = self.root_of(id);
@@ -880,145 +767,6 @@ impl App {
         tx.settle();
     }
 
-    /// Tab marks: running sessions, read state and pending requests.
-    fn apply_status(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
-        let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
-        match ty {
-            "session.execution.started" => {
-                if let Some(missing) = self.missing_ancestor(sid) {
-                    self.fetch_info(&missing);
-                }
-                self.running.insert(sid.to_owned())
-            }
-            "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
-                let was = self.running.remove(sid);
-                if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
-                    return was;
-                }
-                let now = self.now_ms;
-                // Desktop reports the open session's idle mark as viewed, so it never lights up.
-                let open = matches!(&self.route, Route::Session(r) if self.root_of(r) == self.root_of(sid));
-                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                    s.idle = Some(now);
-                    if open {
-                        s.viewed = Some(now);
-                    }
-                }
-                // The server's own idle mark, like Desktop's re-read after a run ends.
-                if let Source::Live { requests: Some(r), .. } = &self.source {
-                    let _ = r.send(Request::Info(sid.to_owned()));
-                }
-                true
-            }
-            "session.viewed" => {
-                let idle = data["idle"].as_i64();
-                self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
-                    s.viewed = s.viewed.max(idle);
-                    true
-                })
-            }
-            "permission.asked" | "form.created" => {
-                let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
-                let Some(p) = parsed else { return false };
-                self.requests.insert((p.session().to_owned(), p.id().to_owned()));
-                if !self.pending.iter().any(|x| x.id() == p.id()) {
-                    self.pending.push(p);
-                }
-                true
-            }
-            "permission.replied" | "form.replied" | "form.cancelled" => {
-                let rid = if ty == "permission.replied" { id(&data["requestID"]) } else { id(&data["id"]) };
-                let had = self.requests.iter().any(|(_, r)| *r == rid) || self.pending.iter().any(|p| p.id() == rid);
-                self.forget(&rid);
-                had
-            }
-            _ => false,
-        }
-    }
-
-    /// `session.revert.staged` hides the transcript from its boundary on, `cleared` shows it again, and
-    /// `committed` ends the revert and drops what it hid: the steers waiting behind it and their glows
-    /// (the transcript's own rows go in `Transcript::apply`).
-    fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
-        let next = match ty {
-            "session.revert.staged" => data["revert"]["messageID"].as_str().map(str::to_owned),
-            "session.revert.cleared" | "session.revert.committed" => None,
-            _ => return false,
-        };
-        let mut changed = false;
-        if let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid) {
-            changed |= std::mem::replace(&mut info.revert, next) != info.revert;
-        }
-        if ty == "session.revert.committed"
-            && let Some(to) = data["to"].as_str()
-        {
-            if let Some(inbox) = self.inboxes.get_mut(sid) {
-                let before = inbox.items.len();
-                inbox.items.retain(|i| i.id.as_str() < to);
-                changed |= inbox.items.len() != before;
-            }
-            if let Some(t) = self.transcripts.get(sid) {
-                for m in &t.messages[t.visible_len(Some(to))..] {
-                    changed |= self.glows.remove(m.id()).is_some();
-                }
-            }
-        }
-        changed
-    }
-
-    fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
-        let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
-        let now = self.now_ms;
-        let mut changed = self.note_agent(ty, data, &sid);
-        changed |= self.apply_status(ty, data, &sid);
-        if ty.starts_with("session.inbox.") && !sid.is_empty() {
-            changed |= self.apply_inbox(ty, data, &sid);
-        }
-        if ty.starts_with("session.revert.") && !sid.is_empty() {
-            changed |= self.apply_revert(ty, data, &sid);
-        }
-        if let Some(t) = self.transcripts.get_mut(&sid) {
-            changed |= t.apply(ty, data, now);
-        }
-        if ty.starts_with("session.") && !sid.is_empty() {
-            if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                if s.updated < now - 1000 || ty == "session.step.ended" {
-                    s.updated = now;
-                    changed = true;
-                }
-                if ty == "session.renamed"
-                    && let Some(t) = data["title"].as_str()
-                {
-                    s.title = t.to_owned();
-                    changed = true;
-                }
-            } else if ty == "session.created" || ty == "session.step.started" {
-                // A session we haven't listed: refresh the list (one GET).
-                if let Source::Live { requests: Some(r), .. } = &self.source {
-                    let _ = r.send(Request::Sessions);
-                }
-            }
-            // A step started in the open session may follow a prompt we haven't seen.
-            if ty == "session.step.started"
-                && self.route == Route::Session(sid.clone())
-                && let Source::Live { requests: Some(r), .. } = &self.source
-            {
-                if let Some(pages) = &self.pages {
-                    pages.request(session_pages::Key { id: sid.clone(), updated: self.session(&sid).map_or(0, |s| s.updated) }, true);
-                } else { let _ = r.send(Request::Session(sid)); }
-            }
-        }
-        if ty == "project.updated"
-            && let Some(p) = self.projects.iter_mut().find(|p| Some(p.id.as_str()) == data["id"].as_str())
-        {
-            p.active = data["time"]["active"].as_i64().unwrap_or(p.active);
-            if data.get("canonical").is_some() {
-                p.icon = opencode_kit::model::ProjectIcon::parse(&data["icon"]);
-            }
-            changed = true;
-        }
-        changed
-    }
 }
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
@@ -1159,58 +907,6 @@ fn setup(s: &mut App, waker: Waker) {
     launch::setup(s);
 }
 
-fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || stories::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
-    match &ev.key {
-        Key::Command('e') => {
-            s.edge = (s.edge + 1) % edge::ALL.len();
-            true
-        }
-        Key::Command(c) if c.eq_ignore_ascii_case(&'b') && ev.mods.shift => {
-            s.sidebar_open = !s.sidebar_open;
-            true
-        }
-        Key::Command('b') => {
-            s.opening = None;
-            s.route = if s.route == Route::Home { s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone())) } else { Route::Home };
-            tx.settle();
-            true
-        }
-        Key::Escape if s.opening.is_some() => {
-            s.cancel_open(tx);
-            true
-        }
-        Key::Escape if s.composer.focused && matches!(&s.route, Route::Session(id) if s.busy(id)) => {
-            s.stop();
-            true
-        }
-        Key::Escape if s.activity_open => {
-            tx.instant();
-            s.activity_open = false;
-            true
-        }
-        Key::Escape if s.story.is_some() => {
-            stories::close(s, tx);
-            true
-        }
-        // A subagent's session has no composer: Esc goes back to the session that started it.
-        Key::Escape if s.open_parent(tx) => true,
-        Key::Escape if s.route != Route::Home && !s.composer.focused => {
-            s.route = Route::Home;
-            tx.settle();
-            true
-        }
-        _ => false,
-    }
-}
-
-fn open_scene(s: &mut App) {
-    let id = s.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));
-    if let Some(id) = id {
-        s.route = Route::Session(id.clone());
-    }
-}
-
 /// The Dock icon, set at launch so it shows for bare binaries and survives a reinstall
 /// that LaunchServices hasn't re-read.
 #[cfg(target_os = "macos")]
@@ -1226,112 +922,12 @@ fn dock_icon() {
     }
 }
 
-fn busy_scene(s: &mut App) {
-    open_scene(s);
-    s.finish_stream();
-    if let Route::Session(id) = s.route.clone() {
-        if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
-            a.completed = None;
-        }
-        s.running.insert(id);
-    }
-}
-
 fn main() {
     rune::prewarm_gpu();
     #[cfg(target_os = "macos")]
     dock_icon();
     let spec = AppSpec {
-        scenes: &[
-            ("home", |_| {}),
-            ("open-before", |s| open_story::scene(s, true)),
-            ("open-after", |s| open_story::scene(s, false)),
-            ("session", |s| {
-                open_scene(s);
-                s.finish_stream();
-            }),
-            ("streaming", |s| {
-                open_scene(s);
-                // Playback starts on the first poll.
-                if let Some(id) = s.fixture["open"].as_str().map(str::to_owned) {
-                    s.start_stream_if_due(&id);
-                }
-            }),
-            // The open session's turn still running, so Enter steers and ⌘⏎ queues.
-            ("busy", busy_scene),
-            // Busy, then the server takes the steer at 5.6 s and the queued prompts at 6.6 and
-            // 7.6 s: with `scripts/steer-dock.json`, a steer and two queued prompts delivered.
-            ("busy-deliver", |s| {
-                busy_scene(s);
-                let Route::Session(id) = s.route.clone() else { return };
-                let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
-                s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
-            }),
-            ("draft", |s| s.route = Route::Draft),
-            ("icon-playground", |s| s.playground = &[false, true]),
-            ("icon-playground-light", |s| s.playground = &[false]),
-            ("icon-playground-dark", |s| s.playground = &[true]),
-            ("settings", |s| {
-                open_scene(s);
-                s.finish_stream();
-                s.open_settings();
-            }),
-            ("question", |s| {
-                open_scene(s);
-                s.finish_stream();
-                let q = s.fixture["question"].clone();
-                s.apply_event("form.created", &q);
-            }),
-            // Answered elsewhere at 1.5 s, asked again at 2.5 s: the morph both ways.
-            ("question-morph", |s| {
-                open_scene(s);
-                s.finish_stream();
-                let q = s.fixture["question"].clone();
-                s.apply_event("form.created", &q);
-                let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
-                s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
-            }),
-            // The storybook (⌘⇧D) on a story: `story-morph` is the dock opening and closing on a
-            // loop (pick the curve with `--preset NAME`, a Question dock preset in `knobs.rs`);
-            // `story` alone opens the first. Scripts replay a story with its trigger keys.
-            ("story", |s| stories::scene(s, "Composer")),
-            ("story-morph", |s| stories::scene(s, "Morph")),
-            ("story-long", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 3)),
-            ("story-typing", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 4)),
-            ("story-pending", |s| stories::scene_variant(s, "Composer", crate::stories::COMPOSER, 2)),
-            ("story-glow", |s| stories::scene(s, "Arrival glow")),
-            ("story-send", |s| stories::scene(s, "Send")),
-            ("story-stream", |s| stories::scene(s, "Streaming text")),
-            ("story-tools", |s| stories::scene(s, "Tool rows")),
-            ("story-working", |s| stories::scene(s, "Working")),
-            ("story-steer", |s| stories::scene(s, "Steer and Pending")),
-            ("story-queue", |s| stories::scene(s, "Queue dock")),
-            ("story-subagent", |s| stories::scene(s, "Subagent")),
-            ("story-images", |s| stories::scene(s, "Images")),
-            ("story-jump", |s| stories::scene(s, "Jump to latest")),
-            ("story-actions", |s| stories::scene(s, "Turn actions")),
-            // Three agents' timeline rows in each ⌘⇧K Subagent rows style, light and dark.
-            ("story-rows-today", |s| agent_stories::scene(s, 0, false)),
-            ("story-rows-status", |s| agent_stories::scene(s, 1, false)),
-            ("story-rows-expanding", |s| agent_stories::scene(s, 2, false)),
-            ("story-rows-grouped", |s| agent_stories::scene(s, 3, false)),
-            ("story-rows-today-dark", |s| agent_stories::scene(s, 0, true)),
-            ("story-rows-status-dark", |s| agent_stories::scene(s, 1, true)),
-            ("story-rows-expanding-dark", |s| agent_stories::scene(s, 2, true)),
-            ("story-rows-grouped-dark", |s| agent_stories::scene(s, 3, true)),
-            ("sidebar-closed", |s| {
-                open_scene(s);
-                s.finish_stream();
-                s.sidebar_open = false;
-            }),
-            ("status", |s| {
-                open_scene(s);
-                s.finish_stream();
-                for e in s.fixture["status_events"].as_array().cloned().unwrap_or_default() {
-                    s.playback.push_back((e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), e["data"].clone()));
-                }
-            }),
-        ],
+        scenes: scenes::SCENES,
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),
