@@ -2,7 +2,7 @@
 //! ComposerEditorSelect. Selection belongs to the draft/session, not historical messages.
 use std::collections::HashMap;
 
-use rune::{Key, KeyEvent, TextEdit};
+use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
 use crate::{App, Route};
@@ -188,7 +188,15 @@ impl App {
         self.close_picker(true);
     }
 
-    pub fn picker_key(&mut self, ev: &KeyEvent) -> bool {
+    /// A picker's keys. Opening it and moving in it land in the keystroke. (Not closing: an
+    /// instant unmount of the focused search field drops the focus handed back to the composer.)
+    pub fn picker_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        let used = self.picker_keys(ev);
+        if used && self.pickers.open.is_some() { tx.instant(); }
+        used
+    }
+
+    fn picker_keys(&mut self, ev: &KeyEvent) -> bool {
         if self.pickers.open.is_some() {
             match &ev.key {
                 Key::Escape => self.close_picker(true),
@@ -236,7 +244,7 @@ impl App {
             };
             if let Some((kind, backwards)) = cycle {
                 self.open_picker(kind);
-                self.picker_key(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() });
+                self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() });
                 if let Some(key) = self.picker_active() { self.choose_picker(&key); }
                 return true;
             }
@@ -359,6 +367,10 @@ mod tests {
         let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
         let menu = find(&rt, "picker-model").unwrap();
         assert!((menu.opacity - 1.0).abs() < 1e-3, "opens without a fade");
+        for part in ["picker-search", "picker-options", "option-google:gemini-4-argon"] {
+            let e = find(&rt, part).unwrap();
+            assert!((e.opacity - 1.0).abs() < 1e-3, "{part} is there at once: {}", e.opacity);
+        }
         key(&mut rt, Key::Escape);
         rt.frame(1.0 / 60.0);
         assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame");

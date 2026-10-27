@@ -1055,7 +1055,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
+    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();

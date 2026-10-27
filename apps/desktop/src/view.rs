@@ -809,7 +809,7 @@ fn location(s: &App, p: &Pal) -> El {
         .fill(if open { p.hover } else { Color::TRANSPARENT })
         .hover(p.hover)
         .press(p.pressed)
-        .on_press(|s: &mut App| s.open_picker(Kind::Project))
+        .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { tx.instant(); } })
         .child(s.icons.badge(p, project, &name))
         .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate());
     row()
@@ -1575,7 +1575,7 @@ fn composer(s: &App, p: &Pal) -> El {
                             s.submit(true, tx);
                             return true;
                         }
-                        s.shortcut(ev, tx) || s.picker_key(ev)
+                        s.shortcut(ev, tx) || s.picker_key(ev, tx)
                     })
                     .on_input_paste(crate::attachments::paste)
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
@@ -1610,7 +1610,7 @@ fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El
         button = button.fill(p.hover);
     }
     if !s.live() {
-        button = button.on_press(move |s: &mut App| s.open_picker(kind));
+        button = button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } });
     }
     button
 }
@@ -1642,7 +1642,7 @@ fn picker(s: &App, p: &Pal) -> El {
             .child(text_input(&s.pickers.search, UI).key("picker-search").grow(1.0).shrink().h(28.0).animate_edit_layout()
                 .placeholder("Search models", p.faint).caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.pickers.search)
-                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev))))
+                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev, tx))))
             .child(el().h(0.5).w_full().fill(p.border_muted));
     }
     // Filtering is instant, like Desktop's list: rows come and go in the keystroke.

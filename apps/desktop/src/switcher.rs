@@ -315,6 +315,8 @@ impl App {
             if self.switcher.open {
                 self.close_switcher(true);
             } else {
+                // The dialog and everything in it appear in the keystroke.
+                tx.instant();
                 self.open_switcher();
             }
             return true;
@@ -828,6 +830,10 @@ mod tests {
         let d = info(&rt, "switcher").unwrap();
         assert!((d.scale - 1.0).abs() < 1e-3 && (d.opacity - 1.0).abs() < 1e-3, "first frame is final: scale {} opacity {}", d.scale, d.opacity);
         assert!((info(&rt, "switcher-scrim").unwrap().opacity - 1.0).abs() < 1e-3);
+        for part in ["switcher-field", "switcher-input", "switcher-results", "sw-section-Commands"] {
+            let e = info(&rt, part).unwrap();
+            assert!((e.opacity - 1.0).abs() < 1e-3, "{part} is there at once: {}", e.opacity);
+        }
         key(&mut rt, Key::Escape);
         rt.frame(1.0 / 60.0);
         assert!(info(&rt, "switcher").is_none() && info(&rt, "switcher-scrim").is_none());
