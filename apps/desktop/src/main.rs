@@ -6,6 +6,7 @@ mod attachments;
 mod palette;
 mod pickers;
 mod shortcuts;
+mod switcher;
 mod tabs;
 mod view;
 
@@ -75,6 +76,7 @@ pub struct App {
     pub attach: attachments::Attach,
     pub search: TextEdit,
     pub pickers: pickers::Pickers,
+    pub switcher: switcher::Switcher,
     pub edge: usize,
     pub reduced_motion: bool,
     pub status: String,
@@ -129,6 +131,7 @@ impl App {
             attach: Default::default(),
             search: TextEdit::new(""),
             pickers: pickers::Pickers::default(),
+            switcher: switcher::Switcher::default(),
             edge,
             reduced_motion: flag("--reduced-motion"),
             status: String::new(),
@@ -775,6 +778,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.apply_event(&ty, &data);
         changed = true;
     }
+    changed |= s.poll_switcher(tx);
     changed
 }
 
@@ -815,7 +819,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
+    if s.switcher_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();

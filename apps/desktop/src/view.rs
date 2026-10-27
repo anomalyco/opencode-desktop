@@ -17,8 +17,8 @@ use crate::{App, Route, TabStatus};
 use crate::pickers::Kind;
 
 // Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
-const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
+pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const AVATAR: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0);
 const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
@@ -43,6 +43,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
             .on_press(|s: &mut App| s.close_picker(false)))
             .child(picker(s, p));
+    }
+    if s.switcher.open {
+        inner = inner.children(crate::switcher::view(s, p, cx));
     }
     let (w, h) = cx.layout("zoom").map_or((0.0, 0.0), |r| (r[2], r[3]));
     let sized = if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() };
@@ -98,7 +101,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
 // ---------------------------------------------------------------------------------------------
 // Pieces
 
-fn avatar(p: &Pal, name: &str) -> El {
+pub(crate) fn avatar(p: &Pal, name: &str) -> El {
     let k = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) as usize % 8;
     let (bg, border) = p.avatars[k];
     let letter = name.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
@@ -470,7 +473,7 @@ fn radar() -> &'static [RadarDot] {
     })
 }
 
-fn title_of(s: &SessionInfo) -> String {
+pub(crate) fn title_of(s: &SessionInfo) -> String {
     if s.title.is_empty() { "Untitled session".into() } else { s.title.clone() }
 }
 
