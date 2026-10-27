@@ -12,6 +12,7 @@ knobs = ["rune-knobs/panel"]
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+hex-client = { path = "../../crates/hex-client" }
 mac-app = { path = "../../crates/mac-app" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 project-icon = { path = "../../crates/project-icon" }

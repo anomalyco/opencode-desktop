@@ -8,6 +8,9 @@ mod agent_rows_view;
 mod agent_stories;
 mod arrivals;
 mod attachments;
+mod dictation;
+#[cfg(test)]
+mod dictation_tests;
 mod events;
 mod icons;
 mod jump;
@@ -128,6 +131,8 @@ pub struct App {
     pub knobs: rune_knobs::Knobs,
     /// The + menu, the `/` command popover and shell mode.
     pub add: add_menu::AddMenu,
+    /// Hex dictation into the composer (⇧⌘M or the mic).
+    pub dictation: dictation::Dictation,
     pub switcher: switcher::Switcher,
     pub settings: settings::Settings,
     /// The open session and composer drafts, saved for the next launch.
@@ -232,6 +237,7 @@ impl App {
             pickers: pickers::Pickers::default(),
             mentions: mentions::Mentions::default(),
             add: add_menu::AddMenu::default(),
+            dictation: Default::default(),
             switcher: switcher::Switcher::default(),
             settings: settings::Settings::default(),
             restore: restore::Restore::default(),
@@ -365,6 +371,9 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
+        if dictation::key(self, ev, tx) {
+            return true;
+        }
         let Some(action) = shortcuts::action(ev) else { return false };
         match action {
             // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
@@ -564,6 +573,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     // A story's steps first: the events they play land below as arrivals.
     let mut changed = stories::poll(s, now, tx);
+    changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= s.poll_pages(tx);
     let arrivals = arrivals::Arrivals::before(s);

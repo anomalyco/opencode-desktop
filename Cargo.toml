@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/desktop", "apps/sketch", "crates/opencode-kit", "crates/mac-app", "crates/rune-knobs", "crates/project-icon", "crates/rune-playground"]
+members = ["apps/desktop", "apps/sketch", "crates/hex-client", "crates/opencode-kit", "crates/mac-app", "crates/rune-knobs", "crates/project-icon", "crates/rune-playground"]
 
 [workspace.package]
 edition = "2024"

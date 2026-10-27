@@ -81,7 +81,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::attachments::viewer(s, p, cx));
     let (w, h) = cx.layout("zoom").map_or((0.0, 0.0), |r| (r[2], r[3]));
     let sized = if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() };
-    el().key("zoom")
+    el().key("zoom").on_key_up(crate::dictation::key_up)
         .w_full()
         .h_full()
         .center()

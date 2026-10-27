@@ -25,6 +25,9 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
+    ("pop-in", "dictation/", "dictate", "dictation's recording row (dot, Listening…, meter) and Transcribing… show at once on the key or the mic, as Desktop's toolbar does (dictation::toolbar)"),
+    ("pop-out", "dictation/", "dictate", "dictation's recording row goes at once on the key, the mic, Esc or the words landing (dictation::toolbar)"),
+    ("jump", "toolbar/dictation", "dictate", "the recording row hugs what it says and changes with it at once, growing leftward from the mic, which stays put (dictation::toolbar)"),
 ];
 
 struct Action {
@@ -248,6 +251,23 @@ const ACTIONS: &[Action] = &[
     Action { name: "agents-status", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 1) },
     Action { name: "agents-expanding", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
     Action { name: "agents-grouped", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
+    // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
+    // meter follows the voice, and the words land in the composer, which grows to hold them.
+    Action { name: "dictate", circs: dictation_circs, run: |r| {
+        r.type_prompt();
+        r.act("⇧⌘M", |rt| rt.key(dictation_key()));
+        r.act("talk", |rt| rt.update(|s, _| s.dictation.talk()));
+        r.play(1.0);
+        r.act("⇧⌘M", |rt| rt.key(dictation_key()));
+        r.play(1.2);
+    } },
+    Action { name: "dictate-cancel", circs: dictation_circs, run: |r| {
+        r.type_prompt();
+        r.act("tap the mic", |rt| Run::tap(rt, "mic"));
+        r.play(0.6);
+        r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
+        r.play(0.6);
+    } },
     Action { name: "jump-latest", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: |r| {
         r.swipe_up(1400.0, 1.0);
         if r.rt.find("jump-latest").is_none() { return; }
@@ -280,6 +300,17 @@ fn agents(r: &mut Run, style: usize) {
     r.play(1.0);
     r.act("the second fails", |rt| rt.update(st::fail_newest));
     r.play(1.0);
+}
+
+fn dictation_circs() -> Vec<Circ> {
+    let mut v = wide_and_narrow(Circ::default());
+    v.push(Circ { prompt: Prompt::Lines, ..Circ::default() });
+    v.push(Circ { length: Length::Empty, ..Circ::default() });
+    v
+}
+
+fn dictation_key() -> KeyEvent {
+    KeyEvent { key: Key::Command('m'), mods: Mods { cmd: true, shift: true, ..Mods::default() } }
 }
 
 /// Opening a session through the real gate: cold (ready at 100 ms), prefetched, slow.

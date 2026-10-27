@@ -67,7 +67,7 @@ const SUBAGENT_KNOBS: &[Group] = &[Group::new("Subagent", "stage", &[CAPSULE_FIL
 const IMAGE_KNOBS: &[Group] = &[Group::new("Images", "stage", &[IMAGE_FLIGHT, ROW_GROWTH])];
 const JUMP_KNOBS: &[Group] = &[Group::new("Jump to latest", "stage", &[JUMP_PLACE, JUMP_IN, JUMP_OUT, JUMP_RISE])];
 
-const REPLAY: Action<App> = Action { cap: "R", label: "Replay", run: replay };
+pub(crate) const REPLAY: Action<App> = Action { cap: "R", label: "Replay", run: replay };
 
 const MORPH_KEYS: &[Action<App>] = &[
     Action { cap: "R", label: "Replay the loop", run: replay },
@@ -121,6 +121,7 @@ const JUMP_KEYS: &[Action<App>] = &[
 pub static STORIES: &[Story] = &[
     Story { group: "Composer", name: "Composer", knobs: COMPOSER_KNOBS, keys: &[], open: composer_open, view: composer_view },
     Story { group: "Composer", name: "Queue dock", knobs: ROW_KNOBS, keys: QUEUE_KEYS, open: queue_open, view: session_view },
+    Story { group: "Composer", name: "Dictation", knobs: &[], keys: crate::dictation::STORY_KEYS, open: crate::dictation::story_open, view: composer_view },
     Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
     Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
@@ -722,7 +723,7 @@ mod tests {
         press(&mut rt, Key::Down, Mods::default());
         assert_eq!(rt.state.play.panel, false);
         press(&mut rt, Key::Down, Mods::default());
-        assert_eq!(at(&rt), Some(1), "past the Question dock's header to its first story");
+        assert_eq!(at(&rt), Some(story("Dictation")), "to the next story down");
         let steer = story("Steer and Pending");
         open(&mut rt.state, steer, &mut rune::Tx::default());
         run(&mut rt, 1.0);

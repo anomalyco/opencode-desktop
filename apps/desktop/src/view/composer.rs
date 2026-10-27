@@ -114,6 +114,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 }))
                 .child(spacer())
                 .children((busy && ready).then(|| crate::queue::alternate_hint(p)))
+                .children(crate::dictation::toolbar(s, p))
                 .child(submit),
         ),
     }

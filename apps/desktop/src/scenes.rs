@@ -89,6 +89,7 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-images", |s| stories::scene(s, "Images")),
         ("story-jump", |s| stories::scene(s, "Jump to latest")),
         ("story-actions", |s| stories::scene(s, "Turn actions")),
+        ("story-dictation", |s| stories::scene(s, "Dictation")),
         // Three agents' timeline rows in each ⌘⇧K Subagent rows style, light and dark.
         ("story-rows-today", |s| agent_stories::scene(s, 0, false)),
         ("story-rows-status", |s| agent_stories::scene(s, 1, false)),
