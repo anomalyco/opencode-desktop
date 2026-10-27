@@ -129,8 +129,8 @@ pub struct App {
     pub reduced_motion: bool,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
-    /// Sessions whose timeline you're reading more than a screen up (`jump.rs`).
-    pub far_from_bottom: HashSet<String>,
+    /// Where each session's timeline stands against its end (`jump.rs`).
+    pub ends: jump::Ends,
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: bool,
     pub status: String,
@@ -224,7 +224,7 @@ impl App {
             edge,
             reduced_motion: flag("--reduced-motion"),
             glows: HashMap::new(),
-            far_from_bottom: HashSet::new(),
+            ends: jump::Ends::default(),
             debug: flag("--debug"),
             status: String::new(),
             now_ms: 0,
@@ -552,7 +552,7 @@ impl App {
         self.activity_open = false;
         if self.route != Route::Session(id.to_owned()) {
             // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
-            self.far_from_bottom.remove(id);
+            self.ends.forget(id);
         }
         self.route = Route::Session(id.to_owned());
         let root = self.root_of(id).to_owned();

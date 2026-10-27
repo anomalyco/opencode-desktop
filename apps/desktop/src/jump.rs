@@ -1,6 +1,8 @@
 //! "Jump to latest": the arrow over the timeline's bottom edge while you read more than a screen
 //! up (`session/timeline/virtualizer.tsx`, `interaction.ts`). Pressing it glides to the end, and
 //! the timeline follows new content again once it lands.
+use std::collections::HashSet;
+
 use opencode_kit::model::Pending;
 use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 
@@ -22,11 +24,29 @@ static ARROW_DOWN: Icon = Icon {
     body: r#"<path d="M12.3333 8.66665L8 13L3.66667 8.66665M8 12.6667V2.83332" stroke="currentColor" stroke-linecap="square"/>"#,
 };
 
+/// Where each session's timeline stands against its end.
+#[derive(Default)]
+pub struct Ends {
+    /// Sessions whose timeline you're reading more than a screen up.
+    far: HashSet<String>,
+}
+
+impl Ends {
+    pub fn far(&self, id: &str) -> bool {
+        self.far.contains(id)
+    }
+
+    /// A timeline that mounts afresh starts on its end.
+    pub fn forget(&mut self, id: &str) {
+        self.far.remove(id);
+    }
+}
+
 /// Records whether session `id`'s timeline stands far enough up to show the button.
 fn far(id: &str) -> impl Fn(&mut App, bool) + 'static {
     let id = id.to_owned();
     move |s: &mut App, far| {
-        if far { s.far_from_bottom.insert(id.clone()); } else { s.far_from_bottom.remove(&id); }
+        if far { s.ends.far.insert(id.clone()); } else { s.ends.far.remove(&id); }
     }
 }
 
@@ -34,7 +54,7 @@ fn far(id: &str) -> impl Fn(&mut App, bool) + 'static {
 /// composer, the capsule or the docks under it grow. At the right (the ⌘⇧K Composer default) it
 /// ends where the composer ends, on the capsule's row when that shows; centred, it's Desktop's.
 pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
-    let shown = s.far_from_bottom.contains(id);
+    let shown = s.ends.far(id);
     // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
     let curve = crate::knobs::jump(&s.knobs, shown);
     let rise = if shown || s.reduced_motion { 0.0 } else { s.knobs.get(&crate::knobs::JUMP_RISE) };
@@ -132,14 +152,14 @@ mod tests {
         rt.wheel(x, y, 200.0);
         rest(&mut rt);
         assert_eq!(rt.scroll_at_bottom("scroll-bench"), Some(false));
-        assert!(!rt.state.far_from_bottom.contains("bench") && button(&rt).opacity == 0.0, "200 up is near the end");
+        assert!(!rt.state.ends.far("bench") && button(&rt).opacity == 0.0, "200 up is near the end");
 
         for _ in 0..6 {
             rt.wheel(x, y, 400.0);
             rt.frame(DT);
         }
         rest(&mut rt);
-        assert!(rt.state.far_from_bottom.contains("bench"), "more than a screen up");
+        assert!(rt.state.ends.far("bench"), "more than a screen up");
         let b = button(&rt);
         assert!((b.opacity - 1.0).abs() < 1e-3 && !b.inert, "shown: {b:?}");
         // At the composer's right end, the capsule's gap above it, the capsule's size.
@@ -202,7 +222,7 @@ mod tests {
         assert!(frames > 10, "it glides ({frames} frames)");
         rest(&mut rt);
         assert_eq!(rt.scroll_at_bottom("scroll-bench"), Some(true));
-        assert!(!rt.state.far_from_bottom.contains("bench") && button(&rt).opacity == 0.0, "gone at the bottom");
+        assert!(!rt.state.ends.far("bench") && button(&rt).opacity == 0.0, "gone at the bottom");
 
         // Streaming follows again.
         for _ in 0..10 {
