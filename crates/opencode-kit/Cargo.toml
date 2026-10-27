@@ -1,0 +1,10 @@
+[package]
+name = "opencode-kit"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rune.workspace = true
+serde_json.workspace = true
+ureq.workspace = true

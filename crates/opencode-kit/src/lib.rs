@@ -1,0 +1,5 @@
+//! A Rune-side OpenCode client: the server connection and event stream (`client`), and the
+//! sessions and transcripts they describe (`model`).
+
+pub mod client;
+pub mod model;
