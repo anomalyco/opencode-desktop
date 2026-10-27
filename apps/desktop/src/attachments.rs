@@ -550,10 +550,15 @@ fn type_label(name: &str) -> String {
     }
 }
 
+/// Whether `gallery` shows anything for `files`, without loading them.
+pub fn shows(files: &[Attachment]) -> bool {
+    files.iter().any(|f| f.is_image() || f.unavailable().is_some())
+}
+
 /// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user. A
 /// ref still on its way holds a box; one whose bytes are gone shows the server's placeholder.
 pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> Option<El> {
-    let images: Vec<&Attachment> = files.iter().filter(|f| f.is_image() || f.unavailable().is_some()).collect();
+    let images: Vec<&Attachment> = files.iter().filter(|f| shows(std::slice::from_ref(f))).collect();
     if images.is_empty() {
         return None;
     }

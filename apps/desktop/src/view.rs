@@ -929,6 +929,10 @@ enum RowContent {
     Note(usize),
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
+    /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
+    /// fetched and decoded, only when the row mounts.
+    UserImages { message: usize, pt: f32 },
+    ToolImages { start: usize, end: usize, tool: String },
     Built(Box<El>),
 }
 
@@ -946,6 +950,20 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(p, *busy, &t.session, &t.messages[*message])),
+            RowContent::UserImages { message, pt } => {
+                let files = model::user_files(t.messages[*message].id());
+                crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
+            }
+            RowContent::ToolImages { start, end, tool } => {
+                let files = t.messages[*start..*end].iter().find_map(|m| match m {
+                    Message::Assistant(a) => a.parts.iter().find_map(|part| match part {
+                        Part::Tool { id, files, .. } if id == tool => Some(files),
+                        _ => None,
+                    }),
+                    _ => None,
+                });
+                files.and_then(|f| crate::attachments::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
+            }
             RowContent::Built(el) => (**el).clone(),
             RowContent::Turn { start, end, block, live, pt } => {
                 let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
@@ -1043,11 +1061,12 @@ fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 let below = t.messages.get(mi + 1).is_some_and(|n| joins(m, n));
-                let gallery = crate::attachments::gallery(s, p, "images", &model::user_files(id), true);
+                let gallery = crate::attachments::shows(&model::user_files(id));
                 // A prompt's own images sit 8 above its bubble.
-                let tight = out.is_empty() || gallery.is_some();
-                if let Some(g) = gallery {
-                    out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::Built(Box::new(g.pt(if out.is_empty() { 8.0 } else { 16.0 }))), streaming: false });
+                let tight = out.is_empty() || gallery;
+                if gallery {
+                    let pt = if out.is_empty() { 8.0 } else { 16.0 };
+                    out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { message: mi, pt }, streaming: false });
                 }
                 if !body.trim().is_empty() {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below }, streaming: false });
@@ -1097,9 +1116,10 @@ fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], sta
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
-                        && let Some(g) = crate::attachments::gallery(s, p, "images", files, false)
+                        && crate::attachments::shows(files)
                     {
-                        out.push(RowSpec { key: format!("ti-{id}"), content: RowContent::Built(Box::new(g.pt(8.0))), streaming: false });
+                        let content = RowContent::ToolImages { start, end, tool: id.to_string() };
+                        out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false });
                     }
                 }
                 prev = Some(true);
@@ -1758,6 +1778,65 @@ mod tests {
         tap(&mut rt, &format!("option-{harbor}"));
         assert_eq!(rt.state.draft_dir, "/Users/demo/code/harbor");
         assert_eq!(rt.state.pickers.open, None);
+    }
+
+    #[test]
+    fn only_mounted_image_rows_fetch_their_media() {
+        use opencode_kit::model::{self, Assistant, Attachment, Message, Part, ToolStatus, Transcript};
+        use std::sync::{Arc, Mutex};
+        fn scene(s: &App, _: &mut rune::Cx<App>) -> rune::El {
+            rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), "lazy-media", s.transcripts.get("lazy-media")))
+        }
+        let image = |c: char, name: &str| Attachment { mime: "image/png".into(), name: name.into(), media: Some(c.to_string().repeat(64)), ..Default::default() };
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = calls.clone();
+        let mut app = App::empty();
+        app.attach.set_fetch(Arc::new(move |hash: &str| {
+            seen.lock().unwrap().push(hash.to_owned());
+            Err("stub".into())
+        }));
+        // A prompt's image and a read tool's image far above, and a prompt's image at the bottom.
+        let mut messages = vec![
+            Message::User { id: "msg_lazy_first".into(), text: "look".into() },
+            Message::Assistant(Assistant {
+                id: "msg_lazy_read".into(),
+                completed: Some(1),
+                parts: vec![Part::Tool {
+                    id: "call_lazy_read".into(),
+                    name: "read".into(),
+                    status: ToolStatus::Completed,
+                    title: "a.png".into(),
+                    input: serde_json::Value::Null,
+                    files: vec![image('b', "a.png")],
+                    metadata: serde_json::Value::Null,
+                }],
+                ..Default::default()
+            }),
+        ];
+        messages.extend((0..200).map(|i| Message::User { id: format!("msg_lazy_{i:03}"), text: format!("filler {i}") }));
+        messages.push(Message::User { id: "msg_lazy_last".into(), text: "and this".into() });
+        model::set_user_files("msg_lazy_first", vec![image('a', "first.png")]);
+        model::set_user_files("msg_lazy_last", vec![image('c', "last.png")]);
+        app.transcripts.insert("lazy-media".into(), Transcript { session: "lazy-media".into(), messages });
+        app.route = crate::Route::Session("lazy-media".into());
+        app.reduced_motion = true;
+        let mut rt = Runtime::new(app, scene, (800.0, 600.0), Env::new(true, 1.0));
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        model::set_user_files("msg_lazy_first", Vec::new());
+        model::set_user_files("msg_lazy_last", Vec::new());
+        assert!(rt.elements().iter().any(|e| e.path.contains("ui-msg_lazy_last")), "the bottom image row mounts");
+        assert!(!rt.elements().iter().any(|e| e.path.contains("ti-call_lazy_read")), "the read tool's row is offscreen");
+        for _ in 0..200 {
+            if !calls.lock().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // Room for any other fetch to show up.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(*calls.lock().unwrap(), ["c".repeat(64)], "only the mounted row fetched");
     }
 
     #[test]
