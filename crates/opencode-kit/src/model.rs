@@ -99,6 +99,11 @@ pub struct SessionInfo {
     /// `time.viewed`): unread while it went idle after the last view.
     pub idle: Option<i64>,
     pub viewed: Option<i64>,
+    /// The session's agent, when it was created (`time.created`), and how its last run ended
+    /// (`outcome`: "succeeded", "failed", "interrupted").
+    pub agent: String,
+    pub created: i64,
+    pub outcome: Option<String>,
 }
 
 impl SessionInfo {
@@ -120,7 +125,13 @@ pub enum Part {
     Text { text: String },
     Reasoning { text: String, started: i64, completed: Option<i64> },
     /// `files`: what the tool returned besides text, such as the image a `read` loaded.
-    Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment> },
+    /// `metadata`: the tool's own state (a subagent call's `sessionID`).
+    Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment>, metadata: Value },
+}
+
+/// The child session a subagent call runs in, once the call names it.
+pub fn subagent_session<'a>(input: &'a Value, metadata: &'a Value) -> Option<&'a str> {
+    metadata["sessionID"].as_str().or_else(|| input["sessionID"].as_str()).filter(|s| !s.is_empty())
 }
 
 /// A file on a user message or a tool result, with its bytes (the server inlines them unless a
@@ -279,6 +290,9 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         cost: p["cost"].as_f64().unwrap_or(0.0),
         idle: p["time"]["idle"].as_i64(),
         viewed: p["time"]["viewed"].as_i64(),
+        agent: s(&p["agent"]),
+        created: i(&p["time"]["created"]),
+        outcome: p["outcome"].as_str().map(str::to_owned),
     }
 }
 
@@ -333,6 +347,7 @@ fn parse_part(c: &Value) -> Option<Part> {
                 status: tool_status(&c["state"]["status"]),
                 input,
                 files: parse_attachments(&c["state"]["content"]),
+                metadata: c["state"]["metadata"].clone(),
             }
         }
         _ => return None,
@@ -501,18 +516,37 @@ impl Transcript {
                             status: if ty == "session.tool.called" { ToolStatus::Running } else { ToolStatus::Pending },
                             input,
                             files: Vec::new(),
+                            metadata: Value::Null,
                         });
                     }
                 }
+            }
+            "session.tool.progress" => {
+                let Some(a) = self.assistant(&mid) else { return false };
+                let id = s(&d["id"]);
+                let mut hit = false;
+                for p in &mut a.parts {
+                    if let Part::Tool { id: tid, metadata, .. } = p
+                        && *tid == id
+                        && d["metadata"].is_object()
+                    {
+                        *metadata = d["metadata"].clone();
+                        hit = true;
+                    }
+                }
+                return hit;
             }
             "session.tool.success" | "session.tool.failed" => {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let id = s(&d["id"]);
                 for p in &mut a.parts {
-                    if let Part::Tool { id: tid, status, files, .. } = p
+                    if let Part::Tool { id: tid, status, files, metadata, .. } = p
                         && *tid == id
                     {
                         *status = if ty == "session.tool.success" { ToolStatus::Completed } else { ToolStatus::Error };
+                        if d["metadata"].is_object() {
+                            *metadata = d["metadata"].clone();
+                        }
                         let got = parse_attachments(&d["content"]);
                         if !got.is_empty() {
                             *files = got;
@@ -743,5 +777,32 @@ mod tests {
         let Message::Assistant(a) = &t.messages[0] else { panic!() };
         assert!(matches!(&a.parts[0], Part::Text { text } if text == "Hello"));
         assert!(t.busy());
+    }
+
+    #[test]
+    fn a_subagent_call_names_its_child_session() {
+        let mut t = Transcript { session: "s".into(), messages: vec![] };
+        let d = |v: Value| {
+            let mut base = serde_json::json!({"sessionID": "s", "assistantMessageID": "m", "id": "t1"});
+            base.as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+            base
+        };
+        t.apply("session.step.started", &d(serde_json::json!({})), 0);
+        t.apply("session.tool.called", &d(serde_json::json!({"name": "subagent", "input": {"agent": "general", "description": "Look"}})), 0);
+        let child = |t: &Transcript| match &t.messages[0] {
+            Message::Assistant(a) => match &a.parts[0] {
+                Part::Tool { input, metadata, .. } => subagent_session(input, metadata).map(str::to_owned),
+                _ => None,
+            },
+            _ => None,
+        };
+        assert_eq!(child(&t), None);
+        assert!(t.apply("session.tool.progress", &d(serde_json::json!({"metadata": {"sessionID": "ses_child"}})), 0));
+        assert_eq!(child(&t).as_deref(), Some("ses_child"));
+        // A background call finishes at once; its metadata still names the child.
+        t.apply("session.tool.success", &d(serde_json::json!({"metadata": {"sessionID": "ses_child", "status": "running"}})), 0);
+        assert_eq!(child(&t).as_deref(), Some("ses_child"));
+        let info = parse_session(&serde_json::json!({"id": "ses_child", "parentID": "s", "agent": "general", "outcome": "failed", "time": {"created": 5}}));
+        assert_eq!((info.agent.as_str(), info.created, info.outcome.as_deref()), ("general", 5, Some("failed")));
     }
 }

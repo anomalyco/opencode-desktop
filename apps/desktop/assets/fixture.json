@@ -109,7 +109,7 @@
   {
    "id": "ses_fx0002aaaaaaaaaaaaaaaaaa",
    "projectID": "6c756d656e000000",
-   "agent": "build",
+   "agent": "general",
    "model": {
     "id": "claude-opus-5-5",
     "providerID": "anthropic",
@@ -133,7 +133,8 @@
    "location": {
     "directory": "/Users/demo/code/lumen"
    },
-   "parentID": "ses_fx0001aaaaaaaaaaaaaaaaaa"
+   "parentID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+   "outcome": "succeeded"
   },
   {
    "id": "ses_fx0003aaaaaaaaaaaaaaaaaa",
@@ -617,15 +618,19 @@
     "content": [
      {
       "type": "tool",
-      "id": "call_task_60500",
-      "name": "task",
+      "id": "call_subagent_60500",
+      "name": "subagent",
       "executed": true,
       "state": {
        "status": "completed",
        "input": {
+        "agent": "general",
         "description": "Review the reconnect change",
-        "subagent_type": "general",
         "prompt": "Review the diff in src/net for correctness."
+       },
+       "metadata": {
+        "sessionID": "ses_fx0002aaaaaaaaaaaaaaaaaa",
+        "status": "completed"
        }
       },
       "time": {

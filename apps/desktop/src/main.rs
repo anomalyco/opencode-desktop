@@ -7,6 +7,7 @@ mod palette;
 mod pickers;
 mod restore;
 mod shortcuts;
+mod subagents;
 mod switcher;
 mod tabs;
 mod turns;
@@ -83,6 +84,8 @@ pub struct App {
     pub switcher: switcher::Switcher,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
+    /// The running-subagents list above the composer is open.
+    pub activity_open: bool,
     pub edge: usize,
     pub reduced_motion: bool,
     pub status: String,
@@ -140,6 +143,7 @@ impl App {
             pickers: pickers::Pickers::default(),
             switcher: switcher::Switcher::default(),
             restore: restore::Restore::default(),
+            activity_open: false,
             edge,
             reduced_motion: flag("--reduced-motion"),
             status: String::new(),
@@ -379,6 +383,29 @@ impl App {
         matches!(self.source, Source::Live { .. })
     }
 
+    /// Asks the server for one session's info (live only).
+    pub fn fetch_info(&self, id: &str) {
+        if let Source::Live { requests: Some(r), .. } = &self.source {
+            let _ = r.send(Request::Info(id.to_owned()));
+        }
+    }
+
+    /// The first session in `id`'s parent chain (itself included) that isn't loaded, so a
+    /// running subagent can be traced to its tab.
+    fn missing_ancestor(&self, id: &str) -> Option<String> {
+        let mut cur = id;
+        for _ in 0..32 {
+            match self.session(cur) {
+                None => return Some(cur.to_owned()),
+                Some(s) => match s.parent.as_deref() {
+                    Some(p) => cur = p,
+                    None => return None,
+                },
+            }
+        }
+        None
+    }
+
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
         self.sessions.iter().find(|s| s.id == id)
     }
@@ -390,6 +417,7 @@ impl App {
     /// Opens a session: lands at the bottom on the first frame with nothing animating in.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.close_picker(false);
+        self.activity_open = false;
         self.route = Route::Session(id.to_owned());
         let root = self.root_of(id).to_owned();
         if let Some(s) = self.sessions.iter_mut().find(|s| s.id == root) {
@@ -644,7 +672,12 @@ impl App {
     fn apply_status(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
-            "session.execution.started" => self.running.insert(sid.to_owned()),
+            "session.execution.started" => {
+                if let Some(missing) = self.missing_ancestor(sid) {
+                    self.fetch_info(&missing);
+                }
+                self.running.insert(sid.to_owned())
+            }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 let was = self.running.remove(sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
@@ -746,16 +779,25 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                             n.viewed = n.viewed.max(old.viewed);
                         }
                     }
+                    // Sessions past the page (a tab's, a subagent's parent) stay known.
+                    let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
+                    list.extend(rest);
                     s.sessions = list;
                     s.sort_projects();
                 }
-                Incoming::Info(mut info) => match s.sessions.iter_mut().find(|x| x.id == info.id) {
-                    Some(old) => {
-                        info.viewed = info.viewed.max(old.viewed);
-                        *old = info;
+                Incoming::Info(mut info) => {
+                    let parent = info.parent.clone();
+                    match s.sessions.iter_mut().find(|x| x.id == info.id) {
+                        Some(old) => {
+                            info.viewed = info.viewed.max(old.viewed);
+                            *old = info;
+                        }
+                        None => s.sessions.push(info),
                     }
-                    None => s.sessions.push(info),
-                },
+                    if let Some(missing) = parent.and_then(|p| s.missing_ancestor(&p)) {
+                        s.fetch_info(&missing);
+                    }
+                }
                 Incoming::Messages { session, messages } => {
                     let first = !s.transcripts.contains_key(&session);
                     let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
@@ -811,12 +853,19 @@ fn setup(s: &mut App, waker: Waker) {
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
+    // Running sessions (subagents) whose family isn't loaded yet.
+    let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
+    missing.sort();
+    missing.dedup();
     if let Source::Live { server, requests, writes, .. } = &mut s.source {
         let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !s.sessions.iter().any(|x| x.id == t.id)) {
             let _ = r.send(Request::Info(t.id.clone()));
+        }
+        for id in missing {
+            let _ = r.send(Request::Info(id));
         }
         *requests = Some(r);
         s.inbox = Some(inbox);
@@ -862,6 +911,13 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.stop();
             true
         }
+        Key::Escape if s.activity_open => {
+            tx.instant();
+            s.activity_open = false;
+            true
+        }
+        // A subagent's session has no composer: Esc goes back to the session that started it.
+        Key::Escape if s.open_parent(tx) => true,
         Key::Escape if s.route != Route::Home && !s.composer.focused => {
             s.route = Route::Home;
             tx.settle();

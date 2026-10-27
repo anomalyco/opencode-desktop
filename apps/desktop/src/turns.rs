@@ -30,7 +30,9 @@ pub enum Block<'a> {
     /// Folded thoughts and tool calls.
     Group { key: String, steps: Vec<Step<'a>> },
     Text { key: String, body: &'a str, live: bool },
-    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus },
+    /// A subagent call. `session`: its child session, once the call names it. `background`: the
+    /// call returned at once and the child runs on.
+    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str>, background: bool },
     /// A tool that shows on its own (an answered question).
     Tool(Step<'a>),
 }
@@ -73,12 +75,15 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                     let k = format!("{}-{pi}", a.id);
                     fold_in(&mut group, k.clone(), Step::Thought { key: format!("r-{k}"), body: text, secs });
                 }
-                Part::Tool { id, name, title, status, input, files } => match name.as_str() {
+                Part::Tool { id, name, title, status, input, files, metadata } => match name.as_str() {
                     "todowrite" => {}
                     "task" | "subagent" => {
                         flush(&mut out, &mut group, &key);
-                        let agent = input["subagent_type"].as_str().unwrap_or("general");
-                        out.push(Block::Agent { id, agent, title, status });
+                        // `agent` today; older servers' `task` calls said `subagent_type`.
+                        let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("general");
+                        let session = opencode_kit::model::subagent_session(input, metadata);
+                        let background = input["background"] == true || (*status == ToolStatus::Completed && metadata["status"] == "running");
+                        out.push(Block::Agent { id, agent, title, status, session, background });
                     }
                     "question" => {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
@@ -235,7 +240,7 @@ mod tests {
     use super::*;
 
     fn tool(id: &str, name: &str, status: ToolStatus) -> Part {
-        Part::Tool { id: id.into(), name: name.into(), status, title: String::new(), input: serde_json::Value::Null, files: vec![] }
+        Part::Tool { id: id.into(), name: name.into(), status, title: String::new(), input: serde_json::Value::Null, files: vec![], metadata: serde_json::Value::Null }
     }
     fn thought(body: &str) -> Part {
         Part::Reasoning { text: body.into(), started: 0, completed: Some(2_000) }

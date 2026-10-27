@@ -87,6 +87,7 @@ def read_state(sid, idle, viewed=None):
         by_id[sid]["time"]["viewed"] = viewed
 
 
+by_id[review].update(agent="general", outcome="succeeded")
 read_state(main, NOW - 1 * MIN, NOW - 1 * MIN)
 read_state(stale, NOW - 35 * MIN, NOW - 30 * MIN)
 read_state(shortcuts, NOW - 3 * HOUR, NOW - 4 * HOUR)
@@ -197,7 +198,7 @@ transcript = [
     assistant(
         T0 + 40_000,
         [
-            tool("task", "completed", {"description": "Review the reconnect change", "subagent_type": "general", "prompt": "Review the diff in src/net for correctness."}, T0 + 40_500),
+            dict(tool("subagent", "completed", {"agent": "general", "description": "Review the reconnect change", "prompt": "Review the diff in src/net for correctness."}, T0 + 40_500), state={"status": "completed", "input": {"agent": "general", "description": "Review the reconnect change", "prompt": "Review the diff in src/net for correctness."}, "metadata": {"sessionID": review, "status": "completed"}}),
         ],
         dur=90_000,
         finish="tool-calls",

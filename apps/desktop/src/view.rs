@@ -11,7 +11,7 @@ use rune::{
 use rune_kit::{Kit, Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, FieldKind, Message, Part, Pending, SessionInfo, ToolStatus, Transcript};
+use opencode_kit::model::{self, Assistant, FieldKind, Message, Part, Pending, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::pickers::Kind;
@@ -20,7 +20,7 @@ use crate::turns::{self, Block, Step};
 // Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
 pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
-const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
+pub(crate) const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const AVATAR: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0);
 const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
 const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
@@ -31,7 +31,7 @@ const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 
 /// `--container-session`: 744 including 24 px padding on each side.
-const CONTENT_W: f32 = 696.0;
+pub(crate) const CONTENT_W: f32 = 696.0;
 
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
 /// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The
@@ -44,6 +44,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
             .on_press(|s: &mut App| s.close_picker(false)))
             .child(picker(s, p));
+    }
+    if let Route::Session(id) = &s.route
+        && let Some(panel) = crate::subagents::panel(s, p, id)
+    {
+        inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full()
+            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.activity_open = false;
+            }))
+            .child(panel);
     }
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));
@@ -445,7 +455,7 @@ fn collapsed_slot(s: &App) -> El {
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
 /// around each square ring, leaving a fading trail (`spinner-variants.ts`), 14px, icon-muted.
-fn activity_ring(p: &Pal) -> El {
+pub(crate) fn activity_ring(p: &Pal) -> El {
     let mut r = el().key("ring").size(14.0, 14.0);
     for (k, d) in radar().iter().enumerate() {
         let mut dot = el()
@@ -666,15 +676,22 @@ fn draft_page(s: &App, p: &Pal) -> El {
 fn session_page(s: &App, p: &Pal, id: &str) -> El {
     let info = s.session(id);
     let t = s.transcripts.get(id);
-    col()
+    let child = info.is_some_and(|i| i.parent.is_some());
+    let mut page = col()
         .key("session")
         .grow(1.0)
         .w_full()
         .child(header(s, p, info, t))
         .child(timeline(s, p, id, t))
-        .child(requests(s, p, id))
-        .child(composer_dock(s, p))
-        .child(status_bar(s, p, info))
+        .child(requests(s, p, id));
+    // A subagent takes no prompts: its status line stands where the composer would.
+    page = if child {
+        page.child(crate::subagents::bar(s, p, id))
+    } else {
+        page.children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
+            .child(composer_dock(s, p))
+    };
+    page.child(status_bar(s, p, info))
 }
 
 fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
@@ -686,11 +703,24 @@ fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) 
             .child(text(proj.to_owned()).font(UI_MED).color(p.faint))
             .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(8.0).pr(4.0));
         if let Some(parent) = info.parent.as_deref().and_then(|pid| s.session(pid)) {
+            let pid = parent.id.clone();
             crumbs = crumbs
-                .child(text(title_of(parent)).font(UI_MED).color(p.faint).truncate())
-                .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(8.0).pr(4.0));
+                .child(
+                    row().key("parent-crumb").role("button").label(format!("Open {}", title_of(parent))).h(24.0).px(4.0).center_y().radius(4.0)
+                        .hover(p.hover).hover_motion(INSTANT, INSTANT)
+                        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                            tx.instant();
+                            s.open(&pid, tx);
+                        })
+                        .child(text(title_of(parent)).font(UI_MED).color(p.faint).truncate()),
+                )
+                .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(4.0).pr(4.0));
         }
         crumbs = crumbs.child(text(title_of(info)).font(UI_MED).color(p.text).truncate().pl(4.0));
+        // A running subagent's header spins beside its title (`SessionWorkingIndicator`).
+        if info.parent.is_some() && s.subtree_running(&info.id) {
+            crumbs = crumbs.child(activity_ring(p).key("working").ml(6.0));
+        }
     }
     // Context and spend: the last finished step's context window, the session's cost.
     let last = t.and_then(|t| {
@@ -802,7 +832,7 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
         match m {
             Message::Assistant(a) => steps.push(a),
             Message::User { id, text: body, .. } => {
-                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), false, fade);
+                turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
                 if let Some(g) = crate::attachments::gallery(s, p, "images", &model::user_files(id), true) {
                     out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 20.0 }), streaming: false });
                 }
@@ -811,12 +841,12 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
                 }
             }
             Message::Note { id, text: body } => {
-                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), false, fade);
+                turn_rows(s, p, &t.session, &mut out, &std::mem::take(&mut steps), false, fade);
                 out.push(RowSpec { key: format!("n-{id}"), el: row().pb(12.0).child(text(body.clone()).font(UI).color(p.faint)), streaming: false });
             }
         }
     }
-    turn_rows(s, p, &mut out, &steps, busy, fade);
+    turn_rows(s, p, &t.session, &mut out, &steps, busy, fade);
     if let Some(last) = last_assistant {
         out.push(RowSpec { key: "turn-actions".into(), el: turn_actions(p, busy, &t.session, &t.messages[last]), streaming: false });
     }
@@ -824,7 +854,7 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
 }
 
 /// `live`: these steps end the transcript and the last one is still running.
-fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], live: bool, fade: f32) {
+fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&Assistant], live: bool, fade: f32) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
     for (i, b) in blocks.into_iter().enumerate() {
@@ -844,7 +874,11 @@ fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], liv
                 continue;
             }
             Block::Text { key, body, live } => RowSpec { el: markdown_view(p, body, fade, live).pb(12.0), key, streaming: live },
-            Block::Agent { id, agent, title, status } => RowSpec { key: format!("a-{id}"), el: subagent_chip(p, agent, title, status), streaming: false },
+            Block::Agent { id, agent, title, status, session, background } => RowSpec {
+                key: format!("a-{id}"),
+                el: crate::subagents::card(s, p, parent, agent, title, status, session, background),
+                streaming: false,
+            },
             Block::Tool(Step::Tool { id, name, title, status, .. }) => {
                 RowSpec { key: format!("q-{id}"), el: row().pb(12.0).child(turns::tool_row(p, id, name, title, status)), streaming: false }
             }
@@ -911,28 +945,6 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
         );
     }
     c
-}
-
-fn subagent_chip(p: &Pal, agent: &str, title: &str, status: &ToolStatus) -> El {
-    let done = *status == ToolStatus::Completed;
-    row().w_full().pb(12.0).child(
-        row()
-            .key("chip")
-            .role("button")
-            .h(32.0)
-            .px(10.0)
-            .gap(8.0)
-            .center_y()
-            .shrink()
-            .radius(8.0)
-            .fill(p.layer1)
-            .border(0.5, p.border)
-            .hover(p.layer2)
-            .child(icon(&ic::SUBAGENT, 16.0).color(p.icon))
-            .child(text(model::capitalize(agent)).font(UI_MED).color(p.text))
-            .child(text(title.to_owned()).font(UI).color(p.muted).truncate())
-            .child(text(if done { "Done" } else { "Running" }).font(UI_SMALL).color(if done { p.faint } else { p.accent })),
-    )
 }
 
 fn working(p: &Pal) -> El {
