@@ -2511,6 +2511,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-knobs"
+version = "0.0.1"
+dependencies = [
+ "rune",
+]
+
+[[package]]
 name = "rune-motion"
 version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=c7ee68ef9944980fbf848ef348971f7c9fc20d16#c7ee68ef9944980fbf848ef348971f7c9fc20d16"
@@ -2630,6 +2637,7 @@ dependencies = [
  "opencode-kit",
  "rune",
  "rune-kit",
+ "rune-knobs",
  "rune-theme-opencode",
  "serde_json",
 ]
