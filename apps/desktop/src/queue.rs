@@ -294,7 +294,7 @@ pub fn alternate_hint(p: &Pal) -> El {
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
+        .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
         .child(text("Queue").font(UI_MED).color(p.faint))
         .child(keycap(p, "⌘"))
