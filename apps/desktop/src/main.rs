@@ -13,6 +13,7 @@ mod attachments;
 mod icons;
 mod jump;
 mod knobs;
+mod launch;
 mod mentions;
 mod palette;
 #[cfg(test)]
@@ -150,6 +151,7 @@ pub struct App {
     playback: VecDeque<(f64, String, Value)>,
     sends: u32,
     waker: Option<Waker>,
+    launch: launch::Launch,
     pub icons: project_icon::Icons,
     /// The `icon-playground` scenes: every icon style instead of the panel, in these
     /// appearances (dark or not); empty shows the app.
@@ -243,6 +245,7 @@ impl App {
             playback: VecDeque::new(),
             sends: 0,
             waker: None,
+            launch: Default::default(),
             icons: Default::default(),
             playground: &[],
             story: None,
@@ -302,23 +305,21 @@ impl App {
     }
 
     fn load_live(&mut self, server: Server) -> bool {
-        // The first loads are synchronous so the first frame (and a headless snapshot) has data.
-        let Ok(p) = server.get("/api/project") else { return false };
-        self.projects = opencode_kit::model::parse_projects(&p);
-        if let Ok(s) = server.get("/api/session?limit=120") {
-            self.sessions = opencode_kit::model::parse_sessions(&s);
+        // A headless snapshot reads the server now; a window reads it after its first frame.
+        let first = if launch::deferred() {
+            self.launch.waiting = true;
+            None
+        } else {
+            let Ok(first) = launch::First::fetch(&server) else { return false };
+            Some(first)
+        };
+        match tabs::load(&server.base).or_else(|| if server.base == DEFAULT_SERVER { tabs::from_beta() } else { None }) {
+            Some(tabs) => self.tabs = tabs,
+            None => self.launch.recent_tabs = true,
         }
-        if let Ok(m) = server.get("/api/model") {
-            let agents = server.get("/api/agent").unwrap_or_default();
-            self.pickers.load_live(m.get("data").unwrap_or(&m), agents.get("data").unwrap_or(&agents));
+        if let Some(first) = first {
+            self.apply_first(first);
         }
-        if let Ok(a) = server.get("/api/session/active") {
-            let map = a.get("data").unwrap_or(&a);
-            self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
-        }
-        self.tabs = tabs::load(&server.base)
-            .or_else(|| if server.base == DEFAULT_SERVER { tabs::from_beta() } else { None })
-            .unwrap_or_else(|| self.recent_tabs());
         if let Some(z) = tabs::load_zoom() {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
@@ -329,7 +330,6 @@ impl App {
         self.status = format!("Live · {}", server.base.trim_start_matches("http://"));
         let allow_send = !flag("--read-only") && !headless();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
-        self.sort_projects();
         true
     }
 
@@ -986,6 +986,7 @@ impl App {
             if data.get("canonical").is_some() {
                 p.icon = opencode_kit::model::ProjectIcon::parse(&data["icon"]);
             }
+            changed = true;
         }
         changed
     }
@@ -996,6 +997,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     // A story's steps first: the events they play land below as arrivals.
     let mut changed = stories::poll(s, now, tx);
+    changed |= launch::poll(s, tx);
     changed |= s.poll_pages(tx);
     let arrivals = arrivals::Arrivals::before(s);
     let asked = s.question_shown();
@@ -1039,8 +1041,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         tx.settle();
                     }
                 }
+                // Most events are other sessions' streams: they redraw only what they change.
                 Incoming::Event { ty, data } => {
-                    s.apply_event(&ty, &data);
+                    changed |= s.apply_event(&ty, &data);
+                    continue;
                 }
                 Incoming::Status(e) => s.status = e,
                 Incoming::Pending { session, items } => {
@@ -1114,49 +1118,7 @@ fn setup(s: &mut App, waker: Waker) {
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
-    // Running sessions (subagents) whose family isn't loaded yet.
-    let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
-    missing.sort();
-    missing.dedup();
-    if let Source::Live { server, requests, writes, .. } = &mut s.source {
-        s.pages = Some(session_pages::Pages::live(server.clone(), waker.clone()));
-        let media = server.clone();
-        s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
-        let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);
-        *writes = Some(w);
-        // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
-        for t in s.tabs.iter().filter(|t| !s.sessions.iter().any(|x| x.id == t.id)) {
-            let _ = r.send(Request::Info(t.id.clone()));
-        }
-        for id in missing {
-            let _ = r.send(Request::Info(id));
-        }
-        *requests = Some(r);
-        s.inbox = Some(inbox);
-        // The session open at last quit (see `restore`) subscribes like a click on its tab.
-        if let Route::Session(id) = s.route.clone() {
-            s.open(&id, &mut Tx::default());
-        }
-    }
-    // `--session <id or title words>` opens a session at start.
-    if let Some(raw) = arg("--session") {
-        let q = raw.to_lowercase();
-        let found = s.sessions.iter().find(|x| x.id == raw).or_else(|| s.sessions.iter().find(|x| x.title.to_lowercase().contains(&q))).map(|x| x.id.clone());
-        if let Some(id) = found {
-            s.open(&id, &mut Tx::default());
-        }
-    }
-    // Small newest pages, on the speculative lane after foreground startup work is queued.
-    let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
-    recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
-    for session in recent.into_iter().take(session_pages::WARM) { s.prefetch_session(&session.id); }
-    // Deterministic headless snapshots have no wall-clock event loop to await the worker.
-    if headless() && let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
-        && !s.transcripts.contains_key(id)
-        && let Ok(v) = server.read(&format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST))
-    {
-        s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
-    }
+    launch::setup(s);
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -1238,6 +1200,7 @@ fn busy_scene(s: &mut App) {
 }
 
 fn main() {
+    rune::prewarm_gpu();
     #[cfg(target_os = "macos")]
     dock_icon();
     let spec = AppSpec {
@@ -1349,11 +1312,16 @@ fn main() {
     #[cfg(feature = "hot")]
     rune::run(spec);
     #[cfg(not(feature = "hot"))]
-    rune::App::new(spec)
-    .chrome(rune::Chrome {
-        full_size_content: true,
-        traffic_lights: Some((25.0, 25.0)),
-        drag_regions: true,
-    })
-    .run();
+    {
+        if !headless() {
+            launch::defer();
+        }
+        let app = rune::App::new(spec).chrome(rune::Chrome {
+            full_size_content: true,
+            traffic_lights: Some((25.0, 25.0)),
+            drag_regions: true,
+        });
+        let handle = app.handle();
+        app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false })).run();
+    }
 }
