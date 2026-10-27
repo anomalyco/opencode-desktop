@@ -1,0 +1,15 @@
+[package]
+name = "opencode-desktop"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+
+[features]
+hot = ["rune/hot"]
+
+[dependencies]
+opencode-kit = { path = "../../crates/opencode-kit" }
+rune.workspace = true
+rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-theme-opencode.workspace = true
+serde_json.workspace = true
