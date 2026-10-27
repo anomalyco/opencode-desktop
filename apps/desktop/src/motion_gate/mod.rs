@@ -224,7 +224,10 @@ impl Run {
 
     /// Focuses the composer and types the circumstance's prompt (and attaches its image).
     pub fn type_prompt(&mut self) {
-        self.act("tap the composer", |rt| Run::tap(rt, "prompt"));
+        // After a send the composer keeps focus, so a second prompt is typed straight in.
+        if !self.rt.state.composer.focused {
+            self.act("tap the composer", |rt| Run::tap(rt, "prompt"));
+        }
         let body = self.circ.body().to_owned();
         let image = self.circ.prompt == Prompt::Image;
         self.act("type", |rt| {

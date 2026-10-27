@@ -20,7 +20,7 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("offset-jump", "t-msg_001a162cb6dbc013fixture00-2", "send-during-reflow", "the row under an instantly opened tool group moves with it (turns::group)"),
-    ("pop-in", "queue-list/queued-", "queue/", "a newly queued row mounts behind the composer and rises out of it as the queue's height springs (queue::panel); the composer covers it, and the gate doesn't model what covers what"),
+    ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("fade-snap", "queued-", "", "Rune: a group_opacity rest level changes at once, so the parked queue's actions cut in and out when a turn starts or stops (reported to Rune)"),
     ("fade-snap", "actions/copy", "jump-latest", "Rune: hover follows rows scrolling under a still pointer, so hover reveals flash as Jump to latest scrolls past (reported to Rune)"),
     ("fade-snap", "chip/open", "jump-latest", "Rune: hover follows rows scrolling under a still pointer, so hover reveals flash as Jump to latest scrolls past (reported to Rune)"),
@@ -359,6 +359,7 @@ fn every_message_animation_passes_the_motion_gate() {
     let mut report = String::new();
     let mut failing = 0;
     let mut allowed_n = 0;
+    let list_allowed = std::env::var_os("MOTION_GATE_ALLOWED").is_some();
     for c in &cells {
         if c.skipped {
             failing += 1;
@@ -366,7 +367,12 @@ fn every_message_animation_passes_the_motion_gate() {
         }
         for f in &c.findings {
             match allowed(f, &c.name) {
-                Some(_) => allowed_n += 1,
+                Some(why) => {
+                    allowed_n += 1;
+                    if list_allowed {
+                        report += &format!("allowed  {}  in {}  ({why})\n", f, c.name);
+                    }
+                }
                 None => {
                     failing += 1;
                     report += &format!("{}  in {}\n", f, c.name);

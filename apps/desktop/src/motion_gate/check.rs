@@ -49,6 +49,9 @@ const LIVE: u8 = 8;
 const VIRTUAL: u8 = 16;
 const TEXT: u8 = 32;
 const LOOP: u8 = 64;
+/// It or something inside it paints (a fill, words, or a leaf such as an icon) at an opacity
+/// that shows. Without it an opacity change draws nothing.
+const INK: u8 = 128;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Snap {
@@ -116,6 +119,17 @@ impl Recording {
         // its own track.
         let live: HashSet<&str> = els.iter().filter(|e| !e.exiting).map(|e| e.path.as_str()).collect();
         let mut ids = vec![usize::MAX; els.len()];
+        // Children follow their parent, so one pass from the end carries ink up the tree.
+        let mut ink = vec![false; els.len()];
+        let mut parent_of = vec![false; els.len()];
+        for e in els {
+            if let Some(p) = e.parent.filter(|&p| p < els.len()) { parent_of[p] = true; }
+        }
+        for (i, e) in els.iter().enumerate().rev() {
+            let paints = e.fill.a > 0.01 || e.text.as_deref().is_some_and(|t| !t.is_empty()) || !parent_of[i];
+            ink[i] |= paints && e.opacity > 0.02;
+            if ink[i] && let Some(p) = e.parent.filter(|&p| p < els.len()) { ink[p] = true; }
+        }
         for (i, e) in els.iter().enumerate() {
             let path = if e.exiting && live.contains(e.path.as_str()) { format!("{} (leaving)", e.path) } else { e.path.clone() };
             let parent = e.parent.and_then(|p| ids.get(p).copied()).filter(|&p| p != usize::MAX);
@@ -129,6 +143,7 @@ impl Recording {
             if e.virtual_extent { flags |= VIRTUAL }
             if e.role == "text" { flags |= TEXT }
             if e.loop_phase.is_some() { flags |= LOOP }
+            if ink[i] { flags |= INK }
             let track = &mut self.tracks[t];
             if track.frames.last().is_some_and(|f| f.0 == k) {
                 continue; // a duplicate path this frame: keep the first
@@ -430,7 +445,7 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
         let mut j = 0;
         while j < fs.len() {
             let s = fs[j].1;
-            if fs[j].0 <= rec.start || s.op < 0.6 || s.flags & EXITING != 0 || !seen(&s, size) { j += 1; continue; }
+            if fs[j].0 <= rec.start || s.op < 0.6 || s.flags & EXITING != 0 || s.flags & INK == 0 || !seen(&s, size) { j += 1; continue; }
             let horizon = fs[j].0 + (0.3 * rec.hz) as usize;
             let mut low = s.op;
             let mut low_at = j;
@@ -456,7 +471,7 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
             if w[1].0 != w[0].0 + 1 || w[1].0 <= rec.start || (a.op - b.op).abs() < rule("fade-snap") { continue; }
             let shown = if b.op > a.op { b } else { a };
             if spans.iter().any(|&(a, b)| w[1].0 >= a && w[1].0 <= b) { continue; }
-            if !seen(shown, size) || area(&on_window(&shown.vis, size)) < 16.0 || (a.flags | b.flags) & (EXITING | VIRTUAL) != 0 { continue; }
+            if !seen(shown, size) || shown.flags & INK == 0 || area(&on_window(&shown.vis, size)) < 16.0 || (a.flags | b.flags) & (EXITING | VIRTUAL) != 0 { continue; }
             geo.push((i, Finding { kind: "fade-snap", element: short(&t.path), frame: w[1].0,
                 detail: format!("opacity {:.2} → {:.2} in one frame", a.op, b.op) }));
         }
@@ -585,7 +600,7 @@ mod tests {
         r.frames = frames;
         for (path, fs) in tracks {
             let i = r.track(path, None);
-            r.tracks[i].frames = fs.into_iter().map(|(k, rect, op)| (k, Snap { rect, vis: rect, op, scale: 1.0, flags: 0 })).collect();
+            r.tracks[i].frames = fs.into_iter().map(|(k, rect, op)| (k, Snap { rect, vis: rect, op, scale: 1.0, flags: INK })).collect();
         }
         r
     }
@@ -619,6 +634,10 @@ mod tests {
         let k = kinds(&rec(vec![("a", dogleg)], 60));
         assert!(k.contains(&"reversal"), "{k:?}");
         let blink: Vec<_> = (0..60).map(|k| (k, [0.0, 0.0, 100.0, 40.0], if (20..24).contains(&k) { 0.3 } else { 1.0 })).collect();
-        assert_eq!(kinds(&rec(vec![("a", blink)], 60)), ["flicker"]);
+        assert_eq!(kinds(&rec(vec![("a", blink.clone())], 60)), ["flicker"]);
+        // A container whose contents are all hidden draws nothing as it dips.
+        let mut r = rec(vec![("a", blink)], 60);
+        for f in &mut r.tracks[0].frames { f.1.flags = 0; }
+        assert!(kinds(&r).is_empty());
     }
 }
