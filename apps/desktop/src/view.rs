@@ -102,11 +102,16 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .shadow(2.0, 4.0, p.shadow)
                 .shadow(1.0, 2.0, p.shadow)
                 .clip_soft(0.0)
+                // Files dropped anywhere on the page attach, as in Desktop.
+                .on_drop_files(crate::attachments::drop_files)
+                .accepts_extensions(crate::attachments::IMAGE_EXTENSIONS)
+                .on_drop_hover(crate::attachments::drop_hover)
                 .child(match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p),
-                }),
+                })
+                .children(crate::attachments::drop_overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
         )
         // The empty inset above the panels moves the window, as the titlebar does.
         .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(8.0).window_drag());
@@ -1278,11 +1283,8 @@ fn composer_dock(s: &App, p: &Pal) -> El {
         .min_h(96.0)
         .radius(12.0)
         .fill(if p.dark { p.layer1 } else { p.bg_base })
-        .border(if s.attach.drop_over { 1.0 } else { 0.5 }, if s.attach.drop_over { p.accent } else { p.ring })
+        .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
-        .on_drop_files(crate::attachments::drop_files)
-        .accepts_extensions(crate::attachments::IMAGE_EXTENSIONS)
-        .on_drop_hover(|s: &mut App, over, _| s.attach.drop_over = over)
         .children(crate::attachments::chips(s, p))
         .child(
             col().key("editor").w_full().px(16.0).pt(16.0).pb(8.0).child(
