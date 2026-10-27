@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Installs a built binary as ~/Applications/NAME.app and relaunches it without the window
+# blinking: the new bundle is built beside the running one, swapped in, started, and the old
+# process quits only once the new one is up. With `mac_app::remember_frame` in the app, the new
+# window opens exactly where the old one was, so the swap is invisible.
+#   scripts/mac-app --name Seer --id com.kitlangton.seer --exe seer --bin target/release/seer-sketch \
+#     --icon apps/sketch/assets/icon.icns [-- APP ARGS]
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name) NAME=$2; shift 2 ;;
+    --id) ID=$2; shift 2 ;;
+    --exe) EXE=$2; shift 2 ;;
+    --bin) BIN=$2; shift 2 ;;
+    --icon) ICON=$2; shift 2 ;;
+    --) shift; break ;;
+    *) echo "mac-app: unknown flag $1" >&2; exit 2 ;;
+  esac
+done
+: "${NAME:?--name}" "${ID:?--id}" "${EXE:?--exe}" "${BIN:?--bin}"
+test -x "$BIN" || { echo "mac-app: no binary at $BIN" >&2; exit 1; }
+LIVE="$HOME/Applications/$NAME.app"
+APP="$LIVE.new"
+rm -rf "$APP"
+OLD=$(pgrep -f "^$LIVE/Contents/MacOS/$EXE" || true)
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BIN" "$APP/Contents/MacOS/$EXE"
+[ -n "${ICON:-}" ] && cp "$ICON" "$APP/Contents/Resources/icon.icns"
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>$NAME</string>
+  <key>CFBundleDisplayName</key><string>$NAME</string>
+  <key>CFBundleIdentifier</key><string>$ID</string>
+  <key>CFBundleExecutable</key><string>$EXE</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.0.1</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+# A stable identity, so macOS remembers permission answers across rebuilds (ad-hoc changes each build).
+codesign --force --sign "Developer ID Application: Example Developer (TEAMID0000)" "$APP" >/dev/null 2>&1 \
+  || codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# The old process keeps running from its moved copy until the new window is up.
+rm -rf "$LIVE.old"
+[ -d "$LIVE" ] && mv "$LIVE" "$LIVE.old"
+mv "$APP" "$LIVE"
+open -n "$LIVE" --args "$@"
+if [ -n "$OLD" ]; then
+  for _ in $(seq 40); do
+    [ -n "$(pgrep -f "^$LIVE/Contents/MacOS/$EXE" | grep -vxF "$OLD" || true)" ] && break
+    sleep 0.05
+  done
+  sleep 0.6
+  kill $OLD 2>/dev/null || true
+fi
+rm -rf "$LIVE.old"
+echo "$LIVE"
