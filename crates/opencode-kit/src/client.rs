@@ -2,7 +2,8 @@
 //! session) on another, `/api/event` on a third, all waking the window when data lands.
 //!
 //! The password comes from `~/.local/share/opencode-studio-migration/password` (or
-//! `OPENCODE_SERVER_PASSWORD`) and only ever goes into the Authorization header.
+//! `OPENCODE_SERVER_PASSWORD`), or from a connect link (`Server::with_password`, pairing.rs),
+//! and only ever goes into the Authorization header.
 
 use std::io::{BufRead, BufReader};
 use std::net::{SocketAddr, TcpStream};
@@ -322,6 +323,12 @@ impl Server {
         Server { base: base.trim_end_matches('/').to_owned(), auth, media_refs: false }
     }
 
+    /// Uses `password` (a token from a connect link, say) in place of the one `new` found.
+    pub fn with_password(mut self, password: &str) -> Server {
+        self.auth = Some(format!("Basic {}", base64(format!("opencode:{}", password.trim()).as_bytes())));
+        self
+    }
+
     /// Opts `connect`'s message and inbox reads into `media:` refs ([`MEDIA_CAPABILITY`]). Off by
     /// default: only an app that fetches refs (`Server::media`) should ask for them.
     pub fn with_media_refs(mut self) -> Server {
@@ -335,9 +342,15 @@ impl Server {
     }
 
     fn addr(&self) -> Option<SocketAddr> {
-        let host = self.base.strip_prefix("http://")?.split('/').next()?;
-        let host = host.replace("localhost", "127.0.0.1");
-        host.parse().ok()
+        let (scheme, rest) = self.base.split_once("://")?;
+        let host = rest.split('/').next()?.replace("localhost", "127.0.0.1");
+        if let Ok(a) = host.parse() {
+            return Some(a);
+        }
+        // A name, as a remote server behind a tunnel has.
+        let port = if scheme == "https" { 443 } else { 80 };
+        let host = if host.rsplit_once(':').is_some_and(|(_, p)| p.parse::<u16>().is_ok()) { host } else { format!("{host}:{port}") };
+        std::net::ToSocketAddrs::to_socket_addrs(&host).ok()?.next()
     }
 
     /// A quick TCP check, so a missing server falls back to the fixture without waiting.
