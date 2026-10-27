@@ -25,6 +25,7 @@ mod restore;
 mod revert;
 mod scenes;
 mod send;
+mod session_open;
 mod session_pages;
 mod open_story;
 #[cfg(test)]
@@ -36,6 +37,7 @@ mod stories;
 mod subagents;
 mod settings;
 mod switcher;
+mod tab_actions;
 mod tabs;
 mod turns;
 mod view;
@@ -353,104 +355,6 @@ impl App {
         self.projects = ps;
     }
 
-    /// A fresh profile's tabs: the most recent root sessions.
-    fn recent_tabs(&self) -> Vec<Tab> {
-        let mut roots: Vec<&SessionInfo> = self.sessions.iter().filter(|s| s.parent.is_none()).collect();
-        roots.sort_by_key(|s| std::cmp::Reverse(s.updated));
-        roots.iter().take(8).map(|s| Tab { id: s.id.clone(), title: s.title.clone(), directory: s.directory.clone() }).collect()
-    }
-
-    fn save_tabs(&mut self) {
-        // Keep titles fresh for sessions outside the loaded list next launch.
-        for t in &mut self.tabs {
-            if let Some(s) = self.sessions.iter().find(|s| s.id == t.id) {
-                t.title = s.title.clone();
-                t.directory = s.directory.clone();
-            }
-        }
-        #[cfg(test)]
-        tabs::SAVED.with(|saved| *saved.borrow_mut() = Some(self.tabs.iter().map(|t| t.id.clone()).collect()));
-        if let Source::Live { server, .. } = &self.source
-            && self.persists()
-        {
-            tabs::save(&server.base, &self.tabs);
-        }
-    }
-
-    /// A dropped tab: it takes its new place, and ⌘1–9 follow the new order.
-    pub fn move_tab(&mut self, from: usize, to: usize) {
-        if from >= self.tabs.len() || to >= self.tabs.len() {
-            return;
-        }
-        let tab = self.tabs.remove(from);
-        self.tabs.insert(to, tab);
-        self.save_tabs();
-    }
-
-    /// The root of a session's family.
-    pub fn root_of<'a>(&'a self, id: &'a str) -> &'a str {
-        let mut cur = id;
-        for _ in 0..32 {
-            match self.session(cur).and_then(|s| s.parent.as_deref()) {
-                Some(p) => cur = p,
-                None => break,
-            }
-        }
-        cur
-    }
-
-    /// A tab's mark, as Desktop decides it: busy while anything in the family runs (unless it's
-    /// waiting on you), then nothing for the open tab, then attention before unread.
-    pub fn tab_status(&self, id: &str) -> Option<TabStatus> {
-        let attention = self.requests.iter().any(|(s, _)| self.root_of(s) == id);
-        if !attention && self.running.iter().any(|s| self.root_of(s) == id) {
-            return Some(TabStatus::Busy);
-        }
-        if self.route == Route::Session(id.to_owned()) {
-            return None;
-        }
-        if attention {
-            return Some(TabStatus::Attention);
-        }
-        self.session(id).is_some_and(SessionInfo::unread).then_some(TabStatus::Unread)
-    }
-
-    pub fn close_tab(&mut self, id: &str, tx: &mut Tx) {
-        tx.instant();
-        let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
-        let tab = self.tabs.remove(i);
-        self.closed.push((i, tab));
-        if self.route == Route::Session(id.to_owned()) {
-            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {
-                Some(next) => self.open(&next, tx),
-                None => {
-                    self.close_picker(false);
-                    self.route = Route::Home;
-                    tx.settle();
-                }
-            }
-        }
-        self.save_tabs();
-    }
-
-    /// The tab the open page belongs to, if any.
-    fn current_tab(&self) -> Option<String> {
-        let Route::Session(id) = &self.route else { return None };
-        let root = self.root_of(id);
-        self.tabs.iter().any(|t| t.id == root).then(|| root.to_owned())
-    }
-
-    fn select_adjacent(&mut self, offset: i32, unread_only: bool, tx: &mut Tx) {
-        let order: Vec<&str> = self.tabs.iter().map(|t| t.id.as_str()).collect();
-        let current = self.current_tab();
-        let next = shortcuts::adjacent(&order, current.as_deref(), offset, |k| {
-            !unread_only || (Some(k) != current.as_deref() && self.tab_status(k) == Some(TabStatus::Unread))
-        });
-        if let Some(id) = next {
-            self.open(&id, tx);
-        }
-    }
-
     pub fn set_zoom(&mut self, dir: i32) {
         self.zoom = shortcuts::step_zoom(self.zoom, dir);
         if self.persists() {
@@ -549,120 +453,6 @@ impl App {
 
     pub fn project(&self, id: &str) -> Option<&Project> {
         self.projects.iter().find(|p| p.id == id)
-    }
-
-    /// Opens a session: lands at the bottom on the first frame with nothing animating in.
-    pub fn open(&mut self, id: &str, tx: &mut Tx) {
-        self.cancel_open(tx);
-        if self.pages.is_some() && self.route != Route::Session(id.to_owned()) {
-            self.begin_open(id, tx);
-        } else {
-            self.open_now(id, tx);
-            self.open_page(id, tx);
-        }
-    }
-
-    /// Commits the route, header and transcript together, once the opening gate is ready.
-    fn open_now(&mut self, id: &str, tx: &mut Tx) {
-        self.close_picker(false);
-        self.activity_open = false;
-        if self.route != Route::Session(id.to_owned()) {
-            // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
-            self.ends.forget(id);
-        }
-        self.route = Route::Session(id.to_owned());
-        let root = self.root_of(id).to_owned();
-        // As in Desktop, you can type straight away. A subagent's session has no composer, and
-        // a story's keys stay with the storybook.
-        if root == id && self.story.is_none() && !self.question_shown() {
-            self.composer.focused = true;
-        }
-        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == root) {
-            // Viewing it reads it (locally: this build never writes to the server).
-            s.viewed = s.idle.max(s.viewed);
-        }
-        if !self.tabs.iter().any(|t| t.id == root) {
-            let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
-            self.tabs.push(Tab { id: root, title, directory });
-            self.save_tabs();
-        }
-        tx.settle();
-        match &self.source {
-            Source::Live { requests: Some(r), .. } => {
-                if self.pages.is_none() { let _ = r.send(Request::Session(id.to_owned())); }
-                let _ = r.send(Request::Pending(id.to_owned()));
-                let _ = r.send(Request::Inbox(id.to_owned()));
-            }
-            Source::Live { .. } => {}
-            Source::Fixture => self.start_stream_if_due(id),
-        }
-    }
-
-    /// The event stream came back: re-reads what a gap may have made stale (what's running, the
-    /// session list, pending requests and the open session's latest page), like the first load.
-    fn resync(&mut self) {
-        let Source::Live { requests: Some(r), .. } = &self.source else { return };
-        let _ = r.send(Request::Active);
-        let _ = r.send(Request::Sessions);
-        let open = match &self.route {
-            Route::Session(id) => Some(id.clone()),
-            _ => None,
-        };
-        let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
-        asked.extend(open.clone());
-        asked.sort();
-        asked.dedup();
-        for id in asked {
-            let _ = r.send(Request::Pending(id));
-        }
-        if let Some(id) = open {
-            let _ = r.send(Request::Inbox(id.clone()));
-            match &self.pages {
-                Some(pages) => pages.request(session_pages::Key { id: id.clone(), updated: self.session(&id).map_or(0, |s| s.updated) }, true),
-                None => {
-                    let _ = r.send(Request::Session(id));
-                }
-            }
-        }
-    }
-
-    fn start_stream_if_due(&mut self, id: &str) {
-        let stream = &self.fixture["stream"];
-        if stream["session"].as_str() != Some(id) || stream["played"].as_bool() == Some(true) || flag("--no-stream") {
-            return;
-        }
-        let at = self.clock;
-        for e in stream["events"].as_array().into_iter().flatten() {
-            let t = at + e["t"].as_f64().unwrap_or(0.0);
-            self.playback.push_back((t, e["type"].as_str().unwrap_or("").to_owned(), e["data"].clone()));
-        }
-        self.fixture["stream"]["played"] = true.into();
-        self.wake_at_playback();
-    }
-
-    /// Applies the fixture's streaming turn at once (the finished session).
-    fn finish_stream(&mut self) {
-        let events = self.fixture["stream"]["events"].as_array().cloned().unwrap_or_default();
-        for e in events {
-            self.apply_event(e["type"].as_str().unwrap_or(""), &e["data"]);
-        }
-        self.fixture["stream"]["played"] = true.into();
-    }
-
-    /// Windowed runs sleep between frames; a timer thread wakes the window for each event.
-    fn wake_at_playback(&self) {
-        let Some(w) = self.waker.clone() else { return };
-        let times: Vec<f64> = self.playback.iter().map(|e| e.0 - self.clock).collect();
-        std::thread::spawn(move || {
-            let start = std::time::Instant::now();
-            for t in times {
-                let d = std::time::Duration::from_secs_f64(t.max(0.0));
-                if let Some(rest) = d.checked_sub(start.elapsed()) {
-                    std::thread::sleep(rest);
-                }
-                w();
-            }
-        });
     }
 
     /// The open requests in a session's family (a subagent's question shows on its root).
