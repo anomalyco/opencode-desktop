@@ -2560,6 +2560,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-fx"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649#1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649"
+dependencies = [
+ "bytemuck",
+ "rune-motion",
+ "wgpu",
+]
+
+[[package]]
 name = "rune-kit"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649#1026bd4ccbb54f6a4c2bb5c7d11c1cbdbf3f4649"
@@ -2697,12 +2707,14 @@ dependencies = [
  "opencode-kit",
  "project-icon",
  "rune",
+ "rune-fx",
  "rune-kit",
  "rune-knobs",
  "rune-playground",
  "rune-theme-opencode",
  "serde_json",
  "ureq",
+ "wgpu",
 ]
 
 [[package]]
