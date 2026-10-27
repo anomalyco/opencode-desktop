@@ -14,7 +14,7 @@ use crate::stories::{emit, replay, sid};
 pub const COUNT: Knob = Knob::choice("Agents", &["1", "3", "6"], 1);
 const COUNTS: [usize; 3] = [1, 3, 6];
 
-pub const KNOBS: &[Group] = &[Group::new("Subagent rows", "stage", &[crate::knobs::SUBAGENT_ROWS, COUNT])];
+pub const KNOBS: &[Group] = &[Group::new("Subagent rows", "stage", &[COUNT])];
 pub const KEYS: &[Action<App>] = &[
     Action { cap: "R", label: "Replay", run: replay },
     Action { cap: "S", label: "Start another", run: spawn },
@@ -55,9 +55,9 @@ fn started(s: &App) -> Vec<String> {
     (0..).map(child).take_while(|c| s.session(c).is_some()).collect()
 }
 
-/// A snapshot scene: three agents in Subagent rows style `style`, light or dark.
-pub fn scene(s: &mut App, style: usize, dark: bool) {
-    s.knobs.set(&crate::knobs::SUBAGENT_ROWS, style as f32);
+/// A snapshot scene: `count` agents (the Agents knob's index), light or dark.
+pub fn scene(s: &mut App, count: usize, dark: bool) {
+    s.knobs.set(&COUNT, count as f32);
     crate::stories::scene(s, "Subagent rows");
     s.settings.scheme = if dark { crate::settings::Scheme::Dark } else { crate::settings::Scheme::Light };
 }

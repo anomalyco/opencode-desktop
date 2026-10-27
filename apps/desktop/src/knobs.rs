@@ -14,8 +14,6 @@ pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).st
 pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0);
 /// Where "Jump to latest" sits: at the composer's right end, or centred above it as on Desktop.
 pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0);
-/// How a subagent call's row in the timeline looks (`agent_rows.rs`), for Kit to pick one.
-pub const SUBAGENT_ROWS: Knob = Knob::choice("Subagent rows", &crate::agent_rows::NAMES, 0);
 
 /// The composer ⇄ question morph's curve: a spring (duration and bounce) or an eased tween
 /// over the duration.
@@ -102,7 +100,6 @@ pub const GROUPS: &[Group] = &[
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
     QUESTION_DOCK,
     Group::new("Timeline", "timeline", TIMELINE),
-    Group::new("Subagent rows", "timeline", &[SUBAGENT_ROWS]),
     WORKING,
 ];
 

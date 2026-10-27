@@ -451,7 +451,7 @@ pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
-    let skip: Vec<bool> = (0..n).map(|i| crate::agent_rows_view::skip(s, &blocks, i)).collect();
+    let skip: Vec<bool> = (0..n).map(|i| crate::agent_rows_view::skip(&blocks, i)).collect();
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
     for (i, b) in blocks.into_iter().enumerate().filter(|(i, _)| !skip[*i]) {

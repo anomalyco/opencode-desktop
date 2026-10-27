@@ -30,9 +30,8 @@ pub enum Block<'a> {
     /// Folded thoughts and tool calls.
     Group { key: String, steps: Vec<Step<'a>> },
     Text { key: String, body: &'a str, live: bool },
-    /// A subagent call. `session`: its child session, once the call names it. `background`: the
-    /// call returned at once and the child runs on.
-    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str>, background: bool },
+    /// A subagent call. `session`: its child session, once the call names it.
+    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str> },
     /// A question call, once answered, dismissed or failed (`question_row`).
     Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
 }
@@ -82,8 +81,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                         // `agent` today; older servers' `task` calls said `subagent_type`.
                         let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("general");
                         let session = opencode_kit::model::subagent_session(input, metadata);
-                        let background = input["background"] == true || (*status == ToolStatus::Completed && metadata["status"] == "running");
-                        out.push(Block::Agent { id, agent, title, status, session, background });
+                        out.push(Block::Agent { id, agent, title, status, session });
                     }
                     "question" => {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {

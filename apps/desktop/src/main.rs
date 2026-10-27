@@ -3,7 +3,6 @@
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
 mod add_menu;
-mod agent_groups_view;
 mod agent_rows;
 mod agent_rows_view;
 mod agent_stories;
@@ -144,7 +143,7 @@ pub struct App {
     pub opened: Vec<String>,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
-    /// Subagents' latest steps and how their runs ended, for the Subagent rows styles.
+    /// Subagents' latest steps and how their runs ended, for their timeline rows.
     pub agent_rows: agent_rows::Live,
     /// Whether AppKit is saving the window frame yet (`mac_app::remember_frame`).
     framed: bool,

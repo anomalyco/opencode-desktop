@@ -1,14 +1,14 @@
-//! Subagents as Desktop shows them: the call's card in the parent's timeline
-//! (`session-ui/src/tools/tool-renderer.tsx`, "subagent"), the running-work capsule above the
-//! composer (`app/src/session/composer/activity-chips.tsx`), and the status line that takes the
-//! composer's place inside a child session (`subagent-bar.tsx`).
+//! Subagents as Desktop shows them: the running-work capsule above the composer
+//! (`app/src/session/composer/activity-chips.tsx`) and the status line that takes the
+//! composer's place inside a child session (`subagent-bar.tsx`). The call's card in the
+//! parent's timeline is `agent_rows_view.rs`.
 //!
 //! A subagent runs while its child session, or any session below it, runs. A background call's
 //! tool part finishes at once, so the call's own status only counts until it names its child.
 
 use rune::{Anim, El, Tx, col, el, icon, row, spacer, text};
 
-use opencode_kit::model::{self, Message, Part, ToolStatus};
+use opencode_kit::model::{self, Message, Part};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
@@ -127,62 +127,6 @@ pub fn child_of<'a>(s: &'a App, parent: &str, named: Option<&'a str>, descriptio
             .max_by_key(|x| x.created)
             .map(|x| x.id.as_str())
     })
-}
-
-/// The call's card: a spinner while it runs, the agent, the description, and a chevron on
-/// hover when there's a session to open.
-#[allow(clippy::too_many_arguments)]
-pub fn card(s: &App, p: &Pal, parent: &str, agent: &str, title: &str, status: &ToolStatus, named: Option<&str>, background: bool) -> El {
-    if *status == ToolStatus::Pending {
-        // The call is still being written: Desktop's "Delegating agent…" pill.
-        return row().w_full().child(
-            row()
-                .key("delegating")
-                .h(36.0)
-                .px(12.0)
-                .gap(8.0)
-                .center_y()
-                .radius(8.0)
-                .fill(p.layer2)
-                .child(activity_ring(p))
-                .child(text("Delegating agent…").font(UI_MED).color(p.text)),
-        );
-    }
-    let child = child_of(s, parent, named, title);
-    let running = *status == ToolStatus::Running || child.is_some_and(|c| s.subtree_running(c));
-    let subtitle = if background && !title.is_empty() { format!("{title} (background)") } else { title.to_owned() };
-    let mut surface = row()
-        .key("chip")
-        .role("button")
-        .label(format!("{} {subtitle}", model::capitalize(agent)))
-        .w_full()
-        .h(36.0)
-        .px(12.0)
-        .gap(8.0)
-        .center_y()
-        .radius(8.0)
-        .fill(p.layer2)
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
-        // The spinner leaving as the run ends slides the words over rather than jumping them.
-        .animate_layout();
-    if running {
-        surface = surface.child(activity_ring_on(p, p.layer2, 14.0).key("spinner"));
-    }
-    surface = surface
-        .child(text(model::capitalize(agent)).key("agent").font(UI_MED.lh(20.0)).color(p.text))
-        .child(text(subtitle).key("subtitle").font(UI.lh(20.0)).color(p.text).truncate().shrink())
-        .child(spacer());
-    if let Some(c) = child {
-        let (parent, c, title, agent) = (parent.to_owned(), c.to_owned(), title.to_owned(), agent.to_owned());
-        surface = surface
-            .child(icon(&ic::CHEVRON_RIGHT, 16.0).key("open").color(p.icon_faint).group_opacity(0.0, 1.0))
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.open_child(&parent, &c, &title, &agent, tx);
-            });
-    }
-    row().w_full().child(surface)
 }
 
 /// Inside a subagent's session, in the composer's place: how the run is going, the agent and
@@ -408,18 +352,18 @@ mod tests {
     fn a_subagent_card_shows_live_status_and_opens_its_session() {
         let mut rt = rt();
         let card = "a-call_subagent_";
-        // Finished: no spinner, and the call names its child.
-        assert!(has(&rt, card, "chip"));
-        assert!(!has(&rt, card, "spinner"));
+        // Finished: a ✓, and the call names its child.
+        assert!(has(&rt, card, "done"));
+        assert!(!has(&rt, card, "spin"));
         rt.update(|s, _| {
             s.running.insert(REVIEW.into());
         });
         rt.frame(1.0 / 120.0);
-        assert!(has(&rt, card, "spinner"), "the child runs, so the card does");
+        assert!(has(&rt, card, "spin"), "the child runs, so the card does");
         assert_eq!(rt.state.tab_status(MAIN), Some(crate::TabStatus::Busy));
         assert!(has(&rt, "", "activity-chip"));
 
-        press(&mut rt, "chip");
+        press(&mut rt, "agent-line");
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
         // Still the parent's tab, and the composer gives way to the subagent's status line.
         assert!(!rt.state.tabs.iter().any(|t| t.id == REVIEW));

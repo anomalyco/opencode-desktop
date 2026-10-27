@@ -3,12 +3,11 @@ use rune::{Env, Runtime};
 use crate::App;
 use crate::agent_stories as st;
 
-fn rt(style: usize) -> Runtime<App> {
+fn rt() -> Runtime<App> {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
-    app.knobs.set(&crate::knobs::SUBAGENT_ROWS, style as f32);
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
     rt.poll = Some(crate::poll);
     rt.on_key = Some(crate::on_key);
@@ -29,7 +28,7 @@ fn keys(rt: &Runtime<App>, path: &str) -> Vec<String> {
 
 #[test]
 fn each_new_step_is_a_new_line_that_rolls_in_over_the_last() {
-    let mut rt = rt(1);
+    let mut rt = rt();
     rt.update(st::spawn);
     play(&mut rt, 0.5);
     let now = |rt: &Runtime<App>| keys(rt, "agent-line/now/").into_iter().find(|k| k.starts_with("step-")).unwrap();
@@ -43,32 +42,23 @@ fn each_new_step_is_a_new_line_that_rolls_in_over_the_last() {
 }
 
 #[test]
-fn agents_started_together_share_the_first_ones_row() {
-    for style in [2, 3, 4, 6] {
-        let mut rt = rt(style);
-        rt.update(st::spawn);
-        play(&mut rt, 0.3);
-        rt.update(st::spawn);
-        play(&mut rt, 0.5);
-        let first = keys(&rt, "a-call_story_agent_00");
-        assert!(first.iter().any(|k| k == "member-call_story_agent_01"), "style {style}: the second joins the first: {first:?}");
-        assert!(keys(&rt, "a-call_story_agent_01").is_empty(), "style {style}: the second has no row of its own");
-    }
+fn one_agent_is_a_card_with_one_row() {
+    let mut rt = rt();
+    rt.update(st::spawn);
+    play(&mut rt, 0.5);
+    let card = keys(&rt, "a-call_story_agent_00");
+    assert!(card.iter().any(|k| k == "agent-card"), "{card:?}");
+    assert_eq!(card.iter().filter(|k| k.starts_with("member-")).count(), 1, "{card:?}");
 }
 
 #[test]
-fn a_summary_opens_to_a_row_per_agent_at_once() {
-    let mut rt = rt(5);
+fn agents_started_together_share_the_first_ones_card() {
+    let mut rt = rt();
     rt.update(st::spawn);
+    play(&mut rt, 0.3);
     rt.update(st::spawn);
     play(&mut rt, 0.5);
-    assert!(rt.find("member-call_story_agent_00").is_none(), "closed, it's one line");
-    rt.frame(1.0 / 120.0);
-    let r = rt.elements().into_iter().find(|e| e.path.ends_with("a-call_story_agent_00/#0/agent-summary/summary")).expect("the summary line").rect;
-    let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-    rt.pointer_down(x, y);
-    rt.pointer_up(x, y);
-    rt.frame(1.0 / 120.0);
-    let row = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("member-call_story_agent_01")).expect("open, a row per agent");
-    assert!(row.opacity > 0.99, "open at once: {}", row.opacity);
+    let first = keys(&rt, "a-call_story_agent_00");
+    assert!(first.iter().any(|k| k == "member-call_story_agent_01"), "the second joins the first: {first:?}");
+    assert!(keys(&rt, "a-call_story_agent_01").is_empty(), "the second has no row of its own");
 }

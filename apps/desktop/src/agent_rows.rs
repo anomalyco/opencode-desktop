@@ -1,8 +1,7 @@
 //! How a subagent call's row in the timeline is going: its latest steps, how long it has run,
-//! and how it ended, for the ⌘⇧K Subagent rows styles (`agent_rows_view.rs`). Today's row
-//! (`subagents::card`) needs none of it.
+//! and how it ended (`agent_rows_view.rs` draws it).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use rune::Tx;
 use serde_json::Value;
@@ -14,46 +13,6 @@ use crate::{App, Route};
 /// Steps a row keeps, newest last.
 const KEEP: usize = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Style {
-    /// Today's card, a port of Desktop Beta's: the agent, its task with "(background)", a
-    /// spinner while it runs.
-    Today,
-    /// One line: the task, what it's doing now or how it ended, its type and its run time.
-    Status,
-    /// Agents started together: a quiet "3 agents" line with their counts, then a box each.
-    Boxes,
-    /// A box each, stacked so neighbours share an edge, with no header.
-    Stacked,
-    /// One card with a live row per agent: no header, no dividers.
-    Card,
-    /// One line, "3 agents · Read live.ts", that opens to a row per agent.
-    Summary,
-    /// A chip per agent, under one line with the latest step from any of them.
-    Chips,
-}
-
-impl Style {
-    /// Whether agents started together draw as one group.
-    pub fn groups(self) -> bool {
-        !matches!(self, Style::Today | Style::Status)
-    }
-}
-
-pub const NAMES: [&str; 7] = ["Today", "Live status", "Boxes", "Stacked", "One card", "Summary", "Chips"];
-
-pub fn style(s: &App) -> Style {
-    match s.knobs.get(&crate::knobs::SUBAGENT_ROWS) as usize {
-        1 => Style::Status,
-        2 => Style::Boxes,
-        3 => Style::Stacked,
-        4 => Style::Card,
-        5 => Style::Summary,
-        6 => Style::Chips,
-        _ => Style::Today,
-    }
-}
-
 /// What the event stream says about subagents beyond running or not.
 #[derive(Default)]
 pub struct Live {
@@ -63,12 +22,6 @@ pub struct Live {
     ended: HashMap<String, (bool, i64, Option<String>)>,
     /// The last poll's clock, to tell when a second has passed.
     polled: i64,
-    /// Counts what changed, so a session's last change can be told from another's.
-    tick: u64,
-    /// When each session's line last changed, on `tick`.
-    moved: HashMap<String, u64>,
-    /// Summaries opened to a row per agent, by their first call.
-    pub open: HashSet<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,18 +31,15 @@ pub enum State {
     Failed,
 }
 
-/// One call's run, as the live styles draw it.
+/// One call's run, as its row draws it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Run {
     pub state: State,
     /// The latest steps, newest last ("Read backoff.ts"), and how many came before them.
     pub steps: Vec<String>,
     pub taken: usize,
-    /// "12s": how long it has run, or ran, and the same in milliseconds.
+    /// "12s": how long it has run, or ran.
     pub time: Option<String>,
-    pub ms: i64,
-    /// When its line last changed, to find a group's latest.
-    pub moved: u64,
     /// Its answer's first line, once done.
     pub result: Option<String>,
     /// What went wrong, once failed.
@@ -136,8 +86,6 @@ impl App {
         if sid.is_empty() || self.session(sid).is_none_or(|i| i.parent.is_none()) {
             return false;
         }
-        self.agent_rows.tick += 1;
-        let tick = self.agent_rows.tick;
         let step = match ty {
             "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
             "session.reasoning.started" => "Thinking".to_owned(),
@@ -148,7 +96,6 @@ impl App {
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
                 self.agent_rows.ended.insert(sid.to_owned(), (ty != "session.execution.succeeded", self.now_ms, error));
-                self.agent_rows.moved.insert(sid.to_owned(), tick);
                 return true;
             }
             _ => return false,
@@ -159,7 +106,6 @@ impl App {
         }
         list.push(step);
         *taken += 1;
-        self.agent_rows.moved.insert(sid.to_owned(), tick);
         if list.len() > KEEP {
             list.remove(0);
         }
@@ -186,10 +132,9 @@ impl App {
             end - i.created
         });
         let time = ms.map(crate::subagents::elapsed);
-        let moved = child.and_then(|c| self.agent_rows.moved.get(c)).copied().unwrap_or(0);
         let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c))).flatten();
         let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
-        Run { state, steps, taken, time, ms: ms.unwrap_or(0), moved, result, error }
+        Run { state, steps, taken, time, result, error }
     }
 
     fn last_tool(&self, child: &str) -> Option<String> {
@@ -214,14 +159,13 @@ impl App {
     }
 }
 
-/// Wakes the app each second while a live style shows a running agent's time; true when a
-/// second just passed.
+/// Wakes the app each second while a row shows a running agent's time; true when a second
+/// just passed.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let (now, last) = (s.now_ms, s.agent_rows.polled);
     s.agent_rows.polled = now;
     s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
-    let live = style(s) != Style::Today;
-    let ticking = live && matches!(&s.route, Route::Session(id) if s.running.iter().any(|r| r != id && s.descends(r, id)));
+    let ticking = matches!(&s.route, Route::Session(id) if s.running.iter().any(|r| r != id && s.descends(r, id)));
     if !ticking {
         return false;
     }

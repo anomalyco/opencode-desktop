@@ -17,7 +17,7 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("text-swap", "working/#1/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
     ("text-swap", "header/crumbs", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
     ("text-swap", "activity-lane/activity-chip", "", "the composer's activity capsule counts its subagents in place (subagents::capsule)"),
-    ("reversal", "now/", "agents-", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
+    ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
@@ -269,13 +269,8 @@ const ACTIONS: &[Action] = &[
         r.rec.loads.push(r.rec.frames - 1);
         r.play(1.0);
     } },
-    Action { name: "agents-today", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 0) },
-    Action { name: "agents-status", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 1) },
-    Action { name: "agents-boxes", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 2) },
-    Action { name: "agents-stacked", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 3) },
-    Action { name: "agents-card", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 4) },
-    Action { name: "agents-summary", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 5) },
-    Action { name: "agents-chips", circs: || wide_and_narrow(Circ::default()), run: |r| agents(r, 6) },
+    Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
+    Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.
     Action { name: "dictate", circs: dictation_circs, run: |r| {
@@ -319,18 +314,10 @@ const ACTIONS: &[Action] = &[
     } },
 ];
 
-/// Background agents in the ⌘⇧K Subagent rows style `style`: two start a beat apart (the
-/// second joins the first's group) and step along, then one finishes and the other fails.
-fn agents(r: &mut Run, style: usize) {
+/// Background agents: two start a beat apart (the second joins the first's card) and step
+/// along, then one finishes and the other fails.
+fn agents(r: &mut Run) {
     use crate::agent_stories as st;
-    r.rt.update(|s, tx| {
-        tx.instant();
-        s.knobs.set(&crate::knobs::SUBAGENT_ROWS, style as f32);
-    });
-    r.idle(0.5);
-    // The style's look is the settled start, frame 0.
-    r.rec = Recording::new(r.circ.size(), 1.0 / DT);
-    r.step();
     r.act("an agent starts", |rt| rt.update(st::spawn));
     r.play(1.0);
     r.act("it steps", |rt| rt.update(st::advance));
@@ -342,6 +329,19 @@ fn agents(r: &mut Run, style: usize) {
     r.act("the first finishes", |rt| rt.update(st::finish_oldest));
     r.play(1.0);
     r.act("the second fails", |rt| rt.update(st::fail_newest));
+    r.play(1.0);
+}
+
+/// One background agent on its own: a card with one row that starts, steps and finishes.
+fn one_agent(r: &mut Run) {
+    use crate::agent_stories as st;
+    r.act("an agent starts", |rt| rt.update(st::spawn));
+    r.play(1.0);
+    r.act("it steps", |rt| rt.update(st::advance));
+    r.play(0.6);
+    r.act("it steps again", |rt| rt.update(st::advance));
+    r.play(0.6);
+    r.act("it finishes", |rt| rt.update(st::finish_oldest));
     r.play(1.0);
 }
 
