@@ -7,9 +7,9 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "3f70cd6b675c89a8a7b64fc09b1bf2b455e0ad1a" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "3f70cd6b675c89a8a7b64fc09b1bf2b455e0ad1a" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "3f70cd6b675c89a8a7b64fc09b1bf2b455e0ad1a" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "b673cb74d1145653177fd383f7c5a2db46e96c20" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 
