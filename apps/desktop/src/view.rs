@@ -233,8 +233,11 @@ fn sidebar(s: &App, p: &Pal) -> El {
                 .child(spacer())
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
                 .child(el().key("toggle-slot").size(28.0, 28.0)),
-        )
-        .child(
+        );
+    // The storybook (⌘⇧D) lists its stories in place of the tabs.
+    let inner = match crate::stories::list(s, p) {
+        Some(stories) => inner.child(stories),
+        None => inner.child(
             col()
                 .key("actions")
                 .w_full()
@@ -268,7 +271,8 @@ fn sidebar(s: &App, p: &Pal) -> El {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .clip_fade(0.0, 0.0, 0.0, 16.0)
                 .child(list),
-        );
+        ),
+    };
 
     // The aside's width moves the panel's edge; its contents keep their width, pinned to that edge.
     el().key("sidebar")
@@ -1572,7 +1576,7 @@ fn composer(s: &App, p: &Pal) -> El {
         Some(face) => composer.children(face),
         None => composer.children(crate::attachments::chips(s, p))
         .child(
-            col().key("editor").transition(crate::question::face_transition()).w_full().px(16.0).pt(16.0).pb(8.0).child(
+            col().key("editor").transition(crate::question::face_transition(s)).w_full().px(16.0).pt(16.0).pb(8.0).child(
                 text_input(&s.composer, if s.add.shell { SHELL_PROMPT } else { PROMPT })
                     .key("prompt")
                     .w_full()
@@ -1600,7 +1604,7 @@ fn composer(s: &App, p: &Pal) -> El {
         .child(
             row()
                 .key("toolbar")
-                .transition(crate::question::face_transition())
+                .transition(crate::question::face_transition(s))
                 .h(44.0)
                 .px(8.0)
                 .gap(4.0)

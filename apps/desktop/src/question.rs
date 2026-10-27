@@ -1,7 +1,8 @@
 //! The question dock: Desktop's `session-question-dock.tsx` and `question-keys.ts`. When the
 //! open session waits on a question, the composer's surface morphs into it (`ComposerMorph`,
-//! `spring-height.tsx`): one card whose height springs on [`MORPH`] while the composer's face
-//! fades out and the question's fades up. Answering or dismissing it, here or anywhere else,
+//! `spring-height.tsx`): one card whose height springs on Desktop's `docks.morph` (0.4 s, no
+//! bounce) while the composer's face fades out and the question's fades up. The curves and
+//! timings are knobs (⌘⇧K → Question dock, `knobs.rs`) whose defaults are Desktop's. Answering or dismissing it, here or anywhere else,
 //! morphs it back with the draft as it was.
 //!
 //! Keys: ↑/↓ (Home/End) move the highlight, 1–9 pick, Space toggles, ↵ picks the highlighted
@@ -11,19 +12,10 @@
 use std::collections::HashSet;
 
 use opencode_kit::model::{Field, FieldKind, Pending};
-use rune::{Anim, Color, El, Key, KeyEvent, Spring, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
+use rune::{Anim, Color, El, Key, KeyEvent, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
 
 use crate::palette::Pal;
-use crate::{App, Route};
-
-/// The composer ⇄ question morph: Desktop's `docks.morph` ("smooth", 0.4 s, no bounce), shared
-/// by opening and closing so the dock leaves the way it came.
-pub const MORPH: Spring = Spring::new(0.4, 0.0);
-/// The face that leaves fades out quickly; the one that arrives fades up on the morph.
-const FADE_OUT: Spring = Spring::new(0.15, 0.0);
-/// A new question's text and answers slide in from the side they come from (`arrive`) over
-/// the old ones fading out where they stood.
-const ARRIVE: Spring = Spring::new(0.3, 0.0);
+use crate::{App, Route, knobs};
 
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const STRONG: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0);
@@ -213,6 +205,22 @@ impl App {
         self.typed.get(&f.key(tab)).is_some_and(|t| t.focused)
     }
 
+    /// Whether the dock takes letters now: its typed answer is open or highlighted.
+    pub fn question_takes_text(&self) -> bool {
+        let Some(f) = self.asking() else { return false };
+        let (tab, focus) = self.place(&f);
+        self.editing(&f, tab) || (focus >= rows(&f.fields[tab]).len() && has_custom(&f.fields[tab]))
+    }
+
+    /// Opens the first question's typed answer with `text` in it (the storybook's typing story).
+    pub fn question_type(&mut self, text: &str) {
+        let Some(f) = self.asking() else { return };
+        self.start_typing(&f, 0);
+        let t = self.typed_mut(&f.id, &f.fields[0].key);
+        *t = TextEdit::new(text);
+        t.focused = true;
+    }
+
     fn answered(&self, f: &Form, tab: usize) -> bool {
         let k = f.key(tab);
         self.picks.get(&k).is_some_and(|p| !p.is_empty())
@@ -276,7 +284,7 @@ impl App {
         d.step = if tab > from { 1 } else { -1 };
         d.tab = tab;
         d.focus = focus;
-        tx.motion(MORPH);
+        tx.motion_curve(knobs::morph(self));
     }
 
     /// Next question, or the reply on the last one.
@@ -304,7 +312,7 @@ impl App {
     /// The dock opened or closed: the surface springs to its new face, and the composer
     /// gets the keyboard back.
     pub fn morph(&mut self, tx: &mut Tx) {
-        tx.motion(MORPH);
+        tx.motion_curve(knobs::morph(self));
         if !self.question_shown() {
             self.composer.focused = true;
         }
@@ -414,15 +422,20 @@ impl App {
     }
 }
 
-/// How the composer's face and the question's swap inside the one surface.
-pub fn face_transition() -> Transition {
-    Transition::asymmetric(Transition::offset(0.0, 6.0).combined(Transition::opacity()), Transition::opacity())
-        .springs(SpringPair { enter: MORPH, exit: FADE_OUT })
+/// How the composer's face and the question's swap inside the one surface: the face that
+/// leaves fades out quickly, the one that arrives rises and fades up with the morph. The
+/// morph is shared by opening and closing, so the dock leaves the way it came.
+pub fn face_transition(s: &App) -> Transition {
+    Transition::asymmetric(Transition::offset(0.0, s.knobs.get(&knobs::FACE_RISE)).combined(Transition::opacity()), Transition::opacity())
+        .springs(SpringPair { enter: knobs::spring(s, &knobs::FACE_IN), exit: knobs::spring(s, &knobs::FADE_OUT) })
 }
 
-fn arrival(step: i32) -> Transition {
-    Transition::asymmetric(Transition::offset(12.0 * step as f32, 0.0).combined(Transition::opacity()), Transition::opacity())
-        .springs(SpringPair { enter: ARRIVE, exit: FADE_OUT })
+/// A new question's text and answers slide in from the side they come from (`arrive`) over
+/// the old ones fading out where they stood.
+fn arrival(s: &App, step: i32) -> Transition {
+    let slide = s.knobs.get(&knobs::ARRIVE_SLIDE) * step as f32;
+    Transition::asymmetric(Transition::offset(slide, 0.0).combined(Transition::opacity()), Transition::opacity())
+        .springs(SpringPair { enter: knobs::spring(s, &knobs::ARRIVE), exit: knobs::spring(s, &knobs::FADE_OUT) })
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -517,12 +530,12 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .key(format!("q-details-{tab}"))
                 .w_full()
                 .gap(4.0)
-                .transition(arrival(s.question.step))
+                .transition(arrival(s, s.question.step))
                 .child(text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap())
                 .children(multi.then(|| text("Pick any").key("q-hint").font(HINT).color(p.faint))),
         );
 
-    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" }).transition(arrival(s.question.step));
+    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" }).transition(arrival(s, s.question.step));
     for (i, (value, label, desc)) in list.iter().enumerate() {
         let picked = picks.contains(value);
         let form = f.clone();
@@ -607,7 +620,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         );
     }
 
-    let body = col().key("question").w_full().padding(8.0).gap(16.0).transition(face_transition()).child(header).child(answers);
+    let body = col().key("question").w_full().padding(8.0).gap(16.0).transition(face_transition(s)).child(header).child(answers);
 
     let last = f.last(tab);
     let (back, next, dismiss) = (f.clone(), f.clone(), f.clone());
@@ -618,7 +631,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         .pt(7.0)
         .pb(8.0)
         .center_y()
-        .transition(face_transition())
+        .transition(face_transition(s))
         .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None).on_press_tx(move |s: &mut App, tx: &mut Tx| s.dismiss(&dismiss, tx)))
         .child(spacer())
         .child(
@@ -861,8 +874,8 @@ mod tests {
     }
 
     /// Springs from one height to the other: monotonic, no overshoot, no frame covering more
-    /// than a fifth of the way, settled at the end.
-    fn springs(hs: &[f32], what: &str) {
+    /// than a fifth of the way, settled at the end, within 2 % of the way after `lands` frames.
+    fn springs(hs: &[f32], what: &str, lands: std::ops::RangeInclusive<usize>) {
         let (a, b) = (hs[0], *hs.last().unwrap());
         assert!((a - b).abs() > 40.0, "{what}: {a} → {b}");
         let dir = (b - a).signum();
@@ -871,9 +884,8 @@ mod tests {
             assert!((w[1] - w[0]).abs() < (b - a).abs() / 5.0, "{what}: jumps {w:?}");
         }
         assert!(hs.iter().all(|h| (h - a) * dir >= -0.01 && (h - b) * dir <= 0.01), "{what}: overshoots");
-        // Within 2 % of the way in about the morph's 0.4 s.
         let done = hs.iter().position(|h| (h - b).abs() < (b - a).abs() * 0.02).unwrap();
-        assert!((30..=60).contains(&done), "{what}: lands after {done} frames at 120 Hz");
+        assert!(lands.contains(&done), "{what}: lands after {done} frames at 120 Hz");
     }
 
     #[test]
@@ -881,12 +893,36 @@ mod tests {
         let (mut rt, _) = asked(false);
         assert!(!shows_composer(&rt));
         let hs = morph(&mut rt, "form.replied", json!({ "id": FORM, "sessionID": SESSION }));
-        springs(&hs, "closing");
+        // Within 2 % of the way in about the morph's 0.4 s.
+        springs(&hs, "closing", 30..=60);
         assert!(shows_composer(&rt));
         assert_eq!(rt.state.composer.text, "half a thought");
         let q = rt.state.fixture["question"].clone();
         let hs = morph(&mut rt, "form.created", q);
-        springs(&hs, "opening");
+        springs(&hs, "opening", 30..=60);
         assert!(rt.find("q-opt-0").is_some());
+    }
+
+    /// Every Question dock preset but the bouncy one morphs without turning back or jumping,
+    /// and lands within its duration; the bouncy one overshoots a little and lands.
+    #[test]
+    fn question_dock_presets_morph_smoothly() {
+        let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
+        for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
+            let (mut rt, _) = asked(false);
+            crate::knobs::apply_preset(&mut rt.state, p);
+            let frames = (rt.state.knobs.get(&crate::knobs::MORPH_DURATION) * 120.0) as usize;
+            for (ty, data) in [("form.replied", json!({ "id": FORM, "sessionID": SESSION })), ("form.created", rt.state.fixture["question"].clone())] {
+                let hs = morph(&mut rt, ty, data);
+                if p == "Bounce" {
+                    let (a, b) = (hs[0], *hs.last().unwrap());
+                    let past = hs.iter().map(|h| (h - b) * (b - a).signum()).fold(0.0, f32::max);
+                    assert!(past > 0.5 && past < (b - a).abs() * 0.1, "{p} {ty}: overshoots {past}");
+                    assert!((hs[hs.len() - 2] - b).abs() < 0.5, "{p} {ty}: lands");
+                } else {
+                    springs(&hs, &format!("{p} {ty}"), 10..=frames + 4);
+                }
+            }
+        }
     }
 }

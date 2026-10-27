@@ -16,6 +16,7 @@ mod question;
 mod restore;
 mod session_pages;
 mod shortcuts;
+mod stories;
 mod subagents;
 mod settings;
 mod switcher;
@@ -132,6 +133,8 @@ pub struct App {
     pub icons: project_icon::Icons,
     /// The `icon-playground` scene: every icon style instead of the panel.
     pub playground: bool,
+    /// The storybook (⌘⇧D) is open, with the app as it was beside it.
+    pub story: Option<stories::Storybook>,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -215,10 +218,11 @@ impl App {
             waker: None,
             icons: Default::default(),
             playground: false,
+            story: None,
         }
     }
 
-    fn new() -> App {
+    fn load() -> App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
         let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into())).with_media_refs();
@@ -229,6 +233,14 @@ impl App {
             None => FIXTURE.to_owned(),
         };
         app.load_fixture(&src);
+        app
+    }
+
+    fn new() -> App {
+        let mut app = Self::load();
+        if let Some(name) = arg("--preset") {
+            knobs::apply_preset(&mut app, &name);
+        }
         app
     }
 
@@ -672,6 +684,11 @@ impl App {
 
     /// Queues a write to the server; false (with a status line) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
+        if self.story.is_some() {
+            // A story's answers go nowhere; it acts as if they were sent.
+            self.status = "Storybook: not sent".into();
+            return true;
+        }
         match &self.source {
             Source::Live { allow_send: false, .. } => self.status = "Read-only: relaunch without --read-only to act".into(),
             Source::Live { writes: Some(tx), .. } => return tx.send(w).is_ok(),
@@ -969,6 +986,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.question_shown() != asked {
         s.morph(tx);
     }
+    stories::poll(s);
     s.glows.retain(|_, at| now - *at < view::GLOW_SECS);
     if !s.glows.is_empty() {
         tx.wake_after(std::time::Duration::ZERO);
@@ -1084,7 +1102,7 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
+    if knobs::key(s, ev, tx) || stories::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || s.question_key(ev, tx) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command('e') => {
             s.edge = (s.edge + 1) % edge::ALL.len();
@@ -1106,6 +1124,10 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Escape if s.activity_open => {
             tx.instant();
             s.activity_open = false;
+            true
+        }
+        Key::Escape if s.story.is_some() => {
+            stories::close(s, tx);
             true
         }
         // A subagent's session has no composer: Esc goes back to the session that started it.
@@ -1191,6 +1213,12 @@ fn main() {
                 let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
                 s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
             }),
+            // The storybook's morph loop (⌘⇧D): the dock opens and closes on a loop. Pick the
+            // curve with `--preset NAME` (a Question dock preset, see `knobs.rs`).
+            ("story-morph", |s| stories::scene(s, "Morph loop")),
+            ("story-long", |s| stories::scene(s, "Question, long")),
+            ("story-typing", |s| stories::scene(s, "Question, typing")),
+            ("story-pending", |s| stories::scene(s, "Composer, pending")),
             ("sidebar-closed", |s| {
                 open_scene(s);
                 s.finish_stream();
