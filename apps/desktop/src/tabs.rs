@@ -98,16 +98,8 @@ impl Reorder {
     }
 }
 
-fn data_dir() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    if cfg!(target_os = "macos") {
-        return Some(home.join("Library/Application Support"));
-    }
-    Some(std::env::var_os("XDG_DATA_HOME").map_or_else(|| home.join(".local/share"), PathBuf::from))
-}
-
 fn file() -> Option<PathBuf> {
-    Some(data_dir()?.join("rune-opencode/tabs.json"))
+    crate::restore::data_dir().map(|d| d.join("tabs.json"))
 }
 
 fn parse(list: &Value) -> Vec<Tab> {
@@ -205,7 +197,7 @@ pub fn save_zoom(zoom: f32) {
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
 /// written window first. Read-only: `mode=ro` and `-readonly`.
 pub fn from_beta() -> Option<Vec<Tab>> {
-    let db = data_dir()?.join("ai.opencode.desktop.beta/drafts.sqlite");
+    let db = crate::restore::base_dir()?.join("ai.opencode.desktop.beta/drafts.sqlite");
     if !db.exists() {
         return None;
     }

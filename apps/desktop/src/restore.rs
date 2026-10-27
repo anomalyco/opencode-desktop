@@ -27,15 +27,18 @@ pub struct Restore {
     saved: Option<Value>,
 }
 
+/// The platform's per-user data directory.
+pub fn base_dir() -> Option<PathBuf> {
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    if cfg!(target_os = "macos") {
+        return Some(home.join("Library/Application Support"));
+    }
+    Some(std::env::var_os("XDG_DATA_HOME").map_or_else(|| home.join(".local/share"), PathBuf::from))
+}
+
 /// `<data dir>/rune-opencode`, where the saved UI and settings live.
 pub fn data_dir() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    let dir = if cfg!(target_os = "macos") {
-        home.join("Library/Application Support")
-    } else {
-        std::env::var_os("XDG_DATA_HOME").map_or_else(|| home.join(".local/share"), PathBuf::from)
-    };
-    Some(dir.join("rune-opencode"))
+    base_dir().map(|d| d.join("rune-opencode"))
 }
 
 fn file() -> Option<PathBuf> {

@@ -295,13 +295,13 @@ const TAB_PITCH: f32 = TAB_H + TAB_GAP;
 /// sortable transition (250 ms, `cubic-bezier(0.25, 1, 0.5, 1)`) as a spring with no bounce.
 const REORDER_SPRING: Spring = Spring::new(0.25, 0.0);
 
-/// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
 /// `t` of the way from `a` to `b` in gamma-encoded sRGB, as CSS opacity blends.
 fn srgb_mix(a: Color, b: Color, t: f32) -> Color {
     let m = |x: f32, y: f32| { use rune::color::{srgb_decode as dec, srgb_encode as enc}; dec(enc(x) + (enc(y) - enc(x)) * t) };
     Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: 1.0 }
 }
 
+/// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
 fn over(top: Color, bottom: Color) -> Color {
     let a = top.a + bottom.a * (1.0 - top.a);
     if a <= 0.0 {
