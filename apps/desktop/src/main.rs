@@ -321,9 +321,10 @@ impl App {
         use shortcuts::Action;
         let Some(action) = shortcuts::action(ev) else { return false };
         match action {
-            Action::ZoomIn => self.set_zoom(1),
-            Action::ZoomOut => self.set_zoom(-1),
-            Action::ZoomReset => self.set_zoom(0),
+            // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
+            Action::ZoomIn => { tx.instant(); self.set_zoom(1) }
+            Action::ZoomOut => { tx.instant(); self.set_zoom(-1) }
+            Action::ZoomReset => { tx.instant(); self.set_zoom(0) }
             Action::Tab(offset) => self.select_adjacent(offset, false, tx),
             Action::UnreadTab(offset) => self.select_adjacent(offset, true, tx),
             Action::TabAt(i) => {

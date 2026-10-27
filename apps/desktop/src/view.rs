@@ -54,6 +54,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .w_full()
         .h_full()
         .center()
+        // Hovers land and leave at once, like Desktop.
+        .hover_motion_within(INSTANT, INSTANT)
         .child(sized.key("zoomed").scale(s.zoom).child(inner))
 }
 
@@ -1173,18 +1175,22 @@ fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str) -> El {
     button
 }
 
+/// Overrides Rune's default 0.2 s fade: menus and palettes appear and go on the keypress or
+/// click. (`tx.instant()` would also skip it, but an instant unmount of a focused field drops
+/// the composer's restored focus.)
+pub fn no_motion() -> rune::SpringPair {
+    rune::SpringPair { enter: rune::Spring::new(0.001, 0.0), exit: rune::Spring::new(0.001, 0.0) }
+}
+
 fn picker(s: &App, p: &Pal) -> El {
     let kind = s.pickers.open.unwrap();
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
-    let transition = rune::Transition::scale(0.96).springs(rune::SpringPair {
-        enter: rune::Spring::new(0.25, 0.0), exit: rune::Spring::new(0.20, 0.0),
-    });
     let mut menu = col().key(format!("picker-{}", kind.key())).role("menu").label(format!("Choose {}", kind.key()))
         .above(kind.key(), 6.0).w(if kind == Kind::Model { 284.0 } else { 180.0 })
         .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow).motion(rune::Spring::new(0.25, 0.0)).transition(transition)
+        .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::opacity().springs(no_motion()))
         // Empty space in the menu consumes pointer presses instead of dismissing it.
         .on_press(|_: &mut App| {});
     if kind == Kind::Model {

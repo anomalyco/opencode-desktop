@@ -13,7 +13,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, SpringPair, TextEdit, Theme, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, TextEdit, Theme, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::{self, SessionInfo};
@@ -512,10 +512,6 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
     r
 }
 
-fn no_motion() -> SpringPair {
-    SpringPair { enter: Spring::new(0.001, 0.0), exit: Spring::new(0.001, 0.0) }
-}
-
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let k = ink(p.dark);
     let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
@@ -593,7 +589,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .shadow(8.0, 16.0, k.shadow_far)
         .shadow(4.0, 8.0, k.shadow_near)
         .clip_soft(0.0)
-        .transition(Transition::opacity().springs(no_motion()))
+        .transition(Transition::opacity().springs(crate::view::no_motion()))
         .modal(true, |s: &mut App| s.close_switcher(true))
         .child(col().key("switcher-search").w_full().padding(6.0).child(search))
         .child(
@@ -608,10 +604,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(results),
         );
 
-    // Overrides the default fade: the palette opens and closes on the keypress. (`tx.instant()`
-    // would also skip it, but an instant unmount of the focused search drops the composer's
-    // restored focus.)
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(no_motion()));
+    // No enter or exit motion (see `no_motion`).
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
     [scrim, dialog.absolute(((win[2] - w) / 2.0).round(), ((win[3] - h) / 2.0).round())]
 }
 

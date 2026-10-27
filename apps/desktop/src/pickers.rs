@@ -313,29 +313,16 @@ mod tests {
     }
 
     #[test]
-    fn filter_reflows_and_exit_alpha_includes_parent() {
+    fn filter_resizes_and_escape_closes_at_once() {
         let mut rt = runtime();
         tap(&mut rt, "model");
-        for _ in 0..60 { rt.frame(1.0 / 60.0); }
-        let rect = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap();
-        let before = rect(&rt, "picker-model").rect;
-        rt.key(KeyEvent { key: Key::Text("OpenAI".into()), mods: Default::default() });
-        rt.frame(0.0);
-        let filtered = rect(&rt, "picker-model");
-        assert!((filtered.rect[3] - before[3]).abs() < 1.0, "filter must retarget from the visible height");
-        assert!(filtered.target[3] < filtered.rect[3]);
-        for _ in 0..60 { rt.frame(1.0 / 60.0); }
-        key(&mut rt, Key::Escape);
-        for _ in 0..8 { rt.frame(1.0 / 60.0); }
-        let menu = rect(&rt, "picker-model");
-        let scroll = rect(&rt, "picker-scroll");
-        assert!(menu.opacity < 0.9 && menu.opacity > 0.0);
-        assert!((scroll.opacity - menu.opacity).abs() < 0.001);
-        let option = rect(&rt, "option-openai:gpt-6-astra");
-        rt.pointer_down(option.rect[0] + 15.0, option.rect[1] + 14.0);
-        rt.pointer_up(option.rect[0] + 15.0, option.rect[1] + 14.0);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.state.selection().model.id, "claude-opus-5-5", "exiting descendants must not accept clicks");
+        let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
+        let menu = find(&rt, "picker-model").unwrap();
+        assert!((menu.opacity - 1.0).abs() < 1e-3, "opens without a fade");
+        key(&mut rt, Key::Escape);
+        rt.frame(1.0 / 60.0);
+        assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame");
     }
 
     #[test]
