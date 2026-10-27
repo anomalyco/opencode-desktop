@@ -66,13 +66,50 @@ pub struct Prompt {
     pub files: Vec<FileInput>,
     /// How to deliver it while the session is busy; None lets the server steer.
     pub delivery: Option<Delivery>,
+    /// `@agent` mentions (`PromptInput.AgentAttachment`).
+    pub agents: Vec<AgentInput>,
+    /// `@skill` mentions (`PromptInput.SkillAttachment`).
+    pub skills: Vec<SkillInput>,
+    /// `metadata.displayText`: the text as typed when `text` differs (session mentions go out as
+    /// `@session:ses_…` tokens but read as their titles).
+    pub display_text: Option<String>,
 }
 
 /// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]) or `file://`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FileInput {
     pub uri: String,
     pub name: String,
+    pub mime: Option<String>,
+    pub mention: Option<Mention>,
+}
+
+/// Where a mention sits in the prompt's text: UTF-16 offsets, as the server's JavaScript
+/// counts them, and the mention's text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mention {
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AgentInput {
+    pub name: String,
+    pub mention: Option<Mention>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkillInput {
+    pub id: String,
+    pub name: String,
+    pub mention: Option<Mention>,
+}
+
+impl Mention {
+    fn json(&self) -> Value {
+        serde_json::json!({ "start": self.start, "end": self.end, "text": self.text })
+    }
 }
 
 impl Prompt {
@@ -82,7 +119,49 @@ impl Prompt {
             body["id"] = id.clone().into();
         }
         if !self.files.is_empty() {
-            body["files"] = self.files.iter().map(|f| serde_json::json!({ "uri": f.uri, "name": f.name })).collect();
+            body["files"] = self
+                .files
+                .iter()
+                .map(|f| {
+                    let mut v = serde_json::json!({ "uri": f.uri, "name": f.name });
+                    if let Some(mime) = &f.mime {
+                        v["mime"] = mime.clone().into();
+                    }
+                    if let Some(m) = &f.mention {
+                        v["mention"] = m.json();
+                    }
+                    v
+                })
+                .collect();
+        }
+        if !self.agents.is_empty() {
+            body["agents"] = self
+                .agents
+                .iter()
+                .map(|a| {
+                    let mut v = serde_json::json!({ "name": a.name });
+                    if let Some(m) = &a.mention {
+                        v["mention"] = m.json();
+                    }
+                    v
+                })
+                .collect();
+        }
+        if !self.skills.is_empty() {
+            body["skills"] = self
+                .skills
+                .iter()
+                .map(|s| {
+                    let mut v = serde_json::json!({ "id": s.id, "name": s.name });
+                    if let Some(m) = &s.mention {
+                        v["mention"] = m.json();
+                    }
+                    v
+                })
+                .collect();
+        }
+        if let Some(display) = self.display_text.as_ref().filter(|d| **d != self.text) {
+            body["metadata"] = serde_json::json!({ "displayText": display });
         }
         if let Some(d) = self.delivery {
             body["delivery"] = d.as_str().into();
@@ -525,8 +604,8 @@ mod tests {
         let prompt = Prompt {
             id: Some("msg_17afac822001abcdefghijklmn".into()),
             text: "see this".into(),
-            files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into() }],
-            delivery: None,
+            files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into(), ..Default::default() }],
+            ..Default::default()
         };
         Server { base, auth: None }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
@@ -558,6 +637,37 @@ mod tests {
         let (base, h) = mock_once();
         Server { base, auth: None }.cancel_inbox("ses_a", "msg_1").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a/inbox/msg_1 HTTP/1.1"));
+    }
+
+    #[test]
+    fn mentions_go_out_as_beta_sends_them() {
+        let m = |start, end, text: &str| Some(Mention { start, end, text: text.into() });
+        let prompt = Prompt {
+            text: "@explore read @src/a.rs with @opencode, see @session:ses_x".into(),
+            files: vec![FileInput {
+                uri: "file:///repo/src/a.rs".into(),
+                name: "a.rs".into(),
+                mime: Some("text/plain".into()),
+                mention: m(14, 23, "@src/a.rs"),
+            }],
+            agents: vec![AgentInput { name: "explore".into(), mention: m(0, 8, "@explore") }],
+            skills: vec![SkillInput { id: "opencode".into(), name: "OpenCode".into(), mention: m(29, 38, "@opencode") }],
+            display_text: Some("@explore read @src/a.rs with @opencode, see @Fix it".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            prompt.body(),
+            serde_json::json!({
+                "text": "@explore read @src/a.rs with @opencode, see @session:ses_x",
+                "files": [{"uri": "file:///repo/src/a.rs", "name": "a.rs", "mime": "text/plain",
+                    "mention": {"start": 14, "end": 23, "text": "@src/a.rs"}}],
+                "agents": [{"name": "explore", "mention": {"start": 0, "end": 8, "text": "@explore"}}],
+                "skills": [{"id": "opencode", "name": "OpenCode", "mention": {"start": 29, "end": 38, "text": "@opencode"}}],
+                "metadata": {"displayText": "@explore read @src/a.rs with @opencode, see @Fix it"},
+            })
+        );
+        let same = Prompt { text: "hi".into(), display_text: Some("hi".into()), ..Default::default() };
+        assert_eq!(same.body(), serde_json::json!({"text": "hi"}));
     }
 
     #[test]

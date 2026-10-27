@@ -55,6 +55,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
+    let composer_w = cx.layout("composer").map_or(0.0, |r| r[2]);
+    inner = inner.children(crate::mentions::view(s, p, composer_w));
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));
     }
@@ -1206,7 +1208,12 @@ fn composer_dock(s: &App, p: &Pal) -> El {
                     .placeholder("Ask anything… \"Fix a TODO in the codebase\"", p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
+                    .pill_style(crate::mentions::pill_style(p))
+                    .on_input_change(|s: &mut App, tx| s.mentions_changed(tx))
                     .on_input_key(|s: &mut App, ev, tx| {
+                        if s.mention_key(ev, tx) {
+                            return true;
+                        }
                         if ev.key == Key::Enter && ev.mods.cmd {
                             s.submit(true, tx);
                             return true;

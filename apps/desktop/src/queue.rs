@@ -50,7 +50,7 @@ impl App {
     pub fn admit(&mut self, session: &str, mut prompt: Prompt, delivery: Delivery, tx: &mut Tx) {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
-        let item = InboxItem { id: id.clone(), text: prompt.text.clone(), delivery, files: self.attach.files.clone() };
+        let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
         if !self.inbox_write(Write::Send { session: session.to_owned(), prompt }) {
             return;
         }

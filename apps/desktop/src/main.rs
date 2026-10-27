@@ -3,6 +3,7 @@
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
 mod attachments;
+mod mentions;
 mod palette;
 mod pickers;
 mod queue;
@@ -84,6 +85,8 @@ pub struct App {
     pub attach: attachments::Attach,
     pub search: TextEdit,
     pub pickers: pickers::Pickers,
+    /// The composer's `@` popover and what it lists.
+    pub mentions: mentions::Mentions,
     pub switcher: switcher::Switcher,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
@@ -147,6 +150,7 @@ impl App {
             attach: Default::default(),
             search: TextEdit::new(""),
             pickers: pickers::Pickers::default(),
+            mentions: mentions::Mentions::default(),
             switcher: switcher::Switcher::default(),
             restore: restore::Restore::default(),
             activity_open: false,
@@ -181,6 +185,7 @@ impl App {
     fn load_fixture(&mut self, src: &str) {
         let v: Value = serde_json::from_str(src).expect("fixture JSON");
         self.pickers.load(&v);
+        self.mentions.load(&v);
         self.base_ms = v["now"].as_i64().unwrap_or(0);
         self.now_ms = self.base_ms;
         self.projects = opencode_kit::model::parse_projects(&v["projects"]);
@@ -494,12 +499,22 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
-        let text = self.composer.text.trim().to_owned();
+        let wire = self.mention_wire();
+        let text = wire.text.clone();
         if text.is_empty() && self.attach.files.is_empty() {
             return;
         }
+        self.close_mentions();
         // The server's user message takes this id, so it replaces the local copy below.
-        let prompt = Prompt { id: Some(opencode_kit::client::message_id()), text: text.clone(), files: attachments::inputs(&self.attach.files), delivery: None };
+        let prompt = Prompt {
+            id: Some(opencode_kit::client::message_id()),
+            text: text.clone(),
+            files: attachments::inputs(&self.attach.files),
+            agents: wire.agents,
+            skills: wire.skills,
+            display_text: Some(wire.display.clone()),
+            delivery: None,
+        };
         if let Route::Session(id) = self.route.clone()
             && self.busy(&id)
         {
@@ -554,7 +569,7 @@ impl App {
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
-        t.messages.push(Message::User { id: local.clone(), text });
+        t.messages.push(Message::User { id: local.clone(), text: wire.display });
         tx.fly_text("prompt", format!("text-{local}"));
         self.composer.clear();
     }
@@ -865,6 +880,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= s.poll_switcher(tx);
+    changed |= s.poll_mentions();
     if let Source::Live { server, .. } = &s.source {
         let base = server.base.clone();
         s.poll_restore(&base);

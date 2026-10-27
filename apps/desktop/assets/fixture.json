@@ -1,6 +1,15 @@
 {
  "now": 1792659400000,
  "agents": ["build", "plan"],
+ "agent_list": [
+  {"id": "build", "name": "build", "mode": "primary", "description": "The default agent."},
+  {"id": "general", "name": "general", "mode": "subagent", "description": "General-purpose agent for multi-step tasks."},
+  {"id": "explore", "name": "explore", "mode": "subagent", "description": "Fast agent for exploring codebases."},
+  {"id": "title", "name": "title", "mode": "primary", "hidden": true}
+ ],
+ "skills": [
+  {"id": "opencode", "name": "OpenCode", "description": "Questions about OpenCode itself."}
+ ],
  "models": [
   {"id": "claude-opus-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Opus 5.5", "variants": ["low", "medium", "high"]},
   {"id": "claude-sonnet-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Sonnet 5.5", "variants": ["low", "medium", "high"]},

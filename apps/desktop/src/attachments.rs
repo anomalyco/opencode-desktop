@@ -92,7 +92,7 @@ pub fn from_path(path: &Path) -> Result<Attachment, String> {
 
 /// The prompt's `files`: each attachment inline as a data URL.
 pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
-    files.iter().map(|f| FileInput { uri: data_url(&f.mime, &f.bytes), name: f.name.clone() }).collect()
+    files.iter().map(|f| FileInput { uri: data_url(&f.mime, &f.bytes), name: f.name.clone(), ..Default::default() }).collect()
 }
 
 /// A paste into the composer: an image becomes an attachment (true: the editor skips it).
@@ -349,7 +349,7 @@ mod tests {
         let a = from_path(&path).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!((a.mime.as_str(), a.name.as_str()), ("image/png", "Shot.PNG"));
-        assert_eq!(inputs(&[a]), [FileInput { uri: "data:image/png;base64,YWI=".into(), name: "Shot.PNG".into() }]);
+        assert_eq!(inputs(&[a]), [FileInput { uri: "data:image/png;base64,YWI=".into(), name: "Shot.PNG".into(), ..Default::default() }]);
     }
 
     fn png(w: u32, h: u32) -> Vec<u8> {

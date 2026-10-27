@@ -200,7 +200,7 @@ pub fn target(sections: &[&str], index: usize, mv: Move) -> Option<usize> {
 
 impl App {
     /// The project name a row shows: the project's, or the directory's last part.
-    fn project_label(&self, s: &SessionInfo) -> String {
+    pub(crate) fn project_label(&self, s: &SessionInfo) -> String {
         self.project(&s.project)
             .map(|p| p.name.clone())
             .unwrap_or_else(|| s.directory.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
@@ -422,7 +422,7 @@ impl App {
 }
 
 /// Percent-encodes a query parameter's value.
-fn encode(s: &str) -> String {
+pub(crate) fn encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
