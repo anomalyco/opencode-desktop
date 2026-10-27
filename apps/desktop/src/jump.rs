@@ -240,4 +240,29 @@ mod tests {
         rest(&mut rt);
         assert_eq!(rt.scroll_at_bottom("scroll-bench"), Some(true));
     }
+
+    /// Back from a subagent's session, the parent opens on its end: no stale button fading out.
+    #[test]
+    fn back_on_a_timeline_that_opens_on_its_end_it_stays_hidden() {
+        let mut app = crate::perf::fixture();
+        app.sessions.push(opencode_kit::model::SessionInfo { id: "sub".into(), parent: Some("bench".into()), ..Default::default() });
+        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 2.0));
+        rt.frame(0.0);
+        rest(&mut rt);
+        let v = viewport(&rt);
+        for _ in 0..6 {
+            rt.wheel(v[0] + v[2] / 2.0, v[1] + v[3] / 2.0, 400.0);
+            rt.frame(DT);
+        }
+        rest(&mut rt);
+        assert_eq!(button(&rt).opacity, 1.0, "far up");
+        rt.update(|s, tx| s.open_child("bench", "sub", "Sub", "general", tx));
+        rest(&mut rt);
+        rt.update(|s, tx| assert!(s.open_parent(tx)));
+        for frame in 0..60 {
+            rt.frame(DT);
+            assert_eq!(button(&rt).opacity, 0.0, "frame {frame}");
+        }
+        assert_eq!(rt.scroll_at_bottom("scroll-bench"), Some(true));
+    }
 }

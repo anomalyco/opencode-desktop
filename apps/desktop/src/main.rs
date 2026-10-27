@@ -549,6 +549,10 @@ impl App {
     fn open_now(&mut self, id: &str, tx: &mut Tx) {
         self.close_picker(false);
         self.activity_open = false;
+        if self.route != Route::Session(id.to_owned()) {
+            // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
+            self.far_from_bottom.remove(id);
+        }
         self.route = Route::Session(id.to_owned());
         let root = self.root_of(id).to_owned();
         if let Some(s) = self.sessions.iter_mut().find(|s| s.id == root) {
