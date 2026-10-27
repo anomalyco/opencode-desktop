@@ -4,13 +4,15 @@
 # process quits only once the new one is up. With `mac_app::remember_frame` in the app, the new
 # window opens exactly where the old one was, so the swap is invisible.
 #   scripts/mac-app --name Seer --id com.kitlangton.seer --exe seer --bin target/release/seer-sketch \
-#     --icon apps/sketch/assets/icon.icns [-- APP ARGS]
+#     --icon apps/sketch/assets/icon.icns [--scheme seer] [-- APP ARGS]
+# `--scheme NAME` registers NAME:// links with macOS for the app (mac_app::urls takes them).
 # For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
 # keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
 # when the app isn't. A running copy that called `mac_app::busy(true)` (Seer, while Kit talks)
 # holds the swap until it calls `busy(false)`, for up to 15 minutes.
 set -euo pipefail
 IDLE=""
+SCHEME=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name) NAME=$2; shift 2 ;;
@@ -19,6 +21,7 @@ while [[ $# -gt 0 ]]; do
     --bin) BIN=$2; shift 2 ;;
     --icon) ICON=$2; shift 2 ;;
     --wait-idle) IDLE=$2; shift 2 ;;
+    --scheme) SCHEME=$2; shift 2 ;;
     --) shift; break ;;
     *) echo "mac-app: unknown flag $1" >&2; exit 2 ;;
   esac
@@ -44,6 +47,8 @@ OLD=$(running)
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXE"
 [ -n "${ICON:-}" ] && cp "$ICON" "$APP/Contents/Resources/icon.icns"
+URLS=""
+[ -n "$SCHEME" ] && URLS="<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$ID</string><key>CFBundleURLSchemes</key><array><string>$SCHEME</string></array></dict></array>"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,6 +62,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>0.0.1</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  $URLS
 </dict></plist>
 PLIST
 # A stable identity, so macOS remembers permission answers across rebuilds (ad-hoc changes each build).
@@ -66,6 +72,8 @@ codesign --force --sign "Developer ID Application: Example Developer (TEAMID0000
 rm -rf "$LIVE.old"
 [ -d "$LIVE" ] && mv "$LIVE" "$LIVE.old"
 mv "$APP" "$LIVE"
+# Tell Launch Services about the new bundle now, so its links route here at once.
+[ -n "$SCHEME" ] && /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$LIVE" >/dev/null 2>&1 || true
 open -n ${OPEN[@]+"${OPEN[@]}"} "$LIVE" --args "$@"
 if [ -n "$OLD" ]; then
   for _ in $(seq 40); do
