@@ -2577,6 +2577,7 @@ name = "rune-playground"
 version = "0.0.1"
 dependencies = [
  "rune",
+ "rune-kit",
  "rune-knobs",
 ]
 
