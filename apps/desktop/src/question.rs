@@ -8,6 +8,8 @@
 //! Keys: ↑/↓ (Home/End) move the highlight, 1–9 pick, Space toggles, ↵ picks the highlighted
 //! answer and moves on (submitting on the last question), ←/→ and ⌘[ change question, ⌘↵ goes
 //! on or submits, Esc dismisses. A printable key on "Type your own answer" starts typing it.
+//! In the field, keys type (digits too), Esc leaves it, and ↑ on its first line goes up to the
+//! answer above. Submitting with a required question unanswered goes to that question.
 
 use std::collections::HashSet;
 
@@ -23,6 +25,8 @@ const HINT: TextStyle = TextStyle::new(11.0, 440.0).lh(12.0);
 const MARK: TextStyle = TextStyle::new(11.0, 530.0).lh(12.0).features("\"tnum\"");
 const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 const CUSTOM: &str = "Type your own answer…";
+/// The line height of an answer's title, and of the typed answer.
+const LINE: f32 = 20.0;
 
 /// Where the dock is for the form it shows: the question, the highlighted answer, and which
 /// questions have their own typed answer switched on.
@@ -35,6 +39,8 @@ pub struct Dock {
     step: i32,
     /// `form/key`s whose typed answer counts.
     custom: HashSet<String>,
+    /// The typed answer's laid-out width, to tell which wrapped line its caret is on.
+    input_w: f32,
 }
 
 impl Dock {
@@ -185,7 +191,8 @@ impl App {
         if self.question.form != f.id {
             let focus = self.pick_focus(f, 0);
             let custom = std::mem::take(&mut self.question.custom);
-            self.question = Dock { form: f.id.clone(), tab: 0, focus, step: 0, custom };
+            let input_w = self.question.input_w;
+            self.question = Dock { form: f.id.clone(), tab: 0, focus, step: 0, custom, input_w };
         }
         &mut self.question
     }
@@ -212,13 +219,33 @@ impl App {
         self.editing(&f, tab) || (focus >= rows(&f.fields[tab]).len() && has_custom(&f.fields[tab]))
     }
 
-    /// Opens the first question's typed answer with `text` in it (the storybook's typing story).
+    /// Opens the current question's typed answer with `text` in it (the storybook's typing
+    /// stories).
     pub fn question_type(&mut self, text: &str) {
         let Some(f) = self.asking() else { return };
-        self.start_typing(&f, 0);
-        let t = self.typed_mut(&f.id, &f.fields[0].key);
+        let (tab, _) = self.place(&f);
+        self.start_typing(&f, tab);
+        let t = self.typed_mut(&f.id, &f.fields[tab].key);
         *t = TextEdit::new(text);
         t.focused = true;
+    }
+
+    /// Goes to the last question (the storybook's Custom answer story).
+    pub fn question_last(&mut self) {
+        let Some(f) = self.asking() else { return };
+        let last = f.fields.len() - 1;
+        let focus = self.pick_focus(&f, last);
+        let d = self.dock(&f);
+        d.tab = last;
+        d.focus = focus;
+    }
+
+    /// Leaves the typed answer's field as Esc does (the storybook's Custom answer story).
+    pub fn question_leave_field(&mut self) {
+        let Some(f) = self.asking() else { return };
+        let (tab, _) = self.place(&f);
+        self.stop_typing(&f, tab);
+        self.dock(&f).focus = rows(&f.fields[tab]).len();
     }
 
     fn answered(&self, f: &Form, tab: usize) -> bool {
@@ -293,6 +320,15 @@ impl App {
         self.stop_typing(f, tab);
         if !f.last(tab) {
             return self.jump(f, tab + 1, tx);
+        }
+        // Unanswered questions that may be skipped are left out, as Desktop does; a required
+        // one is where the reply goes next instead.
+        if self.form_answer(&f.id).is_none() {
+            let gap = (0..f.fields.len()).find(|&t| !self.answered(f, t) && (f.fields[t].required || f.fields.len() == 1));
+            if let Some(t) = gap {
+                self.jump(f, t, tx);
+            }
+            return;
         }
         self.submit_form(&f.id);
         self.closed_if_gone(f, tx);
@@ -394,15 +430,24 @@ impl App {
         true
     }
 
-    /// Keys in "Type your own answer": Esc leaves the field, ↵ moves on, ⌘↵ and ⌘[ as anywhere.
+    /// Keys in "Type your own answer": Esc leaves the field, ↑ on its first line goes to the
+    /// answer above, ↵ moves on, ⌘↵ and ⌘[ as anywhere. Everything else types.
     fn typed_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         let Some(f) = self.asking() else { return false };
         let (tab, _) = self.place(&f);
+        let n = rows(&f.fields[tab]).len();
+        let m = ev.mods;
         match ev.key {
             Key::Escape => {
                 tx.instant();
                 self.stop_typing(&f, tab);
-                self.dock(&f).focus = rows(&f.fields[tab]).len();
+                self.dock(&f).focus = n;
+                true
+            }
+            Key::Up if n > 0 && !m.shift && !m.alt && !m.cmd && !m.ctrl && self.typed.get(&f.key(tab)).is_none_or(|t| on_first_line(t, self.question.input_w)) => {
+                tx.instant();
+                self.stop_typing(&f, tab);
+                self.dock(&f).focus = n - 1;
                 true
             }
             Key::Enter if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
@@ -421,6 +466,18 @@ impl App {
             self.dock(&f).focus = i;
         }
     }
+}
+
+/// Whether the caret is on the typed answer's first line as it wraps at `width`: the text up
+/// to the end of the caret's word fits on one line.
+fn on_first_line(t: &TextEdit, width: f32) -> bool {
+    let caret = t.focus.min(t.text.len());
+    let word_end = t.text[caret..].find(char::is_whitespace).map_or(t.text.len(), |i| caret + i);
+    let head = &t.text[..word_end];
+    if head.contains('\n') {
+        return false;
+    }
+    width <= 0.0 || rune::text::measure(head, &[], TITLE, Some(width)).1 <= LINE * 1.5
 }
 
 /// How the composer's face and the question's swap inside the one surface: the face that
@@ -516,7 +573,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .hover(p.hover)
                 .hover_motion(Anim::INSTANT, Anim::INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.jump(&form, i, tx))
-                .child(el().size(14.0, 2.0).fill(color))
+                .child(el().key("bar").size(14.0, 2.0).fill(color))
         }))
     });
     let text_of = if field.description.is_empty() { &field.title } else { &field.description };
@@ -575,15 +632,21 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         let edit = s.typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""));
         let (a, b, c, d) = (f.clone(), f.clone(), f.clone(), field.key.clone());
         let id = f.id.clone();
-        let mut input = text_input(&edit, if editing { TITLE } else { STRONG })
+        // The typed answer is written where an answer's title is, in the same row: no box of
+        // its own, wrapping inside the row as it grows.
+        let input = text_input(&edit, if editing { TITLE } else { STRONG })
             .key("q-input")
             .label(CUSTOM)
-            .w_full()
-            .h(28.0)
-            .center_y()
-            .radius(6.0)
+            .grow(1.0)
+            .min_w(0.0)
+            .color(p.text)
             .placeholder(CUSTOM, if editing { p.faint } else { p.text })
             .caret(p.text, p.selection)
+            .on_layout(|s: &mut App, r| {
+                if (s.question.input_w - r[2]).abs() > 0.5 {
+                    s.question.input_w = r[2];
+                }
+            })
             .on_edit(move |s: &mut App| s.typed_mut(&id, &d))
             .on_input_change(move |s: &mut App, _| {
                 let (tab, _) = s.place(&c);
@@ -593,17 +656,13 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 }
             })
             .on_input_key(|s: &mut App, ev, tx| s.typed_key(ev, tx));
-        if editing {
-            input = input.px(8.0).fill(p.bg_base).border(1.0, p.q.focus);
-        }
         answers = answers.child(
             row()
                 .key("q-custom")
                 .w_full()
-                .h(40.0)
-                .px(10.0)
+                .padding(10.0)
                 .gap(8.0)
-                .center_y()
+                .items_start()
                 .radius(6.0)
                 .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| if inside { s.hover_answer(i, tx) })
@@ -653,5 +712,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     Some(vec![body, footer])
 }
 
+#[cfg(test)]
+mod custom_tests;
 #[cfg(test)]
 mod tests;

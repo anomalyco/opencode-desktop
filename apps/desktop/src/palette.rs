@@ -47,7 +47,6 @@ pub struct Pal {
 pub struct Question {
     pub layer4: Color,
     pub border_strong: Color,
-    pub focus: Color,
     /// `--v2-question-answer-bg-selected`: the highlighted answer.
     pub selected: Color,
     pub neutral: Color,
@@ -114,7 +113,6 @@ fn build(dark: bool) -> Pal {
         q: Question {
             layer4: c("background-bg-layer-04"),
             border_strong: c("border-border-strong"),
-            focus: c("border-border-focus"),
             selected: if dark { t.alpha(c("blue-500"), 0x26 as f32 / 255.0) } else { rune::color::hex("#f5f8ff").unwrap_or(Color::WHITE) },
             neutral: c("background-bg-button-neutral"),
             neutral_ring: if dark { c("alpha-light-20") } else { c("alpha-dark-14") },

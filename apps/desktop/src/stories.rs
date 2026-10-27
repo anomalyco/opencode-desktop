@@ -52,9 +52,12 @@ impl rune_playground::Story<App> for Story {
 pub const COMPOSER: Knob = Knob::choice("Composer state", &["Empty", "Draft", "Queued", "Subagent running"], 0);
 /// The Question story's form.
 pub const QUESTION: Knob = Knob::choice("Question form", &["One", "Two", "Multi-select", "Long", "Typing"], 0);
+/// What the Custom answer story's typed answer holds.
+pub const CUSTOM_ANSWER: Knob = Knob::choice("Typed answer", &["Typing", "Long, wrapped", "Left the field", "Empty"], 0);
 
 const COMPOSER_KNOBS: &[Group] = &[Group::new("Composer", "stage", &[COMPOSER, CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
 const QUESTION_KNOBS: &[Group] = &[Group::new("Question", "stage", &[QUESTION])];
+const CUSTOM_KNOBS: &[Group] = &[Group::new("Custom answer", "stage", &[CUSTOM_ANSWER])];
 const MORPH_KNOBS: &[Group] = &[QUESTION_DOCK];
 const GLOW_KNOBS: &[Group] = &[Group::new("Arrival glow", "stage", &[GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH])];
 const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
@@ -119,6 +122,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Composer", name: "Composer", knobs: COMPOSER_KNOBS, keys: &[], open: composer_open, view: composer_view },
     Story { group: "Composer", name: "Queue dock", knobs: ROW_KNOBS, keys: QUEUE_KEYS, open: queue_open, view: session_view },
     Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
+    Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
     Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
     Story { group: "Timeline", name: "Arrival glow", knobs: GLOW_KNOBS, keys: GLOW_KEYS, open: glow_open, view: session_view },
@@ -389,6 +393,23 @@ fn question_open(s: &mut App, _: &mut Tx) {
     s.apply_event("form.created", &q);
     if s.knobs.get(&QUESTION) as usize == 4 {
         s.question_type("Fake clock, but keep one slow test on real timers");
+    }
+}
+
+/// The two-question form on its last question, with its typed answer as the knob says.
+fn custom_open(s: &mut App, _: &mut Tx) {
+    s.finish_stream();
+    let q = form(s, &[0, 1]);
+    s.apply_event("form.created", &q);
+    s.question_last();
+    let text = match s.knobs.get(&CUSTOM_ANSWER) as usize {
+        1 | 2 => "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere",
+        3 => "",
+        _ => "All of them",
+    };
+    s.question_type(text);
+    if matches!(s.knobs.get(&CUSTOM_ANSWER) as usize, 2 | 3) {
+        s.question_leave_field();
     }
 }
 

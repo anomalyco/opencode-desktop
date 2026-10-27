@@ -196,6 +196,29 @@ const ACTIONS: &[Action] = &[
         r.event("form.replied", json!({ "id": "frm_fx0001", "sessionID": SID }));
         r.play(0.8);
     } },
+    // Into "Type your own answer" and out: a digit opens it, the words wrap and the row grows,
+    // ↑ goes to the answer above, ↓ and a key come back, Esc leaves. All of it at once.
+    Action { name: "question-custom", circs: || vec![Circ { dock: Dock::Question, ..Circ::default() }, Circ { dock: Dock::Question, narrow: true, ..Circ::default() }], run: |r| {
+        let key = |r: &mut Run, what: &str, key: Key| r.act(what, |rt| rt.key(KeyEvent { key, mods: Mods::default() }));
+        key(r, "4", Key::Text("4".into()));
+        r.play(0.3);
+        r.act("a long answer", |rt| rt.update(|s, _| {
+            let t = s.typed_mut("frm_fx0001", "q0");
+            *t = rune::TextEdit::new("Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression shows up somewhere");
+            t.focused = true;
+        }));
+        r.play(0.3);
+        key(r, "↑", Key::Up);
+        r.play(0.3);
+        key(r, "↑", Key::Up);
+        r.play(0.3);
+        key(r, "↓", Key::Down);
+        r.play(0.3);
+        key(r, "!", Key::Text("!".into()));
+        r.play(0.3);
+        key(r, "esc", Key::Escape);
+        r.play(0.5);
+    } },
     Action { name: "revert", circs: || {
         let mut v = wide_and_narrow(Circ::default());
         v.push(Circ { length: Length::Short, ..Circ::default() });
