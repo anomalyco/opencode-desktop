@@ -7,7 +7,8 @@
 #     --icon apps/sketch/assets/icon.icns [-- APP ARGS]
 # For unattended rebuilds, `--wait-idle SECS` holds the swap while the app is frontmost and the
 # keyboard or mouse was used in the last SECS seconds, and relaunches behind whatever is in front
-# when the app isn't.
+# when the app isn't. A running copy that called `mac_app::busy(true)` (Seer, while Kit talks)
+# holds the swap until it calls `busy(false)`, for up to 15 minutes.
 set -euo pipefail
 IDLE=""
 while [[ $# -gt 0 ]]; do
@@ -31,11 +32,14 @@ rm -rf "$APP"
 running() { ps -axo pid=,command= | awk -v exe="$LIVE/Contents/MacOS/$EXE" '{ pid = $1; sub(/^ *[0-9]+ /, ""); if (index($0, exe) == 1) print pid }'; }
 front() { lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | grep -qF "\"$ID\""; }
 idle_s() { ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'; }
+BUSY="$HOME/Library/Caches/mac-app/busy"
+busy() { for pid in $(running); do [ -e "$BUSY/$pid" ] && return 0; done; return 1; }
 OPEN=()
 if [ -n "$IDLE" ]; then
   while front && [ "$(idle_s)" -lt "$IDLE" ]; do sleep 2; done
   front || OPEN=(-g)
 fi
+for _ in $(seq 450); do busy || break; sleep 2; done
 OLD=$(running)
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXE"
