@@ -38,6 +38,7 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "load-motion", threshold: 1.0, means: "a row that loaded with the view moves or fades by more than this after its first frame (no animation on load)" },
     Rule { kind: "never-settles", threshold: 0.05, means: "still changing by more than this in the last half second of the run, long after the last input (loops excepted)" },
     Rule { kind: "loop-jump", threshold: 0.03, means: "a loop's phase steps this many periods off its usual step in one frame: it restarted or skipped (a remount, or a new loop where one was running)" },
+    Rule { kind: "twice", threshold: 0.0, means: "two siblings share one key (Rune's `#dup`), so one thing shows twice, as an optimistic copy beside the server's" },
     Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
 
@@ -607,6 +608,12 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
         let usual = sorted[sorted.len() / 2];
         if let Some(&(k, d)) = steps.iter().find(|s| (s.1 - usual).abs() > rule("loop-jump")) {
             out.push(Finding { kind: "loop-jump", element: short(&t.path), frame: k, detail: format!("phase stepped {d:.3} where it steps {usual:.3} a frame") });
+        }
+    }
+    // Rune names a second sibling under one key `key#dupN`: the same thing shows twice.
+    for t in tr.iter().filter(|t| t.path.rsplit('/').next().is_some_and(|s| s.contains("#dup"))) {
+        if let Some((k, _)) = t.frames.iter().find(|f| f.1.op >= rule("faint") && f.1.vis[2] > 0.0 && f.1.vis[3] > 0.0) {
+            out.push(Finding { kind: "twice", element: short(&t.path), frame: *k, detail: "a second element under its key".into() });
         }
     }
     if let Some(q) = rec.quiet_from {

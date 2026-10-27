@@ -94,8 +94,15 @@ impl App {
                     }
                     self.playback.push_back((at + e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or("").into(), d));
                 }
+                let sent = format!("msg_zzzzsent{:04}", self.sends);
+                // A server admits every prompt to its inbox as a steer, then delivers it once
+                // the run takes it up, as a live one does.
+                let item = serde_json::json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": wire.display } } });
+                self.playback.push_back((at + 0.05, "session.inbox.enqueued".into(), serde_json::json!({ "sessionID": id, "inboxID": sent, "item": item })));
+                self.playback.push_back((at + 0.7, "session.inbox.delivered".into(), serde_json::json!({ "sessionID": id, "inboxID": sent })));
+                self.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
                 self.wake_at_playback();
-                format!("msg_zzzzsent{:04}", self.sends)
+                sent
             }
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));

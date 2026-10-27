@@ -105,7 +105,14 @@ impl App {
     /// `session.inbox.*`: a delivered prompt joins the end of the transcript, where the server
     /// puts it.
     pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
-        match self.inboxes.entry(sid.to_owned()).or_default().apply(ty, data) {
+        let inbox = self.inboxes.entry(sid.to_owned()).or_default();
+        let change = inbox.apply(ty, data);
+        // The server admits every prompt to its inbox, a send to an idle session too. That one
+        // already shows as its prompt, which is where it stays, so it never waits as a steer.
+        if let Some(t) = self.transcripts.get(sid) {
+            inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
+        }
+        match change {
             InboxChange::None => false,
             InboxChange::Changed => true,
             InboxChange::Delivered(item) => {
