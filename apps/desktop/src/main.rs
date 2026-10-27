@@ -98,6 +98,8 @@ pub struct App {
     framed: bool,
     pub edge: usize,
     pub reduced_motion: bool,
+    /// User messages that arrived from another client, by id: the poll clock when they did.
+    pub glows: HashMap<String, f64>,
     pub status: String,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
@@ -171,6 +173,7 @@ impl App {
             framed: false,
             edge,
             reduced_motion: flag("--reduced-motion"),
+            glows: HashMap::new(),
             status: String::new(),
             now_ms: 0,
             base_ms: 0,
@@ -604,8 +607,7 @@ impl App {
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
-        t.messages.push(Message::User { id: local.clone(), text: wire.display });
-        tx.fly_text("prompt", format!("text-{local}"));
+        t.messages.push(Message::User { id: local, text: wire.display });
         self.composer.clear();
     }
 
@@ -843,6 +845,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
     let mut changed = false;
+    let arrivals = Arrivals::before(s);
     if let Some(inbox) = s.inbox.take() {
         for m in inbox.try_iter() {
             match m {
@@ -914,6 +917,12 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.apply_event(&ty, &data);
         changed = true;
     }
+    arrivals.glow(s, now);
+    s.glows.retain(|_, at| now - *at < view::GLOW_SECS);
+    if !s.glows.is_empty() {
+        tx.wake_after(std::time::Duration::ZERO);
+        changed = true;
+    }
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions();
     if let Source::Live { server, .. } = &s.source
@@ -926,6 +935,43 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         }
     }
     changed
+}
+
+/// The open session's user messages before a poll, so the ones that arrive from another client
+/// (not this app's sends, not a first load) can glow as they land.
+struct Arrivals {
+    session: Option<String>,
+    seen: HashSet<String>,
+    echoes: Vec<String>,
+}
+
+impl Arrivals {
+    fn before(s: &App) -> Arrivals {
+        let session = match &s.route {
+            Route::Session(id) if s.transcripts.contains_key(id) => Some(id.clone()),
+            _ => None,
+        };
+        // Prompts already showing in a queue or steer list aren't arriving either.
+        let queued = s.inboxes.values().flat_map(|i| i.items.iter().map(|i| i.id.clone()));
+        let users = session.iter().flat_map(|id| s.transcripts[id].messages.iter().filter(|m| matches!(m, Message::User { .. })));
+        let seen = users.map(|m| m.id().to_owned()).chain(queued).collect();
+        Arrivals { session, seen, echoes: s.attach.echoes.iter().map(|e| e.2.clone()).collect() }
+    }
+
+    fn glow(self, s: &mut App, now: f64) {
+        let Some(id) = self.session.filter(|id| s.route == Route::Session(id.clone())) else { return };
+        if s.reduced_motion {
+            return;
+        }
+        for m in s.transcripts.get(&id).map_or(&[][..], |t| &t.messages[..]) {
+            if let Message::User { id, text } = m
+                && !self.seen.contains(id)
+                && !self.echoes.iter().any(|e| e == text.trim())
+            {
+                s.glows.insert(id.clone(), now);
+            }
+        }
+    }
 }
 
 fn setup(s: &mut App, waker: Waker) {

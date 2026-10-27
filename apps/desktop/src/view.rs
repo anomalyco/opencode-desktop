@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use rune::{
     Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
-    Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
+    Shadow, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
 
 use rune_kit::{Kit, Markdown, MarkdownStyle};
@@ -884,7 +884,9 @@ fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
         .virtualize(80.0)
         .growth(GrowthSpec { edge: e, ..Default::default() });
     for r in rows {
-        stack = stack.child(col().key(r.key).w_full().max_w(CONTENT_W).streaming(r.streaming).child(r.el));
+        let row = col().key(r.key).w_full().max_w(CONTENT_W).streaming(r.streaming).child(r.el);
+        // Finished content opens in one quick glide, which a pinned timeline follows.
+        stack = stack.child(if r.streaming { row } else { row.arrives_whole() });
     }
     if t.is_none() {
         stack = stack.child(
@@ -916,7 +918,7 @@ fn rows(s: &App, p: &Pal, t: &Transcript, fade: f32) -> Vec<RowSpec> {
                     out.push(RowSpec { key: format!("ui-{id}"), el: g.pt(if out.is_empty() { 8.0 } else { 20.0 }), streaming: false });
                 }
                 if !body.trim().is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, out.is_empty()), streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), el: user_bubble(p, id, body, out.is_empty(), s.glows.get(id).map_or(0.0, |at| glow(s.clock - at))), streaming: false });
                 }
             }
             Message::Note { id, text: body } => {
@@ -976,22 +978,42 @@ fn turn_rows(s: &App, p: &Pal, parent: &str, out: &mut Vec<RowSpec>, steps: &[&A
     }
 }
 
-fn user_bubble(p: &Pal, id: &str, body: &str, first: bool) -> El {
+/// How long a message from another client glows as it lands.
+pub const GLOW_SECS: f64 = 0.9;
+
+/// The arrival glow `t` seconds in: a quick rise, then a fast decay with a slower tail, faded
+/// to nothing by `GLOW_SECS` (the iOS app's message reveal, shortened).
+fn glow(t: f64) -> f32 {
+    const RISE: f64 = 0.07;
+    let g = if t < RISE {
+        1.0 - (1.0 - t.max(0.0) / RISE).powi(3)
+    } else {
+        let d = t - RISE;
+        0.78 * 0.5f64.powf(d / 0.11) + 0.22 * 0.5f64.powf(d / 0.2)
+    };
+    let end = ((t - 0.7) / (GLOW_SECS - 0.7)).clamp(0.0, 1.0);
+    (g * (1.0 - end * end * (3.0 - 2.0 * end))) as f32
+}
+
+fn user_bubble(p: &Pal, id: &str, body: &str, first: bool, glow: f32) -> El {
+    let mut bubble = col().max_w(460.0).shrink().px(12.0).py(8.0).radius(10.0).fill(p.layer2);
+    if glow > 0.0 {
+        // A soft inner glow and a slight lift, under the text.
+        let (rim, lift) = if p.dark { (p.accent.mix(Color::WHITE, 0.45), p.text) } else { (p.accent, Color::WHITE) };
+        bubble = bubble.child(
+            el().key("glow").absolute(0.0, 0.0).w_full().h_full().radius(10.0)
+                .fill(lift.alpha(0.1))
+                .box_shadow(Shadow { blur: 14.0, color: rim.alpha(0.55), inset: true, ..Shadow::default() })
+                .opacity(glow)
+                .opacity_motion(INSTANT),
+        );
+    }
     row()
         .w_full()
         .justify_end()
         .pt(if first { 8.0 } else { 20.0 })
         .pb(16.0)
-        .child(
-            col()
-                .max_w(460.0)
-                .shrink()
-                .px(12.0)
-                .py(8.0)
-                .radius(10.0)
-                .fill(p.layer2)
-                .child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(p.text).wrap()),
-        )
+        .child(bubble.child(text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(p.text).wrap()))
 }
 
 pub(crate) fn chevron(open: bool) -> &'static Icon {
@@ -1451,7 +1473,9 @@ fn home_dir() -> String {
 
 #[cfg(test)]
 mod tests {
-    use rune::{Env, Runtime, TextEdit};
+    use opencode_kit::client::Incoming;
+    use opencode_kit::model::Message;
+    use rune::{Env, Key, KeyEvent, Runtime, TextEdit};
 
     use crate::App;
 
@@ -1499,6 +1523,157 @@ mod tests {
         let step = xs.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         // A spring, not a jump: no frame covers more than a tenth of the way.
         assert!(step < (hi - lo) / 10.0, "the chevron moves at most {step} pt in a frame");
+    }
+
+    fn session() -> Runtime<App> {
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut app);
+        app.finish_stream();
+        let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
+        rt.poll = Some(crate::poll);
+        rt.frame(0.0);
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        rt
+    }
+
+    /// A message row's bubble fill (drawn and clipped rects), its text's visible height, and
+    /// its glow's opacity, if it has one this frame.
+    struct Bubble {
+        rect: [f32; 4],
+        visible_h: f32,
+        text_h: f32,
+        glow: Option<f32>,
+    }
+
+    fn bubble(rt: &Runtime<App>, id: &str) -> Option<Bubble> {
+        let els = rt.elements();
+        let row = format!("u-{id}");
+        let inside = |e: &&rune::ElementInfo| !e.exiting && e.path.split('/').any(|p| p == row);
+        let fill = els.iter().filter(inside).find(|e| e.fill.a > 0.0 && e.key.is_none())?;
+        let text = els.iter().filter(inside).find(|e| e.key.as_deref() == Some(&format!("text-{id}")))?;
+        let glow = els.iter().filter(inside).find(|e| e.key.as_deref() == Some("glow")).map(|e| e.opacity);
+        Some(Bubble { rect: fill.rect, visible_h: fill.visible[3], text_h: text.visible[3], glow })
+    }
+
+    fn deliver(rt: &mut Runtime<App>, messages: Vec<Message>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let session = rt.state.transcripts.keys().find(|k| rt.state.route == crate::Route::Session((*k).clone())).unwrap().clone();
+        tx.send(Incoming::Messages { session, messages }).unwrap();
+        rt.state.inbox = Some(rx);
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Via {
+        Enter,
+        Click,
+    }
+
+    /// Sends through real input (focus, type, then Enter or a click on Send) and checks every
+    /// frame, `dts` giving each frame's length (dropped frames included).
+    fn send_and_trace(via: Via, dts: &[f64]) {
+        let mut rt = session();
+        let body = "Can you also check the reconnect jitter?";
+        let tap = |rt: &mut Runtime<App>, key: &str| {
+            let (x, y) = rt.find(key).unwrap();
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+        };
+        tap(&mut rt, "prompt");
+        rt.frame(1.0 / 60.0);
+        rt.key(KeyEvent { key: Key::Text(body.into()), mods: Default::default() });
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        match via {
+            Via::Enter => rt.key(KeyEvent { key: Key::Enter, mods: Default::default() }),
+            Via::Click => tap(&mut rt, "submit"),
+        }
+        let id = "msg_zzzzsent0001";
+        let working = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("working")).map(|e| e.rect[1]);
+        let (mut ys, mut work, mut worst) = (Vec::new(), Vec::new(), 0.0f64);
+        let mut t = 0.0;
+        for (f, &dt) in dts.iter().enumerate() {
+            let start = std::time::Instant::now();
+            rt.frame(dt);
+            worst = worst.max(start.elapsed().as_secs_f64());
+            t += dt;
+            if f == dts.len() / 2 {
+                // The server's copy of the prompt replaces the local one under the same id.
+                deliver(&mut rt, vec![Message::User { id: id.into(), text: body.into() }]);
+            }
+            assert!(rt.state.composer.text.is_empty(), "{via:?}: the composer clears");
+            let b = bubble(&rt, id).unwrap_or_else(|| panic!("{via:?} frame {f}: the message has a bubble"));
+            assert!(b.text_h <= 0.0 || b.visible_h > 0.0, "{via:?} frame {f}: text shows without its bubble");
+            assert!(b.glow.is_none(), "{via:?} frame {f}: this app's own send doesn't glow");
+            let rows: Vec<String> = rt.elements().into_iter().filter(|e| !e.exiting).filter_map(|e| e.key).filter(|k| k.starts_with("u-")).collect();
+            assert_eq!(rows.iter().filter(|k| *k == &format!("u-{id}")).count(), 1, "frame {f}: one row, same key");
+            assert!(rows.iter().collect::<std::collections::HashSet<_>>().len() == rows.len(), "frame {f}: duplicate row keys {rows:?}");
+            ys.push((t, b.rect[1]));
+            work.extend(working(&rt).map(|y| (t, y)));
+        }
+        eprintln!("{via:?}: bubble y per frame {:?}", ys.iter().map(|p| (p.1 * 10.0).round() / 10.0).collect::<Vec<_>>());
+        eprintln!("{via:?}: slowest frame {:.1} ms", worst * 1000.0);
+        assert!(ys[0].1 > ys[ys.len() - 1].1 + 40.0, "{via:?}: it rises into place: {ys:?}");
+        // One smooth rise: never back down, and no faster than ~700 pt/s in any frame (a snap
+        // of the whole 70 pt height would be one frame).
+        for w in ys.windows(2) {
+            let speed = (w[0].1 - w[1].1) / (w[1].0 - w[0].0) as f32;
+            assert!(w[1].1 <= w[0].1 + 0.01 && speed < 700.0, "{via:?}: bubble y {ys:?}");
+        }
+        assert!(work.len() == ys.len(), "{via:?}: Working shows below it throughout");
+        for w in work.windows(2) {
+            assert!((w[1].1 - w[0].1).abs() / ((w[1].0 - w[0].0) as f32) < 700.0, "{via:?}: Working moves smoothly: {work:?}");
+        }
+    }
+
+    #[test]
+    fn a_sent_message_rises_whole_from_the_composer_and_keeps_its_key() {
+        send_and_trace(Via::Enter, &[1.0 / 120.0; 90]);
+        send_and_trace(Via::Click, &[1.0 / 120.0; 90]);
+        // A dev build that drops frames: 60 Hz with two 50 ms stalls stays on the same path.
+        let mut dts = vec![1.0 / 60.0; 45];
+        dts[3] = 0.05;
+        dts[10] = 0.05;
+        send_and_trace(Via::Enter, &dts);
+    }
+
+    #[test]
+    fn a_message_from_elsewhere_glows_and_settles_and_a_big_one_glides_in() {
+        let mut rt = session();
+        let id = "msg_zzzzzelsewhere";
+        let body = (0..14).map(|i| format!("Line {i} of a long message typed on another device.")).collect::<Vec<_>>().join("\n");
+        deliver(&mut rt, vec![Message::User { id: id.into(), text: body }]);
+        let (mut glows, mut bottoms) = (Vec::new(), Vec::new());
+        for _ in 0..(1.2 * 120.0) as usize {
+            rt.frame(1.0 / 120.0);
+            let b = bubble(&rt, id).expect("the arrival shows");
+            glows.push(b.glow.unwrap_or(0.0));
+            bottoms.push(b.rect[1] + b.rect[3]);
+        }
+        let peak = glows.iter().cloned().fold(0.0, f32::max);
+        assert!(peak > 0.9, "it glows: {glows:?}");
+        let top = glows.iter().position(|&g| g == peak).unwrap();
+        assert!(top <= 12, "the glow rises within 0.1 s: {glows:?}");
+        assert!(glows[top..].windows(2).all(|w| w[1] <= w[0] + 1e-4), "then only fades: {glows:?}");
+        assert!(glows[(super::GLOW_SECS * 120.0) as usize + 2..].iter().all(|&g| g == 0.0), "settled by {}s: {glows:?}", super::GLOW_SECS);
+
+        // The pinned timeline follows the ~300 pt insert in one glide: its bubble rises without
+        // stopping or stepping (speed up, then down, once) and lands within half a second.
+        let speeds: Vec<f32> = bottoms.windows(2).map(|w| w[0] - w[1]).collect();
+        let rise = bottoms[0] - bottoms[bottoms.len() - 1];
+        assert!(rise > 200.0, "it rises from under the composer: {bottoms:?}");
+        let fast = speeds.iter().cloned().fold(0.0, f32::max);
+        let at = speeds.iter().position(|&v| v == fast).unwrap();
+        assert!(speeds[..=at].windows(2).all(|w| w[1] >= w[0] - 0.05), "speeds {speeds:?}");
+        assert!(speeds[at..].windows(2).all(|w| w[1] <= w[0] + 0.05), "speeds {speeds:?}");
+        assert!(speeds.iter().all(|&v| v >= -0.01), "never back down: {speeds:?}");
+        let land = bottoms.iter().position(|&y| (y - bottoms[bottoms.len() - 1]).abs() < 0.5).unwrap();
+        assert!(land <= 60, "landed in {} s: {bottoms:?}", land as f32 / 120.0);
+        assert!(!rt.state.glows.contains_key(id));
     }
 
     fn sidebar() -> Runtime<App> {
