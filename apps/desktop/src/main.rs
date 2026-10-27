@@ -20,6 +20,8 @@ mod session_pages;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
+#[cfg(test)]
+mod motion_gate;
 mod shortcuts;
 mod stories;
 mod subagents;
