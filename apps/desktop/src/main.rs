@@ -31,6 +31,7 @@ mod switcher;
 mod tabs;
 mod turns;
 mod view;
+mod working;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};

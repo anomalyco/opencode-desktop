@@ -1375,37 +1375,6 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
     c
 }
 
-/// The spinner and a shimmering "Working". Hidden, it is drawn still: its loops would keep
-/// waking frames.
-fn working(s: &App, p: &Pal, live: bool) -> El {
-    let ring = if live { activity_ring(p) } else { el().key("ring").size(14.0, 14.0) };
-    row().h(28.0).gap(8.0).center_y().pb(12.0).child(ring).child(shimmer(s, p, "Working", live && !s.reduced_motion))
-}
-
-/// "Working" at 13 px Inter.
-const WORKING_W: f32 = 52.0;
-
-/// Desktop's `TextShimmer`: a soft band of the strong colour sweeps left to right across the
-/// muted label every 1.2 s, from a gutter (spread + 1ch) before it to one after. The band is a
-/// soft-edged window sliding over the label, with a copy inside sliding back so it stays put.
-/// Its highlight is ±5.2ch of text-strong over text-weak (84 pt); both are Timeline knobs.
-fn shimmer(s: &App, p: &Pal, label: &'static str, on: bool) -> El {
-    let base = text(label).key("label").font(UI).color(p.muted);
-    if !on {
-        return row().child(base);
-    }
-    let sheen = s.knobs.get(&crate::knobs::SHIMMER_WIDTH);
-    let period = crate::knobs::secs(&s.knobs, &crate::knobs::SHIMMER_PERIOD);
-    let gutter = sheen / 2.0 + 8.0;
-    let (from, to) = ((-gutter - sheen / 2.0) / sheen, (WORKING_W + gutter - sheen / 2.0) / sheen);
-    let sweep = |a: f32, b: f32| rune::LoopSpec::slide(period, [a, 0.0], [b, 0.0]).easing(Easing::LINEAR);
-    let lit = el().key("lit").absolute(0.0, 0.0).w(sheen).h_full().looping(sweep(-from, -to))
-        .child(text(label).font(UI).color(p.text).absolute(0.0, 0.0));
-    row().child(base).child(
-        el().key("sheen").absolute(0.0, 0.0).w(sheen).h_full().clip_fade(sheen / 2.0, 0.0, sheen / 2.0, 0.0).looping(sweep(from, to)).child(lit),
-    )
-}
-
 fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
@@ -1430,7 +1399,7 @@ fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) 
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     el().w_full().h(28.0).motion(crate::knobs::actions_tail(&s.knobs))
-        .child(working(s, p, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
+        .child(crate::working::row(s, p, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
 }
 
@@ -2151,7 +2120,7 @@ mod tests {
                 let label = els.iter().find(|e| e.path.contains("/working/") && e.key.as_deref() == Some("label")).unwrap();
                 let lit = els.iter().find(|e| e.path.contains("/lit/") && e.text.is_some()).unwrap();
                 let (sheen, lit_box) = (els.iter().find(|e| e.key.as_deref() == Some("sheen")).unwrap(), els.iter().find(|e| e.key.as_deref() == Some("lit")).unwrap());
-                assert!((label.rect[2] - super::WORKING_W).abs() < 2.0, "the label is {} wide", label.rect[2]);
+                assert!((label.rect[2] - crate::working::WORKING_W).abs() < 2.0, "the label is {} wide", label.rect[2]);
                 assert!((lit.rect[0] - label.rect[0]).abs() < 0.01 && (lit.rect[1] - label.rect[1]).abs() < 0.01, "{t:.3}s: lit {:?} on label {:?}", lit.rect, label.rect);
                 assert_eq!(sheen.loop_phase, lit_box.loop_phase, "{t:.3}s: one sweep");
             }
