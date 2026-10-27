@@ -163,6 +163,10 @@ mod tests {
 }
 
 pub fn save(server: &str, tabs: &[Tab]) {
+    // Tests record what they would save in `SAVED`; they never touch the saved file.
+    if cfg!(test) {
+        return;
+    }
     let Some(path) = file() else { return };
     let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
     v[server] = tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "directory": t.directory })).collect();

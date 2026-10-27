@@ -15,7 +15,7 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("text-swap", "working/#1/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
-    ("text-swap", "header/crumbs", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
+    ("text-swap", "crumbs/", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
     ("text-swap", "activity-lane/activity-chip", "", "the composer's activity capsule counts its subagents in place (subagents::capsule)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),

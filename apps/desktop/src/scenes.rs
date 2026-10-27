@@ -104,6 +104,15 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-subagent", |s| stories::scene(s, "Subagent")),
         ("story-images", |s| stories::scene(s, "Images")),
         ("story-jump", |s| stories::scene(s, "Jump to latest")),
+        // Sidebar › Rename and menus, one scene per variant: the tab, row and header menus, a title
+        // being renamed in each, and Delete's confirmation.
+        ("story-menu-tab", |s| session_menu_stories::scene(s, 0)),
+        ("story-menu-row", |s| session_menu_stories::scene(s, 1)),
+        ("story-menu-header", |s| session_menu_stories::scene(s, 2)),
+        ("story-rename-tab", |s| session_menu_stories::scene(s, 3)),
+        ("story-rename-row", |s| session_menu_stories::scene(s, 4)),
+        ("story-rename-header", |s| session_menu_stories::scene(s, 5)),
+        ("story-delete", |s| session_menu_stories::scene(s, 6)),
         ("story-actions", |s| stories::scene(s, "Turn actions")),
         ("story-dictation", |s| stories::scene(s, "Dictation")),
         // The story's agents' timeline rows: three, light and dark, and one on its own.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::session_menu::{Spot, Target};
 
 // ---------------------------------------------------------------------------------------------
 // Session
@@ -155,7 +156,7 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
                 )
                 .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(4.0).pr(4.0));
         }
-        crumbs = crumbs.child(text(title_of(info)).font(UI_MED).color(p.text).truncate().pl(4.0));
+        crumbs = crumbs.children(header_title(s, p, info));
         // A running subagent's header spins beside its title (`SessionWorkingIndicator`).
         if info.parent.is_some() && s.subtree_running(&info.id) {
             crumbs = crumbs.child(activity_ring(p).key("working").ml(6.0));
@@ -738,4 +739,35 @@ pub(super) fn request_card(p: &Pal, r: &Pending) -> El {
         }
         Pending::Form { .. } => card,
     }
+}
+
+/// The header's session title. A root session's has Desktop's menu (a right-click, or the ⋯
+/// button beside it) and renames when clicked; a subagent's is plain.
+fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
+    if info.parent.is_some() {
+        return vec![text(title_of(info)).font(UI_MED).color(p.text).truncate().pl(4.0)];
+    }
+    let target = Target::new(&info.id, Spot::Header);
+    let marked = s.menus.on.as_ref() == Some(&target);
+    let more = target.clone();
+    let title = match crate::session_menu_view::field(s, p, &target, UI_MED) {
+        Some(field) => field.ml(4.0),
+        None => {
+            let begin = target.clone();
+            let mut t = row().key("title").role("button").label(title_of(info)).h(28.0).px(4.0).center_y().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.begin_rename(&begin);
+                })
+                .child(text(title_of(info)).font(UI_MED).color(p.text).truncate());
+            if marked {
+                t = t.fill(p.hover);
+            }
+            crate::session_menu::on(t, target)
+        }
+    };
+    let dots = el().key("header-more").role("button").label("More options").size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, more.clone(), "header-more", tx))
+        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
+    vec![title, dots]
 }

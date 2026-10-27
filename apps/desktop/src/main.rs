@@ -30,6 +30,11 @@ mod restore;
 mod revert;
 mod scenes;
 mod selection_stories;
+mod session_menu;
+mod session_menu_stories;
+#[cfg(test)]
+mod session_menu_tests;
+mod session_menu_view;
 mod send;
 mod session_open;
 mod session_pages;
@@ -127,6 +132,8 @@ pub struct App {
     /// The composer's images, and sent prompts waiting on the server's copy.
     pub attach: attachments::Attach,
     pub search: TextEdit,
+    /// Session menus, the title being renamed and Delete's confirmation.
+    pub menus: session_menu::Menus,
     pub pickers: pickers::Pickers,
     /// The composer's `@` popover and what it lists.
     pub mentions: mentions::Mentions,
@@ -234,6 +241,7 @@ impl App {
             composer: TextEdit::new(""),
             attach: Default::default(),
             search: TextEdit::new(""),
+            menus: Default::default(),
             pickers: pickers::Pickers::default(),
             mentions: mentions::Mentions::default(),
             add: add_menu::AddMenu::default(),
@@ -679,6 +687,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands();
+    changed |= s.poll_rename();
     changed |= s.poll_uploads();
     if let Source::Live { server, .. } = &s.source
         && s.persists()

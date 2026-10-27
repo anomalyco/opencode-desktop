@@ -1,4 +1,5 @@
 use super::*;
+use crate::session_menu::{Spot, Target};
 
 // ---------------------------------------------------------------------------------------------
 // Home: search and recent sessions by day (Desktop's home sessions column).
@@ -34,34 +35,8 @@ pub(super) fn home(s: &App, p: &Pal) -> El {
         }
         let mut rows = col().key(format!("g-{title}")).gap(1.0).pt(16.0).mb(24.0);
         for ses in items {
-            let project = s.project(&ses.project);
-            let proj = project.map_or("", |x| x.name.as_str());
-            let id = ses.id.clone();
-            let hover_id = id.clone();
-            let index = nav_ids.iter().position(|x| x == &id).unwrap_or(0);
-            let nav = nav_ids.clone();
-            rows = rows.child(
-                row()
-                    .key(format!("r-{}", ses.id))
-                    .role("button")
-                    .label(ses.title.clone())
-                    .h(40.0)
-                    .pl(12.0)
-                    .pr(16.0)
-                    .gap(6.0)
-                    .center_y()
-                    .radius(6.0)
-                    .hover(p.hover)
-                    .press(p.pressed)
-                    .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
-                    .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
-                    .child(crate::icons::badge(s, p, project, proj))
-                    .child(text(title_of(ses)).font(UI_MED).color(p.text).truncate())
-                    .child(text(proj.to_owned()).font(UI).color(p.faint).truncate())
-                    .child(spacer())
-                    .child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
-            );
+            let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
+            rows = rows.child(session_row(s, p, ses, &nav_ids, index));
         }
         list = list.child(header).child(rows);
         first = false;
@@ -110,4 +85,45 @@ pub(super) fn home(s: &App, p: &Pal) -> El {
                 .pt(48.0)
                 .child(col().key("home-column").w_full().max_w(720.0).child(search).child(list.mt(12.0))),
         )
+}
+
+/// One session in Home's list: opens on a click, and has Desktop's right-click menu. While it's
+/// being renamed the row is the field, and doesn't open.
+pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize) -> El {
+    let project = s.project(&ses.project);
+    let proj = project.map_or("", |x| x.name.as_str());
+    let id = ses.id.clone();
+    let hover_id = id.clone();
+    let nav = nav_ids.clone();
+    let target = Target::new(&ses.id, Spot::Row);
+    let editing = crate::session_menu_view::field(s, p, &target, UI_MED);
+    let marked = s.menus.on.as_ref() == Some(&target);
+    let mut r = row()
+        .key(format!("r-{}", ses.id))
+        .role("button")
+        .label(ses.title.clone())
+        .h(40.0)
+        .pl(12.0)
+        .pr(16.0)
+        .gap(6.0)
+        .center_y()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
+        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
+        .child(crate::icons::badge(s, p, project, proj));
+    if marked {
+        r = r.fill(p.hover);
+    }
+    r = match editing {
+        Some(field) => r.child(field.grow(1.0)),
+        None => r.on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx)).child(text(title_of(ses)).font(UI_MED).color(p.text).truncate()),
+    };
+    crate::session_menu::on(
+        r.child(text(proj.to_owned()).font(UI).color(p.faint).truncate())
+            .child(spacer())
+            .child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
+        target,
+    )
 }

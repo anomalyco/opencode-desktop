@@ -68,6 +68,12 @@ pub enum Write {
     Deliver { session: String, item: String, delivery: Delivery },
     /// Runs one shell command in the session's directory (`POST …/shell`).
     Shell { session: String, id: Option<String>, command: String },
+    /// Renames a session (`PATCH /api/session/:id`, as Desktop's `session.update`).
+    Rename { session: String, title: String },
+    /// Deletes a session and its subagents (`DELETE /api/session/:id`).
+    Delete(String),
+    /// Saves a session as JSON in the downloads folder, as Desktop's Export does.
+    Export(String),
 }
 
 /// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
@@ -489,6 +495,39 @@ impl Server {
         if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
     }
 
+    /// `session.update` with a title: the body is `{"title": …}` and nothing else.
+    pub fn rename_session(&self, session: &str, title: &str) -> Result<(), String> {
+        self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "title": title }))).map(|_| ())
+    }
+
+    pub fn delete_session(&self, session: &str) -> Result<(), String> {
+        self.write("DELETE", &format!("/api/session/{session}"), None).map(|_| ())
+    }
+
+    /// What Desktop's Export saves: `{ info, messages }`, the messages oldest first in pages of
+    /// 200, with the file name it gives it.
+    pub fn export_session(&self, session: &str) -> Result<(String, String), String> {
+        let v = self.get(&format!("/api/session/{session}"))?;
+        let info = v.get("data").unwrap_or(&v).clone();
+        let mut messages = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut path = format!("/api/session/{session}/message?limit=200&order=asc");
+            if let Some(c) = &cursor {
+                path.push_str(&format!("&cursor={}", encode_component(c)));
+            }
+            let page = self.get(&path)?;
+            messages.extend(page["data"].as_array().cloned().unwrap_or_default());
+            cursor = page["cursor"]["next"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        let name = export_filename(&info, session);
+        let json = serde_json::to_string_pretty(&serde_json::json!({ "info": info, "messages": messages })).map_err(|e| e.to_string())?;
+        Ok((name, json))
+    }
+
     pub fn cancel_inbox(&self, session: &str, item: &str) -> Result<(), String> {
         self.write("DELETE", &format!("/api/session/{session}/inbox/{item}"), None).map(|_| ())
     }
@@ -575,6 +614,11 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
                         Write::Shell { session, id, command } => server.shell(&session, id.as_deref(), &command),
+                        Write::Rename { session, title } => server.rename_session(&session, &title),
+                        Write::Delete(session) => server.delete_session(&session),
+                        Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {
+                            let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
+                        }),
                     };
                     if let Err(e) = result
                         && inbox_tx.send(Incoming::Status(e)).is_err()
@@ -662,6 +706,30 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
     (req_tx, write_tx, inbox)
 }
 
+/// `sessionExportFilename`: the title (or slug, or id) lowercased, runs of anything but
+/// letters, digits, `_` and `-` as one `-`, trimmed of `-`, plus `.json`.
+pub fn export_filename(info: &Value, id: &str) -> String {
+    let name = ["title", "slug"].iter().filter_map(|k| info[*k].as_str()).find(|s| !s.is_empty()).unwrap_or(id);
+    let mut clean = String::new();
+    for c in name.to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            clean.push(c);
+        } else if !clean.ends_with('-') {
+            clean.push('-');
+        }
+    }
+    let clean = clean.trim_matches('-');
+    format!("{}.json", if clean.is_empty() { id } else { clean })
+}
+
+fn save_download(name: &str, json: &str) -> Result<String, String> {
+    let dir = std::path::PathBuf::from(std::env::var("HOME").map_err(|e| e.to_string())?).join("Downloads");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(name);
+    std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
 /// A one-request HTTP server for tests: answers 200 and returns what it received.
 #[cfg(test)]
 pub fn mock_once() -> (String, std::thread::JoinHandle<String>) {
@@ -716,6 +784,28 @@ mod tests {
         assert!(req.starts_with("POST /api/session/ses_test/prompt HTTP/1.1"), "{req}");
         assert!(req.contains("authorization: Basic dGVzdA==") || req.contains("Authorization: Basic dGVzdA=="));
         assert!(req.ends_with(r#"{"text":"hello there"}"#), "{req}");
+    }
+
+    #[test]
+    fn rename_patches_the_title_alone_and_delete_removes_the_session() {
+        let (base, h) = mock_once();
+        Server { base, auth: None, media_refs: false }.rename_session("ses_a", "Fix \"the\" jitter").unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("PATCH /api/session/ses_a HTTP/1.1"), "{req}");
+        assert!(req.ends_with(r#"{"title":"Fix \"the\" jitter"}"#), "{req}");
+
+        let (base, h) = mock_once();
+        Server { base, auth: None, media_refs: false }.delete_session("ses_a").unwrap();
+        assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a HTTP/1.1"));
+    }
+
+    #[test]
+    fn export_files_are_named_as_desktop_names_them() {
+        let name = |title: &str| export_filename(&serde_json::json!({ "title": title, "slug": "swift-owl" }), "ses_1");
+        assert_eq!(name("Fix the Jitter!"), "fix-the-jitter.json");
+        assert_eq!(name("  --a__b--  "), "a__b.json");
+        assert_eq!(name(""), "swift-owl.json");
+        assert_eq!(name("日本語"), "ses_1.json");
     }
 
     #[test]

@@ -1,0 +1,158 @@
+//! The storybook's Sidebar › Rename and menus story: each right-click menu beside the title it's
+//! on, a title being renamed in each place, and Delete's confirmation. Native menus never draw
+//! headless, so the menus are drawn copies; M opens the real one, N lights its next item, E
+//! starts the rename, D asks to delete, R replays.
+
+use rune::{El, PopupAnchor, Tx, col, el, row};
+use rune_knobs::{Action, Group, Knob};
+
+use crate::palette::Pal;
+use crate::session_menu::{self, Line, Spot, Target};
+use crate::session_menu_view::preview;
+use crate::stories::{replay, scene_variant};
+use crate::view;
+use crate::{App, Route};
+
+pub const SHOWING: Knob = Knob::choice(
+    "Showing",
+    &["Tab menu", "Home row menu", "Header menu", "Renaming a tab", "Renaming a row", "Renaming the title", "Delete"],
+    0,
+);
+pub const KNOBS: &[Group] = &[Group::new("Rename and menus", "stage", &[SHOWING])];
+pub const KEYS: &[Action<App>] = &[
+    Action { cap: "R", label: "Replay", run: replay },
+    Action { cap: "M", label: "Open the real menu", run: native },
+    Action { cap: "N", label: "Light the next item", run: next },
+    Action { cap: "E", label: "Rename", run: |s, _| start(s, true) },
+    Action { cap: "D", label: "Ask to delete", run: |s, _| s.menus.confirm = Some(first(s)) },
+];
+
+/// A snapshot scene on variant `at`.
+pub fn scene(s: &mut App, at: usize) {
+    scene_variant(s, "Rename and menus", SHOWING, at);
+}
+
+fn variant(s: &App) -> usize {
+    s.knobs.get(&SHOWING) as usize
+}
+
+fn spot(v: usize) -> Spot {
+    match v {
+        0 | 3 => Spot::Tab,
+        1 | 4 => Spot::Row,
+        _ => Spot::Header,
+    }
+}
+
+/// The session the story is on: the open one, which is the first tab's.
+fn first(s: &App) -> String {
+    match &s.route {
+        Route::Session(id) => s.root_of(id).to_owned(),
+        _ => s.tabs.first().map_or_else(String::new, |t| t.id.clone()),
+    }
+}
+
+fn target(s: &App) -> Target {
+    Target::new(&first(s), spot(variant(s)))
+}
+
+pub fn open(s: &mut App, _: &mut Tx) {
+    s.finish_stream();
+    s.menus = Default::default();
+    let v = variant(s);
+    match v {
+        0..=2 => {
+            s.menus.on = Some(target(s));
+            s.menus.hot = Some("rename".into());
+        }
+        3..=5 => start(s, false),
+        _ => s.menus.confirm = Some(first(s)),
+    }
+}
+
+/// Starts the rename; `retitle` types a new title first, as a person would.
+fn start(s: &mut App, retitle: bool) {
+    let t = Target::new(&first(s), spot(variant(s)));
+    s.begin_rename(&t);
+    if retitle {
+        s.menus.edit.replace_text("Reconnect jitter, with a fake clock");
+    }
+}
+
+fn native(s: &mut App, tx: &mut Tx) {
+    let t = target(s);
+    s.menus.on = None;
+    let anchor = match t.spot {
+        Spot::Tab => "story-tab-0",
+        Spot::Row => "story-row-0",
+        Spot::Header => "story-title",
+    };
+    session_menu::open(s, t, PopupAnchor::Key(anchor.into()), tx);
+}
+
+fn next(s: &mut App, _: &mut Tx) {
+    let ids: Vec<&'static str> = session_menu::lines(s, &target(s))
+        .into_iter()
+        .filter_map(|l| match l {
+            Line::Item(i) if i.enabled => Some(i.id),
+            _ => None,
+        })
+        .collect();
+    let at = ids.iter().position(|id| Some(*id) == s.menus.hot.as_deref()).map_or(0, |i| i + 1);
+    s.menus.hot = ids.get(at % ids.len().max(1)).map(|id| (*id).to_owned());
+}
+
+pub fn view(s: &App, p: &Pal) -> El {
+    let v = variant(s);
+    let t = target(s);
+    let menu = (v <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
+    let stage = match t.spot {
+        Spot::Tab => tabs(s, p, menu),
+        Spot::Row => rows(s, p, menu),
+        Spot::Header => header(s, p, menu),
+    };
+    col().key("story-menus").w_full().max_w(820.0).child(stage)
+}
+
+/// The sidebar's tabs, as the app draws them.
+fn tabs(s: &App, p: &Pal, menu: Option<El>) -> El {
+    let mut list = col().key("story-tabs").w_full().pb(16.0);
+    let current = first(s);
+    let count = s.tabs.len().min(4);
+    for (i, tab) in s.tabs.iter().take(count).enumerate() {
+        list = list.child(view::tab_row(s, p, tab, i, tab.id == current, count));
+    }
+    let side = col().key("story-sidebar").w(s.sidebar_w).pt(8.0).pl(10.0).pr(2.0).fill(p.bg_deep).radius(10.0).child(list);
+    let stage = el().key("story-stage").w_full().h(300.0).child(side).child(row().key("story-tab-0").absolute(10.0, 8.0).w(s.sidebar_w - 12.0).h(28.0));
+    place(stage, menu, 36.0 + 8.0, 40.0)
+}
+
+fn rows(s: &App, p: &Pal, menu: Option<El>) -> El {
+    let ids: std::rc::Rc<Vec<String>> = std::rc::Rc::new(s.sessions.iter().filter(|x| x.parent.is_none()).take(4).map(|x| x.id.clone()).collect());
+    let mut list = col().key("story-rows").w_full().gap(1.0).padding(12.0).fill(p.bg_base).radius(10.0);
+    for (i, id) in ids.iter().enumerate() {
+        if let Some(info) = s.session(id) {
+            list = list.child(view::session_row(s, p, info, &ids, i));
+        }
+    }
+    let stage = el().key("story-stage").w_full().h(300.0).child(list).child(row().key("story-row-0").absolute(12.0, 12.0).w(400.0).h(40.0));
+    place(stage, menu, 52.0, 60.0)
+}
+
+fn header(s: &App, p: &Pal, menu: Option<El>) -> El {
+    let stage = el()
+        .key("story-stage")
+        .w_full()
+        .h(220.0)
+        .child(col().key("story-header").w_full().fill(p.bg_base).radius(10.0).child(view::story_header(s, p)))
+        .child(row().key("story-title").absolute(150.0, 10.0).w(240.0).h(28.0));
+    place(stage, menu, 44.0, 150.0)
+}
+
+/// `menu` hanging from (`x`, `y`) of the stage.
+fn place(stage: El, menu: Option<El>, y: f32, x: f32) -> El {
+    match menu {
+        Some(m) => stage.child(m.absolute(x, y)),
+        None => stage,
+    }
+}

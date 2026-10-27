@@ -133,6 +133,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
     Story { group: "Question dock", name: "Under a queue", knobs: MORPH_KNOBS, keys: UNDER_QUEUE_KEYS, open: under_queue_open, view: session_view },
+    Story { group: "Sidebar", name: "Rename and menus", knobs: crate::session_menu_stories::KNOBS, keys: crate::session_menu_stories::KEYS, open: crate::session_menu_stories::open, view: crate::session_menu_stories::view },
     Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
     Story { group: "Timeline", name: "Arrival glow", knobs: GLOW_KNOBS, keys: GLOW_KEYS, open: glow_open, view: session_view },
     Story { group: "Timeline", name: "Send", knobs: ROW_KNOBS, keys: SEND_KEYS, open: send_open, view: session_view },

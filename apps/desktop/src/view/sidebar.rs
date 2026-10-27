@@ -1,4 +1,5 @@
 use super::*;
+use crate::session_menu::{Spot, Target};
 
 // ---------------------------------------------------------------------------------------------
 // Sidebar: Desktop's vertical tabs (`shell/titlebar/titlebar.tsx`, `tab-nav.tsx`).
@@ -164,7 +165,7 @@ pub(super) fn over(top: Color, bottom: Color) -> Color {
 
 /// A tab's hit area spans half the gap to each neighbour, so the pointer is always over one tab
 /// (Beta's "fill vertical tab hover gaps"). Only the 28pt pill inside it paints.
-pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, count: usize) -> El {
+pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, count: usize) -> El {
     let info = s.session(&t.id);
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
@@ -184,6 +185,9 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
     let before = if index > 0 { TAB_GAP / 2.0 } else { 0.0 };
     let after = if index + 1 < count { TAB_GAP / 2.0 } else { 0.0 };
     let dragging = s.tab_drag.dragging() == Some(index);
+    let target = Target::new(&t.id, Spot::Tab);
+    let marked = s.menus.on.as_ref() == Some(&target);
+    let rename_id = target.clone();
     let mut hit = col()
         .key(format!("t-{}", t.id))
         .role("button")
@@ -196,6 +200,11 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
         .hover_motion(INSTANT, INSTANT)
         .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
         .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev))
+        // Desktop's tab title: a double click renames it in place.
+        .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.begin_rename(&rename_id);
+        })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
             // tabs don't open on a drag either).
@@ -244,7 +253,10 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
                 .center_y()
                 .clip_fade(0.0, 0.0, 16.0, 0.0)
                 .child(crate::icons::badge(s, p, project, &proj))
-                .child(text(title).font(UI_MED).color(if active { p.text } else { p.faint })),
+                .child(match crate::session_menu_view::field(s, p, &target, UI_MED) {
+                    Some(field) => field,
+                    None => text(title).font(UI_MED).color(if active { p.text } else { p.faint }),
+                }),
         )
         .child(
             // Status and close share the slot; hovering the row swaps one for the other.
@@ -284,6 +296,8 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
         );
     if active {
         r = r.fill(p.pressed);
+    } else if marked {
+        r = r.fill(p.hover);
     }
     if dragging {
         // Beta lifts it with the pressed overlay alone; here it's opaque on the sidebar's deep
@@ -292,7 +306,7 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
     }
     // Its layout and its step aside share one spring, so a drop that swaps one for the other
     // leaves a passed tab still and slides the dropped one from where it was drawn.
-    hit = hit.child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
+    hit = crate::session_menu::on(hit, Target::new(&t.id, Spot::Tab)).child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
     if dragging {
         // It follows the pointer exactly.
         hit = hit.raise().offset_motion(INSTANT);
