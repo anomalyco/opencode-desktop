@@ -8,6 +8,7 @@
 //! names a file for the full report.
 
 pub mod check;
+mod odometers;
 mod scenarios;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};

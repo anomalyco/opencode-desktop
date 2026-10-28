@@ -177,13 +177,19 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
     let limit = info
         .and_then(|i| s.pickers.limits.get(&format!("{}:{}", i.model.provider, i.model.id)))
         .map_or(200_000.0, |&n| n.max(1) as f32);
+    // Each session's numbers are their own odometers, so opening another one shows its numbers
+    // at once rather than rolling from this one's.
+    let sid = info.map(|i| i.id.as_str()).or(t.map(|t| t.session.as_str())).unwrap_or("");
     let usage = row()
         .key("usage")
         .gap(6.0)
         .center_y()
+        // Its numbers widen to the left; the row slides on their spring, so they roll in place.
+        .motion(crate::odometer::SPRING)
+        .width_leads()
         .child(ring(p, (ctx as f32 / limit).min(1.0)))
-        .child(text(model::tokens_short(ctx)).font(UI_SMALL).color(p.muted))
-        .child(text(format!("${cost:.2}")).font(UI_SMALL).color(p.faint));
+        .child(odometer_end(format!("ctx-{sid}"), model::tokens_short(ctx), ctx as f64, UI_SMALL, p.muted))
+        .child(odometer_end(format!("cost-{sid}"), format!("${cost:.2}"), (cost * 100.0).round(), UI_SMALL, p.faint));
     row()
         .key("header")
         .h(48.0)

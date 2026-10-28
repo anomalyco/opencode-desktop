@@ -100,7 +100,7 @@ fn the_composer_becomes_the_question() {
     assert!(rt.find("question").is_some() && rt.find("q-opt-0").is_some());
     assert!(rt.find("prompt").is_none() && rt.find("toolbar").is_none(), "one surface, not a card above the composer");
     assert!(rt.find(&format!("request-{FORM}")).is_none());
-    let title = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("q-title")).and_then(|e| e.text);
+    let title = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(format!("q-title-{FORM}").as_str())).and_then(|e| e.label);
     assert_eq!(title.as_deref(), Some("1 of 2 questions"));
 }
 

@@ -10,6 +10,7 @@ use rune_theme_opencode::icons as ic;
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{self, Delivery, Inbox, InboxChange, InboxItem, Message};
 
+use crate::odometer::odometer;
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED};
 use crate::{App, Source};
@@ -238,7 +239,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
     let mut face = face.px(6.0).pt(6.0).pb(if n > 4 { 1.0 } else { 7.0 });
     if n > 3 {
-        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(text(format!("{n} QUEUED")).font(LABEL).color(p.muted)));
+        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), format!("{n} QUEUED"), n as f64, LABEL, p.muted)));
     }
     let list = if n > 4 {
         col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 12.0).child(list)

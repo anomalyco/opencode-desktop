@@ -55,6 +55,8 @@ mod open_story;
 mod open_story_tests;
 #[cfg(test)]
 mod motion_gate;
+mod odometer;
+mod odometer_stories;
 mod shortcuts;
 mod stories;
 mod subagents;

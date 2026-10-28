@@ -596,7 +596,7 @@ mod tests {
             let loading = elements.iter().any(|e| e.text.as_deref() == Some("Loading messages…"));
             let target = rt.state.route == Route::Session("ses_target".into());
             let grey = target && rt.state.attach.image_handles().iter().any(|img| !img.is_ready());
-            let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.text.as_deref() == Some("0"));
+            let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.label.as_deref() == Some("0"));
             let at_bottom = rt.scroll_at_bottom("scroll-ses_target");
             let image = elements.iter().find(|e| e.path.ends_with("/img-0") && !e.exiting).map(|e| e.rect);
             println!("OPEN_FRAME warm={prefetched} frame={frame} target={target} loading={loading} grey={grey} zero={zero} bottom={at_bottom:?} image={image:?}");

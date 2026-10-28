@@ -16,6 +16,7 @@ use std::collections::HashSet;
 use opencode_kit::model::{Field, FieldKind, Pending};
 use rune::{Anim, Color, El, Key, KeyEvent, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
 
+use crate::odometer::odometer;
 use crate::palette::Pal;
 use crate::{App, Route, knobs};
 
@@ -584,7 +585,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         .w_full()
         .px(10.0)
         .gap(4.0)
-        .child(row().key("q-top").w_full().min_h(28.0).gap(12.0).center_y().child(text(title).key("q-title").font(TITLE).color(p.muted)).child(spacer()).children(progress))
+        .child(row().key("q-top").w_full().min_h(28.0).gap(12.0).center_y().child(odometer(format!("q-title-{}", f.id), title, (tab + 1) as f64, TITLE, p.muted)).child(spacer()).children(progress))
         .child(
             col()
                 .key(format!("q-details-{tab}"))

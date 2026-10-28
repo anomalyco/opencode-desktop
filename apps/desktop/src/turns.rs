@@ -14,6 +14,7 @@ use opencode_kit::model::{Assistant, Attachment, Part, ToolStatus};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
+use crate::odometer::odometer;
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, chevron, readable, reasoning};
 
@@ -214,7 +215,7 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
     trigger = match l.count {
         Some(n) => trigger
             .child(text("Used").key("used").font(UI).color(p.muted))
-            .child(text(n.to_string()).key(format!("n{n}")).font(UI).color(p.text))
+            .child(odometer(format!("{key}-count"), n.to_string(), n as f64, UI, p.text))
             .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate()),
         None => trigger.child(text(l.title.clone()).key("thinking").font(UI).color(p.muted)),
     };

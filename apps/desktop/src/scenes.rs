@@ -138,6 +138,9 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-rows", |s| agent_stories::scene(s, 1, false)),
         ("story-rows-dark", |s| agent_stories::scene(s, 1, true)),
         ("story-rows-one", |s| agent_stories::scene(s, 0, false)),
+        ("story-odometer", |s| stories::scene(s, "Odometer")),
+        // A card's time and the header's cost ticking (`ticking_scene`).
+        ("ticking", ticking_scene),
         ("sidebar-closed", |s| {
             open_scene(s);
             s.finish_stream();
@@ -151,3 +154,37 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
             }
         }),
 ];
+
+/// The open session with a subagent 7.5 s into its run, so its card's time turns 9s → 10s, and
+/// the header's context and cost rising as steps finish ($1.99 → $2.00 among them).
+pub(crate) fn ticking_scene(s: &mut App) {
+    open_scene(s);
+    s.finish_stream();
+    let tx = &mut Tx::default();
+    s.play.after(0.2, |s, tx| {
+        agent_stories::spawn(s, tx);
+        let now = s.now_ms;
+        let parent = s.fixture["open"].as_str().map(str::to_owned);
+        if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.is_some() && x.parent == parent) {
+            c.created = now - 7_500;
+        }
+    }, tx);
+    for k in 0..4 {
+        s.play.after(0.9 + k as f64, |s, _| {
+            let Route::Session(id) = s.route.clone() else { return };
+            let total = s.sessions.iter().find(|x| x.id == id).map_or(0.0, |i| i.cost);
+            // To $1.97, then up 1¢ a step.
+            let add = if total < 1.9 { 1.97 - total } else { 0.01 };
+            if let Some(i) = s.sessions.iter_mut().find(|x| x.id == id) {
+                i.cost += add;
+            }
+            let last = s.transcripts.get_mut(&id).and_then(|t| t.messages.iter_mut().rev().find_map(|m| match m {
+                Message::Assistant(a) if a.tokens.context() > 0 => Some(a),
+                _ => None,
+            }));
+            if let Some(a) = last {
+                a.tokens.input += 2_300;
+            }
+        }, tx);
+    }
+}

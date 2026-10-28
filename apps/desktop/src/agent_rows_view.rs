@@ -1,9 +1,9 @@
 //! A subagent call's row in the parent's timeline: agents started together share one card,
 //! a live row each (`agent_rows.rs` has what each row knows).
 //!
-//! A new step rises in from below as the old one rises out, the time ticks in a fixed tabular
-//! slot, the mark crossfades and scales between spinner, ✓ and ✕, cut-off words fade out at the
-//! edge, and agents that join the card rise into place at the bottom (nothing above them
+//! A new step rises in from below as the old one rises out, the time rolls like an odometer
+//! (`odometer.rs`), the mark crossfades and scales between spinner, ✓ and ✕, cut-off words fade
+//! out at the edge, and agents that join the card rise into place at the bottom (nothing above them
 //! moves). Hover and click are instant.
 
 use rune::{Anim, El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -13,7 +13,9 @@ use rune_theme_opencode::icons as ic;
 
 use crate::App;
 use crate::agent_rows::{Run, State};
+use crate::odometer::odometer_end;
 use crate::palette::Pal;
+use crate::subagents::elapsed;
 use crate::turns::Block;
 use crate::view::{UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
 
@@ -108,10 +110,12 @@ fn tag(p: &Pal, agent: &str) -> El {
         .child(text(model::capitalize(agent)).font(UI_SMALL.lh(16.0)).color(p.faint))
 }
 
-/// The run time in tabular digits, right-aligned in a slot wide enough for "59s", so ticking
-/// never moves what sits beside it.
-fn time(p: &Pal, t: Option<String>) -> Option<El> {
-    t.map(|t| row().key("time").min_w(24.0).justify_end().child(text(t).key("t").font(UI_SMALL.lh(16.0).features("\"tnum\"")).color(p.faint)))
+/// The run time, rolling like an odometer, right-aligned in a slot wide enough for "59s", so
+/// ticking never moves what sits beside it.
+fn time(p: &Pal, call: &str, ms: Option<i64>) -> Option<El> {
+    let ms = ms?;
+    let t = odometer_end(format!("time-{call}"), elapsed(ms), (ms / 1000) as f64, UI_SMALL.lh(16.0), p.faint);
+    Some(row().key("time").min_w(24.0).justify_end().motion(crate::odometer::SPRING).width_leads().child(t))
 }
 
 /// The words a task's title shows in, fading out where they're cut.
@@ -156,10 +160,12 @@ fn live_row(p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
         .h(h)
         .gap(8.0)
         .center_y()
+        // The time widening ("9s" → "10s") eases, and what sits beside it slides over with it.
+        .animate_layout()
         .child(mark(p, r.state, on))
         .child(title(p, c, UI_MED.lh(20.0)))
         .child(now(p, r, UI.lh(20.0), h - 6.0))
         .child(tag(p, c.agent))
-        .children(time(p, r.time.clone()))
+        .children(time(p, &c.key, r.ms))
         .children(c.child.map(|_| icon(&ic::CHEVRON_RIGHT, 16.0).key("open").color(p.icon_faint).group_opacity(0.0, 1.0)))
 }

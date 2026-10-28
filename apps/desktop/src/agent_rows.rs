@@ -40,8 +40,8 @@ pub struct Run {
     /// The latest steps, newest last ("Read backoff.ts"), and how many came before them.
     pub steps: Vec<String>,
     pub taken: usize,
-    /// "12s": how long it has run, or ran.
-    pub time: Option<String>,
+    /// How long it has run, or ran, in ms.
+    pub ms: Option<i64>,
     /// Its answer's first line, once done.
     pub result: Option<String>,
     /// What went wrong, once failed.
@@ -137,10 +137,9 @@ impl App {
             };
             end - i.created
         });
-        let time = ms.map(crate::subagents::elapsed);
         let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c))).flatten();
         let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
-        Run { state, steps, taken, time, result, error }
+        Run { state, steps, taken, ms, result, error }
     }
 
     /// When `child`'s current run started, as Desktop dates it (`session/requests/background.ts`):
@@ -177,19 +176,21 @@ impl App {
     }
 }
 
-/// Wakes the app each second while a row shows a running agent's time; true when a second
-/// just passed.
+/// Wakes the app on each whole second of a running agent's time, counted from when it started
+/// (not the wall clock's second), while a row shows it; true when one just passed.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let (now, last) = (s.now_ms, s.agent_rows.polled);
     s.agent_rows.polled = now;
     s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
-    let ticking = matches!(&s.route, Route::Session(id) if s.running.iter().any(|r| r != id && s.descends(r, id)));
-    if !ticking {
+    let Route::Session(id) = &s.route else { return false };
+    let starts: Vec<i64> = s.running.iter().filter(|r| *r != id && s.descends(r, id)).filter_map(|r| s.session(r)).map(|i| i.created).collect();
+    if starts.is_empty() {
         return false;
     }
-    let next = (now.div_euclid(1000) + 1) * 1000;
+    let second = |t: i64, start: i64| (t - start).div_euclid(1000);
+    let next = starts.iter().map(|&c| c + (second(now, c) + 1) * 1000).min().unwrap_or(now + 1000);
     tx.wake_after(std::time::Duration::from_millis((next - now).max(1) as u64));
-    now.div_euclid(1000) != last.div_euclid(1000)
+    starts.iter().any(|&c| second(now, c) != second(last, c))
 }
 
 #[cfg(test)]

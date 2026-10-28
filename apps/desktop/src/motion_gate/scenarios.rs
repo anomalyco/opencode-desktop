@@ -16,12 +16,12 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("text-swap", "working/#1/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
     ("text-swap", "crumbs/", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
-    ("text-swap", "activity-lane/activity-chip", "", "the composer's activity capsule counts its subagents in place (subagents::capsule)"),
     ("pop-in", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
     ("pop-out", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
     ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
+    ("reversal", "time-call_story_agent", "agents", "the card's final time rolls its digit up as the pinned timeline slides down for the closing activity lane; against its row it travels one way (odometer::odometer_end)"),
     ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
     ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
@@ -309,6 +309,12 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
+    // Live numbers roll like an odometer (`odometer.rs`).
+    Action { name: "odometer-9s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 9) },
+    Action { name: "odometer-59s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 59) },
+    Action { name: "odometer-usage", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: super::odometers::usage },
+    Action { name: "odometer-questions", circs: || vec![Circ::default()], run: super::odometers::questions },
+    Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.

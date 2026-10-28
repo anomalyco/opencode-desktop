@@ -45,22 +45,6 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
 
-/// Whether `old` → `new` is a number changing in otherwise the same words.
-fn ticks(old: &str, new: &str) -> bool {
-    let shape = |t: &str| {
-        let mut out = String::new();
-        for ch in t.chars() {
-            if !ch.is_ascii_digit() {
-                out.push(ch);
-            } else if !out.ends_with('#') {
-                out.push('#');
-            }
-        }
-        out
-    };
-    shape(old) == shape(new)
-}
-
 pub fn rule(kind: &str) -> f32 {
     RULES.iter().find(|r| r.kind == kind).map_or(f32::INFINITY, |r| r.threshold)
 }
@@ -522,12 +506,13 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
             }
         }
         // Words that change in place instead of rolling or crossfading. Words that grow or
-        // shrink from the same start (streaming, a reveal) aren't a swap, nor is a count or a
-        // clock ticking ("1s" → "2s", "54.4K" → "64.6K").
+        // shrink from the same start (streaming, a reveal) aren't a swap. A count or a clock
+        // ticking in place ("9s" → "10s") is one: live numbers roll (`odometer.rs`), and a
+        // rolling label, over its own glyphs, is a parent the check passes.
         for w in t.words.windows(2) {
             let ((_, old), (k, new)) = (&w[0], &w[1]);
             let (Some(a), Some(b)) = (t.at(k.wrapping_sub(1)), t.at(*k)) else { continue };
-            if *k <= rec.start || parents.contains(&i) || new.starts_with(old.as_str()) || old.starts_with(new.as_str()) || ticks(old, new) { continue; }
+            if *k <= rec.start || parents.contains(&i) || new.starts_with(old.as_str()) || old.starts_with(new.as_str()) { continue; }
             if (a.flags | b.flags) & (LIVE | LOOP | EXITING | VIRTUAL) != 0 || a.op.min(b.op) < rule("text-swap") || !seen(b, size) { continue; }
             geo.push((i, Finding { kind: "text-swap", element: short(&t.path), frame: *k, detail: format!("\"{old}\" → \"{new}\" in one frame") }));
         }
@@ -847,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn words_that_swap_in_place_are_a_text_swap_but_a_ticking_count_is_not() {
+    fn words_or_a_count_that_swap_in_place_are_a_text_swap_but_a_rolling_label_is_not() {
         let still: Vec<(usize, [f32; 4], f32)> = (0..60).map(|k| (k, [0.0, 0.0, 100.0, 20.0], 1.0)).collect();
         let with = |words: &[(usize, &str)]| {
             let mut r = rec(vec![("a", still.clone())], 60);
@@ -855,8 +840,14 @@ mod tests {
             kinds(&r)
         };
         assert_eq!(with(&[(0, "Read backoff.ts"), (30, "Grep retryBudget")]), ["text-swap"]);
-        assert!(with(&[(0, "9s"), (30, "10s")]).is_empty(), "a clock ticks");
+        assert_eq!(with(&[(0, "9s"), (30, "10s")]), ["text-swap"], "a clock that snaps instead of rolling");
         assert!(with(&[(0, "Looks"), (30, "Looks right")]).is_empty(), "streaming words grow");
+        // An odometer: the label over its glyphs reads "9s" then "10s" while its digits roll.
+        let mut r = rec(vec![("odo", still.clone())], 60);
+        r.tracks[0].words = vec![(0, "9s".into()), (30, "10s".into())];
+        let glyph = r.track("odo/odo.1", Some(0));
+        r.tracks[glyph].frames = (0..60).map(|k| (k, Snap { rect: [0.0, 0.0, 8.0, 20.0], vis: [0.0, 0.0, 8.0, 20.0], op: 1.0, scale: 1.0, flags: INK, phase: f32::NAN })).collect();
+        assert!(kinds(&r).is_empty(), "a rolling label is no swap");
     }
 
     #[test]

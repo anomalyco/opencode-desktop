@@ -136,6 +136,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
     Story { group: "Question dock", name: "Under a queue", knobs: MORPH_KNOBS, keys: UNDER_QUEUE_KEYS, open: under_queue_open, view: session_view },
     Story { group: "Sidebar", name: "Rename and menus", knobs: crate::session_menu_stories::KNOBS, keys: crate::session_menu_stories::KEYS, open: crate::session_menu_stories::open, view: crate::session_menu_stories::view },
+    Story { group: "Components", name: "Odometer", knobs: &[], keys: crate::odometer_stories::KEYS, open: crate::odometer_stories::open, view: crate::odometer_stories::view },
     Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
     Story { group: "Timeline", name: "Arrival glow", knobs: GLOW_KNOBS, keys: GLOW_KEYS, open: glow_open, view: session_view },
     Story { group: "Timeline", name: "Send", knobs: ROW_KNOBS, keys: SEND_KEYS, open: send_open, view: session_view },
@@ -796,6 +797,21 @@ mod tests {
         letter(&mut rt, "d");
         run(&mut rt, 0.1);
         assert_eq!(queued(&rt), 0, "D delivers it");
+    }
+
+    /// The Odometer story ticks its numbers once a second, and S shows another session's at once.
+    #[test]
+    fn the_odometer_story_ticks_and_switches_session_at_once() {
+        let (mut rt, _) = real();
+        book(&mut rt);
+        open(&mut rt.state, story("Odometer"), &mut rune::Tx::default());
+        let label = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).and_then(|e| e.label);
+        run(&mut rt, 0.1);
+        assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("7s"));
+        run(&mut rt, 3.0);
+        assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("10s"), "9s turned 10s");
+        letter(&mut rt, "s");
+        assert!(label(&rt, "story-time-7-0").is_none() && label(&rt, "story-time-7-1").is_some(), "another session's number mounts fresh");
     }
 
     /// R plays a story from the start the same way every time: the glow lands at the same
