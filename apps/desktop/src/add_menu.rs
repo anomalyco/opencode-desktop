@@ -81,6 +81,8 @@ pub struct AddMenu {
     slash_active: Option<(String, String)>,
     /// The composer's text when Escape closed the command popover.
     slash_closed: Option<String>,
+    /// Whether the command popover showed after the last edit.
+    slash_shown: bool,
     fetched_tx: Sender<(String, Vec<Command>)>,
     fetched: Receiver<(String, Vec<Command>)>,
 }
@@ -96,6 +98,7 @@ impl Default for AddMenu {
             commands_dir: None,
             slash_active: None,
             slash_closed: None,
+            slash_shown: false,
             fetched_tx,
             fetched,
         }
@@ -255,6 +258,16 @@ impl App {
         let query = text.strip_prefix('/')?;
         let caret = self.composer.range();
         (caret.0 == caret.1 && caret.1 == text.len() && !query.contains(char::is_whitespace)).then(|| query.to_owned())
+    }
+
+    /// After the composer's text changes: the command popover opens, closes and refilters with
+    /// this frame.
+    pub fn slash_changed(&mut self, tx: &mut Tx) {
+        let shown = self.slash_query().is_some();
+        if shown || std::mem::replace(&mut self.add.slash_shown, shown) {
+            tx.instant();
+        }
+        self.add.slash_shown = shown;
     }
 
     pub fn slash_items(&self) -> Vec<&Command> {
@@ -670,6 +683,24 @@ mod tests {
         typed(&mut rt, "/");
         key(&mut rt, Key::Escape);
         assert!(shown(&rt, "commands").is_none());
+    }
+
+    /// Each letter after `/` filters the drawn list in the frame it lands: no row slides,
+    /// fades or lingers.
+    #[test]
+    fn filtering_lands_in_the_keys_frame() {
+        let mut rt = runtime();
+        tap(&mut rt, "prompt");
+        for c in "/rev".chars() {
+            key(&mut rt, Key::Text(c.to_string()));
+            let want: Vec<String> = rt.state.slash_items().iter().map(|c| format!("command-{}", c.name)).collect();
+            let rows: Vec<_> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("command-"))).collect();
+            assert_eq!(rows.iter().map(|e| e.key.clone().unwrap()).collect::<Vec<_>>(), want, "after {c}");
+            for e in rows {
+                let moved = e.rect.iter().zip(e.target).any(|(a, b)| (a - b).abs() > 0.01);
+                assert!(!e.exiting && !moved && (e.opacity - 1.0).abs() < 1e-3, "{:?} after {c}: {:?} → {:?}, opacity {}", e.key, e.rect, e.target, e.opacity);
+            }
+        }
     }
 
     #[test]

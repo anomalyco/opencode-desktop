@@ -151,6 +151,36 @@ fn cmd_k_arrows_enter_and_escape() {
     assert_eq!(rt.state.route, Route::Session("ses_fx0010aaaaaaaaaaaaaaaaaa".into()));
 }
 
+/// Each letter filters the drawn rows in the frame it lands, already in place and opaque, and
+/// Enter shows the picked session's page in its own frame, with no frame of the old one.
+#[test]
+fn filtering_and_picking_land_in_the_keys_frame() {
+    let mut rt = runtime();
+    cmd_k(&mut rt);
+    for c in "footnote".chars() {
+        key(&mut rt, Key::Text(c.to_string()));
+        let want: Vec<String> = keys(&rt.state).into_iter().map(|k| format!("sw-{k}")).collect();
+        let rows: Vec<_> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("sw-") && !k.starts_with("sw-section-"))).collect();
+        assert!(!rows.is_empty(), "after {c}: rows show");
+        for e in rows {
+            let k = e.key.clone().unwrap();
+            let moved = e.rect.iter().zip(e.target).any(|(a, b)| (a - b).abs() > 0.01);
+            assert!(want.contains(&k) && !e.exiting, "after {c}: {k} isn't a match but draws");
+            assert!(!moved && (e.opacity - 1.0).abs() < 1e-3, "{k} after {c}: {:?} → {:?}, opacity {}", e.rect, e.target, e.opacity);
+        }
+    }
+    let picked = "ses_fx0010aaaaaaaaaaaaaaaaaa";
+    let title = rt.state.session(picked).unwrap().title.clone();
+    let old = rt.state.session("ses_fx0001aaaaaaaaaaaaaaaaaa").unwrap().title.clone();
+    let header = |rt: &Runtime<App>, t: &str| rt.elements().into_iter().any(|e| {
+        !e.exiting && e.opacity > 0.99 && e.path.contains("header") && (e.text.as_deref() == Some(t) || e.label.as_deref() == Some(t))
+    });
+    assert!(header(&rt, &old), "the open session's title heads the page");
+    key(&mut rt, Key::Enter);
+    assert!(header(&rt, &title), "{title:?} heads the page in Enter's frame");
+    assert!(!header(&rt, &old), "no frame of {old:?}");
+}
+
 #[test]
 fn a_click_opens_a_row_and_outside_closes() {
     let mut rt = runtime();
