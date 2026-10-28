@@ -3174,16 +3174,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rune-fx"
-version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=796f786417c619658183619c88709e242e1fa68c#796f786417c619658183619c88709e242e1fa68c"
-dependencies = [
- "bytemuck",
- "rune-motion",
- "wgpu",
-]
-
-[[package]]
 name = "rune-kit"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=796f786417c619658183619c88709e242e1fa68c#796f786417c619658183619c88709e242e1fa68c"
@@ -3419,7 +3409,6 @@ dependencies = [
  "opencode-kit",
  "project-icon",
  "rune",
- "rune-fx",
  "rune-kit",
  "rune-knobs",
  "rune-mac",
@@ -3429,7 +3418,6 @@ dependencies = [
  "seer-sync",
  "serde_json",
  "ureq",
- "wgpu",
 ]
 
 [[package]]
