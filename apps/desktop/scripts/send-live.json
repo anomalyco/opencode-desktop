@@ -1,0 +1,9 @@
+{
+  "events": [
+    { "t": 0.3, "type": "tap", "key": "prompt" },
+    { "t": 0.5, "type": "type", "text": "Can you also check the reconnect jitter?", "every": 0.03 },
+    { "t": 2.0, "type": "key", "name": "Enter" },
+    { "t": 6.5, "type": "type", "text": "And the backoff cap?", "every": 0.03 },
+    { "t": 7.5, "type": "key", "name": "Enter" }
+  ]
+}

@@ -1092,7 +1092,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2
+     "ordinal": 0
     }
    },
    {
@@ -1101,7 +1101,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "I'll "
     }
    },
@@ -1111,7 +1111,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "add "
     }
    },
@@ -1121,7 +1121,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "a test "
     }
    },
@@ -1131,7 +1131,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "that "
     }
    },
@@ -1141,7 +1141,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "drives "
     }
    },
@@ -1151,7 +1151,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the "
     }
    },
@@ -1161,7 +1161,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "backoff "
     }
    },
@@ -1171,7 +1171,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "with "
     }
    },
@@ -1181,7 +1181,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "a "
     }
    },
@@ -1191,7 +1191,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "fake "
     }
    },
@@ -1201,7 +1201,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "clock, "
     }
    },
@@ -1211,7 +1211,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "so "
     }
    },
@@ -1221,7 +1221,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "it can "
     }
    },
@@ -1231,7 +1231,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "check "
     }
    },
@@ -1241,7 +1241,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "both the growth and "
     }
    },
@@ -1251,7 +1251,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the reset "
     }
    },
@@ -1261,7 +1261,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "rule.\n\n"
     }
    },
@@ -1271,7 +1271,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "The "
     }
    },
@@ -1281,7 +1281,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "interesting "
     }
    },
@@ -1291,7 +1291,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "cases "
     }
    },
@@ -1301,7 +1301,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "are:\n\n"
     }
    },
@@ -1311,7 +1311,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "- a flapping "
     }
    },
@@ -1321,7 +1321,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "server "
     }
    },
@@ -1331,7 +1331,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "that "
     }
    },
@@ -1341,7 +1341,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "fails "
     }
    },
@@ -1351,7 +1351,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "right "
     }
    },
@@ -1361,7 +1361,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "after each "
     }
    },
@@ -1371,7 +1371,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "message, "
     }
    },
@@ -1381,7 +1381,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "which must "
     }
    },
@@ -1391,7 +1391,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "keep "
     }
    },
@@ -1401,7 +1401,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "backing off;\n- "
     }
    },
@@ -1411,7 +1411,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "a stream "
     }
    },
@@ -1421,7 +1421,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "that stays healthy "
     }
    },
@@ -1431,7 +1431,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "for a "
     }
    },
@@ -1441,7 +1441,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "minute, "
     }
    },
@@ -1451,7 +1451,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "which resets "
     }
    },
@@ -1461,7 +1461,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the "
     }
    },
@@ -1471,7 +1471,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "delay;\n"
     }
    },
@@ -1481,7 +1481,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "- the cap, so retries "
     }
    },
@@ -1491,7 +1491,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "never wait longer than "
     }
    },
@@ -1501,7 +1501,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "30 seconds.\n\n"
     }
    },
@@ -1511,7 +1511,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "```ts\nimport "
     }
    },
@@ -1521,7 +1521,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "{ expect, test } from "
     }
    },
@@ -1531,7 +1531,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "\"bun:test\"\n"
     }
    },
@@ -1541,7 +1541,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "import { "
     }
    },
@@ -1551,7 +1551,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "Backoff "
     }
    },
@@ -1561,7 +1561,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "} "
     }
    },
@@ -1571,7 +1571,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "from "
     }
    },
@@ -1581,7 +1581,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "\"./backoff\"\n"
     }
    },
@@ -1591,7 +1591,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "\ntest(\"flapping "
     }
    },
@@ -1601,7 +1601,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "keeps "
     }
    },
@@ -1611,7 +1611,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "backing "
     }
    },
@@ -1621,7 +1621,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "off\", () "
     }
    },
@@ -1631,7 +1631,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "=> "
     }
    },
@@ -1641,7 +1641,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "{\n"
     }
    },
@@ -1651,7 +1651,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "  const clock "
     }
    },
@@ -1661,7 +1661,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "= "
     }
    },
@@ -1671,7 +1671,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "fakeClock()\n"
     }
    },
@@ -1681,7 +1681,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "  const "
     }
    },
@@ -1691,7 +1691,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "b "
     }
    },
@@ -1701,7 +1701,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "= "
     }
    },
@@ -1711,7 +1711,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "new "
     }
    },
@@ -1721,7 +1721,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "Backoff({ "
     }
    },
@@ -1731,7 +1731,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "clock, base: "
     }
    },
@@ -1741,7 +1741,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "1000, "
     }
    },
@@ -1751,7 +1751,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "cap: "
     }
    },
@@ -1761,7 +1761,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "30_000 "
     }
    },
@@ -1771,7 +1771,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "})\n  const "
     }
    },
@@ -1781,7 +1781,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "delays = [1, "
     }
    },
@@ -1791,7 +1791,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "2, 3, 4].map(() => {\n"
     }
    },
@@ -1801,7 +1801,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1811,7 +1811,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1821,7 +1821,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "  "
     }
    },
@@ -1831,7 +1831,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "b.message()\n"
     }
    },
@@ -1841,7 +1841,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1851,7 +1851,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1861,7 +1861,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1871,7 +1871,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1881,7 +1881,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "return "
     }
    },
@@ -1891,7 +1891,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "b.fail()\n"
     }
    },
@@ -1901,7 +1901,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1911,7 +1911,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": " "
     }
    },
@@ -1921,7 +1921,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "})\n"
     }
    },
@@ -1931,7 +1931,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "  expect(delays).toEqual([1000, "
     }
    },
@@ -1941,7 +1941,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "2000, "
     }
    },
@@ -1951,7 +1951,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "4000, "
     }
    },
@@ -1961,7 +1961,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "8000])\n"
     }
    },
@@ -1971,7 +1971,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "})\n"
     }
    },
@@ -1981,7 +1981,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "```\n\nWith "
     }
    },
@@ -1991,7 +1991,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the "
     }
    },
@@ -2001,7 +2001,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "old "
     }
    },
@@ -2011,7 +2011,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "reset-on-every-message "
     }
    },
@@ -2021,7 +2021,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "rule "
     }
    },
@@ -2031,7 +2031,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "this "
     }
    },
@@ -2041,7 +2041,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "test fails "
     }
    },
@@ -2051,7 +2051,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "on "
     }
    },
@@ -2061,7 +2061,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the second "
     }
    },
@@ -2071,7 +2071,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "delay, "
     }
    },
@@ -2081,7 +2081,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "which "
     }
    },
@@ -2091,7 +2091,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "is "
     }
    },
@@ -2101,7 +2101,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "exactly "
     }
    },
@@ -2111,7 +2111,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the regression you were "
     }
    },
@@ -2121,7 +2121,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "worried "
     }
    },
@@ -2131,7 +2131,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "about. "
     }
    },
@@ -2141,7 +2141,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "The healthy-minute "
     }
    },
@@ -2151,7 +2151,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "case uses "
     }
    },
@@ -2161,7 +2161,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the "
     }
    },
@@ -2171,7 +2171,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "same clock and advances it by 61 "
     }
    },
@@ -2181,7 +2181,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "seconds "
     }
    },
@@ -2191,7 +2191,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "before "
     }
    },
@@ -2201,7 +2201,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "the "
     }
    },
@@ -2211,7 +2211,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "next "
     }
    },
@@ -2221,7 +2221,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "delta": "failure."
     }
    },
@@ -2231,7 +2231,7 @@
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
-     "ordinal": 2,
+     "ordinal": 0,
      "text": "I'll add a test that drives the backoff with a fake clock, so it can check both the growth and the reset rule.\n\nThe interesting cases are:\n\n- a flapping server that fails right after each message, which must keep backing off;\n- a stream that stays healthy for a minute, which resets the delay;\n- the cap, so retries never wait longer than 30 seconds.\n\n```ts\nimport { expect, test } from \"bun:test\"\nimport { Backoff } from \"./backoff\"\n\ntest(\"flapping keeps backing off\", () => {\n  const clock = fakeClock()\n  const b = new Backoff({ clock, base: 1000, cap: 30_000 })\n  const delays = [1, 2, 3, 4].map(() => {\n    b.message()\n    return b.fail()\n  })\n  expect(delays).toEqual([1000, 2000, 4000, 8000])\n})\n```\n\nWith the old reset-on-every-message rule this test fails on the second delay, which is exactly the regression you were worried about. The healthy-minute case uses the same clock and advances it by 61 seconds before the next failure."
     }
    },
@@ -2309,6 +2309,93 @@
      "providerID": "anthropic",
      "variant": "high"
     }
+   }
+  },
+  {
+   "t": 0.85,
+   "type": "session.reasoning.started",
+   "data": {
+    "ordinal": 0
+   }
+  },
+  {
+   "t": 0.88,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "The "
+   }
+  },
+  {
+   "t": 0.9,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "reconnect "
+   }
+  },
+  {
+   "t": 0.92,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "path "
+   }
+  },
+  {
+   "t": 0.94,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "owns "
+   }
+  },
+  {
+   "t": 0.96,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "the "
+   }
+  },
+  {
+   "t": 0.98,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "jitter; "
+   }
+  },
+  {
+   "t": 1.0,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "read "
+   }
+  },
+  {
+   "t": 1.02,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "it "
+   }
+  },
+  {
+   "t": 1.04,
+   "type": "session.reasoning.delta",
+   "data": {
+    "ordinal": 0,
+    "delta": "first."
+   }
+  },
+  {
+   "t": 1.08,
+   "type": "session.reasoning.ended",
+   "data": {
+    "ordinal": 0,
+    "text": "The reconnect path owns the jitter; read it first."
    }
   },
   {

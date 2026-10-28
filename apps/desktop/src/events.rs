@@ -90,6 +90,7 @@ impl App {
     pub(crate) fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
+        if matches!(self.source, Source::Fixture) { self.served.record(ty, data); }
         let mut changed = self.note_agent(ty, data, &sid);
         if ty.starts_with("config.") {
             changed |= crate::compaction::apply_config(self, ty, data);

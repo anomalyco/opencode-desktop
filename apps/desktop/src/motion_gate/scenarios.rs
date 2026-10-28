@@ -92,21 +92,16 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
-    // A send on a live server's timing: the inbox echoes the prompt as a steer while it flies,
-    // Working comes at once, the run takes the prompt up a second later, and a page refresh
-    // follows its first step.
+    // Sends on a live server's order: the inbox echoes the prompt as a steer while it flies,
+    // the run takes it up, and each step's start re-reads the page (`served.rs`). The first
+    // reply thinks before it answers; the second send's re-read brings that reply back as the
+    // server stored it, under the rows it already has.
     Action { name: "send-live", circs: || sends(Circ::default(), &[]), run: |r| {
         r.type_prompt();
         r.enter(false);
-        live_echo(r);
-        r.play(1.35);
-        r.act("page refresh", |rt| rt.update(|s, tx| {
-            let Some(t) = s.transcripts.get(SID) else { return };
-            let messages = t.messages[t.messages.len().saturating_sub(crate::session_pages::LATEST)..].to_vec();
-            let key = crate::session_pages::Key { id: SID.into(), updated: s.session(SID).map_or(0, |x| x.updated) };
-            let page = crate::session_pages::Page { key, messages, cursor: None, cached: false, history: false, images: Vec::new(), bytes: 0 };
-            s.show_page(&page, tx);
-        }));
+        r.play_out(0.5);
+        r.type_prompt();
+        r.enter(false);
         r.play_out(1.0);
     } },
     Action { name: "send-twice", circs: || places(Circ::default()), run: |r| {
@@ -377,34 +372,6 @@ const ACTIONS: &[Action] = &[
         r.play_out(1.0);
     } },
 ];
-
-/// Replaces the fixture's reply to the send just made with a live server's order and timing.
-fn live_echo(r: &mut Run) {
-    let s = &mut r.rt.state;
-    let Some(sent) = s.transcripts.get(SID).and_then(|t| t.messages.last()).map(|m| m.id().to_owned()) else { return };
-    let text = r.circ.body();
-    let reply = "msg_zzzzlivereply";
-    let item = json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": text } } });
-    let mut events = vec![
-        (0.05, "session.inbox.enqueued", json!({ "inboxID": sent, "item": item })),
-        (0.08, "session.execution.started", json!({})),
-        (1.10, "session.inbox.delivered", json!({ "inboxID": sent })),
-        (1.20, "session.step.started", json!({ "assistantMessageID": reply, "agent": "build" })),
-        (1.60, "session.text.started", json!({ "assistantMessageID": reply, "ordinal": 0 })),
-    ];
-    for (k, word) in ["Looking ", "at ", "the ", "reconnect ", "jitter ", "now."].iter().enumerate() {
-        events.push((1.7 + k as f64 * 0.05, "session.text.delta", json!({ "assistantMessageID": reply, "ordinal": 0, "delta": word })));
-    }
-    events.push((2.1, "session.step.ended", json!({ "assistantMessageID": reply })));
-    events.push((2.15, "session.execution.succeeded", json!({ "assistantMessageID": reply })));
-    let at = s.clock;
-    s.playback.retain(|e| e.2["sessionID"] != SID);
-    for (t, ty, mut d) in events {
-        d["sessionID"] = SID.into();
-        s.playback.push_back((at + t, ty.into(), d));
-    }
-    s.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
-}
 
 /// Background agents: two start a beat apart (the second joins the first's card) and step
 /// along, then one finishes and the other fails.

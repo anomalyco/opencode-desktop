@@ -723,30 +723,32 @@ impl Transcript {
                 } else {
                     Part::Reasoning { text: String::new(), started: now, completed: None }
                 };
-                place(&mut a.parts, ordinal, part);
+                let at = slot(&a.parts, ty == "session.text.started", ordinal);
+                place(&mut a.parts, at, part);
             }
             "session.text.delta" | "session.reasoning.delta" => {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let delta = d["delta"].as_str().unwrap_or("");
                 let want_text = ty == "session.text.delta";
-                let at = ordinal.filter(|&o| o < a.parts.len()).or(a.parts.len().checked_sub(1));
+                let at = slot(&a.parts, want_text, ordinal).or_else(|| slot(&a.parts, want_text, None));
                 match at.map(|k| &mut a.parts[k]) {
-                    Some(Part::Text { text }) if want_text => text.push_str(delta),
-                    Some(Part::Reasoning { text, .. }) if !want_text => text.push_str(delta),
+                    Some(Part::Text { text }) => text.push_str(delta),
+                    Some(Part::Reasoning { text, .. }) => text.push_str(delta),
                     _ => {
                         let part = if want_text {
                             Part::Text { text: delta.to_owned() }
                         } else {
                             Part::Reasoning { text: delta.to_owned(), started: now, completed: None }
                         };
-                        place(&mut a.parts, ordinal, part);
+                        a.parts.push(part);
                     }
                 }
             }
             "session.text.ended" | "session.reasoning.ended" => {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let full = d["text"].as_str().map(str::to_owned);
-                match ordinal.and_then(|o| a.parts.get_mut(o)) {
+                let want_text = ty == "session.text.ended";
+                match slot(&a.parts, want_text, ordinal).or_else(|| slot(&a.parts, want_text, None)).map(|k| &mut a.parts[k]) {
                     Some(Part::Text { text }) => {
                         if let Some(f) = full {
                             *text = f;
@@ -856,10 +858,21 @@ impl Transcript {
     }
 }
 
-fn place(parts: &mut Vec<Part>, ordinal: Option<usize>, part: Part) {
+/// Where a step's text or reasoning part with `ordinal` sits in its mixed `parts`. The server
+/// counts each kind on its own (a step's first thought and first answer are both 0), so it's
+/// the ordinal-th part of that kind. Without an ordinal, the last part if it's that kind.
+fn slot(parts: &[Part], text: bool, ordinal: Option<usize>) -> Option<usize> {
+    let kind = |p: &Part| if text { matches!(p, Part::Text { .. }) } else { matches!(p, Part::Reasoning { .. }) };
     match ordinal {
-        Some(o) if o < parts.len() => parts[o] = part,
-        _ => parts.push(part),
+        Some(o) => parts.iter().enumerate().filter(|(_, p)| kind(p)).nth(o).map(|(i, _)| i),
+        None => parts.last().filter(|p| kind(p)).map(|_| parts.len() - 1),
+    }
+}
+
+fn place(parts: &mut Vec<Part>, at: Option<usize>, part: Part) {
+    match at {
+        Some(i) => parts[i] = part,
+        None => parts.push(part),
     }
 }
 
@@ -1151,6 +1164,34 @@ mod tests {
         let Message::Assistant(a) = &t.messages[0] else { panic!() };
         assert!(matches!(&a.parts[0], Part::Text { text } if text == "Hello"));
         assert!(t.busy());
+    }
+
+    #[test]
+    fn thoughts_and_answers_count_their_ordinals_apart() {
+        // The server numbers a step's reasoning and text parts separately: both start at 0.
+        let mut t = Transcript { session: "s".into(), messages: vec![] };
+        let d = |v: Value| {
+            let mut base = serde_json::json!({"sessionID": "s", "assistantMessageID": "m"});
+            base.as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+            base
+        };
+        t.apply("session.step.started", &d(serde_json::json!({})), 0);
+        t.apply("session.reasoning.started", &d(serde_json::json!({"ordinal": 0})), 1);
+        t.apply("session.reasoning.delta", &d(serde_json::json!({"ordinal": 0, "delta": "Look"})), 1);
+        t.apply("session.reasoning.ended", &d(serde_json::json!({"ordinal": 0, "text": "Look first."})), 2);
+        t.apply("session.text.started", &d(serde_json::json!({"ordinal": 0})), 3);
+        t.apply("session.text.delta", &d(serde_json::json!({"ordinal": 0, "delta": "Done"})), 3);
+        t.apply("session.reasoning.started", &d(serde_json::json!({"ordinal": 1})), 4);
+        t.apply("session.reasoning.delta", &d(serde_json::json!({"ordinal": 1, "delta": "Again"})), 4);
+        t.apply("session.text.delta", &d(serde_json::json!({"ordinal": 0, "delta": "."})), 5);
+        t.apply("session.text.ended", &d(serde_json::json!({"ordinal": 0, "text": "Done."})), 5);
+        let Message::Assistant(a) = &t.messages[0] else { panic!() };
+        let got: Vec<String> = a.parts.iter().map(|p| match p {
+            Part::Reasoning { text, completed, .. } => format!("thought {text} {completed:?}"),
+            Part::Text { text } => format!("text {text}"),
+            Part::Tool { .. } => "tool".into(),
+        }).collect();
+        assert_eq!(got, ["thought Look first. Some(2)", "text Done.", "thought Again None"]);
     }
 
     #[test]

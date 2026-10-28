@@ -21,12 +21,14 @@
    "reason": "the lightbox snap is another agent's fix; the thumb hides at once while the viewer holds its image"},
   {"trace": "lightbox", "element": "image-viewer", "kind": "pop-out",
    "reason": "the lightbox snap is another agent's fix; closing unmounts the viewer at full opacity"},
-  {"trace": "window-resize", "element": "t-msg_001a162cb6dbc013fixture00-2", "kind": ["jump", "step"],
+  {"trace": "window-resize", "element": "t-msg_001a162cb6dbc013fixture00-0", "kind": ["jump", "step"],
    "reason": "a live resize rewraps text in the frame it lands; the pinned tail stays put"},
   {"trace": "compaction", "element": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/", "kind": "jump",
    "reason": "a quiet compaction's summary opens and closes at once, as a tool group's disclosure does; the pinned timeline moves up by it in the same frame"},
   {"trace": "compaction", "element": "label/ending/done", "kind": "invisible-work",
    "reason": "\"ed\" waits 80 ms before it rolls in, as Desktop's transition-delay does; its offset and blur hold through the wait"},
+  {"trace": "send", "element": "/t-msg_zzzzreply", "kind": "pop-in",
+   "reason": "a reply that thought first mounts its answer's row empty, at zero height, so the stream reveals into it; nothing paints until words arrive"},
   {"kind": "hitch",
    "reason": "headless CPU spikes on a shared machine; the perf profile is the place to measure frame time"}
 ]

@@ -39,6 +39,8 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "never-settles", threshold: 0.05, means: "still changing by more than this in the last half second of the run, long after the last input (loops excepted)" },
     Rule { kind: "loop-jump", threshold: 0.03, means: "a loop's phase steps this many periods off its usual step in one frame: it restarted or skipped (a remount, or a new loop where one was running)" },
     Rule { kind: "lands-unseen", threshold: 40.0, means: "travels at least this many pt in plain view, then its clip cuts it from view in one frame where it rests: it flew somewhere you can't see" },
+    Rule { kind: "remount", threshold: 2.0, means: "words start leaving while the same words mount elsewhere within this many frames: one thing fades out at its old place as its copy fades in (its row lost its key)" },
+    Rule { kind: "unpinned", threshold: 2.0, means: "a scroll pinned to its end has its content's bottom this many pt below the viewport with no input since: it stopped following" },
     Rule { kind: "twice", threshold: 0.0, means: "two siblings share one key (Rune's `#dup`), so one thing shows twice, as an optimistic copy beside the server's" },
     Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
@@ -611,6 +613,53 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
             out.push(Finding { kind: "loop-jump", element: short(&t.path), frame: k, detail: format!("phase stepped {d:.3} where it steps {usual:.3} a frame") });
         }
     }
+    // Words that leave as the same words mount: a row remounted under a new key.
+    let window = rule("remount") as usize;
+    let leaving = |i: usize, k: usize| {
+        let mut p = Some(i);
+        while let Some(j) = p {
+            if tr[j].at(k).is_some_and(|s| s.flags & EXITING != 0) { return true; }
+            p = tr[j].parent;
+        }
+        false
+    };
+    fn words_at(t: &Track, k: usize) -> Option<&str> {
+        t.words.iter().rev().find(|w| w.0 <= k).map(|w| w.1.as_str()).or(t.text.as_deref())
+    }
+    // The same element under another key: its path differs in one segment. (A queued prompt
+    // becoming a bubble, or a form its answered summary, is a different element on purpose.)
+    let rekeyed = |a: &str, b: &str| {
+        let (a, b) = (a.trim_end_matches(" (leaving)"), b.trim_end_matches(" (leaving)"));
+        let (a, b): (Vec<_>, Vec<_>) = (a.split('/').collect(), b.split('/').collect());
+        a.len() == b.len() && a.iter().zip(&b).filter(|(x, y)| x != y).count() == 1
+    };
+    for (i, t) in tr.iter().enumerate() {
+        let Some(k) = t.frames.windows(2).find(|w| w[1].0 == w[0].0 + 1 && w[0].0 > rec.start && !leaving(i, w[0].0) && leaving(i, w[1].0) && seen(&w[0].1, size)).map(|w| w[1].0) else { continue };
+        let Some(words) = words_at(t, k).filter(|w| w.trim().len() >= 8) else { continue };
+        if let Some(copy) = tr.iter().enumerate().find(|&(j, o)| j != i && rekeyed(&t.path, &o.path)
+            && born(o).is_some_and(|b| b > rec.start && b + window >= k && b <= k + window && !leaving(j, b) && words_at(o, b) == Some(words))).map(|(_, o)| o) {
+            out.push(Finding { kind: "remount", element: short(&t.path), frame: k, detail: format!("\"{}\" leaves as a copy mounts at {}", words.chars().take(40).collect::<String>(), short(&copy.path)) });
+        }
+    }
+    // A scroll pinned to its end lets go with no one touching it: its content's bottom slides
+    // below the viewport's. Fixture events don't count as touching it.
+    let touched = |a: usize, b: usize| rec.inputs.iter().any(|(k, what)| *k >= a && *k <= b && !what.starts_with("event"));
+    for t in tr {
+        let Some(parent) = t.parent.map(|p| &tr[p]) else { continue };
+        let mut pinned: Option<usize> = None;
+        for (k, s) in &t.frames {
+            // A scroll's content: taller than the viewport it fills.
+            let viewport = parent.at(*k).is_some_and(|v| (0..4).all(|a| (v.rect[a] - s.vis[a]).abs() < 0.5));
+            if !viewport || s.rect[3] <= s.vis[3] + 1.0 { pinned = None; continue; }
+            let below = s.rect[1] + s.rect[3] - (s.vis[1] + s.vis[3]);
+            if below.abs() < 0.5 { pinned = Some(*k); continue; }
+            let Some(p) = pinned else { continue };
+            if *k > rec.start && below >= rule("unpinned") && !touched(p, *k) {
+                out.push(Finding { kind: "unpinned", element: short(&t.path), frame: *k, detail: format!("its end, pinned at frame {p}, is {below:.1} pt below the viewport") });
+                pinned = None;
+            }
+        }
+    }
     // Rune names a second sibling under one key `key#dupN`: the same thing shows twice.
     for t in tr.iter().filter(|t| t.path.rsplit('/').next().is_some_and(|s| s.contains("#dup"))) {
         if let Some((k, _)) = t.frames.iter().find(|f| f.1.op >= rule("faint") && f.1.vis[2] > 0.0 && f.1.vis[3] > 0.0) {
@@ -764,6 +813,37 @@ mod tests {
         let mut r = rec(vec![("a", blink)], 60);
         for f in &mut r.tracks[0].frames { f.1.flags = 0; }
         assert!(kinds(&r).is_empty());
+    }
+
+    #[test]
+    fn a_row_that_loses_its_key_remounts_but_a_handoff_does_not() {
+        let fade = |from: usize, to: usize, out: bool| -> Vec<(usize, [f32; 4], f32)> {
+            (from..to).map(|k| (k, [0.0, 0.0, 300.0, 20.0], if out && k >= 30 { 1.0 - (k - 29) as f32 / 10.0 } else if !out { ((k - 29) as f32 / 10.0).min(1.0) } else { 1.0 })).collect()
+        };
+        let found = |old: &str, new: &str| {
+            let mut r = rec(vec![(old, fade(0, 40, true)), (new, fade(30, 60, false))], 60);
+            for f in r.tracks[0].frames.iter_mut().filter(|f| f.0 >= 30) { f.1.flags |= EXITING; }
+            for t in &mut r.tracks { t.text = Some("Got it. I'll take a look.".into()); }
+            kinds(&r).contains(&"remount")
+        };
+        assert!(found("timeline/t-m-0/b0", "timeline/t-m-1/b0"));
+        assert!(!found("dock/queued-m/label", "timeline/bubble/text-m"));
+    }
+
+    #[test]
+    fn a_pinned_scroll_that_stops_following_is_unpinned() {
+        let view: Vec<_> = (0..60).map(|k| (k, [0.0, 0.0, 100.0, 200.0], 1.0)).collect();
+        let grows = |follows: bool| -> Vec<(usize, [f32; 4], f32)> {
+            (0..60usize).map(|k| { let h = 400.0 + k.saturating_sub(30) as f32; (k, [0.0, if follows { 200.0 - h } else { -200.0 }, 100.0, h], 1.0) }).collect()
+        };
+        let unpinned = |follows: bool| {
+            let mut r = rec(vec![("scroll", view.clone()), ("scroll/content", grows(follows))], 60);
+            r.tracks[1].parent = Some(0);
+            for f in &mut r.tracks[1].frames { f.1.vis = [0.0, 0.0, 100.0, 200.0]; }
+            kinds(&r).contains(&"unpinned")
+        };
+        assert!(!unpinned(true));
+        assert!(unpinned(false));
     }
 
     #[test]

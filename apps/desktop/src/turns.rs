@@ -49,6 +49,9 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
     };
     for (mi, a) in steps.iter().enumerate() {
         let live_msg = live && mi + 1 == steps.len();
+        // Keys count each kind apart, as the server's ordinals do: a thought arriving or
+        // showing up in a refetched copy doesn't re-key the answer beside it.
+        let (mut texts, mut thoughts) = (0, 0);
         for (pi, part) in a.parts.iter().enumerate() {
             let is_last = live_msg && pi + 1 == a.parts.len();
             let mut fold_in = |group: &mut Vec<Step<'a>>, first: String, step: Step<'a>| {
@@ -59,19 +62,23 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
             };
             match part {
                 Part::Text { text } => {
+                    let n = texts;
+                    texts += 1;
                     // A live, still-empty answer keeps its row so the stream reveals into it.
                     if text.trim().is_empty() && !is_last {
                         continue;
                     }
                     flush(&mut out, &mut group, &key);
-                    out.push(Block::Text { key: format!("t-{}-{pi}", a.id), body: text, live: is_last });
+                    out.push(Block::Text { key: format!("t-{}-{n}", a.id), body: text, live: is_last });
                 }
                 Part::Reasoning { text, started, completed } => {
+                    let n = thoughts;
+                    thoughts += 1;
                     if text.trim().is_empty() {
                         continue;
                     }
                     let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(1.0) as i64);
-                    let k = format!("{}-{pi}", a.id);
+                    let k = format!("{}-{n}", a.id);
                     fold_in(&mut group, k.clone(), Step::Thought { key: format!("r-{k}"), body: text, secs });
                 }
                 Part::Tool { id, name, title, status, input, files, metadata } => match name.as_str() {
@@ -288,6 +295,18 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_keeps_its_key_when_a_thought_joins_before_it() {
+        let keys = |a: &Assistant| fold(&[a], false).iter().map(|b| match b {
+            Block::Group { key, .. } | Block::Text { key, .. } => key.clone(),
+            _ => String::new(),
+        }).collect::<Vec<_>>();
+        let live = step("m1", vec![say("Done.")]);
+        let stored = step("m1", vec![thought("look"), say("Done.")]);
+        assert_eq!(keys(&live), ["t-m1-0"]);
+        assert_eq!(keys(&stored), ["c-m1-0", "t-m1-0"]);
+    }
+
+    #[test]
     fn subagents_and_answered_questions_stand_alone() {
         let a = step(
             "m1",
@@ -313,7 +332,7 @@ mod tests {
         let a = step("m1", vec![thought("  "), say(""), thought("first"), thought("second")]);
         let blocks = fold(&[&a], false);
         let Block::Group { key, steps } = &blocks[0] else { panic!("{blocks:?}") };
-        assert_eq!(key, "c-m1-2");
+        assert_eq!(key, "c-m1-1");
         assert_eq!(label(steps, false).text(), "Used 2 Thoughts");
         assert_eq!(label(steps, true), Label { count: None, title: "Thinking".into() });
         // A live answer that hasn't streamed yet keeps its row.

@@ -44,6 +44,7 @@ mod session_menu_stories;
 mod session_menu_tests;
 mod session_menu_view;
 mod send;
+mod served;
 mod session_open;
 mod session_pages;
 mod open_story;
@@ -184,6 +185,8 @@ pub struct App {
     clock: f64,
     fixture: Value,
     playback: VecDeque<(f64, String, Value)>,
+    /// What the fixture's server stored from the replies it streamed (`served.rs`).
+    served: served::Served,
     sends: u32,
     waker: Option<Waker>,
     launch: launch::Launch,
@@ -280,6 +283,7 @@ impl App {
             clock: 0.0,
             fixture: Value::Null,
             playback: VecDeque::new(),
+            served: Default::default(),
             sends: 0,
             waker: None,
             launch: Default::default(),
@@ -688,7 +692,15 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         {
             data["inboxID"] = item.id.clone().into();
         }
+        if ty == "fixture.page" {
+            s.show_fixture_page(data["sessionID"].as_str().unwrap_or(""), tx);
+            changed = true;
+            continue;
+        }
         s.apply_event(&ty, &data);
+        if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::Session(sid.to_string())) {
+            s.refresh_fixture_page(sid);
+        }
         changed = true;
     }
     arrivals.land(s, now, tx);
