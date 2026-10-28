@@ -179,19 +179,6 @@ const STEER_AGAIN: &str = "And keep the retry budget as it is";
 const QUEUED_TEXT: &str = "Then write up what changed in the PR description";
 const ARRIVED: &str = "msg_zzzzstory0000";
 
-/// `App::variant` set to its index, for `Playground::variant`.
-const VARIANT: [fn(&mut App); 9] = [
-    |s| s.variant = 0,
-    |s| s.variant = 1,
-    |s| s.variant = 2,
-    |s| s.variant = 3,
-    |s| s.variant = 4,
-    |s| s.variant = 5,
-    |s| s.variant = 6,
-    |s| s.variant = 7,
-    |s| s.variant = 8,
-];
-
 // The playground.
 
 /// The window's storybook: each story a scene, its triggers, knobs and variants.
@@ -200,13 +187,14 @@ pub fn playground() -> Playground<App> {
         .scenes(|name| name.contains('/'))
         .fresh(fresh)
         .keep(keep)
-        .typing(|s| !s.stage.is_some_and(|st| st.watch) && (s.composer.focused || s.question_takes_text()));
+        .typing(|s| !s.stage.is_some_and(|st| st.watch) && (s.composer.focused || s.question_takes_text()))
+        .folds(load_folds, save_folds);
     for st in STORIES {
         for t in st.keys {
             pg = pg.trigger(st.path, t.key, t.label, t.run);
         }
         for &(name, v) in st.variants {
-            pg = pg.variant(st.path, name, VARIANT[v]);
+            pg = pg.variant(st.path, name, move |s: &mut App| s.variant = v);
         }
         if !st.knobs.is_empty() {
             let knobs = st.knobs;
@@ -214,6 +202,30 @@ pub fn playground() -> Playground<App> {
         }
     }
     pg
+}
+
+/// `<data dir>/rune-opencode/storybook.json`: the groups folded in the list.
+fn folds_file() -> Option<std::path::PathBuf> {
+    crate::restore::data_dir().map(|d| d.join("storybook.json"))
+}
+
+/// Headless runs and tests neither read nor write them, so a capture's list never depends on
+/// what was folded at the desk.
+fn load_folds() -> Vec<String> {
+    if crate::headless() || cfg!(test) {
+        return Vec::new();
+    }
+    folds_file().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|mut v| serde_json::from_value(v["folded"].take()).ok()).unwrap_or_default()
+}
+
+fn save_folds(folded: &[String]) {
+    if crate::headless() || cfg!(test) {
+        return;
+    }
+    if let Some(f) = folds_file() {
+        let _ = std::fs::create_dir_all(f.parent().unwrap());
+        let _ = std::fs::write(f, json!({ "folded": folded }).to_string());
+    }
 }
 
 /// The app's scenes, then a scene per story under its path.
