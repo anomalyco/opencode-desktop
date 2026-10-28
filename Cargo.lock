@@ -583,6 +583,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-utils"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1884,6 +1893,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = [
  "libc",
+ "log",
  "wasi",
  "windows-sys 0.61.2",
 ]
@@ -5161,7 +5171,7 @@ dependencies = [
 [[package]]
 name = "wraith-arena-api"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
  "serde",
 ]
@@ -5169,7 +5179,7 @@ dependencies = [
 [[package]]
 name = "wraith-core"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
  "ed25519-dalek",
  "postcard",
@@ -5180,28 +5190,26 @@ dependencies = [
 [[package]]
 name = "wraith-do"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
  "futures-util",
  "js-sys",
  "postcard",
  "serde",
  "serde_json",
- "tungstenite",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "worker",
- "wraith-arena-api",
  "wraith-core",
- "wraith-folder",
- "wraith-local",
 ]
 
 [[package]]
 name = "wraith-folder"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
+ "crossbeam-channel",
+ "mio",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -5213,7 +5221,7 @@ dependencies = [
 [[package]]
 name = "wraith-local"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
  "getrandom 0.3.4",
  "rusqlite",
@@ -5230,7 +5238,7 @@ dependencies = [
 [[package]]
 name = "wraith-mem"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=d1f2a921090416ebd4cbddd72f058330930ccfbd#d1f2a921090416ebd4cbddd72f058330930ccfbd"
+source = "git+https://github.com/anomalyco/wraith?rev=ca690972888b174be8a3f719aa290bb7ef22cbe8#ca690972888b174be8a3f719aa290bb7ef22cbe8"
 dependencies = [
  "serde",
  "wraith-arena-api",
