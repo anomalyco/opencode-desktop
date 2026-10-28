@@ -55,8 +55,12 @@ mod session_pages;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
+#[cfg_attr(not(test), allow(dead_code))]
+#[path = "motion_gate/check.rs"]
+mod motion_check;
 #[cfg(test)]
 mod motion_gate;
+mod motion_log;
 mod odometer;
 mod odometer_stories;
 mod shortcuts;
@@ -107,6 +111,8 @@ pub enum Source {
 pub struct App {
     pub source: Source,
     inbox: Option<Receiver<Incoming>>,
+    /// The live server events taken, for the motion log (`motion_log.rs`).
+    motion_events: motion_log::Events,
     pages: Option<session_pages::Pages>,
     opening: Option<session_pages::Opening>,
     open_demo: Option<open_story::Demo>,
@@ -237,6 +243,7 @@ impl App {
         App {
             source: Source::Fixture,
             inbox: None,
+            motion_events: Default::default(),
             pages: None,
             opening: None,
             open_demo: None,
@@ -664,6 +671,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 }
                 // Most events are other sessions' streams: they redraw only what they change.
                 Incoming::Event { ty, data } => {
+                    s.motion_events.note(&ty);
                     changed |= s.apply_event(&ty, &data);
                     continue;
                 }
@@ -813,6 +821,9 @@ fn main() {
         }
         let app = rune_app(spec(App::new));
         let handle = app.handle();
-        app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false })).run();
+        let mut motion_log = motion_log::Log::default();
+        app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
+            .on_frame_drawn(move |rt| motion_log.frame(rt))
+            .run();
     }
 }

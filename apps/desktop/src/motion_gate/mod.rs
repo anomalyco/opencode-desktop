@@ -7,7 +7,7 @@
 //! `scenarios.rs` lists the matrix; `MOTION_GATE=<filter>` narrows it and `MOTION_GATE_OUT`
 //! names a file for the full report.
 
-pub mod check;
+pub(crate) use crate::motion_check as check;
 mod odometers;
 mod scenarios;
 
