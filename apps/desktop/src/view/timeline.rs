@@ -184,9 +184,9 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         .key("usage")
         .gap(6.0)
         .center_y()
-        // Its numbers widen to the left; the row slides on their spring (no width lead), so they
-        // roll in place.
+        // Its numbers widen to the left; the row slides on their spring, so they roll in place.
         .motion(crate::odometer::SPRING)
+        .width_leads()
         .child(ring(p, (ctx as f32 / limit).min(1.0)))
         .child(odometer_end(format!("ctx-{sid}"), model::tokens_short(ctx), ctx as f64, UI_SMALL, p.muted))
         .child(odometer_end(format!("cost-{sid}"), format!("${cost:.2}"), (cost * 100.0).round(), UI_SMALL, p.faint));
