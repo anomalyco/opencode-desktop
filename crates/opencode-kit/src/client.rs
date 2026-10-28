@@ -566,12 +566,16 @@ impl Server {
         out
     }
 
-    fn events(&self, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool) -> Result<(), String> {
-        let mut req = Self::agent(None).get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
+    /// Reads the event stream until it ends or goes silent for `idle`; `opened` says whether it
+    /// got as far as the server's reply.
+    fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(true).build().into();
+        let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
         }
         let resp = req.call().map_err(|e| format!("events: {e}"))?;
+        *opened = true;
         if resumed {
             if inbox.send(Incoming::Reconnected).is_err() {
                 return Ok(());
@@ -602,6 +606,12 @@ impl Server {
         Err("events: stream ended".into())
     }
 }
+
+/// How long the event stream may stay silent before it's dropped and reopened, as Desktop's
+/// `defaultIdleTimeout`. The server writes a heartbeat every 15 s. A connection that died while
+/// the Mac slept just goes quiet, and without a limit its read blocks forever: no reconnect, so
+/// no resync, and sessions that finished meanwhile stay running.
+const EVENTS_IDLE: Duration = Duration::from_secs(45);
 
 /// Starts the worker, writer and event threads (the first loads already happened). Returns the
 /// request and write senders and the inbox.
@@ -720,11 +730,15 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
             let mut backoff = 2;
             let mut resumed = false;
             loop {
-                if let Err(e) = server.events(&inbox_tx, &wake, resumed) {
+                let mut opened = false;
+                if let Err(e) = server.events(EVENTS_IDLE, &inbox_tx, &wake, resumed, &mut opened) {
                     if inbox_tx.send(Incoming::Status(e)).is_err() {
                         return;
                     }
                     wake();
+                }
+                if opened {
+                    backoff = 1;
                 }
                 resumed = true;
                 std::thread::sleep(Duration::from_secs(backoff));
@@ -803,6 +817,29 @@ mod tests {
         assert_eq!(base64(b"opencode:pw"), "b3BlbmNvZGU6cHc=");
         assert_eq!(base64(b"ab"), "YWI=");
         assert_eq!(base64(b"abc"), "YWJj");
+    }
+
+    #[test]
+    fn a_silent_event_stream_is_dropped() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        // A stream that sends its reply and one heartbeat, then goes quiet without closing, as a
+        // connection that died while the Mac slept does.
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n").unwrap();
+            s.write_all(b"d\r\n: heartbeat\n\n\r\n").unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+        });
+        let (inbox, _rx) = channel();
+        let wake: Waker = std::sync::Arc::new(|| {});
+        let mut opened = false;
+        let start = std::time::Instant::now();
+        let ended = Server { base, auth: None, media_refs: false }.events(Duration::from_millis(300), &inbox, &wake, false, &mut opened);
+        assert!(ended.is_err() && opened, "{ended:?}");
+        assert!(start.elapsed() < Duration::from_millis(1500), "it gave up after the idle limit, not when the socket closed");
+        h.join().unwrap();
     }
 
     #[test]

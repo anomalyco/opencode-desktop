@@ -130,6 +130,9 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-mentions", |s| crate::mention_stories::scene(s, false)),
         ("story-mentions-dark", |s| crate::mention_stories::scene(s, true)),
         // The story's agents' timeline rows: three, light and dark, and one on its own.
+        // Thirty running subagents with the capsule's list open, light and dark.
+        ("story-capsule", |s| crate::capsule_stories::scene(s, false)),
+        ("story-capsule-dark", |s| crate::capsule_stories::scene(s, true)),
         ("story-rows", |s| agent_stories::scene(s, 1, false)),
         ("story-rows-dark", |s| agent_stories::scene(s, 1, true)),
         ("story-rows-one", |s| agent_stories::scene(s, 0, false)),

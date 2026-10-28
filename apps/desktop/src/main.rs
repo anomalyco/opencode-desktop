@@ -8,6 +8,7 @@ mod agent_rows_view;
 mod agent_stories;
 mod arrivals;
 mod attachments;
+mod capsule_stories;
 mod compaction;
 mod compaction_stories;
 mod dictation;

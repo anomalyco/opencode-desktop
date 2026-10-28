@@ -130,6 +130,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Composer", name: "Queue dock", knobs: ROW_KNOBS, keys: QUEUE_KEYS, open: queue_open, view: session_view },
     Story { group: "Composer", name: "Dictation", knobs: &[], keys: crate::dictation::STORY_KEYS, open: crate::dictation::story_open, view: composer_view },
     Story { group: "Composer", name: "Mentions", knobs: &[], keys: crate::mention_stories::KEYS, open: crate::mention_stories::open, view: session_view },
+    Story { group: "Composer", name: crate::capsule_stories::NAME, knobs: &[], keys: crate::capsule_stories::KEYS, open: crate::capsule_stories::open, view: session_view },
     Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
     Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
     Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },

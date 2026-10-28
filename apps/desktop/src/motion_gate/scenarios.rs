@@ -17,6 +17,10 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("text-swap", "working/#1/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
     ("text-swap", "crumbs/", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
     ("text-swap", "activity-lane/activity-chip", "", "the composer's activity capsule counts its subagents in place (subagents::capsule)"),
+    ("pop-in", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
+    ("pop-out", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
+    ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
+    ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("jump", "working/#1/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
@@ -291,6 +295,21 @@ const ACTIONS: &[Action] = &[
         r.act("open this tab", |rt| rt.update(|s, tx| s.open(SID, tx)));
         r.rec.loads.push(r.rec.frames - 1);
         r.play(1.0);
+    } },
+    // Thirty subagents: the capsule's list opens over the composer, scrolls inside its menu and
+    // closes again.
+    Action { name: "capsule-open-long", circs: || wide_and_narrow(Circ::default()), run: |r| {
+        r.act("thirty agents run", |rt| rt.update(|s, _| crate::capsule_stories::run_thirty(s)));
+        r.play(0.6);
+        r.act("open the list", |rt| Run::tap(rt, "activity-chip"));
+        r.play(0.6);
+        r.act("scroll the list", |rt| {
+            let (x, y) = rt.find("activity-scroll").expect("the list");
+            rt.wheel(x, y, -120.0);
+        });
+        r.play(0.6);
+        r.act("close it", |rt| Run::tap(rt, "activity-chip"));
+        r.play_out(0.6);
     } },
     Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },

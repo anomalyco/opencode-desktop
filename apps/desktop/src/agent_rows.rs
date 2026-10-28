@@ -20,6 +20,8 @@ pub struct Live {
     steps: HashMap<String, (Vec<String>, usize)>,
     /// Subagents that ended while we watched: whether they failed, when, and the error.
     ended: HashMap<String, (bool, i64, Option<String>)>,
+    /// When each subagent's current run started, for runs that started while we watched.
+    pub(crate) started: HashMap<String, i64>,
     /// The last poll's clock, to tell when a second has passed.
     polled: i64,
 }
@@ -90,10 +92,12 @@ impl App {
             "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
             "session.reasoning.started" => "Thinking".to_owned(),
             "session.execution.started" => {
+                self.agent_rows.started.insert(sid.to_owned(), self.now_ms);
                 let had = self.agent_rows.ended.remove(sid).is_some();
                 return self.agent_rows.steps.remove(sid).is_some() || had;
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
+                self.agent_rows.started.remove(sid);
                 let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
                 self.agent_rows.ended.insert(sid.to_owned(), (ty != "session.execution.succeeded", self.now_ms, error));
                 return true;
@@ -124,8 +128,10 @@ impl App {
             None => (child.and_then(|c| self.last_tool(c)).into_iter().collect(), 0),
         };
         let ms = info.filter(|i| i.created > 0).map(|i| {
+            if running {
+                return self.now_ms - self.run_started(&i.id, None);
+            }
             let end = match ended {
-                _ if running => self.now_ms,
                 Some(e) => e.1,
                 None => i.idle.unwrap_or(i.updated).max(i.created),
             };
@@ -135,6 +141,18 @@ impl App {
         let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c))).flatten();
         let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
         Run { state, steps, taken, time, result, error }
+    }
+
+    /// When `child`'s current run started, as Desktop dates it (`session/requests/background.ts`):
+    /// the latest call to it (`call`, when it began running), else the child's creation. A long
+    /// lived child that a newer call or message woke again started no earlier than it last went
+    /// idle, and a start we saw live is exact.
+    pub fn run_started(&self, child: &str, call: Option<i64>) -> i64 {
+        let info = self.session(child);
+        let created = info.map_or(0, |i| i.created);
+        let idle = info.and_then(|i| i.idle).unwrap_or(0);
+        let seen = self.agent_rows.started.get(child).copied().unwrap_or(0);
+        created.max(idle).max(call.unwrap_or(0)).max(seen)
     }
 
     fn last_tool(&self, child: &str) -> Option<String> {

@@ -166,7 +166,8 @@ pub enum Part {
     Reasoning { text: String, started: i64, completed: Option<i64> },
     /// `files`: what the tool returned besides text, such as the image a `read` loaded.
     /// `metadata`: the tool's own state (a subagent call's `sessionID`).
-    /// A failed call keeps its error there too: see [`tool_error`].
+    /// A failed call keeps its error there too: see [`tool_error`]; and when it began running:
+    /// see [`tool_ran`].
     Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment>, metadata: Value },
 }
 
@@ -185,6 +186,31 @@ fn keep_tool_error(metadata: &mut Value, error: &Value) {
         *metadata = Value::Object(Default::default());
     }
     metadata[TOOL_ERROR] = message.into();
+}
+
+/// Where a tool call's start, in Unix milliseconds, is kept in its `metadata`.
+const TOOL_RAN: &str = "opencode-kit.ran";
+
+/// When a tool call began running (`time.ran`, else `time.created`), once a read has said.
+pub fn tool_ran(metadata: &Value) -> Option<i64> {
+    metadata[TOOL_RAN].as_i64()
+}
+
+fn keep_tool_ran(metadata: &mut Value, time: &Value) {
+    let Some(ran) = time["ran"].as_i64().or(time["created"].as_i64()) else { return };
+    if !metadata.is_object() {
+        *metadata = Value::Object(Default::default());
+    }
+    metadata[TOOL_RAN] = ran.into();
+}
+
+/// Swaps in the server's newer `metadata`, keeping when the call began running.
+fn replace_tool_metadata(metadata: &mut Value, new: &Value) {
+    let ran = metadata[TOOL_RAN].clone();
+    *metadata = new.clone();
+    if !ran.is_null() {
+        metadata[TOOL_RAN] = ran;
+    }
 }
 
 /// The child session a subagent call runs in, once the call names it.
@@ -436,6 +462,7 @@ fn parse_part(c: &Value) -> Option<Part> {
             let input = c["state"]["input"].clone();
             let mut metadata = c["state"]["metadata"].clone();
             keep_tool_error(&mut metadata, &c["state"]["error"]);
+            keep_tool_ran(&mut metadata, &c["time"]);
             Part::Tool {
                 id: s(&c["id"]),
                 title: tool_title(&name, &input),
@@ -775,7 +802,7 @@ impl Transcript {
                         && *tid == id
                         && d["metadata"].is_object()
                     {
-                        *metadata = d["metadata"].clone();
+                        replace_tool_metadata(metadata, &d["metadata"]);
                         hit = true;
                     }
                 }
@@ -790,7 +817,7 @@ impl Transcript {
                     {
                         *status = if ty == "session.tool.success" { ToolStatus::Completed } else { ToolStatus::Error };
                         if d["metadata"].is_object() {
-                            *metadata = d["metadata"].clone();
+                            replace_tool_metadata(metadata, &d["metadata"]);
                         }
                         if ty == "session.tool.failed" {
                             keep_tool_error(metadata, &d["error"]);

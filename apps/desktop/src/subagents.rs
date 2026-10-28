@@ -47,10 +47,10 @@ impl App {
         self.running.iter().any(|r| self.descends(r, id))
     }
 
-    /// The sessions running below `id`, oldest first, named by their latest call in `id`'s
-    /// transcript when there is one.
+    /// The sessions running below `id`, oldest first, named and dated by their latest call in
+    /// `id`'s transcript when there is one.
     pub fn running_subagents(&self, id: &str) -> Vec<Running> {
-        let mut calls: Vec<(&str, &str, &str)> = Vec::new();
+        let mut calls: Vec<(&str, &str, &str, Option<i64>)> = Vec::new();
         for m in self.transcripts.get(id).map_or(&[][..], |t| &t.messages[..]) {
             let Message::Assistant(a) = m else { continue };
             for p in &a.parts {
@@ -58,7 +58,8 @@ impl App {
                     && matches!(name.as_str(), "task" | "subagent")
                     && let Some(child) = model::subagent_session(input, metadata)
                 {
-                    calls.push((child, title, input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("")));
+                    let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("");
+                    calls.push((child, title, agent, model::tool_ran(metadata)));
                 }
             }
         }
@@ -71,7 +72,8 @@ impl App {
                 let call = calls.iter().rev().find(|c| c.0 == r);
                 let agent = call.map(|c| c.2).filter(|a| !a.is_empty()).or(info.map(|i| i.agent.as_str())).unwrap_or("");
                 let label = call.map(|c| c.1.to_owned()).filter(|l| !l.is_empty()).or(info.map(|i| i.title.clone())).unwrap_or_else(|| r.clone());
-                Running { session: r.clone(), agent: agent.to_owned(), label, started: info.map_or(0, |i| i.created) }
+                let started = if info.is_some_and(|i| i.created > 0) { self.run_started(r, call.and_then(|c| c.3)) } else { 0 };
+                Running { session: r.clone(), agent: agent.to_owned(), label, started }
             })
             .collect();
         out.sort_by(|a, b| (a.started, &a.session).cmp(&(b.started, &b.session)));
@@ -236,7 +238,9 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
 /// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start
 /// edges aligned, one 28pt row per running subagent with the spinner, the agent in medium, its
 /// task in muted text and the run time in 11pt at the end. Agents and run times line up in
-/// columns; the task takes the rest and truncates once the menu reaches 360pt.
+/// columns; the task takes the rest and fades out where it's cut once the menu reaches 360pt.
+/// Past 270pt the rows scroll inside the menu, fading only where rows hide under its edge, and
+/// nothing draws outside it.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let items = s.running_subagents(id);
     if !s.activity_open || items.is_empty() {
@@ -246,37 +250,22 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let time_of = |it: &Running| if it.started > 0 { elapsed(s.now_ms - it.started) } else { String::new() };
     let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
     let agent_w = items.iter().map(|it| width(&name_of(it), UI_MED)).fold(0.0, f32::max);
-    let time_w = items.iter().map(|it| width(&time_of(it), ELAPSED)).fold(0.0, f32::max);
+    let time_w = time_column(items.iter().map(time_of), &width);
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
     // Panel inset 4 + hairline 0.5, row inset 6, then spinner, agent, task and time, 8 apart,
     // with 8 more before the time.
-    let natural = 2.0 * (4.5 + 6.0) + 16.0 + 8.0 + agent_w + 8.0 + label_w + 16.0 + time_w;
-    let mut menu = col()
-        .key("activity-panel")
-        .role("menu")
-        .label("Subagents")
-        .above("activity-chip", 8.0)
-        .w(natural.clamp(240.0, 360.0).ceil())
-        .max_h(270.0)
-        .padding(4.5)
-        .radius(10.0)
-        .fill(p.layer1)
-        // --v2-elevation-floating: two drops and a hairline ring.
-        .border(0.5, p.ring)
-        .shadow(8.0, 16.0, p.shadow_far)
-        .shadow(4.0, 8.0, p.shadow)
-        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
-        .on_press(|_: &mut App| {});
+    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + agent_w + 8.0 + label_w + 16.0 + time_w;
+    let mut list = col().key("activity-list").w_full().padding(PANEL_PAD);
     for it in &items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
         let name = name_of(it);
-        menu = menu.child(
+        list = list.child(
             row()
                 .key(format!("sub-{}", it.session))
                 .role("menuitem")
                 .label(format!("{name} {}", it.label))
                 .w_full()
-                .h(28.0)
+                .h(PANEL_ROW)
                 .px(6.0)
                 .gap(8.0)
                 .center_y()
@@ -289,12 +278,50 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 })
                 .child(activity_ring_on(p, p.layer1, 16.0))
                 .child(text(name).font(UI_MED).color(p.text).w(agent_w))
-                .child(text(it.label.clone()).font(UI).color(p.muted).truncate().grow(1.0).shrink())
-                .child(row().w(time_w).ml(8.0).justify_end().child(text(time_of(it)).font(ELAPSED).color(p.muted))),
+                .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
+                .child(row().key("time").w(time_w).ml(8.0).justify_end().child(text(time_of(it)).font(ELAPSED).color(p.muted))),
         );
     }
-    Some(menu)
+    let h = (items.len() as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
+    let rows = col()
+        .key("activity-scroll")
+        .w_full()
+        .h(h)
+        .scroll(rune::ScrollSpec { stick_bottom: false })
+        .scroll_edge_fade(12.0)
+        .scroll_margin(PANEL_PAD)
+        .child(list);
+    Some(
+        col()
+            .key("activity-panel")
+            .role("menu")
+            .label("Subagents")
+            .above("activity-chip", 8.0)
+            .w(natural.clamp(240.0, 360.0).ceil())
+            .radius(10.0)
+            .fill(p.layer1)
+            // --v2-elevation-floating: two drops and a hairline ring.
+            .border(0.5, p.ring)
+            .shadow(8.0, 16.0, p.shadow_far)
+            .shadow(4.0, 8.0, p.shadow)
+            .clip_soft(0.0)
+            .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
+            .on_press(|_: &mut App| {})
+            .child(rows),
+    )
 }
+
+/// The run-time column's width: room for "59m 59s" at least, and for the widest time shown with
+/// every digit at its widest, so ticking never moves the tasks beside it.
+fn time_column(times: impl Iterator<Item = String>, width: &impl Fn(&str, rune::TextStyle) -> f32) -> f32 {
+    let widest = |t: &str| width(&t.chars().map(|c| if c.is_ascii_digit() { '0' } else { c }).collect::<String>(), ELAPSED);
+    times.map(|t| widest(&t)).fold(widest("00m 00s"), f32::max).ceil()
+}
+
+const PANEL_PAD: f32 = 4.0;
+const PANEL_ROW: f32 = 28.0;
+/// Desktop's `max-height: min(270px, …)`.
+const PANEL_MAX_H: f32 = 270.0;
 
 /// The run time in the list: 11pt, tabular figures.
 const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
@@ -384,13 +411,54 @@ mod tests {
         rt.frame(1.0 / 120.0);
         assert_eq!(
             rt.state.running_subagents(MAIN),
-            vec![Running { session: REVIEW.into(), agent: "general".into(), label: "Review the reconnect change".into(), started: rt.state.session(REVIEW).unwrap().created }]
+            // Dated from the call to it (its part's time), not the child's creation.
+            vec![Running { session: REVIEW.into(), agent: "general".into(), label: "Review the reconnect change".into(), started: 1_792_658_360_500 }]
         );
         press(&mut rt, "activity-chip");
         assert!(has(&rt, "", &format!("sub-{REVIEW}")));
         press(&mut rt, &format!("sub-{REVIEW}"));
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
         assert!(!rt.state.activity_open);
+    }
+
+    #[test]
+    fn a_woken_subagent_is_dated_from_its_latest_run() {
+        let mut rt = rt();
+        let hour = 3_600_000;
+        rt.update(|s, _| {
+            s.running.insert(REVIEW.into());
+            let now = s.now_ms;
+            let info = s.sessions.iter_mut().find(|i| i.id == REVIEW).unwrap();
+            // Made two hours ago, called, idle ten minutes ago, running again since.
+            info.created = now - 2 * hour;
+            info.idle = Some(now - 600_000);
+        });
+        assert_eq!(rt.state.running_subagents(MAIN)[0].started, rt.state.now_ms - 600_000, "from when it last went idle");
+        rt.update(|s, _| {
+            s.agent_rows.started.insert(REVIEW.into(), s.now_ms - 90_000);
+        });
+        assert_eq!(rt.state.running_subagents(MAIN)[0].started, rt.state.now_ms - 90_000, "from the start we saw");
+        let call = rt.state.now_ms - 30_000;
+        assert_eq!(rt.state.run_started(REVIEW, Some(call)), call, "from the latest call to it");
+    }
+
+    #[test]
+    fn the_list_scrolls_inside_its_menu() {
+        let mut rt = rt();
+        rt.update(|s, tx| {
+            crate::capsule_stories::run_thirty(s);
+            s.activity_open = true;
+            tx.instant();
+        });
+        rt.frame(1.0 / 120.0);
+        let rect = |key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).map(|e| e.rect).unwrap();
+        let menu = rect("activity-panel");
+        assert_eq!(menu[3], PANEL_MAX_H, "it stops at 270");
+        assert!(rect("activity-list")[3] > 30.0 * PANEL_ROW, "and the rows scroll inside it");
+        // Every run time sits in a column of one width, ending at the same edge.
+        let times: Vec<_> = rt.elements().into_iter().filter(|e| e.path.contains("activity-list") && e.key.as_deref() == Some("time")).map(|e| (e.rect[0], e.rect[2])).collect();
+        assert_eq!(times.len(), 30);
+        assert!(times.iter().all(|t| *t == times[0]), "{times:?}");
     }
 
     #[test]
