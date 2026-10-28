@@ -91,6 +91,9 @@ impl App {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
         let mut changed = self.note_agent(ty, data, &sid);
+        if ty.starts_with("config.") {
+            changed |= crate::compaction::apply_config(self, ty, data);
+        }
         changed |= self.apply_status(ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);

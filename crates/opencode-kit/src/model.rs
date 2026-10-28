@@ -7,6 +7,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
+mod compaction;
+#[cfg(test)]
+mod compaction_tests;
+
+pub use compaction::{Compaction, CompactionStatus, background_compaction};
+
 #[derive(Clone, Debug)]
 pub struct Project {
     pub id: String,
@@ -50,6 +56,7 @@ pub struct Tokens {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+    pub reasoning: u64,
 }
 
 impl Tokens {
@@ -60,6 +67,7 @@ impl Tokens {
             output: n(&v["output"]),
             cache_read: n(&v["cache"]["read"]),
             cache_write: n(&v["cache"]["write"]),
+            reasoning: n(&v["reasoning"]),
         }
     }
     /// Tokens in the context window for this step.
@@ -309,8 +317,9 @@ pub fn set_user_files(id: &str, files: Vec<Attachment>) {
 pub enum Message {
     User { id: String, text: String },
     Assistant(Assistant),
-    /// Shell, compaction, notices: shown as a quiet one-line row.
+    /// Shell commands and notices: shown as a quiet one-line row.
     Note { id: String, text: String },
+    Compaction(Compaction),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -328,6 +337,7 @@ impl Message {
         match self {
             Message::User { id, .. } | Message::Note { id, .. } => id,
             Message::Assistant(a) => &a.id,
+            Message::Compaction(c) => &c.id,
         }
     }
 }
@@ -461,7 +471,7 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             error: m["error"]["message"].as_str().map(str::to_owned),
         }),
         "shell" => Message::Note { id, text: format!("$ {}", s(&m["command"])) },
-        "compaction" => Message::Note { id, text: "Compacted the conversation".into() },
+        "compaction" => Message::Compaction(Compaction::parse(m)),
         _ => return None,
     })
 }
@@ -539,6 +549,8 @@ pub enum InboxChange {
 #[derive(Clone, Debug, Default)]
 pub struct Inbox {
     pub items: Vec<InboxItem>,
+    /// The id of a compaction the server admitted but hasn't started.
+    pub compaction: Option<String>,
 }
 
 impl Inbox {
@@ -571,6 +583,16 @@ impl Inbox {
     /// [`crate::client::Request::Inbox`]), which replaces the list.
     pub fn apply(&mut self, ty: &str, d: &Value) -> InboxChange {
         let id = d["inboxID"].as_str().unwrap_or("");
+        let compaction = match ty {
+            "session.inbox.listed" => {
+                d["items"].as_array().into_iter().flatten().find(|i| i["type"] == "compaction").map(|i| s(&i["id"]))
+            }
+            "session.inbox.enqueued" if d["item"]["type"] == "compaction" => Some(id.to_owned()),
+            "session.inbox.cancelled" | "session.inbox.delivered" if self.compaction.as_deref() == Some(id) => None,
+            _ => self.compaction.clone(),
+        };
+        let moved = compaction != self.compaction;
+        self.compaction = compaction;
         let changed = match ty {
             "session.inbox.listed" => {
                 let items: Vec<InboxItem> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_item).collect();
@@ -588,9 +610,12 @@ impl Inbox {
             },
             "session.inbox.delivery.changed" => Delivery::parse(&d["delivery"]).is_some_and(|to| self.set_delivery(id, to)),
             "session.inbox.cancelled" => self.remove(id).is_some(),
-            "session.inbox.delivered" => return self.remove(id).map_or(InboxChange::None, InboxChange::Delivered),
+            "session.inbox.delivered" => match self.remove(id) {
+                Some(item) => return InboxChange::Delivered(item),
+                None => false,
+            },
             _ => false,
-        };
+        } || moved;
         if changed { InboxChange::Changed } else { InboxChange::None }
     }
 }
@@ -787,6 +812,9 @@ impl Transcript {
                 if ty == "session.step.failed" {
                     a.error = Some(d["error"]["message"].as_str().unwrap_or("The step failed").to_owned());
                 }
+            }
+            "session.compaction.started" | "session.compaction.delta" | "session.compaction.ended" | "session.compaction.failed" => {
+                return compaction::apply(&mut self.messages, ty, d, now);
             }
             "session.revert.committed" => {
                 let at = self.visible_len(d["to"].as_str());

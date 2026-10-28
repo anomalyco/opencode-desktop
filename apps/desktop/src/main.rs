@@ -8,6 +8,8 @@ mod agent_rows_view;
 mod agent_stories;
 mod arrivals;
 mod attachments;
+mod compaction;
+mod compaction_stories;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
@@ -170,6 +172,8 @@ pub struct App {
     pub ends: jump::Ends,
     /// When each run started, for the Working label's rhythm (`working.rs`).
     pub working: working::Working,
+    /// Background compaction by directory and how each compaction enters (`compaction.rs`).
+    pub compactions: compaction::Compactions,
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: bool,
     pub status: String,
@@ -267,6 +271,7 @@ impl App {
             glows: HashMap::new(),
             ends: jump::Ends::default(),
             working: working::Working::default(),
+            compactions: compaction::Compactions::default(),
             debug: flag("--debug"),
             status: String::new(),
             now_ms: 0,
@@ -687,6 +692,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     arrivals.land(s, now, tx);
     changed |= working::sync(s);
+    changed |= compaction::sync(s);
     if s.question_shown() != asked {
         s.morph(tx);
     }

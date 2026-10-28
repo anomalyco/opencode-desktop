@@ -242,6 +242,9 @@ pub(super) enum RowContent {
     /// under the same row key so delivery keeps it in place.
     Pending { id: String, tight: bool, above: bool, below: bool },
     Note(usize),
+    Compaction { message: usize, piece: crate::compaction::Piece },
+    /// A compaction the server admitted but hasn't started.
+    CompactionQueued,
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
     /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
@@ -274,6 +277,11 @@ impl RowSpec {
                 Message::Note { text: body, .. } => row().pt(16.0).child(readable(p, text(body.clone()).font(UI).color(p.faint))),
                 _ => unreachable!(),
             },
+            RowContent::Compaction { message, piece } => match &t.messages[*message] {
+                Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, fade),
+                _ => unreachable!(),
+            },
+            RowContent::CompactionQueued => crate::compaction::queued(p),
             RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
@@ -404,9 +412,21 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
             }
+            Message::Compaction(c) => {
+                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                let running = c.status == model::CompactionStatus::Running;
+                for piece in crate::compaction::pieces(s, &t.session, c) {
+                    let streaming = running && piece == crate::compaction::Piece::Summary;
+                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece }, streaming });
+                }
+            }
         }
     }
     turn_rows(s, p, &mut out, &steps, start, shown, busy && revert.is_none());
+    // A compaction waiting to start sits under the running work, above the steers, as Desktop's.
+    if revert.is_none() && let Some(id) = s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) {
+        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued, streaming: false });
+    }
     // Undelivered steers wait below the running work and above Working, as Desktop shows them,
     // in the row each becomes when the server delivers it to the end of the transcript.
     let mut prev = match t.messages[..shown].last() {
@@ -427,6 +447,12 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     out
+}
+
+/// The keys of a transcript's rows, top to bottom.
+#[cfg(test)]
+pub(crate) fn row_keys(s: &App, t: &Transcript) -> Vec<String> {
+    rows(s, pal(true), t).into_iter().map(|r| r.key).collect()
 }
 
 /// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
@@ -649,9 +675,14 @@ pub(super) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message:
 // Markdown
 
 pub(super) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
+    markdown_tinted(p, src, fade, streaming, p.text)
+}
+
+/// `markdown_view` with its body text in `color`.
+pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color) -> El {
     let kit = Kit::neutral(p.dark);
     let style = MarkdownStyle::from_kit(&kit)
-        .text(p.text)
+        .text(color)
         .muted(p.muted)
         .link(p.accent)
         .inline_code_bg(p.inline_code_bg)

@@ -49,6 +49,10 @@ pub enum Request {
     Inbox(String),
     /// Which sessions are running (`/api/session/active`).
     Active,
+    /// Whether `experimental.background_compaction` is on in a directory (`/api/config`). The
+    /// reply is `Incoming::Event` with type `config.listed` and data
+    /// `{directory, backgroundCompaction}`.
+    Config(String),
 }
 
 pub enum Write {
@@ -583,7 +587,14 @@ impl Server {
             if ty.is_empty() || ty == "server.heartbeat" {
                 continue;
             }
-            if inbox.send(Incoming::Event { ty, data: v["data"].clone() }).is_err() {
+            let mut data = v["data"].clone();
+            // A compaction message takes its id from the event that started it.
+            if ty.starts_with("session.compaction.")
+                && let Some(id) = v["id"].as_str()
+            {
+                data["eventID"] = id.into();
+            }
+            if inbox.send(Incoming::Event { ty, data }).is_err() {
                 return Ok(());
             }
             wake();
@@ -679,6 +690,12 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Err(e) => send(Incoming::Status(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
+                        Request::Config(dir) => {
+                            // A server without it leaves compactions loud, as Desktop does.
+                            let v = server.get(&format!("/api/config?location%5Bdirectory%5D={}", encode_component(&dir)));
+                            let on = v.is_ok_and(|v| model::background_compaction(&v));
+                            send(Incoming::Event { ty: "config.listed".into(), data: serde_json::json!({ "directory": dir, "backgroundCompaction": on }) })
+                        }
                         Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
                             Ok(v) => send(Incoming::Event {
                                 ty: "session.inbox.listed".into(),
