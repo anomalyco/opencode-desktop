@@ -38,6 +38,7 @@ pub const RULES: &[Rule] = &[
     Rule { kind: "load-motion", threshold: 1.0, means: "a row that loaded with the view moves or fades by more than this after its first frame (no animation on load)" },
     Rule { kind: "never-settles", threshold: 0.05, means: "still changing by more than this in the last half second of the run, long after the last input (loops excepted)" },
     Rule { kind: "loop-jump", threshold: 0.03, means: "a loop's phase steps this many periods off its usual step in one frame: it restarted or skipped (a remount, or a new loop where one was running)" },
+    Rule { kind: "lands-unseen", threshold: 40.0, means: "travels at least this many pt in plain view, then its clip cuts it from view in one frame where it rests: it flew somewhere you can't see" },
     Rule { kind: "twice", threshold: 0.0, means: "two siblings share one key (Rune's `#dup`), so one thing shows twice, as an optimistic copy beside the server's" },
     Rule { kind: "wakes-after-end", threshold: 1.0, means: "still asking for frames this many seconds after the cell's motion ended (a run that finished)" },
 ];
@@ -615,6 +616,30 @@ pub fn check(rec: &Recording) -> Vec<Finding> {
         if let Some((k, _)) = t.frames.iter().find(|f| f.1.op >= rule("faint") && f.1.vis[2] > 0.0 && f.1.vis[3] > 0.0) {
             out.push(Finding { kind: "twice", element: short(&t.path), frame: *k, detail: "a second element under its key".into() });
         }
+    }
+    // A flight draws unclipped and keeps its size, so one that lands out of view (below the
+    // window, or under a clip) shows whole all the way there, then vanishes the frame it rests.
+    let window = (1.5 * rec.hz) as usize;
+    let mut unseen: HashMap<usize, usize> = HashMap::new();
+    for (i, t) in tr.iter().enumerate() {
+        let fs = &t.frames;
+        let hit = (1..fs.len()).find(|&j| {
+            let ((ka, a), (kb, b)) = (fs[j - 1], fs[j]);
+            let whole = a.rect[2] >= 4.0 && a.rect[3] >= 4.0 && area(&a.vis) >= 0.9 * area(&a.rect);
+            let still = (0..4).all(|x| (a.rect[x] - b.rect[x]).abs() < 0.5);
+            let shown = a.op >= rule("faint") && a.flags & INK != 0 && (a.flags | b.flags) & EXITING == 0;
+            if kb != ka + 1 || !whole || !still || !shown || area(&on_window(&b.vis, size)) >= 1.0 { return false; }
+            fs[..j].iter().rev().take_while(|f| f.0 + window >= ka).any(|f| {
+                let same_size = (2..4).all(|x| (f.1.rect[x] - a.rect[x]).abs() < 1.0);
+                let travel = (f.1.rect[0] - a.rect[0]).abs() + (f.1.rect[1] - a.rect[1]).abs();
+                same_size && seen(&f.1, size) && travel >= rule("lands-unseen")
+            })
+        });
+        let Some(j) = hit else { continue };
+        let k = fs[j].0;
+        unseen.insert(i, k);
+        if t.parent.and_then(|p| unseen.get(&p)) == Some(&k) { continue; }
+        out.push(Finding { kind: "lands-unseen", element: short(&t.path), frame: k, detail: "travelled in view, then its clip hid it where it rests".into() });
     }
     if let Some(q) = rec.quiet_from {
         let from = q + (f64::from(rule("wakes-after-end")) * rec.hz) as usize;

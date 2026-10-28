@@ -1,0 +1,8 @@
+{
+  "events": [
+    { "t": 0.3, "type": "tap", "key": "prompt" },
+    { "t": 0.5, "type": "paste", "text": "I still have problems. You can see this when I submit something." },
+    { "t": 0.8, "type": "scroll", "x": 700, "y": 300, "dy": 320, "dur": 0.2 },
+    { "t": 1.6, "type": "key", "name": "Enter" }
+  ]
+}

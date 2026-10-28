@@ -320,6 +320,33 @@ fn a_sent_message_rises_whole_from_the_composer_and_keeps_its_key() {
     send_and_trace(Via::Enter, &dts);
 }
 
+/// Read further up, the sent message lands below the view: nothing flies down to it. The
+/// composer clears and the message joins the end, where it stays out of view.
+#[test]
+fn a_message_sent_while_reading_up_does_not_fly() {
+    let mut rt = session();
+    let (x, y) = rt.find("prompt").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.key(KeyEvent { key: Key::Text("Can you also check the reconnect jitter?".into()), mods: Default::default() });
+    let scroll = rt.elements().into_iter().find(|e| e.key.as_deref().is_some_and(|k| k.starts_with("scroll-ses_"))).unwrap().rect;
+    rt.wheel(scroll[0] + scroll[2] / 2.0, scroll[1] + scroll[3] / 2.0, 320.0);
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    let crate::Route::Session(sid) = rt.state.route.clone() else { panic!("no open session") };
+    assert!(!rt.state.ends.at_end(&sid), "scrolled up off the end");
+    rt.key(KeyEvent { key: Key::Enter, mods: Default::default() });
+    let id = "msg_zzzzsent0001";
+    for f in 0..90 {
+        rt.frame(1.0 / 120.0);
+        assert!(rt.state.composer.text.is_empty(), "frame {f}: the composer clears");
+        let b = bubble(&rt, id).unwrap_or_else(|| panic!("frame {f}: the message joins the end"));
+        assert!(b.visible_h <= 0.0, "frame {f}: nothing shows on its way down: {:?}", b.rect);
+    }
+    assert!(!rt.state.ends.at_end(&sid), "the timeline stays where you were reading");
+}
+
 /// A run of several steps (thinking and a tool, a new assistant message that answers, then
 /// another tool step): Working stays mounted at full opacity from the run's start to its end,
 /// through the gaps between one step ending and the next starting.

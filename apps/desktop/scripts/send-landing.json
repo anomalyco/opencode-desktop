@@ -1,0 +1,7 @@
+{
+  "events": [
+    { "t": 0.3, "type": "tap", "key": "prompt" },
+    { "t": 0.5, "type": "paste", "text": "I still have problems. You can see this when I submit something." },
+    { "t": 1.2, "type": "key", "name": "Enter" }
+  ]
+}
