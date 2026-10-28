@@ -151,3 +151,30 @@ fn the_odometer_story_ticks_and_switches_session_at_once() {
     rt.frame(DT);
     assert!(label(&rt, "story-time-7-0").is_none() && label(&rt, "story-time-7-1").is_some(), "another session's number mounts fresh");
 }
+
+/// → from the list puts the keyboard on the story's knobs: → and ← step the first, ↓ picks the
+/// next, and after Esc the arrows move in the list again. The app's own knobs wait for the close.
+#[test]
+fn arrows_reach_the_side_columns_knobs() {
+    use crate::knobs::{GLOW_LENGTH, GLOW_RISE};
+    let mut rt = story("Timeline/Arrival glow", None);
+    let press = |rt: &mut Runtime<App>, key: Key| {
+        rt.key(KeyEvent { key, mods: Mods::default() });
+        rt.frame(DT);
+    };
+    let knob = |rt: &Runtime<App>, d| world(rt).knobs.get(d);
+    let (length, rise) = (knob(&rt, &GLOW_LENGTH), knob(&rt, &GLOW_RISE));
+    press(&mut rt, Key::Right);
+    press(&mut rt, Key::Right);
+    assert_ne!(knob(&rt, &GLOW_LENGTH), length, "→ steps the first knob");
+    press(&mut rt, Key::Left);
+    assert_eq!(knob(&rt, &GLOW_LENGTH), length, "← steps it back rather than leaving");
+    press(&mut rt, Key::Down);
+    press(&mut rt, Key::Right);
+    assert_ne!(knob(&rt, &GLOW_RISE), rise, "↓ picks the next knob");
+    assert_eq!(rt.state.knobs.get(&GLOW_RISE), rise, "the app's knobs wait for the close");
+    press(&mut rt, Key::Escape);
+    let tuned = knob(&rt, &GLOW_RISE);
+    press(&mut rt, Key::Right);
+    assert_eq!(knob(&rt, &GLOW_RISE), tuned, "after Esc the keyboard is back in the list");
+}

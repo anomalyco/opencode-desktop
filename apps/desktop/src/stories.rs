@@ -8,7 +8,7 @@
 use std::sync::{Arc, OnceLock};
 
 use opencode_kit::model::{Attachment, Delivery, InboxItem, Message};
-use rune::{Cx, El, Play, Playground, Step, TextEdit, Tx, col, el};
+use rune::{Cx, El, Play, Playground, Step, TextEdit, Tx, col};
 use rune_knobs::Group;
 use serde_json::{Value, json};
 
@@ -17,12 +17,10 @@ use crate::palette::{Pal, pal};
 use crate::turns::{self, Block};
 use crate::{App, FIXTURE, Route, open_scene, open_story, view};
 
-/// What a story's scene draws, the knobs beside it, and whether it only plays (its composer
-/// never takes the keys).
+/// What a story's scene draws, and whether it only plays (its composer never takes the keys).
 #[derive(Clone, Copy)]
 pub struct Stage {
     view: fn(&App, &Pal) -> El,
-    knobs: &'static [Group],
     watch: bool,
 }
 
@@ -50,6 +48,8 @@ pub struct Story {
     path: &'static str,
     /// Sets up its stage in the fresh world, with [`stage`].
     scene: fn(&mut App),
+    /// The knobs beside it, which the keyboard reaches with → from the list.
+    knobs: &'static [Group],
     keys: &'static [Trigger],
     /// Each variant's name and the value of `App::variant` it sets (1 to 9 pick them).
     variants: &'static [(&'static str, usize)],
@@ -133,39 +133,39 @@ const JUMP_KEYS: &[Trigger] = &[
 ];
 
 pub static STORIES: &[Story] = &[
-    Story { path: "Composer/Composer", scene: |s| stage(s, composer_view, COMPOSER_KNOBS), keys: COMPOSER_KEYS, variants: COMPOSER_VARIANTS },
-    Story { path: "Composer/Queue dock", scene: |s| stage(s, session_view, ROW_KNOBS), keys: QUEUE_KEYS, variants: &[] },
-    Story { path: "Composer/Dictation", scene: |s| stage(s, composer_view, &[]), keys: crate::dictation::STORY_KEYS, variants: &[] },
-    Story { path: "Composer/Mentions", scene: |s| stage(s, session_view, &[]), keys: crate::mention_stories::KEYS, variants: &[] },
-    Story { path: "Composer/Subagents capsule, 30 running", scene: |s| stage(s, session_view, &[]), keys: crate::capsule_stories::KEYS, variants: &[] },
-    Story { path: "Question dock/Question", scene: |s| stage(s, composer_view, &[]), keys: QUESTION_KEYS, variants: QUESTION_VARIANTS },
-    Story { path: "Question dock/Custom answer", scene: |s| stage(s, composer_view, &[]), keys: CUSTOM_KEYS, variants: CUSTOM_VARIANTS },
-    Story { path: "Question dock/Morph", scene: |s| watch(s, session_view, MORPH_KNOBS), keys: MORPH_KEYS, variants: &[] },
-    Story { path: "Question dock/Under a queue", scene: |s| stage(s, session_view, MORPH_KNOBS), keys: UNDER_QUEUE_KEYS, variants: &[] },
-    Story { path: "Sidebar/Rename and menus", scene: |s| stage(s, crate::session_menu_stories::view, &[]), keys: crate::session_menu_stories::KEYS, variants: crate::session_menu_stories::VARIANTS },
-    Story { path: "Components/Odometer", scene: |s| stage(s, crate::odometer_stories::view, &[]), keys: crate::odometer_stories::KEYS, variants: &[] },
-    Story { path: "Header/Session header", scene: |s| stage(s, header_view, &[]), keys: HEADER_KEYS, variants: &[] },
-    Story { path: "Header/Ticking", scene: |s| watch(s, ticking_view, &[]), keys: crate::odometer_stories::TICKING_KEYS, variants: &[] },
-    Story { path: "Timeline/Arrival glow", scene: |s| stage(s, session_view, GLOW_KNOBS), keys: GLOW_KEYS, variants: &[] },
-    Story { path: "Timeline/Send", scene: |s| stage(s, session_view, ROW_KNOBS), keys: SEND_KEYS, variants: &[] },
-    Story { path: "Timeline/Streaming text", scene: |s| stage(s, session_view, ROW_KNOBS), keys: STREAM_KEYS, variants: &[] },
-    Story { path: "Timeline/Tool rows", scene: |s| stage(s, session_view, ROW_KNOBS), keys: TOOL_KEYS, variants: &[] },
-    Story { path: "Timeline/Selection", scene: |s| stage(s, session_view, &[]), keys: crate::selection_stories::KEYS, variants: &[] },
-    Story { path: "Timeline/Quote", scene: |s| stage(s, session_view, &[]), keys: crate::quote_stories::KEYS, variants: &[] },
-    Story { path: "Timeline/Question answers", scene: |s| stage(s, session_view, ROW_KNOBS), keys: crate::question_stories::KEYS, variants: crate::question_stories::VARIANTS },
-    Story { path: "Timeline/Compaction", scene: |s| stage(s, session_view, ROW_KNOBS), keys: crate::compaction_stories::KEYS, variants: crate::compaction_stories::VARIANTS },
-    Story { path: "Timeline/Working", scene: |s| stage(s, session_view, WORKING_KNOBS), keys: WORKING_KEYS, variants: &[] },
-    Story { path: "Timeline/Steer and Pending", scene: |s| stage(s, session_view, ROW_KNOBS), keys: STEER_KEYS, variants: &[] },
-    Story { path: "Timeline/Subagent", scene: |s| stage(s, session_view, SUBAGENT_KNOBS), keys: SUBAGENT_KEYS, variants: &[] },
-    Story { path: "Timeline/Subagent rows", scene: |s| stage(s, session_view, &[]), keys: crate::agent_stories::KEYS, variants: crate::agent_stories::VARIANTS },
-    Story { path: "Timeline/Images", scene: |s| stage(s, session_view, IMAGE_KNOBS), keys: IMAGE_KEYS, variants: &[] },
-    Story { path: "Timeline/Jump to latest", scene: |s| stage(s, session_view, JUMP_KNOBS), keys: JUMP_KEYS, variants: &[] },
-    Story { path: "Timeline/Frosted surfaces", scene: |s| watch(s, crate::frosted_stories::view, &[]), keys: crate::frosted_stories::KEYS, variants: &[] },
-    Story { path: "Timeline/Turn actions", scene: |s| stage(s, session_view, ACTIONS_KNOBS), keys: TURN_KEYS, variants: &[] },
-    Story { path: "Navigation/Back and forward", scene: |s| stage(s, history_view, &[]), keys: crate::history_story::KEYS, variants: &[] },
-    Story { path: open_story::PATHS[0], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[0], variants: open_story::VARIANTS },
-    Story { path: open_story::PATHS[1], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[1], variants: open_story::VARIANTS },
-    Story { path: open_story::PATHS[2], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[2], variants: open_story::VARIANTS },
+    Story { path: "Composer/Composer", scene: |s| stage(s, composer_view), knobs: COMPOSER_KNOBS, keys: COMPOSER_KEYS, variants: COMPOSER_VARIANTS },
+    Story { path: "Composer/Queue dock", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: QUEUE_KEYS, variants: &[] },
+    Story { path: "Composer/Dictation", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::dictation::STORY_KEYS, variants: &[] },
+    Story { path: "Composer/Mentions", scene: |s| stage(s, session_view), knobs: &[], keys: crate::mention_stories::KEYS, variants: &[] },
+    Story { path: "Composer/Subagents capsule, 30 running", scene: |s| stage(s, session_view), knobs: &[], keys: crate::capsule_stories::KEYS, variants: &[] },
+    Story { path: "Question dock/Question", scene: |s| stage(s, composer_view), knobs: &[], keys: QUESTION_KEYS, variants: QUESTION_VARIANTS },
+    Story { path: "Question dock/Custom answer", scene: |s| stage(s, composer_view), knobs: &[], keys: CUSTOM_KEYS, variants: CUSTOM_VARIANTS },
+    Story { path: "Question dock/Morph", scene: |s| watch(s, session_view), knobs: MORPH_KNOBS, keys: MORPH_KEYS, variants: &[] },
+    Story { path: "Question dock/Under a queue", scene: |s| stage(s, session_view), knobs: MORPH_KNOBS, keys: UNDER_QUEUE_KEYS, variants: &[] },
+    Story { path: "Sidebar/Rename and menus", scene: |s| stage(s, crate::session_menu_stories::view), knobs: &[], keys: crate::session_menu_stories::KEYS, variants: crate::session_menu_stories::VARIANTS },
+    Story { path: "Components/Odometer", scene: |s| stage(s, crate::odometer_stories::view), knobs: &[], keys: crate::odometer_stories::KEYS, variants: &[] },
+    Story { path: "Header/Session header", scene: |s| stage(s, header_view), knobs: &[], keys: HEADER_KEYS, variants: &[] },
+    Story { path: "Header/Ticking", scene: |s| watch(s, ticking_view), knobs: &[], keys: crate::odometer_stories::TICKING_KEYS, variants: &[] },
+    Story { path: "Timeline/Arrival glow", scene: |s| stage(s, session_view), knobs: GLOW_KNOBS, keys: GLOW_KEYS, variants: &[] },
+    Story { path: "Timeline/Send", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: SEND_KEYS, variants: &[] },
+    Story { path: "Timeline/Streaming text", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: STREAM_KEYS, variants: &[] },
+    Story { path: "Timeline/Tool rows", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: TOOL_KEYS, variants: &[] },
+    Story { path: "Timeline/Selection", scene: |s| stage(s, session_view), knobs: &[], keys: crate::selection_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Quote", scene: |s| stage(s, session_view), knobs: &[], keys: crate::quote_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Question answers", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: crate::question_stories::KEYS, variants: crate::question_stories::VARIANTS },
+    Story { path: "Timeline/Compaction", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: crate::compaction_stories::KEYS, variants: crate::compaction_stories::VARIANTS },
+    Story { path: "Timeline/Working", scene: |s| stage(s, session_view), knobs: WORKING_KNOBS, keys: WORKING_KEYS, variants: &[] },
+    Story { path: "Timeline/Steer and Pending", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: STEER_KEYS, variants: &[] },
+    Story { path: "Timeline/Subagent", scene: |s| stage(s, session_view), knobs: SUBAGENT_KNOBS, keys: SUBAGENT_KEYS, variants: &[] },
+    Story { path: "Timeline/Subagent rows", scene: |s| stage(s, session_view), knobs: &[], keys: crate::agent_stories::KEYS, variants: crate::agent_stories::VARIANTS },
+    Story { path: "Timeline/Images", scene: |s| stage(s, session_view), knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, variants: &[] },
+    Story { path: "Timeline/Jump to latest", scene: |s| stage(s, session_view), knobs: JUMP_KNOBS, keys: JUMP_KEYS, variants: &[] },
+    Story { path: "Timeline/Frosted surfaces", scene: |s| watch(s, crate::frosted_stories::view), knobs: &[], keys: crate::frosted_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Turn actions", scene: |s| stage(s, session_view), knobs: ACTIONS_KNOBS, keys: TURN_KEYS, variants: &[] },
+    Story { path: "Navigation/Back and forward", scene: |s| stage(s, history_view), knobs: &[], keys: crate::history_story::KEYS, variants: &[] },
+    Story { path: open_story::PATHS[0], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[0], variants: open_story::VARIANTS },
+    Story { path: open_story::PATHS[1], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[1], variants: open_story::VARIANTS },
+    Story { path: open_story::PATHS[2], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[2], variants: open_story::VARIANTS },
 ];
 
 /// Seconds the dock and the composer each stay in the morph loop.
@@ -208,7 +208,10 @@ pub fn playground() -> Playground<App> {
         for &(name, v) in st.variants {
             pg = pg.variant(st.path, name, VARIANT[v]);
         }
-        pg = pg.side(st.path, side);
+        if !st.knobs.is_empty() {
+            let knobs = st.knobs;
+            pg = pg.side_keys(st.path, move |s, active, cx| side(s, knobs, active, cx), rune_knobs::side_key(knobs, |s: &mut App| &mut s.knobs));
+        }
     }
     pg
 }
@@ -250,14 +253,14 @@ fn keep(stage: &App, real: &mut App) {
     real.knobs = stage.knobs.clone();
 }
 
-/// Sets up a story's stage: `view` alone on it, its knobs beside it.
-fn stage(s: &mut App, view: fn(&App, &Pal) -> El, knobs: &'static [Group]) {
-    s.stage = Some(Stage { view, knobs, watch: false });
+/// Sets up a story's stage: `view` alone on it.
+fn stage(s: &mut App, view: fn(&App, &Pal) -> El) {
+    s.stage = Some(Stage { view, watch: false });
 }
 
 /// [`stage`] for a story that only plays.
-fn watch(s: &mut App, view: fn(&App, &Pal) -> El, knobs: &'static [Group]) {
-    s.stage = Some(Stage { view, knobs, watch: true });
+fn watch(s: &mut App, view: fn(&App, &Pal) -> El) {
+    s.stage = Some(Stage { view, watch: true });
 }
 
 // Drawing.
@@ -288,11 +291,10 @@ fn knobs_style(p: &Pal) -> rune_knobs::Style {
     }
 }
 
-/// The story's knobs, beside its stage.
-fn side(s: &App, cx: &mut Cx<App>) -> El {
-    let Some(st) = s.stage.filter(|st| !st.knobs.is_empty()) else { return el() };
+/// The story's knobs, beside its stage; `active` with the keyboard on them.
+fn side(s: &App, knobs: &'static [Group], active: bool, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
-    rune_knobs::inline(&s.knobs, st.knobs, knobs_style(&p), |s: &mut App| &mut s.knobs, false)
+    rune_knobs::inline(&s.knobs, knobs, knobs_style(&p), |s: &mut App| &mut s.knobs, active)
 }
 
 /// The stage: the story's component alone on the window's ground.
