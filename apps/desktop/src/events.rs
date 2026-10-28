@@ -87,6 +87,16 @@ impl App {
         changed
     }
 
+    /// Whether `sid`'s transcript is on screen: the open session's family (its page, agent
+    /// rows and subagent panels) is the only place transcripts draw.
+    fn shows_transcript(&self, sid: &str) -> bool {
+        #[cfg(test)]
+        if !crate::perf::candidate(crate::perf::Experiment::QuietBackground) {
+            return true;
+        }
+        matches!(&self.route, Route::Session(open) if self.root_of(open) == self.root_of(sid))
+    }
+
     pub(crate) fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
@@ -103,7 +113,9 @@ impl App {
             changed |= self.apply_revert(ty, data, &sid);
         }
         if let Some(t) = self.transcripts.get_mut(&sid) {
-            changed |= t.apply(ty, data, now);
+            // A transcript shows only in its own family's page, so another session's stream
+            // updates its state without rebuilding the view.
+            changed |= t.apply(ty, data, now) && self.shows_transcript(&sid);
         }
         if ty.starts_with("session.") && !sid.is_empty() {
             if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
