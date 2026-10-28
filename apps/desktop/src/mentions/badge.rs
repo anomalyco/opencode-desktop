@@ -8,7 +8,6 @@ use std::sync::OnceLock;
 
 use opencode_kit::mention::{self, MentionKind, UserMention};
 use rune::{Color, PillStyle};
-use rune_theme_opencode::icons as ic;
 
 use crate::App;
 use crate::palette::Pal;
@@ -46,18 +45,16 @@ pub(super) fn ink(dark: bool) -> &'static Ink {
     if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }
 }
 
-/// A mention's badge, with its kind's icon (a folder's for a `folder` file mention).
-pub fn style(p: &Pal, kind: MentionKind, folder: bool) -> PillStyle {
+/// A mention's badge: a chip and label, no icon, as Desktop draws mentions as text alone.
+pub fn style(p: &Pal, kind: MentionKind) -> PillStyle {
     let k = ink(p.dark);
     let tinted = |c: Color| PillStyle::new().bg(c.alpha(tint(p.dark))).fg(c);
     let neutral = |fg: Color| PillStyle::new().bg(p.text.alpha(neutral(p.dark))).fg(fg);
     match kind {
-        MentionKind::Agent => tinted(k.agent).icon(&ic::BRAIN),
-        MentionKind::File if folder => tinted(k.file).icon(&ic::FOLDER),
-        MentionKind::File => tinted(k.file).icon(&super::FILE_DOCUMENT),
-        MentionKind::Directory => neutral(p.muted).icon(&ic::FOLDER),
-        MentionKind::Skill => neutral(p.text).icon(&super::POST_SKILL),
-        MentionKind::Session => neutral(p.text).icon(&super::SPEECH_BUBBLE),
+        MentionKind::Agent => tinted(k.agent),
+        MentionKind::File => tinted(k.file),
+        MentionKind::Directory => neutral(p.muted),
+        MentionKind::Skill | MentionKind::Session => neutral(p.text),
     }
 }
 
@@ -75,7 +72,7 @@ pub fn kind_of(id: &str) -> Option<MentionKind> {
 /// The composer's pill look by id. Pills that aren't mentions keep Rune's default.
 pub fn pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
     let p = *p;
-    move |id: &str| kind_of(id).map_or_else(PillStyle::new, |k| style(&p, k, id.ends_with('/')))
+    move |id: &str| kind_of(id).map_or_else(PillStyle::new, |k| style(&p, k))
 }
 
 /// The mentions of a prompt sent from the composer, over its trimmed text (what its bubble
@@ -132,12 +129,7 @@ impl App {
     /// Message `id`'s bubble text and badges.
     pub fn bubble_badges(&self, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>) {
         let (text, marks) = bubble(body, &opencode_kit::mention::user_mentions(id), |sid| self.mention_title(sid));
-        let styled = marks.into_iter().map(|(r, k)| {
-            let folder = text[r.clone()].ends_with('/');
-            (r, style(p, k, folder))
-        });
-        let styled = styled.collect();
-        (text, styled)
+        (text, marks.into_iter().map(|(r, k)| (r, style(p, k))).collect())
     }
 }
 

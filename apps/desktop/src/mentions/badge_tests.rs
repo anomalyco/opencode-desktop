@@ -2,7 +2,6 @@ use super::*;
 use crate::mentions::tests::{key, runtime, shown, tap, typed};
 use crate::Route;
 use rune::{Key, KeyEvent, Mods};
-use rune_theme_opencode::icons as ic;
 
 const SESSION: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 
@@ -44,18 +43,18 @@ fn a_badge_is_one_unit_for_the_caret_selection_and_backspace() {
 }
 
 #[test]
-fn every_kind_gets_a_chip_in_its_colour() {
+fn every_kind_gets_a_chip_in_its_colour_and_no_icon() {
     for dark in [false, true] {
         let p = *crate::palette::pal(dark);
         let k = ink(dark);
         let style = pill_style(&p);
         let agent = style("agent:explore");
         let file = style("file:src/a.rs");
-        assert_eq!(format!("{agent:?}"), format!("{:?}", PillStyle::new().bg(k.agent.alpha(tint(dark))).fg(k.agent).icon(&ic::BRAIN)));
-        assert_eq!(format!("{file:?}"), format!("{:?}", PillStyle::new().bg(k.file.alpha(tint(dark))).fg(k.file).icon(&crate::mentions::FILE_DOCUMENT)));
-        assert_eq!(format!("{:?}", style("file:src/")), format!("{:?}", PillStyle::new().bg(k.file.alpha(tint(dark))).fg(k.file).icon(&ic::FOLDER)));
-        assert_eq!(format!("{:?}", style("skill:opencode")), format!("{:?}", PillStyle::new().bg(p.text.alpha(neutral(dark))).fg(p.text).icon(&crate::mentions::POST_SKILL)));
-        assert_eq!(format!("{:?}", style("session:ses_x")), format!("{:?}", PillStyle::new().bg(p.text.alpha(neutral(dark))).fg(p.text).icon(&crate::mentions::SPEECH_BUBBLE)));
+        assert_eq!(format!("{agent:?}"), format!("{:?}", PillStyle::new().bg(k.agent.alpha(tint(dark))).fg(k.agent)));
+        assert_eq!(format!("{file:?}"), format!("{:?}", PillStyle::new().bg(k.file.alpha(tint(dark))).fg(k.file)));
+        assert_eq!(format!("{:?}", style("file:src/")), format!("{:?}", PillStyle::new().bg(k.file.alpha(tint(dark))).fg(k.file)));
+        assert_eq!(format!("{:?}", style("skill:opencode")), format!("{:?}", PillStyle::new().bg(p.text.alpha(neutral(dark))).fg(p.text)));
+        assert_eq!(format!("{:?}", style("session:ses_x")), format!("{:?}", PillStyle::new().bg(p.text.alpha(neutral(dark))).fg(p.text)));
         assert_eq!(format!("{:?}", style("quote:1")), format!("{:?}", PillStyle::new()), "other atoms keep their own look");
     }
 }
