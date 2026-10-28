@@ -123,3 +123,47 @@ fn a_sent_prompt_shows_badges_in_its_bubble_and_sends_the_same_payload() {
     let plain = shown(&rt, &format!("text-{id}")).unwrap().rect[2];
     assert!(badged > plain + 8.0, "badged {badged} vs plain {plain}");
 }
+
+/// At the largest zoom a badge wider than the bubble wraps inside it, as Desktop wraps a long
+/// mention, rather than running past its edge.
+#[test]
+fn a_badge_wider_than_the_bubble_wraps_inside_it_at_the_largest_zoom() {
+    let mut app = App::empty();
+    app.load_fixture(crate::FIXTURE);
+    crate::open_scene(&mut app);
+    app.finish_stream();
+    app.route = Route::Session(SESSION.into());
+    app.zoom = crate::shortcuts::ZOOM_MAX;
+    // Its own message id: the mention store is shared with tests running beside it.
+    app.sends = 700;
+    // Big enough at 3× to keep the new bubble on screen, beside the sidebar.
+    let mut rt = rune::Runtime::new(app, crate::view::app, (2400.0, 2400.0), rune::Env::new(true, 1.0));
+    rt.on_key = Some(crate::on_key);
+    rt.poll = Some(crate::poll);
+    rt.frame(0.0);
+    tap(&mut rt, "prompt");
+    let label = "@Migrate config loader to the new schema";
+    rt.state.composer = rune::TextEdit::new("");
+    rt.state.composer.insert(&format!("as in {label} did"));
+    key(&mut rt, Key::Enter);
+    let id = "msg_zzzzsent0701";
+    mention::set_user_mentions(id, vec![mention::UserMention { range: 6..6 + label.len(), kind: MentionKind::Agent }]);
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    let r = shown(&rt, &format!("text-{id}")).expect("the bubble shows").rect;
+    let glyphs: Vec<[f32; 4]> = rt
+        .instances
+        .iter()
+        // The bubble's rows, from its left edge to the window's (the timeline is all there is).
+        .filter(|i| i.params[1] == rune::render::KIND_GLYPH && i.rect[1] >= r[1] - 1.0 && i.rect[1] + i.rect[3] <= r[1] + r[3] + 1.0 && i.rect[0] >= r[0] - 1.0)
+        .map(|i| i.rect)
+        .collect();
+    assert!(glyphs.len() > label.len() / 2, "the bubble's glyphs are drawn: {} in {r:?}", glyphs.len());
+    let rows = glyphs.iter().map(|g| g[1].round() as i32).collect::<std::collections::BTreeSet<_>>();
+    assert!(rows.len() >= 3, "the badge wraps: {rows:?}");
+    let ends: Vec<(i32, f32)> = rows.iter().map(|&y| (y, glyphs.iter().filter(|g| g[1].round() as i32 == y).map(|g| g[0] + g[2]).fold(0.0, f32::max))).collect();
+    for g in &glyphs {
+        assert!(g[0] >= r[0] - 1.0 && g[0] + g[2] <= r[0] + r[2] + 1.0, "glyph {g:?} inside the bubble's text {r:?}; row ends {ends:?}");
+    }
+}
