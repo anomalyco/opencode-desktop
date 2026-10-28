@@ -3418,6 +3418,7 @@ dependencies = [
  "seer-sync",
  "serde_json",
  "ureq",
+ "wgpu",
 ]
 
 [[package]]
