@@ -138,6 +138,44 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
+    // A steer on a live server's order while it flies: the inbox echoes it under the client's
+    // id, the running reply streams a tool row above it, the run takes it up, and the next
+    // step's start re-reads the page (`served.rs`). Zoomed too, as the flight draws under it.
+    Action { name: "steer-live", circs: || {
+        let mut v = places(streaming());
+        v.push(Circ { zoomed: true, ..streaming() });
+        v.push(Circ { zoomed: true, scrolled: true, ..streaming() });
+        v
+    }, run: |r| {
+        r.start_stream();
+        r.play(1.2);
+        r.type_prompt();
+        r.enter(false);
+        let Some(id) = r.rt.state.inboxes.get(SID).and_then(|i| i.items.last()).map(|i| i.id.clone()) else { return };
+        let text = r.circ.body();
+        let item = json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": text } } });
+        r.event("session.inbox.enqueued", json!({ "sessionID": SID, "inboxID": id, "item": item }));
+        let running = r.rt.state.transcripts.get(SID)
+            .and_then(|t| t.messages.iter().rev().find(|m| matches!(m, opencode_kit::model::Message::Assistant(_))))
+            .map(|m| m.id().to_owned());
+        let tool = |r: &mut Run, reply: &str, call: &str| {
+            r.event("session.tool.input.started", json!({ "sessionID": SID, "assistantMessageID": reply, "id": call, "name": "read" }));
+            r.play(0.03);
+            r.event("session.tool.called", json!({ "sessionID": SID, "assistantMessageID": reply, "id": call, "input": { "filePath": "src/net/reconnect.ts" }, "executed": true }));
+        };
+        if let Some(running) = running {
+            r.play(0.03);
+            tool(r, &running, "call_steer_live_a");
+        }
+        r.play(0.03);
+        r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        r.play(0.03);
+        let model = json!({ "id": "claude-opus-5-5", "providerID": "anthropic", "variant": "high" });
+        r.event("session.step.started", json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzsteerlive", "agent": "build", "model": model }));
+        r.play(0.05);
+        tool(r, "msg_zzzzsteerlive", "call_steer_live_b");
+        r.play_out(1.0);
+    } },
     Action { name: "queue", circs: || sends(streaming(), &[Dock::Pending]), run: |r| {
         r.start_stream();
         r.play(1.2);

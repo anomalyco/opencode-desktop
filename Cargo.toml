@@ -7,13 +7,13 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "796f786417c619658183619c88709e242e1fa68c" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "2ddcc47f4796620fe7c57c4b0aeb3fe3cc9b238c" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 # Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.

@@ -369,7 +369,12 @@ mod tests {
     use crate::{App, Route};
 
     fn busy_app() -> Runtime<App> {
+        busy_app_at(1.0)
+    }
+
+    fn busy_app_at(zoom: f32) -> Runtime<App> {
         let mut app = App::empty();
+        app.zoom = zoom;
         app.load_fixture(crate::FIXTURE);
         crate::open_scene(&mut app);
         app.finish_stream();
@@ -415,7 +420,11 @@ mod tests {
     }
 
     fn settled_busy_app() -> Runtime<App> {
-        let mut rt = busy_app();
+        settled_busy_app_at(1.0)
+    }
+
+    fn settled_busy_app_at(zoom: f32) -> Runtime<App> {
+        let mut rt = busy_app_at(zoom);
         for _ in 0..60 {
             rt.frame(1.0 / 60.0);
         }
@@ -453,8 +462,10 @@ mod tests {
     }
 
     /// Frames each prompt's text through `frames` frames of 120 Hz: every frame at its own
-    /// full size, and one monotonic path (never back, never a one-frame snap).
+    /// full size (laid out before the app's zoom), and one monotonic path (never back, never
+    /// a one-frame snap).
     fn trace(rt: &mut Runtime<App>, keys: &[String], frames: usize) -> Vec<Vec<[f32; 4]>> {
+        let zoom = rt.state.zoom;
         let mut drawn = vec![Vec::new(); keys.len()];
         for f in 0..frames {
             // Frame 0 is the one Enter committed in.
@@ -464,9 +475,9 @@ mod tests {
             for (k, key) in keys.iter().enumerate() {
                 let (rect, target) = text_rect(rt, key).unwrap_or_else(|| panic!("frame {f}: {key} shows"));
                 assert!(
-                    (rect[2] - target[2]).abs() < 0.01 && (rect[3] - target[3]).abs() < 0.01,
-                    "frame {f}: {key} drawn at {:.0}% size: {rect:?} vs {target:?}",
-                    100.0 * rect[3] / target[3]
+                    (rect[2] - target[2] * zoom).abs() < 0.05 && (rect[3] - target[3] * zoom).abs() < 0.05,
+                    "frame {f}: {key} drawn at {:.0}% size: {rect:?} vs {target:?} at {zoom}×",
+                    100.0 * rect[3] / (target[3] * zoom)
                 );
                 drawn[k].push(rect);
             }
@@ -490,16 +501,6 @@ mod tests {
         rt.elements().into_iter().find(|e| e.key.as_deref() == Some("prompt")).unwrap().rect
     }
 
-    /// A steer flies nowhere: from the frame Enter commits in, its words stand in their column,
-    /// not the composer's, and only ride up with the pinned timeline as it follows the insert.
-    fn in_place(rt: &Runtime<App>, rects: &[[f32; 4]], what: &str) {
-        let last = rects[rects.len() - 1];
-        assert!((rects[0][0] - typed_at(rt)[0]).abs() > 20.0, "{what} leaves from the composer: {:?}", rects[0]);
-        for (f, r) in rects.iter().enumerate() {
-            assert!((r[0] - last[0]).abs() < 0.5, "{what} drifts sideways on frame {f}: {r:?} vs {last:?}");
-        }
-    }
-
     /// The first frame of a flight out of the composer: its words a frame from the typed ones.
     fn leaves_composer(rt: &Runtime<App>, rects: &[[f32; 4]]) {
         let (typed, first) = (typed_at(rt), rects[0]);
@@ -509,19 +510,73 @@ mod tests {
         assert!(land >= 24, "flies over {land} frames");
     }
 
+    /// What a live server sends while a steer flies: its inbox echo under the client's id, rows
+    /// streaming into the running reply above it, its delivery, and the next step, whose start
+    /// re-reads the page.
+    fn live_steer_events(rt: &mut Runtime<App>, id: &str, text: &str) {
+        use serde_json::json;
+        let Route::Session(sid) = rt.state.route.clone() else { panic!("no open session") };
+        let running = rt.state.transcripts[&sid].messages.iter().rev().find(|m| matches!(m, crate::Message::Assistant(_))).unwrap().id().to_owned();
+        let next = "msg_zzzzsteerreply";
+        let item = json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": text } } });
+        let model = json!({ "id": "claude-opus-5-5", "providerID": "anthropic", "variant": "high" });
+        let tool = |reply: &str, call: &str| {
+            [
+                ("session.tool.input.started", json!({ "sessionID": sid, "assistantMessageID": reply, "id": call, "name": "read" })),
+                ("session.tool.called", json!({ "sessionID": sid, "assistantMessageID": reply, "id": call, "input": { "filePath": "src/net/reconnect.ts" }, "executed": true })),
+            ]
+        };
+        let mut script = vec![(0.02, "session.inbox.enqueued", json!({ "sessionID": sid, "inboxID": id, "item": item }))];
+        script.extend(tool(&running, "call_live_a").map(|(ty, d)| (0.05, ty, d)));
+        script.push((0.09, "session.inbox.delivered", json!({ "sessionID": sid, "inboxID": id })));
+        script.push((0.12, "session.step.started", json!({ "sessionID": sid, "assistantMessageID": next, "agent": "build", "model": model })));
+        script.extend(tool(next, "call_live_b").map(|(ty, d)| (0.18, ty, d)));
+        let at = rt.state.clock;
+        for (t, ty, d) in script {
+            rt.state.playback.push_back((at + t, ty.into(), d));
+        }
+        rt.state.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
+    }
+
+    /// A steer rises out of the composer into its spot, as an idle send does, at full size on
+    /// one path while the live server echoes, streams, delivers and re-reads the page under it.
+    fn steer_flies_through_the_live_events(zoom: f32) {
+        let mut rt = settled_busy_app_at(zoom);
+        let text = "Use tabs, not spaces, everywhere in the parser module please";
+        let id = type_and_submit(&mut rt, text, false);
+        let key = format!("text-{id}");
+        live_steer_events(&mut rt, &id, text);
+        let drawn = trace(&mut rt, std::slice::from_ref(&key), 120);
+        leaves_composer(&rt, &drawn[0]);
+        let (first, last) = (drawn[0][0], drawn[0][119]);
+        assert!(first[1] > last[1] + 20.0, "rises into the timeline: {first:?} to {last:?}");
+        let sid = match &rt.state.route { Route::Session(s) => s.clone(), _ => unreachable!() };
+        assert!(rt.state.transcripts[&sid].messages.iter().any(|m| m.id() == id), "delivered under its own id");
+    }
+
     #[test]
-    fn a_steer_shows_in_place_at_once_and_keeps_its_identity_when_delivered() {
+    fn a_steer_flies_out_of_the_composer_through_the_live_events() {
+        steer_flies_through_the_live_events(1.0);
+    }
+
+    #[test]
+    fn a_steer_flies_at_full_size_when_the_app_is_zoomed() {
+        steer_flies_through_the_live_events(1.6);
+    }
+
+    #[test]
+    fn a_steer_keeps_its_identity_when_delivered() {
         let mut rt = settled_busy_app();
         let first = type_and_submit(&mut rt, "Use tabs, not spaces, everywhere in the parser module please", false);
         let a = format!("text-{first}");
         let drawn = trace(&mut rt, std::slice::from_ref(&a), 90);
-        in_place(&rt, &drawn[0], "the steer");
+        leaves_composer(&rt, &drawn[0]);
 
-        // A second Enter stacks a second steer under the first, also where it rests.
+        // A second Enter stacks a second steer under the first, flying in too.
         let second = type_and_submit(&mut rt, "And keep the cap at 30s.", false);
         let b = format!("text-{second}");
         let drawn = trace(&mut rt, &[a.clone(), b.clone()], 90);
-        in_place(&rt, &drawn[1], "the second steer");
+        leaves_composer(&rt, &drawn[1]);
 
         // The server takes the first: it stays the same element, where it was, at full size.
         let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
