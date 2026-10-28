@@ -87,6 +87,17 @@ impl App {
         self.show_draft();
     }
 
+    /// When the window closes: the newest draft goes out, and every write waits to land.
+    pub fn save_on_close(&mut self) {
+        if let crate::Source::Live { server, .. } = &self.source
+            && self.persists()
+        {
+            let base = server.base.clone();
+            self.poll_restore(&base);
+        }
+        crate::disk::flush();
+    }
+
     /// Swaps the composer's text when the route moves to another draft.
     fn show_draft(&mut self) {
         let key = draft_key(&self.route);
@@ -120,8 +131,8 @@ impl App {
         json!({ "route": route_json(&self.route), "drafts": drafts, "sidebar": self.sidebar_open })
     }
 
-    /// Called every poll: keeps drafts per route and writes the file on any change (it's a few
-    /// hundred bytes, renamed into place).
+    /// Called every poll: keeps drafts per route and, on any change, writes the file off the UI
+    /// thread (it's a few hundred bytes, renamed into place).
     pub fn poll_restore(&mut self, server: &str) {
         self.show_draft();
         let v = self.ui_json();
@@ -129,15 +140,13 @@ impl App {
             return;
         }
         let Some(path) = file() else { return };
-        let mut all = read();
-        all[server] = v.clone();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, all.to_string()).is_ok() && std::fs::rename(tmp, path).is_ok() {
-            self.restore.saved = Some(v);
-        }
+        self.restore.saved = Some(v.clone());
+        let server = server.to_owned();
+        crate::disk::later("ui", move || {
+            let mut all = read();
+            all[server] = v;
+            crate::disk::replace(&path, all.to_string().as_bytes());
+        });
     }
 }
 

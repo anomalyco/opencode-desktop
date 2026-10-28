@@ -167,16 +167,19 @@ pub fn save(server: &str, tabs: &[Tab]) {
     if cfg!(test) {
         return;
     }
+    let list: Value = tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "directory": t.directory })).collect();
+    update("tabs", server.to_owned(), list);
+}
+
+/// Sets `key` in the tabs file, off the UI thread. Tabs and zoom share the file, so each read
+/// and write happens on the saves thread, in order.
+fn update(slot: &'static str, key: String, value: Value) {
     let Some(path) = file() else { return };
-    let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
-    v[server] = tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "directory": t.directory })).collect();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, v.to_string()).is_ok() {
-        let _ = std::fs::rename(tmp, path);
-    }
+    crate::disk::later(slot, move || {
+        let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
+        v[key] = value;
+        crate::disk::replace(&path, v.to_string().as_bytes());
+    });
 }
 
 /// The saved UI zoom (1.0 is 100%), kept in the same file under its own key.
@@ -186,16 +189,7 @@ pub fn load_zoom() -> Option<f32> {
 }
 
 pub fn save_zoom(zoom: f32) {
-    let Some(path) = file() else { return };
-    let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
-    v["zoom"] = json!(f64::from((zoom * 100.0).round()) / 100.0);
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, v.to_string()).is_ok() {
-        let _ = std::fs::rename(tmp, path);
-    }
+    update("zoom", "zoom".into(), json!(f64::from((zoom * 100.0).round()) / 100.0));
 }
 
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently

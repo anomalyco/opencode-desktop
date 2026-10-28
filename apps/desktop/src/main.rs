@@ -14,6 +14,7 @@ mod compaction_stories;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
+mod disk;
 mod dropzone;
 mod events;
 mod frosted_stories;
@@ -466,7 +467,11 @@ impl App {
         self.opened.push(url.to_owned());
         if self.live() {
             let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-            let _ = std::process::Command::new(opener).arg(url).spawn();
+            // Off the UI thread, and waited on so the opener doesn't linger as a zombie.
+            let url = url.to_owned();
+            std::thread::spawn(move || {
+                let _ = std::process::Command::new(opener).arg(url).status();
+            });
         }
     }
 
@@ -824,6 +829,8 @@ fn main() {
         let mut motion_log = motion_log::Log::default();
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
             .on_frame_drawn(move |rt| motion_log.frame(rt))
+            .on_close(|s, _| s.save_on_close())
             .run();
+        disk::flush();
     }
 }

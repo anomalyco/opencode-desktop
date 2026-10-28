@@ -68,18 +68,16 @@ fn read(path: &std::path::Path) -> Settings {
 
 fn save(settings: &Settings) {
     if let Some(path) = file() {
-        write(&path, settings);
+        let json = settings.to_json().to_string();
+        crate::disk::later("settings", move || {
+            crate::disk::replace(&path, json.as_bytes());
+        });
     }
 }
 
+#[cfg(test)]
 fn write(path: &std::path::Path, settings: &Settings) {
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let tmp = path.with_extension("json.tmp");
-    if std::fs::write(&tmp, settings.to_json().to_string()).is_ok() {
-        let _ = std::fs::rename(tmp, path);
-    }
+    crate::disk::replace(path, settings.to_json().to_string().as_bytes());
 }
 
 impl App {
