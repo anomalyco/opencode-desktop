@@ -111,11 +111,12 @@ fn tag(p: &Pal, agent: &str) -> El {
 }
 
 /// The run time, rolling like an odometer, right-aligned in a slot wide enough for "59s", so
-/// ticking never moves what sits beside it.
+/// ticking never moves what sits beside it. The slot slides on the odometer's own spring (no
+/// width lead), which its digits roll on, so they hold their columns as it widens.
 fn time(p: &Pal, call: &str, ms: Option<i64>) -> Option<El> {
     let ms = ms?;
     let t = odometer_end(format!("time-{call}"), elapsed(ms), (ms / 1000) as f64, UI_SMALL.lh(16.0), p.faint);
-    Some(row().key("time").min_w(24.0).justify_end().motion(crate::odometer::SPRING).width_leads().child(t))
+    Some(row().key("time").min_w(24.0).justify_end().motion(crate::odometer::SPRING).child(t))
 }
 
 /// The words a task's title shows in, fading out where they're cut.
