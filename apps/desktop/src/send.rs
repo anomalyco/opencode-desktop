@@ -14,7 +14,7 @@ impl App {
             return self.submit_shell(alternate, tx);
         }
         let wire = self.mention_wire();
-        if wire.text.is_empty() && !self.attach.any() {
+        if wire.text.is_empty() && !self.attach.any() && !self.quote.any() {
             return;
         }
         if !self.attach.uploading.is_empty() {
@@ -23,11 +23,15 @@ impl App {
         }
         self.close_mentions();
         let command = self.slash_command(&wire.text);
-        // Commands take no path attachments; they wait in the composer for the next prompt.
+        // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
         let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
+        let quotes = if command.is_none() { self.quote.quotes() } else { Vec::new() };
         let text = match &command {
             Some((_, args)) => args.clone(),
-            None => attachments::path_lines(&wire.text, &refs),
+            None => {
+                let quoted = quotes.iter().map(opencode_kit::model::Quote::prompt_text);
+                std::iter::once(attachments::path_lines(&wire.text, &refs)).filter(|t| !t.is_empty()).chain(quoted).collect::<Vec<_>>().join("\n")
+            }
         };
         // The server's user message takes this id, so it replaces the local copy below.
         let prompt = Prompt {
@@ -40,10 +44,12 @@ impl App {
             delivery: None,
             attachments: refs,
             command: command.map(|(name, _)| name),
+            quotes,
         };
         if prompt.command.is_some() {
             return self.send_command(prompt, alternate, tx);
         }
+        let quotes = prompt.quotes.clone();
         if let Route::Session(id) = self.route.clone()
             && self.busy(&id)
         {
@@ -64,6 +70,7 @@ impl App {
                     self.status = "Starting a session…".into();
                     self.composer.clear();
                     self.attach.files.clear();
+                    self.quote.take();
                 }
                 return;
             }
@@ -112,6 +119,8 @@ impl App {
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         self.echo_mentions(&local);
+        opencode_kit::model::set_user_quotes(&local, quotes);
+        self.quote.take();
         // It rises out of the composer, its words where they were typed, when the timeline shows
         // its end; read further up, it lands out of view, so nothing flies.
         if self.ends.at_end(&id) {

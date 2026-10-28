@@ -56,6 +56,7 @@ impl App {
             return;
         }
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));
+        model::set_user_quotes(&id, self.quote.take());
         self.inboxes.entry(session.to_owned()).or_default().upsert(item);
         self.composer.clear();
     }
@@ -140,7 +141,14 @@ impl App {
 /// What a pending steer's bubble says: its words, or its attachment count when it has none.
 pub fn pending_label(item: &InboxItem) -> String {
     let files = model::user_files(&item.id).len().max(item.files.len());
-    if item.text.trim().is_empty() { attachments_label(files) } else { item.text.clone() }
+    let quotes = model::user_quotes(&item.id).len();
+    match (item.text.trim().is_empty(), quotes) {
+        (false, _) => item.text.clone(),
+        (true, 0) => attachments_label(files),
+        (true, 1) if files == 0 => "1 quote".into(),
+        (true, n) if files == 0 => format!("{n} quotes"),
+        (true, _) => attachments_label(files + quotes),
+    }
 }
 
 /// A pending steer's Move to queue and Delete, where a prompt's copy button goes (see

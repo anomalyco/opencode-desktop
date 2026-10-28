@@ -260,15 +260,19 @@ impl RowSpec {
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
             RowContent::User { message, tight, above, below } => match &t.messages[*message] {
-                Message::User { id, text, .. } => user_bubble(s, p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at)), None),
+                Message::User { id, text, .. } => {
+                    let glow = s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at));
+                    user_bubble(s, p, id, text, *tight, *above, *below, glow, None, crate::quote_cards::on_message(s, p, id, text))
+                }
                 _ => unreachable!(),
             },
             RowContent::Pending { id, tight, above, below } => {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
-                        let label = crate::queue::pending_label(item);
-                        user_bubble(s, p, id, &label, *tight, *above, *below, 0.0, Some(&t.session))
+                        let cards = crate::quote_cards::on_message(s, p, id, &item.text);
+                        let label = if cards.is_some() { item.text.clone() } else { crate::queue::pending_label(item) };
+                        user_bubble(s, p, id, &label, *tight, *above, *below, 0.0, Some(&t.session), cards)
                     }
                     None => col(),
                 }
@@ -338,6 +342,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
+        .on_selection_change(crate::quote::selection_changed)
         .growth(GrowthSpec { spring: crate::knobs::growth(&s.knobs), edge: e });
     #[cfg(test)]
     let eager = EAGER_ROWS.get();
@@ -404,7 +409,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                     None => pending.first().is_some_and(|n| prompts_join(body, n)),
                 };
                 let tight = prompt_images(&mut out, id);
-                if !body.trim().is_empty() {
+                if !body.trim().is_empty() || !model::user_quotes(id).is_empty() {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below }, streaming: false });
                 }
             }
@@ -548,7 +553,11 @@ pub(super) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 ///
 /// `pending` (the session) draws an undelivered steer: muted, with Move to queue and Delete in
 /// copy's place, and the run's last one marked Pending under its bubble at all times.
-pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>) -> El {
+///
+/// `quotes` are the prompt's quote cards: inside the bubble under its words, or in its place
+/// when it has none.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
     let words = body.to_owned();
     let copy = match pending {
         Some(session) => crate::queue::pending_actions(p, session, id, below),
@@ -589,9 +598,14 @@ pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, a
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges) = s.bubble_badges(p, id, body);
     bubble = bubble.child(readable(p, text(shown).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges)));
+    let mut face = match quotes {
+        Some(cards) if body.trim().is_empty() => cards,
+        Some(cards) => bubble.w(342.0).pb(12.0).child(cards),
+        None => bubble,
+    };
     let copy = if below {
         let x = if pending.is_some() { -52.0 } else { -28.0 };
-        bubble = bubble.child(copy.absolute(x, 8.5));
+        face = face.child(copy.absolute(x, 8.5));
         None
     } else {
         Some(copy)
@@ -601,7 +615,7 @@ pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, a
         .pt(if above { 4.0 } else if tight { 8.0 } else { 16.0 })
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(bubble)));
+        .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
     c.children(copy.map(|copy| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(copy)))
 }
 

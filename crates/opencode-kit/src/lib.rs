@@ -5,3 +5,4 @@ pub mod client;
 pub mod mention;
 pub mod model;
 pub mod pairing;
+pub mod quote;

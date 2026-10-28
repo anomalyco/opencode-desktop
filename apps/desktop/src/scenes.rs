@@ -81,6 +81,8 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         // `story` alone opens the first. Scripts replay a story with its trigger keys.
         ("story", |s| stories::scene(s, "Composer")),
         ("story-morph", |s| stories::scene(s, "Morph")),
+        // With `scripts/quote.json`: drag over the first prompt, Quote, and the card in the composer.
+        ("story-quote", |s| stories::scene(s, "Quote")),
         ("story-long", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 3)),
         ("story-typing", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 4)),
         ("story-custom", |s| stories::scene_variant(s, "Custom answer", crate::stories::CUSTOM_ANSWER, 0)),

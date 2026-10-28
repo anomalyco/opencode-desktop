@@ -34,6 +34,8 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
     ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
+    ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
+    ("pop-out", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
 ];
 
 struct Action {

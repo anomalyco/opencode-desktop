@@ -33,6 +33,9 @@ mod queue;
 mod question;
 mod question_row;
 mod question_stories;
+mod quote;
+mod quote_cards;
+mod quote_stories;
 mod restore;
 mod revert;
 mod scenes;
@@ -142,6 +145,8 @@ pub struct App {
     pub composer: TextEdit,
     /// The composer's images, and sent prompts waiting on the server's copy.
     pub attach: attachments::Attach,
+    /// The Quote button over a timeline selection, and the quotes waiting in the composer.
+    pub quote: quote::Quotes,
     pub search: TextEdit,
     /// Session menus, the title being renamed and Delete's confirmation.
     pub menus: session_menu::Menus,
@@ -255,6 +260,7 @@ impl App {
             sidebar_drag: None,
             composer: TextEdit::new(""),
             attach: Default::default(),
+            quote: Default::default(),
             search: TextEdit::new(""),
             menus: Default::default(),
             pickers: pickers::Pickers::default(),
@@ -605,6 +611,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = stories::poll(s, now, tx);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
+    changed |= quote::poll(s, now, tx);
     changed |= s.poll_pages(tx);
     let arrivals = arrivals::Arrivals::before(s);
     let asked = s.question_shown();

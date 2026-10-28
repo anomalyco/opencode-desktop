@@ -575,10 +575,11 @@ pub fn reconcile(echoes: &mut Vec<(String, String, String)>, t: &mut Transcript,
 /// The composer's attachments (`editor.tsx`): an image is a 58×46 thumbnail, any other file a
 /// 160 px card with its name and type, and each shows a round remove button on hover.
 pub fn chips(s: &App, p: &Pal) -> Option<El> {
-    if !s.attach.any() && s.attach.uploading.is_empty() {
+    if !s.attach.any() && s.attach.uploading.is_empty() && !s.quote.any() {
         return None;
     }
-    let mut r = row().key("attachments").w_full().px(8.0).pt(8.0).pb(4.0).gap(8.0).flex_wrap();
+    // Quotes come first (`editor.tsx`).
+    let mut r = row().key("attachments").w_full().px(8.0).pt(8.0).pb(4.0).gap(8.0).flex_wrap().children(crate::quote_cards::chips(s, p));
     for f in &s.attach.files {
         let id = identity(f);
         let img = s.attach.image(f);

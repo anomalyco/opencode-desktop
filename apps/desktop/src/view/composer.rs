@@ -37,7 +37,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
-    let ready = !s.composer.text.trim().is_empty() || (s.attach.any() && !s.add.shell);
+    let ready = !s.composer.text.trim().is_empty() || ((s.attach.any() || s.quote.any()) && !s.add.shell);
     let busy = matches!(&s.route, Route::Session(id) if s.busy(id));
     // While dictating, Send finishes and sends with the words (dictation::submit), as on iOS.
     let stop = busy && !ready && !s.dictation.active();
@@ -83,7 +83,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
                     .pill_style(crate::mentions::badge::pill_style(p))
-                    .on_input_change(|s: &mut App, tx| s.mentions_changed(tx))
+                    .on_input_change(|s: &mut App, tx| { crate::quote::typed(s, tx); s.mentions_changed(tx) })
                     .on_input_key(|s: &mut App, ev, tx| {
                         if s.mention_key(ev, tx) || s.add_key(ev, tx) {
                             return true;

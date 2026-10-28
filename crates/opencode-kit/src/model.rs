@@ -12,6 +12,7 @@ mod compaction;
 mod compaction_tests;
 
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
+pub use crate::quote::{Quote, set_user_quotes, user_quotes};
 
 #[derive(Clone, Debug)]
 pub struct Project {
@@ -487,7 +488,7 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             }
             let text = s(&m["text"]);
             crate::mention::record(&id, &text, m);
-            Message::User { id, text }
+            Message::User { text: quoted_text(&id, text, &m["metadata"]), id }
         }
         "assistant" => Message::Assistant(Assistant {
             id,
@@ -501,6 +502,23 @@ pub fn parse_message(m: &Value) -> Option<Message> {
         "compaction" => Message::Compaction(Compaction::parse(m)),
         _ => return None,
     })
+}
+
+/// A user message's text without the quotes it carries for the model, which its bubble shows
+/// as cards (see [`user_quotes`]); the typed text when they aren't at its end as Desktop puts them.
+fn quoted_text(id: &str, text: String, metadata: &Value) -> String {
+    let Some((display, quotes)) = crate::quote::parse_metadata(metadata).filter(|(_, q)| !q.is_empty()) else { return text };
+    let tail: Vec<String> = quotes.iter().map(Quote::prompt_text).collect();
+    let tail = tail.join("\n");
+    set_user_quotes(id, quotes);
+    match text.strip_suffix(tail.as_str()) {
+        Some(head) => head.strip_suffix('\n').unwrap_or(head).to_owned(),
+        None => {
+            // The recorded mention offsets index the raw text, not this one.
+            crate::mention::set_user_mentions(id, Vec::new());
+            display
+        }
+    }
 }
 
 /// Messages in chronological order from one `desc` page.
@@ -559,6 +577,9 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
     }
     let payload = &item["payload"];
     let text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
+    if let Some((_, quotes)) = crate::quote::parse_metadata(&payload["metadata"]) {
+        set_user_quotes(&s(id), quotes);
+    }
     Some(InboxItem { id: s(id), text, delivery: Delivery::parse(&item["delivery"])?, files: parse_attachments(&payload["files"]) })
 }
 
@@ -1243,5 +1264,18 @@ mod tests {
         let Some(Message::Assistant(a)) = m else { panic!() };
         let errors: Vec<_> = a.parts.iter().map(|p| match p { Part::Tool { metadata, .. } => tool_error(metadata), _ => None }).collect();
         assert_eq!(errors, [Some("boom"), None]);
+    }
+
+    #[test]
+    fn a_quoted_prompt_shows_its_typed_text_and_keeps_its_quotes() {
+        let q = Quote { text: "a\nb".into(), comment: None };
+        let m = serde_json::json!({"id": "msg_quoted", "type": "user", "text": format!("look\nAttached file: `/x`\n{}", q.prompt_text()),
+            "metadata": {"displayText": "look", "comments": [q.json()], "attachments": []}});
+        let Some(Message::User { text, .. }) = parse_message(&m) else { panic!() };
+        assert_eq!(text, "look\nAttached file: `/x`");
+        assert_eq!(user_quotes("msg_quoted").as_ref(), [q.clone()]);
+        let only = serde_json::json!({"id": "msg_only", "type": "user", "text": q.prompt_text(), "metadata": {"displayText": "", "comments": [q.json()]}});
+        let Some(Message::User { text, .. }) = parse_message(&only) else { panic!() };
+        assert_eq!(text, "");
     }
 }

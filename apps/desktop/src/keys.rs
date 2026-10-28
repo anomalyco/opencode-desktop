@@ -17,6 +17,10 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             tx.settle();
             true
         }
+        Key::Escape if crate::quote::dismiss(s) => {
+            tx.instant();
+            true
+        }
         Key::Escape if s.opening.is_some() => {
             s.cancel_open(tx);
             true

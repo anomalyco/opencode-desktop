@@ -103,6 +103,9 @@ pub struct Prompt {
     /// A slash command to run with `text` as its arguments (`POST …/command`) instead of a
     /// prompt.
     pub command: Option<String>,
+    /// Text quoted from the conversation. `text` already carries each one's
+    /// [`Quote::prompt_text`](crate::quote::Quote::prompt_text); these go in `metadata.comments`.
+    pub quotes: Vec<crate::quote::Quote>,
 }
 
 /// A file attached by its path on the server (`PromptAttachmentReference`).
@@ -158,13 +161,14 @@ impl Prompt {
             body["id"] = id.clone().into();
         }
         let display = self.display_text.as_ref().filter(|d| **d != self.text);
-        if display.is_some() || !self.attachments.is_empty() {
+        if display.is_some() || !self.attachments.is_empty() || !self.quotes.is_empty() {
             // Desktop reads `displayText` only beside a `comments` list.
             let attachments: Vec<Value> =
                 self.attachments.iter().map(|a| serde_json::json!({ "name": a.name, "mime": a.mime, "path": a.path })).collect();
+            let comments: Vec<Value> = self.quotes.iter().map(crate::quote::Quote::json).collect();
             body["metadata"] = serde_json::json!({
                 "displayText": display.unwrap_or(&self.text),
-                "comments": [],
+                "comments": comments,
                 "attachments": attachments,
             });
         }
@@ -1028,6 +1032,13 @@ mod tests {
                 "text": "look\nAttached file: `/tmp/a.log`",
                 "metadata": {"displayText": "look", "comments": [], "attachments": [{"name": "a.log", "mime": "text/plain", "path": "/tmp/a.log"}]},
             })
+        );
+
+        let quote = crate::quote::Quote { text: "a\nb".into(), comment: Some("why".into()) };
+        let quoted = Prompt { text: format!("look\n{}", quote.prompt_text()), display_text: Some("look".into()), quotes: vec![quote], ..Default::default() };
+        assert_eq!(
+            quoted.body()["metadata"],
+            serde_json::json!({"displayText": "look", "comments": [{"type": "quote", "text": "a\nb", "comment": "why"}], "attachments": []})
         );
 
         let (base, h) = mock_once();

@@ -1,0 +1,7 @@
+{
+  "events": [
+    { "t": 1.0, "type": "drag", "x": 445, "y": 97, "dx": 205, "dy": 0, "dur": 0.5 },
+    { "t": 2.3, "type": "tap", "key": "quote-add" },
+    { "t": 3.6, "type": "move", "x": 900, "y": 400 }
+  ]
+}
