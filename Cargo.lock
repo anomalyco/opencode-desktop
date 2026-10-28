@@ -3043,15 +3043,6 @@ version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=fbb13ec35fe2e57c8071c75f6e3df8fae252c053#fbb13ec35fe2e57c8071c75f6e3df8fae252c053"
 
 [[package]]
-name = "rune-playground"
-version = "0.0.1"
-dependencies = [
- "rune",
- "rune-kit",
- "rune-knobs",
-]
-
-[[package]]
 name = "rune-rolling"
 version = "0.0.1"
 dependencies = [
@@ -3245,7 +3236,6 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-mac",
- "rune-playground",
  "rune-rolling",
  "rune-theme-opencode",
  "seer-domain",
