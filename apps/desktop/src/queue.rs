@@ -47,8 +47,8 @@ impl App {
     }
 
     /// Admits a prompt sent while the session is busy: shown at once, as Desktop does, and
-    /// replaced by the server's copy when `session.inbox.enqueued` echoes it. A steer rises whole
-    /// into the timeline as a send does, and the queue panel rises from behind the composer.
+    /// replaced by the server's copy when `session.inbox.enqueued` echoes it. A steer shows at
+    /// once where it rests, flying nowhere, and the queue panel rises from behind the composer.
     pub fn admit(&mut self, session: &str, mut prompt: Prompt, delivery: Delivery) {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
@@ -490,6 +490,16 @@ mod tests {
         rt.elements().into_iter().find(|e| e.key.as_deref() == Some("prompt")).unwrap().rect
     }
 
+    /// A steer flies nowhere: from the frame Enter commits in, its words stand in their column,
+    /// not the composer's, and only ride up with the pinned timeline as it follows the insert.
+    fn in_place(rt: &Runtime<App>, rects: &[[f32; 4]], what: &str) {
+        let last = rects[rects.len() - 1];
+        assert!((rects[0][0] - typed_at(rt)[0]).abs() > 20.0, "{what} leaves from the composer: {:?}", rects[0]);
+        for (f, r) in rects.iter().enumerate() {
+            assert!((r[0] - last[0]).abs() < 0.5, "{what} drifts sideways on frame {f}: {r:?} vs {last:?}");
+        }
+    }
+
     /// The first frame of a flight out of the composer: its words a frame from the typed ones.
     fn leaves_composer(rt: &Runtime<App>, rects: &[[f32; 4]]) {
         let (typed, first) = (typed_at(rt), rects[0]);
@@ -500,22 +510,18 @@ mod tests {
     }
 
     #[test]
-    fn a_steer_rises_whole_at_full_size_and_keeps_its_identity_when_delivered() {
+    fn a_steer_shows_in_place_at_once_and_keeps_its_identity_when_delivered() {
         let mut rt = settled_busy_app();
         let first = type_and_submit(&mut rt, "Use tabs, not spaces, everywhere in the parser module please", false);
         let a = format!("text-{first}");
         let drawn = trace(&mut rt, std::slice::from_ref(&a), 90);
-        leaves_composer(&rt, &drawn[0]);
-        let ys: Vec<f32> = drawn[0].iter().map(|r| r[1]).collect();
-        assert!(ys[0] > ys[ys.len() - 1] + 20.0, "it rises into place: {ys:?}");
+        in_place(&rt, &drawn[0], "the steer");
 
-        // A second Enter stacks a second steer under the first; both travel on one path.
+        // A second Enter stacks a second steer under the first, also where it rests.
         let second = type_and_submit(&mut rt, "And keep the cap at 30s.", false);
         let b = format!("text-{second}");
         let drawn = trace(&mut rt, &[a.clone(), b.clone()], 90);
-        leaves_composer(&rt, &drawn[1]);
-        let ys: Vec<f32> = drawn[1].iter().map(|r| r[1]).collect();
-        assert!(ys[0] > ys[ys.len() - 1] + 20.0, "the second rises into place: {ys:?}");
+        in_place(&rt, &drawn[1], "the second steer");
 
         // The server takes the first: it stays the same element, where it was, at full size.
         let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();

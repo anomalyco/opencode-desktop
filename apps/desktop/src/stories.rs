@@ -575,7 +575,7 @@ fn actions_open(s: &mut App, tx: &mut Play<App>) {
     tx.after(1.0, finish);
 }
 
-/// A steer sent while the session works rises as Pending, and lands when it's delivered.
+/// A steer sent while the session works shows in place as Pending, and lands when it's delivered.
 fn steer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);

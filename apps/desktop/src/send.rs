@@ -58,8 +58,8 @@ impl App {
             self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
             if alternate {
                 tx.launch("prompt", format!("queued-{local}"));
-            } else {
-                self.land(&id, &local, tx);
+            } else if !self.ends.at_end(&id) {
+                tx.scroll_to_bottom_instant(format!("scroll-{id}"));
             }
             return;
         }
