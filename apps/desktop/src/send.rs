@@ -48,6 +48,7 @@ impl App {
             && self.busy(&id)
         {
             let local = prompt.id.clone().unwrap_or_default();
+            self.echo_mentions(&local);
             self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
             tx.launch("prompt", if alternate { format!("queued-{local}") } else { format!("u-{local}/bubble") });
             return;
@@ -106,6 +107,7 @@ impl App {
             }
         };
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
+        self.echo_mentions(&local);
         // It rises out of the composer, its words where they were typed.
         tx.launch("prompt", format!("u-{local}/bubble"));
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });

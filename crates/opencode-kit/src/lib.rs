@@ -2,5 +2,6 @@
 //! sessions and transcripts they describe (`model`).
 
 pub mod client;
+pub mod mention;
 pub mod model;
 pub mod pairing;

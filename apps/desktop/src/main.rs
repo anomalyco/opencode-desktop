@@ -33,6 +33,7 @@ mod question_stories;
 mod restore;
 mod revert;
 mod scenes;
+mod mention_stories;
 mod selection_stories;
 mod session_menu;
 mod session_menu_stories;

@@ -448,7 +448,9 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             if !files.is_empty() {
                 set_user_files(&id, files);
             }
-            Message::User { id, text: s(&m["text"]) }
+            let text = s(&m["text"]);
+            crate::mention::record(&id, &text, m);
+            Message::User { id, text }
         }
         "assistant" => Message::Assistant(Assistant {
             id,
@@ -652,7 +654,9 @@ impl Transcript {
             "session.prompted" | "session.user.message" => {
                 let id = s(&d["messageID"]);
                 if !id.is_empty() && !self.messages.iter().any(|m| m.id() == id) {
-                    self.messages.push(Message::User { id, text: s(&d["text"]) });
+                    let text = s(&d["text"]);
+                    crate::mention::record(&id, &text, d);
+                    self.messages.push(Message::User { id, text });
                 }
             }
             "session.step.started" => {

@@ -82,7 +82,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .placeholder(if s.add.shell { "Enter shell command…" } else { "Ask anything, / for commands, @ for context…" }, p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.composer)
-                    .pill_style(crate::mentions::pill_style(p))
+                    .pill_style(crate::mentions::badge::pill_style(p))
                     .on_input_change(|s: &mut App, tx| s.mentions_changed(tx))
                     .on_input_key(|s: &mut App, ev, tx| {
                         if s.mention_key(ev, tx) || s.add_key(ev, tx) {

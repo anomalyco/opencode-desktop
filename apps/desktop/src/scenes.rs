@@ -115,6 +115,8 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-delete", |s| session_menu_stories::scene(s, 6)),
         ("story-actions", |s| stories::scene(s, "Turn actions")),
         ("story-dictation", |s| stories::scene(s, "Dictation")),
+        ("story-mentions", |s| crate::mention_stories::scene(s, false)),
+        ("story-mentions-dark", |s| crate::mention_stories::scene(s, true)),
         // The story's agents' timeline rows: three, light and dark, and one on its own.
         ("story-rows", |s| agent_stories::scene(s, 1, false)),
         ("story-rows-dark", |s| agent_stories::scene(s, 1, true)),

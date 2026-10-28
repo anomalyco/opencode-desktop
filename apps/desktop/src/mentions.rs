@@ -7,10 +7,10 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
-use rune::{Color, El, Icon, Key, KeyEvent, PillStyle, Tx, col, icon, row, text};
+use rune::{Color, El, Icon, Key, KeyEvent, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -20,6 +20,8 @@ use opencode_kit::model::{self, SessionInfo};
 use crate::palette::Pal;
 use crate::view::{UI, title_of};
 use crate::{App, Route, Source};
+
+pub mod badge;
 
 /// Session rows: Desktop shows 8 for a query and 5 without.
 const SESSIONS_QUERY: usize = 8;
@@ -119,6 +121,11 @@ impl Default for Mentions {
 }
 
 impl Mentions {
+    /// A session the `@` search found.
+    pub fn found_session(&self, id: &str) -> Option<&SessionInfo> {
+        self.found.iter().find(|s| s.id == id)
+    }
+
     /// Fixture data in the server's shapes: `agent_list` as `/api/agent`, `skills` as `/api/skill`.
     pub fn load(&mut self, fixture: &Value) {
         self.agents = subagents(&fixture["agent_list"]);
@@ -670,48 +677,10 @@ static FILE_DOCUMENT: Icon = Icon {
     body: r#"<path d="M7.58331 2.33333V5.25H10.5M2.91664 1.75H7.58331L11.0833 5.25V12.25H2.91664V1.75Z" stroke="currentColor" stroke-linecap="square"/>"#,
 };
 
-/// Colours the shared palette doesn't carry: `syntax-type` for agents, `syntax-property` for
-/// files, `icon-info-active`.
-struct Ink {
-    agent: Color,
-    file: Color,
-    info: Color,
-}
-
-fn ink(dark: bool) -> &'static Ink {
-    static DARK: OnceLock<Ink> = OnceLock::new();
-    static LIGHT: OnceLock<Ink> = OnceLock::new();
-    let build = || {
-        let hex = |s: &str| rune::color::hex(s).unwrap_or(Color::BLACK);
-        let theme = rune::Theme::from_json(include_str!("../assets/theme.json"), dark).unwrap_or_else(|e| panic!("{e}"));
-        Ink {
-            agent: if dark { hex("#ecf58c") } else { hex("#596600") },
-            file: if dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
-            info: theme.color("state-fg-info"),
-        }
-    };
-    if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }
-}
-
-/// A pill's look by its id. Desktop colours agent and file mentions' text and leaves skills
-/// plain, with no chip; a session gets a raised chip.
-pub fn pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
-    let (dark, text, layer2) = (p.dark, p.text, p.layer2);
-    move |id: &str| {
-        let k = ink(dark);
-        match id.split_once(':').map(|(kind, _)| kind) {
-            Some("agent") => PillStyle::new().bg(Color::TRANSPARENT).fg(k.agent),
-            Some("file") => PillStyle::new().bg(Color::TRANSPARENT).fg(k.file),
-            Some("session") => PillStyle::new().bg(layer2).fg(text),
-            _ => PillStyle::new().bg(Color::TRANSPARENT).fg(text),
-        }
-    }
-}
-
 fn row_icon(p: &Pal, kind: Kind) -> El {
     match kind {
         Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(p.icon),
-        Kind::Agent => icon(&ic::BRAIN, 16.0).color(ink(p.dark).info),
+        Kind::Agent => icon(&ic::BRAIN, 16.0).color(badge::ink(p.dark).info),
         Kind::Skill => icon(&POST_SKILL, 16.0).color(p.icon),
         Kind::File => icon(&FILE_DOCUMENT, 16.0).color(p.icon),
     }

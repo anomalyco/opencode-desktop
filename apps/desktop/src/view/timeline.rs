@@ -257,7 +257,7 @@ impl RowSpec {
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
             RowContent::User { message, tight, above, below } => match &t.messages[*message] {
-                Message::User { id, text, .. } => user_bubble(p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at)), None),
+                Message::User { id, text, .. } => user_bubble(s, p, id, text, *tight, *above, *below, s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at)), None),
                 _ => unreachable!(),
             },
             RowContent::Pending { id, tight, above, below } => {
@@ -265,7 +265,7 @@ impl RowSpec {
                 match item {
                     Some(item) => {
                         let label = crate::queue::pending_label(item);
-                        user_bubble(p, id, &label, *tight, *above, *below, 0.0, Some(&t.session))
+                        user_bubble(s, p, id, &label, *tight, *above, *below, 0.0, Some(&t.session))
                     }
                     None => col(),
                 }
@@ -522,7 +522,7 @@ pub(super) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 ///
 /// `pending` (the session) draws an undelivered steer: muted, with Move to queue and Delete in
 /// copy's place, and the run's last one marked Pending under its bubble at all times.
-pub(super) fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>) -> El {
+pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>) -> El {
     let words = body.to_owned();
     let copy = match pending {
         Some(session) => crate::queue::pending_actions(p, session, id, below),
@@ -560,7 +560,9 @@ pub(super) fn user_bubble(p: &Pal, id: &str, body: &str, tight: bool, above: boo
         );
     }
     let ink = if pending.is_some() { p.muted } else { p.text };
-    bubble = bubble.child(readable(p, text(body.to_owned()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap()));
+    // Mentions read as badges; a badge copies as its text.
+    let (shown, badges) = s.bubble_badges(p, id, body);
+    bubble = bubble.child(readable(p, text(shown).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges)));
     let copy = if below {
         let x = if pending.is_some() { -52.0 } else { -28.0 };
         bubble = bubble.child(copy.absolute(x, 8.5));
