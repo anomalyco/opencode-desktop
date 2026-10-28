@@ -34,6 +34,8 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
     ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
+    ("pop-in", "timeline/u-", "scrolled-up", "read further up, a send flies nowhere: the timeline cuts to its end and the message is there (App::land)"),
+    ("offset-jump", "timeline/t-", "send-from-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
     ("pop-out", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
 ];
@@ -113,6 +115,16 @@ const ACTIONS: &[Action] = &[
         r.type_prompt();
         r.enter(false);
         r.play_out(1.0);
+    } },
+    // Read further up, a send flies nowhere: the timeline cuts to its end, the message there.
+    Action { name: "send-from-up", circs: || vec![Circ { scrolled: true, ..Circ::default() }, Circ { scrolled: true, narrow: true, prompt: Prompt::Lines, ..Circ::default() }], run: |r| {
+        r.type_prompt();
+        r.enter(false);
+        r.play_out(1.0);
+        assert!(r.rt.state.ends.at_end(SID), "the timeline shows its end after a send");
+        let sent = r.rt.state.transcripts.get(SID).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, opencode_kit::model::Message::User { .. }))).map(|m| m.id().to_owned());
+        let bubble = sent.and_then(|id| r.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("bubble") && e.path.split('/').any(|p| p == format!("u-{id}"))));
+        assert!(bubble.is_some_and(|b| b.visible[3] > 0.0), "the sent message shows at the end");
     } },
     Action { name: "steer", circs: || sends(streaming(), &[Dock::Pending]), run: |r| {
         r.start_stream();

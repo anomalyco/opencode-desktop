@@ -58,8 +58,8 @@ impl App {
             self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
             if alternate {
                 tx.launch("prompt", format!("queued-{local}"));
-            } else if self.ends.at_end(&id) {
-                tx.launch("prompt", format!("u-{local}/bubble"));
+            } else {
+                self.land(&id, &local, tx);
             }
             return;
         }
@@ -121,14 +121,21 @@ impl App {
         self.echo_mentions(&local);
         opencode_kit::model::set_user_quotes(&local, quotes);
         self.quote.take();
-        // It rises out of the composer, its words where they were typed, when the timeline shows
-        // its end; read further up, it lands out of view, so nothing flies.
-        if self.ends.at_end(&id) {
-            tx.launch("prompt", format!("u-{local}/bubble"));
-        }
+        self.land(&id, &local, tx);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         t.messages.push(Message::User { id: local, text: wire.display });
         self.composer.clear();
+    }
+
+    /// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the
+    /// composer, its words where they were typed. Read further up, nothing flies: the timeline
+    /// cuts to its end, where the message already stands.
+    fn land(&mut self, id: &str, local: &str, tx: &mut Tx) {
+        if self.ends.at_end(id) {
+            tx.launch("prompt", format!("u-{local}/bubble"));
+        } else {
+            tx.scroll_to_bottom_instant(format!("scroll-{id}"));
+        }
     }
 
     /// Queues a write to the server; false (with a status line) when this build can't write.

@@ -320,8 +320,8 @@ fn a_sent_message_rises_whole_from_the_composer_and_keeps_its_key() {
     send_and_trace(Via::Enter, &dts);
 }
 
-/// Read further up, the sent message lands below the view: nothing flies down to it. The
-/// composer clears and the message joins the end, where it stays out of view.
+/// Read further up, nothing flies: the composer clears and the timeline cuts to its end, where
+/// the message already stands and stays put.
 #[test]
 fn a_message_sent_while_reading_up_does_not_fly() {
     let mut rt = session();
@@ -338,13 +338,16 @@ fn a_message_sent_while_reading_up_does_not_fly() {
     assert!(!rt.state.ends.at_end(&sid), "scrolled up off the end");
     rt.key(KeyEvent { key: Key::Enter, mods: Default::default() });
     let id = "msg_zzzzsent0001";
-    for f in 0..90 {
+    rt.frame(1.0 / 120.0);
+    let first = bubble(&rt, id).expect("the message joins the end").rect;
+    for f in 1..90 {
         rt.frame(1.0 / 120.0);
         assert!(rt.state.composer.text.is_empty(), "frame {f}: the composer clears");
-        let b = bubble(&rt, id).unwrap_or_else(|| panic!("frame {f}: the message joins the end"));
-        assert!(b.visible_h <= 0.0, "frame {f}: nothing shows on its way down: {:?}", b.rect);
+        let b = bubble(&rt, id).unwrap_or_else(|| panic!("frame {f}: the message stays at the end"));
+        assert!(b.visible_h > 0.0, "frame {f}: it shows at once: {:?}", b.rect);
+        assert!((b.rect[1] - first[1]).abs() < 0.5, "frame {f}: it doesn't fly: {:?} from {first:?}", b.rect);
     }
-    assert!(!rt.state.ends.at_end(&sid), "the timeline stays where you were reading");
+    assert!(rt.state.ends.at_end(&sid), "the timeline shows its end");
 }
 
 /// A run of several steps (thinking and a tool, a new assistant message that answers, then
