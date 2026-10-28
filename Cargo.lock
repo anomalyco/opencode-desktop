@@ -2358,7 +2358,6 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-mac",
- "rune-playground",
  "rune-theme-opencode",
  "serde_json",
 ]
