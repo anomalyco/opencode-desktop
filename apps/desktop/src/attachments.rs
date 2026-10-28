@@ -683,7 +683,7 @@ fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
     let [iw, ih] = size.map_or([bw, bh], |[a, b]| [a.max(1) as f32, b.max(1) as f32]);
     let k = (bw / iw).min(bh / ih).min(1.0);
     let (sw, sh) = (iw * k, ih * k);
-    [((w - sw) / 2.0).round(), ((h - sh) / 2.0).round(), sw, sh]
+    [(w - sw) / 2.0, (h - sh) / 2.0, sw, sh]
 }
 
 fn scrim(dark: bool) -> Color {

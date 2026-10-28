@@ -130,10 +130,12 @@ thread_local! {
 pub(crate) enum Experiment {
     /// Another family's stream doesn't commit the view.
     QuietBackground,
+    /// Rune snaps painted rects to whole device pixels (on unless `El::pixel_snap(false)`).
+    PixelSnap,
 }
 
 /// The technique the benchmark's baseline turns off; every other one stays on.
-const UNDER_TEST: Experiment = Experiment::QuietBackground;
+const UNDER_TEST: Experiment = Experiment::PixelSnap;
 
 /// Whether `e` is on: always, except in the baseline half of `frame_benchmark`.
 pub(crate) fn candidate(e: Experiment) -> bool {

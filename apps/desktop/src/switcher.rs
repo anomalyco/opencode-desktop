@@ -627,7 +627,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
 
     // No enter or exit motion (see `no_motion`).
     let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
-    [scrim, dialog.absolute(((win[2] - w) / 2.0).round(), ((win[3] - h) / 2.0).round())]
+    [scrim, dialog.absolute((win[2] - w) / 2.0, (win[3] - h) / 2.0)]
 }
 
 #[cfg(test)]
