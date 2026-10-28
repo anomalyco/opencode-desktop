@@ -32,7 +32,7 @@ overlaps() { local p; for p in $1; do case " $2 " in *" $p "*) return 0;; esac; 
 build_install() {
   local root="$1" start=$SECONDS bin sha
   bin="$root/target/$PROFILE/opencode-desktop"
-  ( cd "$root" && hivemind run --kind cargo --priority high --worker studio --fetch "target/$PROFILE/opencode-desktop" -- \
+  ( cd "$root" && hivemind run --kind cargo --priority high --prefer studio --fetch "target/$PROFILE/opencode-desktop" -- \
       cargo build -p opencode-desktop ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} ) || { say "build failed"; return 1; }
   test -x "$bin" || { say "no binary at $bin after build"; return 1; }
   sha=$(shasum "$bin" | cut -d" " -f1)
