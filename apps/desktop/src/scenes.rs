@@ -83,6 +83,7 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("story-morph", |s| stories::scene(s, "Morph")),
         // With `scripts/quote.json`: drag over the first prompt, Quote, and the card in the composer.
         ("story-quote", |s| stories::scene(s, "Quote")),
+        ("story-frosted", |s| stories::scene(s, crate::frosted_stories::NAME)),
         ("story-long", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 3)),
         ("story-typing", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 4)),
         ("story-custom", |s| stories::scene_variant(s, "Custom answer", crate::stories::CUSTOM_ANSWER, 0)),

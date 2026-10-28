@@ -65,6 +65,30 @@ fn at_end(id: &str) -> impl Fn(&mut App, bool) + 'static {
     }
 }
 
+/// The button as it stands: frosted glass, the timeline blurred at 2 pt under bg-base at 92%
+/// (`backdrop-blur-[2px]`), raised, with a soft bg-base halo under it (`0 2px 8px`).
+pub fn face(p: &Pal, radius: f32) -> El {
+    let [far, near, ring] = p.raised;
+    el()
+        .key("jump-latest")
+        .role("button")
+        .label("Jump to latest")
+        .size(28.0, 28.0)
+        .radius(radius)
+        .center()
+        .backdrop_blur(2.0)
+        .fill(p.frost)
+        // Bottom first: CSS paints its first shadow on top.
+        .shadow(2.0, 8.0, p.bg_base)
+        .box_shadow(ring)
+        .box_shadow(near)
+        .box_shadow(far)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(Anim::INSTANT, Anim::INSTANT)
+        .child(icon(&ARROW_DOWN, 16.0).color(p.text))
+}
+
 /// The timeline `scroll` with the button floating over its bottom edge, so it rides up as the
 /// composer, the capsule or the docks under it grow. At the right (the ⌘⇧K Composer default) it
 /// ends where the composer ends, on the capsule's row when that shows; centred, it's Desktop's.
@@ -74,26 +98,12 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
     let curve = crate::knobs::jump(&s.knobs, shown);
     let rise = if shown || s.reduced_motion { 0.0 } else { s.knobs.get(&crate::knobs::JUMP_RISE) };
     let target = format!("scroll-{id}");
-    let surface = if p.dark { p.layer1 } else { p.bg_base };
-    let mut button = el()
-        .key("jump-latest")
-        .role("button")
-        .label("Jump to latest")
-        .size(28.0, 28.0)
-        .radius(s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
-        .center()
-        .fill(surface)
-        .border(0.5, p.ring)
-        .shadow(1.0, 2.0, p.shadow)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(Anim::INSTANT, Anim::INSTANT)
+    let mut button = face(p, s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
         .opacity(if shown { 1.0 } else { 0.0 })
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.scroll_to_bottom(target.clone()))
-        .child(icon(&ARROW_DOWN, 16.0).color(p.text));
+        .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
     if !shown {
         button = button.inert();
     }

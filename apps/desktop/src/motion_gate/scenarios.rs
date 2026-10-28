@@ -38,6 +38,11 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("offset-jump", "timeline/t-", "send-from-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
     ("pop-out", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
+    ("pop-in", "composer/attachments", "dropzone/", "a dropped file's chip lands at once and the composer grows to hold it, as a picked file's does; the overlay's fade is what this cell checks (dropzone::drop)"),
+    ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
+    ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
+    ("jump", "session/timeline-area", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
+    ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
 ];
 
 struct Action {
@@ -368,6 +373,23 @@ const ACTIONS: &[Action] = &[
         if r.rt.find("jump-latest").is_none() { return; }
         r.act("tap jump-latest", |rt| Run::tap(rt, "jump-latest"));
         r.play(1.5);
+    } },
+    // A file dragged over the page: the frosted overlay fades in over 200 ms, out as the drag
+    // leaves, in again, and out once the file lands in the composer (dropzone.rs).
+    Action { name: "dropzone", circs: || wide_and_narrow(Circ::default()), run: |r| {
+        let file = std::env::temp_dir().join(format!("oc-desktop-gate-drop-{}.txt", std::process::id()));
+        std::fs::write(&file, "notes").unwrap();
+        let at = r.rt.find("panel").expect("the page");
+        let drag = |rt: &mut Runtime<App>| rt.drag_files(vec![file.clone()], Some(at));
+        r.act("drag a file over", &drag);
+        r.play(0.5);
+        r.act("drag it away", |rt| rt.drag_files_leave());
+        r.play(0.5);
+        r.act("drag it back", &drag);
+        r.play(0.5);
+        r.act("drop it", |rt| rt.drop_files(vec![file.clone()], Some(at)));
+        r.play_out(0.6);
+        std::fs::remove_file(&file).ok();
     } },
     // A drag selects a reply (its highlight is instant), then a prompt sends under it.
     Action { name: "select", circs: || wide_and_narrow(Circ::default()), run: |r| {

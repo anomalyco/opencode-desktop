@@ -152,6 +152,7 @@ pub static STORIES: &[Story] = &[
     Story { group: "Timeline", name: "Subagent rows", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
     Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
     Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
+    Story { group: "Timeline", name: crate::frosted_stories::NAME, knobs: &[], keys: crate::frosted_stories::KEYS, open: crate::frosted_stories::open, view: crate::frosted_stories::view },
     Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: TURN_KEYS, open: actions_open, view: session_view },
     Story { group: "Navigation", name: "Back and forward", knobs: &[], keys: crate::history_story::KEYS, open: crate::history_story::open, view: history_view },
     Story { group: "Session opening", name: open_story::NAMES[0], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 0, tx), view: opening_view },

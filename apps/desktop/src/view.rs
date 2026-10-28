@@ -124,14 +124,14 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .shadow(1.0, 2.0, p.shadow)
                 .clip_soft(0.0)
                 // Files dropped anywhere on the page attach, as in Desktop.
-                .on_drop_files(crate::attachments::drop_files)
-                .on_drop_hover(crate::attachments::drop_hover)
+                .on_drop_files(crate::dropzone::drop)
+                .on_drop_hover(crate::dropzone::hover)
                 .child(if s.story.is_some() { crate::stories::page(s, p) } else if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),
                 } })
-                .children(crate::attachments::drop_overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
+                .child(crate::dropzone::overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
         )
         // The empty inset above the panels moves the window, as the titlebar does.
         .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(8.0).window_drag());

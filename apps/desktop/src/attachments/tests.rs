@@ -66,7 +66,7 @@ fn a_live_send_shows_one_message_under_the_id_it_sends() {
 }
 
 #[test]
-fn a_drop_anywhere_on_the_page_attaches_under_an_instant_overlay() {
+fn a_drop_anywhere_on_the_page_attaches_under_a_fading_overlay() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
@@ -96,7 +96,17 @@ fn a_drop_anywhere_on_the_page_attaches_under_an_instant_overlay() {
     rt.drop_files(vec![shot.clone(), notes.clone()], Some(at));
     rt.frame(1.0 / 60.0);
     std::fs::remove_dir_all(&dir).ok();
-    assert!(rect(&rt, "drop-overlay").is_none(), "it leaves at once");
+    assert_eq!(rt.state.attach.paths.len(), 1, "the files land at once");
+    // Then it fades out over Desktop's 200 ms.
+    rt.frame(1.0 / 60.0);
+    rt.frame(1.0 / 60.0);
+    let layer = |rt: &rune::Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("drop-layer")).unwrap().opacity;
+    assert!(layer(&rt) > 0.05 && layer(&rt) < 0.95, "fading: {}", layer(&rt));
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(layer(&rt), 0.0);
+    assert!(rect(&rt, "drop-overlay").is_none(), "gone");
     // The image travels inline; the text file reaches the model by path, as a file chip.
     assert_eq!(rt.state.attach.files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["CleanShot 2026-10-26 at 8.00.42 PM@2x.png"]);
     let paths: Vec<_> = rt.state.attach.paths.iter().map(|f| (f.name.as_str(), f.mime.as_str())).collect();

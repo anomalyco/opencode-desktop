@@ -3,7 +3,7 @@
 
 use std::sync::OnceLock;
 
-use rune::{Color, Theme};
+use rune::{Color, Shadow, Theme};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Pal {
@@ -30,6 +30,11 @@ pub struct Pal {
     pub shadow: Color,
     /// --v2-elevation-floating's far drop.
     pub shadow_far: Color,
+    /// --v2-elevation-raised as Desktop draws it: two drops and a 0.5px ring outside the box.
+    /// Dark mode's 0.5px top highlight is left out: no lit rims.
+    pub raised: [Shadow; 3],
+    /// `color-mix(in srgb, bg-base 92%, transparent)`: the tint over a frosted surface.
+    pub frost: Color,
     pub success: Color,
     pub danger: Color,
     pub warning: Color,
@@ -90,6 +95,15 @@ fn build(dark: bool) -> Pal {
         ring: if dark { c("alpha-light-16") } else { c("alpha-dark-8") },
         shadow: if dark { c("alpha-dark-30") } else { c("alpha-dark-8") },
         shadow_far: if dark { c("alpha-dark-30") } else { c("alpha-dark-4") },
+        raised: {
+            let drop = |y, blur, spread, color| Shadow { y, blur, spread, color, ..Shadow::default() };
+            if dark {
+                [drop(2.0, 4.0, 0.0, c("alpha-dark-30")), drop(1.0, 2.0, 0.0, c("alpha-dark-30")), drop(0.0, 0.0, 0.5, c("alpha-light-16"))]
+            } else {
+                [drop(2.0, 4.0, 0.0, c("alpha-dark-4")), drop(1.0, 2.0, -1.0, c("alpha-dark-8")), drop(0.0, 0.0, 0.5, c("alpha-dark-12"))]
+            }
+        },
+        frost: t.alpha(c("background-bg-base"), 0.92),
         success: c("state-fg-success"),
         danger: c("state-fg-danger"),
         warning: c("state-fg-warning"),

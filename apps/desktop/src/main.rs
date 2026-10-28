@@ -14,7 +14,9 @@ mod compaction_stories;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
+mod dropzone;
 mod events;
+mod frosted_stories;
 mod history;
 mod history_story;
 #[cfg(test)]
@@ -614,6 +616,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= quote::poll(s, now, tx);
+    changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     let arrivals = arrivals::Arrivals::before(s);
     let asked = s.question_shown();

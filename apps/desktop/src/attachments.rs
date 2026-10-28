@@ -40,8 +40,8 @@ pub struct Attach {
     pub uploading: Vec<String>,
     uploads_tx: Sender<Result<PathAttachment, String>>,
     uploads: Receiver<Result<PathAttachment, String>>,
-    /// A file drag is over the page, which shows the drop overlay.
-    pub drop_over: bool,
+    /// A file drag over the page, which shows the drop overlay.
+    pub drop: crate::dropzone::Dropzone,
     /// Prompts shown before the server's copy: (session, local id, text).
     pub echoes: Vec<(String, String, String)>,
     /// The image open in the viewer.
@@ -192,7 +192,7 @@ impl Default for Attach {
             uploading: Vec::new(),
             uploads_tx,
             uploads,
-            drop_over: false,
+            drop: Default::default(),
             echoes: Vec::new(),
             viewing: None,
             waker: None,
@@ -472,84 +472,6 @@ pub fn paste(s: &mut App, content: &ClipboardContent, _: &mut Tx) -> bool {
     let n = s.attach.files.len() + 1;
     s.attach.add(Attachment { mime: "image/png".into(), name: format!("pasted-image-{n}.png"), bytes: img.png().into(), media: None });
     true
-}
-
-pub fn drop_hover(s: &mut App, over: bool, tx: &mut Tx) {
-    tx.instant();
-    s.attach.drop_over = over;
-}
-
-pub fn drop_files(s: &mut App, paths: &[std::path::PathBuf], tx: &mut Tx) {
-    tx.instant();
-    s.attach.drop_over = false;
-    for p in paths {
-        s.attach_path(p);
-    }
-}
-
-/// Desktop's drop overlay (`composer/dropzone.tsx`) over a `w`×`h` page while a file drag is
-/// over it: a wash, faint diagonal stripes fading out from the centre, an upload badge, and the
-/// label for a model that reads images and PDFs, as `attach_path` sends them. It appears and
-/// leaves at once.
-pub fn drop_overlay(s: &App, p: &Pal, (w, h): (f32, f32)) -> Option<El> {
-    if !s.attach.drop_over || w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    let (wash, stripe, card) = if p.dark { (0.06, 0.14, p.layer1) } else { (0.04, 0.07, p.bg_base) };
-    let badge = el()
-        .size(40.0, 40.0)
-        .radius(20.0)
-        .fill(card)
-        .shadow(4.0, 12.0, p.shadow)
-        .center()
-        .child(icon(&ic::ARROW_UP, 20.0).color(p.icon_muted));
-    Some(
-        el().key("drop-overlay")
-            .absolute(0.0, 0.0)
-            .w_full()
-            .h_full()
-            .fill(p.text.alpha(wash))
-            .child(el().absolute(0.0, 0.0).w_full().h_full().fill(p.bg_base.alpha(0.25)).shape(stripes(w, h, p.text.alpha(stripe * 0.6))))
-            .center()
-            .child(col().gap(20.0).center().child(badge).child(text("Drop images, PDFs, or files to add").font(DROP_LABEL).color(p.text))),
-    )
-}
-
-const DROP_LABEL: TextStyle = TextStyle::new(15.0, 530.0).lh(24.0);
-
-/// `repeating-linear-gradient(135deg, …12px, ink 12px 24px)` across the session column,
-/// masked by Desktop's horizontal fade (12%–88%) and centred ellipse (59%×40%: full, 0.72 at
-/// 58%, gone at the rim). Each stripe is cut into short quads that take the mask at their centre.
-fn stripes(w: f32, h: f32, ink: Color) -> rune::Shape {
-    const PERIOD: f32 = 24.0;
-    const STEP: f32 = 12.0;
-    let k = std::f32::consts::FRAC_1_SQRT_2;
-    let cw = w.min(crate::view::CONTENT_W + 48.0);
-    let (cx, cy) = (w / 2.0, h / 2.0);
-    let at = |t: f32, u: f32| [cx + (t + u) * k, cy + (t - u) * k];
-    let mask = |[x, y]: [f32; 2]| {
-        let fx = (x - (cx - cw / 2.0)) / cw;
-        let side = (fx / 0.12).min((1.0 - fx) / 0.12).clamp(0.0, 1.0);
-        let r = (((x - cx) / (0.59 * cw)).powi(2) + ((y - cy) / (0.4 * h)).powi(2)).sqrt();
-        let radial = if r < 0.58 { 1.0 - 0.28 * r / 0.58 } else { (0.72 * (1.0 - r) / 0.42).max(0.0) };
-        side * radial
-    };
-    let reach = (cw + h) * k / 2.0;
-    let mut shape = rune::Shape::new();
-    let mut t = -(reach / PERIOD).ceil() * PERIOD + PERIOD / 2.0;
-    while t < reach {
-        let mut u = -reach;
-        while u < reach {
-            let a = ink.a * mask(at(t + PERIOD / 4.0, u + STEP / 2.0));
-            if a > 0.002 {
-                let quad = vec![at(t, u), at(t + PERIOD / 2.0, u), at(t + PERIOD / 2.0, u + STEP), at(t, u + STEP)];
-                shape = shape.fill(quad, ink.alpha(a));
-            }
-            u += STEP;
-        }
-        t += PERIOD;
-    }
-    shape
 }
 
 /// Before merging a fetched page: settles the open echoes against the server's messages. An
