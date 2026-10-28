@@ -3430,6 +3430,7 @@ dependencies = [
  "seer-sync",
  "serde_json",
  "ureq",
+ "url",
  "wgpu",
 ]
 
