@@ -3219,6 +3219,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "seer-ffi"
+version = "0.0.0"
+dependencies = [
+ "seer-domain",
+ "seer-sync",
+ "serde_json",
+]
+
+[[package]]
 name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
