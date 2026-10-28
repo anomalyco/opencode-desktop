@@ -5,9 +5,7 @@
 use rune::Color;
 
 use crate::pixels::Buf;
-use crate::styles::{RADIUS, Style, hash, round_box};
-
-type Rgb = [f32; 3];
+use crate::styles::{RADIUS, Rgb, Style, hash, lerp, round_box};
 
 /// Hot pink, tangerine, lemon, lime, mint, sky, cobalt, violet, tomato, teal.
 const HUES: [&str; 10] = ["ff4fa0", "ff7a1a", "ffd23f", "9be15d", "2fd8a8", "3fb8ff", "3a5bff", "8b5cff", "ff4b3e", "12a4a0"];
@@ -23,10 +21,6 @@ fn c(hex: &str) -> Rgb {
 
 fn color(hex: &str) -> Color {
     rune::color::hex(&format!("#{hex}")).unwrap_or(Color::TRANSPARENT)
-}
-
-fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
-    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
 }
 
 fn unit(h: u64, shift: u32) -> f32 {
