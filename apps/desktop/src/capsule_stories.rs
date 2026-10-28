@@ -4,17 +4,12 @@
 //! R replays.
 
 use opencode_kit::model::SessionInfo;
-use rune::Tx;
-use rune_knobs::Action;
+use rune::Play;
 
 use crate::App;
-use crate::stories::{replay, sid};
+use crate::stories::{Trigger, replay, sid};
 
-pub const NAME: &str = "Subagents capsule, 30 running";
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "O", label: "Open or close the list", run: |s, _| s.activity_open = !s.activity_open },
-];
+pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'o', label: "Open or close the list", run: |s, _| s.activity_open = !s.activity_open }];
 
 const TASKS: &[(&str, &str)] = &[
     ("general", "Slack messages prototype"),
@@ -54,7 +49,7 @@ fn child(k: usize) -> String {
 }
 
 /// Thirty agents run and the list is open.
-pub fn open(s: &mut App, _: &mut Tx) {
+fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     run_thirty(s);
     s.activity_open = true;
@@ -84,10 +79,4 @@ pub fn run_thirty(s: &mut App) {
         });
         s.running.insert(id);
     }
-}
-
-/// A snapshot scene: the story, light or dark.
-pub fn scene(s: &mut App, dark: bool) {
-    crate::stories::scene(s, NAME);
-    s.settings.scheme = if dark { crate::settings::Scheme::Dark } else { crate::settings::Scheme::Light };
 }

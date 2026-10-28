@@ -240,7 +240,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Text(t) => t.eq_ignore_ascii_case("r") || t == "\u{12}",
         _ => true,
     };
-    if !ctrl_r || s.story.is_some() {
+    if !ctrl_r || s.stage.is_some() {
         return false;
     }
     let Route::Session(id) = s.route.clone() else { return false };

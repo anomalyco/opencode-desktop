@@ -1,5 +1,5 @@
 {
-  "scene": "story-compaction-quiet-done", "secs": 5.2,
+  "playground": "Timeline/Compaction", "variant": "Quiet done", "secs": 5.2,
   "events": [
     {"t": 3.3, "type": "move", "key": "cmp-msg_storycompaction-quiet/#0/#0/divider"},
     {"t": 3.5, "type": "tap", "key": "cmp-msg_storycompaction-quiet/#0/#0/divider"},

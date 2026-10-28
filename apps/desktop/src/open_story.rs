@@ -1,10 +1,10 @@
 //! The actual session page and opening path, with deterministic page and image delivery.
 use std::sync::{Arc, mpsc::Sender};
 use opencode_kit::model::{self, Message, Transcript};
-use rune::{El, Tx, col, text};
-use rune_knobs::Action;
+use rune::{El, Play, col, text};
 use serde_json::json;
 use crate::{App, Route, palette::Pal, session_pages::{Key, Page, Pages}};
+use crate::stories::{Trigger, replay};
 
 const TARGET: &str = "ses_open_story";
 const MEDIA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -14,13 +14,17 @@ pub struct Demo {
     send: Sender<Result<Arc<Page>, (Key, String)>>,
     png: Vec<u8>,
     at: usize,
-    // Only used by the explicit fixture scene for a faithful replay of the old route switch.
+    // The "Switch at once" variant: a faithful replay of the old route switch.
     before: bool,
 }
 
 /// The storybook's Session opening stories, in order.
-pub const NAMES: [&str; 3] = ["Cold · ready at 100 ms", "Prefetched · ready now", "Slow · 150 ms fallback"];
-pub const KEYS: &[Action<App>] = &[Action { cap: "R", label: "Replay", run: crate::stories::replay }, Action { cap: "O", label: "Open now", run: click }];
+pub const PATHS: [&str; 3] = ["Session opening/Cold · ready at 100 ms", "Session opening/Prefetched · ready now", "Session opening/Slow · 150 ms fallback"];
+/// Each story's triggers: R sets it up and clicks 0.75 s in, O clicks now.
+pub const KEYS: [&[Trigger]; 3] = [&[replay(|s, tx| open(s, 0, tx)), CLICK], &[replay(|s, tx| open(s, 1, tx)), CLICK], &[replay(|s, tx| open(s, 2, tx)), CLICK]];
+/// How the click opens the session: waiting for its content, or the old route switch at once.
+pub const VARIANTS: &[(&str, usize)] = &[("Wait for the content", 0), ("Switch at once", 1)];
+const CLICK: Trigger = Trigger { key: 'o', label: "Open now", run: click };
 
 pub fn setup(s: &mut App, at: usize) {
     let png = picture();
@@ -50,32 +54,31 @@ pub fn setup(s: &mut App, at: usize) {
 }
 
 /// A Session opening story's setup: the click lands 0.75 s in.
-pub fn open(s: &mut App, at: usize, tx: &mut Tx) {
+fn open(s: &mut App, at: usize, tx: &mut Play<App>) {
     setup(s, at);
-    s.play.after(0.75, click, tx);
+    if let Some(d) = s.open_demo.as_mut() {
+        d.before = s.variant == 1;
+    }
+    tx.after(0.75, click);
 }
 
-pub fn scene(s: &mut App, before: bool) {
-    crate::stories::scene(s, NAMES[0]);
-    s.open_demo.as_mut().unwrap().before = before;
-}
-
-fn click(s: &mut App, tx: &mut Tx) {
-    s.play.clear();
+fn click(s: &mut App, tx: &mut Play<App>) {
+    tx.clear();
     let Some(d) = s.open_demo.as_ref() else { return };
     let (at, before) = (d.at, d.before);
     if before { s.open_now(TARGET, tx); s.open_page(TARGET, tx); } else { s.open(TARGET, tx); }
     if at != 1 {
-        s.play.after(if at == 2 { 0.25 } else { 0.05 }, deliver, tx);
-        s.play.after(if at == 2 { 0.4 } else { 0.1 }, pixels, tx);
+        tx.after(if at == 2 { 0.25 } else { 0.05 }, deliver);
+        tx.after(if at == 2 { 0.4 } else { 0.1 }, pixels);
     }
 }
 
-fn deliver(s: &mut App, _: &mut Tx) {
+fn deliver(s: &mut App, _: &mut Play<App>) {
     let d = s.open_demo.as_ref().unwrap();
-    d.send.send(Ok(d.page.clone())).unwrap();
+    // A second click's page finds the first's receiver gone.
+    let _ = d.send.send(Ok(d.page.clone()));
 }
-fn pixels(s: &mut App, _: &mut Tx) {
+fn pixels(s: &mut App, _: &mut Play<App>) {
     s.attach.fixture_media(MEDIA, Some(s.open_demo.as_ref().unwrap().png.clone()));
 }
 

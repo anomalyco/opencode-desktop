@@ -2,25 +2,18 @@
 //! for each kind of mention (agent, skill, file, folder, reference, session), and a draft in the
 //! composer with the same badges. P lands the prompt again, R replays.
 
-use rune::{TextEdit, Tx};
-use rune_knobs::Action;
+use rune::{Play, TextEdit, Tx};
 use serde_json::json;
 
 use crate::App;
-use crate::stories::{emit, replay, sid};
+use crate::stories::{Trigger, emit, replay, sid};
 
-pub const KEYS: &[Action<App>] = &[Action { cap: "R", label: "Replay", run: replay }, Action { cap: "P", label: "The prompt lands", run: prompt }];
+pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'p', label: "The prompt lands", run: |s, tx| prompt(s, tx) }];
 
 /// The session the bubble and draft mention, by its title.
 const OTHER: &str = "ses_fx0006aaaaaaaaaaaaaaaaaa";
 
-/// A snapshot scene: the story, light or dark.
-pub fn scene(s: &mut App, dark: bool) {
-    crate::stories::scene(s, "Mentions");
-    s.settings.scheme = if dark { crate::settings::Scheme::Dark } else { crate::settings::Scheme::Light };
-}
-
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.composer = draft();
     s.composer.focused = true;

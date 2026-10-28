@@ -4,20 +4,17 @@
 //! answer, dismissed. A answers the pending one, R replays.
 
 use opencode_kit::model::{Message, Part};
-use rune::Tx;
-use rune_knobs::{Action, Group, Knob};
+use rune::{Play, Tx};
 use serde_json::{Value, json};
 
 use crate::App;
-use crate::knobs::ROW_GROWTH;
-use crate::stories::{emit, replay};
+use crate::stories::{Trigger, emit, replay};
 
-pub const VARIANT: Knob = Knob::choice("Questions", &["One", "Several", "Multi-select", "Custom typed", "Dismissed"], 0);
-pub const KNOBS: &[Group] = &[Group::new("Question answers", "stage", &[VARIANT, ROW_GROWTH])];
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "A", label: "Answer the pending one", run: |s, tx| {
-        s.play.clear();
+pub const VARIANTS: &[(&str, usize)] = &[("One", 0), ("Several", 1), ("Multi-select", 2), ("Custom typed", 3), ("Dismissed", 4)];
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 'a', label: "Answer the pending one", run: |s, tx| {
+        tx.clear();
         answer(s, tx);
     } },
 ];
@@ -45,13 +42,8 @@ fn variant(v: usize) -> (&'static [Q], Option<Vec<Vec<&'static str>>>) {
     }
 }
 
-/// A snapshot scene on variant `at`.
-pub fn scene(s: &mut App, at: usize) {
-    crate::stories::scene_variant(s, "Question answers", VARIANT, at);
-}
-
 /// The agent asks a beat in; the answer comes back a beat and a half later.
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     // The story's question alone: without the one the fixture's turn ends on.
     if let Some(t) = s.transcripts.get_mut(&crate::stories::sid(s)) {
@@ -61,12 +53,12 @@ pub fn open(s: &mut App, tx: &mut Tx) {
             }
         }
     }
-    s.play.after(0.3, ask, tx);
-    s.play.after(1.8, answer, tx);
+    tx.after(0.3, |s, tx| ask(s, tx));
+    tx.after(1.8, |s, tx| answer(s, tx));
 }
 
 fn ask(s: &mut App, tx: &mut Tx) {
-    for (ty, d) in asked(s.knobs.get(&VARIANT) as usize) {
+    for (ty, d) in asked(s.variant) {
         emit(s, ty, d, tx);
     }
 }
@@ -74,7 +66,7 @@ fn ask(s: &mut App, tx: &mut Tx) {
 /// A pending question's answer comes back (or it's dismissed) and the step ends.
 fn answer(s: &mut App, tx: &mut Tx) {
     if s.question_shown() {
-        for (ty, d) in answered(s.knobs.get(&VARIANT) as usize) {
+        for (ty, d) in answered(s.variant) {
             emit(s, ty, d, tx);
         }
     }

@@ -8,7 +8,8 @@
 # reason. The analyzer comes from the Rune rev Cargo.toml pins (RUNE=checkout overrides it). On
 # Studio, the build and the runs share one HiveMind cargo lease (AUDIT_WORKER, default studio).
 #
-# A scenario is a Rune script plus: "scene", "secs", "fixture" (keys merged over the fixture),
+# A scenario is a Rune script plus: "scene", or "playground" (a storybook story's path, with
+# "variant" by name) to start on one with its motion playing, "secs", "fixture" (keys merged over the fixture),
 # "png": [w, h] (a test image, pasted with "png": "@PNG"), "from" (events of another script),
 # and expectations on events (see analyze.py): "expect": "instant" | "follow" | "smooth" |
 # "leaves", with "element" (a key) and "scope" (an element name part).
@@ -80,14 +81,17 @@ for f in files:
                 e["png"] = path
     script = os.path.join(out, f"{name}.script.json")
     json.dump({"events": events}, open(script, "w"), indent=1)
-    print(name, sc.get("scene", "session"), int(round(sc.get("secs", 3.0) * 120)), fixture, script, sep="\t")
+    mode, target = ("playground", sc["playground"]) if "playground" in sc else ("scene", sc.get("scene", "session"))
+    print(name, mode, target, sc.get("variant", "-"), int(round(sc.get("secs", 3.0) * 120)), fixture, script, sep="\t")
 PY
 )
 
 TRACES=()
-while IFS=$'\t' read -r name scene frames fixture script; do
+while IFS=$'\t' read -r name mode target variant frames fixture script; do
   [[ -z "$name" ]] && continue
-  "$BIN" --fixture "$fixture" --scene "$scene" --script "$script" --fps 120 --frames "$frames" \
+  LAUNCH=("--$mode" "$target")
+  [[ "$variant" != - ]] && LAUNCH+=(--variant "$variant")
+  "$BIN" --fixture "$fixture" "${LAUNCH[@]}" --script "$script" --fps 120 --frames "$frames" \
     --trace-all --trace "$OUT/$name.jsonl" >"$OUT/$name.log" 2>&1 || { echo "motion-audit: $name failed:" >&2; tail -5 "$OUT/$name.log" >&2; exit 2; }
   TRACES+=(--script "$script" "$OUT/$name.jsonl")
 done <<<"$PLAN"

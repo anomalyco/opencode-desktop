@@ -1,21 +1,20 @@
 //! The storybook's Navigation › Back and forward story: a session, another, Home, the first again
 //! and its subagent, then ⌘[ three times and ⌘] once. The strip on top is the history.
 
-use rune::{El, Tx, col, row, text};
-use rune_knobs::Action;
+use rune::{El, Play, Step, col, row, text};
 
 use crate::palette::Pal;
 use crate::{App, Route};
 
-pub const KEYS: &[Action<App>] = &[Action { cap: "R", label: "Replay", run: crate::stories::replay }];
+pub const KEYS: &[crate::stories::Trigger] = &[crate::stories::replay(open)];
 
 const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
 const OTHER: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let steps: [(f64, fn(&mut App, &mut Tx)); 8] = [
+    let steps: [(f64, Step<App>); 8] = [
         (0.8, |s, tx| s.open(OTHER, tx)),
         (1.6, |s, tx| {
             s.route = Route::Home;
@@ -37,7 +36,7 @@ pub fn open(s: &mut App, tx: &mut Tx) {
         }),
     ];
     for (at, run) in steps {
-        s.play.after(at, run, tx);
+        tx.after(at, run);
     }
 }
 

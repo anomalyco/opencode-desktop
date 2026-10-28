@@ -1,26 +1,29 @@
 //! The storybook's Odometer story (Components › Odometer): every live number the app rolls,
 //! each in the font and words it has where it's used, ticking once a second. T ticks once, F
 //! ticks fast, S switches session (the numbers change at once, with no roll), R replays.
+//! Header › Ticking is the same numbers in place: a subagent card's time and the header's context
+//! and cost.
 
 use std::cell::Cell;
 
-use opencode_kit::model;
-use rune::{El, TextStyle, Tx, col, row, text};
-use rune_knobs::Action;
+use opencode_kit::model::{self, Message};
+use rune::{El, Play, TextStyle, col, row, text};
 
-use crate::App;
+use crate::{App, Route};
 use crate::odometer::{odometer, odometer_end};
 use crate::palette::Pal;
-use crate::stories::replay;
+use crate::stories::{Trigger, replay};
 use crate::subagents::elapsed;
 use crate::view::{UI, UI_SMALL};
 
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "T", label: "Tick once", run: tick },
-    Action { cap: "F", label: "Tick fast", run: fast },
-    Action { cap: "S", label: "Switch session", run: switch },
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 't', label: "Tick once", run: tick },
+    Trigger { key: 'f', label: "Tick fast", run: fast },
+    Trigger { key: 's', label: "Switch session", run: switch },
 ];
+
+pub const TICKING_KEYS: &[Trigger] = &[replay(ticking)];
 
 thread_local! {
     /// Ticks since the story opened, and which session it shows.
@@ -30,27 +33,27 @@ thread_local! {
 
 /// The numbers start just short of their turns (9s → 10s, 59s → 1m 00s, $0.99 → $1.00) and tick
 /// once a second.
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(_: &mut App, tx: &mut Play<App>) {
     TICK.set(0);
     SESSION.set(0);
     for k in 1..=40 {
-        s.play.after(0.6 + (k - 1) as f64, tick, tx);
+        tx.after(0.6 + (k - 1) as f64, tick);
     }
 }
 
-fn tick(_: &mut App, _: &mut Tx) {
+fn tick(_: &mut App, _: &mut Play<App>) {
     TICK.set(TICK.get() + 1);
 }
 
 /// Twelve ticks a tenth of a second apart, so rolls land on rolls still moving.
-fn fast(s: &mut App, tx: &mut Tx) {
+fn fast(_: &mut App, tx: &mut Play<App>) {
     for k in 0..12 {
-        s.play.after(k as f64 * 0.1, tick, tx);
+        tx.after(k as f64 * 0.1, tick);
     }
 }
 
 /// Another session's numbers: they show at once, since each session's odometers are their own.
-fn switch(_: &mut App, _: &mut Tx) {
+fn switch(_: &mut App, _: &mut Play<App>) {
     SESSION.set(SESSION.get() + 1);
     TICK.set(TICK.get() + 37);
 }
@@ -90,4 +93,36 @@ pub fn view(_: &App, p: &Pal) -> El {
         .child(place("Queue", odometer(format!("story-queue-{sid}"), format!("{queued} QUEUED"), queued as f64, TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05), p.muted)))
         .child(place("Question dock", odometer(format!("story-q-{sid}"), format!("{question} of 4 questions"), question as f64, TextStyle::new(13.0, 440.0).lh(20.0), p.muted)))
         .child(place("Tool group", row().gap(4.0).child(text("Used").font(UI).color(p.muted)).child(odometer(format!("story-tools-{sid}"), tools.to_string(), tools as f64, UI, p.text))))
+}
+
+/// A subagent 7.5 s into its run, so its card's time turns 9s → 10s, and the header's context and
+/// cost rising as steps finish ($1.99 → $2.00 among them).
+fn ticking(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    tx.after(0.2, |s, tx| {
+        crate::agent_stories::spawn(s, tx);
+        let now = s.now_ms;
+        let parent = s.fixture["open"].as_str().map(str::to_owned);
+        if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.is_some() && x.parent == parent) {
+            c.created = now - 7_500;
+        }
+    });
+    for k in 0..4 {
+        tx.after(0.9 + k as f64, |s, _| {
+            let Route::Session(id) = s.route.clone() else { return };
+            let total = s.sessions.iter().find(|x| x.id == id).map_or(0.0, |i| i.cost);
+            // To $1.97, then up 1¢ a step.
+            let add = if total < 1.9 { 1.97 - total } else { 0.01 };
+            if let Some(i) = s.sessions.iter_mut().find(|x| x.id == id) {
+                i.cost += add;
+            }
+            let last = s.transcripts.get_mut(&id).and_then(|t| t.messages.iter_mut().rev().find_map(|m| match m {
+                Message::Assistant(a) if a.tokens.context() > 0 => Some(a),
+                _ => None,
+            }));
+            if let Some(a) = last {
+                a.tokens.input += 2_300;
+            }
+        });
+    }
 }

@@ -5,19 +5,13 @@
 
 use std::cell::Cell;
 
-use rune::{El, TextStyle, Tx, col, el, row, text};
-use rune_knobs::Action;
+use rune::{El, Play, TextStyle, col, el, row, text};
 
 use crate::App;
 use crate::palette::{Pal, pal};
-use crate::stories::replay;
+use crate::stories::{Trigger, replay};
 
-pub const NAME: &str = "Frosted surfaces";
-
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "D", label: "Drag a file over or away", run: toggle },
-];
+pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'd', label: "Drag a file over or away", run: toggle }];
 
 const W: f32 = 310.0;
 const H: f32 = 200.0;
@@ -30,13 +24,13 @@ thread_local! {
 }
 
 /// The drag comes over the page, then leaves it.
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(_: &mut App, tx: &mut Play<App>) {
     DRAGGING.set(false);
-    s.play.after(0.6, toggle, tx);
-    s.play.after(2.2, toggle, tx);
+    tx.after(0.6, toggle);
+    tx.after(2.2, toggle);
 }
 
-fn toggle(_: &mut App, tx: &mut Tx) {
+fn toggle(_: &mut App, tx: &mut Play<App>) {
     tx.animated();
     DRAGGING.set(!DRAGGING.get());
 }

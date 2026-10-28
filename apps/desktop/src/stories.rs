@@ -1,163 +1,171 @@
-//! The storybook (⌘⇧D), on `rune-playground`: one story per component, grouped by type, each
-//! alone on a plain stage with only its knobs (the values ⌘⇧K tunes) and its triggers beside it.
-//! A story is a fresh fixture world; opening it sets the component up and starts its motion, and
-//! R opens it again, so a replay runs the same every time. The app as it was waits beside the
-//! storybook untouched and comes back on Esc or ⌘⇧D. Answers and sends in a story go nowhere.
+//! The storybook (⌘⇧D), on Rune's `App::playground`: one story per component, grouped by type,
+//! each alone on a plain stage with only its knobs (the values ⌘⇧K tunes) and its triggers
+//! beside it. A story is a scene: a fresh fixture world, with its R step setting the component
+//! up and starting its motion, so a replay runs the same every time. The app as it was waits
+//! beside the playground untouched and comes back on Esc or ⌘⇧D, with the knobs as the stories
+//! left them. Answers and sends in a story go nowhere.
 
 use std::sync::{Arc, OnceLock};
 
 use opencode_kit::model::{Attachment, Delivery, InboxItem, Message};
-use rune::{El, Key, KeyEvent, TextEdit, Tx, col};
-use rune_knobs::{Action, Group, Knob};
-use rune_playground::{Look, Move};
+use rune::{Cx, El, Play, Playground, Step, TextEdit, Tx, col, el};
+use rune_knobs::Group;
 use serde_json::{Value, json};
 
 use crate::knobs::*;
-use crate::palette::Pal;
+use crate::palette::{Pal, pal};
 use crate::turns::{self, Block};
 use crate::{App, FIXTURE, Route, open_scene, open_story, view};
 
-/// The open story, and the app as it was before the storybook opened.
-pub struct Storybook {
-    pub at: usize,
-    real: Box<App>,
+/// What a story's scene draws, the knobs beside it, and whether it only plays (its composer
+/// never takes the keys).
+#[derive(Clone, Copy)]
+pub struct Stage {
+    view: fn(&App, &Pal) -> El,
+    knobs: &'static [Group],
+    watch: bool,
+}
+
+impl Stage {
+    pub fn watch(&self) -> bool {
+        self.watch
+    }
+}
+
+/// A trigger beside a story: its letter, what it does, and its step.
+pub struct Trigger {
+    pub key: char,
+    pub label: &'static str,
+    pub run: Step<App>,
+}
+
+/// The R trigger: sets the story up in its fresh world and starts its motion; it runs when the
+/// story is chosen and on each replay.
+pub const fn replay(run: Step<App>) -> Trigger {
+    Trigger { key: 'r', label: "Replay", run }
 }
 
 pub struct Story {
-    group: &'static str,
-    name: &'static str,
-    knobs: &'static [Group],
-    keys: &'static [Action<App>],
-    /// Sets the story up in its fresh world and queues its motion with `App::play`.
-    open: fn(&mut App, &mut Tx),
-    view: fn(&App, &Pal) -> El,
-}
-
-impl rune_playground::Story<App> for Story {
-    fn group(&self) -> &'static str {
-        self.group
-    }
-    fn name(&self) -> &'static str {
-        self.name
-    }
-    fn knobs(&self) -> &'static [Group] {
-        self.knobs
-    }
-    fn keys(&self) -> &'static [Action<App>] {
-        self.keys
-    }
+    /// "Group/Name".
+    path: &'static str,
+    /// Sets up its stage in the fresh world, with [`stage`].
+    scene: fn(&mut App),
+    keys: &'static [Trigger],
+    /// Each variant's name and the value of `App::variant` it sets (1 to 9 pick them).
+    variants: &'static [(&'static str, usize)],
 }
 
 /// What the Composer story shows.
-pub const COMPOSER: Knob = Knob::choice("Composer state", &["Empty", "Draft", "Queued", "Subagent running"], 0);
+const COMPOSER_VARIANTS: &[(&str, usize)] = &[("Empty", 0), ("Draft", 1), ("Queued", 2), ("Subagent running", 3)];
 /// The Question story's form.
-pub const QUESTION: Knob = Knob::choice("Question form", &["One", "Two", "Multi-select", "Long", "Typing"], 0);
+const QUESTION_VARIANTS: &[(&str, usize)] = &[("One", 0), ("Two", 1), ("Multi-select", 2), ("Long", 3), ("Typing", 4)];
 /// What the Custom answer story's typed answer holds.
-pub const CUSTOM_ANSWER: Knob = Knob::choice("Typed answer", &["Typing", "Long, wrapped", "Left the field", "Empty"], 0);
+const CUSTOM_VARIANTS: &[(&str, usize)] = &[("Typing", 0), ("Long, wrapped", 1), ("Left the field", 2), ("Empty", 3)];
 
-const COMPOSER_KNOBS: &[Group] = &[Group::new("Composer", "stage", &[COMPOSER, CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
-const QUESTION_KNOBS: &[Group] = &[Group::new("Question", "stage", &[QUESTION])];
-const CUSTOM_KNOBS: &[Group] = &[Group::new("Custom answer", "stage", &[CUSTOM_ANSWER])];
+const COMPOSER_KNOBS: &[Group] = &[Group::new("Composer", "stage", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
 const MORPH_KNOBS: &[Group] = &[QUESTION_DOCK];
 const GLOW_KNOBS: &[Group] = &[Group::new("Arrival glow", "stage", &[GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH])];
-const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
+pub(crate) const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
 const WORKING_KNOBS: &[Group] = &[WORKING];
 const ACTIONS_KNOBS: &[Group] = &[Group::new("Turn actions", "stage", &[ACTIONS_TAIL])];
 const SUBAGENT_KNOBS: &[Group] = &[Group::new("Subagent", "stage", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
 const IMAGE_KNOBS: &[Group] = &[Group::new("Images", "stage", &[IMAGE_FLIGHT, ROW_GROWTH])];
 const JUMP_KNOBS: &[Group] = &[Group::new("Jump to latest", "stage", &[JUMP_PLACE, JUMP_IN, JUMP_OUT, JUMP_RISE])];
 
-pub(crate) const REPLAY: Action<App> = Action { cap: "R", label: "Replay", run: replay };
-
-const MORPH_KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay the loop", run: replay },
-    Action { cap: "O", label: "Open the dock", run: |s, tx| {
-        s.play.clear();
+const MORPH_KEYS: &[Trigger] = &[
+    Trigger { key: 'r', label: "Replay the loop", run: morph_open },
+    Trigger { key: 'o', label: "Open the dock", run: |s, tx| {
+        tx.clear();
         if !s.question_shown() {
             emit(s, "form.created", form(s, &[0]), tx);
         }
     } },
-    Action { cap: "C", label: "Close it", run: |s, tx| {
-        s.play.clear();
+    Trigger { key: 'c', label: "Close it", run: |s, tx| {
+        tx.clear();
         if s.question_shown() {
             emit(s, "form.replied", replied(s), tx);
         }
     } },
 ];
-const UNDER_QUEUE_KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "Q", label: "Queue one", run: queue },
-    Action { cap: "O", label: "Open the dock", run: |s, tx| if !s.question_shown() { emit(s, "form.created", form(s, &[0]), tx) } },
-    Action { cap: "C", label: "Close it", run: |s, tx| if s.question_shown() { emit(s, "form.replied", replied(s), tx) } },
-    Action { cap: "D", label: "Deliver the oldest", run: deliver_queued },
+const UNDER_QUEUE_KEYS: &[Trigger] = &[
+    replay(under_queue_open),
+    Trigger { key: 'q', label: "Queue one", run: queue },
+    Trigger { key: 'o', label: "Open the dock", run: |s, tx| if !s.question_shown() { emit(s, "form.created", form(s, &[0]), tx) } },
+    Trigger { key: 'c', label: "Close it", run: |s, tx| if s.question_shown() { emit(s, "form.replied", replied(s), tx) } },
+    Trigger { key: 'd', label: "Deliver the oldest", run: deliver_queued },
 ];
-const GLOW_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "A", label: "Another arrives", run: arrive }];
-const SEND_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "S", label: "Send", run: send }];
-const STREAM_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "F", label: "Finish the stream", run: finish_stream }];
-const TOOL_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "T", label: "Fold or unfold the tools", run: fold_tools }];
-const WORKING_KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Restart the run", run: replay },
-    Action { cap: "L", label: "Change the label", run: relabel },
-    Action { cap: "D", label: "End the run", run: finish },
+const COMPOSER_KEYS: &[Trigger] = &[replay(composer_open)];
+const QUESTION_KEYS: &[Trigger] = &[replay(question_open)];
+const CUSTOM_KEYS: &[Trigger] = &[replay(custom_open)];
+const HEADER_KEYS: &[Trigger] = &[replay(|s, _| s.finish_stream())];
+const GLOW_KEYS: &[Trigger] = &[replay(glow_open), Trigger { key: 'a', label: "Another arrives", run: arrive }];
+const SEND_KEYS: &[Trigger] = &[replay(send_open), Trigger { key: 's', label: "Send", run: send }];
+const STREAM_KEYS: &[Trigger] = &[replay(stream_open), Trigger { key: 'f', label: "Finish the stream", run: finish_stream }];
+const TOOL_KEYS: &[Trigger] = &[replay(tools_open), Trigger { key: 't', label: "Fold or unfold the tools", run: fold_tools }];
+const WORKING_KEYS: &[Trigger] = &[
+    Trigger { key: 'r', label: "Restart the run", run: working_open },
+    Trigger { key: 'l', label: "Change the label", run: relabel },
+    Trigger { key: 'd', label: "End the run", run: finish },
 ];
-const TURN_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "W", label: "Start working", run: start }, Action { cap: "F", label: "Finish", run: finish }];
-const STEER_KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "S", label: "Steer", run: steer },
-    Action { cap: "D", label: "Deliver", run: deliver },
-    Action { cap: "Q", label: "Queue one", run: |s, tx| prompt(s, QUEUED_TEXT, true, tx) },
-    Action { cap: "F", label: "Finish the turn", run: finish },
+const TURN_KEYS: &[Trigger] = &[replay(actions_open), Trigger { key: 'w', label: "Start working", run: start }, Trigger { key: 'f', label: "Finish", run: finish }];
+const STEER_KEYS: &[Trigger] = &[
+    replay(steer_open),
+    Trigger { key: 's', label: "Steer", run: steer },
+    Trigger { key: 'd', label: "Deliver", run: deliver },
+    Trigger { key: 'q', label: "Queue one", run: |s, tx| prompt(s, QUEUED_TEXT, true, tx) },
+    Trigger { key: 'f', label: "Finish the turn", run: finish },
 ];
-const QUEUE_KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "Q", label: "Queue one", run: queue },
-    Action { cap: "D", label: "Deliver the oldest", run: deliver_queued },
+const QUEUE_KEYS: &[Trigger] = &[
+    replay(queue_open),
+    Trigger { key: 'q', label: "Queue one", run: queue },
+    Trigger { key: 'd', label: "Deliver the oldest", run: deliver_queued },
 ];
-const SUBAGENT_KEYS: &[Action<App>] = &[REPLAY, Action { cap: "S", label: "Start the subagent", run: start_child }, Action { cap: "F", label: "Finish it", run: finish_child }];
-const IMAGE_KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "O", label: "Open the first image", run: |s, _| view_image(s) },
-    Action { cap: "C", label: "Close it", run: |s, _| s.attach.viewing = None },
+const SUBAGENT_KEYS: &[Trigger] = &[replay(subagent_open), Trigger { key: 's', label: "Start the subagent", run: start_child }, Trigger { key: 'f', label: "Finish it", run: finish_child }];
+const IMAGE_KEYS: &[Trigger] = &[
+    replay(images_open),
+    Trigger { key: 'o', label: "Open the first image", run: |s, _| view_image(s) },
+    Trigger { key: 'c', label: "Close it", run: |s, _| s.attach.viewing = None },
 ];
-const JUMP_KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "U", label: "Scroll up", run: scroll_up },
-    Action { cap: "B", label: "Back to latest", run: |s, tx| tx.scroll_to_bottom(scroll_key(s)) },
+const JUMP_KEYS: &[Trigger] = &[
+    replay(jump_open),
+    Trigger { key: 'u', label: "Scroll up", run: scroll_up },
+    Trigger { key: 'b', label: "Back to latest", run: |s, tx| tx.scroll_to_bottom(scroll_key(s)) },
 ];
 
 pub static STORIES: &[Story] = &[
-    Story { group: "Composer", name: "Composer", knobs: COMPOSER_KNOBS, keys: &[], open: composer_open, view: composer_view },
-    Story { group: "Composer", name: "Queue dock", knobs: ROW_KNOBS, keys: QUEUE_KEYS, open: queue_open, view: session_view },
-    Story { group: "Composer", name: "Dictation", knobs: &[], keys: crate::dictation::STORY_KEYS, open: crate::dictation::story_open, view: composer_view },
-    Story { group: "Composer", name: "Mentions", knobs: &[], keys: crate::mention_stories::KEYS, open: crate::mention_stories::open, view: session_view },
-    Story { group: "Composer", name: crate::capsule_stories::NAME, knobs: &[], keys: crate::capsule_stories::KEYS, open: crate::capsule_stories::open, view: session_view },
-    Story { group: "Question dock", name: "Question", knobs: QUESTION_KNOBS, keys: &[], open: question_open, view: composer_view },
-    Story { group: "Question dock", name: "Custom answer", knobs: CUSTOM_KNOBS, keys: &[], open: custom_open, view: composer_view },
-    Story { group: "Question dock", name: "Morph", knobs: MORPH_KNOBS, keys: MORPH_KEYS, open: morph_open, view: session_view },
-    Story { group: "Question dock", name: "Under a queue", knobs: MORPH_KNOBS, keys: UNDER_QUEUE_KEYS, open: under_queue_open, view: session_view },
-    Story { group: "Sidebar", name: "Rename and menus", knobs: crate::session_menu_stories::KNOBS, keys: crate::session_menu_stories::KEYS, open: crate::session_menu_stories::open, view: crate::session_menu_stories::view },
-    Story { group: "Components", name: "Odometer", knobs: &[], keys: crate::odometer_stories::KEYS, open: crate::odometer_stories::open, view: crate::odometer_stories::view },
-    Story { group: "Header", name: "Session header", knobs: &[], keys: &[], open: |s, _| s.finish_stream(), view: header_view },
-    Story { group: "Timeline", name: "Arrival glow", knobs: GLOW_KNOBS, keys: GLOW_KEYS, open: glow_open, view: session_view },
-    Story { group: "Timeline", name: "Send", knobs: ROW_KNOBS, keys: SEND_KEYS, open: send_open, view: session_view },
-    Story { group: "Timeline", name: "Streaming text", knobs: ROW_KNOBS, keys: STREAM_KEYS, open: stream_open, view: session_view },
-    Story { group: "Timeline", name: "Tool rows", knobs: ROW_KNOBS, keys: TOOL_KEYS, open: tools_open, view: session_view },
-    Story { group: "Timeline", name: "Selection", knobs: &[], keys: crate::selection_stories::KEYS, open: crate::selection_stories::open, view: session_view },
-    Story { group: "Timeline", name: "Quote", knobs: &[], keys: crate::quote_stories::KEYS, open: crate::quote_stories::open, view: session_view },
-    Story { group: "Timeline", name: "Question answers", knobs: crate::question_stories::KNOBS, keys: crate::question_stories::KEYS, open: crate::question_stories::open, view: session_view },
-    Story { group: "Timeline", name: "Compaction", knobs: crate::compaction_stories::KNOBS, keys: crate::compaction_stories::KEYS, open: crate::compaction_stories::open, view: session_view },
-    Story { group: "Timeline", name: "Working", knobs: WORKING_KNOBS, keys: WORKING_KEYS, open: working_open, view: session_view },
-    Story { group: "Timeline", name: "Steer and Pending", knobs: ROW_KNOBS, keys: STEER_KEYS, open: steer_open, view: session_view },
-    Story { group: "Timeline", name: "Subagent", knobs: SUBAGENT_KNOBS, keys: SUBAGENT_KEYS, open: subagent_open, view: session_view },
-    Story { group: "Timeline", name: "Subagent rows", knobs: crate::agent_stories::KNOBS, keys: crate::agent_stories::KEYS, open: crate::agent_stories::open, view: session_view },
-    Story { group: "Timeline", name: "Images", knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, open: images_open, view: session_view },
-    Story { group: "Timeline", name: "Jump to latest", knobs: JUMP_KNOBS, keys: JUMP_KEYS, open: jump_open, view: session_view },
-    Story { group: "Timeline", name: crate::frosted_stories::NAME, knobs: &[], keys: crate::frosted_stories::KEYS, open: crate::frosted_stories::open, view: crate::frosted_stories::view },
-    Story { group: "Timeline", name: "Turn actions", knobs: ACTIONS_KNOBS, keys: TURN_KEYS, open: actions_open, view: session_view },
-    Story { group: "Navigation", name: "Back and forward", knobs: &[], keys: crate::history_story::KEYS, open: crate::history_story::open, view: history_view },
-    Story { group: "Session opening", name: open_story::NAMES[0], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 0, tx), view: opening_view },
-    Story { group: "Session opening", name: open_story::NAMES[1], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 1, tx), view: opening_view },
-    Story { group: "Session opening", name: open_story::NAMES[2], knobs: &[], keys: open_story::KEYS, open: |s, tx| open_story::open(s, 2, tx), view: opening_view },
+    Story { path: "Composer/Composer", scene: |s| stage(s, composer_view, COMPOSER_KNOBS), keys: COMPOSER_KEYS, variants: COMPOSER_VARIANTS },
+    Story { path: "Composer/Queue dock", scene: |s| stage(s, session_view, ROW_KNOBS), keys: QUEUE_KEYS, variants: &[] },
+    Story { path: "Composer/Dictation", scene: |s| stage(s, composer_view, &[]), keys: crate::dictation::STORY_KEYS, variants: &[] },
+    Story { path: "Composer/Mentions", scene: |s| stage(s, session_view, &[]), keys: crate::mention_stories::KEYS, variants: &[] },
+    Story { path: "Composer/Subagents capsule, 30 running", scene: |s| stage(s, session_view, &[]), keys: crate::capsule_stories::KEYS, variants: &[] },
+    Story { path: "Question dock/Question", scene: |s| stage(s, composer_view, &[]), keys: QUESTION_KEYS, variants: QUESTION_VARIANTS },
+    Story { path: "Question dock/Custom answer", scene: |s| stage(s, composer_view, &[]), keys: CUSTOM_KEYS, variants: CUSTOM_VARIANTS },
+    Story { path: "Question dock/Morph", scene: |s| watch(s, session_view, MORPH_KNOBS), keys: MORPH_KEYS, variants: &[] },
+    Story { path: "Question dock/Under a queue", scene: |s| stage(s, session_view, MORPH_KNOBS), keys: UNDER_QUEUE_KEYS, variants: &[] },
+    Story { path: "Sidebar/Rename and menus", scene: |s| stage(s, crate::session_menu_stories::view, &[]), keys: crate::session_menu_stories::KEYS, variants: crate::session_menu_stories::VARIANTS },
+    Story { path: "Components/Odometer", scene: |s| stage(s, crate::odometer_stories::view, &[]), keys: crate::odometer_stories::KEYS, variants: &[] },
+    Story { path: "Header/Session header", scene: |s| stage(s, header_view, &[]), keys: HEADER_KEYS, variants: &[] },
+    Story { path: "Header/Ticking", scene: |s| watch(s, ticking_view, &[]), keys: crate::odometer_stories::TICKING_KEYS, variants: &[] },
+    Story { path: "Timeline/Arrival glow", scene: |s| stage(s, session_view, GLOW_KNOBS), keys: GLOW_KEYS, variants: &[] },
+    Story { path: "Timeline/Send", scene: |s| stage(s, session_view, ROW_KNOBS), keys: SEND_KEYS, variants: &[] },
+    Story { path: "Timeline/Streaming text", scene: |s| stage(s, session_view, ROW_KNOBS), keys: STREAM_KEYS, variants: &[] },
+    Story { path: "Timeline/Tool rows", scene: |s| stage(s, session_view, ROW_KNOBS), keys: TOOL_KEYS, variants: &[] },
+    Story { path: "Timeline/Selection", scene: |s| stage(s, session_view, &[]), keys: crate::selection_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Quote", scene: |s| stage(s, session_view, &[]), keys: crate::quote_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Question answers", scene: |s| stage(s, session_view, ROW_KNOBS), keys: crate::question_stories::KEYS, variants: crate::question_stories::VARIANTS },
+    Story { path: "Timeline/Compaction", scene: |s| stage(s, session_view, ROW_KNOBS), keys: crate::compaction_stories::KEYS, variants: crate::compaction_stories::VARIANTS },
+    Story { path: "Timeline/Working", scene: |s| stage(s, session_view, WORKING_KNOBS), keys: WORKING_KEYS, variants: &[] },
+    Story { path: "Timeline/Steer and Pending", scene: |s| stage(s, session_view, ROW_KNOBS), keys: STEER_KEYS, variants: &[] },
+    Story { path: "Timeline/Subagent", scene: |s| stage(s, session_view, SUBAGENT_KNOBS), keys: SUBAGENT_KEYS, variants: &[] },
+    Story { path: "Timeline/Subagent rows", scene: |s| stage(s, session_view, &[]), keys: crate::agent_stories::KEYS, variants: crate::agent_stories::VARIANTS },
+    Story { path: "Timeline/Images", scene: |s| stage(s, session_view, IMAGE_KNOBS), keys: IMAGE_KEYS, variants: &[] },
+    Story { path: "Timeline/Jump to latest", scene: |s| stage(s, session_view, JUMP_KNOBS), keys: JUMP_KEYS, variants: &[] },
+    Story { path: "Timeline/Frosted surfaces", scene: |s| watch(s, crate::frosted_stories::view, &[]), keys: crate::frosted_stories::KEYS, variants: &[] },
+    Story { path: "Timeline/Turn actions", scene: |s| stage(s, session_view, ACTIONS_KNOBS), keys: TURN_KEYS, variants: &[] },
+    Story { path: "Navigation/Back and forward", scene: |s| stage(s, history_view, &[]), keys: crate::history_story::KEYS, variants: &[] },
+    Story { path: open_story::PATHS[0], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[0], variants: open_story::VARIANTS },
+    Story { path: open_story::PATHS[1], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[1], variants: open_story::VARIANTS },
+    Story { path: open_story::PATHS[2], scene: |s| stage(s, opening_view, &[]), keys: open_story::KEYS[2], variants: open_story::VARIANTS },
 ];
 
 /// Seconds the dock and the composer each stay in the morph loop.
@@ -171,114 +179,88 @@ const STEER_AGAIN: &str = "And keep the retry budget as it is";
 const QUEUED_TEXT: &str = "Then write up what changed in the PR description";
 const ARRIVED: &str = "msg_zzzzstory0000";
 
-// Opening and leaving.
+/// `App::variant` set to its index, for `Playground::variant`.
+const VARIANT: [fn(&mut App); 9] = [
+    |s| s.variant = 0,
+    |s| s.variant = 1,
+    |s| s.variant = 2,
+    |s| s.variant = 3,
+    |s| s.variant = 4,
+    |s| s.variant = 5,
+    |s| s.variant = 6,
+    |s| s.variant = 7,
+    |s| s.variant = 8,
+];
 
-/// Opens story `i` in a fresh fixture world, keeping the app as it was to come back to, and
-/// starts its motion.
-pub fn open(s: &mut App, i: usize, tx: &mut Tx) {
+// The playground.
+
+/// The window's storybook: each story a scene, its triggers, knobs and variants.
+pub fn playground() -> Playground<App> {
+    let mut pg = Playground::<App>::new()
+        .scenes(|name| name.contains('/'))
+        .fresh(fresh)
+        .keep(keep)
+        .typing(|s| !s.stage.is_some_and(|st| st.watch) && (s.composer.focused || s.question_takes_text()));
+    for st in STORIES {
+        for t in st.keys {
+            pg = pg.trigger(st.path, t.key, t.label, t.run);
+        }
+        for &(name, v) in st.variants {
+            pg = pg.variant(st.path, name, VARIANT[v]);
+        }
+        pg = pg.side(st.path, side);
+    }
+    pg
+}
+
+/// The app's scenes, then a scene per story under its path.
+pub fn scenes(app: &'static [(&'static str, fn(&mut App))]) -> &'static [(&'static str, fn(&mut App))] {
+    let all: Vec<_> = app.iter().copied().chain(STORIES.iter().map(|st| (st.path, st.scene))).collect();
+    Box::leak(all.into_boxed_slice())
+}
+
+/// A story's world: the fixture, opened on its session, with what stays the same between the
+/// app and its stories.
+fn fresh(real: &App) -> App {
     let mut w = App::empty();
     w.load_fixture(FIXTURE);
-    carry(s, &mut w);
-    w.clock = s.clock;
+    w.knobs = real.knobs.clone();
+    w.zoom = real.zoom;
+    w.sidebar_w = real.sidebar_w;
+    w.sidebar_open = real.sidebar_open;
+    w.edge = real.edge;
+    w.reduced_motion = real.reduced_motion;
+    w.debug = real.debug;
+    w.settings.scheme = real.settings.scheme;
+    w.clock = real.clock;
     // Relative times read as the fixture has them, however long the app has run.
-    w.base_ms -= (s.clock * 1000.0) as i64;
-    w.now_ms = w.base_ms + (s.clock * 1000.0) as i64;
-    w.waker = s.waker.clone();
+    w.base_ms -= (real.clock * 1000.0) as i64;
+    w.now_ms = w.base_ms + (real.clock * 1000.0) as i64;
+    w.waker = real.waker.clone();
     if let Some(waker) = w.waker.clone() {
         w.attach.set_waker(waker.clone());
         w.icons.set_waker(waker);
     }
     open_scene(&mut w);
-    let mut old = std::mem::replace(s, w);
-    let real = old.story.take().map_or_else(|| Box::new(old), |b| b.real);
-    s.story = Some(Storybook { at: i, real });
-    s.play.clear();
-    (STORIES[i].open)(s, tx);
-    tx.settle();
+    w
 }
 
-/// R: the open story from the start.
-pub(crate) fn replay(s: &mut App, tx: &mut Tx) {
-    if let Some(i) = s.story.as_ref().map(|b| b.at) {
-        open(s, i, tx);
-    }
+/// What the stories tuned stays in the app.
+fn keep(stage: &App, real: &mut App) {
+    real.knobs = stage.knobs.clone();
 }
 
-/// A snapshot scene: the story called `name`, its motion starting at 0 s.
-pub fn scene(s: &mut App, name: &str) {
-    let i = rune_playground::find(STORIES, name).unwrap_or_else(|| panic!("no story {name}"));
-    open(s, i, &mut Tx::default());
+/// Sets up a story's stage: `view` alone on it, its knobs beside it.
+fn stage(s: &mut App, view: fn(&App, &Pal) -> El, knobs: &'static [Group]) {
+    s.stage = Some(Stage { view, knobs, watch: false });
 }
 
-/// A snapshot scene on one of a story's variants.
-pub fn scene_variant(s: &mut App, name: &str, knob: Knob, at: usize) {
-    s.knobs.set(&knob, at as f32);
-    scene(s, name);
-}
-
-/// Back to the app as it was, with the knobs and folds as the storybook left them.
-pub fn close(s: &mut App, tx: &mut Tx) {
-    let Some(b) = s.story.take() else { return };
-    let mut real = *b.real;
-    carry(s, &mut real);
-    real.play.reset();
-    *s = real;
-    tx.settle();
-}
-
-/// What stays the same between the app and its stories.
-fn carry(from: &mut App, to: &mut App) {
-    to.knobs = std::mem::take(&mut from.knobs);
-    to.play = std::mem::take(&mut from.play);
-    to.zoom = from.zoom;
-    to.sidebar_w = from.sidebar_w;
-    to.sidebar_open = from.sidebar_open;
-    to.edge = from.edge;
-    to.reduced_motion = from.reduced_motion;
-    to.debug = from.debug;
-}
-
-/// The triggers' queued steps, and a new variant setting its story up again. First thing in
-/// `poll`, so the events a step plays land after it as arrivals do; true when one ran.
-pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let at = s.story.as_ref().map(|b| b.at);
-    let mut changed = false;
-    if rune_playground::choices_changed(STORIES, at, &mut s.play, &s.knobs)
-        && let Some(i) = at
-    {
-        open(s, i, tx);
-        changed = true;
-    }
-    // The morph loop is for watching: the composer it lands on doesn't take the keys.
-    if at.is_some_and(|i| STORIES[i].name == "Morph") {
-        s.composer.focused = false;
-    }
-    rune_playground::poll(s, |s| &mut s.play, now, tx) || changed
-}
-
-/// ⌘⇧D opens and leaves the storybook; in it, `rune_playground::KEYS` and the story's triggers.
-/// Typing in the composer or a question's answer keeps its keys.
-pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let at = s.story.as_ref().map(|b| b.at);
-    let toggle = matches!(ev.key, Key::Command('d' | 'D')) && ev.mods.shift;
-    if at.is_some() && !toggle && (s.composer.focused || s.question_takes_text()) {
-        return false;
-    }
-    match rune_playground::key(STORIES, at, &mut s.play, &mut s.knobs, ev) {
-        Move::Pass => return false,
-        Move::Run(step) => step(s, tx),
-        Move::Open(i) => open(s, i, tx),
-        Move::Leave => close(s, tx),
-        Move::Done => tx.instant(),
-    }
-    true
+/// [`stage`] for a story that only plays.
+fn watch(s: &mut App, view: fn(&App, &Pal) -> El, knobs: &'static [Group]) {
+    s.stage = Some(Stage { view, knobs, watch: true });
 }
 
 // Drawing.
-
-fn look(p: &Pal) -> Look {
-    Look { text: p.text, muted: p.muted, faint: p.faint, selected: p.pressed, hover: p.hover, panel: p.bg_deep, line: p.ring, top: 0.0 }
-}
 
 fn knobs_style(p: &Pal) -> rune_knobs::Style {
     if p.dark {
@@ -306,17 +288,16 @@ fn knobs_style(p: &Pal) -> rune_knobs::Style {
     }
 }
 
-/// The sidebar while the storybook is open: the stories under their groups, in place of the tabs.
-pub fn list(s: &App, p: &Pal) -> Option<El> {
-    let at = s.story.as_ref()?.at;
-    Some(rune_playground::list(STORIES, Some(at), &s.play, look(p), |s: &mut App| &mut s.play, open))
+/// The story's knobs, beside its stage.
+fn side(s: &App, cx: &mut Cx<App>) -> El {
+    let Some(st) = s.stage.filter(|st| !st.knobs.is_empty()) else { return el() };
+    let p = pal(s.dark(cx));
+    rune_knobs::inline(&s.knobs, st.knobs, knobs_style(&p), |s: &mut App| &mut s.knobs, false)
 }
 
-/// The panel while the storybook is open: the story on its stage, its knobs and triggers beside.
-pub fn page(s: &App, p: &Pal) -> El {
-    let Some(st) = s.story.as_ref().and_then(|b| STORIES.get(b.at)) else { return rune_playground::empty() };
-    let side = rune_playground::side(st, &s.knobs, &s.play, knobs_style(p), |s: &mut App| &mut s.knobs, look(p));
-    rune_playground::page(rune_playground::stage((st.view)(s, p), false), side)
+/// The stage: the story's component alone on the window's ground.
+pub fn page(s: &App, p: &Pal, st: Stage) -> El {
+    col().key("story-stage").w_full().h_full().fill(p.bg_deep).padding(24.0).center().child((st.view)(s, p))
 }
 
 /// A component's frame on the stage: the panel's surface, as wide as the timeline's column.
@@ -330,6 +311,11 @@ fn composer_view(s: &App, p: &Pal) -> El {
 
 fn header_view(s: &App, p: &Pal) -> El {
     frame(p, "story-header").child(view::story_header(s, p))
+}
+
+/// The header over the timeline, for numbers that tick in both.
+fn ticking_view(s: &App, p: &Pal) -> El {
+    frame(p, "story-ticking").h_full().max_h(680.0).child(view::story_header(s, p)).child(view::story_session(s, p))
 }
 
 /// The timeline and what sits under it, in a window-sized frame.
@@ -371,9 +357,9 @@ pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     tx.wake_after(std::time::Duration::ZERO);
 }
 
-fn composer_open(s: &mut App, _: &mut Tx) {
+fn composer_open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    match s.knobs.get(&COMPOSER) as usize {
+    match s.variant {
         1 => s.composer = TextEdit::new(DRAFT),
         2 => pending(s),
         3 => {
@@ -406,33 +392,33 @@ fn replied(s: &App) -> Value {
     json!({ "id": q["id"], "sessionID": q["sessionID"] })
 }
 
-fn question_open(s: &mut App, _: &mut Tx) {
+fn question_open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    let q = match s.knobs.get(&QUESTION) as usize {
+    let q = match s.variant {
         1 => form(s, &[0, 1]),
         2 => form(s, &[1]),
         3 => long(s),
         _ => form(s, &[0]),
     };
     s.apply_event("form.created", &q);
-    if s.knobs.get(&QUESTION) as usize == 4 {
+    if s.variant == 4 {
         s.question_type("Fake clock, but keep one slow test on real timers");
     }
 }
 
-/// The two-question form on its last question, with its typed answer as the knob says.
-fn custom_open(s: &mut App, _: &mut Tx) {
+/// The two-question form on its last question, with its typed answer as its variant says.
+fn custom_open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     let q = form(s, &[0, 1]);
     s.apply_event("form.created", &q);
     s.question_last();
-    let text = match s.knobs.get(&CUSTOM_ANSWER) as usize {
+    let text = match s.variant {
         1 | 2 => "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere",
         3 => "",
         _ => "All of them",
     };
     s.question_type(text);
-    if matches!(s.knobs.get(&CUSTOM_ANSWER) as usize, 2 | 3) {
+    if matches!(s.variant, 2 | 3) {
         s.question_leave_field();
     }
 }
@@ -447,38 +433,38 @@ fn long(s: &App) -> Value {
 }
 
 /// The dock opens half a second in, then closes and opens every beat.
-fn morph_open(s: &mut App, tx: &mut Tx) {
+fn morph_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.5, ask, tx);
+    tx.after(0.5, ask);
 }
 
-fn ask(s: &mut App, tx: &mut Tx) {
+fn ask(s: &mut App, tx: &mut Play<App>) {
     emit(s, "form.created", form(s, &[0]), tx);
-    s.play.after(BEAT, answer, tx);
+    tx.after(BEAT, answer);
 }
 
-fn answer(s: &mut App, tx: &mut Tx) {
+fn answer(s: &mut App, tx: &mut Play<App>) {
     emit(s, "form.replied", replied(s), tx);
-    s.play.after(BEAT, ask, tx);
+    tx.after(BEAT, ask);
 }
 
 /// A prompt waits in the queue while the session works, then the question opens under it:
 /// the queue and the dock share one outline.
-fn under_queue_open(s: &mut App, tx: &mut Tx) {
+fn under_queue_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
     s.running.insert(id);
-    s.play.after(0.2, queue, tx);
-    s.play.after(1.0, |s, tx| emit(s, "form.created", form(s, &[0]), tx), tx);
+    tx.after(0.2, queue);
+    tx.after(1.0, |s, tx| emit(s, "form.created", form(s, &[0]), tx));
 }
 
 /// A prompt from another client lands and glows.
-fn glow_open(s: &mut App, tx: &mut Tx) {
+fn glow_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.4, arrive, tx);
+    tx.after(0.4, arrive);
 }
 
-fn arrive(s: &mut App, tx: &mut Tx) {
+fn arrive(s: &mut App, tx: &mut Play<App>) {
     s.sends += 1;
     let text = ["Sent from my phone: does this cover the laptop waking on battery too?", "And on a flaky hotel network?", "One more: what about a VPN dropping?"];
     let n = s.sends as usize;
@@ -486,13 +472,13 @@ fn arrive(s: &mut App, tx: &mut Tx) {
 }
 
 /// A draft in the composer, sent; the fixture's reply plays under it.
-fn send_open(s: &mut App, tx: &mut Tx) {
+fn send_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.composer = TextEdit::new(SEND_TEXT);
-    s.play.after(0.6, send, tx);
+    tx.after(0.6, send);
 }
 
-fn send(s: &mut App, tx: &mut Tx) {
+fn send(s: &mut App, tx: &mut Play<App>) {
     prompt(s, SEND_TEXT, false, tx);
 }
 
@@ -504,27 +490,27 @@ fn prompt(s: &mut App, text: &str, queue: bool, tx: &mut Tx) {
 }
 
 /// The fixture's streaming turn, from its first event.
-fn stream_open(s: &mut App, _: &mut Tx) {
+fn stream_open(s: &mut App, _: &mut Play<App>) {
     let id = sid(s);
     s.start_stream_if_due(&id);
 }
 
-fn finish_stream(s: &mut App, _: &mut Tx) {
+fn finish_stream(s: &mut App, _: &mut Play<App>) {
     while let Some((_, ty, data)) = s.playback.pop_front() {
         s.apply_event(&ty, &data);
     }
 }
 
 /// A send whose reply calls two tools; the group they fold into opens and closes after.
-fn tools_open(s: &mut App, tx: &mut Tx) {
+fn tools_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.4, send, tx);
-    s.play.after(4.6, fold_tools, tx);
-    s.play.after(6.2, fold_tools, tx);
+    tx.after(0.4, send);
+    tx.after(4.6, fold_tools);
+    tx.after(6.2, fold_tools);
 }
 
 /// Opens or closes the last group of tools in the timeline.
-fn fold_tools(s: &mut App, _: &mut Tx) {
+fn fold_tools(s: &mut App, _: &mut Play<App>) {
     let Some(t) = s.transcripts.get(&sid(s)) else { return };
     let mut steps = Vec::new();
     for m in &t.messages {
@@ -545,93 +531,93 @@ fn fold_tools(s: &mut App, _: &mut Tx) {
 }
 
 /// The finished session starts working: Working joins the end with its shimmer.
-fn working_open(s: &mut App, tx: &mut Tx) {
+fn working_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.4, start, tx);
+    tx.after(0.4, start);
 }
 
-fn start(s: &mut App, tx: &mut Tx) {
+fn start(s: &mut App, tx: &mut Play<App>) {
     emit(s, "session.execution.started", json!({}), tx);
 }
 
-fn finish(s: &mut App, tx: &mut Tx) {
+fn finish(s: &mut App, tx: &mut Play<App>) {
     emit(s, "session.execution.succeeded", json!({}), tx);
 }
 
 /// Labels of different widths, for a label that changes mid-sweep.
 const LABELS: &[&str] = &["Working", "Thinking", "Running the tests", "Searching the codebase"];
 
-fn relabel(s: &mut App, _: &mut Tx) {
+fn relabel(s: &mut App, _: &mut Play<App>) {
     let at = LABELS.iter().position(|l| *l == s.working.label()).unwrap_or(0);
     let now = s.clock;
     s.working.relabel(LABELS[(at + 1) % LABELS.len()], now);
 }
 
 /// Working, until the turn finishes and its actions take its place.
-fn actions_open(s: &mut App, tx: &mut Tx) {
+fn actions_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
     s.running.insert(id);
-    s.play.after(1.0, finish, tx);
+    tx.after(1.0, finish);
 }
 
 /// A steer sent while the session works rises as Pending, and lands when it's delivered.
-fn steer_open(s: &mut App, tx: &mut Tx) {
+fn steer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
     s.running.insert(id);
     s.composer = TextEdit::new(STEER_TEXT);
-    s.play.after(0.5, |s, tx| prompt(s, STEER_TEXT, false, tx), tx);
-    s.play.after(2.3, deliver, tx);
+    tx.after(0.5, |s, tx| prompt(s, STEER_TEXT, false, tx));
+    tx.after(2.3, deliver);
 }
 
-fn steer(s: &mut App, tx: &mut Tx) {
+fn steer(s: &mut App, tx: &mut Play<App>) {
     let steering = s.inbox_for(&sid(s)).map_or(0, |i| i.steering().count());
     prompt(s, if steering == 0 { STEER_TEXT } else { STEER_AGAIN }, false, tx);
 }
 
 /// The server delivers the oldest steer.
-fn deliver(s: &mut App, tx: &mut Tx) {
+fn deliver(s: &mut App, tx: &mut Play<App>) {
     let Some(id) = s.inbox_for(&sid(s)).and_then(|i| i.steering().next()).map(|i| i.id.clone()) else { return };
     emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
 }
 
 /// Two prompts queued while the session works open the dock out of the composer's top edge;
 /// delivered one by one, they leave it and it closes back behind the composer.
-fn queue_open(s: &mut App, tx: &mut Tx) {
+fn queue_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
     s.running.insert(id);
-    s.play.after(0.4, queue, tx);
-    s.play.after(1.2, queue, tx);
-    s.play.after(2.4, deliver_queued, tx);
-    s.play.after(3.2, deliver_queued, tx);
+    tx.after(0.4, queue);
+    tx.after(1.2, queue);
+    tx.after(2.4, deliver_queued);
+    tx.after(3.2, deliver_queued);
 }
 
-fn queue(s: &mut App, tx: &mut Tx) {
+fn queue(s: &mut App, tx: &mut Play<App>) {
     let queued = s.inbox_for(&sid(s)).map_or(0, |i| i.queued().count());
     prompt(s, [QUEUED_TEXT, STEER_AGAIN][queued % 2], true, tx);
 }
 
 /// The server delivers the oldest queued prompt.
-fn deliver_queued(s: &mut App, tx: &mut Tx) {
+fn deliver_queued(s: &mut App, tx: &mut Play<App>) {
     let Some(id) = s.inbox_for(&sid(s)).and_then(|i| i.queued().next()).map(|i| i.id.clone()) else { return };
     emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
 }
 
 /// The review subagent runs, with the capsule over the composer, and finishes.
-fn subagent_open(s: &mut App, tx: &mut Tx) {
+fn subagent_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.running.remove(CHILD);
-    s.play.after(0.4, start_child, tx);
-    s.play.after(2.8, finish_child, tx);
+    tx.after(0.4, start_child);
+    tx.after(2.8, finish_child);
 }
 
-fn start_child(s: &mut App, tx: &mut Tx) {
+fn start_child(s: &mut App, tx: &mut Play<App>) {
     emit(s, "session.execution.started", json!({ "sessionID": CHILD }), tx);
 }
 
-fn finish_child(s: &mut App, tx: &mut Tx) {
+fn finish_child(s: &mut App, tx: &mut Play<App>) {
     emit(s, "session.execution.succeeded", json!({ "sessionID": CHILD }), tx);
 }
 
@@ -657,15 +643,15 @@ fn pictures() -> &'static [Attachment] {
 }
 
 /// A prompt with two images arrives; the first opens in the viewer and closes.
-fn images_open(s: &mut App, tx: &mut Tx) {
+fn images_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.4, |s, tx| {
+    tx.after(0.4, |s, tx| {
         let id = format!("{ARRIVED}img");
         opencode_kit::model::set_user_files(&id, pictures().to_vec());
         emit(s, "session.prompted", json!({ "messageID": id, "text": "Here's the sidebar after a wake, and the reconnect log" }), tx);
-    }, tx);
-    s.play.after(1.6, |s, _| view_image(s), tx);
-    s.play.after(3.0, |s, _| s.attach.viewing = None, tx);
+    });
+    tx.after(1.6, |s, _| view_image(s));
+    tx.after(3.0, |s, _| s.attach.viewing = None);
 }
 
 fn view_image(s: &mut App) {
@@ -676,190 +662,40 @@ fn view_image(s: &mut App) {
 }
 
 /// The timeline glides up past a screen, Jump to latest shows, and takes it back down.
-fn jump_open(s: &mut App, tx: &mut Tx) {
+fn jump_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.4, scroll_up, tx);
-    s.play.after(2.0, |s, tx| tx.scroll_to_bottom(scroll_key(s)), tx);
+    tx.after(0.4, scroll_up);
+    tx.after(2.0, |s, tx| tx.scroll_to_bottom(scroll_key(s)));
 }
 
-fn scroll_up(s: &mut App, tx: &mut Tx) {
+fn scroll_up(s: &mut App, tx: &mut Play<App>) {
     tx.scroll_to(scroll_key(s), 0.0, 0.0);
 }
 
+/// The app with its storybook, headless and closed, on an empty real state that never reaches
+/// a server: open a story with `Runtime::open_playground`.
 #[cfg(test)]
-mod tests {
-    use std::sync::mpsc::channel;
-
-    use opencode_kit::client::Server;
-    use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
-
-    use super::{STORIES, open};
-    use crate::{App, FIXTURE, Source, open_scene};
-
-    const DT: f64 = 1.0 / 120.0;
-
-    fn press(rt: &mut Runtime<App>, key: Key, mods: Mods) {
-        rt.key(KeyEvent { key, mods });
-        rt.frame(DT);
-    }
-
-    fn letter(rt: &mut Runtime<App>, c: &str) {
-        press(rt, Key::Text(c.into()), Mods::default());
-    }
-
-    fn run(rt: &mut Runtime<App>, secs: f64) {
-        for _ in 0..(secs * 120.0) as usize {
-            rt.frame(DT);
-        }
-    }
-
-    /// ⌘⇧D, then polling: the real app never polls here, so it doesn't save its state or
-    /// reach the server.
-    fn book(rt: &mut Runtime<App>) {
-        press(rt, Key::Command('d'), Mods { cmd: true, shift: true, ..Mods::default() });
-        rt.poll = Some(crate::poll);
-    }
-
-    fn at(rt: &Runtime<App>) -> Option<usize> {
-        rt.state.story.as_ref().map(|b| b.at)
-    }
-
-    fn story(name: &str) -> usize {
-        rune_playground::find(STORIES, name).unwrap()
-    }
-
-    fn real() -> (Runtime<App>, std::sync::mpsc::Receiver<opencode_kit::client::Write>) {
-        let mut app = App::empty();
-        app.load_fixture(FIXTURE);
-        open_scene(&mut app);
-        app.finish_stream();
-        app.composer = TextEdit::new("a real draft");
-        let (w, writes) = channel();
-        app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.on_key = Some(crate::on_key);
-        rt.frame(0.0);
-        (rt, writes)
-    }
-
-    #[test]
-    fn the_storybook_leaves_the_app_as_it_was_and_sends_nothing() {
-        let (mut rt, writes) = real();
-        book(&mut rt);
-        assert_eq!(at(&rt), Some(0));
-        assert!(matches!(rt.state.source, Source::Fixture), "a story is its own fixture world");
-        assert!(rt.find("book-group-0").is_some() && rt.find("story-0").is_some() && rt.find("tabs").is_none(), "stories in place of the tabs");
-        assert!(rt.find("book-side").is_some() && rt.find("story-composer").is_some(), "the composer alone, its knobs beside it");
-        assert!(rt.find("timeline").is_none(), "nothing else on the stage");
-
-        // ↓ walks the list; the steer story sends, steers and delivers, and nothing goes out.
-        press(&mut rt, Key::Down, Mods::default());
-        assert_eq!(rt.state.play.panel, false);
-        press(&mut rt, Key::Down, Mods::default());
-        assert_eq!(at(&rt), Some(story("Dictation")), "to the next story down");
-        let steer = story("Steer and Pending");
-        open(&mut rt.state, steer, &mut rune::Tx::default());
-        run(&mut rt, 1.0);
-        let id = super::sid(&rt.state);
-        assert_eq!(rt.state.inbox_for(&id).map(|i| i.steering().count()), Some(1), "the steer waits as Pending");
-        run(&mut rt, 1.6);
-        assert!(rt.state.inbox_for(&id).is_none(), "delivered");
-        let last = rt.state.transcripts[&id].messages.last().unwrap();
-        assert!(matches!(last, opencode_kit::model::Message::User { text, .. } if text == super::STEER_TEXT));
-
-        rt.poll = None;
-        press(&mut rt, Key::Escape, Mods::default());
-        assert!(rt.state.story.is_none());
-        assert!(matches!(rt.state.source, Source::Live { .. }));
-        assert_eq!(rt.state.composer.text, "a real draft");
-        assert!(writes.try_recv().is_err(), "nothing reached the server");
-    }
-
-    /// The queue dock story fills the dock from the composer and empties it into the timeline.
-    #[test]
-    fn the_queue_dock_story_fills_and_empties_the_dock() {
-        let (mut rt, _) = real();
-        book(&mut rt);
-        open(&mut rt.state, story("Queue dock"), &mut rune::Tx::default());
-        let id = super::sid(&rt.state);
-        let queued = |rt: &Runtime<App>| rt.state.inbox_for(&id).map_or(0, |i| i.queued().count());
-        let dock = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("queue")).map_or(0.0, |e| e.rect[3]);
-        run(&mut rt, 2.0);
-        assert_eq!(queued(&rt), 2, "two prompts wait in the dock");
-        assert!(dock(&rt) > 40.0, "the dock is open");
-        run(&mut rt, 2.5);
-        assert_eq!(queued(&rt), 0, "both delivered");
-        assert_eq!(dock(&rt), 0.0, "the dock closed behind the composer");
-        let last = rt.state.transcripts[&id].messages.last().unwrap();
-        assert!(matches!(last, opencode_kit::model::Message::User { text, .. } if text == super::STEER_AGAIN));
-        letter(&mut rt, "q");
-        run(&mut rt, 0.1);
-        assert_eq!(queued(&rt), 1, "Q queues another");
-        letter(&mut rt, "d");
-        run(&mut rt, 0.1);
-        assert_eq!(queued(&rt), 0, "D delivers it");
-    }
-
-    /// The Odometer story ticks its numbers once a second, and S shows another session's at once.
-    #[test]
-    fn the_odometer_story_ticks_and_switches_session_at_once() {
-        let (mut rt, _) = real();
-        book(&mut rt);
-        open(&mut rt.state, story("Odometer"), &mut rune::Tx::default());
-        let label = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).and_then(|e| e.label);
-        run(&mut rt, 0.1);
-        assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("7s"));
-        run(&mut rt, 3.0);
-        assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("10s"), "9s turned 10s");
-        letter(&mut rt, "s");
-        assert!(label(&rt, "story-time-7-0").is_none() && label(&rt, "story-time-7-1").is_some(), "another session's number mounts fresh");
-    }
-
-    /// R plays a story from the start the same way every time: the glow lands at the same
-    /// moment of each replay.
-    #[test]
-    fn replays_run_the_same_every_time() {
-        let (mut rt, _) = real();
-        book(&mut rt);
-        open(&mut rt.state, story("Arrival glow"), &mut rune::Tx::default());
-        let mut lit = Vec::new();
-        for _ in 0..3 {
-            rt.key(KeyEvent { key: Key::Text("r".into()), mods: Mods::default() });
-            let mut first = None;
-            for f in 0..120 {
-                rt.frame(DT);
-                if first.is_none() && !rt.state.glows.is_empty() {
-                    first = Some(f);
-                }
-            }
-            lit.push(first.expect("it glowed"));
-        }
-        assert!(lit.iter().all(|f| *f == lit[0]), "the glow lands at the same frame of each replay: {lit:?}");
-        assert!(rt.find("story-session").is_some());
-    }
-
-    /// Every story opens, plays its motion and replays without a hitch; each digit flips the
-    /// variant of a story that has one.
-    #[test]
-    fn every_story_plays_and_replays() {
-        let (mut rt, _) = real();
-        book(&mut rt);
-        for i in 0..STORIES.len() {
-            open(&mut rt.state, i, &mut rune::Tx::default());
-            assert!(rt.find("book-side").is_some());
-            run(&mut rt, 3.0);
-            letter(&mut rt, "r");
-            run(&mut rt, 1.0);
-            assert_eq!(at(&rt), Some(i), "{}", STORIES[i].name);
-        }
-        open(&mut rt.state, story("Question"), &mut rune::Tx::default());
-        rt.frame(DT);
-        letter(&mut rt, "2");
-        rt.frame(DT);
-        let fields = rt.state.pending.iter().find_map(|p| match p {
-            opencode_kit::model::Pending::Form { fields, .. } => Some(fields.len()),
-            _ => None,
-        });
-        assert_eq!(fields, Some(2), "2 shows the two-question form");
-    }
+pub(crate) fn storybook() -> rune::Runtime<App> {
+    let spec = rune::AppSpec { setup: None, ..crate::spec(App::empty) };
+    let mut rt = crate::rune_app(spec).headless_runtime((1280.0, 820.0), rune::Env::new(true, 1.0));
+    rt.frame(0.0);
+    rt
 }
+
+/// The storybook open on `path`, on its variant `variant` if given.
+#[cfg(test)]
+pub(crate) fn story(path: &str, variant: Option<&str>) -> rune::Runtime<App> {
+    let mut rt = storybook();
+    rt.open_playground(path, variant);
+    rt
+}
+
+/// The open story's world.
+#[cfg(test)]
+pub(crate) fn world(rt: &rune::Runtime<App>) -> &App {
+    rt.playground_state::<App>().expect("a story is open")
+}
+
+#[cfg(test)]
+#[path = "stories_tests.rs"]
+mod tests;

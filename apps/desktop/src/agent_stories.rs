@@ -3,23 +3,21 @@
 //! finish later. S starts another, F finishes the oldest, E fails the newest, R replays.
 
 use opencode_kit::model::{Assistant, Message, Part, SessionInfo, ToolStatus, Transcript};
-use rune::Tx;
-use rune_knobs::{Action, Group, Knob};
+use rune::{Play, Tx};
 use serde_json::json;
 
 use crate::App;
-use crate::stories::{emit, replay, sid};
+use crate::stories::{Trigger, emit, replay, sid};
 
-/// How many agents the story starts.
-pub const COUNT: Knob = Knob::choice("Agents", &["1", "3", "6"], 1);
+/// How many agents the story starts, three first.
+pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2)];
 const COUNTS: [usize; 3] = [1, 3, 6];
 
-pub const KNOBS: &[Group] = &[Group::new("Subagent rows", "stage", &[COUNT])];
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "S", label: "Start another", run: spawn },
-    Action { cap: "F", label: "Finish the oldest", run: finish_oldest },
-    Action { cap: "E", label: "Fail the newest", run: fail_newest },
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 's', label: "Start another", run: |s, tx| spawn(s, tx) },
+    Trigger { key: 'f', label: "Finish the oldest", run: |s, tx| finish_oldest(s, tx) },
+    Trigger { key: 'e', label: "Fail the newest", run: |s, tx| fail_newest(s, tx) },
 ];
 
 /// Seconds between one agent's steps.
@@ -55,32 +53,25 @@ fn started(s: &App) -> Vec<String> {
     (0..).map(child).take_while(|c| s.session(c).is_some()).collect()
 }
 
-/// A snapshot scene: `count` agents (the Agents knob's index), light or dark.
-pub fn scene(s: &mut App, count: usize, dark: bool) {
-    s.knobs.set(&COUNT, count as f32);
-    crate::stories::scene(s, "Subagent rows");
-    s.settings.scheme = if dark { crate::settings::Scheme::Dark } else { crate::settings::Scheme::Light };
-}
-
 /// The agents start a beat apart and step along. At 4.5 s the oldest finishes and the newest
 /// fails, so one of each shows from 5.4 s until the rest finish at 9 s.
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let n = COUNTS[(s.knobs.get(&COUNT) as usize).min(2)];
+    let n = COUNTS[s.variant.min(2)];
     for k in 0..n {
-        s.play.after(0.3 + k as f64 * 0.25, spawn, tx);
+        tx.after(0.3 + k as f64 * 0.25, |s, tx| spawn(s, tx));
     }
     let mut t = 0.3 + STEP;
     while t < 20.0 {
-        s.play.after(t, advance, tx);
+        tx.after(t, |s, tx| advance(s, tx));
         t += STEP;
     }
-    s.play.after(4.5, finish_oldest, tx);
+    tx.after(4.5, |s, tx| finish_oldest(s, tx));
     if n > 1 {
-        s.play.after(5.4, fail_newest, tx);
+        tx.after(5.4, |s, tx| fail_newest(s, tx));
     }
     for k in 0..n.saturating_sub(2) {
-        s.play.after(9.0 + k as f64 * 0.6, finish_oldest, tx);
+        tx.after(9.0 + k as f64 * 0.6, |s, tx| finish_oldest(s, tx));
     }
 }
 

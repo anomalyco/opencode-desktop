@@ -3,37 +3,27 @@
 //! headless, so the menus are drawn copies; M opens the real one, N lights its next item, E
 //! starts the rename, D asks to delete, R replays.
 
-use rune::{El, PopupAnchor, Tx, col, el, row};
-use rune_knobs::{Action, Group, Knob};
+use rune::{El, Play, PopupAnchor, Tx, col, el, row};
 
 use crate::palette::Pal;
 use crate::session_menu::{self, Line, Spot, Target};
 use crate::session_menu_view::preview;
-use crate::stories::{replay, scene_variant};
+use crate::stories::{Trigger, replay};
 use crate::view;
 use crate::{App, Route};
 
-pub const SHOWING: Knob = Knob::choice(
-    "Showing",
-    &["Tab menu", "Home row menu", "Header menu", "Renaming a tab", "Renaming a row", "Renaming the title", "Delete"],
-    0,
-);
-pub const KNOBS: &[Group] = &[Group::new("Rename and menus", "stage", &[SHOWING])];
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "M", label: "Open the real menu", run: native },
-    Action { cap: "N", label: "Light the next item", run: next },
-    Action { cap: "E", label: "Rename", run: |s, _| start(s, true) },
-    Action { cap: "D", label: "Ask to delete", run: |s, _| s.menus.confirm = Some(first(s)) },
+pub const VARIANTS: &[(&str, usize)] =
+    &[("Tab menu", 0), ("Home row menu", 1), ("Header menu", 2), ("Renaming a tab", 3), ("Renaming a row", 4), ("Renaming the title", 5), ("Delete", 6)];
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 'm', label: "Open the real menu", run: |s, tx| native(s, tx) },
+    Trigger { key: 'n', label: "Light the next item", run: |s, tx| next(s, tx) },
+    Trigger { key: 'e', label: "Rename", run: |s, _| start(s, true) },
+    Trigger { key: 'd', label: "Ask to delete", run: |s, _| s.menus.confirm = Some(first(s)) },
 ];
 
-/// A snapshot scene on variant `at`.
-pub fn scene(s: &mut App, at: usize) {
-    scene_variant(s, "Rename and menus", SHOWING, at);
-}
-
 fn variant(s: &App) -> usize {
-    s.knobs.get(&SHOWING) as usize
+    s.variant
 }
 
 fn spot(v: usize) -> Spot {
@@ -56,7 +46,7 @@ fn target(s: &App) -> Target {
     Target::new(&first(s), spot(variant(s)))
 }
 
-pub fn open(s: &mut App, _: &mut Tx) {
+fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.menus = Default::default();
     let v = variant(s);

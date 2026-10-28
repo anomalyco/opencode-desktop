@@ -53,7 +53,13 @@ pub(crate) const CONTENT_W: f32 = 696.0;
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
-    let mut inner = shell(s, cx);
+    let mut inner = match s.stage {
+        Some(st) => {
+            cx.reduced_motion(s.reduced_motion);
+            crate::stories::page(s, p, st)
+        }
+        None => shell(s, cx),
+    };
     if s.pickers.open.is_some() {
         inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -126,7 +132,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::dropzone::drop)
                 .on_drop_hover(crate::dropzone::hover)
-                .child(if s.story.is_some() { crate::stories::page(s, p) } else if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
+                .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),

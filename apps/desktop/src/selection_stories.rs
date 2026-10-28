@@ -3,19 +3,18 @@
 //! The highlight is instant. S selects the reply, A everything on screen, W a word of the
 //! prompt, P lands a new prompt below (the selection stays), C clears, R replays.
 
-use rune::Tx;
-use rune_knobs::Action;
+use rune::{Play, Tx};
 
 use crate::App;
-use crate::stories::{emit, replay, sid};
+use crate::stories::{Trigger, emit, replay, sid};
 
-pub const KEYS: &[Action<App>] = &[
-    Action { cap: "R", label: "Replay", run: replay },
-    Action { cap: "S", label: "Select the reply", run: select_reply },
-    Action { cap: "A", label: "Select all on screen", run: |_, tx| tx.select_all_text("timeline") },
-    Action { cap: "W", label: "Select a word", run: |_, tx| tx.select_text(format!("text-{PROMPT}"), WORD) },
-    Action { cap: "P", label: "A prompt lands below", run: prompt },
-    Action { cap: "C", label: "Clear", run: |_, tx| tx.clear_text_selection() },
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 's', label: "Select the reply", run: |s, tx| select_reply(s, tx) },
+    Trigger { key: 'a', label: "Select all on screen", run: |_, tx| tx.select_all_text("timeline") },
+    Trigger { key: 'w', label: "Select a word", run: |_, tx| tx.select_text(format!("text-{PROMPT}"), WORD) },
+    Trigger { key: 'p', label: "A prompt lands below", run: |s, tx| prompt(s, tx) },
+    Trigger { key: 'c', label: "Clear", run: |_, tx| tx.clear_text_selection() },
 ];
 
 /// The reply with the watchdog's code, its row's key.
@@ -24,10 +23,10 @@ const REPLY: &str = "t-msg_001a162c36130003fixture00-0";
 const PROMPT: &str = "msg_001a162c32a80001fixture00";
 const WORD: std::ops::Range<usize> = 40..46;
 
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.play.after(0.2, |_, tx| tx.scroll_into_view(REPLY), tx);
-    s.play.after(0.6, select_reply, tx);
+    tx.after(0.2, |_, tx| tx.scroll_into_view(REPLY));
+    tx.after(0.6, |s, tx| select_reply(s, tx));
 }
 
 fn select_reply(_: &mut App, tx: &mut Tx) {

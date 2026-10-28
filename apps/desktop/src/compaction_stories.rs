@@ -4,32 +4,30 @@
 //! running one, F fails it, and G starts a quiet one that ends inside its grace.
 
 use opencode_kit::model::{CompactionStatus, Message};
-use rune::Tx;
-use rune_knobs::{Action, Group, Knob};
+use rune::{Play, Tx};
 use serde_json::json;
 
 use crate::App;
-use crate::knobs::ROW_GROWTH;
-use crate::stories::{REPLAY, emit, sid};
+use crate::stories::{Trigger, emit, replay, sid};
 
-pub const VARIANT: Knob =
-    Knob::choice("Compaction", &["Queued", "Running", "Done", "By the provider", "Failed", "Quiet running", "Quiet done", "Quiet opened"], 2);
-pub const KNOBS: &[Group] = &[Group::new("Compaction", "stage", &[VARIANT, ROW_GROWTH])];
-pub const KEYS: &[Action<App>] = &[
-    REPLAY,
-    Action { cap: "E", label: "End it", run: |s, tx| {
-        s.play.clear();
+/// Done first, as the story opens on it.
+pub const VARIANTS: &[(&str, usize)] =
+    &[("Done", 2), ("Queued", 0), ("Running", 1), ("By the provider", 3), ("Failed", 4), ("Quiet running", 5), ("Quiet done", 6), ("Quiet opened", 7)];
+pub const KEYS: &[Trigger] = &[
+    replay(open),
+    Trigger { key: 'e', label: "End it", run: |s, tx| {
+        tx.clear();
         end(s, tx);
     } },
-    Action { cap: "F", label: "Fail it", run: |s, tx| {
-        s.play.clear();
+    Trigger { key: 'f', label: "Fail it", run: |s, tx| {
+        tx.clear();
         fail(s, tx);
     } },
-    Action { cap: "G", label: "Quiet, ending inside the grace", run: |s, tx| {
-        s.play.clear();
+    Trigger { key: 'g', label: "Quiet, ending inside the grace", run: |s, tx| {
+        tx.clear();
         s.compactions.fallback = true;
         start(s, tx);
-        s.play.after(0.2, end, tx);
+        tx.after(0.2, |s, tx| end(s, tx));
     } },
 ];
 
@@ -38,34 +36,28 @@ pub const ID: &str = "msg_storycompaction";
 const QUEUED: &str = "inb_storycompaction";
 const SUMMARY: &str = "## Goal\nMake reconnects survive a laptop sleeping mid-stream.\n\n## Done so far\n- Backoff resets after a successful connect and caps at 30 s.\n- The sidebar re-reads running sessions when the stream comes back.\n\n## Next\n- A test for the reconnect jitter with the fake clock.";
 
-/// A snapshot scene on variant `at`, light or dark.
-pub fn scene(s: &mut App, at: usize, dark: bool) {
-    crate::stories::scene_variant(s, "Compaction", VARIANT, at);
-    s.settings.scheme = if dark { crate::settings::Scheme::Dark } else { crate::settings::Scheme::Light };
-}
-
-pub fn open(s: &mut App, tx: &mut Tx) {
+fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let v = s.knobs.get(&VARIANT) as usize;
+    let v = s.variant;
     s.compactions.fallback = v >= 5;
     if v == 0 {
-        s.play.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx), tx);
+        tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
         return;
     }
-    s.play.after(0.3, start, tx);
+    tx.after(0.3, |s, tx| start(s, tx));
     if (1..=4).contains(&v) {
-        s.play.after(0.5, stream, tx);
+        tx.after(0.5, stream);
     }
     match v {
-        2 | 3 | 6 | 7 => s.play.after(2.6, end, tx),
-        4 => s.play.after(1.6, fail, tx),
+        2 | 3 | 6 | 7 => tx.after(2.6, |s, tx| end(s, tx)),
+        4 => tx.after(1.6, |s, tx| fail(s, tx)),
         _ => {}
     }
     if v == 7 {
-        s.play.after(3.4, |s, tx| {
+        tx.after(3.4, |s, tx| {
             tx.instant();
             s.expanded.insert(format!("compaction-{ID}"));
-        }, tx);
+        });
     }
 }
 
@@ -74,7 +66,7 @@ fn start(s: &mut App, tx: &mut Tx) {
 }
 
 /// The summary's next few words, while it runs.
-fn stream(s: &mut App, tx: &mut Tx) {
+fn stream(s: &mut App, tx: &mut Play<App>) {
     let Some(c) = story(s) else { return };
     if c.status != CompactionStatus::Running || c.summary.len() >= SUMMARY.len() {
         return;
@@ -83,11 +75,11 @@ fn stream(s: &mut App, tx: &mut Tx) {
     let cut = rest.char_indices().filter(|(_, ch)| *ch == ' ' || *ch == '\n').nth(3).map_or(rest.len(), |(i, _)| i + 1);
     let chunk = rest[..cut].to_owned();
     emit(s, "session.compaction.delta", json!({ "text": chunk }), tx);
-    s.play.after(0.12, stream, tx);
+    tx.after(0.12, stream);
 }
 
 fn end(s: &mut App, tx: &mut Tx) {
-    let v = s.knobs.get(&VARIANT) as usize;
+    let v = s.variant;
     let tokens = json!({ "input": 10_412, "output": 1_034, "reasoning": 96, "cache": { "read": 1_880, "write": 0 } });
     let mut d = json!({ "reason": "auto", "text": SUMMARY, "tokens": tokens });
     if v == 3 {

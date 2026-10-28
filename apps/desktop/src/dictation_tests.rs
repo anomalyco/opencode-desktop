@@ -305,22 +305,21 @@ fn a_slow_hex_says_preparing_under_the_toolbar() {
 
 #[test]
 fn the_storybook_story_listens_on_the_fake() {
-    let mut rt = app(Dictation::fake());
-    rt.update(|s, _| crate::stories::scene(s, "Dictation"));
+    let mut rt = crate::stories::story("Composer/Dictation", None);
     let mut t = 0.0;
     step(&mut rt, &mut t, 30);
-    assert!(rt.state.dictation.recording() && has(&rt, "mic/stop-glyph"));
+    assert!(crate::stories::world(&rt).dictation.recording() && has(&rt, "mic/stop-glyph"));
     // It finishes on its own, and the words land.
     step(&mut rt, &mut t, 120);
-    assert_eq!(rt.state.composer.text, format!("Looks right. Before you merge, {FAKE_WORDS}"));
+    assert_eq!(crate::stories::world(&rt).composer.text, format!("Looks right. Before you merge, {FAKE_WORDS}"));
     // P: a slow start says so.
-    rt.key(key(Key::Text("p".into())));
+    rt.playground_trigger('p');
     step(&mut rt, &mut t, 30);
     assert!(shows(&rt, "Preparing dictation…"));
-    rt.key(key(Key::Text("e".into())));
+    rt.playground_trigger('e');
     step(&mut rt, &mut t, 1);
     assert!(shows(&rt, hex_client::NOT_RUNNING));
-    rt.key(key(Key::Text("e".into())));
+    rt.playground_trigger('e');
     step(&mut rt, &mut t, 1);
     assert!(shows(&rt, hex_client::BUSY));
 }

@@ -20,8 +20,6 @@ pub(crate) fn busy_scene(s: &mut App) {
 
 pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
         ("home", |_| {}),
-        ("open-before", |s| open_story::scene(s, true)),
-        ("open-after", |s| open_story::scene(s, false)),
         ("session", |s| {
             open_scene(s);
             s.finish_stream();
@@ -76,72 +74,8 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
             let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
             s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
         }),
-        // The storybook (⌘⇧D) on a story: `story-morph` is the dock opening and closing on a
-        // loop (pick the curve with `--preset NAME`, a Question dock preset in `knobs.rs`);
-        // `story` alone opens the first. Scripts replay a story with its trigger keys.
-        ("story", |s| stories::scene(s, "Composer")),
-        ("story-morph", |s| stories::scene(s, "Morph")),
-        // With `scripts/quote.json`: drag over the first prompt, Quote, and the card in the composer.
-        ("story-quote", |s| stories::scene(s, "Quote")),
-        ("story-frosted", |s| stories::scene(s, crate::frosted_stories::NAME)),
-        ("story-long", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 3)),
-        ("story-typing", |s| stories::scene_variant(s, "Question", crate::stories::QUESTION, 4)),
-        ("story-custom", |s| stories::scene_variant(s, "Custom answer", crate::stories::CUSTOM_ANSWER, 0)),
-        ("story-custom-long", |s| stories::scene_variant(s, "Custom answer", crate::stories::CUSTOM_ANSWER, 1)),
-        ("story-custom-left", |s| stories::scene_variant(s, "Custom answer", crate::stories::CUSTOM_ANSWER, 2)),
-        ("story-pending", |s| stories::scene_variant(s, "Composer", crate::stories::COMPOSER, 2)),
-        ("story-glow", |s| stories::scene(s, "Arrival glow")),
-        ("story-send", |s| stories::scene(s, "Send")),
-        ("story-stream", |s| stories::scene(s, "Streaming text")),
-        ("story-tools", |s| stories::scene(s, "Tool rows")),
-        ("story-selection", |s| stories::scene(s, "Selection")),
-        // Question answers, one scene per variant: one, several, multi-select, typed, dismissed.
-        ("story-answers-one", |s| crate::question_stories::scene(s, 0)),
-        ("story-answers-several", |s| crate::question_stories::scene(s, 1)),
-        ("story-answers-multi", |s| crate::question_stories::scene(s, 2)),
-        ("story-answers-typed", |s| crate::question_stories::scene(s, 3)),
-        ("story-answers-dismissed", |s| crate::question_stories::scene(s, 4)),
-        // Compaction, one scene per variant (see `compaction_stories.rs`), and the done ones dark.
-        ("story-compaction-queued", |s| crate::compaction_stories::scene(s, 0, false)),
-        ("story-compaction-running", |s| crate::compaction_stories::scene(s, 1, false)),
-        ("story-compaction-done", |s| crate::compaction_stories::scene(s, 2, false)),
-        ("story-compaction-done-dark", |s| crate::compaction_stories::scene(s, 2, true)),
-        ("story-compaction-provider", |s| crate::compaction_stories::scene(s, 3, false)),
-        ("story-compaction-failed", |s| crate::compaction_stories::scene(s, 4, false)),
-        ("story-compaction-quiet", |s| crate::compaction_stories::scene(s, 5, false)),
-        ("story-compaction-quiet-done", |s| crate::compaction_stories::scene(s, 6, false)),
-        ("story-compaction-quiet-done-dark", |s| crate::compaction_stories::scene(s, 6, true)),
-        ("story-compaction-quiet-opened", |s| crate::compaction_stories::scene(s, 7, false)),
-        ("story-compaction-quiet-opened-dark", |s| crate::compaction_stories::scene(s, 7, true)),
-        ("story-working", |s| stories::scene(s, "Working")),
-        ("story-steer", |s| stories::scene(s, "Steer and Pending")),
-        ("story-queue", |s| stories::scene(s, "Queue dock")),
-        ("story-subagent", |s| stories::scene(s, "Subagent")),
-        ("story-images", |s| stories::scene(s, "Images")),
-        ("story-jump", |s| stories::scene(s, "Jump to latest")),
-        // Sidebar › Rename and menus, one scene per variant: the tab, row and header menus, a title
-        // being renamed in each, and Delete's confirmation.
-        ("story-menu-tab", |s| session_menu_stories::scene(s, 0)),
-        ("story-menu-row", |s| session_menu_stories::scene(s, 1)),
-        ("story-menu-header", |s| session_menu_stories::scene(s, 2)),
-        ("story-rename-tab", |s| session_menu_stories::scene(s, 3)),
-        ("story-rename-row", |s| session_menu_stories::scene(s, 4)),
-        ("story-rename-header", |s| session_menu_stories::scene(s, 5)),
-        ("story-delete", |s| session_menu_stories::scene(s, 6)),
-        ("story-actions", |s| stories::scene(s, "Turn actions")),
-        ("story-dictation", |s| stories::scene(s, "Dictation")),
-        ("story-mentions", |s| crate::mention_stories::scene(s, false)),
-        ("story-mentions-dark", |s| crate::mention_stories::scene(s, true)),
-        // The story's agents' timeline rows: three, light and dark, and one on its own.
-        // Thirty running subagents with the capsule's list open, light and dark.
-        ("story-capsule", |s| crate::capsule_stories::scene(s, false)),
-        ("story-capsule-dark", |s| crate::capsule_stories::scene(s, true)),
-        ("story-rows", |s| agent_stories::scene(s, 1, false)),
-        ("story-rows-dark", |s| agent_stories::scene(s, 1, true)),
-        ("story-rows-one", |s| agent_stories::scene(s, 0, false)),
-        ("story-odometer", |s| stories::scene(s, "Odometer")),
-        // A card's time and the header's cost ticking (`ticking_scene`).
-        ("ticking", ticking_scene),
+        // The storybook (⌘⇧D)'s stories are scenes too, under their paths ("Timeline/Send"):
+        // `--playground PATH [--variant NAME]` opens one with its motion playing (`stories.rs`).
         ("sidebar-closed", |s| {
             open_scene(s);
             s.finish_stream();
@@ -155,37 +89,3 @@ pub(crate) const SCENES: &[(&str, fn(&mut App))] = &[
             }
         }),
 ];
-
-/// The open session with a subagent 7.5 s into its run, so its card's time turns 9s → 10s, and
-/// the header's context and cost rising as steps finish ($1.99 → $2.00 among them).
-pub(crate) fn ticking_scene(s: &mut App) {
-    open_scene(s);
-    s.finish_stream();
-    let tx = &mut Tx::default();
-    s.play.after(0.2, |s, tx| {
-        agent_stories::spawn(s, tx);
-        let now = s.now_ms;
-        let parent = s.fixture["open"].as_str().map(str::to_owned);
-        if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.is_some() && x.parent == parent) {
-            c.created = now - 7_500;
-        }
-    }, tx);
-    for k in 0..4 {
-        s.play.after(0.9 + k as f64, |s, _| {
-            let Route::Session(id) = s.route.clone() else { return };
-            let total = s.sessions.iter().find(|x| x.id == id).map_or(0.0, |i| i.cost);
-            // To $1.97, then up 1¢ a step.
-            let add = if total < 1.9 { 1.97 - total } else { 0.01 };
-            if let Some(i) = s.sessions.iter_mut().find(|x| x.id == id) {
-                i.cost += add;
-            }
-            let last = s.transcripts.get_mut(&id).and_then(|t| t.messages.iter_mut().rev().find_map(|m| match m {
-                Message::Assistant(a) if a.tokens.context() > 0 => Some(a),
-                _ => None,
-            }));
-            if let Some(a) = last {
-                a.tokens.input += 2_300;
-            }
-        }, tx);
-    }
-}

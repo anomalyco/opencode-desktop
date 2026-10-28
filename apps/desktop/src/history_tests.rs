@@ -180,14 +180,11 @@ mod question {
 
 #[test]
 fn the_story_plays_three_backs_and_a_forward() {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::stories::scene(&mut app, "Back and forward");
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
+    let mut rt = crate::stories::story("Navigation/Back and forward", None);
     for _ in 0..(7.5 * 60.0) as usize {
         rt.frame(1.0 / 60.0);
     }
-    assert_eq!(route(&rt), Route::Home);
-    assert_eq!(rt.state.nav.places().len(), 6);
+    let world = crate::stories::world(&rt);
+    assert_eq!(world.route, Route::Home);
+    assert_eq!(world.nav.places().len(), 6);
 }

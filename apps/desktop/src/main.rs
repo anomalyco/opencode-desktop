@@ -200,10 +200,10 @@ pub struct App {
     waker: Option<Waker>,
     launch: launch::Launch,
     pub icons: project_icon::Icons,
-    /// The storybook (⌘⇧D) is open, with the app as it was beside it.
-    pub story: Option<stories::Storybook>,
-    /// The storybook's keys, folds and queued trigger steps, carried from story to story.
-    pub play: rune_playground::Play<App>,
+    /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
+    pub stage: Option<stories::Stage>,
+    /// The story's variant (1 to 9 in the playground pick it).
+    pub variant: usize,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -298,8 +298,8 @@ impl App {
             waker: None,
             launch: Default::default(),
             icons: Default::default(),
-            story: None,
-            play: Default::default(),
+            stage: None,
+            variant: 0,
         }
     }
 
@@ -469,7 +469,7 @@ impl App {
 
     /// Saves tabs, zoom, the open session and drafts: live, with a person at it.
     pub fn persists(&self) -> bool {
-        self.live() && !headless()
+        self.live() && !headless() && !cfg!(test)
     }
 
     /// Asks the server for one session's info (live only).
@@ -611,9 +611,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.sync_history();
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
-    // A story's steps first: the events they play land below as arrivals.
-    let mut changed = stories::poll(s, now, tx);
-    changed |= dictation::poll(s, now, tx);
+    // The morph loop is for watching: the composer it lands on doesn't take the keys.
+    if s.stage.is_some_and(|st| st.watch()) {
+        s.composer.focused = false;
+    }
+    let mut changed = dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= dropzone::poll(s, tx);
@@ -771,13 +773,10 @@ fn dock_icon() {
     }
 }
 
-fn main() {
-    rune_mac::launch();
-    rune::prewarm_gpu();
-    #[cfg(target_os = "macos")]
-    dock_icon();
-    let spec = AppSpec {
-        scenes: scenes::SCENES,
+/// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
+pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
+    AppSpec {
+        scenes: stories::scenes(scenes::SCENES),
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),
@@ -787,20 +786,32 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
-        ..AppSpec::new("OpenCode (Rune)", (1280.0, 820.0), App::new, view::app)
-    };
+        ..AppSpec::new("OpenCode (Rune)", (1280.0, 820.0), init, view::app)
+    }
+}
+
+/// The app as it runs: its history, its storybook (⌘⇧D) and its window chrome.
+pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
+    history::install(rune::App::new(spec).playground(stories::playground()).chrome(rune::Chrome {
+        full_size_content: true,
+        traffic_lights: Some((25.0, 25.0)),
+        drag_regions: true,
+    }))
+}
+
+fn main() {
+    rune_mac::launch();
+    rune::prewarm_gpu();
+    #[cfg(target_os = "macos")]
+    dock_icon();
     #[cfg(feature = "hot")]
-    rune::run(spec);
+    rune::run(spec(App::new));
     #[cfg(not(feature = "hot"))]
     {
         if !headless() {
             launch::defer();
         }
-        let app = history::install(rune::App::new(spec).chrome(rune::Chrome {
-            full_size_content: true,
-            traffic_lights: Some((25.0, 25.0)),
-            drag_regions: true,
-        }));
+        let app = rune_app(spec(App::new));
         let handle = app.handle();
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false })).run();
     }

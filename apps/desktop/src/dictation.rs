@@ -478,24 +478,24 @@ fn listen(file: &std::path::Path, rx: &mpsc::Receiver<Cmd>, shared: &Arc<Mutex<S
 
 // The storybook's "Composer › Dictation", on the fake Hex.
 
-pub const STORY_KEYS: &[rune_knobs::Action<App>] = &[
-    crate::stories::REPLAY,
-    rune_knobs::Action { cap: "S", label: "Start", run: |s, tx| {
+pub const STORY_KEYS: &[crate::stories::Trigger] = &[
+    crate::stories::replay(story_open),
+    crate::stories::Trigger { key: 's', label: "Start", run: |s, tx| {
         tx.instant();
         s.dictation.prepare = 0.0;
         start(s);
     } },
-    rune_knobs::Action { cap: "P", label: "Slow start", run: |s, tx| {
+    crate::stories::Trigger { key: 'p', label: "Slow start", run: |s, tx| {
         tx.instant();
         cancel(s);
         s.dictation.slow_fake();
         start(s);
     } },
-    rune_knobs::Action { cap: "F", label: "Finish", run: |s, tx| {
+    crate::stories::Trigger { key: 'f', label: "Finish", run: |s, tx| {
         tx.instant();
         stop(s);
     } },
-    rune_knobs::Action { cap: "E", label: "Next error", run: |s, tx| {
+    crate::stories::Trigger { key: 'e', label: "Next error", run: |s, tx| {
         tx.instant();
         let next = match s.dictation.error() {
             Some(hex_client::NOT_RUNNING) => hex_client::BUSY,
@@ -509,13 +509,13 @@ pub const STORY_KEYS: &[rune_knobs::Action<App>] = &[
 
 /// A draft with the caret after it, then the loop iOS shows: the stop while it listens, the
 /// spinner while the words come, the words at the caret.
-pub fn story_open(s: &mut App, tx: &mut Tx) {
+fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
     s.dictation = Dictation::fake();
     s.dictation.now = s.clock;
     s.composer = rune::TextEdit::new("Looks right. Before you merge,");
     start(s);
-    s.play.after(1.6, |s, tx| {
+    tx.after(1.6, |s, tx| {
         tx.instant();
         stop(s);
-    }, tx);
+    });
 }

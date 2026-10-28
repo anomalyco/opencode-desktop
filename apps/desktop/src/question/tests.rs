@@ -254,27 +254,25 @@ fn an_answer_from_elsewhere_morphs_back_and_keeps_the_draft() {
 fn the_timeline_follows_the_morph() {
     let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
     for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
-        let mut app = App::empty();
-        crate::stories::scene(&mut app, "Morph");
-        crate::knobs::apply_preset(&mut app, p);
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.poll = Some(crate::poll);
-        rt.frame(0.0);
+        // The story's world takes the app's knobs.
+        let mut rt = crate::stories::storybook();
+        crate::knobs::apply_preset(&mut rt.state, p);
+        rt.open_playground("Question dock/Morph", None);
         let gap = |rt: &Runtime<App>| {
-            let els = rt.elements();
-            let top = els.iter().find(|e| e.key.as_deref() == Some("composer")).unwrap().rect[1];
-            let last = els.iter().find(|e| e.key.as_deref() == Some("turn-actions")).expect("the last row").rect;
+            let top = rt.playground_element("composer").unwrap().rect[1];
+            let last = rt.playground_element("turn-actions").expect("the last row").rect;
             top - (last[1] + last[3])
         };
-        let (rest, mut shown, mut flips) = (gap(&rt), rt.state.question_shown(), 0);
+        let shown = |rt: &Runtime<App>| crate::stories::world(rt).question_shown();
+        let (rest, mut was, mut flips) = (gap(&rt), shown(&rt), 0);
         for frame in 0..120 * 7 {
             rt.frame(1.0 / 120.0);
-            if rt.state.question_shown() != shown {
-                shown = !shown;
+            if shown(&rt) != was {
+                was = !was;
                 flips += 1;
             }
             let off = gap(&rt) - rest;
-            let way = if shown { "opening" } else { "closing" };
+            let way = if was { "opening" } else { "closing" };
             assert!(off.abs() < 0.5, "{p}, {way}: the timeline leaves the surface by {off} pt at frame {frame}");
         }
         assert!(flips >= 4, "{p}: the dock opened and closed twice ({flips} changes)");

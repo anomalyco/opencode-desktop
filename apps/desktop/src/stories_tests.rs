@@ -1,0 +1,153 @@
+use std::sync::mpsc::channel;
+
+use opencode_kit::client::Server;
+use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
+
+use super::{STORIES, story, storybook, world};
+use crate::{App, FIXTURE, Source, open_scene};
+
+const DT: f64 = 1.0 / 120.0;
+
+fn letter(rt: &mut Runtime<App>, c: &str) {
+    rt.key(KeyEvent { key: Key::Text(c.into()), mods: Mods::default() });
+    rt.frame(DT);
+}
+
+fn run(rt: &mut Runtime<App>, secs: f64) {
+    for _ in 0..(secs * 120.0) as usize {
+        rt.frame(DT);
+    }
+}
+
+#[test]
+fn the_storybook_leaves_the_app_as_it_was_and_sends_nothing() {
+    let mut rt = storybook();
+    let (w, writes) = channel();
+    let app = &mut rt.state;
+    app.load_fixture(FIXTURE);
+    open_scene(app);
+    app.finish_stream();
+    app.composer = TextEdit::new("a real draft");
+    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    rt.frame(DT);
+
+    // The steer story sends, steers and delivers in its own world, and nothing goes out.
+    rt.open_playground("Timeline/Steer and Pending", None);
+    assert!(matches!(world(&rt).source, Source::Fixture), "a story is its own fixture world");
+    assert!(rt.playground_element("story-session").is_some(), "the session alone on the stage");
+    assert!(rt.playground_element("tabs").is_none(), "nothing else on the stage");
+    run(&mut rt, 1.0);
+    let id = super::sid(world(&rt));
+    assert_eq!(world(&rt).inbox_for(&id).map(|i| i.steering().count()), Some(1), "the steer waits as Pending");
+    run(&mut rt, 1.6);
+    assert!(world(&rt).inbox_for(&id).is_none(), "delivered");
+    let last = world(&rt).transcripts[&id].messages.last().unwrap();
+    assert!(matches!(last, opencode_kit::model::Message::User { text, .. } if text == super::STEER_TEXT));
+
+    rt.update(|_, tx| tx.close_playground());
+    rt.frame(DT);
+    assert!(rt.playground_state::<App>().is_none());
+    assert!(rt.state.stage.is_none());
+    assert!(matches!(rt.state.source, Source::Live { .. }));
+    assert_eq!(rt.state.composer.text, "a real draft");
+    assert!(writes.try_recv().is_err(), "nothing reached the server");
+}
+
+/// The queue dock story fills the dock from the composer and empties it into the timeline.
+#[test]
+fn the_queue_dock_story_fills_and_empties_the_dock() {
+    let mut rt = story("Composer/Queue dock", None);
+    let id = super::sid(world(&rt));
+    let queued = |rt: &Runtime<App>| world(rt).inbox_for(&id).map_or(0, |i| i.queued().count());
+    let dock = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("queue")).map_or(0.0, |e| e.rect[3]);
+    run(&mut rt, 2.0);
+    assert_eq!(queued(&rt), 2, "two prompts wait in the dock");
+    assert!(dock(&rt) > 40.0, "the dock is open");
+    run(&mut rt, 2.5);
+    assert_eq!(queued(&rt), 0, "both delivered");
+    assert_eq!(dock(&rt), 0.0, "the dock closed behind the composer");
+    let last = world(&rt).transcripts[&id].messages.last().unwrap();
+    assert!(matches!(last, opencode_kit::model::Message::User { text, .. } if text == super::STEER_AGAIN));
+    rt.playground_trigger('q');
+    run(&mut rt, 0.1);
+    assert_eq!(queued(&rt), 1, "Q queues another");
+    rt.playground_trigger('d');
+    run(&mut rt, 0.1);
+    assert_eq!(queued(&rt), 0, "D delivers it");
+}
+
+/// R plays a story from the start the same way every time: the glow lands at the same
+/// moment of each replay.
+#[test]
+fn replays_run_the_same_every_time() {
+    let mut rt = story("Timeline/Arrival glow", None);
+    let mut lit = Vec::new();
+    for _ in 0..3 {
+        rt.playground_trigger('r');
+        let mut first = None;
+        for f in 0..120 {
+            rt.frame(DT);
+            if first.is_none() && !world(&rt).glows.is_empty() {
+                first = Some(f);
+            }
+        }
+        lit.push(first.expect("it glowed"));
+    }
+    assert!(lit.iter().all(|f| *f == lit[0]), "the glow lands at the same frame of each replay: {lit:?}");
+    assert!(rt.playground_element("story-session").is_some());
+}
+
+/// Every story opens, plays its motion and replays without a hitch, on each of its variants.
+#[test]
+fn every_story_plays_and_replays() {
+    let mut rt = storybook();
+    for st in STORIES {
+        let variants: Vec<Option<&str>> = if st.variants.is_empty() { vec![None] } else { st.variants.iter().map(|(n, _)| Some(*n)).collect() };
+        for v in variants {
+            rt.open_playground(st.path, v);
+            assert!(world(&rt).stage.is_some(), "{} {v:?}", st.path);
+            run(&mut rt, 3.0);
+            rt.playground_trigger('r');
+            run(&mut rt, 1.0);
+            assert!(rt.playground_element("story-stage").is_some(), "{} {v:?}", st.path);
+        }
+    }
+}
+
+/// A digit picks the story's variant: 2 shows the Question story's two-question form.
+#[test]
+fn a_digit_picks_the_variant() {
+    let mut rt = story("Question dock/Question", None);
+    letter(&mut rt, "2");
+    rt.frame(DT);
+    let fields = world(&rt).pending.iter().find_map(|p| match p {
+        opencode_kit::model::Pending::Form { fields, .. } => Some(fields.len()),
+        _ => None,
+    });
+    assert_eq!(fields, Some(2));
+}
+
+/// The morph loop opens and closes the dock until C takes over: it closes and stays closed.
+#[test]
+fn a_trigger_stops_the_morph_loop() {
+    let mut rt = story("Question dock/Morph", None);
+    run(&mut rt, 1.0);
+    assert!(world(&rt).question_shown(), "the loop opened the dock");
+    rt.playground_trigger('c');
+    run(&mut rt, 4.0);
+    assert!(!world(&rt).question_shown(), "closed, and the loop's next open is gone");
+}
+
+/// The Odometer story ticks its numbers once a second, and S shows another session's at once.
+#[test]
+fn the_odometer_story_ticks_and_switches_session_at_once() {
+    let mut rt = story("Components/Odometer", None);
+    let label = |rt: &Runtime<App>, key: &str| rt.playground_element(key).and_then(|e| e.label);
+    run(&mut rt, 0.1);
+    assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("7s"));
+    run(&mut rt, 3.0);
+    assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("10s"), "9s turned 10s");
+    rt.playground_trigger('s');
+    rt.frame(DT);
+    assert!(label(&rt, "story-time-7-0").is_none() && label(&rt, "story-time-7-1").is_some(), "another session's number mounts fresh");
+}

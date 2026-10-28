@@ -86,47 +86,43 @@ pub(super) fn sidebar(s: &App, p: &Pal) -> El {
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
                 .child(el().key("toggle-slot").size(28.0, 28.0)),
         );
-    // The storybook (⌘⇧D) lists its stories in place of the tabs.
-    let inner = match crate::stories::list(s, p) {
-        Some(stories) => inner.child(col().key("stories").w_full().grow(1.0).shrink().min_h(0.0).child(stories)),
-        None => inner.child(
-            col()
-                .key("actions")
-                .w_full()
-                .gap(4.0)
-                .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
-                    |s: &mut App, tx: &mut Tx| {
-                        s.opening = None;
-                        s.route = Route::Home;
-                        tx.settle();
-                    },
-                ))
-                .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "", false).on_press_tx(
-                    |s: &mut App, tx: &mut Tx| {
-                        s.opening = None;
-                        s.route = Route::Home;
-                        s.search.focused = true;
-                        tx.settle();
-                    },
-                ))
-                .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
-                    |s: &mut App, tx: &mut Tx| s.new_session(tx),
-                )),
-        )
-        .child(el().key("tabs-gap").w_full().h(16.0))
-        .child(
-            col()
-                .key("tabs-scroll")
-                .role("list")
-                .focus_group()
-                .w_full()
-                .grow(1.0)
-                .shrink()
-                .scroll(ScrollSpec { stick_bottom: false })
-                .clip_fade(0.0, 0.0, 0.0, 16.0)
-                .child(list),
-        ),
-    };
+    let inner = inner.child(
+        col()
+            .key("actions")
+            .w_full()
+            .gap(4.0)
+            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
+                |s: &mut App, tx: &mut Tx| {
+                    s.opening = None;
+                    s.route = Route::Home;
+                    tx.settle();
+                },
+            ))
+            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "", false).on_press_tx(
+                |s: &mut App, tx: &mut Tx| {
+                    s.opening = None;
+                    s.route = Route::Home;
+                    s.search.focused = true;
+                    tx.settle();
+                },
+            ))
+            .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
+                |s: &mut App, tx: &mut Tx| s.new_session(tx),
+            )),
+    )
+    .child(el().key("tabs-gap").w_full().h(16.0))
+    .child(
+        col()
+            .key("tabs-scroll")
+            .role("list")
+            .focus_group()
+            .w_full()
+            .grow(1.0)
+            .shrink()
+            .scroll(ScrollSpec { stick_bottom: false })
+            .clip_fade(0.0, 0.0, 0.0, 16.0)
+            .child(list),
+    );
 
     // The aside's width moves the panel's edge; its contents keep their width, pinned to that edge.
     el().key("sidebar")

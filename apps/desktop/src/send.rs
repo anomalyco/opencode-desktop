@@ -140,7 +140,7 @@ impl App {
 
     /// Queues a write to the server; false (with a status line) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
-        if self.story.is_some() {
+        if self.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
             self.status = "Storybook: not sent".into();
             return true;
