@@ -3,3 +3,4 @@
 __pycache__/
 *.pyc
 /perf/scroll-runs/
+/perf/sidebar-runs/
