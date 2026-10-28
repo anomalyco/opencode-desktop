@@ -13,10 +13,10 @@ knobs = ["rune-knobs/panel"]
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
-mac-app = { path = "../../crates/mac-app" }
+rune-mac.workspace = true
 opencode-kit = { path = "../../crates/opencode-kit" }
 project-icon = { path = "../../crates/project-icon" }
-rune-knobs = { path = "../../crates/rune-knobs" }
+rune-knobs.workspace = true
 rune-playground = { path = "../../crates/rune-playground" }
 rune = { workspace = true, features = ["native-file-dialog"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }

@@ -163,7 +163,7 @@ pub struct App {
     pub activity_open: bool,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
     pub agent_rows: agent_rows::Live,
-    /// Whether AppKit is saving the window frame yet (`mac_app::remember_frame`).
+    /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
     framed: bool,
     pub edge: usize,
     pub reduced_motion: bool,
@@ -715,7 +715,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         let base = server.base.clone();
         s.poll_restore(&base);
         if !s.framed {
-            s.framed = mac_app::remember_frame("OpenCodeRuneMain");
+            s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
     }
     changed
@@ -748,7 +748,7 @@ fn dock_icon() {
 }
 
 fn main() {
-    mac_app::launch();
+    rune_mac::launch();
     rune::prewarm_gpu();
     #[cfg(target_os = "macos")]
     dock_icon();
