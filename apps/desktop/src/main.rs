@@ -79,6 +79,7 @@ mod motion_log;
 mod odometer;
 mod odometer_stories;
 mod shortcuts;
+mod slash;
 mod stories;
 mod subagents;
 mod settings;
@@ -313,7 +314,7 @@ impl App {
         let v: Value = serde_json::from_str(src).expect("fixture JSON");
         self.pickers.load(&v);
         self.mentions.load(&v);
-        self.add.commands = add_menu::commands(&v["commands"]);
+        self.add.slash.commands = slash::commands(&v["commands"]);
         self.base_ms = v["now"].as_i64().unwrap_or(0);
         self.now_ms = self.base_ms;
         self.projects = opencode_kit::model::parse_projects(&v["projects"]);

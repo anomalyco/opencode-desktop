@@ -81,7 +81,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     let composer_w = cx.layout("composer").map_or(0.0, |r| r[2]);
     inner = inner.children(crate::mentions::view(s, p, composer_w));
-    inner = inner.children(crate::add_menu::commands_view(s, p, composer_w));
+    inner = inner.children(crate::slash::commands_view(s, p, composer_w));
     inner = inner.children(crate::add_menu::menu(s, p));
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));

@@ -4,35 +4,41 @@
 //! an atomic pill in the text, and sending turns the pills into the prompt's `agents`, `skills`
 //! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`).
 
-use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rune::{Color, El, Icon, Key, KeyEvent, Tx, col, icon, row, text};
+use rune::{El, Icon, Key, KeyEvent, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
-use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
+use opencode_kit::client::Server;
 use opencode_kit::model::{self, SessionInfo};
 
 use crate::palette::Pal;
-use crate::view::{UI, title_of};
+use crate::view::title_of;
 use crate::{App, Route, Source};
+use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key};
 
 pub mod badge;
+pub mod list;
+mod wire;
+
+pub use wire::{Wire, wire};
+use wire::session_id_ok;
+#[cfg(test)]
+use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
+#[cfg(test)]
+use wire::{absolute, encode_path, filename};
 
 /// Session rows: Desktop shows 8 for a query and 5 without.
 const SESSIONS_QUERY: usize = 8;
 const SESSIONS_EMPTY: usize = 5;
-/// `composerSuggestionMaxHeight` at full height: 8 px of padding, whole 28 px rows, and an
-/// 18 px peek of the next.
-const ROW_H: f32 = 28.0;
-const PAD: f32 = 6.0;
-const MAX_H: f32 = 306.0;
 /// Desktop waits this long after the last keystroke before searching files.
 const FILE_DEBOUNCE: Duration = Duration::from_millis(150);
+/// And before searching sessions.
+const SESSION_DEBOUNCE: Duration = Duration::from_millis(100);
 /// The server's default `limit` for `/api/fs/find`.
 const FILE_LIMIT: usize = 50;
 
@@ -77,7 +83,7 @@ pub struct Mentions {
     /// The composer's text and caret when last looked at.
     seen: (String, usize),
     /// The highlighted row and the query it was picked under.
-    active: Option<(String, String)>,
+    active: Highlight,
     /// Subagents (`mode != primary`, not hidden) by name, with their descriptions.
     pub agents: Vec<(String, String)>,
     pub skills: Vec<Skill>,
@@ -86,11 +92,11 @@ pub struct Mentions {
     /// Sessions the server found for a query's first word.
     found: Vec<SessionInfo>,
     searched: Option<String>,
-    generation: Arc<AtomicU64>,
+    sessions_debounce: Debounce,
     /// The last file search's query and paths, and the query asked for since.
     files: (String, Vec<String>),
     files_asked: Option<String>,
-    files_generation: Arc<AtomicU64>,
+    files_debounce: Debounce,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
     fetched_tx: Sender<Fetched>,
@@ -103,16 +109,16 @@ impl Default for Mentions {
         Mentions {
             open: false,
             seen: (String::new(), 0),
-            active: None,
+            active: Highlight::default(),
             agents: Vec::new(),
             skills: Vec::new(),
             catalog: None,
             found: Vec::new(),
             searched: None,
-            generation: Arc::new(AtomicU64::new(0)),
+            sessions_debounce: Debounce::default(),
             files: (String::new(), Vec::new()),
             files_asked: None,
-            files_generation: Arc::new(AtomicU64::new(0)),
+            files_debounce: Debounce::default(),
             file_index: Vec::new(),
             fetched_tx,
             fetched,
@@ -134,12 +140,136 @@ impl Mentions {
     }
 }
 
+/// Where a fetch thread asks and where its answer goes.
+struct Fetch {
+    server: Server,
+    wake: Option<Waker>,
+    out: Sender<Fetched>,
+}
+
+impl Fetch {
+    /// Runs `work` off the UI thread; an answer is sent back and the UI woken.
+    fn spawn(&self, work: impl FnOnce(&Server) -> Option<Fetched> + Send + 'static) {
+        let (server, wake, out) = (self.server.clone(), self.wake.clone(), self.out.clone());
+        std::thread::spawn(move || {
+            if let Some(fetched) = work(&server) {
+                let _ = out.send(fetched);
+                if let Some(w) = wake {
+                    w();
+                }
+            }
+        });
+    }
+}
+
+/// Counts asks so a fetch that waited out a newer one can drop itself.
+#[derive(Default)]
+struct Debounce(Arc<AtomicU64>);
+
+impl Debounce {
+    /// `work` for a thread: it waits `wait`, then runs unless a later ask came in, and is
+    /// handed a check for that to repeat once it has its answer.
+    fn after(
+        &self,
+        wait: Duration,
+        work: impl FnOnce(&Server, &dyn Fn() -> bool) -> Option<Fetched> + Send + 'static,
+    ) -> impl FnOnce(&Server) -> Option<Fetched> + Send + 'static {
+        let generation = self.0.fetch_add(1, Ordering::Relaxed) + 1;
+        let current = self.0.clone();
+        move |server| {
+            std::thread::sleep(wait);
+            let live = || current.load(Ordering::Relaxed) == generation;
+            if !live() {
+                return None;
+            }
+            work(server, &live)
+        }
+    }
+}
+
+impl Mentions {
+    /// Takes in what the fetch threads sent; whether any did.
+    fn drain(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(f) = self.fetched.try_recv() {
+            match f {
+                Fetched::Catalog { directory, agents, skills } => {
+                    if self.catalog.as_deref() == Some(directory.as_str()) {
+                        self.agents = agents;
+                        self.skills = skills;
+                    }
+                }
+                Fetched::Files { query, paths } => {
+                    if self.files_asked.as_deref() == Some(query.as_str()) {
+                        self.files = (query, paths);
+                    }
+                }
+                Fetched::Sessions(list) => {
+                    for s in list {
+                        match self.found.iter_mut().find(|x| x.id == s.id) {
+                            Some(old) => *old = s,
+                            None => self.found.push(s),
+                        }
+                    }
+                }
+            }
+            changed = true;
+        }
+        changed
+    }
+
+    /// The directory's subagents and skills, once.
+    fn ask_catalog(&mut self, fetch: &Fetch, directory: String) {
+        if self.catalog.as_deref() == Some(directory.as_str()) {
+            return;
+        }
+        self.catalog = Some(directory.clone());
+        self.files = (String::new(), Vec::new());
+        self.files_asked = None;
+        fetch.spawn(move |server| {
+            let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
+            let agents = server.get(&format!("/api/agent?{at}")).map(|v| subagents(&v)).unwrap_or_default();
+            let skills = server.get(&format!("/api/skill?{at}")).map(|v| skills(&v)).unwrap_or_default();
+            Some(Fetched::Catalog { directory, agents, skills })
+        });
+    }
+
+    /// Files for a one-word query, after a pause for more typing.
+    fn ask_files(&mut self, fetch: &Fetch, directory: String, query: &str) {
+        if query.trim().is_empty() || query.contains(char::is_whitespace) || self.files_asked.as_deref() == Some(query) {
+            return;
+        }
+        self.files_asked = Some(query.to_owned());
+        let query = query.to_owned();
+        fetch.spawn(self.files_debounce.after(FILE_DEBOUNCE, move |server, live| {
+            let path = format!(
+                "/api/fs/find?location%5Bdirectory%5D={}&query={}",
+                crate::switcher::encode(&directory),
+                crate::switcher::encode(&query)
+            );
+            let paths = server.get(&path).map(|v| found_paths(&v)).unwrap_or_default();
+            live().then_some(Fetched::Files { query, paths })
+        }));
+    }
+
+    /// Sessions matching the query's first word, after a pause for more typing.
+    fn ask_sessions(&mut self, fetch: &Fetch, query: &str) {
+        let word = query.split(' ').next().unwrap_or("");
+        if word.is_empty() || self.searched.as_deref() == Some(word) {
+            return;
+        }
+        self.searched = Some(word.to_owned());
+        let word = word.to_owned();
+        fetch.spawn(self.sessions_debounce.after(SESSION_DEBOUNCE, move |server, _| {
+            let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
+            server.get(&path).ok().map(|v| Fetched::Sessions(model::parse_sessions(&v)))
+        }));
+    }
+}
+
 /// `/api/agent`'s subagents: Desktop offers agents that aren't hidden or primary.
 fn subagents(v: &Value) -> Vec<(String, String)> {
-    let list = v.get("data").unwrap_or(v);
-    list.as_array()
-        .into_iter()
-        .flatten()
+    data_list(v)
         .filter(|a| a["hidden"].as_bool() != Some(true) && a["mode"].as_str() != Some("primary"))
         .filter_map(|a| Some((a["id"].as_str().or(a["name"].as_str())?.to_owned(), a["description"].as_str().unwrap_or("").to_owned())))
         .collect()
@@ -147,15 +277,11 @@ fn subagents(v: &Value) -> Vec<(String, String)> {
 
 /// `/api/fs/find`'s paths.
 fn found_paths(v: &Value) -> Vec<String> {
-    let list = v.get("data").unwrap_or(v);
-    list.as_array().into_iter().flatten().filter_map(|f| f["path"].as_str().or(f.as_str()).map(str::to_owned)).collect()
+    data_list(v).filter_map(|f| f["path"].as_str().or(f.as_str()).map(str::to_owned)).collect()
 }
 
 fn skills(v: &Value) -> Vec<Skill> {
-    let list = v.get("data").unwrap_or(v);
-    list.as_array()
-        .into_iter()
-        .flatten()
+    data_list(v)
         .filter_map(|s| {
             let id = s["id"].as_str()?.to_owned();
             Some(Skill { name: s["name"].as_str().unwrap_or(&id).to_owned(), description: s["description"].as_str().unwrap_or("").to_owned(), id })
@@ -207,105 +333,6 @@ pub fn fuzzy(needle: &str, hay: &str) -> Option<i64> {
         last = i;
     }
     Some(5_000 - (last - first.unwrap_or(0)) as i64 * 10 - hay.len() as i64)
-}
-
-/// `parseSessionMention`: an id the server turns back into a session.
-fn session_id_ok(id: &str) -> bool {
-    id.strip_prefix("ses_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()))
-}
-
-/// `path` under `directory` unless it's already absolute.
-fn absolute(directory: &str, path: &str) -> String {
-    let windows = path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic();
-    if path.starts_with('/') || path.starts_with("\\\\") || windows {
-        return path.to_owned();
-    }
-    format!("{}/{path}", directory.trim_end_matches(['/', '\\']))
-}
-
-/// `encodeFilePath`: each segment percent-encoded as `encodeURIComponent` does, `/` kept, and
-/// a Windows drive rooted (`/C:/…`).
-fn encode_path(path: &str) -> String {
-    let normalized = path.replace('\\', "/");
-    let drive = |s: &str| s.len() == 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':';
-    let rooted = if normalized.get(..2).is_some_and(drive) { format!("/{normalized}") } else { normalized };
-    rooted
-        .split('/')
-        .enumerate()
-        .map(|(i, seg)| {
-            if i == 1 && drive(seg) {
-                return seg.to_owned();
-            }
-            seg.bytes()
-                .map(|b| match b {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
-                    _ => format!("%{b:02X}"),
-                })
-                .collect()
-        })
-        .collect::<Vec<String>>()
-        .join("/")
-}
-
-/// `getFilename`: the last segment, ignoring trailing separators.
-fn filename(path: &str) -> &str {
-    let trimmed = path.trim_end_matches(['/', '\\']);
-    trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed)
-}
-
-/// What a prompt sends for its pills.
-#[derive(Debug, Default, PartialEq)]
-pub struct Wire {
-    pub text: String,
-    /// The text as typed (session pills show titles).
-    pub display: String,
-    pub agents: Vec<AgentInput>,
-    pub skills: Vec<SkillInput>,
-    /// File mentions as `file://` references the server reads.
-    pub files: Vec<FileInput>,
-}
-
-/// The prompt for `text` (trimmed) and its pills (byte range, id). Session pills become
-/// `@session:<id>`, moving the mentions after them; offsets count UTF-16 units. File paths
-/// resolve against `directory`.
-pub fn wire(text: &str, pills: &[(Range<usize>, String)], directory: &str, skill_name: impl Fn(&str) -> String) -> Wire {
-    let trimmed = text.trim();
-    let lead = text.len() - text.trim_start().len();
-    let end = lead + trimmed.len();
-    let mut pills: Vec<&(Range<usize>, String)> = pills.iter().filter(|(r, _)| r.start >= lead && r.end <= end && r.start < r.end).collect();
-    pills.sort_by_key(|(r, _)| r.start);
-    let mut out = Wire { display: trimmed.to_owned(), ..Default::default() };
-    let utf16 = |s: &str| s.encode_utf16().count();
-    let mut at = lead;
-    for (range, id) in pills {
-        if range.start < at {
-            continue;
-        }
-        out.text.push_str(&text[at..range.start]);
-        let shown = &text[range.clone()];
-        let (kind, value) = id.split_once(':').unwrap_or(("", id));
-        let content = match kind {
-            "session" if session_id_ok(value) => format!("@session:{value}"),
-            _ => shown.to_owned(),
-        };
-        let start = utf16(&out.text);
-        out.text.push_str(&content);
-        let mention = Some(Mention { start, end: start + utf16(&content), text: content.clone() });
-        match kind {
-            "agent" => out.agents.push(AgentInput { name: value.to_owned(), mention }),
-            "skill" => out.skills.push(SkillInput { id: value.to_owned(), name: skill_name(value), mention }),
-            "file" => out.files.push(FileInput {
-                uri: format!("file://{}", encode_path(&absolute(directory, value))),
-                name: filename(value).to_owned(),
-                mime: Some("text/plain".into()),
-                mention,
-            }),
-            _ => {}
-        }
-        at = range.end;
-    }
-    out.text.push_str(&text[at..end]);
-    out
 }
 
 impl App {
@@ -465,13 +492,12 @@ impl App {
 
     /// The highlighted row: the one picked under this query, else the first.
     pub fn mention_active(&self, items: &[Item]) -> Option<String> {
-        let query = self.mention_query().unwrap_or_default();
-        let picked = self.mentions.active.as_ref().filter(|(_, q)| *q == query).map(|(k, _)| k);
-        picked.filter(|k| items.iter().any(|i| &i.key == *k)).cloned().or_else(|| items.first().map(|i| i.key.clone()))
+        self.mentions.active.resolve(&self.mention_query().unwrap_or_default(), items.iter().map(|i| i.key.as_str()))
     }
 
     pub fn mention_activate(&mut self, key: String) {
-        self.mentions.active = Some((key, self.mention_query().unwrap_or_default()));
+        let query = self.mention_query().unwrap_or_default();
+        self.mentions.active.set(key, query);
     }
 
     /// Replaces the `@query` with the item's pill and a space, caret after it.
@@ -483,20 +509,20 @@ impl App {
         self.composer.replace_with_pill(at..caret, item.key.clone(), &item.content);
         self.composer.insert(" ");
         self.mentions.open = false;
-        self.mentions.active = None;
+        self.mentions.active.clear();
         self.mentions.seen = (self.composer.text.clone(), self.caret());
     }
 
     /// After the app sets the composer's text itself (a recalled prompt): not an edit, so no popover.
     pub fn mentions_settle(&mut self) {
         self.mentions.open = false;
-        self.mentions.active = None;
+        self.mentions.active.clear();
         self.mentions.seen = (self.composer.text.clone(), self.caret());
     }
 
     pub fn close_mentions(&mut self) {
         self.mentions.open = false;
-        self.mentions.active = None;
+        self.mentions.active.clear();
     }
 
     /// The composer's keys while the popover is open: arrows and Ctrl-N/P move and wrap, Tab
@@ -506,26 +532,13 @@ impl App {
         if !self.mentions.open {
             return false;
         }
-        let ctrl = |c: &str| ev.mods.ctrl && !ev.mods.cmd && !ev.mods.alt && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case(c));
-        let step = match &ev.key {
-            Key::Down if !ev.mods.alt && !ev.mods.cmd && !ev.mods.shift => Some(1),
-            Key::Up if !ev.mods.alt && !ev.mods.cmd && !ev.mods.shift => Some(-1),
-            _ if ctrl("n") => Some(1),
-            _ if ctrl("p") => Some(-1),
-            _ => None,
-        };
-        if let Some(step) = step {
+        if let Some(step) = nav_step(ev, false) {
             let items = self.mention_items();
-            if items.is_empty() {
-                return true;
-            }
             let active = self.mention_active(&items);
-            let i = items.iter().position(|it| Some(&it.key) == active.as_ref()).unwrap_or(0) as i64;
-            let n = items.len() as i64;
-            let key = items[(i + step).rem_euclid(n) as usize].key.clone();
-            tx.instant();
-            tx.scroll_into_view_in("mentions-scroll", format!("mention-{key}"));
-            self.mention_activate(key);
+            let keys = items.iter().map(|i| i.key.as_str());
+            if let Some(key) = step_key(keys, active.as_deref(), step, tx, "mentions-scroll", "mention-") {
+                self.mention_activate(key);
+            }
             return true;
         }
         match ev.key {
@@ -557,31 +570,7 @@ impl App {
     }
 
     fn take_mentions(&mut self) -> bool {
-        let mut changed = false;
-        for f in self.mentions.fetched.try_iter() {
-            match f {
-                Fetched::Catalog { directory, agents, skills } => {
-                    if self.mentions.catalog.as_deref() == Some(directory.as_str()) {
-                        self.mentions.agents = agents;
-                        self.mentions.skills = skills;
-                    }
-                }
-                Fetched::Files { query, paths } => {
-                    if self.mentions.files_asked.as_deref() == Some(query.as_str()) {
-                        self.mentions.files = (query, paths);
-                    }
-                }
-                Fetched::Sessions(list) => {
-                    for s in list {
-                        match self.mentions.found.iter_mut().find(|x| x.id == s.id) {
-                            Some(old) => *old = s,
-                            None => self.mentions.found.push(s),
-                        }
-                    }
-                }
-            }
-            changed = true;
-        }
+        let mut changed = self.mentions.drain();
         let was = self.mentions.open;
         self.sync_mentions();
         changed |= was != self.mentions.open;
@@ -590,75 +579,16 @@ impl App {
             return changed;
         };
         let Source::Live { server, .. } = &self.source else { return changed };
-        let (server, wake) = (server.clone(), self.waker.clone());
-        let directory = self.composer_directory();
-        if self.mentions.catalog.as_deref() != Some(directory.as_str()) {
-            self.mentions.catalog = Some(directory.clone());
-            self.mentions.files = (String::new(), Vec::new());
-            self.mentions.files_asked = None;
-            let out = self.mentions.fetched_tx.clone();
-            let (server, wake, directory) = (server.clone(), wake.clone(), directory.clone());
-            std::thread::spawn(move || {
-                let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-                let agents = server.get(&format!("/api/agent?{at}")).map(|v| subagents(&v)).unwrap_or_default();
-                let skills = server.get(&format!("/api/skill?{at}")).map(|v| skills(&v)).unwrap_or_default();
-                let _ = out.send(Fetched::Catalog { directory, agents, skills });
-                if let Some(w) = wake {
-                    w();
-                }
-            });
-        }
-        if !query.trim().is_empty() && !query.contains(char::is_whitespace) && self.mentions.files_asked.as_deref() != Some(query.as_str()) {
-            self.mentions.files_asked = Some(query.clone());
-            let generation = self.mentions.files_generation.fetch_add(1, Ordering::Relaxed) + 1;
-            let (out, current) = (self.mentions.fetched_tx.clone(), self.mentions.files_generation.clone());
-            let (server, wake, directory, query) = (server.clone(), wake.clone(), directory.clone(), query.clone());
-            std::thread::spawn(move || {
-                std::thread::sleep(FILE_DEBOUNCE);
-                if current.load(Ordering::Relaxed) != generation {
-                    return;
-                }
-                let path = format!(
-                    "/api/fs/find?location%5Bdirectory%5D={}&query={}",
-                    crate::switcher::encode(&directory),
-                    crate::switcher::encode(&query)
-                );
-                let paths = server.get(&path).map(|v| found_paths(&v)).unwrap_or_default();
-                if current.load(Ordering::Relaxed) != generation {
-                    return;
-                }
-                let _ = out.send(Fetched::Files { query, paths });
-                if let Some(w) = wake {
-                    w();
-                }
-            });
-        }
-        let word = query.split(' ').next().unwrap_or("").to_owned();
-        if word.is_empty() || self.mentions.searched.as_deref() == Some(word.as_str()) {
-            return changed;
-        }
-        self.mentions.searched = Some(word.clone());
-        let generation = self.mentions.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        let (out, current) = (self.mentions.fetched_tx.clone(), self.mentions.generation.clone());
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            if current.load(Ordering::Relaxed) != generation {
-                return;
-            }
-            let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
-            if let Ok(v) = server.get(&path) {
-                let _ = out.send(Fetched::Sessions(model::parse_sessions(&v)));
-                if let Some(w) = wake {
-                    w();
-                }
-            }
-        });
+        let fetch = Fetch { server: server.clone(), wake: self.waker.clone(), out: self.mentions.fetched_tx.clone() };
+        self.mentions.ask_catalog(&fetch, self.composer_directory());
+        self.mentions.ask_files(&fetch, self.composer_directory(), &query);
+        self.mentions.ask_sessions(&fetch, &query);
         changed
     }
 
     /// The prompt's text and mentions for what's in the composer.
     pub fn mention_wire(&self) -> Wire {
-        let pills: Vec<(Range<usize>, String)> = self.composer.pills().map(|(r, id)| (r, id.to_owned())).collect();
+        let pills: Vec<_> = self.composer.pills().collect();
         wire(&self.composer.text, &pills, &self.composer_directory(), |id| self.mentions.skills.iter().find(|s| s.id == id).map_or_else(|| id.to_owned(), |s| s.name.clone()))
     }
 }
@@ -701,70 +631,12 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
     }
     let items = s.mention_items();
     let active = s.mention_active(&items);
-    let mut list = col().key("mentions-list").w_full().padding(PAD);
-    for item in &items {
-        let key = item.key.clone();
-        let hover = item.key.clone();
-        let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(row_icon(p, item.kind))
-            .child(text(item.label.clone()).font(UI).color(p.text));
-        if !item.description.is_empty() {
-            words = words.child(text(item.description.clone()).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
-        }
-        list = list.child(
-            row()
-                .key(format!("mention-{}", item.key))
-                .role("option")
-                .label(item.label.clone())
-                .w_full()
-                .h(ROW_H)
-                .px(8.0)
-                .center_y()
-                .radius(6.0)
-                .fill(if active.as_deref() == Some(item.key.as_str()) { p.hover } else { Color::TRANSPARENT })
-                // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-                    if inside {
-                        tx.instant();
-                        s.mention_activate(hover.clone());
-                    }
-                })
-                .on_press(move |s: &mut App| {
-                    s.pick_mention(&key);
-                    s.composer.focused = true;
-                })
-                .child(words),
-        );
-    }
-    let body = if items.is_empty() {
-        col().key("mentions-scroll").w_full().padding(PAD).child(text("No matching items").font(UI).color(p.muted).px(8.0).py(4.0))
-    } else {
-        // Edge to edge: rows scroll under the popover's border, fading only while hidden there.
-        let h = (items.len() as f32 * ROW_H + 2.0 * PAD).min(MAX_H);
-        col()
-            .key("mentions-scroll")
-            .w_full()
-            .h(h)
-            .scroll(rune::ScrollSpec { stick_bottom: false })
-            .scroll_edge_fade(16.0)
-            .scroll_margin(PAD)
-            .child(list)
-    };
-    Some(
-        col()
-            .key("mentions")
-            .role("listbox")
-            .label("Mentions")
-            .above("composer", 8.0)
-            .w(width)
-            .radius(12.0)
-            .fill(p.bg_base)
-            .border(0.5, p.ring)
-            .shadow(4.0, 12.0, p.shadow)
-            .clip_soft(0.0)
-            .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
-            .on_press(|_: &mut App| {})
-            .child(body),
-    )
+    let rows = items
+        .iter()
+        .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind)), description: i.description.clone() })
+        .collect();
+    let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
+    Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
 }
 
 #[cfg(test)]

@@ -76,14 +76,9 @@ pub fn pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
 
 /// The mentions of a prompt sent from the composer, over its trimmed text (what its bubble
 /// shows until the server's copy replaces it).
-pub fn echo(text: &str, pills: &[(Range<usize>, String)]) -> Vec<UserMention> {
-    let lead = text.len() - text.trim_start().len();
-    let end = lead + text.trim().len();
-    pills
-        .iter()
-        .filter(|(r, _)| r.start >= lead && r.end <= end && r.start < r.end)
-        .filter_map(|(r, id)| Some(UserMention { range: r.start - lead..r.end - lead, kind: kind_of(id)? }))
-        .collect()
+pub fn echo<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)]) -> Vec<UserMention> {
+    let (lead, _, pills) = super::wire::inside_trimmed(text, pills);
+    pills.filter_map(|(r, id)| Some(UserMention { range: r.start - lead..r.end - lead, kind: kind_of(id.as_ref())? })).collect()
 }
 
 /// A bubble's text and badges: the message's recorded mentions (those still on an `@` in the
@@ -121,7 +116,7 @@ impl App {
 
     /// Records the composer's mentions for the prompt about to leave as message `id`.
     pub fn echo_mentions(&self, id: &str) {
-        let pills: Vec<(Range<usize>, String)> = self.composer.pills().map(|(r, k)| (r, k.to_owned())).collect();
+        let pills: Vec<_> = self.composer.pills().collect();
         mention::set_user_mentions(id, echo(&self.composer.text, &pills));
     }
 
