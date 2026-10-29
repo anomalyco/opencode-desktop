@@ -3463,6 +3463,7 @@ dependencies = [
  "seer-domain",
  "seer-sync",
  "serde_json",
+ "sha2 0.10.9",
  "ureq",
  "url",
  "wgpu",
