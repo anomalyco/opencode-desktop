@@ -270,6 +270,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-pane"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "rune",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "ureq",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
