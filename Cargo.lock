@@ -5216,17 +5216,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "wraith-arena-api"
-version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "wraith-core"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
+source = "git+https://github.com/anomalyco/wraith?rev=12ce64733292454261484c4117871707685847f5#12ce64733292454261484c4117871707685847f5"
 dependencies = [
  "ed25519-dalek",
  "postcard",
@@ -5237,7 +5229,7 @@ dependencies = [
 [[package]]
 name = "wraith-do"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
+source = "git+https://github.com/anomalyco/wraith?rev=12ce64733292454261484c4117871707685847f5#12ce64733292454261484c4117871707685847f5"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -5252,7 +5244,7 @@ dependencies = [
 [[package]]
 name = "wraith-folder"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
+source = "git+https://github.com/anomalyco/wraith?rev=12ce64733292454261484c4117871707685847f5#12ce64733292454261484c4117871707685847f5"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -5267,28 +5259,15 @@ dependencies = [
 [[package]]
 name = "wraith-local"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
+source = "git+https://github.com/anomalyco/wraith?rev=12ce64733292454261484c4117871707685847f5#12ce64733292454261484c4117871707685847f5"
 dependencies = [
  "getrandom 0.3.4",
  "rusqlite",
  "rustls",
  "serde",
- "serde_json",
  "tungstenite",
- "wraith-arena-api",
  "wraith-core",
  "wraith-folder",
- "wraith-mem",
-]
-
-[[package]]
-name = "wraith-mem"
-version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4bb800012ca237f69cdf62f075222928f4afd54f#4bb800012ca237f69cdf62f075222928f4afd54f"
-dependencies = [
- "serde",
- "wraith-arena-api",
- "wraith-core",
 ]
 
 [[package]]
