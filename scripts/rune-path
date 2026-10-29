@@ -6,10 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ -n "${RUNE:-}" ]]; then root=$RUNE; else
-  manifest=$(cargo metadata --format-version 1 --locked 2>/dev/null | python3 -c '
+  # --locked first; a lock a merged PR left stale shouldn't stop installs, so fall back to --offline.
+  meta=$(cargo metadata --format-version 1 --locked 2>/dev/null || cargo metadata --format-version 1 --offline 2>/dev/null)
+  manifest=$(python3 -c '
 import json, sys
 for p in json.load(sys.stdin)["packages"]:
-    if p["name"] == "rune-mac": print(p["manifest_path"]); break')
+    if p["name"] == "rune-mac": print(p["manifest_path"]); break' <<<"$meta")
   [[ -n $manifest ]] || { echo "rune-path: rune-mac not found in cargo metadata" >&2; exit 1; }
   root=$(dirname "$(dirname "$(dirname "$manifest")")")
 fi
