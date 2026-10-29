@@ -3484,6 +3484,8 @@ dependencies = [
  "ureq",
  "url",
  "wgpu",
+ "wraith-core",
+ "wraith-local",
 ]
 
 [[package]]
