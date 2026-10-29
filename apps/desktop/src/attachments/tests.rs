@@ -43,10 +43,9 @@ fn an_echo_under_another_id_drops_when_the_servers_lands() {
 
 #[test]
 fn a_live_send_shows_one_message_under_the_id_it_sends() {
-    use opencode_kit::client::{Server, Write};
-    let (w, writes) = std::sync::mpsc::channel();
+    use opencode_kit::client::Write;
     let mut app = App::empty();
-    app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    let writes = app.fake_writes();
     app.route = crate::Route::Session("ses_a".into());
     app.composer = rune::TextEdit::new("look at this");
     app.attach.add(Attachment { mime: "image/png".into(), name: "a.png".into(), bytes: Arc::from(&b"ab"[..]), media: None });
@@ -67,13 +66,9 @@ fn a_live_send_shows_one_message_under_the_id_it_sends() {
 
 #[test]
 fn a_drop_anywhere_on_the_page_attaches_under_a_fading_overlay() {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.zoom = 1.4;
-    let mut rt = rune::Runtime::new(app, crate::view::app, (1280.0, 820.0), rune::Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
+    let mut rt = app.into_runtime();
     rt.frame(0.0);
     for _ in 0..60 {
         rt.frame(1.0 / 60.0);
@@ -158,15 +153,8 @@ fn flies(frames: &[[f32; 4]], from: [f32; 4], to: [f32; 4]) {
 
 #[test]
 fn a_thumbnail_grows_into_the_viewer_and_escape_shrinks_it_back() {
-    use rune::{Env, Key, KeyEvent, Mods, Runtime};
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
+    use rune::{Key, KeyEvent, Mods};
+    let mut rt = crate::fixture_runtime();
     let a = Attachment { mime: "image/png".into(), name: "shot.png".into(), bytes: png(1600, 1000).into(), media: None };
     let added = a.clone();
     rt.update(move |s, _| s.attach.add(added));
@@ -207,17 +195,14 @@ fn a_thumbnail_grows_into_the_viewer_and_escape_shrinks_it_back() {
 
 #[test]
 fn a_sent_image_opens_from_the_transcript_and_a_click_outside_closes_it() {
-    use opencode_kit::client::Server;
-    use rune::{Env, Runtime};
-    let (w, _writes) = std::sync::mpsc::channel();
     let mut app = App::empty();
-    app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    let _writes = app.fake_writes();
     app.route = crate::Route::Session("ses_a".into());
     app.composer = rune::TextEdit::new("look");
     let a = Attachment { mime: "image/png".into(), name: "sent.png".into(), bytes: png(800, 400).into(), media: None };
     app.attach.add(a.clone());
     app.send(&mut Tx::default());
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
+    let mut rt = app.into_runtime();
     rt.state.attach.image(&a).unwrap().wait().unwrap();
     for _ in 0..40 {
         rt.frame(1.0 / 60.0);
@@ -353,11 +338,10 @@ fn the_transcript_holds_a_box_for_a_ref_then_the_image_and_shows_the_unavailable
 
 #[test]
 fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
-    use opencode_kit::client::{Server, Write};
+    use opencode_kit::client::Write;
     use opencode_kit::model::Delivery;
-    let (w, writes) = std::sync::mpsc::channel();
     let mut app = App::empty();
-    app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    let writes = app.fake_writes();
     app.route = crate::Route::Session("ses_q".into());
     let hash = "a1".repeat(32);
     // As an opted-in `session.inbox.list` returns a queued prompt with a ref.

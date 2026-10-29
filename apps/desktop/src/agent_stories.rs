@@ -9,9 +9,10 @@ use serde_json::json;
 use crate::App;
 use crate::stories::{Trigger, emit, replay, sid};
 
-/// How many agents the story starts, three first.
-pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2)];
-const COUNTS: [usize; 3] = [1, 3, 6];
+/// How many agents the story starts, three first. Under Working, one agent runs in a turn that
+/// is still working, so Working sits under its card.
+pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2), ("Under Working", 3)];
+const COUNTS: [usize; 4] = [1, 3, 6, 1];
 
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -57,7 +58,15 @@ fn started(s: &App) -> Vec<String> {
 /// fails, so one of each shows from 5.4 s until the rest finish at 9 s.
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let n = COUNTS[s.variant.min(2)];
+    let n = COUNTS[s.variant.min(3)];
+    let working = s.variant == 3;
+    if working {
+        let id = sid(s);
+        if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
+            a.completed = None;
+        }
+        s.running.insert(id);
+    }
     for k in 0..n {
         tx.after(0.3 + k as f64 * 0.25, |s, tx| spawn(s, tx));
     }
@@ -65,6 +74,9 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     while t < 20.0 {
         tx.after(t, |s, tx| advance(s, tx));
         t += STEP;
+    }
+    if working {
+        return;
     }
     tx.after(4.5, |s, tx| finish_oldest(s, tx));
     if n > 1 {

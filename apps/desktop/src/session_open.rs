@@ -68,12 +68,7 @@ impl App {
         }
         if let Some(id) = open {
             let _ = r.send(Request::Inbox(id.clone()));
-            match &self.pages {
-                Some(pages) => pages.request(session_pages::Key { id: id.clone(), updated: self.session(&id).map_or(0, |s| s.updated) }, true),
-                None => {
-                    let _ = r.send(Request::Session(id));
-                }
-            }
+            self.reload_session(&id);
         }
     }
 

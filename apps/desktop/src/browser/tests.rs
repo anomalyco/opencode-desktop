@@ -251,3 +251,96 @@ fn captures_live_chromium_sidecar_split_still_when_requested() {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
+#[test]
+fn border_runs_all_the_way_around_over_opaque_native_surface() {
+    use rune::native_surface::{ByteFrame, ColorInfo, Format};
+    use rune::render::{Gpu, OFFSCREEN_FORMAT, Offscreen, Renderer};
+
+    let mut rt = test_runtime();
+    let tab_id = rt.state.browser.host.insert_mock_tab(
+        "http://localhost:3000/",
+        "Local Preview",
+        browser_pane::EngineStatus::Ready,
+    );
+    // Push an opaque pure-red frame (BGRA = [0, 0, 255, 255] -> RGBA = [255, 0, 0, 255])
+    // so any unclipped corner shows R=255 and any overwritten border has G=0, B=0.
+    let mut red = Vec::with_capacity(4 * 4 * 4);
+    for _ in 0..16 {
+        red.extend_from_slice(&[0, 0, 255, 255]); // BGRA
+    }
+    rt.state
+        .browser
+        .host
+        .tab(tab_id)
+        .unwrap()
+        .surface
+        .push_bytes(
+            ByteFrame {
+                width: 4,
+                height: 4,
+                format: Format::Bgra,
+                color: ColorInfo::default(),
+                planes: [red, Vec::new()],
+            },
+            2,
+        )
+        .unwrap();
+
+    rt.update(|s, tx| {
+        s.browser.open = true;
+        s.browser.width = 500.0;
+        tx.settle();
+    });
+    rt.frame(1.0 / 60.0);
+
+    let ([bx, by, bw, bh], _) = rt.presented("browser-panel").expect("browser-panel laid out");
+    let gpu = Gpu::headless();
+    let (wp, hp) = (2560u32, 1640u32);
+    let mut renderer = Renderer::new(&gpu.device, OFFSCREEN_FORMAT);
+    let target = Offscreen::new(&gpu.device, wp, hp);
+    renderer.upload_images(&gpu.device, &gpu.queue, &mut rt.images);
+    renderer.prepare_surfaces(&gpu.device, &gpu.queue, &rt.surfaces, (wp, hp));
+    renderer.prepare(&gpu.device, &gpu.queue, &mut rt.text.atlas, &rt.instances, (wp, hp));
+    let mut enc = gpu.device.create_command_encoder(&Default::default());
+    renderer.draw(&mut enc, &target.view, rt.clear_color());
+    target.copy(&mut enc);
+    renderer.submit(&gpu.queue, enc);
+    let rgba = target.read(&gpu.device);
+    let px = |x: u32, y: u32| -> [u8; 4] {
+        let idx = ((y * wp + x) * 4) as usize;
+        [rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]]
+    };
+
+    let x_left = (bx * 2.0).round() as u32;
+    let x_right = ((bx + bw) * 2.0).round() as u32 - 1;
+    let x_mid = ((bx + bw * 0.5) * 2.0).round() as u32;
+    let y_mid = ((by + bh * 0.55) * 2.0).round() as u32;
+    let y_low = ((by + bh - 30.0) * 2.0).round() as u32;
+    let y_bot = ((by + bh) * 2.0).round() as u32 - 1;
+
+    // Interior of the viewport is pure red from NativeSurface.
+    let inside = px(x_left + 20, y_mid);
+    assert!(inside[0] > 240 && inside[1] < 10 && inside[2] < 10, "expected red NativeSurface interior, got {inside:?}");
+
+    // Left (mid & low), right, and bottom 1px border pixels blend translucent white p.ring over red (raising G and B).
+    for (name, sample) in [
+        ("left-mid", px(x_left, y_mid)),
+        ("left-low", px(x_left, y_low)),
+        ("right-mid", px(x_right, y_mid)),
+        ("bottom-mid", px(x_mid, y_bot)),
+    ] {
+        assert!(
+            sample[1] > 30 && sample[2] > 30,
+            "{name} border pixel was overwritten by NativeSurface: {sample:?}"
+        );
+    }
+
+    // Outside the bottom-left 10pt (20px) rounded corner, NativeSurface is clipped away.
+    let outer_corner = px(x_left, y_bot);
+    assert!(
+        outer_corner[0] < 40,
+        "bottom-left rounded corner leaked unclipped NativeSurface: {outer_corner:?}"
+    );
+}
+
+

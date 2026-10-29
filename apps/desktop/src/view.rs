@@ -81,7 +81,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
-    let composer_w = cx.layout("composer").map_or(0.0, |r| r[2]);
+    let composer_w = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
     inner = inner.children(crate::mentions::view(s, p, composer_w));
     inner = inner.children(crate::slash::commands_view(s, p, composer_w));
     inner = inner.children(crate::add_menu::menu(s, p));
@@ -92,7 +92,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::session_menu_view::confirm(s, p));
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
-    let (w, h) = cx.layout("zoom").map_or((0.0, 0.0), |r| (r[2], r[3]));
+    let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
     let sized = if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() };
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
@@ -105,14 +105,19 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .child(crate::knobs::layer(s))
 }
 
+/// An anchored overlay escapes the window's zoom, so it scales itself: it grows about the corner that touches its anchor (`above` is the
+/// bottom-left, else the top-left), landing at once.
+pub(crate) fn follow_zoom(overlay: El, zoom: f32, above: bool) -> El {
+    overlay.scale(zoom).scale_motion(no_motion().enter).origin(0.0, if above { 1.0 } else { 0.0 })
+}
+
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
-    let win_w = cx.layout("zoomed").map_or(0.0, |r| r[2]);
-    let panel_w = cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom);
-    let panel_sz = cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom));
+    let win_w = cx.layout_size("zoomed").map_or(0.0, |[w, _]| w);
+    let panel_sz = cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom));
     let mut root = row()
         .key("window")
         .role("window")
@@ -141,7 +146,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
-                    Route::Draft => draft_page(s, p, panel_w),
+                    Route::Draft => draft_page(s, p, panel_sz.0),
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
@@ -179,6 +184,10 @@ fn roots(s: &App) -> impl Iterator<Item = &SessionInfo> {
 
 pub(crate) fn title_of(s: &SessionInfo) -> String {
     if s.title.is_empty() { "Untitled session".into() } else { s.title.clone() }
+}
+
+pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {
+    project.map(|p| p.name.clone()).unwrap_or_else(|| dir.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
 }
 
 fn home_dir() -> String {

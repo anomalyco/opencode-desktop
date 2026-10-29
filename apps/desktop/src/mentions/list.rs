@@ -1,9 +1,15 @@
-//! What the `@` and `/` popovers share: the list popover, the highlight that follows a query,
-//! the arrow-key step, and the server's `{ data: [..] }` lists.
+//! What the popovers and palettes share: the list popover, the highlight that follows a query,
+//! arrow-key stepping, debounced server fetches, and the server's `{ data: [..] }` lists.
 
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
 
-use rune::{Color, El, KeyEvent, Tx, col, row, text};
+use opencode_kit::client::Server;
+use opencode_kit::model::SessionInfo;
+use rune::{Color, El, KeyEvent, Tx, Waker, col, row, text};
 use serde_json::Value;
 
 use crate::App;
@@ -19,6 +25,63 @@ const MAX_H: f32 = 306.0;
 /// The array under a response's `data`, or the value itself when it is one (the fixture's).
 pub fn data_list(v: &Value) -> impl Iterator<Item = &Value> {
     v.get("data").unwrap_or(v).as_array().into_iter().flatten()
+}
+
+/// Merges `incoming` sessions into `into` in place, replacing matching ids.
+pub fn upsert_sessions(into: &mut Vec<SessionInfo>, incoming: Vec<SessionInfo>) {
+    for s in incoming {
+        match into.iter_mut().find(|x| x.id == s.id) {
+            Some(old) => *old = s,
+            None => into.push(s),
+        }
+    }
+}
+
+/// Runs `work` off the UI thread; an answer is sent to `out` and wakes the UI.
+pub fn spawn_fetch<T: Send + 'static>(
+    server: &Server,
+    wake: &Option<Waker>,
+    out: &Sender<T>,
+    work: impl FnOnce(&Server) -> Option<T> + Send + 'static,
+) {
+    let (server, wake, out) = (server.clone(), wake.clone(), out.clone());
+    std::thread::spawn(move || {
+        if let Some(v) = work(&server)
+            && out.send(v).is_ok()
+            && let Some(w) = wake
+        {
+            w();
+        }
+    });
+}
+
+/// Counts asks so a fetch that waited out a newer one (or a close) can drop itself.
+#[derive(Default)]
+pub struct Debounce(Arc<AtomicU64>);
+
+impl Debounce {
+    pub fn cancel(&self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// `work` for a thread: it waits `wait`, then runs unless a later ask came in, and is
+    /// handed a check for that to repeat once it has its answer.
+    pub fn after<T: Send + 'static>(
+        &self,
+        wait: Duration,
+        work: impl FnOnce(&Server, &dyn Fn() -> bool) -> Option<T> + Send + 'static,
+    ) -> impl FnOnce(&Server) -> Option<T> + Send + 'static {
+        let generation = self.0.fetch_add(1, Ordering::Relaxed) + 1;
+        let current = self.0.clone();
+        move |server| {
+            std::thread::sleep(wait);
+            let live = || current.load(Ordering::Relaxed) == generation;
+            if !live() {
+                return None;
+            }
+            work(server, &live)
+        }
+    }
 }
 
 /// The highlighted row and the query it was picked under: it holds only while the query is
@@ -95,6 +158,7 @@ pub struct Row {
 /// The popover over the composer, 8 points up: rows of an optional lead, a label and a muted
 /// description. It appears and goes at once, and so does its highlight.
 pub fn popup(
+    zoom: f32,
     p: &Pal,
     spec: Spec,
     rows: Vec<Row>,
@@ -147,7 +211,7 @@ pub fn popup(
         let h = (count as f32 * ROW_H + 2.0 * PAD).min(MAX_H);
         col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_edge_fade(16.0).scroll_margin(PAD).child(list)
     };
-    col()
+    let popover = col()
         .key(spec.key)
         .role("listbox")
         .label(spec.label)
@@ -160,5 +224,6 @@ pub fn popup(
         .clip_soft(0.0)
         .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
         .on_press(|_: &mut App| {})
-        .child(body)
+        .child(body);
+    crate::view::follow_zoom(popover, zoom, true)
 }

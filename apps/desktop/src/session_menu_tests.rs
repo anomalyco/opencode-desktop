@@ -1,22 +1,16 @@
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
-use rune::{Env, Key, KeyEvent, Mods, Runtime};
+use opencode_kit::client::Write;
+use rune::{Key, KeyEvent, Mods, Runtime};
 
 use crate::session_menu::{Line, Spot, Target, lines};
-use crate::{App, Route, Source};
+use crate::{App, Route};
 
 /// The fixture app on its open session, with a channel standing in for the server's writes.
 fn app() -> (Runtime<App>, Receiver<Write>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let (w, writes) = channel();
-    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
+    let mut app = App::fixture_session();
+    let writes = app.fake_writes();
+    let mut rt = app.into_runtime();
     frames(&mut rt, 90);
     (rt, writes)
 }
@@ -311,6 +305,32 @@ fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
     press_key(&mut rt, Key::Enter);
     let Ok(Write::Rename { title, .. }) = writes.try_recv() else { panic!("no rename sent") };
     assert_eq!(title, "Header rename");
+}
+
+#[test]
+fn the_headers_rename_field_hugs_its_title_so_the_more_button_moves_only_with_typing() {
+    let (mut rt, _) = app();
+    let x = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} is drawn")).rect[0];
+    let rest = x(&rt, "header-more");
+    let (tx, ty) = rt.find("title").unwrap();
+    press(&mut rt, tx, ty);
+    frames(&mut rt, 3);
+    assert!(rt.state.menus.rename.is_some());
+    assert!((x(&rt, "header-more") - rest).abs() < 0.5, "⋯ stays where it was: {rest} → {}", x(&rt, "header-more"));
+
+    press_key(&mut rt, Key::End);
+    type_text(&mut rt, " and more");
+    let typed = x(&rt, "header-more");
+    assert!(typed > rest + 20.0, "typing pushes ⋯ over: {rest} → {typed}");
+    for _ in 0..5 {
+        press_key(&mut rt, Key::Backspace);
+    }
+    let deleted = x(&rt, "header-more");
+    assert!(deleted < typed && deleted > rest, "deleting pulls it back: {typed} → {deleted}");
+
+    type_text(&mut rt, &" a title far too long for the header".repeat(8));
+    let long = x(&rt, "header-more");
+    assert!(long + 28.0 <= 1280.0 && long > typed, "a long title stops at the header's room: {long}");
 }
 
 #[test]

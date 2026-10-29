@@ -8,14 +8,15 @@ use crate::session_menu::{Item, Line, Spot, Target};
 use crate::view::{UI, UI_MED};
 use crate::App;
 
-/// `s`'s title field, in `style`, when `target` is the one being renamed.
+/// `s`'s title field, in `style`, when `target` is the one being renamed. Outside a tab it hugs
+/// its text, so what follows stays put and moves only as the title gets longer; one too long for
+/// the room scrolls inside it and fades at the edge.
 pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Option<El> {
     if s.menus.rename.as_ref() != Some(target) {
         return None;
     }
-    let width = (s.menus.edit.text.chars().count() as f32 * 7.4 + 16.0).clamp(96.0, 480.0);
-    let input = text_input(&s.menus.edit, style).key("rename").single_line().min_w(0.0).shrink().h(16.0);
-    let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input.w(width) };
+    let input = text_input(&s.menus.edit, style).key("rename").single_line().truncate_fade().h(16.0);
+    let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
     Some(
         input
             .caret(p.text, p.selection)

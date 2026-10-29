@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
+use crate::mentions::list::{Highlight, cycle};
 use crate::{App, Route};
 use opencode_kit::model::{ModelRef, capitalize};
 
@@ -49,8 +50,7 @@ pub struct Pickers {
     pub open: Option<Kind>,
     pub search: TextEdit,
     pub toolbar_focus: Option<Kind>,
-    active: Option<String>,
-    searched: String,
+    active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
     selections: HashMap<String, Selection>,
     /// The model each agent last had in a session, by session then agent, so switching back to
@@ -76,7 +76,7 @@ impl Pickers {
     /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
     /// Deprecated models are left out, as Desktop leaves them out of its catalog.
     pub fn load_live(&mut self, models: &Value, agents: &Value) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let now = crate::wall_ms();
         let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
         let listed: Vec<&Value> = models.as_array().into_iter().flatten()
             .filter(|v| v["enabled"].as_bool().unwrap_or(true) && v["status"].as_str() != Some("deprecated")).collect();
@@ -109,8 +109,11 @@ impl Pickers {
     }
 
     pub fn activate(&mut self, key: String) {
-        self.searched.clone_from(&self.search.text);
-        self.active = Some(key);
+        self.active.set(key, self.search.text.clone());
+    }
+
+    pub fn model_name(&self, m: &ModelRef) -> String {
+        self.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone())
     }
 }
 
@@ -196,11 +199,11 @@ impl App {
     /// its reply, as a live server does.
     pub fn serve_choice(&mut self, session: &str, prompt: &opencode_kit::client::Prompt, at: f64) {
         if let Some(agent) = &prompt.agent {
-            self.playback.push_back((at, "session.agent.selected".into(), serde_json::json!({ "sessionID": session, "agent": agent })));
+            self.schedule(at, "session.agent.selected", serde_json::json!({ "sessionID": session, "agent": agent }));
         }
         if let Some(m) = &prompt.model {
             let model = serde_json::json!({ "id": m.id, "providerID": m.provider, "variant": m.variant });
-            self.playback.push_back((at, "session.model.selected".into(), serde_json::json!({ "sessionID": session, "model": model })));
+            self.schedule(at, "session.model.selected", serde_json::json!({ "sessionID": session, "model": model }));
         }
     }
 
@@ -252,9 +255,8 @@ impl App {
     }
 
     pub fn picker_active(&self) -> Option<String> {
-        if self.pickers.search.text != self.pickers.searched {
-            self.picker_items().first().map(|i| i.key.clone())
-        } else { self.pickers.active.clone() }
+        let items = self.picker_items();
+        self.pickers.active.resolve(&self.pickers.search.text, items.iter().map(|i| i.key.as_str()))
     }
 
     pub fn open_picker(&mut self, kind: Kind) {
@@ -262,10 +264,8 @@ impl App {
         self.pickers.open = Some(kind);
         self.pickers.search = TextEdit::new("");
         self.pickers.search.focused = kind == Kind::Model;
-        self.pickers.searched.clear();
         let current = self.picker_current(kind);
-        let items = self.picker_items();
-        self.pickers.active = items.iter().find(|i| i.key == current).or(items.first()).map(|i| i.key.clone());
+        self.pickers.active.set(current, String::new());
         self.composer.focused = false;
         self.pickers.toolbar_focus = None;
     }
@@ -337,9 +337,9 @@ impl App {
                     let items = self.picker_items();
                     if !items.is_empty() {
                         let active = self.picker_active();
-                        let index = items.iter().position(|i| Some(&i.key) == active.as_ref()).unwrap_or(0);
-                        let next = if ev.key == Key::Down { (index + 1) % items.len() } else { (index + items.len() - 1) % items.len() };
-                        self.pickers.activate(items[next].key.clone());
+                        let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
+                        let step = if ev.key == Key::Down { 1 } else { -1 };
+                        self.pickers.activate(items[cycle(items.len(), at, step)].key.clone());
                     }
                 }
                 Key::Enter => {
@@ -382,19 +382,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rune::{Env, Runtime};
-
-    fn runtime() -> Runtime<App> {
-        // Deliberately bypass App::new: tests must never probe a server.
-        let mut app = App::empty();
-        app.load_fixture(crate::FIXTURE);
-        crate::open_scene(&mut app);
-        app.finish_stream();
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.on_key = Some(crate::on_key);
-        rt.frame(0.0);
-        rt
-    }
+    use crate::fixture_runtime as runtime;
+    use rune::Runtime;
     fn key(rt: &mut Runtime<App>, key: Key) {
         rt.key(KeyEvent { key, mods: Default::default() });
         rt.frame(1.0 / 60.0);

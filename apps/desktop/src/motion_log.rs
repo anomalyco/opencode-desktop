@@ -24,7 +24,7 @@ use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};
 
 use rune::motion_gate::{Recording, check, rule, short};
-use crate::{App, Route, Source};
+use crate::{App, Route};
 pub use flights::Window;
 
 #[path = "motion_log_flights.rs"]
@@ -63,6 +63,10 @@ impl Events {
         }
         if self.recent.len() == EVENTS { self.recent.pop_front(); }
         self.recent.push_back((ty.to_owned(), 1));
+    }
+
+    pub(super) fn to_json(&self) -> Vec<Value> {
+        self.recent.iter().map(|(ty, n)| json!({"type": ty, "count": n})).collect()
     }
 }
 
@@ -235,7 +239,7 @@ impl Watch {
             "detail": f.detail,
             "deltas": deltas,
             "frames": frames,
-            "events": events.recent.iter().map(|(ty, n)| json!({"type": ty, "count": n})).collect::<Vec<_>>(),
+            "events": events.to_json(),
         })
     }
 }
@@ -392,7 +396,7 @@ pub struct Log {
 impl Log {
     /// `App::on_frame_drawn`: live sessions only, never a fixture.
     pub fn frame(&mut self, rt: &Runtime<App>) {
-        if !matches!(rt.state.source, Source::Live { .. }) { return; }
+        if !rt.state.live() { return; }
         let now = Instant::now();
         let input = rune::last_input().is_some_and(|t| self.last.is_none_or(|last| t > last));
         self.last = Some(now);
@@ -435,6 +439,18 @@ fn iso(ms: f64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
+}
+
+#[cfg(test)]
+pub(crate) fn stub_el(path: &str, parent: Option<usize>, rect: [f32; 4], text: Option<&str>) -> ElementInfo {
+    ElementInfo {
+        trace_name: None, trace_namespace: None, loop_phase: None, focusable: false, focused: false, focus_visible: false,
+        inert: false, exiting: false, path: path.into(), key: path.rsplit('/').next().map(Into::into), role: "box", label: None,
+        text: text.map(Into::into), rect, target: rect, opacity: 1.0, scale: 1.0, blur: 0.0, radius: 0.0, fill: rune::Color::WHITE,
+        text_color: None, hover: 0.0, press: 0.0, moving: false, parent, visible: rect, revealing: false, in_growing_row: false,
+        scrolling: false, virtual_extent: false, live_intent: 0, caret: None, drag_out: false, help: None, selected: None,
+        level: None, expanded: None, item_selected: false, stuck: 0.0,
+    }
 }
 
 #[cfg(test)]

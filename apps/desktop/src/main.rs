@@ -17,15 +17,14 @@ mod background_stories;
 mod browser;
 mod browser_stories;
 mod capsule_stories;
-mod picker_stories;
 mod compaction;
 mod compaction_stories;
 mod diagnostics;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
-mod disk;
 mod disclosure;
+mod disk;
 mod dropzone;
 mod events;
 mod fixture_ids;
@@ -44,48 +43,50 @@ mod jump;
 mod keys;
 mod knobs;
 mod launch;
+mod mention_stories;
 mod mentions;
+#[cfg(test)]
+mod motion_gate;
+mod motion_log;
 mod notifications;
+mod odometer;
+mod odometer_stories;
+mod open_story;
+#[cfg(test)]
+mod open_story_tests;
 mod palette;
 #[cfg(test)]
 mod perf;
+mod picker_stories;
 mod pickers;
 mod prompt_history;
 mod prompt_history_story;
-mod queue;
 mod question;
 mod question_row;
 mod question_stories;
+mod queue;
 mod quote;
 mod quote_cards;
 mod quote_stories;
 mod restore;
+#[cfg(test)]
 mod revert;
 mod scenes;
-mod mention_stories;
 mod selection_stories;
+mod send;
+mod served;
 mod session_menu;
 mod session_menu_stories;
 #[cfg(test)]
 mod session_menu_tests;
 mod session_menu_view;
-mod send;
-mod served;
 mod session_open;
 mod session_pages;
-mod open_story;
-#[cfg(test)]
-mod open_story_tests;
-#[cfg(test)]
-mod motion_gate;
-mod motion_log;
-mod odometer;
-mod odometer_stories;
+mod settings;
 mod shortcuts;
 mod slash;
 mod stories;
 mod subagents;
-mod settings;
 mod switcher;
 mod tab_actions;
 mod tabs;
@@ -164,10 +165,7 @@ pub struct App {
     pub pending: Vec<Pending>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
     pub inboxes: HashMap<String, Inbox>,
-    /// Form answers in progress, by `form/key`: picked option values and typed text.
-    pub picks: HashMap<String, Vec<String>>,
-    pub typed: HashMap<String, TextEdit>,
-    /// The question dock's place in the form it shows.
+    /// The question dock's place and in-progress answers for the forms it shows.
     pub question: question::Dock,
     /// Where "New session" creates its session.
     pub draft_dir: String,
@@ -200,8 +198,6 @@ pub struct App {
     pub notify: notifications::Notifier,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
-    /// Links opened from messages, newest last.
-    pub opened: Vec<String>,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
@@ -408,9 +404,9 @@ impl App {
         let Some(action) = shortcuts::action(ev) else { return false };
         match action {
             // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
-            Action::ZoomIn => { tx.instant(); self.set_zoom(1) }
-            Action::ZoomOut => { tx.instant(); self.set_zoom(-1) }
-            Action::ZoomReset => { tx.instant(); self.set_zoom(0) }
+            Action::ZoomIn => self.zoom_by(1, tx),
+            Action::ZoomOut => self.zoom_by(-1, tx),
+            Action::ZoomReset => self.zoom_by(0, tx),
             Action::Tab(offset) => self.select_adjacent(offset, false, tx),
             Action::UnreadTab(offset) => self.select_adjacent(offset, true, tx),
             Action::TabAt(i) => {
@@ -426,37 +422,9 @@ impl App {
                     self.close_tab(&id, tx);
                 }
             }
-            Action::ReopenTab => {
-                while let Some((i, tab)) = self.closed.pop() {
-                    if self.tabs.iter().any(|t| t.id == tab.id) {
-                        continue;
-                    }
-                    let id = tab.id.clone();
-                    self.tabs.insert(i.min(self.tabs.len()), tab);
-                    self.open(&id, tx);
-                    self.save_tabs();
-                    break;
-                }
-            }
+            Action::ReopenTab => self.reopen_tab(tx),
         }
         true
-    }
-
-    /// Opens a link from a message in the default browser (web and mail links only). Without a
-    /// live server it only records the link, for tests.
-    pub fn open_link(&mut self, url: &str) {
-        if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
-            return;
-        }
-        self.opened.push(url.to_owned());
-        if self.live() {
-            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-            // Off the UI thread, and waited on so the opener doesn't linger as a zombie.
-            let url = url.to_owned();
-            std::thread::spawn(move || {
-                let _ = std::process::Command::new(opener).arg(url).status();
-            });
-        }
     }
 
     pub fn live(&self) -> bool {
@@ -475,20 +443,15 @@ impl App {
         }
     }
 
+    /// `id` and its loaded parents, up to 32 steps.
+    pub(crate) fn ancestors<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a str> {
+        std::iter::successors(Some(id), |cur| self.session(cur)?.parent.as_deref()).take(33)
+    }
+
     /// The first session in `id`'s parent chain (itself included) that isn't loaded, so a
     /// running subagent can be traced to its tab.
     fn missing_ancestor(&self, id: &str) -> Option<String> {
-        let mut cur = id;
-        for _ in 0..32 {
-            match self.session(cur) {
-                None => return Some(cur.to_owned()),
-                Some(s) => match s.parent.as_deref() {
-                    Some(p) => cur = p,
-                    None => return None,
-                },
-            }
-        }
-        None
+        self.ancestors(id).take(32).last().filter(|cur| self.session(cur).is_none()).map(str::to_owned)
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
@@ -595,10 +558,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 Incoming::Pending { session, items } => {
                     s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
                     for p in items {
-                        s.requests.insert((p.session().to_owned(), p.id().to_owned()));
-                        if !s.pending.iter().any(|x| x.id() == p.id()) {
-                            s.pending.push(p);
-                        }
+                        s.add_pending(p);
                     }
                 }
                 Incoming::Reconnected => {
@@ -758,4 +718,37 @@ fn main() {
         disk::flush();
         diagnostics.shutdown();
     }
+}
+
+#[cfg(test)]
+impl App {
+    /// The fixture's open session at the end of its stream, without probing a server.
+    pub(crate) fn fixture_session() -> Self {
+        let mut app = Self::empty();
+        app.load_fixture(FIXTURE);
+        open_scene(&mut app);
+        app.finish_stream();
+        app
+    }
+
+    /// Switches `source` to a live write channel so tests can read what would be sent.
+    pub(crate) fn fake_writes(&mut self) -> std::sync::mpsc::Receiver<Write> {
+        let (w, writes) = std::sync::mpsc::channel();
+        self.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+        writes
+    }
+
+    pub(crate) fn into_runtime(self) -> rune::Runtime<Self> {
+        let mut rt = rune::Runtime::new(self, view::app, (1280.0, 820.0), rune::Env::new(true, 1.0));
+        rt.poll = Some(poll);
+        rt.on_key = Some(on_key);
+        rt
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_runtime() -> rune::Runtime<App> {
+    let mut rt = App::fixture_session().into_runtime();
+    rt.frame(0.0);
+    rt
 }

@@ -77,12 +77,16 @@ fn stored(log: &[(String, Value)], app: &[Part]) -> Vec<Part> {
 }
 
 impl crate::App {
+    /// Queues a fixture event at `at`, keeping `playback` ordered by time.
+    pub(crate) fn schedule(&mut self, at: f64, ty: impl Into<String>, data: Value) {
+        let i = self.playback.iter().position(|e| e.0 > at).unwrap_or(self.playback.len());
+        self.playback.insert(i, (at, ty.into(), data));
+    }
+
     /// A live app re-reads the open session after each step starts (`events.rs`); the fixture
     /// answers from what it streamed.
     pub(crate) fn refresh_fixture_page(&mut self, sid: &str) {
-        let at = self.clock + REFRESH;
-        self.playback.push_back((at, "fixture.page".into(), json!({ "sessionID": sid })));
-        self.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
+        self.schedule(self.clock + REFRESH, "fixture.page", json!({ "sessionID": sid }));
     }
 
     /// `POST /api/session/:id/background`: each blocking call returns, as a live server's does
@@ -91,25 +95,28 @@ impl crate::App {
         self.background.fixture_moves.push(sid.to_owned());
         let Some(Message::Assistant(a)) = self.transcripts.get(sid).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(a) if a.completed.is_none()))) else { return };
         let at = self.clock + 0.05;
-        for p in &a.parts {
-            if let Part::Tool { id, metadata, .. } = p
-                && parts.contains(id)
-            {
-                let mut metadata = if metadata.is_object() { metadata.clone() } else { json!({}) };
-                metadata["background"] = true.into();
-                let d = json!({ "sessionID": sid, "assistantMessageID": a.id, "id": id, "metadata": metadata });
-                self.playback.push_back((at, "session.tool.success".into(), d));
-            }
+        let moves: Vec<Value> = a
+            .parts
+            .iter()
+            .filter_map(|p| match p {
+                Part::Tool { id, metadata, .. } if parts.contains(id) => {
+                    let mut metadata = if metadata.is_object() { metadata.clone() } else { json!({}) };
+                    metadata["background"] = true.into();
+                    Some(json!({ "sessionID": sid, "assistantMessageID": a.id, "id": id, "metadata": metadata }))
+                }
+                _ => None,
+            })
+            .collect();
+        for d in moves {
+            self.schedule(at, "session.tool.success", d);
         }
-        self.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
         self.wake_at_playback();
     }
 
     pub(crate) fn show_fixture_page(&mut self, sid: &str, tx: &mut rune::Tx) {
         let Some(t) = self.transcripts.get(sid) else { return };
         let messages = self.served.page(t);
-        let key = crate::session_pages::Key { id: sid.to_owned(), updated: self.session(sid).map_or(0, |s| s.updated) };
-        let page = crate::session_pages::Page { key, messages, cursor: None, cached: false, history: false, images: Vec::new(), bytes: 0 };
+        let page = crate::session_pages::Page { key: self.page_key(sid), messages, cursor: None, cached: false, history: false, images: Vec::new(), bytes: 0 };
         self.show_page(&page, tx);
     }
 }

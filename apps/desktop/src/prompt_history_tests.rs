@@ -1,4 +1,4 @@
-use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 
 use super::{Entry, PromptHistory};
 use crate::{App, Route};
@@ -147,13 +147,10 @@ fn entries_round_trip_through_json() {
 }
 
 fn rt() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.prompts.add(entry("an old prompt"), false);
     app.composer.focused = true;
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
+    let mut rt = app.into_runtime();
     rt.frame(1.0 / 60.0);
     rt
 }

@@ -13,7 +13,7 @@ const THRESHOLD: f32 = 400.0;
 /// Centred, its bottom edge sits this far above the timeline's (`bottom: inset + 32px`).
 const LIFT: f32 = 32.0;
 /// At the right, the gap the jump button and the subagent capsule leave above the composer.
-const GAP: f32 = 8.0;
+pub const GAP: f32 = 8.0;
 /// The capsule's lane: its 28 pt chip and that gap, kept clear under the timeline's last row.
 pub const CAPSULE_LANE: f32 = 28.0 + GAP;
 

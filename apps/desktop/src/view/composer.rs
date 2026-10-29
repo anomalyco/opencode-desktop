@@ -117,14 +117,13 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 .center_y()
                 .child(crate::add_menu::trigger(s, p))
                 .children(s.settings.show_agent.then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
-                .child(picker_trigger(s, p, Kind::Model, &s.pickers.models.iter()
-                    .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone()), p.muted))
+                .child(picker_trigger(s, p, Kind::Model, &s.pickers.model_name(&model), p.muted))
                 // "Default" is the absence of a choice, so it reads fainter than a picked effort.
                 .children(s.has_effort().then(|| {
                     picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted })
                 }))
                 .child(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children((busy && ready).then(|| {
-                    let room = rune::memo::layout("room").map_or(f32::INFINITY, |r| r[2] / s.zoom);
+                    let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w / s.zoom);
                     crate::queue::alternate_hint(p, room)
                 }).flatten()))
                 .children(crate::dictation::toolbar(s, p))
@@ -210,8 +209,9 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             .child(text("No models found").font(UI).color(p.faint).h(48.0).px(10.0).pt(16.0)));
         height = 48.0;
     }
-    menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
-        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list))
+    let above = kind != Kind::Project;
+    super::follow_zoom(menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
+        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list)), s.zoom, above)
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

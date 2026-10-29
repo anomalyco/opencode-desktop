@@ -1,22 +1,12 @@
 use super::*;
-use rune::{Env, Mods, Runtime};
+use crate::{Route, fixture_runtime as runtime};
+use rune::{Mods, Runtime};
 
 fn app() -> App {
     // Never App::new: tests must not probe a server.
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     app
-}
-
-fn runtime() -> Runtime<App> {
-    let mut app = app();
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
-    rt
 }
 
 fn press(rt: &mut Runtime<App>, key: Key, mods: Mods) {

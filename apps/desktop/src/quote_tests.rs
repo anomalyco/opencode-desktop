@@ -4,7 +4,7 @@
 use crate::fixture_ids::{MAIN as SESSION};
 use rune::{ElementInfo, Key, KeyEvent, Mods, PhysicalInput, Runtime, Tx};
 
-use opencode_kit::client::{Server, Write};
+use opencode_kit::client::Write;
 use opencode_kit::model::{self, Message, Quote};
 
 use crate::view::selection_tests::{click, drag, find, first_line, last_line, session, settle, text};
@@ -193,9 +193,8 @@ fn a_selection_in_the_composer_never_shows_it() {
 }
 
 fn live(typed: &str, quotes: &[Quote]) -> (App, std::sync::mpsc::Receiver<Write>) {
-    let (w, writes) = std::sync::mpsc::channel();
     let mut app = App::empty();
-    app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    let writes = app.fake_writes();
     app.route = Route::Session("ses_a".into());
     app.composer = rune::TextEdit::new(typed);
     for q in quotes {

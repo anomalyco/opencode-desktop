@@ -1,14 +1,7 @@
 use super::*;
 
 fn el(path: &str, parent: Option<usize>, rect: [f32; 4]) -> ElementInfo {
-    ElementInfo {
-        trace_name: None, trace_namespace: None, loop_phase: None, focusable: false, focused: false, focus_visible: false,
-        inert: false, exiting: false, path: path.into(), key: path.rsplit('/').next().map(Into::into), role: "box", label: None,
-        text: None, rect, target: rect, opacity: 1.0, scale: 1.0, blur: 0.0, radius: 0.0, fill: rune::Color::WHITE,
-        text_color: None, hover: 0.0, press: 0.0, moving: false, parent, visible: rect, revealing: false, in_growing_row: false,
-        scrolling: false, virtual_extent: false, live_intent: 0, caret: None, drag_out: false, help: None, selected: None,
-        level: None, expanded: None, item_selected: false, stuck: 0.0,
-    }
+    stub_el(path, parent, rect, None)
 }
 
 /// A timeline: a viewport, its content offset by `y`, and three rows riding it.

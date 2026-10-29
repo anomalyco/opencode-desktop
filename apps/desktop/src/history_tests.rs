@@ -1,18 +1,11 @@
 use crate::fixture_ids::{MAIN, CHILD, THIRD as OTHER};
-use rune::{Env, Key, KeyEvent, Mods, PhysicalKeyCode, Runtime};
+use rune::{Key, KeyEvent, Mods, PhysicalKeyCode, Runtime};
 
 use crate::history::{Place, bracket};
 use crate::{App, Route};
 
-
 fn rt() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
+    let mut rt = App::fixture_session().into_runtime();
     rt.frame(1.0 / 60.0);
     rt
 }

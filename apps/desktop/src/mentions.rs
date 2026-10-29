@@ -4,9 +4,7 @@
 //! an atomic pill in the text, and sending turns the pills into the prompt's `agents`, `skills`
 //! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`).
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::Arc;
 use std::time::Duration;
 
 use rune::{El, Icon, Key, KeyEvent, Tx, Waker, icon};
@@ -19,7 +17,7 @@ use opencode_kit::model::{self, SessionInfo};
 use crate::palette::Pal;
 use crate::view::title_of;
 use crate::{App, Route, Source};
-use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key};
+use list::{Debounce, Highlight, Row, Spec, data_list, nav_step, popup, spawn_fetch, step_key, upsert_sessions};
 
 pub mod badge;
 pub mod list;
@@ -148,42 +146,8 @@ struct Fetch {
 }
 
 impl Fetch {
-    /// Runs `work` off the UI thread; an answer is sent back and the UI woken.
     fn spawn(&self, work: impl FnOnce(&Server) -> Option<Fetched> + Send + 'static) {
-        let (server, wake, out) = (self.server.clone(), self.wake.clone(), self.out.clone());
-        std::thread::spawn(move || {
-            if let Some(fetched) = work(&server) {
-                let _ = out.send(fetched);
-                if let Some(w) = wake {
-                    w();
-                }
-            }
-        });
-    }
-}
-
-/// Counts asks so a fetch that waited out a newer one can drop itself.
-#[derive(Default)]
-struct Debounce(Arc<AtomicU64>);
-
-impl Debounce {
-    /// `work` for a thread: it waits `wait`, then runs unless a later ask came in, and is
-    /// handed a check for that to repeat once it has its answer.
-    fn after(
-        &self,
-        wait: Duration,
-        work: impl FnOnce(&Server, &dyn Fn() -> bool) -> Option<Fetched> + Send + 'static,
-    ) -> impl FnOnce(&Server) -> Option<Fetched> + Send + 'static {
-        let generation = self.0.fetch_add(1, Ordering::Relaxed) + 1;
-        let current = self.0.clone();
-        move |server| {
-            std::thread::sleep(wait);
-            let live = || current.load(Ordering::Relaxed) == generation;
-            if !live() {
-                return None;
-            }
-            work(server, &live)
-        }
+        spawn_fetch(&self.server, &self.wake, &self.out, work);
     }
 }
 
@@ -204,14 +168,7 @@ impl Mentions {
                         self.files = (query, paths);
                     }
                 }
-                Fetched::Sessions(list) => {
-                    for s in list {
-                        match self.found.iter_mut().find(|x| x.id == s.id) {
-                            Some(old) => *old = s,
-                            None => self.found.push(s),
-                        }
-                    }
-                }
+                Fetched::Sessions(list) => upsert_sessions(&mut self.found, list),
             }
             changed = true;
         }
@@ -335,6 +292,14 @@ pub fn fuzzy(needle: &str, hay: &str) -> Option<i64> {
     Some(5_000 - (last - first.unwrap_or(0)) as i64 * 10 - hay.len() as i64)
 }
 
+/// Filters and ranks `items` by [`fuzzy`] score against `query` (best first, ties in input order).
+pub fn fuzzy_rank<T>(query: &str, items: impl IntoIterator<Item = T>, label: impl Fn(&T) -> &str) -> Vec<T> {
+    let needle = query.to_lowercase();
+    let mut scored: Vec<(i64, T)> = items.into_iter().filter_map(|i| Some((fuzzy(&needle, label(&i))?, i))).collect();
+    scored.sort_by_key(|(s, _)| -s);
+    scored.into_iter().map(|(_, i)| i).collect()
+}
+
 impl App {
     /// The composer's directory: the open session's, or where a new one starts.
     pub fn composer_directory(&self) -> String {
@@ -400,19 +365,10 @@ impl App {
             Route::Session(id) => Some(id.as_str()),
             _ => None,
         };
-        let mut all: Vec<&SessionInfo> = Vec::new();
-        for s in self.sessions.iter().filter(|s| s.parent.is_none()).chain(&self.mentions.found) {
-            if Some(s.id.as_str()) == current || !session_id_ok(&s.id) {
-                continue;
-            }
-            match all.iter_mut().find(|x| x.id == s.id) {
-                Some(old) if s.updated > old.updated => *old = s,
-                Some(_) => {}
-                None => all.push(s),
-            }
-        }
-        all.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
-        all
+        self.merged_roots(&self.mentions.found)
+            .into_iter()
+            .filter(|s| Some(s.id.as_str()) != current && session_id_ok(&s.id))
+            .collect()
     }
 
     /// The popover's rows: skills, then agents (both fuzzy on their labels), then sessions whose
@@ -438,12 +394,6 @@ impl App {
         if query.contains(char::is_whitespace) {
             return sessions;
         }
-        let needle = query.to_lowercase();
-        let ranked = |items: Vec<Item>| -> Vec<Item> {
-            let mut scored: Vec<(i64, Item)> = items.into_iter().filter_map(|i| Some((fuzzy(&needle, &i.label)?, i))).collect();
-            scored.sort_by(|a, b| b.0.cmp(&a.0));
-            scored.into_iter().map(|(_, i)| i).collect()
-        };
         let skills = self.mentions.skills.iter().map(|s| Item {
             key: format!("skill:{}", s.id),
             kind: Kind::Skill,
@@ -458,8 +408,8 @@ impl App {
             description: String::new(),
             content: format!("@{name}"),
         });
-        let mut out = ranked(skills.collect());
-        out.extend(ranked(agents.collect()));
+        let mut out = fuzzy_rank(&query, skills, |i| &i.label);
+        out.extend(fuzzy_rank(&query, agents, |i| &i.label));
         out.extend(sessions);
         out.extend(self.mention_files(&query).into_iter().map(|path| Item {
             key: format!("file:{path}"),
@@ -477,11 +427,8 @@ impl App {
         if query.trim().is_empty() {
             return Vec::new();
         }
-        let needle = query.to_lowercase();
         let narrow = |paths: &[String]| -> Vec<String> {
-            let mut scored: Vec<(i64, &String)> = paths.iter().filter_map(|p| Some((fuzzy(&needle, p)?, p))).collect();
-            scored.sort_by(|a, b| b.0.cmp(&a.0));
-            scored.into_iter().take(FILE_LIMIT).map(|(_, p)| p.clone()).collect()
+            fuzzy_rank(query, paths.iter().cloned(), String::as_str).into_iter().take(FILE_LIMIT).collect()
         };
         match &self.source {
             Source::Live { .. } if self.mentions.files.0 == query => self.mentions.files.1.clone(),
@@ -508,15 +455,12 @@ impl App {
         let caret = self.caret();
         self.composer.replace_with_pill(at..caret, item.key.clone(), &item.content);
         self.composer.insert(" ");
-        self.mentions.open = false;
-        self.mentions.active.clear();
-        self.mentions.seen = (self.composer.text.clone(), self.caret());
+        self.mentions_settle();
     }
 
     /// After the app sets the composer's text itself (a recalled prompt): not an edit, so no popover.
     pub fn mentions_settle(&mut self) {
-        self.mentions.open = false;
-        self.mentions.active.clear();
+        self.close_mentions();
         self.mentions.seen = (self.composer.text.clone(), self.caret());
     }
 
@@ -636,7 +580,7 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind)), description: i.description.clone() })
         .collect();
     let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
-    Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
+    Some(popup(s.zoom, p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
 }
 
 #[cfg(test)]

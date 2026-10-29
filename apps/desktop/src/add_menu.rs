@@ -336,7 +336,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 tx.instant();
                 s.close_add_menu();
             })
-            .child(menu),
+            .child(crate::view::follow_zoom(menu, s.zoom, true)),
     )
 }
 
@@ -344,9 +344,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
 mod tests {
     use super::*;
     use crate::slash::{commands, parse_slash};
-    use std::sync::mpsc::channel;
     use crate::mentions::tests::{key, runtime, shown, tap, typed};
-    use opencode_kit::client::Server;
     use rune::Mods;
 
     fn scratch(name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -358,9 +356,7 @@ mod tests {
     }
 
     fn live(app: &mut App) -> std::sync::mpsc::Receiver<Write> {
-        let (w, writes) = channel();
-        app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-        writes
+        app.fake_writes()
     }
 
     #[test]

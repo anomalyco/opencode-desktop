@@ -7,7 +7,7 @@ use rune::{El, Key, KeyEvent, Tx};
 use serde_json::Value;
 
 use crate::palette::Pal;
-use crate::mentions::list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key};
+use crate::mentions::list::{Highlight, Row, Spec, data_list, nav_step, popup, spawn_fetch, step_key};
 use crate::{App, Source};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,13 +78,7 @@ impl App {
 
     pub fn slash_items(&self) -> Vec<&Command> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        if query.is_empty() {
-            return self.add.slash.commands.iter().collect();
-        }
-        let mut scored: Vec<(i64, &Command)> =
-            self.add.slash.commands.iter().filter_map(|c| crate::mentions::fuzzy(&query, &c.name).map(|s| (s, c))).collect();
-        scored.sort_by_key(|(s, _)| -s);
-        scored.into_iter().map(|(_, c)| c).collect()
+        crate::mentions::fuzzy_rank(&query, &self.add.slash.commands, |c| &c.name)
     }
 
     pub fn slash_active(&self) -> Option<String> {
@@ -155,14 +149,9 @@ impl App {
             return changed;
         }
         self.add.slash.dir = Some(directory.clone());
-        let (server, wake, out) = (server.clone(), self.waker.clone(), self.add.slash.fetched_tx.clone());
-        std::thread::spawn(move || {
+        spawn_fetch(server, &self.waker, &self.add.slash.fetched_tx, move |server| {
             let path = format!("/api/command?location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-            let list = server.get(&path).map(|v| commands(&v)).unwrap_or_default();
-            let _ = out.send((directory, list));
-            if let Some(w) = wake {
-                w();
-            }
+            Some((directory, server.get(&path).map(|v| commands(&v)).unwrap_or_default()))
         });
         changed
     }
@@ -184,5 +173,5 @@ pub fn commands_view(s: &App, p: &Pal, width: f32) -> Option<El> {
         .map(|c| Row { id: c.name.clone(), key: format!("command-{}", c.name), label: format!("/{}", c.name), lead: None, description: c.description.clone() })
         .collect();
     let spec = Spec { key: "commands", label: "Commands", empty: "No matching commands", width };
-    Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name| s.pick_command(name)))
+    Some(popup(s.zoom, p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name| s.pick_command(name)))
 }

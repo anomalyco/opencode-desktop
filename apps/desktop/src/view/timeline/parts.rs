@@ -157,9 +157,9 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     }
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
-    el().w_full().h(28.0).motion(crate::knobs::actions_tail(&s.knobs))
-        .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
-        .child(button.absolute(0.0, 0.0))
+    el().w_full().h(crate::working::LANE).motion(crate::knobs::actions_tail(&s.knobs))
+        .child(crate::working::row(s, p, session, busy).key("working").absolute(-crate::working::LEAD, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
+        .child(button.absolute(0.0, crate::working::LANE - 28.0))
         .children(crate::background::hint(s, p, session, busy))
 }
 
@@ -189,7 +189,12 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).reveal(fade).streaming(streaming).selectable(true)
-        .on_link(|s: &mut App, url: &str| s.open_link(url)).build(crate::palette::kit(p.dark)).selection_group(false)
+        .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| {
+            if s.live() || cfg!(test) {
+                let _ = tx.open_url(url);
+            }
+        })
+        .build(crate::palette::kit(p.dark)).selection_group(false)
 }
 
 /// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome

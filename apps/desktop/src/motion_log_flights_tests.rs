@@ -7,14 +7,7 @@ const REST: [f32; 4] = [400.0, 300.0, 300.0, 50.0];
 const BUBBLE: &str = "root/timeline/u-msg_1/#0/bubble";
 
 fn el(path: &str, rect: [f32; 4], text: Option<&str>) -> ElementInfo {
-    ElementInfo {
-        trace_name: None, trace_namespace: None, loop_phase: None, focusable: false, focused: false, focus_visible: false,
-        inert: false, exiting: false, path: path.into(), key: path.rsplit('/').next().map(Into::into), role: "box", label: None,
-        text: text.map(Into::into), rect, target: rect, opacity: 1.0, scale: 1.0, blur: 0.0, radius: 0.0, fill: rune::Color::WHITE,
-        text_color: None, hover: 0.0, press: 0.0, moving: false, parent: None, visible: rect, revealing: false, in_growing_row: false,
-        scrolling: false, virtual_extent: false, live_intent: 0, caret: None, drag_out: false, help: None, selected: None,
-        level: None, expanded: None, item_selected: false, stuck: 0.0,
-    }
+    super::super::stub_el(path, None, rect, text)
 }
 
 /// A critically damped spring from `from` to `to`, `k` frames in; exactly `to` once within 0.005.

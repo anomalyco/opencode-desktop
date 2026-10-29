@@ -82,9 +82,19 @@ pub fn sync(s: &mut App) -> bool {
 
 /// The spinner and the label. Hidden, it is drawn still: its loops would keep waking frames.
 pub(crate) fn row(s: &App, p: &Pal, session: &str, live: bool) -> El {
-    let ring = if live { activity_ring(p) } else { el().key("ring").size(14.0, 14.0) };
-    rune::row().h(28.0).gap(8.0).center_y().pb(12.0).child(ring).child(label(s, p, session, live && !s.reduced_motion))
+    let ring = if live { activity_ring(p) } else { el().key("ring").size(RING, RING) };
+    rune::row().h(H).gap(GAP).center_y().child(ring).child(label(s, p, session, live && !s.reduced_motion))
 }
+
+const RING: f32 = 14.0;
+const GAP: f32 = 8.0;
+/// The ring and its gap, hung left of the text column so the words sit on it, as Desktop's
+/// Working does.
+pub(crate) const LEAD: f32 = RING + GAP;
+/// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
+pub(crate) const LANE_PAD: f32 = 12.0;
+pub(crate) const H: f32 = 24.0;
+pub(crate) const LANE: f32 = LANE_PAD + H;
 
 /// A label's width at the row's 13 px Inter.
 pub(crate) fn width(label: &str) -> f32 {

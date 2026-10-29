@@ -1,12 +1,12 @@
 //! "Type your own answer": where its text sits, its keys, its dash, and gaps on submit.
 
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
-use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use opencode_kit::client::Write;
+use rune::{ElementInfo, Key, KeyEvent, Mods, Runtime, TextEdit};
 use serde_json::{Value, json};
 
-use crate::{App, Source};
+use crate::App;
 
 const FORM: &str = "frm_fx0001";
 const LONG: &str = "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere";
@@ -26,18 +26,14 @@ fn txt(s: &str) -> KeyEvent {
 /// The fixture's question, changed by `edit`, asked on the open session; replies go to a
 /// channel, never a server.
 fn asked_with(edit: impl FnOnce(&mut Value)) -> (Runtime<App>, Receiver<Write>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.composer = TextEdit::new("half a thought");
     let mut q = app.fixture["question"].clone();
     edit(&mut q);
     app.apply_event("form.created", &q);
-    let (w, r) = channel();
-    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
+    let r = app.fake_writes();
+    let mut rt = app.into_runtime();
+    rt.poll = None;
     settle(&mut rt);
     (rt, r)
 }
@@ -64,7 +60,7 @@ fn type_in(rt: &mut Runtime<App>, s: &str) {
 }
 
 fn typed(rt: &Runtime<App>, key: &str) -> TextEdit {
-    rt.state.typed.get(&format!("{FORM}/{key}")).cloned().unwrap_or_else(|| TextEdit::new(""))
+    rt.state.question.typed.get(&format!("{FORM}/{key}")).cloned().unwrap_or_else(|| TextEdit::new(""))
 }
 
 fn editing(rt: &Runtime<App>) -> bool {
@@ -159,7 +155,7 @@ fn digits_type_and_select_all_stays_in_the_field() {
     press(&mut rt, txt("4"));
     type_in(&mut rt, "Wait 2 or 3");
     assert_eq!(typed(&rt, "q0").text, "Wait 2 or 3");
-    assert!(rt.state.picks.get(&format!("{FORM}/q0")).is_none_or(|p| p.is_empty()), "no answer picked");
+    assert!(rt.state.question.picks.get(&format!("{FORM}/q0")).is_none_or(|p| p.is_empty()), "no answer picked");
     assert_eq!(rt.state.question.focus, 3);
     press(&mut rt, cmd(Key::Command('a')));
     let t = typed(&rt, "q0");

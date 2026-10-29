@@ -161,9 +161,7 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
     let project = info.and_then(|i| s.project(&i.project));
-    let proj = project
-        .map(|x| x.name.clone())
-        .unwrap_or_else(|| dir.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned());
+    let proj = project_or_dir(project, dir);
     let status = s.tab_status(&t.id);
     // The title fades out before the status/close slot (`--tab-title-fade-offset`).
     let fade_offset = if active || status.is_some() { 24.0 } else { 4.0 };

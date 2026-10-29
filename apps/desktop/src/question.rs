@@ -11,7 +11,7 @@
 //! In the field, keys type (digits too), Esc leaves it, and ↑ on its first line goes up to the
 //! answer above. Submitting with a required question unanswered goes to that question.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use opencode_kit::model::{Field, FieldKind, Pending};
 use rune::{Anim, Color, El, Key, KeyEvent, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
@@ -29,8 +29,8 @@ const CUSTOM: &str = "Type your own answer…";
 /// The line height of an answer's title, and of the typed answer.
 const LINE: f32 = 20.0;
 
-/// Where the dock is for the form it shows: the question, the highlighted answer, and which
-/// questions have their own typed answer switched on.
+/// Where the dock is for the form it shows: the question, the highlighted answer, and the
+/// picked and typed answers in progress by `form/key`.
 #[derive(Default)]
 pub struct Dock {
     form: String,
@@ -38,6 +38,8 @@ pub struct Dock {
     focus: usize,
     /// -1 or 1: the way the last question change went, for the arrival slide.
     step: i32,
+    pub picks: HashMap<String, Vec<String>>,
+    pub typed: HashMap<String, TextEdit>,
     /// `form/key`s whose typed answer counts.
     custom: HashSet<String>,
     /// The typed answer's laid-out width, to tell which wrapped line its caret is on.
@@ -52,6 +54,8 @@ impl Dock {
 
     pub fn forget(&mut self, form: &str) {
         let prefix = format!("{form}/");
+        self.picks.retain(|k, _| !k.starts_with(&prefix));
+        self.typed.retain(|k, _| !k.starts_with(&prefix));
         self.custom.retain(|k| !k.starts_with(&prefix));
     }
 }
@@ -143,7 +147,6 @@ fn count(f: &Field) -> usize {
 }
 
 /// The question form the open session waits on.
-#[derive(Clone)]
 struct Form {
     id: String,
     fields: Vec<Field>,
@@ -191,9 +194,8 @@ impl App {
     fn dock(&mut self, f: &Form) -> &mut Dock {
         if self.question.form != f.id {
             let focus = self.pick_focus(f, 0);
-            let custom = std::mem::take(&mut self.question.custom);
-            let input_w = self.question.input_w;
-            self.question = Dock { form: f.id.clone(), tab: 0, focus, step: 0, custom, input_w };
+            let d = &mut self.question;
+            (d.form, d.tab, d.focus, d.step) = (f.id.clone(), 0, focus, 0);
         }
         &mut self.question
     }
@@ -205,12 +207,12 @@ impl App {
         if self.question.custom_on(&k) && has_custom(&f.fields[tab]) {
             return list.len();
         }
-        let picks = self.picks.get(&k);
+        let picks = self.question.picks.get(&k);
         list.iter().position(|(v, ..)| picks.is_some_and(|p| p.contains(v))).unwrap_or(0)
     }
 
     fn editing(&self, f: &Form, tab: usize) -> bool {
-        self.typed.get(&f.key(tab)).is_some_and(|t| t.focused)
+        self.question.typed.get(&f.key(tab)).is_some_and(|t| t.focused)
     }
 
     /// Whether the dock takes letters now: its typed answer is open or highlighted.
@@ -251,12 +253,12 @@ impl App {
 
     fn answered(&self, f: &Form, tab: usize) -> bool {
         let k = f.key(tab);
-        self.picks.get(&k).is_some_and(|p| !p.is_empty())
-            || (self.question.custom_on(&k) && self.typed.get(&k).is_some_and(|t| !t.text.trim().is_empty()))
+        self.question.picks.get(&k).is_some_and(|p| !p.is_empty())
+            || (self.question.custom_on(&k) && self.question.typed.get(&k).is_some_and(|t| !t.text.trim().is_empty()))
     }
 
     fn stop_typing(&mut self, f: &Form, tab: usize) {
-        if let Some(t) = self.typed.get_mut(&f.key(tab)) {
+        if let Some(t) = self.question.typed.get_mut(&f.key(tab)) {
             t.focused = false;
         }
     }
@@ -265,7 +267,7 @@ impl App {
     fn select(&mut self, f: &Form, tab: usize, i: usize) {
         let Some((value, ..)) = rows(&f.fields[tab]).into_iter().nth(i) else { return };
         let k = f.key(tab);
-        let picks = self.picks.entry(k.clone()).or_default();
+        let picks = self.question.picks.entry(k.clone()).or_default();
         if f.multi(tab) {
             match picks.iter().position(|v| *v == value) {
                 Some(at) => {
@@ -285,7 +287,7 @@ impl App {
         self.dock(f).focus = rows(&f.fields[tab]).len();
         self.question.custom.insert(k.clone());
         if !f.multi(tab) {
-            self.picks.remove(&k);
+            self.question.picks.remove(&k);
         }
         self.composer.focused = false;
         self.typed_mut(&f.id, &f.fields[tab].key).focused = true;
@@ -367,7 +369,7 @@ impl App {
             self.select(f, tab, focus);
             return self.next(f, tx);
         }
-        if self.typed.get(&f.key(tab)).is_none_or(|t| t.text.trim().is_empty()) {
+        if self.question.typed.get(&f.key(tab)).is_none_or(|t| t.text.trim().is_empty()) {
             tx.instant();
             return self.start_typing(f, tab);
         }
@@ -447,7 +449,7 @@ impl App {
                 self.dock(&f).focus = n;
                 true
             }
-            Key::Up if n > 0 && !m.shift && !m.alt && !m.cmd && !m.ctrl && self.typed.get(&f.key(tab)).is_none_or(|t| on_first_line(t, self.question.input_w)) => {
+            Key::Up if n > 0 && !m.shift && !m.alt && !m.cmd && !m.ctrl && self.question.typed.get(&f.key(tab)).is_none_or(|t| on_first_line(t, self.question.input_w)) => {
                 tx.instant();
                 self.stop_typing(&f, tab);
                 self.dock(&f).focus = n - 1;
@@ -559,14 +561,13 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     let editing = s.editing(&f, tab);
     let list = rows(field);
     let focus = if editing { list.len() } else { focus };
-    let picks = s.picks.get(&k).cloned().unwrap_or_default();
+    let picks = s.question.picks.get(&k).cloned().unwrap_or_default();
     let total = f.fields.len();
 
     let title = if total == 1 { "Question".to_owned() } else { format!("{} of {total} questions", tab + 1) };
     let progress = (total > 1).then(|| {
         row().key("q-progress").gap(2.0).children((0..total).map(|i| {
             let color = if i == tab { p.icon_muted } else if s.answered(&f, i) { p.bg_accent } else { p.q.layer4 };
-            let form = f.clone();
             el().key(format!("q-seg-{i}"))
                 .role("button")
                 .label(format!("Question {}", i + 1))
@@ -575,7 +576,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .center()
                 .hover(p.hover)
                 .hover_motion(Anim::INSTANT, Anim::INSTANT)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.jump(&form, i, tx))
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| if let Some(f) = s.asking() { s.jump(&f, i, tx) })
                 .child(el().key("bar").size(14.0, 2.0).fill(color))
         }))
     });
@@ -599,7 +600,6 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" }).transition(arrival(s, s.question.step));
     for (i, (value, label, desc)) in list.iter().enumerate() {
         let picked = picks.contains(value);
-        let form = f.clone();
         answers = answers.child(
             row()
                 .key(format!("q-opt-{i}"))
@@ -613,10 +613,11 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| if inside { s.hover_answer(i, tx) })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    let Some(f) = s.asking() else { return };
                     tx.instant();
-                    let (tab, _) = s.place(&form);
-                    s.select(&form, tab, i);
-                    s.dock(&form).focus = i;
+                    let (tab, _) = s.place(&f);
+                    s.select(&f, tab, i);
+                    s.dock(&f).focus = i;
                 })
                 .child(mark(p, multi, picked, i))
                 .child(
@@ -632,9 +633,8 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     if has_custom(field) {
         let i = list.len();
         let on = s.question.custom_on(&k);
-        let edit = s.typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""));
-        let (a, b, c, d) = (f.clone(), f.clone(), f.clone(), field.key.clone());
-        let id = f.id.clone();
+        let edit = s.question.typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""));
+        let (id, field_key) = (f.id.clone(), field.key.clone());
         // The typed answer is written where an answer's title is, in the same row: no box of
         // its own, wrapping inside the row as it grows.
         let input = text_input(&edit, if editing { TITLE } else { STRONG })
@@ -650,12 +650,14 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                     s.question.input_w = r[2];
                 }
             })
-            .on_edit(move |s: &mut App| s.typed_mut(&id, &d))
-            .on_input_change(move |s: &mut App, _| {
-                let (tab, _) = s.place(&c);
-                s.question.custom.insert(c.key(tab));
-                if !c.multi(tab) {
-                    s.picks.remove(&c.key(tab));
+            .on_edit(move |s: &mut App| s.typed_mut(&id, &field_key))
+            .on_input_change(|s: &mut App, _| {
+                let Some(f) = s.asking() else { return };
+                let (tab, _) = s.place(&f);
+                let k = f.key(tab);
+                s.question.custom.insert(k.clone());
+                if !f.multi(tab) {
+                    s.question.picks.remove(&k);
                 }
             })
             .on_input_key(|s: &mut App, ev, tx| s.typed_key(ev, tx));
@@ -669,15 +671,17 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .radius(6.0)
                 .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| if inside { s.hover_answer(i, tx) })
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    let Some(f) = s.asking() else { return };
                     tx.instant();
-                    let (tab, _) = s.place(&a);
-                    s.start_typing(&a, tab);
+                    let (tab, _) = s.place(&f);
+                    s.start_typing(&f, tab);
                 })
-                .child(mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(CUSTOM).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                .child(mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(CUSTOM).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    let Some(f) = s.asking() else { return };
                     tx.instant();
-                    let (tab, _) = s.place(&b);
-                    s.toggle_custom(&b, tab);
+                    let (tab, _) = s.place(&f);
+                    s.toggle_custom(&f, tab);
                 }))
                 .child(input),
         );
@@ -686,7 +690,6 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     let body = col().key("question").w_full().padding(8.0).gap(16.0).transition(face_transition(s)).child(header).child(answers);
 
     let last = f.last(tab);
-    let (back, next, dismiss) = (f.clone(), f.clone(), f.clone());
     let footer = row()
         .key("question-footer")
         .w_full()
@@ -695,21 +698,24 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(face_transition(s))
-        .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None).on_press_tx(move |s: &mut App, tx: &mut Tx| s.dismiss(&dismiss, tx)))
+        .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
+            if let Some(f) = s.asking() { s.dismiss(&f, tx) }
+        }))
         .child(spacer())
         .child(
             row()
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", "Back", Variant::Neutral, None).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        let (tab, _) = s.place(&back);
-                        s.jump(&back, tab.saturating_sub(1), tx);
+                    button(p, "q-back", "Back", Variant::Neutral, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                        let Some(f) = s.asking() else { return };
+                        let (tab, _) = s.place(&f);
+                        s.jump(&f, tab.saturating_sub(1), tx);
                     })
                 }))
                 .child(
                     button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some("⌘⏎"))
-                        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.next(&next, tx)),
+                        .on_press_tx(|s: &mut App, tx: &mut Tx| if let Some(f) = s.asking() { s.next(&f, tx) }),
                 ),
         );
     Some(vec![body, footer])

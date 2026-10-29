@@ -10,13 +10,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::Arc;
 #[cfg(test)]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use rune::Cx;
 use rune::{
-    ClipboardContent, Cx, El, Image, ImageCache, SurfaceFit, TextStyle, Tx, Waker, col, el,
-    icon, row, text,
+    ClipboardContent, El, Image, ImageCache, SurfaceFit, TextStyle, Tx, Waker, col, el, icon, row,
+    text,
 };
 use rune_theme_opencode::icons as ic;
 
@@ -29,8 +30,10 @@ use crate::palette::Pal;
 mod images;
 mod viewer;
 
-pub(crate) use images::{Fetch, Fetched, PreparedImage, prepare_images};
-use images::{Media, fit};
+pub(crate) use images::{Fetched, PreparedImage, prepare_images};
+use images::Media;
+#[cfg(test)]
+use images::{Fetch, fit};
 pub use viewer::{Viewing, view_image, viewer};
 use viewer::opens;
 #[cfg(test)]
@@ -40,8 +43,8 @@ use viewer::shown;
 const MAX_BYTES: usize = 20 << 20;
 const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 /// `attachment-card.css`: 11/14, with room for Inter's descenders where it truncates.
-const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
-const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
+pub(crate) const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
+pub(crate) const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
 
 pub struct Attach {
     /// Waiting in the composer for the next send, inline.
@@ -318,7 +321,7 @@ pub fn chips(s: &App, p: &Pal) -> Option<El> {
 }
 
 /// The round button on a chip's corner that shows on hover, for a chip `w` wide.
-fn remove_button(p: &Pal, name: &str, w: f32, on: impl Fn(&mut App) + 'static) -> El {
+pub(crate) fn remove_button(p: &Pal, name: &str, w: f32, on: impl Fn(&mut App) + 'static) -> El {
     el()
         .key("remove")
         .role("button")

@@ -52,7 +52,7 @@ pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
 /// picker, and its folder, faint at the end.
 pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
     let project = s.draft_project();
-    let name = project.map_or_else(|| s.draft_dir.rsplit('/').next().unwrap_or("").to_owned(), |x| x.name.clone());
+    let name = project_or_dir(project, &s.draft_dir);
     let dir = s.draft_dir.replace(&home_dir(), "~");
     let open = s.pickers.open == Some(Kind::Project);
     let button = row()

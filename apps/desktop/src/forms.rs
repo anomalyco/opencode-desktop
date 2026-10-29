@@ -14,12 +14,16 @@ impl App {
         self.pending.iter().filter(|p| self.root_of(p.session()) == root).collect()
     }
 
+    pub(crate) fn add_pending(&mut self, p: Pending) {
+        self.requests.insert((p.session().to_owned(), p.id().to_owned()));
+        if !self.pending.iter().any(|x| x.id() == p.id()) {
+            self.pending.push(p);
+        }
+    }
+
     pub(crate) fn forget(&mut self, id: &str) {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);
-        let prefix = format!("{id}/");
-        self.picks.retain(|k, _| !k.starts_with(&prefix));
-        self.typed.retain(|k, _| !k.starts_with(&prefix));
         self.question.forget(id);
     }
 
@@ -36,7 +40,7 @@ impl App {
     }
 
     pub fn typed_mut(&mut self, form: &str, key: &str) -> &mut TextEdit {
-        self.typed.entry(format!("{form}/{key}")).or_insert_with(|| TextEdit::new(""))
+        self.question.typed.entry(format!("{form}/{key}")).or_insert_with(|| TextEdit::new(""))
     }
 
     /// The answer to send, or None while a required field is empty.
@@ -48,12 +52,13 @@ impl App {
         for f in fields {
             let k = format!("{id}/{}", f.key);
             let typed = self
+                .question
                 .typed
                 .get(&k)
                 .filter(|_| self.question.custom_on(&k))
                 .map(|t| t.text.trim().to_owned())
                 .filter(|t| !t.is_empty());
-            let picks = self.picks.get(&k).cloned().unwrap_or_default();
+            let picks = self.question.picks.get(&k).cloned().unwrap_or_default();
             let v = match f.kind {
                 FieldKind::Multi => {
                     let mut all = picks;

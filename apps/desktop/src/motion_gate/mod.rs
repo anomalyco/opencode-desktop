@@ -221,9 +221,7 @@ impl Run {
     /// [`Run::event`] now, ahead of the playing turn's later events, as a steer lands mid-turn.
     pub fn event_now(&mut self, ty: &str, data: Value) {
         let at = self.rt.state.clock + 0.001;
-        let q = &mut self.rt.state.playback;
-        let i = q.iter().position(|e| e.0 > at).unwrap_or(q.len());
-        q.insert(i, (at, ty.into(), data));
+        self.rt.state.schedule(at, ty, data);
         self.step();
     }
 

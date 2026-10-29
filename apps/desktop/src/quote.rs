@@ -97,6 +97,7 @@ enum Settle {
 
 impl Quotes {
     /// The button is showing (or about to, once measured).
+    #[cfg(test)]
     pub fn offered(&self) -> bool {
         self.offer.is_some()
     }
@@ -271,7 +272,7 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(|r| r.map(|v| v / z)).collect();
     // Its own size, from the last layout. Unmeasured, it lays out unseen in the same pass the
     // selection's boxes first arrive in, so the next pass has both.
-    let size = cx.layout("quote-toolbar").map(|r| (r[2] / z, r[3] / z));
+    let size = cx.layout_size("quote-toolbar").map(|[w, h]| (w / z, h / z));
     let unseen = || size.is_none().then(|| bar(p, offer.truncated).absolute(0.0, 0.0).opacity(0.0));
     let (Some(&first), Some(&last)) = (rects.first(), rects.last()) else { return unseen() };
     let (top, bottom) = (first[1], last[1] + last[3]);
@@ -319,7 +320,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .gap(2.0)
         .center_y()
         .radius(8.0)
-        .fill(if p.dark { p.layer1 } else { p.bg_base })
+        .fill(crate::view::composer_fill(p))
         // --v2-elevation-raised.
         .border(0.5, p.ring)
         .shadow(2.0, 4.0, p.shadow_far)

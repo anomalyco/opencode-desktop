@@ -8,9 +8,7 @@
 //! the newest) ahead of commands.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::Arc;
 use std::time::Duration;
 
 use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, TextEdit, Transition, Tx, col, el, icon, row, spacer, text, text_input};
@@ -18,9 +16,10 @@ use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::{self, SessionInfo};
 
+use crate::mentions::list::{Debounce, Highlight, cycle, spawn_fetch, upsert_sessions};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, avatar, title_of};
-use crate::{App, Route, Source};
+use crate::{App, Source};
 
 /// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`), and a
 /// query's local session matches.
@@ -75,7 +74,7 @@ pub struct Switcher {
     pub open: bool,
     pub search: TextEdit,
     /// The highlighted row and the query it was picked under; a new query starts from its first row.
-    active: Option<(String, String)>,
+    active: Highlight,
     restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes.
     pub(crate) loaded: Vec<SessionInfo>,
@@ -83,7 +82,7 @@ pub struct Switcher {
     searched: String,
     loading: Option<String>,
     failed: Option<String>,
-    generation: Arc<AtomicU64>,
+    debounce: Debounce,
     found_tx: Sender<Found>,
     found: Receiver<Found>,
 }
@@ -94,13 +93,13 @@ impl Default for Switcher {
         Switcher {
             open: false,
             search: TextEdit::new(""),
-            active: None,
+            active: Highlight::default(),
             restore_composer: false,
             loaded: Vec::new(),
             searched: String::new(),
             loading: None,
             failed: None,
-            generation: Arc::new(AtomicU64::new(0)),
+            debounce: Debounce::default(),
             found_tx,
             found,
         }
@@ -109,7 +108,7 @@ impl Default for Switcher {
 
 impl Switcher {
     pub fn activate(&mut self, key: String) {
-        self.active = Some((key, self.search.text.clone()));
+        self.active.set(key, self.search.text.clone());
     }
 
     pub fn query(&self) -> &str {
@@ -183,8 +182,8 @@ pub fn target(sections: &[&str], index: usize, mv: Move) -> Option<usize> {
     Some(match mv {
         Move::First => 0,
         Move::Last => count - 1,
-        Move::Next => (index + 1) % count,
-        Move::Previous => (index + count - 1) % count,
+        Move::Next => cycle(count, Some(index), 1),
+        Move::Previous => cycle(count, Some(index), -1),
         Move::PreviousSection => {
             let current = start(index);
             if index > current {
@@ -205,17 +204,14 @@ pub fn target(sections: &[&str], index: usize, mv: Move) -> Option<usize> {
 impl App {
     /// The project name a row shows: the project's, or the directory's last part.
     pub(crate) fn project_label(&self, s: &SessionInfo) -> String {
-        self.project(&s.project)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| s.directory.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
+        crate::view::project_or_dir(self.project(&s.project), &s.directory)
     }
 
-    /// Loaded root sessions and what the server found, newest metadata winning, newest first.
-    fn known_sessions(&self) -> Vec<&SessionInfo> {
+    /// Loaded root sessions and `extra` server matches, newest metadata winning, newest first.
+    pub(crate) fn merged_roots<'a>(&'a self, extra: &'a [SessionInfo]) -> Vec<&'a SessionInfo> {
         let mut by_id: HashMap<&str, &SessionInfo> = HashMap::new();
-        for s in self.sessions.iter().filter(|s| s.parent.is_none()).chain(&self.switcher.loaded) {
-            let keep = by_id.get(s.id.as_str()).is_none_or(|old| s.updated >= old.updated);
-            if keep {
+        for s in self.sessions.iter().filter(|s| s.parent.is_none()).chain(extra) {
+            if by_id.get(s.id.as_str()).is_none_or(|old| s.updated >= old.updated) {
                 by_id.insert(&s.id, s);
             }
         }
@@ -237,7 +233,7 @@ impl App {
             open: false,
         });
         let group = if q.is_empty() { "Recent sessions" } else { "Session" };
-        let sessions = self.known_sessions().into_iter().map(|s| Entry {
+        let sessions = self.merged_roots(&self.switcher.loaded).into_iter().map(|s| Entry {
             key: format!("session:{}", s.id),
             action: Action::Session(s.id.clone()),
             title: title_of(s),
@@ -256,8 +252,7 @@ impl App {
 
     /// The highlighted row's key: the one picked under this query, else the first.
     pub fn switcher_active(&self, entries: &[Entry]) -> Option<String> {
-        let picked = self.switcher.active.as_ref().filter(|(_, q)| *q == self.switcher.search.text).map(|(k, _)| k);
-        picked.filter(|k| entries.iter().any(|e| &e.key == *k)).cloned().or_else(|| entries.first().map(|e| e.key.clone()))
+        self.switcher.active.resolve(&self.switcher.search.text, entries.iter().map(|e| e.key.as_str()))
     }
 
     pub fn open_switcher(&mut self) {
@@ -271,7 +266,7 @@ impl App {
         self.switcher.open = true;
         self.switcher.search = TextEdit::new("");
         self.switcher.search.focused = true;
-        self.switcher.active = None;
+        self.switcher.active.clear();
         self.switcher.loaded.clear();
         self.switcher.searched.clear();
         self.switcher.loading = None;
@@ -286,7 +281,7 @@ impl App {
         self.switcher.open = false;
         self.switcher.search.focused = false;
         self.switcher.search.preedit = None;
-        self.switcher.generation.fetch_add(1, Ordering::Relaxed);
+        self.switcher.debounce.cancel();
         self.switcher.loading = None;
         self.composer.focused = restore && self.switcher.restore_composer;
     }
@@ -305,10 +300,7 @@ impl App {
                 self.open(&id, tx);
             }
             Action::Command(Command::NewSession) => self.new_session(tx),
-            Action::Command(Command::Home) => {
-                self.route = Route::Home;
-                tx.settle();
-            }
+            Action::Command(Command::Home) => self.go_home(tx),
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
             Action::Command(Command::Settings) => self.open_settings(),
             Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),
@@ -373,12 +365,7 @@ impl App {
     pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
         let mut changed = false;
         for f in self.switcher.found.try_iter() {
-            for s in f.sessions {
-                match self.switcher.loaded.iter_mut().find(|x| x.id == s.id) {
-                    Some(old) => *old = s,
-                    None => self.switcher.loaded.push(s),
-                }
-            }
+            upsert_sessions(&mut self.switcher.loaded, f.sessions);
             if self.switcher.loading.as_deref() == Some(f.query.as_str()) {
                 self.switcher.loading = None;
                 self.switcher.failed = f.failed.then_some(f.query);
@@ -403,20 +390,15 @@ impl App {
         self.switcher.searched = q.clone();
         self.switcher.failed = None;
         tx.scroll_to_y("switcher-scroll", 0.0);
-        let generation = self.switcher.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.switcher.debounce.cancel();
         self.switcher.loading = None;
         let Source::Live { server, .. } = &self.source else { return true };
         if q.is_empty() {
             return true;
         }
         self.switcher.loading = Some(q.clone());
-        let (server, wake, out, current) = (server.clone(), self.waker.clone(), self.switcher.found_tx.clone(), self.switcher.generation.clone());
-        std::thread::spawn(move || {
-            // Typed searches wait for a pause, and a newer keystroke cancels this one.
-            std::thread::sleep(Duration::from_millis(100));
-            if current.load(Ordering::Relaxed) != generation {
-                return;
-            }
+        // Typed searches wait for a pause, and a newer keystroke cancels this one.
+        let search = self.switcher.debounce.after(Duration::from_millis(100), move |server, _| {
             let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", encode(&q));
             let listed = server.get(&path);
             // `looksLikeSessionID`: a pasted id finds its session even when no title matches.
@@ -429,11 +411,9 @@ impl App {
             if let Ok(v) = &listed {
                 sessions.extend(model::parse_sessions(v));
             }
-            let _ = out.send(Found { query: q, sessions, failed });
-            if let Some(w) = wake {
-                w();
-            }
+            Some(Found { query: q, sessions, failed })
         });
+        spawn_fetch(server, &self.waker, &self.switcher.found_tx, search);
         true
     }
 }
@@ -450,8 +430,6 @@ pub(crate) fn encode(s: &str) -> String {
 
 // ---------------------------------------------------------------------------------------------
 // View: a 640 × 480 dialog centred over a scrim (`dialog.css`, `search-list.css`).
-
-/// Snappy, no bounce; the exit a little shorter.
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
@@ -509,8 +487,8 @@ fn entry_row(p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
 }
 
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
-    let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    let (w, h) = ((win[2] - 24.0).min(640.0), (win[3] - 96.0).min(480.0));
+    let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
+    let (w, h) = ((win_w - 24.0).min(640.0), (win_h - 96.0).min(480.0));
     let q = s.switcher.query();
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
@@ -601,7 +579,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
 
     // No enter or exit motion (see `no_motion`).
     let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
-    [scrim, dialog.absolute((win[2] - w) / 2.0, (win[3] - h) / 2.0)]
+    [scrim, dialog.absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
 }
 
 #[cfg(test)]

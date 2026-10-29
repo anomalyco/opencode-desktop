@@ -11,10 +11,7 @@ pub(crate) const CODE: &str = "const QUIET_MS = 25_000";
 /// The fixture's open session, finished, tall enough that every row is on screen, with a
 /// memory pasteboard.
 pub(crate) fn session(draft: &str) -> (Runtime<App>, MemoryClipboard) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.composer = TextEdit::new(draft);
     app.composer.focused = true;
     app.reduced_motion = true;
@@ -176,7 +173,7 @@ fn a_link_still_opens_on_a_click() {
     settle(&mut rt);
     let link = text(&rt, "the reconnect docs");
     click(&mut rt, (link.rect[0] + 12.0, link.rect[1] + link.rect[3] / 2.0));
-    assert_eq!(rt.state.opened, ["https://example.com/docs"]);
+    assert_eq!(rt.take_url_requests(), ["https://example.com/docs"]);
     assert_eq!(rt.selected_text(), None);
 }
 
@@ -201,10 +198,7 @@ fn short_session() -> (Runtime<App>, MemoryClipboard) {
 
 /// `capsule`: a subagent runs, so its capsule floats over the timeline's bottom edge.
 fn short_session_with(capsule: bool) -> (Runtime<App>, MemoryClipboard) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     if capsule {
         let parent = crate::stories::sid(&app);
         app.sessions.push(opencode_kit::model::SessionInfo { id: "sub".into(), parent: Some(parent), ..Default::default() });

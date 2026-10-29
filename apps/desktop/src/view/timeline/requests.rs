@@ -33,7 +33,7 @@ pub(in crate::view) fn request_card(p: &Pal, r: &Pending) -> El {
         .padding(14.0)
         .gap(10.0)
         .radius(12.0)
-        .fill(if p.dark { p.layer1 } else { p.bg_base })
+        .fill(composer_fill(p))
         .border(0.5, p.accent);
     match r {
         Pending::Permission { action, resources, message, .. } => {

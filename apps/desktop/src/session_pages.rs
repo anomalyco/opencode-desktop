@@ -277,9 +277,19 @@ impl super::App {
         self.opening.as_ref().is_some_and(|o| o.id == id && o.loading)
     }
 
-    fn page_key(&self, id: &str) -> Key {
+    pub(crate) fn page_key(&self, id: &str) -> Key {
         let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id)).map_or(0, |s| s.updated);
         Key { id: id.to_owned(), updated }
+    }
+
+    pub(crate) fn reload_session(&self, id: &str) {
+        let super::Source::Live { requests: Some(r), .. } = &self.source else { return };
+        match &self.pages {
+            Some(pages) => pages.request(self.page_key(id), true),
+            None => {
+                let _ = r.send(opencode_kit::client::Request::Session(id.to_owned()));
+            }
+        }
     }
 
     pub fn prefetch_session(&self, id: &str) {

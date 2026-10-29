@@ -1,5 +1,5 @@
 use super::*;
-use rune::{Env, Runtime};
+use rune::Runtime;
 
 #[test]
 fn the_trigger_follows_desktops_patterns() {
@@ -73,17 +73,7 @@ fn file_mentions_go_out_as_file_urls() {
     assert_eq!(absolute("/repo", "C:/x"), "C:/x");
 }
 
-pub(crate) fn runtime() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
-    rt
-}
+pub(crate) use crate::fixture_runtime as runtime;
 pub(crate) fn key(rt: &mut Runtime<App>, key: Key) {
     rt.key(KeyEvent { key, mods: Default::default() });
     rt.frame(1.0 / 60.0);
@@ -321,4 +311,27 @@ fn sending_carries_the_mentions() {
     assert!(rt.state.composer.text.is_empty());
     let t = &rt.state.transcripts[crate::fixture_ids::THIRD];
     assert!(matches!(t.messages.last(), Some(opencode_kit::model::Message::User { text, .. }) if text.ends_with("@Fix flaky reconnect in the event stream")), "the echo shows what was typed");
+}
+
+#[test]
+fn popovers_follow_the_text_size() {
+    let row = |rt: &Runtime<App>| shown(rt, "mention-skill:opencode").unwrap();
+    let mut rt = runtime();
+    tap(&mut rt, "prompt");
+    typed(&mut rt, "ask @");
+    let small = row(&rt);
+    assert!((small.scale - 1.0).abs() < 1e-3);
+    let mut rt = runtime();
+    rt.state.zoom = 1.6;
+    for _ in 0..90 {
+        rt.frame(1.0 / 60.0);
+    }
+    tap(&mut rt, "prompt");
+    typed(&mut rt, "ask @");
+    rt.frame(1.0 / 60.0);
+    let (big, popover, composer) = (row(&rt), shown(&rt, "mentions").unwrap(), shown(&rt, "composer").unwrap());
+    assert!((big.scale - 1.6).abs() < 1e-3, "rows scale with zoom: {}", big.scale);
+    assert!((big.rect[3] / small.rect[3] - 1.6).abs() < 0.01, "row height {} vs {}", big.rect[3], small.rect[3]);
+    assert!((popover.rect[2] - composer.rect[2]).abs() < 0.5, "still the composer's width: {:?} vs {:?}", popover.rect, composer.rect);
+    assert!((popover.rect[1] + popover.rect[3] + 8.0 - composer.rect[1]).abs() < 0.5, "still 8 points above");
 }
