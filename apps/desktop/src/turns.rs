@@ -196,7 +196,6 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
 pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
     let open = s.expanded.contains(key);
     let l = label(steps, busy);
-    let k = key.to_owned();
     let mut trigger = row()
         .key("trigger")
         .role("button")
@@ -206,12 +205,7 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         .center_y()
         // A step joining or the label changing crossfades the words while the chevron slides over.
         .animate_layout()
-        .on_press_tx(move |s: &mut App, tx: &mut rune::Tx| {
-            tx.instant();
-            if !s.expanded.remove(&k) {
-                s.expanded.insert(k.clone());
-            }
-        });
+        .on_press_tx(crate::disclosure::toggle(key.to_owned()));
     trigger = match l.count {
         Some(n) => trigger
             .child(text("Used").key("used").font(UI).color(p.muted))

@@ -5,11 +5,12 @@
 //! another way, the error. While the dock asks, nothing: the dock is the question.
 
 use opencode_kit::model::{ToolStatus, tool_error};
-use rune::{El, Tx, col, icon, row, text};
+use rune::{El, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
 use crate::App;
+use crate::disclosure::toggle;
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, chevron, readable};
 
@@ -47,16 +48,6 @@ pub fn view(s: &App, p: &Pal, id: &str, status: &ToolStatus, input: &Value, meta
             .child(text("Questions dismissed").key("dismissed").font(UI).color(p.faint)),
         Some(e) => failed(s, p, &key, &e),
         None => answered(s, p, &key, input, metadata),
-    }
-}
-
-/// Flips `key` in `expanded` at once: a disclosure opens and closes as a thought's does.
-fn toggle(key: String) -> impl Fn(&mut App, &mut Tx) + 'static {
-    move |s: &mut App, tx: &mut Tx| {
-        tx.instant();
-        if !s.expanded.remove(&key) {
-            s.expanded.insert(key.clone());
-        }
     }
 }
 

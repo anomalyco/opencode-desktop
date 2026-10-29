@@ -6,17 +6,15 @@
 //! A subagent runs while its child session, or any session below it, runs. A background call's
 //! tool part finishes at once, so the call's own status only counts until it names its child.
 
-use rune::{Anim, El, Tx, col, el, icon, row, spacer, text};
+use rune::{El, Tx, col, el, icon, row, spacer, text};
 
 use opencode_kit::model::{self, Message, Part};
 use rune_theme_opencode::icons as ic;
 
 use crate::odometer::{odometer, odometer_end};
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
+use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
 use crate::{App, Route};
-
-const INSTANT: Anim = Anim::INSTANT;
 
 /// One running subagent of a session, for the capsule's list.
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +49,10 @@ impl App {
     /// The sessions running below `id`, oldest first, named and dated by their latest call in
     /// `id`'s transcript when there is one.
     pub fn running_subagents(&self, id: &str) -> Vec<Running> {
+        let below: Vec<&String> = self.running.iter().filter(|r| r.as_str() != id && self.descends(r, id)).collect();
+        if below.is_empty() {
+            return Vec::new();
+        }
         let mut calls: Vec<(&str, &str, &str, Option<i64>)> = Vec::new();
         for m in self.transcripts.get(id).map_or(&[][..], |t| &t.messages[..]) {
             let Message::Assistant(a) = m else { continue };
@@ -64,10 +66,8 @@ impl App {
                 }
             }
         }
-        let mut out: Vec<Running> = self
-            .running
-            .iter()
-            .filter(|r| r.as_str() != id && self.descends(r, id))
+        let mut out: Vec<Running> = below
+            .into_iter()
             .map(|r| {
                 let info = self.session(r);
                 let call = calls.iter().rev().find(|c| c.0 == r);

@@ -23,6 +23,7 @@ mod dictation;
 #[cfg(test)]
 mod dictation_tests;
 mod disk;
+mod disclosure;
 mod dropzone;
 mod events;
 mod fixture_ids;

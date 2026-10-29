@@ -17,8 +17,6 @@ pub(super) const COLLAPSED_SLOT: f32 = TRAFFIC_LIGHTS_END + 16.0 - 18.0 + 32.0;
 /// How far a closed panel's contents dim at the end of the flight.
 pub(super) const FADE_FLOOR: f32 = 0.5;
 
-pub(super) const INSTANT: Anim = Anim::INSTANT;
-
 /// Home, Search sessions and New session (`data-titlebar-tab-action`).
 pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, hint: &str, pressed: bool) -> El {
     let ink = if pressed { p.text } else { p.faint };

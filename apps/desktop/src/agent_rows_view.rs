@@ -6,7 +6,7 @@
 //! out at the edge, and agents that join the card rise into place at the bottom (nothing above them
 //! moves). Hover and click are instant.
 
-use rune::{Anim, El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
+use rune::{El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
 
 use opencode_kit::model::{self, ToolStatus};
 use rune_theme_opencode::icons as ic;
@@ -17,9 +17,8 @@ use crate::odometer::odometer_end;
 use crate::palette::Pal;
 use crate::subagents::elapsed;
 use crate::turns::Block;
-use crate::view::{UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
+use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
 
-const INSTANT: Anim = Anim::INSTANT;
 /// The widest a task gets, so what the agent is doing always shows beside it.
 const TITLE_W: f32 = 260.0;
 

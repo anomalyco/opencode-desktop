@@ -316,8 +316,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         let id = c.id.clone();
         divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            if !s.expanded.remove(&key) {
-                s.expanded.insert(key.clone());
+            if s.toggle_expanded(&key) {
                 s.compactions.opened.insert(id.clone(), s.clock);
             }
         });
