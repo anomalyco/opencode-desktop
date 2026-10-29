@@ -10,10 +10,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, TextEdit, Theme, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, TextEdit, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::{self, SessionInfo};
@@ -448,34 +448,6 @@ pub(crate) fn encode(s: &str) -> String {
 // ---------------------------------------------------------------------------------------------
 // View: a 640 × 480 dialog centred over a scrim (`dialog.css`, `search-list.css`).
 
-/// Tokens the shared palette doesn't carry.
-struct Ink {
-    scrim: Color,
-    active: Color,
-    marker: Color,
-    shadow_far: Color,
-    shadow_near: Color,
-}
-
-fn ink(dark: bool) -> &'static Ink {
-    static DARK: OnceLock<Ink> = OnceLock::new();
-    static LIGHT: OnceLock<Ink> = OnceLock::new();
-    let build = || {
-        let t = Theme::from_json(include_str!("../assets/theme.json"), dark).unwrap_or_else(|e| panic!("{e}"));
-        let c = |n: &str| t.color(n);
-        Ink {
-            scrim: c("overlay-simple-overlay-scrim"),
-            // A row's highlight: the hover overlay, lifted to alpha-light-10 in dark.
-            active: if dark { c("alpha-light-10") } else { c("overlay-simple-overlay-hover") },
-            marker: c("background-bg-layer-04"),
-            // --v2-elevation-floating's two drops.
-            shadow_far: if dark { c("alpha-dark-30") } else { c("alpha-dark-4") },
-            shadow_near: if dark { c("alpha-dark-30") } else { c("alpha-dark-8") },
-        }
-    };
-    if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }
-}
-
 /// Snappy, no bounce; the exit a little shorter.
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
@@ -489,14 +461,14 @@ fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: C
     }
 }
 
-fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El {
+fn entry_row(p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
     let key = e.key.clone();
     let hover = e.key.clone();
     let mut main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
     if matches!(e.action, Action::Session(_)) {
         let mut badge = el().key("badge").size(16.0, 16.0).child(avatar(p, &e.description));
         if e.open {
-            badge = badge.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(k.marker));
+            badge = badge.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
         }
         main = main.child(badge);
     }
@@ -514,7 +486,7 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .fill(if active { k.active } else { Color::TRANSPARENT })
+        .fill(if active { p.row_active } else { Color::TRANSPARENT })
         // Not `on_hover`: its commit would animate the highlight's fill from row to row.
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
@@ -534,7 +506,6 @@ fn entry_row(p: &Pal, k: &Ink, e: &Entry, active: bool, q: &str, now: i64) -> El
 }
 
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
-    let k = ink(p.dark);
     let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
     let (w, h) = ((win[2] - 24.0).min(640.0), (win[3] - 96.0).min(480.0));
     let q = s.switcher.query();
@@ -582,7 +553,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(text(group).font(UI).color(p.muted)),
         );
         for e in &entries[i..end] {
-            section = section.child(entry_row(p, k, e, active.as_deref() == Some(e.key.as_str()), q, s.now_ms));
+            section = section.child(entry_row(p, e, active.as_deref() == Some(e.key.as_str()), q, s.now_ms));
         }
         results = results.child(section);
         i = end;
@@ -607,8 +578,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .radius(12.0)
         .fill(p.bg_base)
         .border(0.5, p.ring)
-        .shadow(8.0, 16.0, k.shadow_far)
-        .shadow(4.0, 8.0, k.shadow_near)
+        .shadow(8.0, 16.0, p.shadow_far)
+        .shadow(4.0, 8.0, p.shadow)
         .clip_soft(0.0)
         .transition(Transition::opacity().springs(crate::view::no_motion()))
         .modal(true, |s: &mut App| s.close_switcher(true))
@@ -626,7 +597,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         );
 
     // No enter or exit motion (see `no_motion`).
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
     [scrim, dialog.absolute((win[2] - w) / 2.0, (win[3] - h) / 2.0)]
 }
 

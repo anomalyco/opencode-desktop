@@ -10,10 +10,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 
 use rune::{
-    ClipboardContent, Color, Cx, El, Image, ImageCache, Spring, SpringPair, SurfaceFit, TextStyle, Theme, Transition, Tx, Waker, col, el,
+    ClipboardContent, Cx, El, Image, ImageCache, Spring, SpringPair, SurfaceFit, TextStyle, Transition, Tx, Waker, col, el,
     icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
@@ -686,19 +686,13 @@ fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
     [(w - sw) / 2.0, (h - sh) / 2.0, sw, sh]
 }
 
-fn scrim(dark: bool) -> Color {
-    static SCRIM: OnceLock<[Color; 2]> = OnceLock::new();
-    let c = |dark| Theme::from_json(include_str!("../assets/theme.json"), dark).unwrap_or_else(|e| panic!("{e}")).color("overlay-simple-overlay-scrim");
-    SCRIM.get_or_init(|| [c(false), c(true)])[dark as usize]
-}
-
 /// The open viewer, over the whole window: a scrim, and the image.
 pub fn viewer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let Some(v) = &s.attach.viewing else { return Vec::new() };
     let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
     let [x, y, w, h] = shown(v.image.size(), win[2], win[3]);
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
-    let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(scrim(p.dark)).transition(Transition::opacity().springs(fade));
+    let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
     let image = el()
         .key("image-viewer")
         .role("dialog")

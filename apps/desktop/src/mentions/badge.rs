@@ -35,11 +35,10 @@ pub(super) fn ink(dark: bool) -> &'static Ink {
     static LIGHT: OnceLock<Ink> = OnceLock::new();
     let build = || {
         let hex = |s: &str| rune::color::hex(s).unwrap_or(Color::BLACK);
-        let theme = rune::Theme::from_json(include_str!("../../assets/theme.json"), dark).unwrap_or_else(|e| panic!("{e}"));
         Ink {
             agent: if dark { hex("#ecf58c") } else { hex("#596600") },
             file: if dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
-            info: theme.color("state-fg-info"),
+            info: crate::palette::pal(dark).info,
         }
     };
     if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }

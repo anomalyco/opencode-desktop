@@ -721,8 +721,7 @@ pub(super) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> E
 
 /// `markdown_view` with its body text in `color`.
 pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color) -> El {
-    let kit = Kit::neutral(p.dark);
-    let style = MarkdownStyle::from_kit(&kit)
+    let style = MarkdownStyle::from_kit(crate::palette::kit(p.dark))
         .text(color)
         .muted(p.muted)
         .link(p.accent)
@@ -739,7 +738,7 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).reveal(fade).streaming(streaming).selectable(true)
-        .on_link(|s: &mut App, url: &str| s.open_link(url)).build(&kit).selection_group(false)
+        .on_link(|s: &mut App, url: &str| s.open_link(url)).build(crate::palette::kit(p.dark)).selection_group(false)
 }
 
 /// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome

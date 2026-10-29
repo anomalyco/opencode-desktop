@@ -4,6 +4,7 @@
 use std::sync::OnceLock;
 
 use rune::{Color, Shadow, Theme};
+use rune_kit::Kit;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Pal {
@@ -26,6 +27,12 @@ pub struct Pal {
     pub border_muted: Color,
     pub hover: Color,
     pub pressed: Color,
+    /// `overlay-simple-overlay-scrim`: behind dialogs and the image viewer.
+    pub scrim: Color,
+    /// A highlighted list row: the hover overlay, lifted to alpha-light-10 in dark.
+    pub row_active: Color,
+    /// `state-fg-info`.
+    pub info: Color,
     pub ring: Color,
     pub shadow: Color,
     /// --v2-elevation-floating's far drop.
@@ -91,6 +98,9 @@ fn build(dark: bool) -> Pal {
         border_muted: c("border-border-muted"),
         hover: c("overlay-simple-overlay-hover"),
         pressed: c("overlay-simple-overlay-pressed"),
+        scrim: c("overlay-simple-overlay-scrim"),
+        row_active: if dark { c("alpha-light-10") } else { c("overlay-simple-overlay-hover") },
+        info: c("state-fg-info"),
         // --v2-elevation-raised: a 0.5px ring over two drop shadows.
         ring: if dark { c("alpha-light-16") } else { c("alpha-dark-8") },
         shadow: if dark { c("alpha-dark-30") } else { c("alpha-dark-8") },
@@ -143,4 +153,32 @@ pub fn pal(dark: bool) -> &'static Pal {
     static DARK: OnceLock<Pal> = OnceLock::new();
     static LIGHT: OnceLock<Pal> = OnceLock::new();
     if dark { DARK.get_or_init(|| build(true)) } else { LIGHT.get_or_init(|| build(false)) }
+}
+
+/// The neutral component kit for an appearance, built once.
+pub fn kit(dark: bool) -> &'static Kit {
+    static DARK: OnceLock<Kit> = OnceLock::new();
+    static LIGHT: OnceLock<Kit> = OnceLock::new();
+    if dark { DARK.get_or_init(|| Kit::neutral(true)) } else { LIGHT.get_or_init(|| Kit::neutral(false)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tokens the switcher, the image viewer and the mention badge once parsed for themselves.
+    #[test]
+    fn pal_carries_what_the_switcher_viewer_and_badge_read_from_the_theme() {
+        for dark in [false, true] {
+            let t = Theme::from_json(THEME, dark).unwrap();
+            let c = |n: &str| t.color(n);
+            let p = pal(dark);
+            assert_eq!(p.scrim, c("overlay-simple-overlay-scrim"));
+            assert_eq!(p.row_active, if dark { c("alpha-light-10") } else { c("overlay-simple-overlay-hover") });
+            assert_eq!(p.q.layer4, c("background-bg-layer-04"));
+            assert_eq!(p.shadow_far, if dark { c("alpha-dark-30") } else { c("alpha-dark-4") });
+            assert_eq!(p.shadow, if dark { c("alpha-dark-30") } else { c("alpha-dark-8") });
+            assert_eq!(p.info, c("state-fg-info"));
+        }
+    }
 }

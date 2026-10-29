@@ -7,18 +7,12 @@
 //! tool group's count. Each is keyed by what it counts (a call, a session, a form), so a number
 //! that changes because another session opened mounts fresh, at once, instead of rolling.
 
-use std::cell::OnceCell;
-
 use rune::{Color, El, Spring, TextStyle};
-use rune_kit::{Kit, RollingText};
+use rune_kit::RollingText;
 
 /// The roll and the width's ease: quick, with no overshoot, about SwiftUI's
 /// `.snappy(duration: 0.25)` without its bounce.
 pub const SPRING: Spring = Spring::new(0.3, 0.0);
-
-thread_local! {
-    static KIT: OnceCell<Kit> = const { OnceCell::new() };
-}
 
 /// `text`, showing the number `value`, keyed `key` (unique in the window and stable between
 /// builds), in `font` with tabular digits. It widens to the right.
@@ -33,8 +27,5 @@ pub fn odometer_end(key: impl Into<String>, text: impl Into<String>, value: f64,
 }
 
 fn build(label: RollingText, value: f64, font: TextStyle, color: Color) -> El {
-    KIT.with(|k| {
-        let k = k.get_or_init(|| Kit::neutral(true));
-        label.value(value).font(font.features("\"tnum\"")).color(color).spring(SPRING).build(k)
-    })
+    label.value(value).font(font.features("\"tnum\"")).color(color).spring(SPRING).build(crate::palette::kit(true))
 }

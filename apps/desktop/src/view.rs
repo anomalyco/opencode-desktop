@@ -8,7 +8,7 @@ use rune::{
     Align, Shadow, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
 
-use rune_kit::{Kit, Markdown, MarkdownStyle};
+use rune_kit::{Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
 use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, Pending, SessionInfo, Transcript};
