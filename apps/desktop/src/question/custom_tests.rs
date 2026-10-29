@@ -1,12 +1,12 @@
 //! "Type your own answer": where its text sits, its keys, its dash, and gaps on submit.
 
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
-use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use opencode_kit::client::Write;
+use rune::{ElementInfo, Key, KeyEvent, Mods, Runtime, TextEdit};
 use serde_json::{Value, json};
 
-use crate::{App, Source};
+use crate::App;
 
 const FORM: &str = "frm_fx0001";
 const LONG: &str = "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere";
@@ -26,18 +26,14 @@ fn txt(s: &str) -> KeyEvent {
 /// The fixture's question, changed by `edit`, asked on the open session; replies go to a
 /// channel, never a server.
 fn asked_with(edit: impl FnOnce(&mut Value)) -> (Runtime<App>, Receiver<Write>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.composer = TextEdit::new("half a thought");
     let mut q = app.fixture["question"].clone();
     edit(&mut q);
     app.apply_event("form.created", &q);
-    let (w, r) = channel();
-    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
+    let r = app.fake_writes();
+    let mut rt = app.into_runtime();
+    rt.poll = None;
     settle(&mut rt);
     (rt, r)
 }

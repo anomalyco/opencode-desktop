@@ -1,4 +1,4 @@
-use rune::{Env, Runtime};
+use rune::Runtime;
 
 use crate::App;
 use crate::fold::{self, OVER, SHOW};
@@ -6,13 +6,9 @@ use crate::fold_stories::LONG;
 use crate::view::BUBBLE;
 
 fn runtime(fold_user: bool) -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.settings.fold_user = fold_user;
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
+    let mut rt = app.into_runtime();
     rt.frame(1.0 / 60.0);
     rt.update(|s, tx| {
         s.composer = rune::TextEdit::new(LONG);

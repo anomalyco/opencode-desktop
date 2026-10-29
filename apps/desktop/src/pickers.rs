@@ -382,19 +382,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rune::{Env, Runtime};
-
-    fn runtime() -> Runtime<App> {
-        // Deliberately bypass App::new: tests must never probe a server.
-        let mut app = App::empty();
-        app.load_fixture(crate::FIXTURE);
-        crate::open_scene(&mut app);
-        app.finish_stream();
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.on_key = Some(crate::on_key);
-        rt.frame(0.0);
-        rt
-    }
+    use crate::fixture_runtime as runtime;
+    use rune::Runtime;
     fn key(rt: &mut Runtime<App>, key: Key) {
         rt.key(KeyEvent { key, mods: Default::default() });
         rt.frame(1.0 / 60.0);

@@ -160,13 +160,7 @@ fn a_link_in_a_message_opens() {
 
 #[test]
 fn a_tool_joining_the_group_slides_its_chevron() {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
+    let mut rt = crate::fixture_runtime();
     rt.update(|s, tx| {
         s.composer = TextEdit::new("Can you also check the reconnect jitter?");
         s.send(tx);
@@ -187,18 +181,16 @@ fn a_tool_joining_the_group_slides_its_chevron() {
     assert!(step < (hi - lo) / 10.0, "the chevron moves at most {step} pt in a frame");
 }
 
-fn session() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
-    for _ in 0..60 {
+fn settled(frames: usize) -> Runtime<App> {
+    let mut rt = crate::fixture_runtime();
+    for _ in 0..frames {
         rt.frame(1.0 / 60.0);
     }
     rt
+}
+
+fn session() -> Runtime<App> {
+    settled(60)
 }
 
 /// A message row's bubble fill (drawn and clipped rects), its text's visible height, and
@@ -489,17 +481,7 @@ fn a_run_of_prompts_sits_close_with_tight_trailing_corners() {
 }
 
 fn sidebar() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
-    for _ in 0..90 {
-        rt.frame(1.0 / 60.0);
-    }
-    rt
+    settled(90)
 }
 
 fn tab_key(rt: &Runtime<App>, i: usize) -> String {

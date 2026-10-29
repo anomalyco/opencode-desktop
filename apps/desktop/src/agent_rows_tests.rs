@@ -1,19 +1,8 @@
-use rune::{Env, Runtime};
+use rune::Runtime;
 
 use crate::App;
 use crate::agent_stories as st;
-
-fn rt() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
-    rt.frame(0.0);
-    rt
-}
+use crate::fixture_runtime as rt;
 
 fn play(rt: &mut Runtime<App>, secs: f64) {
     for _ in 0..(secs * 120.0) as usize {

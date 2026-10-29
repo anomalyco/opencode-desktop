@@ -1,21 +1,16 @@
 //! Choosing agent, model and effort in a live session: the keys work there, and the pick rides
 //! on the next prompt only when it differs from what the session runs with.
 use super::*;
-use opencode_kit::client::{Server, Write};
-use rune::{Env, Mods, Runtime};
+use opencode_kit::client::Write;
+use rune::{Mods, Runtime};
 
 const SES: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 
 /// The fixture's world (its models and sessions) on a live source whose writes land in a channel.
 fn live() -> (Runtime<App>, std::sync::mpsc::Receiver<Write>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let (w, writes) = std::sync::mpsc::channel();
-    app.source = crate::Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.on_key = Some(crate::on_key);
+    let mut app = App::fixture_session();
+    let writes = app.fake_writes();
+    let mut rt = app.into_runtime();
     rt.frame(0.0);
     (rt, writes)
 }

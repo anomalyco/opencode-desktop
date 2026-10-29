@@ -1,6 +1,3 @@
-use std::sync::mpsc::channel;
-
-use opencode_kit::client::Server;
 use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 
 use super::{stories, story, storybook, world};
@@ -22,13 +19,12 @@ fn run(rt: &mut Runtime<App>, secs: f64) {
 #[test]
 fn the_storybook_leaves_the_app_as_it_was_and_sends_nothing() {
     let mut rt = storybook();
-    let (w, writes) = channel();
     let app = &mut rt.state;
     app.load_fixture(FIXTURE);
     open_scene(app);
     app.finish_stream();
     app.composer = TextEdit::new("a real draft");
-    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+    let writes = app.fake_writes();
     rt.frame(DT);
 
     // The steer story sends, steers and delivers in its own world, and nothing goes out.

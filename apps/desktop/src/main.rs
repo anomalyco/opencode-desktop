@@ -719,3 +719,36 @@ fn main() {
         diagnostics.shutdown();
     }
 }
+
+#[cfg(test)]
+impl App {
+    /// The fixture's open session at the end of its stream, without probing a server.
+    pub(crate) fn fixture_session() -> Self {
+        let mut app = Self::empty();
+        app.load_fixture(FIXTURE);
+        open_scene(&mut app);
+        app.finish_stream();
+        app
+    }
+
+    /// Switches `source` to a live write channel so tests can read what would be sent.
+    pub(crate) fn fake_writes(&mut self) -> std::sync::mpsc::Receiver<Write> {
+        let (w, writes) = std::sync::mpsc::channel();
+        self.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
+        writes
+    }
+
+    pub(crate) fn into_runtime(self) -> rune::Runtime<Self> {
+        let mut rt = rune::Runtime::new(self, view::app, (1280.0, 820.0), rune::Env::new(true, 1.0));
+        rt.poll = Some(poll);
+        rt.on_key = Some(on_key);
+        rt
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_runtime() -> rune::Runtime<App> {
+    let mut rt = App::fixture_session().into_runtime();
+    rt.frame(0.0);
+    rt
+}

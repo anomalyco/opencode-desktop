@@ -1,12 +1,12 @@
 use crate::fixture_ids::{MAIN as SESSION};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
-use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use opencode_kit::client::Write;
+use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 use serde_json::json;
 
 use super::{Intent, Zone, intent};
-use crate::{App, Source};
+use crate::App;
 
 const FORM: &str = "frm_fx0001";
 
@@ -54,23 +54,15 @@ fn keys_map_as_desktops() {
 /// The fixture session with its question asked and a draft in the composer. Live sends go
 /// to a channel, never a server; a fixture run polls its own playback instead.
 fn asked(live: bool) -> (Runtime<App>, Option<Receiver<Write>>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.composer = TextEdit::new("half a thought");
     let q = app.fixture["question"].clone();
     app.apply_event("form.created", &q);
-    let writes = live.then(|| {
-        let (w, r) = channel();
-        app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-        r
-    });
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    if !live {
-        rt.poll = Some(crate::poll);
+    let writes = live.then(|| app.fake_writes());
+    let mut rt = app.into_runtime();
+    if live {
+        rt.poll = None;
     }
-    rt.on_key = Some(crate::on_key);
     settle(&mut rt);
     (rt, writes)
 }

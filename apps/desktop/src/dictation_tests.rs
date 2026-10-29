@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 
 use crate::App;
 use crate::dictation::{Dictation, FAKE_WORDS};
@@ -60,14 +60,9 @@ fn happy(path: &str) -> (u16, &'static str) {
 }
 
 fn app(d: Dictation) -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     app.dictation = d;
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
+    let mut rt = app.into_runtime();
     rt.frame(0.0);
     rt
 }

@@ -309,15 +309,10 @@ fn zoom_control(s: &App, p: &Pal) -> El {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rune::{Env, Mods, Runtime};
+    use rune::{Mods, Runtime};
 
     fn runtime() -> Runtime<App> {
-        let mut app = App::empty();
-        app.load_fixture(crate::FIXTURE);
-        crate::open_scene(&mut app);
-        app.finish_stream();
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.on_key = Some(crate::on_key);
+        let mut rt = App::fixture_session().into_runtime();
         rt.frame(1.0 / 60.0);
         rt
     }

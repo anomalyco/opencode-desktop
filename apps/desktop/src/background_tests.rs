@@ -1,33 +1,24 @@
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
+use opencode_kit::client::Write;
 use opencode_kit::model::{Message, Part, ToolStatus};
-use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 use serde_json::json;
 
-use crate::{App, Route, Source};
+use crate::{App, Route};
 
 const REPLY: &str = "msg_zzzzbgreply";
 
 /// The fixture app on its open session, running, with a channel standing in for the server's
 /// writes when `live`.
 fn app(live: bool) -> (Runtime<App>, Option<Receiver<Write>>, String) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
+    let mut app = App::fixture_session();
     let Route::Session(id) = app.route.clone() else { panic!("no open session") };
-    let writes = live.then(|| {
-        let (w, writes) = channel();
-        app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-        writes
-    });
+    let writes = live.then(|| app.fake_writes());
     app.apply_event("session.execution.started", &json!({ "sessionID": id }));
     app.apply_event("session.step.started", &json!({ "sessionID": id, "assistantMessageID": REPLY, "agent": "build", "model": { "id": "m", "providerID": "p" } }));
     app.running.insert(id.clone());
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
+    let mut rt = app.into_runtime();
     frames(&mut rt, 30);
     (rt, writes, id)
 }

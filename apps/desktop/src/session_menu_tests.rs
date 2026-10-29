@@ -1,22 +1,16 @@
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::Receiver;
 
-use opencode_kit::client::{Server, Write};
-use rune::{Env, Key, KeyEvent, Mods, Runtime};
+use opencode_kit::client::Write;
+use rune::{Key, KeyEvent, Mods, Runtime};
 
 use crate::session_menu::{Line, Spot, Target, lines};
-use crate::{App, Route, Source};
+use crate::{App, Route};
 
 /// The fixture app on its open session, with a channel standing in for the server's writes.
 fn app() -> (Runtime<App>, Receiver<Write>) {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let (w, writes) = channel();
-    app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.on_key = Some(crate::on_key);
+    let mut app = App::fixture_session();
+    let writes = app.fake_writes();
+    let mut rt = app.into_runtime();
     frames(&mut rt, 90);
     (rt, writes)
 }

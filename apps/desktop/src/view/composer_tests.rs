@@ -1,16 +1,10 @@
 //! The composer's editor stops growing at Desktop's 180 pt and scrolls a long prompt inside.
-use rune::{ElementInfo, Env, Key, KeyEvent, Mods, Runtime};
+use rune::{ElementInfo, Key, KeyEvent, Mods, Runtime};
 
 use crate::App;
 
 fn session() -> Runtime<App> {
-    let mut app = App::empty();
-    app.load_fixture(crate::FIXTURE);
-    crate::open_scene(&mut app);
-    app.finish_stream();
-    let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
-    rt.poll = Some(crate::poll);
-    rt.frame(0.0);
+    let mut rt = crate::fixture_runtime();
     settle(&mut rt);
     rt
 }

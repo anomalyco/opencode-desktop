@@ -384,7 +384,7 @@ mod edges_tests;
 
 #[cfg(test)]
 mod tests {
-    use rune::{Env, Key, KeyEvent, Mods, Runtime, TextEdit};
+    use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 
     use crate::{App, Route};
 
@@ -393,15 +393,11 @@ mod tests {
     }
 
     fn busy_app_at(zoom: f32) -> Runtime<App> {
-        let mut app = App::empty();
+        let mut app = App::fixture_session();
         app.zoom = zoom;
-        app.load_fixture(crate::FIXTURE);
-        crate::open_scene(&mut app);
-        app.finish_stream();
         let Route::Session(id) = app.route.clone() else { panic!("no open session") };
         app.running.insert(id);
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.poll = Some(crate::poll);
+        let mut rt = app.into_runtime();
         rt.frame(0.0);
         rt
     }

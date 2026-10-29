@@ -335,23 +335,11 @@ const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).feat
 
 #[cfg(test)]
 mod tests {
-    use rune::{Env, Runtime};
+    use rune::Runtime;
 
     use crate::fixture_ids::{MAIN, CHILD as REVIEW};
+    use crate::fixture_runtime as rt;
     use super::*;
-
-
-    fn rt() -> Runtime<App> {
-        let mut app = App::empty();
-        app.load_fixture(crate::FIXTURE);
-        crate::open_scene(&mut app);
-        app.finish_stream();
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.poll = Some(crate::poll);
-        rt.on_key = Some(crate::on_key);
-        rt.frame(0.0);
-        rt
-    }
 
     fn has(rt: &Runtime<App>, path: &str, key: &str) -> bool {
         rt.elements().into_iter().any(|e| !e.exiting && e.path.contains(path) && e.key.as_deref() == Some(key))
