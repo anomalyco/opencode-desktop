@@ -114,10 +114,12 @@ fn every_story_plays_and_replays() {
     }
 }
 
-/// A digit picks the story's variant: 2 shows the Question story's two-question form.
+/// From the side column, a digit picks the story's variant: 2 shows the Question story's two-question form.
 #[test]
 fn a_digit_picks_the_variant() {
     let mut rt = story("Question dock/Question", None);
+    rt.key(KeyEvent { key: Key::Tab, mods: Mods::default() });
+    rt.frame(DT);
     letter(&mut rt, "2");
     rt.frame(DT);
     let fields = world(&rt).pending.iter().find_map(|p| match p {
