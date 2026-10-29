@@ -9,5 +9,5 @@ BIN=${1:-../../target/release/opencode-desktop}
 shift || true
 test -x "$BIN" || { echo "no binary at $BIN (build with: cargo build --release -p opencode-desktop)" >&2; exit 1; }
 # shellcheck disable=SC2086
-exec ../../scripts/mac-app --name "OpenCode (Rune)" --id com.kitlangton.opencode-rune --exe opencode-desktop \
+exec ../../scripts/mac-app --name "OpenCode (Rune)" --id com.kitlangton.opencode-rune-desktop --exe opencode-desktop \
   --bin "$BIN" --icon assets/icon.icns ${MAC_APP_FLAGS:-} -- "$@"
