@@ -155,7 +155,7 @@ fn a_link_in_a_message_opens() {
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.opened, vec!["https://example.com/pr/1".to_owned()]);
+    assert_eq!(rt.take_url_requests(), ["https://example.com/pr/1"]);
 }
 
 #[test]

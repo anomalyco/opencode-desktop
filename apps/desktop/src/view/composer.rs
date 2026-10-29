@@ -124,7 +124,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted })
                 }))
                 .child(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children((busy && ready).then(|| {
-                    let room = rune::memo::layout("room").map_or(f32::INFINITY, |r| r[2] / s.zoom);
+                    let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w / s.zoom);
                     crate::queue::alternate_hint(p, room)
                 }).flatten()))
                 .children(crate::dictation::toolbar(s, p))

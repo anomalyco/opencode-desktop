@@ -59,8 +59,8 @@ pub(super) fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
 /// The open viewer, over the whole window: a scrim, and the image.
 pub fn viewer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let Some(v) = &s.attach.viewing else { return Vec::new() };
-    let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    let [x, y, w, h] = shown(v.image.size(), win[2], win[3]);
+    let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
+    let [x, y, w, h] = shown(v.image.size(), win_w, win_h);
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
     let image = el()

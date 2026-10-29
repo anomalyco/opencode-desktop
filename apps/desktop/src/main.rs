@@ -200,8 +200,6 @@ pub struct App {
     pub notify: notifications::Notifier,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
-    /// Links opened from messages, newest last.
-    pub opened: Vec<String>,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
@@ -440,23 +438,6 @@ impl App {
             }
         }
         true
-    }
-
-    /// Opens a link from a message in the default browser (web and mail links only). Without a
-    /// live server it only records the link, for tests.
-    pub fn open_link(&mut self, url: &str) {
-        if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
-            return;
-        }
-        self.opened.push(url.to_owned());
-        if self.live() {
-            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-            // Off the UI thread, and waited on so the opener doesn't linger as a zombie.
-            let url = url.to_owned();
-            std::thread::spawn(move || {
-                let _ = std::process::Command::new(opener).arg(url).status();
-            });
-        }
     }
 
     pub fn live(&self) -> bool {

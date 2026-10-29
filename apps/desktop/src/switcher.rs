@@ -509,8 +509,8 @@ fn entry_row(p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
 }
 
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
-    let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    let (w, h) = ((win[2] - 24.0).min(640.0), (win[3] - 96.0).min(480.0));
+    let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
+    let (w, h) = ((win_w - 24.0).min(640.0), (win_h - 96.0).min(480.0));
     let q = s.switcher.query();
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
@@ -601,7 +601,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
 
     // No enter or exit motion (see `no_motion`).
     let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
-    [scrim, dialog.absolute((win[2] - w) / 2.0, (win[3] - h) / 2.0)]
+    [scrim, dialog.absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
 }
 
 #[cfg(test)]

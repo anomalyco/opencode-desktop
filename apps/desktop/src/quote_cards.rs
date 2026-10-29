@@ -163,7 +163,7 @@ pub fn poll(s: &mut App) -> bool {
 pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let key = s.quote.editing?;
     let item = s.quote.items.iter().find(|q| q.key == key)?;
-    let window = cx.layout("zoom").map_or(f32::INFINITY, |r| r[2] / s.zoom.max(1e-3));
+    let window = cx.layout_size("zoom").map_or(f32::INFINITY, |[w, _]| w / s.zoom.max(1e-3));
     let small = |key: &str, label: &str| {
         row().key(key).role("button").label(label.to_owned()).h(24.0).px(9.0).center_y().radius(4.0)
     };
