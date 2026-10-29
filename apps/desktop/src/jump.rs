@@ -3,6 +3,7 @@
 //! the timeline follows new content again once it lands.
 use std::collections::HashSet;
 
+use opencode_kit::model::Pending;
 use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 
 use crate::App;
@@ -12,10 +13,10 @@ use crate::palette::Pal;
 const THRESHOLD: f32 = 400.0;
 /// Centred, its bottom edge sits this far above the timeline's (`bottom: inset + 32px`).
 const LIFT: f32 = 32.0;
-/// At the right, the gap the jump button and the subagent capsule leave above the composer.
+/// At the right, the gap the subagent capsule leaves above the composer.
 const GAP: f32 = 8.0;
-/// The capsule's lane: its 28 pt chip and that gap, kept clear under the timeline's last row.
-pub const CAPSULE_LANE: f32 = 28.0 + GAP;
+/// The capsule's lane: its 28 pt chip and that gap.
+const CAPSULE_LANE: f32 = 28.0 + GAP;
 
 static ARROW_DOWN: Icon = Icon {
     name: "arrow-down",
@@ -88,11 +89,10 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .child(icon(&ARROW_DOWN, 16.0).color(p.text))
 }
 
-/// The timeline `scroll` with the button and the subagent `capsule` floating over its bottom
-/// edge, so the transcript runs under them and they ride up as the docks under it grow. At the
-/// right (the ⌘⇧K Composer default) the button ends where the composer ends, on the capsule's
-/// row; centred, it's Desktop's.
-pub fn over(s: &App, p: &Pal, id: &str, scroll: El, capsule: Option<El>) -> El {
+/// The timeline `scroll` with the button floating over its bottom edge, so it rides up as the
+/// composer, the capsule or the docks under it grow. At the right (the ⌘⇧K Composer default) it
+/// ends where the composer ends, on the capsule's row when that shows; centred, it's Desktop's.
+pub fn over(s: &App, p: &Pal, id: &str, scroll: El) -> El {
     let shown = s.ends.far(id);
     // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
     let curve = crate::knobs::jump(&s.knobs, shown);
@@ -107,11 +107,16 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, capsule: Option<El>) -> El {
     if !shown {
         button = button.inert();
     }
-    let lane = row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).center_y().children(capsule).child(spacer());
-    let (lane, centred) = if s.knobs.get(&crate::knobs::JUMP_PLACE) as usize == 1 {
-        (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
+    let lane = if s.knobs.get(&crate::knobs::JUMP_PLACE) as usize == 1 {
+        row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)
     } else {
-        (lane.child(button), None)
+        // The capsule's row sits right under the timeline unless a request card comes between.
+        let capsule = !s.session(id).is_some_and(|i| i.parent.is_some())
+            && !s.running_subagents(id).is_empty()
+            && !s.pending_for(id).iter().any(|r| matches!(r, Pending::Permission { .. }));
+        let bottom = if capsule { GAP - CAPSULE_LANE } else { GAP };
+        row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(bottom)).px(24.0).center()
+            .child(row().w_full().max_w(crate::view::CONTENT_W).child(spacer()).child(button))
     };
     col()
         .key("timeline-area")
@@ -119,8 +124,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, capsule: Option<El>) -> El {
         .shrink()
         .w_full()
         .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
-        .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(24.0).center().child(lane))
-        .children(centred)
+        .child(lane)
 }
 
 #[cfg(test)]
@@ -200,10 +204,6 @@ mod tests {
         assert!((b.rect[1] - chip[1]).abs() < 0.5 && (b.rect[3] - chip[3]).abs() < 0.5, "one row: {:?} and chip {chip:?}", b.rect);
         assert!((b.rect[1] - at[1]).abs() < 0.5, "it doesn't climb over the capsule: {:?} was {at:?}", b.rect);
         assert!((chip[0] - rect(&rt, "composer")[0]).abs() < 0.5);
-        // The transcript runs on under the capsule, so its fade ends at the composer's top edge.
-        let v = viewport(&rt);
-        assert!(((v[1] + v[3]) - rect(&rt, "composer")[1]).abs() < 0.5, "{v:?} vs composer");
-        assert!(chip[1] > v[1] && chip[1] + chip[3] < v[1] + v[3], "the capsule floats over it: {chip:?} in {v:?}");
         rt.update(|s, _| { s.running.remove("sub"); });
         rest(&mut rt);
 
@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(button(&rt).opacity, 0.0);
     }
 
-    /// On the capsule's row it floats over the timeline's bottom edge, and takes the press.
+    /// On the capsule's row it hangs below the timeline, and still takes the press.
     #[test]
     fn beside_the_capsule_it_still_presses() {
         let mut app = crate::perf::fixture();
@@ -277,8 +277,7 @@ mod tests {
         }
         rest(&mut rt);
         let b = button(&rt);
-        let chip = rect(&rt, "activity-chip");
-        assert!((b.rect[1] - chip[1]).abs() < 0.5 && b.rect[1] + b.rect[3] < v[1] + v[3], "over the timeline's edge: {:?} vs {v:?}", b.rect);
+        assert!(b.rect[1] + b.rect[3] > v[1] + v[3], "below the timeline's edge: {:?} vs {v:?}", b.rect);
         let (bx, by) = (b.rect[0] + 14.0, b.rect[1] + 14.0);
         rt.pointer_move(bx, by);
         rt.pointer_down(bx, by);

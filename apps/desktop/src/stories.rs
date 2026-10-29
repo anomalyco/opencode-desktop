@@ -157,7 +157,6 @@ pub static STORIES: &[Story] = &[
     Story { path: "Timeline/Compaction", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: crate::compaction_stories::KEYS, variants: crate::compaction_stories::VARIANTS },
     Story { path: "Timeline/Working", scene: |s| stage(s, session_view), knobs: WORKING_KNOBS, keys: WORKING_KEYS, variants: &[] },
     Story { path: "Timeline/Steer and Pending", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: STEER_KEYS, variants: &[] },
-    Story { path: "Timeline/Move to background", scene: |s| stage(s, session_view), knobs: &[], keys: crate::background_stories::KEYS, variants: &[] },
     Story { path: "Timeline/Subagent", scene: |s| stage(s, session_view), knobs: SUBAGENT_KNOBS, keys: SUBAGENT_KEYS, variants: &[] },
     Story { path: "Timeline/Subagent rows", scene: |s| stage(s, session_view), knobs: &[], keys: crate::agent_stories::KEYS, variants: crate::agent_stories::VARIANTS },
     Story { path: "Timeline/Images", scene: |s| stage(s, session_view), knobs: IMAGE_KNOBS, keys: IMAGE_KEYS, variants: &[] },

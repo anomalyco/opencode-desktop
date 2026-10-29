@@ -247,7 +247,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     if s.activity_open {
         chip = chip.fill(p.pressed);
     }
-    Some(chip)
+    Some(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).pb(8.0).child(chip))
 }
 
 /// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start

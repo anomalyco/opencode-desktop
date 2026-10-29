@@ -12,8 +12,6 @@ mod agent_rows_view;
 mod agent_stories;
 mod arrivals;
 mod attachments;
-mod background;
-mod background_stories;
 mod capsule_stories;
 mod compaction;
 mod compaction_stories;
@@ -214,7 +212,6 @@ pub struct App {
     playback: VecDeque<(f64, String, Value)>,
     /// What the fixture's server stored from the replies it streamed (`served.rs`).
     served: served::Served,
-    background: background::Background,
     sends: u32,
     waker: Option<Waker>,
     launch: launch::Launch,
@@ -314,7 +311,6 @@ impl App {
             fixture: Value::Null,
             playback: VecDeque::new(),
             served: Default::default(),
-            background: Default::default(),
             sends: 0,
             waker: None,
             launch: Default::default(),
@@ -427,7 +423,7 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
-        if dictation::key(self, ev, tx) || background::key(self, ev, tx) {
+        if dictation::key(self, ev, tx) {
             return true;
         }
         if let Some(forward) = history::bracket(ev, tx.physical_key()) {
@@ -693,7 +689,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     changed |= s.apply_event(&ty, &data);
                     continue;
                 }
-                Incoming::Status(e) => s.status = background::status(e),
+                Incoming::Status(e) => s.status = e,
                 Incoming::Pending { session, items } => {
                     s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
                     for p in items {

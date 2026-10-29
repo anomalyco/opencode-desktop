@@ -196,19 +196,6 @@ const ACTIONS: &[Action] = &[
         r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
         r.play_out(1.0);
     } },
-    // A shell blocks the run: "Move to background ⌃B" fades in beside Working, and ⌃B (or a
-    // steer) moves it, so the call returns and the hint fades out (`background.rs`).
-    Action { name: "background-key", circs: || wide_and_narrow(Circ::default()), run: |r| {
-        background_shell(r);
-        r.act("ctrl-b", |rt| rt.key(KeyEvent { key: Key::Text("b".into()), mods: Mods { ctrl: true, ..Mods::default() } }));
-        r.play_out(1.0);
-    } },
-    Action { name: "background-steer", circs: || wide_and_narrow(Circ::default()), run: |r| {
-        background_shell(r);
-        r.type_prompt();
-        r.enter(false);
-        r.play_out(1.6);
-    } },
     Action { name: "queue-lands", circs: || {
         let mut v = places(streaming());
         v.push(Circ { dock: Dock::Pending, ..streaming() });
@@ -504,16 +491,6 @@ const ACTIONS: &[Action] = &[
         r.play_out(1.0);
     } },
 ];
-
-/// The run starts a step whose shell call blocks it, and the hint shows.
-fn background_shell(r: &mut Run) {
-    let m = json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzbackground" });
-    r.event("session.execution.started", m.clone());
-    r.event("session.step.started", json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzbackground", "agent": "build", "model": { "id": "claude-opus-5-5", "providerID": "anthropic" } }));
-    r.play(0.3);
-    r.event("session.tool.called", json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzbackground", "id": "call_gate_shell", "name": "shell", "input": { "command": "cargo test" } }));
-    r.play(1.0);
-}
 
 /// Background agents: two start a beat apart (the second joins the first's card) and step
 /// along, then one finishes and the other fails.

@@ -79,9 +79,6 @@ pub enum Write {
     Delete(String),
     /// Saves a session as JSON in the downloads folder, as Desktop's Export does.
     Export(String),
-    /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
-    /// `quiet` drops a failure rather than reporting it, as a steer's move does.
-    Background { session: String, quiet: bool },
 }
 
 /// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
@@ -513,13 +510,6 @@ impl Server {
         self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|_| ())
     }
 
-    /// `session.background`: moves the session's running shells and subagents that block its run
-    /// to the background, so the run goes on to its next step. The server moves each job once
-    /// and ignores the call when nothing blocks.
-    pub fn background(&self, session: &str) -> Result<(), String> {
-        self.write("POST", &format!("/api/session/{session}/background"), None).map(|_| ())
-    }
-
     pub fn create_session(&self, directory: &str) -> Result<SessionInfo, String> {
         let v = self.write("POST", "/api/session", Some(serde_json::json!({ "location": { "directory": directory } })))?;
         let info = model::parse_session(v.get("data").unwrap_or(&v));
@@ -667,7 +657,6 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {
                             let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
                         }),
-                        Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
                     };
                     if let Err(e) = result
                         && inbox_tx.send(Incoming::Status(e)).is_err()
@@ -879,32 +868,6 @@ mod tests {
         let (base, h) = mock_once();
         Server { base, auth: None, media_refs: false }.delete_session("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a HTTP/1.1"));
-    }
-
-    #[test]
-    fn background_posts_to_the_session() {
-        let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.background("ses_a").unwrap();
-        let req = h.join().unwrap();
-        assert!(req.starts_with("POST /api/session/ses_a/background HTTP/1.1"), "{req}");
-    }
-
-    #[test]
-    fn a_quiet_background_drops_its_failure_and_a_loud_one_reports_it() {
-        let (_, writes, inbox) = connect(Server::new("http://127.0.0.1:9"), std::sync::Arc::new(|| {}));
-        writes.send(Write::Background { session: "ses_quiet".into(), quiet: true }).unwrap();
-        writes.send(Write::Background { session: "ses_loud".into(), quiet: false }).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let mut failed = Vec::new();
-        while failed.is_empty() && std::time::Instant::now() < deadline {
-            if let Ok(Incoming::Status(e)) = inbox.recv_timeout(Duration::from_millis(100))
-                && e.contains("/background")
-            {
-                failed.push(e);
-            }
-        }
-        assert_eq!(failed.len(), 1, "{failed:?}");
-        assert!(failed[0].starts_with("POST /api/session/ses_loud/background"), "{failed:?}");
     }
 
     #[test]

@@ -60,9 +60,6 @@ impl App {
         model::set_user_quotes(&id, self.quote.take());
         self.inboxes.entry(session.to_owned()).or_default().upsert(item);
         self.composer.clear();
-        if delivery == Delivery::Steer {
-            self.steered(session, &id);
-        }
     }
 
     /// Steers a queued prompt (sends it now when the turn has stopped).
@@ -79,9 +76,6 @@ impl App {
         let w = Write::Deliver { session: session.to_owned(), item: id.to_owned(), delivery };
         if self.inbox_write(w) {
             self.inboxes.entry(session.to_owned()).or_default().set_delivery(id, delivery);
-            if delivery == Delivery::Steer {
-                self.steered(session, id);
-            }
         }
     }
 
@@ -344,7 +338,7 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
     Some(hint)
 }
 
-pub(crate) fn keycap(p: &Pal, key: &str) -> El {
+fn keycap(p: &Pal, key: &str) -> El {
     row().h(16.0).min_w(16.0).px(3.0).center().radius(3.0).fill(p.layer2).child(text(key.to_owned()).font(UI).color(p.faint))
 }
 
