@@ -478,7 +478,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     let marked = s.menus.on.as_ref() == Some(&target);
     let more = target.clone();
     let title = match crate::session_menu_view::field(s, p, &target, UI_MED) {
-        Some(field) => field.ml(4.0),
+        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
         None => {
             let begin = target.clone();
             let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)

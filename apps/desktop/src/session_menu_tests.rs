@@ -314,6 +314,32 @@ fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
 }
 
 #[test]
+fn the_headers_rename_field_hugs_its_title_so_the_more_button_moves_only_with_typing() {
+    let (mut rt, _) = app();
+    let x = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} is drawn")).rect[0];
+    let rest = x(&rt, "header-more");
+    let (tx, ty) = rt.find("title").unwrap();
+    press(&mut rt, tx, ty);
+    frames(&mut rt, 3);
+    assert!(rt.state.menus.rename.is_some());
+    assert!((x(&rt, "header-more") - rest).abs() < 0.5, "⋯ stays where it was: {rest} → {}", x(&rt, "header-more"));
+
+    press_key(&mut rt, Key::End);
+    type_text(&mut rt, " and more");
+    let typed = x(&rt, "header-more");
+    assert!(typed > rest + 20.0, "typing pushes ⋯ over: {rest} → {typed}");
+    for _ in 0..5 {
+        press_key(&mut rt, Key::Backspace);
+    }
+    let deleted = x(&rt, "header-more");
+    assert!(deleted < typed && deleted > rest, "deleting pulls it back: {typed} → {deleted}");
+
+    type_text(&mut rt, &" a title far too long for the header".repeat(8));
+    let long = x(&rt, "header-more");
+    assert!(long + 28.0 <= 1280.0 && long > typed, "a long title stops at the header's room: {long}");
+}
+
+#[test]
 fn control_r_renames_the_open_session() {
     let (mut rt, _) = app();
     let Route::Session(id) = rt.state.route.clone() else { panic!("open session") };
