@@ -12,7 +12,7 @@ use opencode_kit::model::{self, Delivery, Inbox, InboxChange, InboxItem, Message
 
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED};
+use crate::view::{UI, UI_MED, UI_SMALL};
 use crate::{App, Source};
 
 const STEER: Icon = Icon {
@@ -166,7 +166,7 @@ pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
     let (sd, id) = (session.to_owned(), id.to_owned());
     let buttons = row()
         .key("pending-actions")
-        .gap(4.0)
+        .gap(6.0)
         .center_y()
         .child(icon_button(p, "move-to-queue", "Move to queue", &TO_QUEUE, 20.0, 14.0, move |s: &mut App| s.queue_pending(&sq, &iq)))
         .child(icon_button(p, "delete-pending", "Delete", &ic::TRASH, 20.0, 14.0, move |s: &mut App| {
@@ -178,10 +178,9 @@ pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
     row()
         .key("pending-meta")
         .h(20.0)
-        .gap(4.0)
+        .gap(8.0)
         .center_y()
-        .child(icon(&STEER, 14.0).color(p.icon_faint))
-        .child(text("Pending").font(UI).color(p.faint))
+        .child(row().gap(4.0).center_y().child(icon(&STEER, 14.0).color(p.icon_faint)).child(text("Pending").font(UI_SMALL).color(p.faint)))
         .child(buttons)
 }
 
@@ -622,6 +621,10 @@ mod tests {
             rt.frame(1.0 / 120.0);
         }
         assert!(actions(&rt).opacity > 0.99, "shown while hovered");
+        // Desktop's `user-message-run-actions`: 4 left of the bubble, centred on its last line.
+        let r = actions(&rt).rect;
+        assert!((ba.rect[0] - (r[0] + r[2]) - 4.0).abs() < 0.5, "4 left of the bubble: {r:?} {:?}", ba.rect);
+        assert!((ba.rect[1] + ba.rect[3] - (r[1] + r[3]) - 8.5).abs() < 0.5, "on its last line: {r:?} {:?}", ba.rect);
         let delete = rt.elements().into_iter().find(|e| !e.exiting && e.path.contains(&format!("u-{a}/")) && e.key.as_deref() == Some("delete-pending")).unwrap();
         let (x, y) = (delete.rect[0] + delete.rect[2] / 2.0, delete.rect[1] + delete.rect[3] / 2.0);
         rt.pointer_move(x, y);

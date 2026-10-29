@@ -8,6 +8,7 @@
 //! names a file for the full report.
 
 pub(crate) use crate::motion_check as check;
+mod flights;
 mod odometers;
 mod scenarios;
 
@@ -210,10 +211,20 @@ impl Run {
         self.rec.quiet_from = Some(self.rec.frames);
     }
 
-    /// A server event, arriving through playback as a live one would.
+    /// A server event, arriving through playback as a live one would, after the playing turn's
+    /// own.
     pub fn event(&mut self, ty: &str, data: Value) {
         let at = self.rt.state.clock + 0.001;
         self.rt.state.playback.push_back((at, ty.into(), data));
+        self.step();
+    }
+
+    /// [`Run::event`] now, ahead of the playing turn's later events, as a steer lands mid-turn.
+    pub fn event_now(&mut self, ty: &str, data: Value) {
+        let at = self.rt.state.clock + 0.001;
+        let q = &mut self.rt.state.playback;
+        let i = q.iter().position(|e| e.0 > at).unwrap_or(q.len());
+        q.insert(i, (at, ty.into(), data));
         self.step();
     }
 

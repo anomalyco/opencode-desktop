@@ -45,7 +45,7 @@ fn card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
     let quote = preview(&q.text);
     let title = comment.map_or_else(|| quote.clone(), str::to_owned);
     let label = if comment.is_some() { quote } else { "Quote".to_owned() };
-    let mut title = text(title).font(CARD_TITLE).color(p.text).truncate().w_full();
+    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
     let tip = tooltip(q);
     if comment.is_none() {
         title = title.help_when_truncated(tip.clone());
@@ -113,7 +113,7 @@ fn chip(s: &App, p: &Pal, item: &Pending) -> El {
     el().key(chip_key(key)).hover_group().child(body).child(remove)
 }
 
-fn chip_key(key: u64) -> String {
+pub(crate) fn chip_key(key: u64) -> String {
     format!("quote-chip-{key}")
 }
 

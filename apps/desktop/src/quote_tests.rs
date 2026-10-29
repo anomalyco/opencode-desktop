@@ -244,6 +244,7 @@ fn a_prompt_of_only_quotes_shows_its_cards() {
     settle(&mut rt);
     let card = find(&rt, |e| e.path.contains("u-msg_quote_only") && e.key.as_deref() == Some("quote-0"));
     assert!(card.rect[2] > 100.0, "{:?}", card.rect);
-    assert!(rt.elements().iter().all(|e| !(e.path.contains("u-msg_quote_only") && e.key.as_deref() == Some("bubble"))), "no empty bubble");
+    assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("text-msg_quote_only")), "no empty bubble");
+    assert!(card.path.contains("/bubble/"), "the cards stand in for the bubble: {}", card.path);
     model::set_user_quotes("msg_quote_only", Vec::new());
 }

@@ -37,6 +37,11 @@ impl App {
                 std::iter::once(attachments::path_lines(&wire.text, &refs)).filter(|t| !t.is_empty()).chain(quoted).collect::<Vec<_>>().join("\n")
             }
         };
+        // A prompt of only quotes leaves from its first quote's chip; any other from its words.
+        let from = match self.quote.items.first() {
+            Some(q) if wire.display.trim().is_empty() => format!("{}/card/title", crate::quote_cards::chip_key(q.key)),
+            _ => "prompt".to_owned(),
+        };
         // The server's user message takes this id, so it replaces the local copy below.
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
@@ -63,7 +68,7 @@ impl App {
             if alternate {
                 tx.launch("prompt", format!("queued-{local}"));
             } else {
-                self.land(&id, &local, tx);
+                self.land(&id, &local, &from, tx);
             }
             return;
         }
@@ -125,7 +130,7 @@ impl App {
         self.echo_mentions(&local);
         opencode_kit::model::set_user_quotes(&local, quotes);
         self.quote.take();
-        self.land(&id, &local, tx);
+        self.land(&id, &local, &from, tx);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         t.messages.push(Message::User { id: local, text: wire.display });
         self.composer.clear();
@@ -134,9 +139,9 @@ impl App {
     /// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the
     /// composer, its words where they were typed. Read further up, nothing flies: the timeline
     /// cuts to its end, where the message already stands.
-    fn land(&mut self, id: &str, local: &str, tx: &mut Tx) {
+    fn land(&mut self, id: &str, local: &str, from: &str, tx: &mut Tx) {
         if self.ends.at_end(id) {
-            tx.launch("prompt", format!("u-{local}/bubble"));
+            tx.launch(from, format!("u-{local}/bubble"));
         } else {
             tx.scroll_to_bottom_instant(format!("scroll-{id}"));
         }

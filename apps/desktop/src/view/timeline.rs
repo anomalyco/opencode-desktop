@@ -625,13 +625,13 @@ pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place: Place, 
     let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges));
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
-        Some(cards) if body.trim().is_empty() => cards,
+        Some(cards) if body.trim().is_empty() => cards.key("bubble"),
         Some(cards) => bubble.w(342.0).pb(12.0).child(cards),
         None => bubble,
     };
     let copy = if below {
-        let x = if pending.is_some() { -52.0 } else { -28.0 };
-        face = face.child(copy.absolute(x, 8.5));
+        let x = if pending.is_some() { -50.0 } else { -24.0 };
+        face = face.child(copy.pin(Some(x), None, None, Some(8.5)));
         None
     } else {
         Some(copy)

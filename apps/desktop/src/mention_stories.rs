@@ -20,7 +20,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 /// "Ask @explore and @opencode about @src/stream.rs in @src/ui/, like @<session> did".
-fn draft() -> TextEdit {
+pub(crate) fn draft() -> TextEdit {
     let mut e = TextEdit::new("");
     e.insert("Ask ");
     e.insert_pill("agent:explore", "@explore");
