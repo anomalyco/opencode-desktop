@@ -1,6 +1,9 @@
-//! Fixture-backed composer selection. Desktop reference: ModelSelectorPopoverView and
-//! ComposerEditorSelect. Selection belongs to the draft/session, not historical messages.
-use std::collections::HashMap;
+//! The composer's agent, model and effort. Desktop reference: ModelSelectorPopoverView,
+//! ComposerEditorSelect and `providers/models/selection.tsx`. A session runs with what the
+//! server last said (`session.agent`, `session.model`); a pick is remembered per session and
+//! rides on its next prompt, which switches the session first (`Server::send`). Once the server
+//! says it runs with the pick, the memory goes, as Desktop's `reconcile` does.
+use std::collections::{HashMap, HashSet};
 
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
@@ -25,9 +28,11 @@ pub struct Model {
     pub group: String,
     pub name: String,
     pub variants: Vec<String>,
+    /// Left out of the list until a search finds it (Desktop's `visible`).
+    pub hidden: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Selection { pub model: ModelRef, pub agent: String }
 
 #[derive(Clone)]
@@ -39,12 +44,21 @@ pub struct Pickers {
     /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
     pub limits: HashMap<String, u64>,
     pub agents: Vec<String>,
+    /// Each agent's configured model (`/api/agent`'s `model`), which it switches to when picked.
+    pub agent_models: HashMap<String, ModelRef>,
     pub open: Option<Kind>,
     pub search: TextEdit,
     pub toolbar_focus: Option<Kind>,
     active: Option<String>,
     searched: String,
+    /// Picks by session id ("draft" for a new session), until the server runs with them.
     selections: HashMap<String, Selection>,
+    /// The model each agent last had in a session, by session then agent, so switching back to
+    /// an agent brings its model back (Desktop's `choices`).
+    choices: HashMap<String, HashMap<String, ModelRef>>,
+    /// The effort last picked for each model, which picking that model again brings back
+    /// (Desktop's per-model `variant` preference).
+    efforts: HashMap<String, String>,
 }
 
 impl Pickers {
@@ -53,24 +67,35 @@ impl Pickers {
             let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
-                    .filter_map(Value::as_str).map(str::to_owned).collect() }
+                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false }
         }).collect();
         self.load_limits(&fixture["models"]);
         self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
     }
 
     /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
+    /// Deprecated models are left out, as Desktop leaves them out of its catalog.
     pub fn load_live(&mut self, models: &Value, agents: &Value) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
         let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
-        self.models = models.as_array().into_iter().flatten().filter(|v| v["enabled"].as_bool().unwrap_or(true)).map(|v| {
+        let listed: Vec<&Value> = models.as_array().into_iter().flatten()
+            .filter(|v| v["enabled"].as_bool().unwrap_or(true) && v["status"].as_str() != Some("deprecated")).collect();
+        let shown = shown_models(&listed, now);
+        self.models = listed.iter().map(|v| {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
-            Model { key: format!("{provider}:{id}"), id, group: provider.clone(), provider, name: s(v, "name"),
+            let key = format!("{provider}:{id}");
+            Model { hidden: !shown.contains(&key), key, id, group: provider.clone(), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);
-        self.agents = agents.as_array().into_iter().flatten()
-            .filter(|a| a["mode"].as_str() != Some("subagent") && !a["hidden"].as_bool().unwrap_or(false))
-            .filter_map(|a| a["id"].as_str()).map(str::to_owned).collect();
+        let agents: Vec<&Value> = agents.as_array().into_iter().flatten()
+            .filter(|a| a["mode"].as_str() != Some("subagent") && !a["hidden"].as_bool().unwrap_or(false)).collect();
+        self.agents = agents.iter().filter_map(|a| a["id"].as_str()).map(str::to_owned).collect();
+        self.agent_models = agents.iter().filter_map(|a| {
+            let m = &a["model"];
+            let model = ModelRef { id: s(m, "id"), provider: s(m, "providerID"), variant: s(m, "variant") };
+            (!model.id.is_empty()).then(|| (s(a, "id"), model))
+        }).collect();
     }
 
     /// Reads `limit.context` from a list of models, keyed by `provider` or `providerID`.
@@ -89,19 +114,94 @@ impl Pickers {
     }
 }
 
+/// Desktop's default model list (`models.tsx` `visible`): each provider's newest model in a
+/// family released in the last six months, OpenCode's free models, and models with no release
+/// date. A search finds the rest.
+fn shown_models(models: &[&Value], now_ms: i64) -> HashSet<String> {
+    const SIX_MONTHS: f64 = 6.0 * 30.436875 * 24.0 * 3600.0 * 1000.0;
+    let key = |m: &Value| format!("{}:{}", m["providerID"].as_str().unwrap_or(""), m["id"].as_str().unwrap_or(""));
+    let free = |m: &Value| m["providerID"] == "opencode" && m["cost"].as_array().and_then(|c| c.iter().find(|c| c.get("tier").is_none()).or(c.first())).is_none_or(|c| c["input"].as_f64() == Some(0.0));
+    let mut out = HashSet::new();
+    let mut newest: HashMap<String, (i64, String)> = HashMap::new();
+    for m in models {
+        let Some(released) = m["time"]["released"].as_f64() else { out.insert(key(m)); continue };
+        if free(m) { out.insert(key(m)); }
+        if (now_ms as f64 - released).abs() >= SIX_MONTHS { continue; }
+        let family = format!("{}/{}/{}", m["providerID"].as_str().unwrap_or(""), m["family"].as_str().unwrap_or(""), free(m));
+        // A tie keeps the first listed.
+        if newest.get(&family).is_none_or(|(t, _)| released as i64 > *t) {
+            newest.insert(family, (released as i64, key(m)));
+        }
+    }
+    out.extend(newest.into_values().map(|(_, k)| k));
+    out
+}
+
 impl App {
     fn selection_key(&self) -> &str {
         match &self.route { Route::Session(id) => id, _ => "draft" }
     }
 
+    /// What the session runs with now: the agent and model the server last said, or for a new
+    /// session the first agent with its configured model.
+    fn durable(&self) -> Selection {
+        let info = match &self.route { Route::Session(id) => self.session(id), _ => None };
+        let agent = info.map(|i| i.agent.clone()).filter(|a| !a.is_empty())
+            .unwrap_or_else(|| if self.pickers.agents.iter().any(|a| a == "build") || self.pickers.agents.is_empty() { "build".into() } else { self.pickers.agents[0].clone() });
+        let model = info.map(|i| i.model.clone()).filter(|m| !m.id.is_empty())
+            .or_else(|| self.pickers.agent_models.get(&agent).cloned())
+            .or_else(|| self.sessions.first().map(|s| s.model.clone()))
+            .unwrap_or_default();
+        Selection { model, agent }
+    }
+
     pub fn selection(&self) -> Selection {
-        self.pickers.selections.get(self.selection_key()).cloned().unwrap_or_else(|| Selection {
-            model: match &self.route {
-                Route::Session(id) => self.session(id),
-                _ => self.sessions.first(),
-            }.map(|s| s.model.clone()).unwrap_or_default(),
-            agent: "build".into(),
-        })
+        self.pickers.selections.get(self.selection_key()).cloned().unwrap_or_else(|| self.durable())
+    }
+
+    /// What the next prompt switches the session to: a pick that differs from what it runs
+    /// with. An agent switch can move the model, so the model goes with it, as Desktop sends it.
+    /// A new session takes what the toolbar shows, so it starts as it says.
+    pub fn picked_choice(&self) -> (Option<String>, Option<ModelRef>) {
+        let draft = !matches!(self.route, Route::Session(_));
+        let picked = match self.pickers.selections.get(self.selection_key()) {
+            Some(p) => p.clone(),
+            None if draft => self.durable(),
+            None => return (None, None),
+        };
+        let now = self.durable();
+        let agent = (draft || picked.agent != now.agent).then(|| picked.agent.clone());
+        let model = (agent.is_some() || picked.model != now.model).then(|| picked.model.clone()).filter(|m| !m.id.is_empty());
+        (agent, model)
+    }
+
+    /// `session.agent.selected` and `session.model.selected`: what the session runs with now.
+    /// A pick it now runs with is forgotten, so the session follows changes made elsewhere.
+    pub fn apply_selected(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        if !matches!(ty, "session.agent.selected" | "session.model.selected") { return false; }
+        let Some(info) = self.sessions.iter_mut().find(|s| s.id == sid) else { return false };
+        if ty == "session.agent.selected" {
+            info.agent = data["agent"].as_str().unwrap_or("").to_owned();
+        } else {
+            let m = &data["model"];
+            let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
+            info.model = ModelRef { id: s(&m["id"]), provider: s(&m["providerID"]), variant: s(&m["variant"]) };
+        }
+        let now = Selection { model: info.model.clone(), agent: info.agent.clone() };
+        if self.pickers.selections.get(sid) == Some(&now) { self.pickers.selections.remove(sid); }
+        true
+    }
+
+    /// The fixture's server: a prompt that switches the session says so in its stream, before
+    /// its reply, as a live server does.
+    pub fn serve_choice(&mut self, session: &str, prompt: &opencode_kit::client::Prompt, at: f64) {
+        if let Some(agent) = &prompt.agent {
+            self.playback.push_back((at, "session.agent.selected".into(), serde_json::json!({ "sessionID": session, "agent": agent })));
+        }
+        if let Some(m) = &prompt.model {
+            let model = serde_json::json!({ "id": m.id, "providerID": m.provider, "variant": m.variant });
+            self.playback.push_back((at, "session.model.selected".into(), serde_json::json!({ "sessionID": session, "model": model })));
+        }
     }
 
     pub fn picker_items(&self) -> Vec<Item> {
@@ -109,7 +209,9 @@ impl App {
         match self.pickers.open {
             Some(Kind::Model) => {
                 let q = self.pickers.search.text.to_lowercase();
-                self.pickers.models.iter().filter(|m| format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q))
+                let current = format!("{}:{}", selection.model.provider, selection.model.id);
+                self.pickers.models.iter()
+                    .filter(|m| if q.is_empty() { !m.hidden || m.key == current } else { format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q) })
                     .map(|m| Item { key: m.key.clone(), label: m.name.clone(), group: m.group.clone() }).collect()
             }
             Some(Kind::Agent) => self.pickers.agents.iter().map(|a| Item { key: a.clone(), label: capitalize(a), group: String::new() }).collect(),
@@ -156,8 +258,6 @@ impl App {
     }
 
     pub fn open_picker(&mut self, kind: Kind) {
-        // A live session's model and agent aren't chosen here yet; where a new one starts is.
-        if self.live() && kind != Kind::Project { return; }
         if self.pickers.open == Some(kind) { self.close_picker(true); return; }
         self.pickers.open = Some(kind);
         self.pickers.search = TextEdit::new("");
@@ -187,18 +287,31 @@ impl App {
             return;
         }
         let mut selected = self.selection();
+        let session = self.selection_key().to_owned();
         match self.pickers.open {
             Some(Kind::Model) => {
                 let Some(m) = self.pickers.models.iter().find(|m| m.key == key) else { return };
                 if m.id != selected.model.id || m.provider != selected.model.provider {
-                    selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant: String::new() };
+                    let variant = self.pickers.efforts.get(key).filter(|v| m.variants.contains(v)).cloned().unwrap_or_default();
+                    selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
                 }
             }
-            Some(Kind::Agent) => selected.agent = key.into(),
-            Some(Kind::Effort) => selected.model.variant = if key == "default" { String::new() } else { key.into() },
+            Some(Kind::Agent) => {
+                if selected.agent != key {
+                    let remembered = self.pickers.choices.get(&session).and_then(|c| c.get(key));
+                    if let Some(m) = remembered.or_else(|| self.pickers.agent_models.get(key)) { selected.model = m.clone(); }
+                    selected.agent = key.into();
+                }
+            }
+            Some(Kind::Effort) => {
+                selected.model.variant = if key == "default" { String::new() } else { key.into() };
+                self.pickers.efforts.insert(format!("{}:{}", selected.model.provider, selected.model.id), selected.model.variant.clone());
+            }
             Some(Kind::Project) | None => return,
         }
-        self.pickers.selections.insert(self.selection_key().to_owned(), selected);
+        self.pickers.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
+        let live = matches!(self.route, Route::Session(_));
+        if live && selected == self.durable() { self.pickers.selections.remove(&session); } else { self.pickers.selections.insert(session, selected); }
         self.close_picker(true);
     }
 
@@ -250,19 +363,17 @@ impl App {
         }
         if matches!(ev.key, Key::Enter | Key::Down | Key::Up)
             && let Some(kind) = self.pickers.toolbar_focus { self.open_picker(kind); return true; }
-        if !self.live() {
-            if ev.key == Key::Command('\'') { self.open_picker(Kind::Model); return true; }
-            let cycle = match ev.key {
-                Key::Command('.') => Some((Kind::Agent, ev.mods.shift)),
-                Key::Command('d') if ev.mods.shift && self.has_effort() => Some((Kind::Effort, false)),
-                _ => None,
-            };
-            if let Some((kind, backwards)) = cycle {
-                self.open_picker(kind);
-                self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() });
-                if let Some(key) = self.picker_active() { self.choose_picker(&key); }
-                return true;
-            }
+        if ev.key == Key::Command('\'') { self.open_picker(Kind::Model); return true; }
+        let cycle = match ev.key {
+            Key::Command('.') => Some((Kind::Agent, ev.mods.shift)),
+            Key::Command('d') if ev.mods.shift && self.has_effort() => Some((Kind::Effort, false)),
+            _ => None,
+        };
+        if let Some((kind, backwards)) = cycle {
+            self.open_picker(kind);
+            self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() });
+            if let Some(key) = self.picker_active() { self.choose_picker(&key); }
+            return true;
         }
         false
     }
@@ -414,3 +525,7 @@ mod tests {
         assert!((row.opacity - 1.0).abs() < 1e-3 && (row.rect[1] - row.target[1]).abs() < 0.1, "a row that matches again lands in place");
     }
 }
+
+#[cfg(test)]
+#[path = "pickers_tests.rs"]
+mod live_tests;

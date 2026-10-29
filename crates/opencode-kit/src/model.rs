@@ -77,7 +77,7 @@ impl Tokens {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModelRef {
     pub id: String,
     pub provider: String,

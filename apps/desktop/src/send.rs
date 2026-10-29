@@ -42,6 +42,7 @@ impl App {
             Some(q) if wire.display.trim().is_empty() => format!("{}/card/title", crate::quote_cards::chip_key(q.key)),
             _ => "prompt".to_owned(),
         };
+        let (agent, model) = self.picked_choice();
         // The server's user message takes this id, so it replaces the local copy below.
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
@@ -54,6 +55,8 @@ impl App {
             attachments: refs,
             command: command.map(|(name, _)| name),
             quotes,
+            agent,
+            model,
         };
         if prompt.command.is_some() {
             return self.send_command(prompt, alternate, tx);
@@ -102,6 +105,7 @@ impl App {
                 self.sends += 1;
                 let reply = format!("msg_zzzzreply{:04}", self.sends);
                 let at = self.clock;
+                self.serve_choice(&id, &prompt, at);
                 for e in self.fixture["reply"].as_array().cloned().unwrap_or_default() {
                     let mut d = e["data"].clone();
                     d["sessionID"] = id.clone().into();

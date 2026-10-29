@@ -141,10 +141,7 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }
-    if !s.live() {
-        button = button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } });
-    }
-    button
+    button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } })
 }
 
 /// Overrides Rune's default 0.2 s fade: menus and palettes appear and go on the keypress or

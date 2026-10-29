@@ -84,161 +84,7 @@ pub enum Write {
     Background { session: String, quiet: bool },
 }
 
-/// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
-/// so a local copy shown before the server's arrives is replaced rather than doubled.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Prompt {
-    pub id: Option<String>,
-    pub text: String,
-    pub files: Vec<FileInput>,
-    /// How to deliver it while the session is busy; None lets the server steer.
-    pub delivery: Option<Delivery>,
-    /// `@agent` mentions (`PromptInput.AgentAttachment`).
-    pub agents: Vec<AgentInput>,
-    /// `@skill` mentions (`PromptInput.SkillAttachment`).
-    pub skills: Vec<SkillInput>,
-    /// `metadata.displayText`: the text as typed when `text` differs (session mentions go out as
-    /// `@session:ses_…` tokens but read as their titles).
-    pub display_text: Option<String>,
-    /// Files the server reads by path, which reach the model as `Attached file:` lines in
-    /// `text` and the message view through `metadata.attachments`.
-    pub attachments: Vec<PathAttachment>,
-    /// A slash command to run with `text` as its arguments (`POST …/command`) instead of a
-    /// prompt.
-    pub command: Option<String>,
-    /// Text quoted from the conversation. `text` already carries each one's
-    /// [`Quote::prompt_text`](crate::quote::Quote::prompt_text); these go in `metadata.comments`.
-    pub quotes: Vec<crate::quote::Quote>,
-}
-
-/// A file attached by its path on the server (`PromptAttachmentReference`).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PathAttachment {
-    pub name: String,
-    pub mime: String,
-    pub path: String,
-}
-
-/// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]), `file://`, or a
-/// `media:<hash>` ref the server sent, which it re-admits from its stored bytes.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct FileInput {
-    pub uri: String,
-    pub name: String,
-    pub mime: Option<String>,
-    pub mention: Option<Mention>,
-}
-
-/// Where a mention sits in the prompt's text: UTF-16 offsets, as the server's JavaScript
-/// counts them, and the mention's text.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Mention {
-    pub start: usize,
-    pub end: usize,
-    pub text: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct AgentInput {
-    pub name: String,
-    pub mention: Option<Mention>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SkillInput {
-    pub id: String,
-    pub name: String,
-    pub mention: Option<Mention>,
-}
-
-impl Mention {
-    fn json(&self) -> Value {
-        serde_json::json!({ "start": self.start, "end": self.end, "text": self.text })
-    }
-}
-
-impl Prompt {
-    pub fn body(&self) -> Value {
-        let mut body = self.input();
-        if let Some(id) = &self.id {
-            body["id"] = id.clone().into();
-        }
-        let display = self.display_text.as_ref().filter(|d| **d != self.text);
-        if display.is_some() || !self.attachments.is_empty() || !self.quotes.is_empty() {
-            // Desktop reads `displayText` only beside a `comments` list.
-            let attachments: Vec<Value> =
-                self.attachments.iter().map(|a| serde_json::json!({ "name": a.name, "mime": a.mime, "path": a.path })).collect();
-            let comments: Vec<Value> = self.quotes.iter().map(crate::quote::Quote::json).collect();
-            body["metadata"] = serde_json::json!({
-                "displayText": display.unwrap_or(&self.text),
-                "comments": comments,
-                "attachments": attachments,
-            });
-        }
-        if let Some(d) = self.delivery {
-            body["delivery"] = d.as_str().into();
-        }
-        body
-    }
-
-    /// `POST …/command`'s body: the command's name, with `text` as its arguments.
-    pub fn command_body(&self) -> Value {
-        let mut body = self.input();
-        body["name"] = self.command.clone().unwrap_or_default().into();
-        if let Some(d) = self.delivery {
-            body["delivery"] = d.as_str().into();
-        }
-        body
-    }
-
-    /// `PromptInput.Prompt`'s fields: text, files, agents and skills.
-    fn input(&self) -> Value {
-        let mut body = serde_json::json!({ "text": self.text });
-        if !self.files.is_empty() {
-            body["files"] = self
-                .files
-                .iter()
-                .map(|f| {
-                    let mut v = serde_json::json!({ "uri": f.uri, "name": f.name });
-                    if let Some(mime) = &f.mime {
-                        v["mime"] = mime.clone().into();
-                    }
-                    if let Some(m) = &f.mention {
-                        v["mention"] = m.json();
-                    }
-                    v
-                })
-                .collect();
-        }
-        if !self.agents.is_empty() {
-            body["agents"] = self
-                .agents
-                .iter()
-                .map(|a| {
-                    let mut v = serde_json::json!({ "name": a.name });
-                    if let Some(m) = &a.mention {
-                        v["mention"] = m.json();
-                    }
-                    v
-                })
-                .collect();
-        }
-        if !self.skills.is_empty() {
-            body["skills"] = self
-                .skills
-                .iter()
-                .map(|s| {
-                    let mut v = serde_json::json!({ "id": s.id, "name": s.name });
-                    if let Some(m) = &s.mention {
-                        v["mention"] = m.json();
-                    }
-                    v
-                })
-                .collect();
-        }
-        body
-    }
-}
+pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
 
 /// `encodeURIComponent`, for a query value.
 fn encode_component(s: &str) -> String {
@@ -455,11 +301,43 @@ impl Server {
     /// `POST /session/:id/prompt` with an id and files; returns the id the server gave the
     /// message (`data.id`), which is `prompt.id` when that was set.
     pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
+        self.apply_choice(session, prompt)?;
         if prompt.command.is_some() {
             return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
         }
         let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
         Ok(v["data"]["id"].as_str().map(str::to_owned))
+    }
+
+    /// Desktop's `applySelection`: a prompt that runs now (a steer, or any prompt to an idle
+    /// session) switches the session's agent, then its model, before it's admitted. A queued one
+    /// mustn't reconfigure the turn it waits behind, so it only records its choice.
+    fn apply_choice(&self, session: &str, prompt: &Prompt) -> Result<(), String> {
+        if prompt.delivery == Some(Delivery::Queue) {
+            return Ok(());
+        }
+        if let Some(agent) = &prompt.agent {
+            self.switch_agent(session, agent)?;
+        }
+        if let Some(m) = &prompt.model {
+            self.switch_model(session, m)?;
+        }
+        Ok(())
+    }
+
+    /// `session.switchAgent`: `{"agent": …}`.
+    pub fn switch_agent(&self, session: &str, agent: &str) -> Result<(), String> {
+        self.write("POST", &format!("/api/session/{session}/agent"), Some(serde_json::json!({ "agent": agent }))).map(|_| ())
+    }
+
+    /// `session.switchModel`: `{"model": {id, providerID, variant?}}`, no variant for the model's
+    /// default.
+    pub fn switch_model(&self, session: &str, m: &model::ModelRef) -> Result<(), String> {
+        let mut v = serde_json::json!({ "id": m.id, "providerID": m.provider });
+        if !m.variant.is_empty() {
+            v["variant"] = m.variant.clone().into();
+        }
+        self.write("POST", &format!("/api/session/{session}/model"), Some(serde_json::json!({ "model": v }))).map(|_| ())
     }
 
     /// Runs `command` in the session's directory; the server reports it as `shell.*` events.
@@ -654,8 +532,15 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Ok(())
                         }),
                         Write::Send { session, prompt } => server.send(&session, &prompt).map(|_| ()),
-                        Write::Start { directory, prompt } => server.create_session(&directory).and_then(|info| {
+                        Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
                             server.send(&info.id, &prompt)?;
+                            // The reply to the create came before the switches.
+                            if let Some(agent) = &prompt.agent {
+                                info.agent.clone_from(agent);
+                            }
+                            if let Some(m) = &prompt.model {
+                                info.model = m.clone();
+                            }
                             let _ = inbox_tx.send(Incoming::Created(info));
                             Ok(())
                         }),
@@ -792,35 +677,44 @@ fn save_download(name: &str, json: &str) -> Result<String, String> {
 /// A one-request HTTP server for tests: answers 200 and returns what it received.
 #[cfg(test)]
 pub fn mock_once() -> (String, std::thread::JoinHandle<String>) {
-    use std::io::{Read, Write};
+    let (base, h) = mock(1);
+    (base, std::thread::spawn(move || h.join().unwrap().remove(0)))
+}
+
+/// [`mock_once`] for `n` requests in a row, returned in the order they came.
+#[cfg(test)]
+pub fn mock(n: usize) -> (String, std::thread::JoinHandle<Vec<String>>) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let h = std::thread::spawn(move || {
-        let (mut s, _) = listener.accept().expect("accept");
-        s.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        let mut buf = Vec::new();
-        let mut chunk = [0u8; 4096];
-        loop {
-            let n = s.read(&mut chunk).unwrap_or(0);
-            if n == 0 {
+    (base, std::thread::spawn(move || (0..n).map(|_| mock_reply(&listener)).collect()))
+}
+
+#[cfg(test)]
+fn mock_reply(listener: &std::net::TcpListener) -> String {
+    use std::io::{Read, Write};
+    let (mut s, _) = listener.accept().expect("accept");
+    s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = s.read(&mut chunk).unwrap_or(0);
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        let text = String::from_utf8_lossy(&buf);
+        if let Some(h) = text.find("\r\n\r\n") {
+            let len = text[..h]
+                .lines()
+                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap_or(0)))
+                .unwrap_or(0usize);
+            if buf.len() >= h + 4 + len {
                 break;
             }
-            buf.extend_from_slice(&chunk[..n]);
-            let text = String::from_utf8_lossy(&buf);
-            if let Some(h) = text.find("\r\n\r\n") {
-                let len = text[..h]
-                    .lines()
-                    .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap_or(0)))
-                    .unwrap_or(0usize);
-                if buf.len() >= h + 4 + len {
-                    break;
-                }
-            }
         }
-        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}");
-        String::from_utf8_lossy(&buf).into_owned()
-    });
-    (base, h)
+    }
+    let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}");
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 #[cfg(test)]
@@ -1100,6 +994,69 @@ mod tests {
         assert!(s("http://localhost:4096").is_local());
         assert!(!s("https://host.example.ts.net:4096").is_local());
         assert_eq!(encode_component("/a b/é?&"), "%2Fa%20b%2F%C3%A9%3F%26");
+    }
+
+    fn body_of(req: &str) -> Value {
+        serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap()
+    }
+
+    #[test]
+    fn a_choice_switches_the_agent_then_the_model_before_the_prompt() {
+        let (base, h) = mock(3);
+        let model = model::ModelRef { id: "gpt-6-astra".into(), provider: "openai".into(), variant: "high".into() };
+        let prompt = Prompt { id: Some("msg_a".into()), text: "go".into(), agent: Some("plan".into()), model: Some(model), ..Default::default() };
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        let reqs = h.join().unwrap();
+        assert!(reqs[0].starts_with("POST /api/session/ses_a/agent HTTP/1.1"), "{}", reqs[0]);
+        assert_eq!(body_of(&reqs[0]), serde_json::json!({"agent": "plan"}));
+        assert!(reqs[1].starts_with("POST /api/session/ses_a/model HTTP/1.1"), "{}", reqs[1]);
+        assert_eq!(body_of(&reqs[1]), serde_json::json!({"model": {"id": "gpt-6-astra", "providerID": "openai", "variant": "high"}}));
+        assert!(reqs[2].starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{}", reqs[2]);
+        assert_eq!(
+            body_of(&reqs[2]),
+            serde_json::json!({"id": "msg_a", "text": "go",
+                "metadata": {"agent": "plan", "model": {"providerID": "openai", "modelID": "gpt-6-astra", "variant": "high"}}})
+        );
+    }
+
+    #[test]
+    fn a_default_effort_sends_no_variant_and_a_model_alone_leaves_the_agent() {
+        let (base, h) = mock(2);
+        let model = model::ModelRef { id: "claude-sonnet-5-5".into(), provider: "anthropic".into(), variant: String::new() };
+        let prompt = Prompt { text: "go".into(), display_text: Some("go!".into()), model: Some(model), ..Default::default() };
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        let reqs = h.join().unwrap();
+        assert!(reqs[0].starts_with("POST /api/session/ses_a/model HTTP/1.1"), "{}", reqs[0]);
+        assert_eq!(body_of(&reqs[0]), serde_json::json!({"model": {"id": "claude-sonnet-5-5", "providerID": "anthropic"}}));
+        assert_eq!(
+            body_of(&reqs[1])["metadata"],
+            serde_json::json!({"displayText": "go!", "comments": [], "attachments": [],
+                "model": {"providerID": "anthropic", "modelID": "claude-sonnet-5-5"}})
+        );
+    }
+
+    #[test]
+    fn a_queued_prompt_only_records_its_choice_and_no_choice_sends_nothing_extra() {
+        let (base, h) = mock_once();
+        let prompt = Prompt { text: "later".into(), delivery: Some(Delivery::Queue), agent: Some("plan".into()), ..Default::default() };
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{req}");
+        assert_eq!(body_of(&req), serde_json::json!({"text": "later", "delivery": "queue", "metadata": {"agent": "plan"}}));
+
+        let plain = Prompt { text: "hi".into(), delivery: Some(Delivery::Steer), ..Default::default() };
+        assert_eq!(plain.body(), serde_json::json!({"text": "hi", "delivery": "steer"}));
+    }
+
+    #[test]
+    fn a_steered_command_switches_first() {
+        let (base, h) = mock(2);
+        let prompt = Prompt { text: "HEAD".into(), command: Some("review".into()), delivery: Some(Delivery::Steer), agent: Some("plan".into()), ..Default::default() };
+        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        let reqs = h.join().unwrap();
+        assert!(reqs[0].starts_with("POST /api/session/ses_a/agent HTTP/1.1"), "{}", reqs[0]);
+        assert!(reqs[1].starts_with("POST /api/session/ses_a/command HTTP/1.1"), "{}", reqs[1]);
+        assert_eq!(body_of(&reqs[1]), serde_json::json!({"name": "review", "text": "HEAD", "delivery": "steer"}));
     }
 
     #[test]

@@ -138,6 +138,7 @@ pub static STORIES: &[Story] = &[
     Story { path: "Composer/Queue dock", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: QUEUE_KEYS, variants: &[] },
     Story { path: "Composer/Dictation", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::dictation::STORY_KEYS, variants: &[] },
     Story { path: "Composer/History", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::prompt_history_story::KEYS, variants: &[] },
+    Story { path: "Composer/Pickers", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::picker_stories::KEYS, variants: crate::picker_stories::VARIANTS },
     Story { path: "Composer/Mentions", scene: |s| stage(s, session_view), knobs: &[], keys: crate::mention_stories::KEYS, variants: &[] },
     Story { path: "Composer/Subagents capsule, 30 running", scene: |s| stage(s, session_view), knobs: &[], keys: crate::capsule_stories::KEYS, variants: &[] },
     Story { path: "Question dock/Question", scene: |s| stage(s, composer_view), knobs: &[], keys: QUESTION_KEYS, variants: QUESTION_VARIANTS },

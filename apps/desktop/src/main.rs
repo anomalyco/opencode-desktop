@@ -15,6 +15,7 @@ mod attachments;
 mod background;
 mod background_stories;
 mod capsule_stories;
+mod picker_stories;
 mod compaction;
 mod compaction_stories;
 mod diagnostics;

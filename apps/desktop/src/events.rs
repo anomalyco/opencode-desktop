@@ -109,6 +109,7 @@ impl App {
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= self.apply_revert(ty, data, &sid);
         }
+        changed |= self.apply_selected(ty, data, &sid);
         if let Some(t) = self.transcripts.get_mut(&sid) {
             // A transcript shows only in its own family's page, so another session's stream
             // updates its state without rebuilding the view.
