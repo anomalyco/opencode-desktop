@@ -10,10 +10,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use rune::{
-    ClipboardContent, Cx, El, Image, ImageCache, Spring, SpringPair, SurfaceFit, TextStyle, Transition, Tx, Waker, col, el,
+    ClipboardContent, Cx, El, Image, ImageCache, SurfaceFit, TextStyle, Tx, Waker, col, el,
     icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
@@ -23,6 +25,16 @@ use opencode_kit::model::{Attachment, Message, Transcript};
 
 use crate::App;
 use crate::palette::Pal;
+
+mod images;
+mod viewer;
+
+pub(crate) use images::{Fetch, Fetched, PreparedImage, prepare_images};
+use images::{Media, fit};
+pub use viewer::{Viewing, view_image, viewer};
+use viewer::opens;
+#[cfg(test)]
+use viewer::shown;
 
 /// The server's cap on one attachment.
 const MAX_BYTES: usize = 20 << 20;
@@ -55,134 +67,6 @@ pub struct Attach {
     refs: RefCell<HashMap<String, Image>>,
 }
 
-/// Header dimensions are available before decode; the same handle crosses from prefetch to view.
-#[derive(Clone)]
-pub(crate) struct PreparedImage {
-    bytes: Arc<[u8]>,
-    image: Image,
-    size: Option<[u32; 2]>,
-}
-
-fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
-    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
-    (w > 0 && h > 0).then_some([w, h])
-}
-
-impl PreparedImage {
-    fn new(cache: &ImageCache, bytes: Arc<[u8]>) -> Self {
-        Self { size: dimensions(&bytes), image: cache.load(bytes.clone()), bytes }
-    }
-
-    pub fn weight(&self) -> usize {
-        // RGBA plus the mip chain; encoded bytes are counted by the page cache.
-        self.size.map_or(0, |[w, h]| w as usize * h as usize * 16 / 3)
-    }
-
-    #[cfg(test)]
-    pub fn wait(&self) { self.image.wait().unwrap(); }
-}
-
-/// Called only on the page worker. Newest attachments first, at most eight megapixels per
-/// page; older history stays demand-loaded. The page cache also counts decoded pixel weight.
-pub(crate) fn prepare_images(messages: &[Message], cache: &ImageCache) -> Vec<PreparedImage> {
-    use opencode_kit::model::{Part, user_files};
-    let mut prepared = Vec::new();
-    let mut pixels = 0u64;
-    let mut add = |f: &Attachment| {
-        if !decodable(&f.mime) || f.media.is_some() { return; }
-        let Some([w, h]) = dimensions(&f.bytes) else { return };
-        let count = u64::from(w) * u64::from(h);
-        if pixels + count > 8_000_000 || prepared.len() >= 8 { return; }
-        pixels += count;
-        prepared.push(PreparedImage::new(cache, f.bytes.clone()));
-    };
-    for m in messages.iter().rev() {
-        match m {
-            Message::User { id, .. } => { for f in user_files(id).iter().rev() { add(f); } }
-            Message::Assistant(a) => for p in a.parts.iter().rev() {
-                if let Part::Tool { files, .. } = p { for f in files.iter().rev() { add(f); } }
-            },
-            _ => {}
-        }
-    }
-    prepared
-}
-
-/// Reads a `media:` ref's bytes (`Server::media` live; a stub in tests).
-pub type Fetch = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
-
-/// Where a ref's bytes are.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Fetched {
-    Loading,
-    Ready(Arc<[u8]>),
-    Failed(String),
-    /// Handed to the image cache, which holds the pixels now.
-    Decoded,
-}
-
-/// Ref fetches, on one worker thread that takes the newest request first: a view asks top to
-/// bottom, and the bottom of a transcript is what shows.
-#[derive(Default)]
-struct Media {
-    fetch: Option<Fetch>,
-    state: Arc<Mutex<HashMap<String, Fetched>>>,
-    queue: RefCell<Option<Arc<(Mutex<Vec<String>>, Condvar)>>>,
-}
-
-impl Media {
-    fn get(&self, hash: &str, waker: Option<&Waker>) -> Fetched {
-        let mut state = self.state.lock().unwrap();
-        if let Some(f) = state.get(hash) {
-            return f.clone();
-        }
-        let Some(fetch) = self.fetch.clone() else { return Fetched::Failed("no server".into()) };
-        state.insert(hash.to_owned(), Fetched::Loading);
-        drop(state);
-        let mut queue = self.queue.borrow_mut();
-        let q = queue.get_or_insert_with(|| {
-            let q = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
-            spawn_fetcher(Arc::downgrade(&q), self.state.clone(), fetch, waker.cloned().unwrap_or_else(|| Arc::new(|| {})));
-            q
-        });
-        q.0.lock().unwrap().push(hash.to_owned());
-        q.1.notify_one();
-        Fetched::Loading
-    }
-}
-
-fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, fetch: Fetch, wake: Waker) {
-    std::thread::Builder::new()
-        .name("opencode-media".into())
-        .spawn(move || {
-            loop {
-                // Ends once the app (the queue's owner) is gone.
-                let Some(q) = queue.upgrade() else { return };
-                let next = {
-                    let mut stack = q.0.lock().unwrap();
-                    if stack.is_empty() {
-                        stack = q.1.wait_timeout(stack, std::time::Duration::from_secs(1)).unwrap().0;
-                    }
-                    stack.pop()
-                };
-                drop(q);
-                let Some(hash) = next else { continue };
-                let result = match fetch(&hash) {
-                    Ok(bytes) => Fetched::Ready(bytes.into()),
-                    Err(e) => Fetched::Failed(e),
-                };
-                state.lock().unwrap().insert(hash, result);
-                wake();
-            }
-        })
-        .expect("spawn media thread");
-}
-
-/// What the cache decodes; other types show as a named chip.
-fn decodable(mime: &str) -> bool {
-    matches!(mime, "image/png" | "image/jpeg" | "image/jpg")
-}
-
 impl Default for Attach {
     fn default() -> Self {
         let (uploads_tx, uploads) = channel();
@@ -205,67 +89,6 @@ impl Default for Attach {
 }
 
 impl Attach {
-    /// A story controls byte arrival with the replay clock, then uses the real decoder.
-    pub(crate) fn fixture_media(&self, hash: &str, bytes: Option<Vec<u8>>) {
-        let ready = bytes.is_some();
-        self.media.state.lock().unwrap().insert(hash.into(), bytes.map_or(Fetched::Loading, |b| Fetched::Ready(b.into())));
-        if ready {
-            let f = Attachment { mime: "image/png".into(), media: Some(hash.into()), ..Default::default() };
-            self.image(&f).unwrap().wait().unwrap();
-        }
-    }
-
-    /// Start uncached/ref reads in the newest message window too. Older history stays
-    /// demand-loaded; preparing a page is not the same as finishing its image decodes.
-    pub(crate) fn transcript_ready(&self, t: &Transcript) -> bool {
-        use opencode_kit::model::{Part, user_files};
-        let mut ready = true;
-        let mut check = |f: &Attachment| {
-            if !decodable(&f.mime) { return; }
-            let loaded = self.image(f).is_some_and(|i| i.is_ready())
-                || matches!(self.fetched(f), Some(Fetched::Failed(_)));
-            ready &= loaded;
-        };
-        for message in t.messages.iter().rev().take(crate::session_pages::LATEST) {
-            match message {
-                Message::User { id, .. } => for file in user_files(id).iter() { check(file); },
-                Message::Assistant(a) => for part in &a.parts {
-                    if let Part::Tool { files, .. } = part { for file in files { check(file); } }
-                },
-                _ => {}
-            }
-        }
-        ready
-    }
-
-    #[cfg(test)]
-    pub(crate) fn image_handles(&self) -> Vec<Image> {
-        self.images.borrow().values().map(|p| p.image.clone()).chain(self.refs.borrow().values().cloned()).collect()
-    }
-
-    pub(crate) fn adopt(&self, prepared: &[PreparedImage]) {
-        let mut images = self.images.borrow_mut();
-        // A refreshed page has new byte addresses. Release handles once neither a page nor
-        // the transcript owns their source; repeated opens must not retain every old copy.
-        images.retain(|_, p| Arc::strong_count(&p.bytes) > 1);
-        for p in prepared {
-            let mut p = p.clone();
-            // A foreground refresh has its own decoder. Identical bytes already on screen
-            // keep their ready pixels, instead of replacing them with a pending handle.
-            if let Some(old) = images.values().find(|old| old.image.id() == p.image.id() && old.image.is_ready()) {
-                p.image = old.image.clone();
-            }
-            images.insert((p.bytes.as_ptr() as usize, p.bytes.len()), p);
-        }
-    }
-
-    fn thumbnail_size(&self, f: &Attachment) -> (f32, f32) {
-        // Refs carry no dimensions: keep their reserved box after the fetch as well.
-        if f.media.is_some() { return (160.0, 120.0); }
-        self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size)
-            .map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
-    }
-
     /// Something to send besides text.
     pub fn any(&self) -> bool {
         !self.files.is_empty() || !self.paths.is_empty()
@@ -279,47 +102,6 @@ impl Attach {
 
     pub fn set_waker(&mut self, waker: Waker) {
         self.waker = Some(waker);
-    }
-
-    /// Where `media:` refs' bytes come from.
-    pub fn set_fetch(&mut self, fetch: Fetch) {
-        self.media.fetch = Some(fetch);
-    }
-
-    /// The decoded image (PNG and JPEG; None for other types, which show as a named chip, and
-    /// for a ref whose bytes haven't arrived, which starts fetching them).
-    pub fn image(&self, a: &Attachment) -> Option<Image> {
-        if !decodable(&a.mime) {
-            return None;
-        }
-        if let Some(hash) = &a.media {
-            if let Some(img) = self.refs.borrow().get(hash) {
-                return Some(img.clone());
-            }
-            let Fetched::Ready(bytes) = self.media.get(hash, self.waker.as_ref()) else { return None };
-            let img = self.load(bytes);
-            self.refs.borrow_mut().insert(hash.clone(), img.clone());
-            self.media.state.lock().unwrap().insert(hash.clone(), Fetched::Decoded);
-            return Some(img);
-        }
-        let key = (a.bytes.as_ptr() as usize, a.bytes.len());
-        if let Some(p) = self.images.borrow().get(&key) {
-            return Some(p.image.clone());
-        }
-        let img = self.load(a.bytes.clone());
-        self.images.borrow_mut().insert(key, PreparedImage { bytes: a.bytes.clone(), image: img.clone(), size: dimensions(&a.bytes) });
-        Some(img)
-    }
-
-    /// A ref's fetch, once `image` has asked for it (None for inline files).
-    pub fn fetched(&self, a: &Attachment) -> Option<Fetched> {
-        let hash = a.media.as_ref()?;
-        self.media.state.lock().unwrap().get(hash).cloned()
-    }
-
-    fn load(&self, bytes: Arc<[u8]>) -> Image {
-        let mut cache = self.cache.borrow_mut();
-        cache.get_or_insert_with(|| ImageCache::new(self.waker.clone().unwrap_or_else(|| Arc::new(|| {})))).load(bytes)
     }
 
     pub fn add(&mut self, a: Attachment) {
@@ -521,49 +303,39 @@ pub fn chips(s: &App, p: &Pal) -> Option<El> {
             None => card(p, &f.name, type_label(&f.name)),
         };
         let gone = id.clone();
-        let remove = el()
-            .key("remove")
-            .role("button")
-            .label(format!("Remove {}", f.name))
-            // Desktop's `-top-1 -end-1`.
-            .absolute(w - 12.0, -4.0)
-            .size(16.0, 16.0)
-            .radius(8.0)
-            .center()
-            .fill(p.icon_muted)
-            .outline(1.0, 0.0, p.icon_contrast)
-            .group_opacity(0.0, 1.0)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.attach.files.retain(|f| identity(f) != gone);
-            })
-            .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
+        let remove = remove_button(p, &f.name, w, move |s| s.attach.files.retain(|f| identity(f) != gone));
         r = r.child(el().key(format!("chip-{id}")).hover_group().child(body).child(remove));
     }
     for f in &s.attach.paths {
         let gone = f.path.clone();
-        let remove = el()
-            .key("remove")
-            .role("button")
-            .label(format!("Remove {}", f.name))
-            .absolute(160.0 - 12.0, -4.0)
-            .size(16.0, 16.0)
-            .radius(8.0)
-            .center()
-            .fill(p.icon_muted)
-            .outline(1.0, 0.0, p.icon_contrast)
-            .group_opacity(0.0, 1.0)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.attach.paths.retain(|f| f.path != gone);
-            })
-            .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
+        let remove = remove_button(p, &f.name, 160.0, move |s| s.attach.paths.retain(|f| f.path != gone));
         r = r.child(el().key(format!("path-{}", f.path)).hover_group().child(card(p, &f.name, type_label(&f.name))).child(remove));
     }
     for (i, name) in s.attach.uploading.iter().enumerate() {
         r = r.child(el().key(format!("uploading-{i}")).child(card(p, name, "Uploading…".into())));
     }
     Some(r)
+}
+
+/// The round button on a chip's corner that shows on hover, for a chip `w` wide.
+fn remove_button(p: &Pal, name: &str, w: f32, on: impl Fn(&mut App) + 'static) -> El {
+    el()
+        .key("remove")
+        .role("button")
+        .label(format!("Remove {name}"))
+        // Desktop's `-top-1 -end-1`.
+        .absolute(w - 12.0, -4.0)
+        .size(16.0, 16.0)
+        .radius(8.0)
+        .center()
+        .fill(p.icon_muted)
+        .outline(1.0, 0.0, p.icon_contrast)
+        .group_opacity(0.0, 1.0)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            on(s);
+        })
+        .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast))
 }
 
 fn card(p: &Pal, title: &str, subtitle: String) -> El {
@@ -622,28 +394,6 @@ pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> 
     Some(col().w_full().pb(8.0).child(r))
 }
 
-fn fit(w: f32, h: f32, max_w: f32, max_h: f32) -> (f32, f32) {
-    let k = (max_w / w.max(1.0)).min(max_h / h.max(1.0)).min(1.0);
-    ((w * k).max(24.0), (h * k).max(24.0))
-}
-
-// The viewer: Desktop's image preview (`@opencode/ui` `image-preview`). A click on a thumbnail
-// grows it into the image, fitted to the window over a scrim; Escape or a click outside the
-// image shrinks it back into its thumbnail.
-
-pub struct Viewing {
-    /// The thumbnail's `El::matched` id.
-    id: String,
-    name: String,
-    image: Image,
-}
-
-/// Desktop flies on a 0.3 s spring launched with a push, as a spring from rest starts slowly;
-/// from rest, 0.25 s lands on the same shape (the Timeline knob's default).
-fn flight(s: &App) -> Spring {
-    Spring::new(s.knobs.get(&crate::knobs::IMAGE_FLIGHT), 0.0)
-}
-
 /// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
 /// shared-element id.
 fn identity(f: &Attachment) -> String {
@@ -651,61 +401,6 @@ fn identity(f: &Attachment) -> String {
         Some(hash) => format!("{:x}:{hash}", f as *const Attachment as usize),
         None => format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len()),
     }
-}
-
-/// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
-/// apart, so the thumbnail leaves the tree) holds its place, and the image flies out of it and
-/// back into it.
-fn opens(s: &App, thumb: El, held: El, id: String, f: &Attachment, image: Image) -> El {
-    if s.attach.viewing.as_ref().is_some_and(|v| v.id == id) {
-        return held;
-    }
-    let name = f.name.clone();
-    thumb.matched(id.clone()).motion(flight(s)).on_press(move |s: &mut App| {
-        s.attach.viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
-    })
-}
-
-/// Opens the viewer on `f` in the gallery keyed `key`, as pressing its thumbnail does (the
-/// storybook's images story). False while its image isn't loaded.
-pub fn view_image(s: &mut App, key: &str, f: &Attachment) -> bool {
-    let Some(image) = s.attach.image(f) else { return false };
-    s.attach.viewing = Some(Viewing { id: format!("{key}:{}", identity(f)), name: f.name.clone(), image });
-    true
-}
-
-/// Where the viewer shows an image of `size` pixels in a `w`×`h` window: a pixel a point, shrunk
-/// to fit inside 56 points top and bottom and 3% of the width (20 to 48 points) at the sides,
-/// centred.
-fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
-    let side = (w * 0.03).clamp(8.0, 36.0) + 12.0;
-    let (bw, bh) = ((w - 2.0 * side).max(1.0), (h - 2.0 * 56.0).max(1.0));
-    let [iw, ih] = size.map_or([bw, bh], |[a, b]| [a.max(1) as f32, b.max(1) as f32]);
-    let k = (bw / iw).min(bh / ih).min(1.0);
-    let (sw, sh) = (iw * k, ih * k);
-    [(w - sw) / 2.0, (h - sh) / 2.0, sw, sh]
-}
-
-/// The open viewer, over the whole window: a scrim, and the image.
-pub fn viewer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
-    let Some(v) = &s.attach.viewing else { return Vec::new() };
-    let win = cx.layout("window").unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    let [x, y, w, h] = shown(v.image.size(), win[2], win[3]);
-    let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
-    let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
-    let image = el()
-        .key("image-viewer")
-        .role("dialog")
-        .label(v.name.clone())
-        .matched(v.id.clone())
-        .motion(flight(s))
-        .size(w, h)
-        .radius(6.0)
-        .pixels_fit(v.image.pixels(), SurfaceFit::Fill)
-        .transition(Transition::opacity().springs(fade))
-        .modal(true, |s: &mut App| s.attach.viewing = None)
-        .absolute(x, y);
-    vec![scrim, image]
 }
 
 #[cfg(test)]
