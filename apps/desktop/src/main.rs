@@ -41,6 +41,7 @@ mod keys;
 mod knobs;
 mod launch;
 mod mentions;
+mod notifications;
 mod palette;
 #[cfg(test)]
 mod perf;
@@ -194,6 +195,8 @@ pub struct App {
     pub dictation: dictation::Dictation,
     pub switcher: switcher::Switcher,
     pub settings: settings::Settings,
+    /// System notifications for finished runs, permission requests and errors.
+    pub notify: notifications::Notifier,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
     /// Links opened from messages, newest last.
@@ -608,6 +611,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     let mut changed = dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
+    changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);

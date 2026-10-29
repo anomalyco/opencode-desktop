@@ -40,17 +40,24 @@ pub struct Settings {
     pub scheme: Scheme,
     /// Fold prompts past 12 lines behind Read more (`fold.rs`). On unless turned off.
     pub fold_user: bool,
+    /// Which events post a system notification (`notifications.rs`), with Desktop's defaults.
+    pub notify: crate::notifications::Kinds,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { open: false, show_agent: false, scheme: Scheme::default(), fold_user: true }
+        Settings { open: false, show_agent: false, scheme: Scheme::default(), fold_user: true, notify: Default::default() }
     }
 }
 
 impl Settings {
     pub fn to_json(&self) -> Value {
-        json!({ "showAgentPicker": self.show_agent, "appearance": self.scheme.name(), "foldUserMessages": self.fold_user })
+        json!({
+            "showAgentPicker": self.show_agent,
+            "appearance": self.scheme.name(),
+            "foldUserMessages": self.fold_user,
+            "notifications": self.notify.to_json(),
+        })
     }
 
     pub fn from_json(v: &Value) -> Settings {
@@ -59,6 +66,7 @@ impl Settings {
             show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(true),
+            notify: crate::notifications::Kinds::from_json(&v["notifications"]),
         }
     }
 }
@@ -125,6 +133,10 @@ impl App {
         self.change_settings(|s| s.fold_user = on);
     }
 
+    pub fn set_notify(&mut self, kind: crate::notifications::Kind, on: bool) {
+        self.change_settings(|s| s.notify.set(kind, on));
+    }
+
     pub fn set_scheme(&mut self, scheme: Scheme) {
         self.change_settings(|s| s.scheme = scheme);
     }
@@ -189,16 +201,36 @@ pub fn page(s: &App, p: &Pal) -> El {
         .grow(1.0)
         .shrink()
         .items_center()
+        .scroll(rune::ScrollSpec { stick_bottom: false })
         .child(
             col()
                 .w_full()
                 .max_w(720.0)
                 .px(40.0)
                 .pt(48.0)
+                .pb(48.0)
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
-                .child(col().w_full().gap(16.0).child(text("General").font(SECTION).color(p.text)).child(list)),
+                .child(col().w_full().gap(16.0).child(text("General").font(SECTION).color(p.text)).child(list))
+                .child(col().w_full().gap(16.0).child(text("Notifications").font(SECTION).color(p.text)).child(notification_list(s, p))),
         )
+}
+
+/// Desktop's three notification switches, with its titles and descriptions.
+fn notification_list(s: &App, p: &Pal) -> El {
+    use crate::notifications::Kind;
+    let rows = [
+        (Kind::Agent, "Agent", "Show system notification when the agent is complete or needs attention"),
+        (Kind::Permission, "Permissions", "Show system notification when a permission is required"),
+        (Kind::Error, "Errors", "Show system notification when an error occurs"),
+    ];
+    let mut list = col().key("notifications-list").w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
+    for (i, (kind, title, description)) in rows.into_iter().enumerate() {
+        let on = s.settings.notify.get(kind);
+        let control = switch(p, &format!("notify-{}", kind.name()), on).on_press(move |s: &mut App| s.set_notify(kind, !s.settings.notify.get(kind)));
+        list = list.child(setting(p, &format!("notify-{}", kind.name()), title, description, control, i + 1 < rows.len()));
+    }
+    list
 }
 
 fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divider: bool) -> El {
@@ -368,7 +400,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, notify: Default::default() };
+        on.notify.set(crate::notifications::Kind::Agent, true);
+        on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);
         assert_eq!(read(&path), on);
         let _ = std::fs::remove_dir_all(dir);
