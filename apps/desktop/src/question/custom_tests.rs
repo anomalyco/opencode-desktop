@@ -64,7 +64,7 @@ fn type_in(rt: &mut Runtime<App>, s: &str) {
 }
 
 fn typed(rt: &Runtime<App>, key: &str) -> TextEdit {
-    rt.state.typed.get(&format!("{FORM}/{key}")).cloned().unwrap_or_else(|| TextEdit::new(""))
+    rt.state.question.typed.get(&format!("{FORM}/{key}")).cloned().unwrap_or_else(|| TextEdit::new(""))
 }
 
 fn editing(rt: &Runtime<App>) -> bool {
@@ -159,7 +159,7 @@ fn digits_type_and_select_all_stays_in_the_field() {
     press(&mut rt, txt("4"));
     type_in(&mut rt, "Wait 2 or 3");
     assert_eq!(typed(&rt, "q0").text, "Wait 2 or 3");
-    assert!(rt.state.picks.get(&format!("{FORM}/q0")).is_none_or(|p| p.is_empty()), "no answer picked");
+    assert!(rt.state.question.picks.get(&format!("{FORM}/q0")).is_none_or(|p| p.is_empty()), "no answer picked");
     assert_eq!(rt.state.question.focus, 3);
     press(&mut rt, cmd(Key::Command('a')));
     let t = typed(&rt, "q0");

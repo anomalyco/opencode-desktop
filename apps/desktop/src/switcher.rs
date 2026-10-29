@@ -302,10 +302,7 @@ impl App {
                 self.open(&id, tx);
             }
             Action::Command(Command::NewSession) => self.new_session(tx),
-            Action::Command(Command::Home) => {
-                self.route = Route::Home;
-                tx.settle();
-            }
+            Action::Command(Command::Home) => self.go_home(tx),
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
             Action::Command(Command::Settings) => self.open_settings(),
             Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),

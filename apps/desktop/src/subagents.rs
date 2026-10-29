@@ -28,17 +28,7 @@ pub struct Running {
 impl App {
     /// Whether `id` is `ancestor` or a session below it.
     pub fn descends(&self, id: &str, ancestor: &str) -> bool {
-        let mut cur = id;
-        for _ in 0..32 {
-            if cur == ancestor {
-                return true;
-            }
-            match self.session(cur).and_then(|s| s.parent.as_deref()) {
-                Some(p) => cur = p,
-                None => return false,
-            }
-        }
-        false
+        self.ancestors(id).take(32).any(|cur| cur == ancestor)
     }
 
     /// Whether `id` or anything below it is running.

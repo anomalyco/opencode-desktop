@@ -76,7 +76,7 @@ impl Pickers {
     /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
     /// Deprecated models are left out, as Desktop leaves them out of its catalog.
     pub fn load_live(&mut self, models: &Value, agents: &Value) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let now = crate::wall_ms();
         let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
         let listed: Vec<&Value> = models.as_array().into_iter().flatten()
             .filter(|v| v["enabled"].as_bool().unwrap_or(true) && v["status"].as_str() != Some("deprecated")).collect();
@@ -195,11 +195,11 @@ impl App {
     /// its reply, as a live server does.
     pub fn serve_choice(&mut self, session: &str, prompt: &opencode_kit::client::Prompt, at: f64) {
         if let Some(agent) = &prompt.agent {
-            self.playback.push_back((at, "session.agent.selected".into(), serde_json::json!({ "sessionID": session, "agent": agent })));
+            self.schedule(at, "session.agent.selected", serde_json::json!({ "sessionID": session, "agent": agent }));
         }
         if let Some(m) = &prompt.model {
             let model = serde_json::json!({ "id": m.id, "providerID": m.provider, "variant": m.variant });
-            self.playback.push_back((at, "session.model.selected".into(), serde_json::json!({ "sessionID": session, "model": model })));
+            self.schedule(at, "session.model.selected", serde_json::json!({ "sessionID": session, "model": model }));
         }
     }
 

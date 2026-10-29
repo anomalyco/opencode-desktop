@@ -424,9 +424,7 @@ pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     if data["sessionID"].is_null() {
         data["sessionID"] = sid(s).into();
     }
-    let at = s.clock;
-    let i = s.playback.iter().position(|e| e.0 > at).unwrap_or(s.playback.len());
-    s.playback.insert(i, (at, ty.into(), data));
+    s.schedule(s.clock, ty, data);
     tx.wake_after(std::time::Duration::ZERO);
 }
 

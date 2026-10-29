@@ -57,7 +57,7 @@ enum Backend {
 
 impl Backend {
     fn detect() -> Backend {
-        let headless = std::env::args().any(|a| matches!(a.as_str(), "--snap" | "--tree" | "--script" | "--video" | "--strip" | "--frames" | "--scene" | "--fixture"));
+        let headless = crate::headless() || crate::arg("--scene").is_some() || crate::arg("--fixture").is_some();
         if std::env::var_os("SEER_HEX").is_none() && (cfg!(test) || headless) { Backend::Fake } else { Backend::Hex(hex_client::discovery()) }
     }
 

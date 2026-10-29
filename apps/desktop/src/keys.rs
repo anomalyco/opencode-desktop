@@ -41,8 +41,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         // A subagent's session has no composer: Esc goes back to the session that started it.
         Key::Escape if s.open_parent(tx) => true,
         Key::Escape if s.route != Route::Home && !s.composer.focused => {
-            s.route = Route::Home;
-            tx.settle();
+            s.go_home(tx);
             true
         }
         _ => false,

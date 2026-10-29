@@ -37,14 +37,7 @@ impl App {
 
     /// The root of a session's family.
     pub fn root_of<'a>(&'a self, id: &'a str) -> &'a str {
-        let mut cur = id;
-        for _ in 0..32 {
-            match self.session(cur).and_then(|s| s.parent.as_deref()) {
-                Some(p) => cur = p,
-                None => break,
-            }
-        }
-        cur
+        self.ancestors(id).last().unwrap_or(id)
     }
 
     /// A tab's mark, as Desktop decides it: busy while anything in the family runs (unless it's
@@ -74,12 +67,24 @@ impl App {
                 Some(next) => self.open(&next, tx),
                 None => {
                     self.close_picker(false);
-                    self.route = Route::Home;
-                    tx.settle();
+                    self.go_home(tx);
                 }
             }
         }
         self.save_tabs();
+    }
+
+    pub(crate) fn reopen_tab(&mut self, tx: &mut Tx) {
+        while let Some((i, tab)) = self.closed.pop() {
+            if self.tabs.iter().any(|t| t.id == tab.id) {
+                continue;
+            }
+            let id = tab.id.clone();
+            self.tabs.insert(i.min(self.tabs.len()), tab);
+            self.open(&id, tx);
+            self.save_tabs();
+            break;
+        }
     }
 
     /// The tab the open page belongs to, if any.

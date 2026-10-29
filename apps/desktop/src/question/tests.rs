@@ -87,7 +87,7 @@ fn press(rt: &mut Runtime<App>, e: KeyEvent) {
 }
 
 fn picks(rt: &Runtime<App>, key: &str) -> Vec<String> {
-    rt.state.picks.get(&format!("{FORM}/{key}")).cloned().unwrap_or_default()
+    rt.state.question.picks.get(&format!("{FORM}/{key}")).cloned().unwrap_or_default()
 }
 
 fn shows_composer(rt: &Runtime<App>) -> bool {
@@ -170,7 +170,7 @@ fn escape_dismisses() {
 fn a_typed_answer_goes_in_the_reply() {
     let (mut rt, writes) = asked(true);
     press(&mut rt, txt("4"));
-    assert!(rt.state.typed.get(&format!("{FORM}/q0")).is_some_and(|t| t.focused), "4 opens the field");
+    assert!(rt.state.question.typed.get(&format!("{FORM}/q0")).is_some_and(|t| t.focused), "4 opens the field");
     for c in ["B", "o", "t", "h"] {
         press(&mut rt, txt(c));
     }

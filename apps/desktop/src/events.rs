@@ -41,10 +41,7 @@ impl App {
             "permission.asked" | "form.created" => {
                 let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
                 let Some(p) = parsed else { return false };
-                self.requests.insert((p.session().to_owned(), p.id().to_owned()));
-                if !self.pending.iter().any(|x| x.id() == p.id()) {
-                    self.pending.push(p);
-                }
+                self.add_pending(p);
                 true
             }
             "permission.replied" | "form.replied" | "form.cancelled" => {
@@ -135,13 +132,8 @@ impl App {
                 }
             }
             // A step started in the open session may follow a prompt we haven't seen.
-            if ty == "session.step.started"
-                && self.route == Route::Session(sid.clone())
-                && let Source::Live { requests: Some(r), .. } = &self.source
-            {
-                if let Some(pages) = &self.pages {
-                    pages.request(session_pages::Key { id: sid.clone(), updated: self.session(&sid).map_or(0, |s| s.updated) }, true);
-                } else { let _ = r.send(Request::Session(sid)); }
+            if ty == "session.step.started" && self.route == Route::Session(sid.clone()) {
+                self.reload_session(&sid);
             }
         }
         if ty == "project.updated"
