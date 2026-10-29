@@ -487,6 +487,13 @@ impl App {
         self.mentions.seen = (self.composer.text.clone(), self.caret());
     }
 
+    /// After the app sets the composer's text itself (a recalled prompt): not an edit, so no popover.
+    pub fn mentions_settle(&mut self) {
+        self.mentions.open = false;
+        self.mentions.active = None;
+        self.mentions.seen = (self.composer.text.clone(), self.caret());
+    }
+
     pub fn close_mentions(&mut self) {
         self.mentions.open = false;
         self.mentions.active = None;

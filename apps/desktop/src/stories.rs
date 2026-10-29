@@ -136,6 +136,7 @@ pub static STORIES: &[Story] = &[
     Story { path: "Composer/Composer", scene: |s| stage(s, composer_view), knobs: COMPOSER_KNOBS, keys: COMPOSER_KEYS, variants: COMPOSER_VARIANTS },
     Story { path: "Composer/Queue dock", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: QUEUE_KEYS, variants: &[] },
     Story { path: "Composer/Dictation", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::dictation::STORY_KEYS, variants: &[] },
+    Story { path: "Composer/History", scene: |s| stage(s, composer_view), knobs: &[], keys: crate::prompt_history_story::KEYS, variants: &[] },
     Story { path: "Composer/Mentions", scene: |s| stage(s, session_view), knobs: &[], keys: crate::mention_stories::KEYS, variants: &[] },
     Story { path: "Composer/Subagents capsule, 30 running", scene: |s| stage(s, session_view), knobs: &[], keys: crate::capsule_stories::KEYS, variants: &[] },
     Story { path: "Question dock/Question", scene: |s| stage(s, composer_view), knobs: &[], keys: QUESTION_KEYS, variants: QUESTION_VARIANTS },

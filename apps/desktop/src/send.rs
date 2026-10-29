@@ -8,6 +8,10 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        self.record_sent(|s| s.send_prompt(alternate, tx));
+    }
+
+    fn send_prompt(&mut self, alternate: bool, tx: &mut Tx) {
         if self.opening.is_some() { return; }
         if crate::dictation::submit(self, alternate) { return; }
         if self.add.shell {

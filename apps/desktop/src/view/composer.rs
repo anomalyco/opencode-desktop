@@ -101,7 +101,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                             s.submit(true, tx);
                             return true;
                         }
-                        s.shortcut(ev, tx) || s.picker_key(ev, tx)
+                        s.shortcut(ev, tx) || s.picker_key(ev, tx) || s.history_key(ev, tx)
                     })
                     .on_input_paste(crate::attachments::paste)
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),

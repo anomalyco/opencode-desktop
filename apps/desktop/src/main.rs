@@ -43,6 +43,8 @@ mod palette;
 #[cfg(test)]
 mod perf;
 mod pickers;
+mod prompt_history;
+mod prompt_history_story;
 mod queue;
 mod question;
 mod question_row;
@@ -165,6 +167,8 @@ pub struct App {
     /// The width when a resize drag started.
     pub sidebar_drag: Option<f32>,
     pub composer: TextEdit,
+    /// Sent prompts, for ↑ and ↓ in the composer (`prompt_history.rs`).
+    pub prompts: prompt_history::PromptHistory,
     /// The composer's images, and sent prompts waiting on the server's copy.
     pub attach: attachments::Attach,
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
@@ -283,6 +287,7 @@ impl App {
             sidebar_w: view::SIDEBAR_W,
             sidebar_drag: None,
             composer: TextEdit::new(""),
+            prompts: Default::default(),
             attach: Default::default(),
             quote: Default::default(),
             search: TextEdit::new(""),
@@ -395,6 +400,7 @@ impl App {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         self.settings = settings::load();
+        self.prompts = prompt_history::PromptHistory::load();
         self.restore_ui(&server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
