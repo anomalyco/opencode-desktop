@@ -270,6 +270,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-pane"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "rune",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "ureq",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2476,6 +2489,7 @@ dependencies = [
  "rune-knobs",
  "rune-mac",
  "rune-perf",
+ "rune-register",
  "rune-theme-opencode",
  "serde_json",
 ]
@@ -2834,7 +2848,7 @@ dependencies = [
 [[package]]
 name = "procwatch"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "libc",
 ]
@@ -3110,7 +3124,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "arboard",
  "blake3",
@@ -3177,7 +3191,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -3189,7 +3203,7 @@ dependencies = [
 [[package]]
 name = "rune-knobs"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "rune",
 ]
@@ -3197,7 +3211,7 @@ dependencies = [
 [[package]]
 name = "rune-mac"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.3",
@@ -3206,7 +3220,7 @@ dependencies = [
 [[package]]
 name = "rune-mermaid"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "rune",
 ]
@@ -3214,15 +3228,23 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 
 [[package]]
 name = "rune-perf"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "procwatch",
  "serde_json",
+]
+
+[[package]]
+name = "rune-register"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
+dependencies = [
+ "linkme",
 ]
 
 [[package]]
@@ -3235,7 +3257,7 @@ dependencies = [
 [[package]]
 name = "rune-theme-opencode"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=e4deb6cdd5cf5e33555a8aca777368f1b05cde7b#e4deb6cdd5cf5e33555a8aca777368f1b05cde7b"
+source = "git+https://github.com/anomalyco/rune?rev=a91ae13c09962fee383e1e0879980fca5cd1eb52#a91ae13c09962fee383e1e0879980fca5cd1eb52"
 dependencies = [
  "rune",
  "rune-kit",
@@ -3418,6 +3440,7 @@ dependencies = [
 name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
+ "block2 0.5.1",
  "cpal",
  "hex-client",
  "image",

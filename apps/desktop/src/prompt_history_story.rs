@@ -33,3 +33,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         tx.after(at, run);
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::composer("Composer/History", KEYS),
+]);

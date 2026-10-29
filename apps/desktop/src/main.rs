@@ -23,6 +23,7 @@ mod dictation;
 #[cfg(test)]
 mod dictation_tests;
 mod disk;
+mod disclosure;
 mod dropzone;
 mod events;
 mod fixture_ids;
@@ -73,9 +74,6 @@ mod session_pages;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
-#[cfg_attr(not(test), allow(dead_code))]
-#[path = "motion_gate/check.rs"]
-mod motion_check;
 #[cfg(test)]
 mod motion_gate;
 mod motion_log;
@@ -699,7 +697,7 @@ fn dock_icon() {
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     AppSpec {
-        scenes: stories::scenes(scenes::SCENES),
+        scenes: stories::scenes(),
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),

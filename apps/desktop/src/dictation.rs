@@ -519,3 +519,7 @@ fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
         stop(s);
     });
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::composer("Composer/Dictation", STORY_KEYS),
+]);

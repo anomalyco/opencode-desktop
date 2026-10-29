@@ -23,7 +23,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};
 
-use crate::motion_check::{Recording, check, rule, short};
+use rune::motion_gate::{Recording, check, rule, short};
 use crate::{App, Route, Source};
 pub use flights::Window;
 
@@ -203,7 +203,7 @@ impl Watch {
         rec
     }
 
-    fn line(&self, rec: &Recording, f: &crate::motion_check::Finding, events: &Events) -> Value {
+    fn line(&self, rec: &Recording, f: &rune::motion_gate::Finding, events: &Events) -> Value {
         let track = rec.tracks.iter().find(|t| short(&t.path) == f.element && t.frames.iter().any(|s| s.0 == f.frame));
         let rect = |k: usize| track.and_then(|t| t.frames.iter().find(|s| s.0 == k)).map(|s| s.1);
         let deltas: Vec<Value> = match (f.frame.checked_sub(1).and_then(rect), rect(f.frame)) {

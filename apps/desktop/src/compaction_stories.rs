@@ -99,3 +99,7 @@ fn story(s: &App) -> Option<&opencode_kit::model::Compaction> {
         _ => None,
     })
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Compaction", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
+]);

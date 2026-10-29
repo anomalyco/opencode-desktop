@@ -34,3 +34,7 @@ fn prompt(s: &mut App, tx: &mut Tx) {
     let id = format!("msg_zzzzselect{:04}", s.transcripts.get(&sid(s)).map_or(0, |t| t.messages.len()));
     emit(s, "session.prompted", serde_json::json!({ "messageID": id, "text": "Does the watchdog also cover a wake from sleep?" }), tx);
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Selection", KEYS),
+]);

@@ -126,3 +126,8 @@ fn ticking(s: &mut App, tx: &mut Play<App>) {
         });
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story { path: "Components/Odometer", scene: |s| crate::stories::stage(s, view), knobs: &[], keys: KEYS, variants: &[] },
+    crate::stories::Story { path: "Header/Ticking", scene: |s| crate::stories::watch(s, crate::stories::ticking_view), knobs: &[], keys: TICKING_KEYS, variants: &[] },
+]);

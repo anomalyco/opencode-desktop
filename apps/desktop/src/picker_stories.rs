@@ -38,3 +38,7 @@ fn cycle(s: &mut App, kind: Kind) {
     let mods = rune::Mods { cmd: true, shift: kind == Kind::Effort, ..Default::default() };
     s.picker_key(&rune::KeyEvent { key: rune::Key::Command(key), mods }, &mut rune::Tx::default());
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::composer("Composer/Pickers", KEYS).variants(VARIANTS),
+]);

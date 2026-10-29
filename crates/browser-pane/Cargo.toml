@@ -1,0 +1,14 @@
+[package]
+name = "browser-pane"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+libc = "0.2"
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+ureq.workspace = true

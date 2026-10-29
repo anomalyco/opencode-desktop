@@ -29,6 +29,8 @@ use home::*;
 pub use sidebar::*;
 pub(crate) use timeline::*;
 
+pub(crate) const INSTANT: Anim = Anim::INSTANT;
+
 // Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
 pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);

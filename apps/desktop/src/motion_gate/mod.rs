@@ -4,10 +4,9 @@
 //! A [`Run`] builds the real app from the fixture in one [`Circ`]umstance, settles it, then
 //! records every frame while a scenario drives it through real input (clicks, keys, wheel) and
 //! server events (through the fixture's playback, as a live stream would arrive).
-//! `scenarios.rs` lists the matrix; `MOTION_GATE=<filter>` narrows it and `MOTION_GATE_OUT`
-//! names a file for the full report.
+//! `scenarios.rs` lists the matrix and its allowlist; Rune's `rune::motion_gate` checks and
+//! reports it (`MOTION_GATE=<filter>` narrows it, `MOTION_GATE_OUT` names the report).
 
-pub(crate) use crate::motion_check as check;
 mod flights;
 mod odometers;
 mod scenarios;
@@ -16,7 +15,7 @@ use rune::{Env, Key, KeyEvent, Mods, Runtime};
 use serde_json::{Value, json};
 
 use crate::App;
-use check::{Finding, Recording};
+use rune::motion_gate::Recording;
 
 pub const DT: f64 = 1.0 / 120.0;
 pub const SID: &str = crate::fixture_ids::MAIN;
@@ -153,7 +152,7 @@ impl Run {
         rt.poll = Some(crate::poll);
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
-        let mut run = Run { rt, rec: Recording::new(size, 1.0 / DT), circ: c };
+        let mut run = Run { rt, rec: recording(size), circ: c };
         run.idle(1.0);
         if c.scrolled {
             run.scroll_up(320.0);
@@ -284,10 +283,14 @@ impl Run {
         self.act("stream starts", |rt| rt.update(|s, _| s.start_stream_if_due(SID)));
     }
 
-    pub fn finish(self) -> Vec<Finding> {
-        check::check(&self.rec)
-    }
+}
 
+/// A recording on the gate's clock. Live numbers roll here (`odometer.rs`), so one that snaps
+/// in place is a `text-swap`.
+pub fn recording(size: (f32, f32)) -> Recording {
+    let mut rec = Recording::new(size, 1.0 / DT);
+    rec.counts_roll = true;
+    rec
 }
 
 fn png() -> Vec<u8> {

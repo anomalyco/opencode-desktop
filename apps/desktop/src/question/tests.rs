@@ -252,7 +252,7 @@ fn an_answer_from_elsewhere_morphs_back_and_keeps_the_draft() {
 /// dock preset: its last row ends the same distance above the surface throughout.
 #[test]
 fn the_timeline_follows_the_morph() {
-    let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
+    let g = crate::knobs::groups().iter().find(|g| g.name == "Question dock").unwrap();
     for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
         // The story's world takes the app's knobs.
         let mut rt = crate::stories::storybook();
@@ -283,7 +283,7 @@ fn the_timeline_follows_the_morph() {
 /// and lands within its duration; the bouncy one overshoots a little and lands.
 #[test]
 fn question_dock_presets_morph_smoothly() {
-    let g = crate::knobs::GROUPS.iter().find(|g| g.name == "Question dock").unwrap();
+    let g = crate::knobs::groups().iter().find(|g| g.name == "Question dock").unwrap();
     for p in g.presets.iter().map(|p| p.name).chain(["Desktop"]) {
         let (mut rt, _) = asked(false);
         crate::knobs::apply_preset(&mut rt.state, p);

@@ -102,3 +102,10 @@ fn picture() -> Vec<u8> {
     image.write_to(&mut out, image::ImageFormat::Png).unwrap();
     out.into_inner()
 }
+
+/// One of the Session opening stories.
+const fn story(at: usize) -> crate::stories::Story {
+    crate::stories::Story { path: PATHS[at], scene: |s| crate::stories::stage(s, crate::stories::opening_view), knobs: &[], keys: KEYS[at], variants: VARIANTS }
+}
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [story(0), story(1), story(2)]);

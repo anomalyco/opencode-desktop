@@ -73,3 +73,7 @@ fn flip(s: &mut App, tx: &mut Tx) {
         crate::fold::flip(s, &id, false, tx);
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Long prompt", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
+]);

@@ -55,3 +55,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     };
     col().key("history-stage").w_full().h_full().child(strip).child(page)
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story { path: "Navigation/Back and forward", scene: |s| crate::stories::stage(s, crate::stories::history_view), knobs: &[], keys: KEYS, variants: &[] },
+]);

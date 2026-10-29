@@ -146,3 +146,7 @@ fn place(stage: El, menu: Option<El>, y: f32, x: f32) -> El {
         None => stage,
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story { path: "Sidebar/Rename and menus", scene: |s| crate::stories::stage(s, view), knobs: &[], keys: KEYS, variants: VARIANTS },
+]);

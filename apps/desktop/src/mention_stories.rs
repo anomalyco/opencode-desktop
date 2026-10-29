@@ -61,3 +61,7 @@ fn prompt(s: &mut App, tx: &mut Tx) {
         tx,
     );
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Composer/Mentions", KEYS),
+]);

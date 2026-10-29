@@ -31,13 +31,13 @@ pub struct Fold {
 /// Where prompts lay out, for folding them (`fold.rs`): the timeline's width, and for an opened
 /// prompt whether its top is scrolled above the timeline. Before the timeline's first layout,
 /// the widest column: a prompt that's long there is long at any width.
-pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Option<Fold> + 'a {
+pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
     let view = rune::memo::layout_with(&format!("scroll-{session}"), |r| [r[1], r[2]]);
     move |id| {
-        let Some([top, w]) = view else { return Some(Fold { viewport: CONTENT_W + 48.0, past: false }) };
+        let Some([top, w]) = view else { return Fold { viewport: CONTENT_W + 48.0, past: false } };
         let open = s.expanded.contains(&key(id));
         let past = open && rune::memo::layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false);
-        Some(Fold { viewport: w / s.zoom, past })
+        Fold { viewport: w / s.zoom, past }
     }
 }
 
@@ -71,9 +71,10 @@ pub fn lines(text: &str, width: f32) -> usize {
 
 /// A prompt's words, folded with the toggle under them when they run past [`OVER`] lines.
 /// `quotes`: the bubble holds quote cards.
-pub fn view(s: &App, p: &Pal, id: &str, shown: &str, words: El, fold: Option<Fold>, quotes: bool) -> Vec<El> {
-    let long = |f: &Fold| s.settings.fold_user && lines(shown, text_width(f.viewport, quotes)) > OVER;
-    let Some(fold) = fold.filter(long) else { return vec![words] };
+pub fn view(s: &App, p: &Pal, id: &str, shown: &str, words: El, fold: Fold, quotes: bool) -> Vec<El> {
+    if !s.settings.fold_user || lines(shown, text_width(fold.viewport, quotes)) <= OVER {
+        return vec![words];
+    }
     let open = s.expanded.contains(&key(id));
     let mut clip = col().key("fold").child(words);
     if !open {
@@ -105,10 +106,7 @@ fn toggle(p: &Pal, id: &str, open: bool, past: bool) -> El {
 /// still is its top, or, closing one whose top is above the timeline, the toggle.
 pub fn flip(s: &mut App, id: &str, past: bool, tx: &mut Tx) {
     let k = key(id);
-    let opening = !s.expanded.remove(&k);
-    if opening {
-        s.expanded.insert(k);
-    }
+    let opening = s.toggle_expanded(&k);
     let row = format!("u-{id}");
     tx.keep_on_screen(if !opening && past { format!("{row}/fold-toggle") } else { row });
 }
