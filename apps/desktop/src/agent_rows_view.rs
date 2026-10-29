@@ -105,7 +105,7 @@ fn tag(p: &Pal, agent: &str) -> El {
         .px(6.0)
         .center()
         .radius(5.0)
-        .border(0.5, p.border_muted)
+        .fill(p.layer3)
         .child(text(model::capitalize(agent)).font(UI_SMALL.lh(16.0)).color(p.faint))
 }
 
