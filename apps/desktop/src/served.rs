@@ -85,6 +85,26 @@ impl crate::App {
         self.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
     }
 
+    /// `POST /api/session/:id/background`: each blocking call returns, as a live server's does
+    /// once its job moves to the background, and the job runs on unseen.
+    pub(crate) fn fixture_background(&mut self, sid: &str, parts: &[String]) {
+        self.background.fixture_moves.push(sid.to_owned());
+        let Some(Message::Assistant(a)) = self.transcripts.get(sid).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(a) if a.completed.is_none()))) else { return };
+        let at = self.clock + 0.05;
+        for p in &a.parts {
+            if let Part::Tool { id, metadata, .. } = p
+                && parts.contains(id)
+            {
+                let mut metadata = if metadata.is_object() { metadata.clone() } else { json!({}) };
+                metadata["background"] = true.into();
+                let d = json!({ "sessionID": sid, "assistantMessageID": a.id, "id": id, "metadata": metadata });
+                self.playback.push_back((at, "session.tool.success".into(), d));
+            }
+        }
+        self.playback.make_contiguous().sort_by(|a, b| a.0.total_cmp(&b.0));
+        self.wake_at_playback();
+    }
+
     pub(crate) fn show_fixture_page(&mut self, sid: &str, tx: &mut rune::Tx) {
         let Some(t) = self.transcripts.get(sid) else { return };
         let messages = self.served.page(t);

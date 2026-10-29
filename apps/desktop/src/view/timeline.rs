@@ -709,6 +709,7 @@ pub(super) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message:
     el().w_full().h(28.0).motion(crate::knobs::actions_tail(&s.knobs))
         .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, 0.0).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, 0.0))
+        .children(crate::background::hint(s, p, session, busy))
 }
 
 // ---------------------------------------------------------------------------------------------
