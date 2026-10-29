@@ -167,32 +167,15 @@ const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const SECTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 
 pub fn page(s: &App, p: &Pal) -> El {
-    let list = col()
-        .key("settings-list")
-        .w_full()
-        .px(20.0)
-        .radius(8.0)
-        .fill(p.layer1)
-        .border(0.5, p.border_muted)
-        .child(setting(
-            p,
-            "agent-picker",
-            "Show agent picker",
-            "Choose the agent from the composer. Hidden, the last agent still applies.",
-            switch(p, "show-agent", s.settings.show_agent)
-                .on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent)),
-            true,
-        ))
-        .child(setting(
-            p,
-            "fold-user",
-            "Fold long messages",
-            "Fold your messages past 12 lines behind a Read more button",
-            switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user)),
-            true,
-        ))
-        .child(setting(p, "appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p), true))
-        .child(setting(p, "zoom", "Interface zoom", "Scale the whole window. ⌘+ ⌘− ⌘0 do the same.", zoom_control(s, p), false));
+    let general = settings_card(p, "settings-list", [
+        ("agent-picker", "Show agent picker", "Choose the agent from the composer. Hidden, the last agent still applies.",
+            switch(p, "show-agent", s.settings.show_agent).on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent))),
+        ("fold-user", "Fold long messages", "Fold your messages past 12 lines behind a Read more button",
+            switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user))),
+        ("appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p)),
+        ("zoom", "Interface zoom", "Scale the whole window. ⌘+ ⌘− ⌘0 do the same.", zoom_control(s, p)),
+    ]);
+    let section = |title: &'static str, list: El| col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list);
     col()
         .key("settings")
         .role("region")
@@ -211,8 +194,8 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .pb(48.0)
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
-                .child(col().w_full().gap(16.0).child(text("General").font(SECTION).color(p.text)).child(list))
-                .child(col().w_full().gap(16.0).child(text("Notifications").font(SECTION).color(p.text)).child(notification_list(s, p))),
+                .child(section("General", general))
+                .child(section("Notifications", notification_list(s, p))),
         )
 }
 
@@ -224,11 +207,19 @@ fn notification_list(s: &App, p: &Pal) -> El {
         (Kind::Permission, "Permissions", "Show system notification when a permission is required"),
         (Kind::Error, "Errors", "Show system notification when an error occurs"),
     ];
-    let mut list = col().key("notifications-list").w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
-    for (i, (kind, title, description)) in rows.into_iter().enumerate() {
-        let on = s.settings.notify.get(kind);
-        let control = switch(p, &format!("notify-{}", kind.name()), on).on_press(move |s: &mut App| s.set_notify(kind, !s.settings.notify.get(kind)));
-        list = list.child(setting(p, &format!("notify-{}", kind.name()), title, description, control, i + 1 < rows.len()));
+    settings_card(p, "notifications-list", rows.map(|(kind, title, description)| {
+        let key = format!("notify-{}", kind.name());
+        let control = switch(p, &key, s.settings.notify.get(kind)).on_press(move |s: &mut App| s.set_notify(kind, !s.settings.notify.get(kind)));
+        (key, title, description, control)
+    }))
+}
+
+fn settings_card<'a, K: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, &'a str, El)>) -> El {
+    let items: Vec<_> = items.into_iter().collect();
+    let n = items.len();
+    let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
+    for (i, (k, title, description, control)) in items.into_iter().enumerate() {
+        list = list.child(setting(p, k.as_ref(), title, description, control, i + 1 < n));
     }
     list
 }

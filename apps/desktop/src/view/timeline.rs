@@ -433,7 +433,7 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
         let tool = !matches!(b, Block::Text { .. });
         let pt = part_gap(prev, tool);
         let content = RowContent::Turn { start, end, block: i, live, pt };
-        out.push(match b {
+        match b {
             Block::Group { key, steps } => {
                 let busy = live && i + 1 == n;
                 out.push(RowSpec { streaming: busy && s.expanded.contains(&key), content, key });
@@ -446,17 +446,11 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
                         out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false });
                     }
                 }
-                prev = Some(true);
-                continue;
             }
-            Block::Text { key, live, .. } => RowSpec { content, key, streaming: live },
-            Block::Agent { id, .. } => RowSpec {
-                key: format!("a-{id}"),
-                content,
-                streaming: false,
-            },
-            Block::Question { id, .. } => RowSpec { key: format!("q-{id}"), content, streaming: false },
-        });
+            Block::Text { key, live, .. } => out.push(RowSpec { content, key, streaming: live }),
+            Block::Agent { id, .. } => out.push(RowSpec { key: format!("a-{id}"), content, streaming: false }),
+            Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
+        }
         prev = Some(tool);
     }
     // Like Desktop, only the turn's last step reports its error, 24 below the work above it.

@@ -19,7 +19,7 @@ use opencode_kit::model::{self, SessionInfo};
 use crate::mentions::list::{Debounce, Highlight, cycle, spawn_fetch, upsert_sessions};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, avatar, title_of};
-use crate::{App, Route, Source};
+use crate::{App, Source};
 
 /// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`), and a
 /// query's local session matches.
@@ -204,9 +204,7 @@ pub fn target(sections: &[&str], index: usize, mv: Move) -> Option<usize> {
 impl App {
     /// The project name a row shows: the project's, or the directory's last part.
     pub(crate) fn project_label(&self, s: &SessionInfo) -> String {
-        self.project(&s.project)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| s.directory.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
+        crate::view::project_or_dir(self.project(&s.project), &s.directory)
     }
 
     /// Loaded root sessions and `extra` server matches, newest metadata winning, newest first.

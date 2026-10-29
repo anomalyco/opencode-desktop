@@ -24,7 +24,7 @@ use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};
 
 use rune::motion_gate::{Recording, check, rule, short};
-use crate::{App, Route, Source};
+use crate::{App, Route};
 pub use flights::Window;
 
 #[path = "motion_log_flights.rs"]
@@ -63,6 +63,10 @@ impl Events {
         }
         if self.recent.len() == EVENTS { self.recent.pop_front(); }
         self.recent.push_back((ty.to_owned(), 1));
+    }
+
+    pub(super) fn to_json(&self) -> Vec<Value> {
+        self.recent.iter().map(|(ty, n)| json!({"type": ty, "count": n})).collect()
     }
 }
 
@@ -235,7 +239,7 @@ impl Watch {
             "detail": f.detail,
             "deltas": deltas,
             "frames": frames,
-            "events": events.recent.iter().map(|(ty, n)| json!({"type": ty, "count": n})).collect::<Vec<_>>(),
+            "events": events.to_json(),
         })
     }
 }
@@ -392,7 +396,7 @@ pub struct Log {
 impl Log {
     /// `App::on_frame_drawn`: live sessions only, never a fixture.
     pub fn frame(&mut self, rt: &Runtime<App>) {
-        if !matches!(rt.state.source, Source::Live { .. }) { return; }
+        if !rt.state.live() { return; }
         let now = Instant::now();
         let input = rune::last_input().is_some_and(|t| self.last.is_none_or(|last| t > last));
         self.last = Some(now);

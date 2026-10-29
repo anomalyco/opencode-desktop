@@ -111,6 +111,10 @@ impl Pickers {
     pub fn activate(&mut self, key: String) {
         self.active.set(key, self.search.text.clone());
     }
+
+    pub fn model_name(&self, m: &ModelRef) -> String {
+        self.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone())
+    }
 }
 
 /// Desktop's default model list (`models.tsx` `visible`): each provider's newest model in a

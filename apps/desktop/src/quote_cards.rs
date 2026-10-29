@@ -2,18 +2,15 @@
 //! comment editor (`quote-comment.tsx`), and in the user bubble that sent them.
 
 use rune::{Align, Cx, El, Key, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
-use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::Quote;
 
 use crate::App;
+use crate::attachments::{CARD_SUBTITLE, CARD_TITLE, remove_button};
 use crate::palette::Pal;
 use crate::quote::{COMMENT, OUTLINE_QUOTE, Pending};
 use crate::view::no_motion;
 
-/// `attachment-card.css`: 11/14, with room for Inter's descenders where it truncates.
-const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
-const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const META: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0).tracking(0.05);
 const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
@@ -93,23 +90,7 @@ fn chip(s: &App, p: &Pal, item: &Pending) -> El {
             tx.instant();
             if s.quote.editing == Some(key) { close_editor(s) } else { open_editor(s, key) }
         });
-    let remove = el()
-        .key("remove")
-        .role("button")
-        .label("Remove quote")
-        // Desktop's `-top-1 -end-1`.
-        .absolute(160.0 - 12.0, -4.0)
-        .size(16.0, 16.0)
-        .radius(8.0)
-        .center()
-        .fill(p.icon_muted)
-        .outline(1.0, 0.0, p.icon_contrast)
-        .group_opacity(0.0, 1.0)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.quote.remove(key);
-        })
-        .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast));
+    let remove = remove_button(p, "quote", 160.0, move |s| s.quote.remove(key));
     el().key(chip_key(key)).hover_group().child(body).child(remove)
 }
 

@@ -150,7 +150,7 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
         parts.push(model::capitalize(a));
     }
     if let Some(m) = info.map(|i| &i.model).filter(|m| !m.id.is_empty()) {
-        let name = s.pickers.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone());
+        let name = s.pickers.model_name(m);
         let variant = if m.variant.is_empty() || m.variant == "default" { String::new() } else { format!(" {}", model::capitalize(&m.variant)) };
         parts.push(format!("{name}{variant}"));
     }
@@ -212,6 +212,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         return None;
     }
     let label = format!("{n} subagent{}", if n == 1 { "" } else { "s" });
+    let bg = crate::view::composer_fill(p);
     let mut chip = row()
         .key("activity-chip")
         .role("button")
@@ -221,7 +222,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         .gap(8.0)
         .center_y()
         .radius(s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
-        .fill(if p.dark { p.layer1 } else { p.bg_base }.alpha(s.knobs.get(&crate::knobs::CAPSULE_FILL)))
+        .fill(bg.alpha(s.knobs.get(&crate::knobs::CAPSULE_FILL)))
         // Desktop's `--v2-elevation-raised` rings the muted border with the composer's hairline.
         .border(0.5, p.border_muted.mix(p.ring, s.knobs.get(&crate::knobs::CAPSULE_RING)))
         .shadow(1.0, 2.0, p.shadow.alpha(p.shadow.a * s.knobs.get(&crate::knobs::CAPSULE_FILL)))
@@ -232,7 +233,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
             tx.instant();
             s.activity_open = !s.activity_open;
         })
-        .child(activity_ring_on(p, if p.dark { p.layer1 } else { p.bg_base }, 16.0))
+        .child(activity_ring_on(p, bg, 16.0))
         .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
     if s.activity_open {
         chip = chip.fill(p.pressed);

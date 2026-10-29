@@ -46,6 +46,7 @@ pub struct Window {
 }
 
 impl Window {
+    #[cfg(test)]
     pub fn new(size: (f32, f32)) -> Window {
         Window { size, zoom: 1.0, at_end: true }
     }
@@ -273,7 +274,7 @@ impl Flight {
             "input": self.input,
             "scrolled": self.scrolled,
             "frames": frames,
-            "events": events.recent.iter().map(|(ty, n)| json!({"type": ty, "count": n})).collect::<Vec<_>>(),
+            "events": events.to_json(),
         })).collect()
     }
 }

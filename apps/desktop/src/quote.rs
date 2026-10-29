@@ -320,7 +320,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .gap(2.0)
         .center_y()
         .radius(8.0)
-        .fill(if p.dark { p.layer1 } else { p.bg_base })
+        .fill(crate::view::composer_fill(p))
         // --v2-elevation-raised.
         .border(0.5, p.ring)
         .shadow(2.0, 4.0, p.shadow_far)

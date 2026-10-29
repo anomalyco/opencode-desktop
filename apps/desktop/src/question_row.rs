@@ -97,8 +97,7 @@ fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
     let open_key = format!("{key}-open");
     let open = s.expanded.contains(&open_key);
     let head = e.split(": ").next().unwrap_or("").trim();
-    let mut summary: Vec<char> = if head.is_empty() { "Failed".chars().collect() } else { head.chars().collect() };
-    summary[0] = summary[0].to_ascii_uppercase();
+    let summary = opencode_kit::model::capitalize(if head.is_empty() { "Failed" } else { head });
     let mut trigger = row()
         .key("trigger")
         .role("button")
@@ -110,7 +109,7 @@ fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
         .child(icon(&ic::WARNING, 16.0).color(p.danger))
         .child(text("Questions").key("title").font(UI_MED).color(p.text));
     if !open {
-        trigger = trigger.child(text(summary.into_iter().collect::<String>()).key("summary").font(UI).color(p.danger).truncate_fade().shrink());
+        trigger = trigger.child(text(summary).key("summary").font(UI).color(p.danger).truncate_fade().shrink());
     }
     trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
     let mut c = col().key(key.to_owned()).w_full().child(trigger);

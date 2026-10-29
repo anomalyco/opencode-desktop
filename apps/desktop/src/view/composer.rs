@@ -117,8 +117,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 .center_y()
                 .child(crate::add_menu::trigger(s, p))
                 .children(s.settings.show_agent.then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
-                .child(picker_trigger(s, p, Kind::Model, &s.pickers.models.iter()
-                    .find(|m| m.id == model.id && m.provider == model.provider).map_or_else(|| model.display(), |m| m.name.clone()), p.muted))
+                .child(picker_trigger(s, p, Kind::Model, &s.pickers.model_name(&model), p.muted))
                 // "Default" is the absence of a choice, so it reads fainter than a picked effort.
                 .children(s.has_effort().then(|| {
                     picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted })

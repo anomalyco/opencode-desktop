@@ -605,10 +605,8 @@ fn fold_tools(s: &mut App, _: &mut Play<App>) {
         Block::Group { key, .. } => Some(key),
         _ => None,
     });
-    if let Some(k) = key
-        && !s.expanded.remove(&k)
-    {
-        s.expanded.insert(k);
+    if let Some(k) = key {
+        s.toggle_expanded(&k);
     }
 }
 
