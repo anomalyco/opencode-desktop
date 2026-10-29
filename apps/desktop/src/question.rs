@@ -715,6 +715,26 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
     Some(vec![body, footer])
 }
 
+rune_register::register!(knobs::GROUP_LIST: rune_knobs::Group = [knobs::QUESTION_DOCK]);
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("question", |s| {
+        crate::open_scene(s);
+        s.finish_stream();
+        let q = s.fixture["question"].clone();
+        s.apply_event("form.created", &q);
+    }),
+    // Answered elsewhere at 1.5 s, asked again at 2.5 s: the morph both ways.
+    ("question-morph", |s| {
+        crate::open_scene(s);
+        s.finish_stream();
+        let q = s.fixture["question"].clone();
+        s.apply_event("form.created", &q);
+        let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
+        s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+    }),
+]);
+
 #[cfg(test)]
 mod custom_tests;
 #[cfg(test)]

@@ -34,3 +34,7 @@ fn steer(s: &mut App, tx: &mut Play<App>) {
     s.composer = TextEdit::new("Stop waiting on the tests and fix the flake first");
     s.submit(false, tx);
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Move to background", KEYS),
+]);

@@ -363,6 +363,21 @@ pub fn scene(s: &mut App, n: usize, ask: bool) {
     }
 }
 
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    // Busy with prompts queued above the composer or above the question dock;
+    // `queue-question-morph` answers the question at 1.5 s and asks again at 2.5 s.
+    ("queue", |s| scene(s, 1, false)),
+    ("queue-3", |s| scene(s, 3, false)),
+    ("queue-question", |s| scene(s, 1, true)),
+    ("queue-question-3", |s| scene(s, 3, true)),
+    ("queue-question-morph", |s| {
+        scene(s, 1, true);
+        let q = s.fixture["question"].clone();
+        let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
+        s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+    }),
+]);
+
 #[cfg(test)]
 #[path = "queue_edges_tests.rs"]
 mod edges_tests;

@@ -96,12 +96,22 @@ pub const WORKING: Group = Group::new(
     &[WORKING_PACE, WORKING_SPEED, WORKING_PERIOD, WORKING_BAND, WORKING_UNIT, WORKING_INTENSITY, WORKING_SOFTNESS, WORKING_DIRECTION, WORKING_PAUSE],
 );
 
-pub const GROUPS: &[Group] = &[
+rune_register::slice!(pub GROUP_LIST: Group);
+
+rune_register::register!(GROUP_LIST: Group = [
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
-    QUESTION_DOCK,
     Group::new("Timeline", "timeline", TIMELINE),
     WORKING,
-];
+]);
+
+/// The panel's order, which module paths don't give. A group not named here goes after these.
+const ORDER: &[&str] = &["Composer", "Question dock", "Timeline", "Working"];
+
+/// The knob groups the panel shows, in order. Each is registered from the module it tunes.
+pub fn groups() -> &'static [Group] {
+    static ALL: std::sync::OnceLock<Vec<Group>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| crate::stories::ordered(rune_register::collect(&GROUP_LIST), ORDER, |g| g.name))
+}
 
 /// A knob in seconds as an `f64`, to the microsecond: the decimal it was written as, not its
 /// nearest `f32`.
@@ -166,7 +176,7 @@ pub fn spring(s: &App, k: &Knob) -> Spring {
 /// Applies a Question dock preset by name (`--preset` on the command line); "Desktop" is
 /// the defaults.
 pub fn apply_preset(s: &mut App, name: &str) {
-    let g = GROUPS.iter().find(|g| g.name == "Question dock").expect("Question dock knobs");
+    let g = groups().iter().find(|g| g.name == "Question dock").expect("Question dock knobs");
     let name = if name.eq_ignore_ascii_case("desktop") { "Default" } else { name };
     s.knobs.apply(g, name);
 }
@@ -181,7 +191,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 pub fn layer(s: &App) -> El {
-    rune_knobs::layer(&s.knobs, GROUPS, rune_knobs::Style::dark(), |s: &mut App| &mut s.knobs)
+    rune_knobs::layer(&s.knobs, groups(), rune_knobs::Style::dark(), |s: &mut App| &mut s.knobs)
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use opencode_kit::client::Server;
 use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 
-use super::{STORIES, story, storybook, world};
+use super::{stories, story, storybook, world};
 use crate::{App, FIXTURE, Source, open_scene};
 
 const DT: f64 = 1.0 / 120.0;
@@ -101,7 +101,7 @@ fn replays_run_the_same_every_time() {
 #[test]
 fn every_story_plays_and_replays() {
     let mut rt = storybook();
-    for st in STORIES {
+    for st in stories() {
         let variants: Vec<Option<&str>> = if st.variants.is_empty() { vec![None] } else { st.variants.iter().map(|(n, _)| Some(*n)).collect() };
         for v in variants {
             rt.open_playground(st.path, v);
@@ -180,3 +180,75 @@ fn arrows_reach_the_side_columns_knobs() {
     press(&mut rt, Key::Right);
     assert_eq!(knob(&rt, &GLOW_RISE), tuned, "after Esc the keyboard is back in the list");
 }
+
+/// Stories, scenes and knob groups register from their own modules; the lists come out in the
+/// order the central lists had.
+#[test]
+fn registered_lists_keep_their_order() {
+    let paths: Vec<_> = stories().iter().map(|s| s.path).collect();
+    assert_eq!(paths, STORY_PATHS);
+    let groups: Vec<_> = crate::knobs::groups().iter().map(|g| g.name).collect();
+    assert_eq!(groups, ["Composer", "Question dock", "Timeline", "Working"]);
+    let scenes: Vec<_> = super::scenes().iter().map(|s| s.0).collect();
+    let all: Vec<_> = APP_SCENES.iter().chain(STORY_PATHS).copied().collect();
+    assert_eq!(scenes, all);
+}
+
+const APP_SCENES: &[&str] = &[
+    "home",
+    "session",
+    "streaming",
+    "busy",
+    "busy-deliver",
+    "queue",
+    "queue-3",
+    "queue-question",
+    "queue-question-3",
+    "queue-question-morph",
+    "draft",
+    "settings",
+    "question",
+    "question-morph",
+    "sidebar-closed",
+    "status",
+];
+
+const STORY_PATHS: &[&str] = &[
+    "Composer/Composer",
+    "Composer/Queue dock",
+    "Composer/Dictation",
+    "Composer/History",
+    "Composer/Pickers",
+    "Composer/Mentions",
+    "Composer/Subagents capsule, 30 running",
+    "Question dock/Question",
+    "Question dock/Custom answer",
+    "Question dock/Morph",
+    "Question dock/Under a queue",
+    "Sidebar/Rename and menus",
+    "Components/Odometer",
+    "Header/Session header",
+    "Header/Ticking",
+    "Timeline/Arrival glow",
+    "Timeline/Send",
+    "Timeline/Long prompt",
+    "Timeline/Streaming text",
+    "Timeline/Tool rows",
+    "Timeline/Selection",
+    "Timeline/Quote",
+    "Timeline/Question answers",
+    "Timeline/Compaction",
+    "Timeline/Working",
+    "Timeline/Steer and Pending",
+    "Timeline/Move to background",
+    "Timeline/Subagent",
+    "Timeline/Subagent rows",
+    "Timeline/Images",
+    "Timeline/Jump to latest",
+    "Timeline/Frosted surfaces",
+    "Timeline/Turn actions",
+    "Navigation/Back and forward",
+    "Session opening/Cold · ready at 100 ms",
+    "Session opening/Prefetched · ready now",
+    "Session opening/Slow · 150 ms fallback",
+];

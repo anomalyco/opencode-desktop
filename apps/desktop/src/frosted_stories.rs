@@ -61,3 +61,7 @@ fn page(p: &Pal, key: &str) -> El {
         .clip_rounded(10.0)
         .child(col().w_full().px(16.0).py(12.0).child(text(format!("{WORDS} {WORDS}")).font(BODY).color(p.text).wrap().w_full()))
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story { path: "Timeline/Frosted surfaces", scene: |s| crate::stories::watch(s, view), knobs: &[], keys: KEYS, variants: &[] },
+]);

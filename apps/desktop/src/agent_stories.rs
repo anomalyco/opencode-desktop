@@ -146,3 +146,7 @@ pub fn fail_newest(s: &mut App, tx: &mut Tx) {
         emit(s, "session.execution.failed", json!({ "sessionID": id, "error": { "message": "The provider is rate limiting this key" } }), tx);
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Subagent rows", KEYS).variants(VARIANTS),
+]);

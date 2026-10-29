@@ -16,6 +16,7 @@ procwatch = { git = "https://github.com/anomalyco/rune", rev = "a91ae13c09962fee
 rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "a91ae13c09962fee383e1e0879980fca5cd1eb52" }
 rune-mac = { git = "https://github.com/anomalyco/rune", rev = "a91ae13c09962fee383e1e0879980fca5cd1eb52" }
 rune-perf = { git = "https://github.com/anomalyco/rune", rev = "a91ae13c09962fee383e1e0879980fca5cd1eb52" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "a91ae13c09962fee383e1e0879980fca5cd1eb52" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 # Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.

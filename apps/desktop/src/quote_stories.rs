@@ -32,3 +32,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 fn select_words(_: &mut App, tx: &mut Tx) {
     tx.select_text(format!("text-{PROMPT}"), WORDS);
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Quote", KEYS),
+]);

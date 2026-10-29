@@ -697,7 +697,7 @@ fn dock_icon() {
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     AppSpec {
-        scenes: stories::scenes(scenes::SCENES),
+        scenes: stories::scenes(),
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),

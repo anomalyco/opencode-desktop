@@ -108,3 +108,7 @@ pub fn answered(v: usize) -> Vec<(&'static str, Value)> {
     d.as_object_mut().unwrap().extend(result.1.as_object().unwrap().clone());
     vec![(close, json!({ "id": FORM })), (result.0, d), ("session.step.ended", json!({ "assistantMessageID": STEP }))]
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Timeline/Question answers", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
+]);

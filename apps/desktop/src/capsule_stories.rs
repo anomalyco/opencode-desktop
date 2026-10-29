@@ -80,3 +80,7 @@ pub fn run_thirty(s: &mut App) {
         s.running.insert(id);
     }
 }
+
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::session("Composer/Subagents capsule, 30 running", KEYS),
+]);

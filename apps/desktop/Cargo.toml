@@ -19,6 +19,7 @@ project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
 rune-knobs.workspace = true
 rune-perf.workspace = true
+rune-register.workspace = true
 rune = { workspace = true, features = ["native-file-dialog"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
