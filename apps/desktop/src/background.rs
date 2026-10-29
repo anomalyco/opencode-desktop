@@ -22,6 +22,7 @@ use crate::{App, Route, Source};
 pub const LABEL: &str = "Move to background";
 pub const HINT: &str = "Press ⌃B to move running work to the background";
 pub const FAILED: &str = "Request failed";
+const HINT_H: f32 = 22.0;
 
 #[derive(Default)]
 pub struct Background {
@@ -134,14 +135,15 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     if !busy || blocking(s, session).is_empty() {
         return None;
     }
-    // Working's ring, its gap and its label, then the lane's gap.
-    let x = 14.0 + 8.0 + crate::working::width(s.working.label()) + 8.0;
+    // Working's label, which sits on the column with its ring hung left of it, then the lane's gap.
+    let x = crate::working::width(s.working.label()) + 8.0;
+    let y = crate::working::LANE_PAD + (crate::working::H - HINT_H) / 2.0;
     let hint = row()
         .key("background-hint")
         .role("button")
         .label(HINT)
-        .absolute(x, -3.0)
-        .h(22.0)
+        .absolute(x, y)
+        .h(HINT_H)
         .px(6.0)
         .gap(6.0)
         .center_y()

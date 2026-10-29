@@ -27,7 +27,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     // The subagent capsule floats over the timeline's bottom edge beside the jump button, so
     // the transcript runs under both and fades out right at the composer's top edge.
     let capsule = if child { None } else { crate::subagents::capsule(s, p, id) };
-    let lane = if capsule.is_some() { crate::jump::CAPSULE_LANE } else { 0.0 };
+    // Its chip sits one gap under the last row, as Desktop's pills sit 8 under Working.
+    let lane = if capsule.is_some() { crate::jump::CAPSULE_LANE + crate::jump::GAP - END } else { 0.0 };
     let mut page = page
         .child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), capsule))
         .child(requests(s, p, id));
@@ -219,7 +220,7 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued => crate::compaction::queued(p),
-            RowContent::Actions { message, busy } => col().w_full().pt(8.0).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
+            RowContent::Actions { message, busy } => col().w_full().child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -262,7 +263,11 @@ thread_local! {
     pub(crate) static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// `lane` is the room under the last row for what floats over the timeline's bottom edge.
+/// The timeline's padding under its last row.
+const END: f32 = 24.0;
+
+/// `lane` is the room under the last row, beyond `END`, for what floats over the timeline's
+/// bottom edge.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
     let e = edge::ALL[s.edge];
     let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
@@ -272,7 +277,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .center()
         .px(24.0)
         .pt(8.0)
-        .pb(24.0)
+        .pb(END)
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
