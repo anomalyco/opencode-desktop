@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["apps/desktop", "apps/sketch", "crates/browser-pane", "crates/hex-client", "crates/opencode-kit", "crates/project-icon", "crates/rune-rolling", "crates/seer-domain", "crates/seer-ffi", "crates/seer-sync", "crates/seer-worker"]
-exclude = ["apps/browser-engine", "vendor/wraith-text"]
+exclude = ["apps/browser-engine"]
 
 [workspace.package]
 edition = "2024"
@@ -21,13 +21,10 @@ rune-register = { git = "https://github.com/anomalyco/rune", rev = "548252361194
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 # Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.
-wraith-core = { git = "https://github.com/anomalyco/wraith", rev = "f8717f741328051c84ff61e6273ae911ba63abbd" }
-wraith-local = { git = "https://github.com/anomalyco/wraith", rev = "f8717f741328051c84ff61e6273ae911ba63abbd" }
-wraith-do = { git = "https://github.com/anomalyco/wraith", rev = "f8717f741328051c84ff61e6273ae911ba63abbd", default-features = false }
+wraith-core = { git = "https://github.com/anomalyco/wraith", rev = "2ee482a5ddcc734047601395bb961afd86b26aca" }
+wraith-local = { git = "https://github.com/anomalyco/wraith", rev = "2ee482a5ddcc734047601395bb961afd86b26aca" }
+wraith-do = { git = "https://github.com/anomalyco/wraith", rev = "2ee482a5ddcc734047601395bb961afd86b26aca", default-features = false }
 seer-domain = { path = "crates/seer-domain" }
-
-[patch."https://github.com/anomalyco/wraith"]
-wraith-text = { path = "vendor/wraith-text" }
 
 [profile.dev.package."*"]
 debug = false

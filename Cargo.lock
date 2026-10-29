@@ -5224,7 +5224,7 @@ dependencies = [
 [[package]]
 name = "wraith-core"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=f8717f741328051c84ff61e6273ae911ba63abbd#f8717f741328051c84ff61e6273ae911ba63abbd"
+source = "git+https://github.com/anomalyco/wraith?rev=2ee482a5ddcc734047601395bb961afd86b26aca#2ee482a5ddcc734047601395bb961afd86b26aca"
 dependencies = [
  "ed25519-dalek",
  "postcard",
@@ -5235,7 +5235,7 @@ dependencies = [
 [[package]]
 name = "wraith-do"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=f8717f741328051c84ff61e6273ae911ba63abbd#f8717f741328051c84ff61e6273ae911ba63abbd"
+source = "git+https://github.com/anomalyco/wraith?rev=2ee482a5ddcc734047601395bb961afd86b26aca#2ee482a5ddcc734047601395bb961afd86b26aca"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -5250,7 +5250,7 @@ dependencies = [
 [[package]]
 name = "wraith-folder"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/wraith?rev=f8717f741328051c84ff61e6273ae911ba63abbd#f8717f741328051c84ff61e6273ae911ba63abbd"
+source = "git+https://github.com/anomalyco/wraith?rev=2ee482a5ddcc734047601395bb961afd86b26aca#2ee482a5ddcc734047601395bb961afd86b26aca"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -5267,7 +5267,7 @@ dependencies = [
 [[package]]
 name = "wraith-local"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=f8717f741328051c84ff61e6273ae911ba63abbd#f8717f741328051c84ff61e6273ae911ba63abbd"
+source = "git+https://github.com/anomalyco/wraith?rev=2ee482a5ddcc734047601395bb961afd86b26aca#2ee482a5ddcc734047601395bb961afd86b26aca"
 dependencies = [
  "getrandom 0.3.4",
  "rusqlite",
@@ -5281,6 +5281,7 @@ dependencies = [
 [[package]]
 name = "wraith-text"
 version = "0.0.0"
+source = "git+https://github.com/anomalyco/wraith?rev=2ee482a5ddcc734047601395bb961afd86b26aca#2ee482a5ddcc734047601395bb961afd86b26aca"
 dependencies = [
  "postcard",
  "serde",
