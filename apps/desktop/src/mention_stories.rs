@@ -2,6 +2,7 @@
 //! for each kind of mention (agent, skill, file, folder, reference, session), and a draft in the
 //! composer with the same badges. P lands the prompt again, R replays.
 
+use crate::fixture_ids::{SIXTH as OTHER};
 use rune::{Play, TextEdit, Tx};
 use serde_json::json;
 
@@ -10,8 +11,6 @@ use crate::stories::{Trigger, emit, replay, sid};
 
 pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'p', label: "The prompt lands", run: |s, tx| prompt(s, tx) }];
 
-/// The session the bubble and draft mention, by its title.
-const OTHER: &str = "ses_fx0006aaaaaaaaaaaaaaaaaa";
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();

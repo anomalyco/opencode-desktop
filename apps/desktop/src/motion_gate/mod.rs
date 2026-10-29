@@ -18,7 +18,7 @@ use crate::App;
 use check::{Finding, Recording};
 
 pub const DT: f64 = 1.0 / 120.0;
-pub const SID: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
+pub const SID: &str = crate::fixture_ids::MAIN;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Length {

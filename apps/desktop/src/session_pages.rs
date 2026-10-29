@@ -217,8 +217,7 @@ fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
         use std::os::unix::fs::PermissionsExt;
         if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() { return; }
     }
-    let tmp = path.with_extension("tmp");
-    if std::fs::write(&tmp, bytes).is_err() || std::fs::rename(&tmp, &path).is_err() { return; }
+    if !crate::disk::replace(&path, &bytes) { return; }
     // Count and byte bounds include obsolete updated-time versions. All work is off-thread.
     let mut files: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| {
         let m = e.metadata().ok()?;

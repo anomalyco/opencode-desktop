@@ -90,10 +90,6 @@ impl App {
     /// Whether `sid`'s transcript is on screen: the open session's family (its page, agent
     /// rows and subagent panels) is the only place transcripts draw.
     fn shows_transcript(&self, sid: &str) -> bool {
-        #[cfg(test)]
-        if !crate::perf::candidate(crate::perf::Experiment::QuietBackground) {
-            return true;
-        }
         matches!(&self.route, Route::Session(open) if self.root_of(open) == self.root_of(sid))
     }
 

@@ -117,34 +117,15 @@ fn timeline_benchmark() {
 }
 
 thread_local! {
-    /// The candidate side of `frame_benchmark`'s A/B: production code under test reads it
-    /// through `candidate()` and keeps its shipped behaviour outside tests.
-    pub(crate) static CANDIDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// The candidate side of `frame_benchmark`'s A/B: whether each frame sends its diagnostics
+    /// record, as `on_frame_encoded` does in a live window.
+    static CANDIDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
 thread_local! {
     /// The recorder the `Diagnostics` experiment sends to, writing to a scratch directory.
     static DIAGNOSTICS: crate::diagnostics::Diagnostics =
         crate::diagnostics::Diagnostics::at(&std::env::temp_dir().join(format!("opencode-desktop-bench-perf-{}", std::process::id())));
-}
-
-/// A technique `frame_benchmark` can turn off for its baseline.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Experiment {
-    /// Another family's stream doesn't commit the view.
-    QuietBackground,
-    /// Rune snaps painted rects to whole device pixels (on unless `El::pixel_snap(false)`).
-    PixelSnap,
-    /// Each frame sends its diagnostics record, as `on_frame_encoded` does in a live window.
-    Diagnostics,
-}
-
-/// The technique the benchmark's baseline turns off; every other one stays on.
-const UNDER_TEST: Experiment = Experiment::Diagnostics;
-
-/// Whether `e` is on: always, except in the baseline half of `frame_benchmark`.
-pub(crate) fn candidate(e: Experiment) -> bool {
-    e != UNDER_TEST || CANDIDATE.get()
 }
 
 const SCENARIOS: [&str; 7] = ["scroll", "stream", "arrival", "switch", "typing", "idle", "background"];
@@ -157,8 +138,7 @@ fn measured(rt: &mut Runtime<App>, step: impl FnOnce(&mut Runtime<App>)) -> [f64
     let alloc = procwatch::alloc::thread_allocations();
     let start = rune::thread_cpu_ms();
     step(rt);
-    // Only while it's the experiment under test: `candidate` reads true for the others.
-    if UNDER_TEST == Experiment::Diagnostics && candidate(Experiment::Diagnostics) {
+    if CANDIDATE.get() {
         DIAGNOSTICS.with(|d| d.drawn_frame(rt.stats.commits as u64));
     }
     let cpu = rune::thread_cpu_ms() - start;

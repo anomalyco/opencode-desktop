@@ -92,18 +92,12 @@ pub(super) fn sidebar(s: &App, p: &Pal) -> El {
             .w_full()
             .gap(4.0)
             .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
-                |s: &mut App, tx: &mut Tx| {
-                    s.opening = None;
-                    s.route = Route::Home;
-                    tx.settle();
-                },
+                |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
             .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "", false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| {
-                    s.opening = None;
-                    s.route = Route::Home;
                     s.search.focused = true;
-                    tx.settle();
+                    s.go_home(tx);
                 },
             ))
             .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(

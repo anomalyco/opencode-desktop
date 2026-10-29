@@ -1,9 +1,9 @@
+use crate::fixture_ids::{THIRD as SESSION};
 use super::*;
 use crate::mentions::tests::{key, runtime, shown, tap, typed};
 use crate::Route;
 use rune::{Key, KeyEvent, Mods};
 
-const SESSION: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 
 fn shift(rt: &mut rune::Runtime<App>, k: Key) {
     rt.key(KeyEvent { key: k, mods: Mods { shift: true, ..Default::default() } });

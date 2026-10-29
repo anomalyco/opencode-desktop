@@ -169,7 +169,7 @@ fn the_composer_keeps_its_own_select_all_and_copy() {
 fn a_link_still_opens_on_a_click() {
     let (mut rt, _) = session("");
     rt.update(|s, _| {
-        let t = s.transcripts.get_mut("ses_fx0001aaaaaaaaaaaaaaaaaa").unwrap();
+        let t = s.transcripts.get_mut(crate::fixture_ids::MAIN).unwrap();
         let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.iter_mut().rev().find(|m| matches!(m, opencode_kit::model::Message::Assistant(_))) else { unreachable!() };
         a.parts.push(opencode_kit::model::Part::Text { text: "[the reconnect docs](https://example.com/docs)".into() });
     });
@@ -187,7 +187,7 @@ fn a_selection_survives_streaming_below_it() {
     drag(&mut rt, first_line(&para, 0.0), first_line(&para, 0.4));
     let before = rt.selected_text().expect("selected");
     rt.update(|s, _| {
-        s.apply_event("session.prompted", &serde_json::json!({"sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa", "messageID": "msg_new", "text": "One more thing"}));
+        s.apply_event("session.prompted", &serde_json::json!({"sessionID": crate::fixture_ids::MAIN, "messageID": "msg_new", "text": "One more thing"}));
     });
     settle(&mut rt);
     assert_eq!(rt.selected_text(), Some(before));
@@ -283,7 +283,7 @@ fn select_all_copies_rows_never_built() {
     let (mut rt, board) = short_session();
     // Thirty earlier prompts arrive above the timeline's end, where it stays: most are never built.
     rt.update(|s, _| {
-        let t = s.transcripts.get_mut("ses_fx0001aaaaaaaaaaaaaaaaaa").unwrap();
+        let t = s.transcripts.get_mut(crate::fixture_ids::MAIN).unwrap();
         for n in (0..30).rev() {
             t.messages.insert(0, opencode_kit::model::Message::User { id: format!("msg_000early{n:03}"), text: format!("Earlier prompt {n}") });
         }

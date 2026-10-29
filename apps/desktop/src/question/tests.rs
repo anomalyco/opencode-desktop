@@ -1,3 +1,4 @@
+use crate::fixture_ids::{MAIN as SESSION};
 use std::sync::mpsc::{Receiver, channel};
 
 use opencode_kit::client::{Server, Write};
@@ -8,7 +9,6 @@ use super::{Intent, Zone, intent};
 use crate::{App, Source};
 
 const FORM: &str = "frm_fx0001";
-const SESSION: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 
 fn ev(key: Key) -> KeyEvent {
     KeyEvent { key, mods: Mods::default() }

@@ -24,6 +24,7 @@ mod dictation_tests;
 mod disk;
 mod dropzone;
 mod events;
+mod fixture_ids;
 mod fold;
 mod fold_stories;
 #[cfg(test)]
@@ -102,8 +103,9 @@ use tabs::Tab;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Route {
+    #[default]
     Home,
     Session(String),
     /// "New session": an empty page with the composer.
@@ -117,11 +119,14 @@ pub enum TabStatus {
     Unread,
 }
 
+#[derive(Default)]
 pub enum Source {
     Live { server: Server, requests: Option<Sender<Request>>, writes: Option<Sender<Write>>, allow_send: bool },
+    #[default]
     Fixture,
 }
 
+#[derive(Default)]
 pub struct App {
     pub source: Source,
     inbox: Option<Receiver<Incoming>>,
@@ -244,8 +249,12 @@ fn flag(name: &str) -> bool {
 fn headless() -> bool {
     static H: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *H.get_or_init(|| {
-        const FLAGS: &[&str] = &["--snap", "--tree", "--script", "--out", "--video", "--strip", "--frames", "--duration", "--trace", "--list-scenes", "--snap-on-patch"];
-        std::env::args().any(|a| FLAGS.contains(&a.as_str()))
+        // Rune's own `Args::headless` at the pinned rev, plus `--script` (Desktop's own flag).
+        const ALWAYS: &[&str] = &["--snap", "--tree", "--script", "--video", "--strip", "--list-scenes", "--first-pixels", "--list-windows", "--desktop", "--snap-on-patch"];
+        const UNLESS_NATIVE: &[&str] = &["--trace", "--frames", "--duration", "--out"];
+        let args: Vec<String> = std::env::args().collect();
+        let has = |set: &[&str]| args.iter().any(|a| set.contains(&a.as_str()));
+        has(ALWAYS) || (!args.iter().any(|a| a == "--native") && has(UNLESS_NATIVE))
     })
 }
 
@@ -258,75 +267,24 @@ impl App {
         let edge_name = arg("--edge").unwrap_or_else(|| "feather".into());
         let edge = edge::ALL.iter().position(|e| e.name == edge_name).unwrap_or(0);
         App {
-            source: Source::Fixture,
-            inbox: None,
-            motion_events: Default::default(),
-            pages: None,
-            opening: None,
-            open_demo: None,
-            page_history: None,
-            page_history_loaded: HashSet::new(),
-            projects: Vec::new(),
-            sessions: Vec::new(),
-            route: Route::Home,
-            transcripts: HashMap::new(),
-            expanded: HashSet::new(),
-            tabs: Vec::new(),
-            tab_drag: tabs::Reorder::default(),
-            closed: Vec::new(),
-            zoom: 1.0,
-            running: HashSet::new(),
-            requests: HashSet::new(),
-            pending: Vec::new(),
-            inboxes: HashMap::new(),
-            picks: HashMap::new(),
-            typed: HashMap::new(),
-            question: question::Dock::default(),
             draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
             sidebar_open: !flag("--sidebar-closed"),
             sidebar_w: view::SIDEBAR_W,
-            sidebar_drag: None,
+            zoom: 1.0,
             composer: TextEdit::new(""),
-            prompts: Default::default(),
-            attach: Default::default(),
-            quote: Default::default(),
             search: TextEdit::new(""),
-            menus: Default::default(),
-            pickers: pickers::Pickers::default(),
-            mentions: mentions::Mentions::default(),
-            add: add_menu::AddMenu::default(),
-            dictation: Default::default(),
-            switcher: switcher::Switcher::default(),
-            settings: settings::Settings::default(),
-            nav: Default::default(),
-            restore: restore::Restore::default(),
-            opened: Vec::new(),
-            activity_open: false,
-            agent_rows: Default::default(),
-            knobs: rune_knobs::Knobs::default(),
-            framed: false,
             edge,
             reduced_motion: flag("--reduced-motion"),
-            glows: HashMap::new(),
-            ends: jump::Ends::default(),
-            working: working::Working::default(),
-            compactions: compaction::Compactions::default(),
             debug: flag("--debug"),
-            status: String::new(),
-            now_ms: 0,
-            base_ms: 0,
-            clock: 0.0,
-            fixture: Value::Null,
-            playback: VecDeque::new(),
-            served: Default::default(),
-            background: Default::default(),
-            sends: 0,
-            waker: None,
-            launch: Default::default(),
-            icons: Default::default(),
-            stage: None,
-            variant: 0,
+            ..Default::default()
         }
+    }
+
+    /// Back to Home, dropping a session that was still opening.
+    pub(crate) fn go_home(&mut self, tx: &mut Tx) {
+        self.opening = None;
+        self.route = Route::Home;
+        tx.settle();
     }
 
     fn load() -> App {

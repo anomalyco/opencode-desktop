@@ -346,10 +346,9 @@ const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).feat
 mod tests {
     use rune::{Env, Runtime};
 
+    use crate::fixture_ids::{MAIN, CHILD as REVIEW};
     use super::*;
 
-    const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
-    const REVIEW: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
 
     fn rt() -> Runtime<App> {
         let mut app = App::empty();

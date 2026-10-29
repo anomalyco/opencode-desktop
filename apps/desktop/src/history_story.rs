@@ -1,6 +1,7 @@
 //! The storybook's Navigation › Back and forward story: a session, another, Home, the first again
 //! and its subagent, then ⌘[ three times and ⌘] once. The strip on top is the history.
 
+use crate::fixture_ids::{MAIN, CHILD, THIRD as OTHER};
 use rune::{El, Play, Step, col, row, text};
 
 use crate::palette::Pal;
@@ -8,9 +9,6 @@ use crate::{App, Route};
 
 pub const KEYS: &[crate::stories::Trigger] = &[crate::stories::replay(open)];
 
-const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
-const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
-const OTHER: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();

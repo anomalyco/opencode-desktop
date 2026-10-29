@@ -1,11 +1,9 @@
+use crate::fixture_ids::{MAIN, CHILD, THIRD as OTHER};
 use rune::{Env, Key, KeyEvent, Mods, PhysicalKeyCode, Runtime};
 
 use crate::history::{Place, bracket};
 use crate::{App, Route};
 
-const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
-const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
-const OTHER: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 
 fn rt() -> Runtime<App> {
     let mut app = App::empty();

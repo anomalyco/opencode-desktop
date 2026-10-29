@@ -302,7 +302,7 @@ fn files_follow_sessions_and_pick_into_a_pill() {
 #[test]
 fn sending_carries_the_mentions() {
     let mut rt = runtime();
-    rt.state.route = Route::Session("ses_fx0003aaaaaaaaaaaaaaaaaa".into());
+    rt.state.route = Route::Session(crate::fixture_ids::THIRD.into());
     rt.frame(1.0 / 60.0);
     tap(&mut rt, "prompt");
     typed(&mut rt, "@exp");
@@ -319,6 +319,6 @@ fn sending_carries_the_mentions() {
     key(&mut rt, Key::Enter);
     assert_eq!(rt.state.sends, 1);
     assert!(rt.state.composer.text.is_empty());
-    let t = &rt.state.transcripts["ses_fx0003aaaaaaaaaaaaaaaaaa"];
+    let t = &rt.state.transcripts[crate::fixture_ids::THIRD];
     assert!(matches!(t.messages.last(), Some(opencode_kit::model::Message::User { text, .. }) if text.ends_with("@Fix flaky reconnect in the event stream")), "the echo shows what was typed");
 }

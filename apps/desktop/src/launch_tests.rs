@@ -17,13 +17,13 @@ fn first_reads_land_in_one_poll() {
     let (out, rx) = channel();
     app.launch.first = Some(rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
-    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: Some(json!({ "data": { "ses_fx0006aaaaaaaaaaaaaaaaaa": {} } })) };
+    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })) };
     out.send(Ok(first)).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert!(!app.launch.waiting && app.launch.first.is_none());
     assert!(!app.projects.is_empty());
-    assert_eq!(app.tabs.first().map(|t| t.id.as_str()), Some("ses_fx0001aaaaaaaaaaaaaaaaaa"), "no saved tabs: the recent sessions");
-    assert!(app.running.contains("ses_fx0006aaaaaaaaaaaaaaaaaa"));
+    assert_eq!(app.tabs.first().map(|t| t.id.as_str()), Some(crate::fixture_ids::MAIN), "no saved tabs: the recent sessions");
+    assert!(app.running.contains(crate::fixture_ids::SIXTH));
     assert!(!poll(&mut app, &mut Tx::default()), "and then rests");
 }
 

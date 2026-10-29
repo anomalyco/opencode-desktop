@@ -1,6 +1,7 @@
 //! The Quote button over a timeline selection, its card in the composer, and what a send with
 //! quotes carries.
 
+use crate::fixture_ids::{MAIN as SESSION};
 use rune::{ElementInfo, Key, KeyEvent, Mods, PhysicalInput, Runtime, Tx};
 
 use opencode_kit::client::{Server, Write};
@@ -9,7 +10,6 @@ use opencode_kit::model::{self, Message, Quote};
 use crate::view::selection_tests::{click, drag, find, first_line, last_line, session, settle, text};
 use crate::{App, Route};
 
-const SESSION: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 
 fn quoting(draft: &str) -> Runtime<App> {
     let (mut rt, _) = session(draft);

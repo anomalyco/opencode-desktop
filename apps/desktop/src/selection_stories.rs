@@ -3,6 +3,7 @@
 //! The highlight is instant. S selects the reply, A everything on screen, W a word of the
 //! prompt, P lands a new prompt below (the selection stays), C clears, R replays.
 
+use crate::fixture_ids::{PROMPT, REPLY_ROW as REPLY};
 use rune::{Play, Tx};
 
 use crate::App;
@@ -17,10 +18,6 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'c', label: "Clear", run: |_, tx| tx.clear_text_selection() },
 ];
 
-/// The reply with the watchdog's code, its row's key.
-const REPLY: &str = "t-msg_001a162c36130003fixture00-0";
-/// The session's first prompt, and "sleeps" in it.
-const PROMPT: &str = "msg_001a162c32a80001fixture00";
 const WORD: std::ops::Range<usize> = 40..46;
 
 fn open(s: &mut App, tx: &mut Play<App>) {

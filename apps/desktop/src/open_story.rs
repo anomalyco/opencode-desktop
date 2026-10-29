@@ -21,7 +21,7 @@ pub struct Demo {
 /// The storybook's Session opening stories, in order.
 pub const PATHS: [&str; 3] = ["Session opening/Cold · ready at 100 ms", "Session opening/Prefetched · ready now", "Session opening/Slow · 150 ms fallback"];
 /// Each story's triggers: R sets it up and clicks 0.75 s in, O clicks now.
-pub const KEYS: [&[Trigger]; 3] = [&[replay(|s, tx| open(s, 0, tx)), CLICK], &[replay(|s, tx| open(s, 1, tx)), CLICK], &[replay(|s, tx| open(s, 2, tx)), CLICK]];
+pub const KEYS: [&[Trigger]; 3] = [&[replay(open_at::<0>), CLICK], &[replay(open_at::<1>), CLICK], &[replay(open_at::<2>), CLICK]];
 /// How the click opens the session: waiting for its content, or the old route switch at once.
 pub const VARIANTS: &[(&str, usize)] = &[("Wait for the content", 0), ("Switch at once", 1)];
 const CLICK: Trigger = Trigger { key: 'o', label: "Open now", run: click };
@@ -54,6 +54,8 @@ pub fn setup(s: &mut App, at: usize) {
 }
 
 /// A Session opening story's setup: the click lands 0.75 s in.
+fn open_at<const AT: usize>(s: &mut App, tx: &mut Play<App>) { open(s, AT, tx) }
+
 fn open(s: &mut App, at: usize, tx: &mut Play<App>) {
     setup(s, at);
     if let Some(d) = s.open_demo.as_mut() {

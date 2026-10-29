@@ -12,9 +12,13 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             true
         }
         Key::Command('b') => {
-            s.opening = None;
-            s.route = if s.route == Route::Home { s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone())) } else { Route::Home };
-            tx.settle();
+            if s.route == Route::Home {
+                s.opening = None;
+                s.route = s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone()));
+                tx.settle();
+            } else {
+                s.go_home(tx);
+            }
             true
         }
         Key::Escape if crate::quote::dismiss(s) => {

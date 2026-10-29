@@ -5,6 +5,7 @@
 //! beside the playground untouched and comes back on Esc or ⌘⇧D, with the knobs as the stories
 //! left them. Answers and sends in a story go nowhere.
 
+use crate::fixture_ids::{CHILD};
 use std::sync::{Arc, OnceLock};
 
 use opencode_kit::model::{Attachment, Delivery, InboxItem, Message};
@@ -166,15 +167,18 @@ pub static STORIES: &[Story] = &[
     Story { path: "Timeline/Frosted surfaces", scene: |s| watch(s, crate::frosted_stories::view), knobs: &[], keys: crate::frosted_stories::KEYS, variants: &[] },
     Story { path: "Timeline/Turn actions", scene: |s| stage(s, session_view), knobs: ACTIONS_KNOBS, keys: TURN_KEYS, variants: &[] },
     Story { path: "Navigation/Back and forward", scene: |s| stage(s, history_view), knobs: &[], keys: crate::history_story::KEYS, variants: &[] },
-    Story { path: open_story::PATHS[0], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[0], variants: open_story::VARIANTS },
-    Story { path: open_story::PATHS[1], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[1], variants: open_story::VARIANTS },
-    Story { path: open_story::PATHS[2], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[2], variants: open_story::VARIANTS },
+    opening(0),
+    opening(1),
+    opening(2),
 ];
+
+/// One of the Session opening stories (`open_story.rs`).
+const fn opening(at: usize) -> Story {
+    Story { path: open_story::PATHS[at], scene: |s| stage(s, opening_view), knobs: &[], keys: open_story::KEYS[at], variants: open_story::VARIANTS }
+}
 
 /// Seconds the dock and the composer each stay in the morph loop.
 const BEAT: f64 = 1.6;
-/// A subagent of the fixture's open session.
-const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
 const DRAFT: &str = "Also check that the sidebar recovers after the stream reconnects, and add a test for it";
 const SEND_TEXT: &str = "Can you also check the reconnect jitter?";
 const STEER_TEXT: &str = "Use the fake clock from the test utils, not a new one";
@@ -226,8 +230,8 @@ fn save_folds(folded: &[String]) {
         return;
     }
     if let Some(f) = folds_file() {
-        let _ = std::fs::create_dir_all(f.parent().unwrap());
-        let _ = std::fs::write(f, json!({ "folded": folded }).to_string());
+        let bytes = json!({ "folded": folded }).to_string();
+        crate::disk::later("storybook", move || { crate::disk::replace(&f, bytes.as_bytes()); });
     }
 }
 

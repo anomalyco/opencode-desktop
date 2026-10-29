@@ -171,7 +171,7 @@ fn filtering_and_picking_land_in_the_keys_frame() {
     }
     let picked = "ses_fx0010aaaaaaaaaaaaaaaaaa";
     let title = rt.state.session(picked).unwrap().title.clone();
-    let old = rt.state.session("ses_fx0001aaaaaaaaaaaaaaaaaa").unwrap().title.clone();
+    let old = rt.state.session(crate::fixture_ids::MAIN).unwrap().title.clone();
     let header = |rt: &Runtime<App>, t: &str| rt.elements().into_iter().any(|e| {
         !e.exiting && e.opacity > 0.99 && e.path.contains("header") && (e.text.as_deref() == Some(t) || e.label.as_deref() == Some(t))
     });
@@ -192,14 +192,14 @@ fn a_click_opens_a_row_and_outside_closes() {
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.route, Route::Session("ses_fx0003aaaaaaaaaaaaaaaaaa".into()));
+    assert_eq!(rt.state.route, Route::Session(crate::fixture_ids::THIRD.into()));
     assert!(!rt.state.switcher.open);
     cmd_k(&mut rt);
     rt.pointer_down(10.0, 400.0);
     rt.pointer_up(10.0, 400.0);
     rt.frame(1.0 / 60.0);
     assert!(!rt.state.switcher.open);
-    assert_eq!(rt.state.route, Route::Session("ses_fx0003aaaaaaaaaaaaaaaaaa".into()));
+    assert_eq!(rt.state.route, Route::Session(crate::fixture_ids::THIRD.into()));
 }
 
 #[test]

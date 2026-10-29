@@ -5,6 +5,7 @@
 //! `--playground Timeline/Quote --script apps/desktop/scripts/quote.json` drags over the first
 //! prompt, quotes it, and shows the card in the composer.
 
+use crate::fixture_ids::{PROMPT, REPLY_ROW as REPLY};
 use rune::{Play, Tx};
 
 use crate::App;
@@ -20,10 +21,6 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'c', label: "Clear", run: |_, tx| tx.clear_text_selection() },
 ];
 
-/// The reply with the watchdog's code, its row's key.
-const REPLY: &str = "t-msg_001a162c36130003fixture00-0";
-/// The session's first prompt.
-const PROMPT: &str = "msg_001a162c32a80001fixture00";
 const WORDS: std::ops::Range<usize> = 4..38;
 
 fn open(s: &mut App, tx: &mut Play<App>) {
