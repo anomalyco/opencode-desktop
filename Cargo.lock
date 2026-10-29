@@ -3456,6 +3456,7 @@ dependencies = [
  "js-sys",
  "num-bigint",
  "p256",
+ "rusqlite",
  "seer-domain",
  "serde",
  "serde_json",
