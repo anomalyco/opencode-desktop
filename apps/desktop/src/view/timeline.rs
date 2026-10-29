@@ -100,16 +100,15 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let info = s.session(id);
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
+    // The subagent capsule floats over the timeline's bottom edge beside the jump button, so
+    // the transcript runs under both and fades out right at the composer's top edge.
+    let capsule = if child { None } else { crate::subagents::capsule(s, p, id) };
+    let lane = if capsule.is_some() { crate::jump::CAPSULE_LANE } else { 0.0 };
     let mut page = page
-        .child(crate::jump::over(s, p, id, timeline(s, p, id, t)))
+        .child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), capsule))
         .child(requests(s, p, id));
     // A subagent takes no prompts: its status line stands where the composer would.
-    page = if child {
-        page.child(crate::subagents::bar(s, p, id))
-    } else {
-        page.children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
-            .child(composer_dock(s, p))
-    };
+    page = if child { page.child(crate::subagents::bar(s, p, id)) } else { page.child(composer_dock(s, p)) };
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
 }
@@ -130,7 +129,8 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session(id) = &s.route else { return composer_dock(s, p) };
     col().key("session")
         .w_full()
-        .children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).child(c)))
+        .children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).pb(8.0)
+            .child(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).child(c))))
         .child(composer_dock(s, p))
 }
 
@@ -338,7 +338,8 @@ thread_local! {
     pub(crate) static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
+/// `lane` is the room under the last row for what floats over the timeline's bottom edge.
+pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
     let e = edge::ALL[s.edge];
     let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
     let mut stack = col()
@@ -358,16 +359,21 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El
     #[cfg(not(test))]
     let eager = false;
     // Eager construction is the benchmark and regression-test reference.
+    // The lane is the stack's last row, so it opens and closes on the growth spring and the
+    // pinned rows ride it rather than jump.
+    let room = move || el().key("lane-room").w_full().h(lane);
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())));
+            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())))
+            .child(room());
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
         let p = *p;
-        stack = stack.virtual_rows(specs.len(), 80.0,
-            move |_: &App, i| keys[i].key.clone().into(),
-            move |s: &App, i| specs[i].build(s, &p, &s.transcripts[&id], e.word_fade));
+        let n = specs.len();
+        stack = stack.virtual_rows(n + 1, 80.0,
+            move |_: &App, i| keys.get(i).map_or("lane-room".into(), |r| r.key.clone().into()),
+            move |s: &App, i| if i == n { room() } else { specs[i].build(s, &p, &s.transcripts[&id], e.word_fade) });
     }
     if t.is_none() {
         stack = stack.child(
@@ -388,7 +394,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El
         .shrink()
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
-        .clip_fade(0.0, 16.0, 0.0, 8.0)
+        .clip_fade(0.0, 16.0, 0.0, 16.0)
         .child(stack)
 }
 
