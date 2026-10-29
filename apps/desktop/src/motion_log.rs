@@ -9,6 +9,8 @@
 //! 2 pt in one frame and stops, or a second element under one key (`#dup`). Only then does it
 //! build a [`Recording`] of the ring and run the gate's own [`check`], which decides; a finding of
 //! `jump`, `offset-jump`, `appear-then-jump` or `twice` on a frame with no user input is logged.
+//! Flights (`Tx::launch`) are followed from launch to rest by [`flights`], which logs the ones
+//! that start in the wrong place, head the wrong way, snap at the end or fly at the wrong size.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -22,7 +24,11 @@ use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};
 
 use crate::motion_check::{Recording, check, rule, short};
-use crate::{App, Source};
+use crate::{App, Route, Source};
+pub use flights::Window;
+
+#[path = "motion_log_flights.rs"]
+mod flights;
 
 const FRAMES: usize = 24;
 const BYTES: usize = 4 << 20;
@@ -133,13 +139,16 @@ pub struct Watch {
     bytes: usize,
     event_seq: u64,
     dups: HashSet<String>,
+    flights: flights::Flights,
 }
 
 impl Watch {
-    /// One drawn frame: its elements, the viewport, whether user input landed in it, whether it
+    /// One drawn frame: its elements, the window, whether user input landed in it, whether it
     /// landed a load in place (`Tx::settle`, as the gate's loads), the app's events and the
-    /// wall-clock milliseconds. Returns a JSON line for each glitch it shows.
-    pub fn push(&mut self, els: &[ElementInfo], viewport: (f32, f32), input: bool, load: bool, events: &Events, ms: f64) -> Vec<Value> {
+    /// wall-clock milliseconds. Returns a JSON line for each glitch it shows. Elements seen for
+    /// the first time go to [`Watch::mount`] first.
+    pub fn push(&mut self, els: &[ElementInfo], window: Window, input: bool, load: bool, events: &Events, ms: f64) -> Vec<Value> {
+        let viewport = window.size;
         let event = events.seq != self.event_seq;
         self.event_seq = events.seq;
         let sample = Sample::take(els, ms, input, event, load);
@@ -148,20 +157,26 @@ impl Watch {
         while self.ring.len() > FRAMES || self.bytes > BYTES && self.ring.len() > 4 {
             self.bytes -= self.ring.pop_front().unwrap().bytes;
         }
+        let mut lines = self.flights.step(&self.ring, window, events);
         let latest = self.ring.back().unwrap();
         let dups: HashSet<String> = latest.els.iter().filter(|e| dup(e) && shown(e)).map(|e| short(&e.path)).collect();
         self.dups.retain(|d| dups.contains(d));
         let fresh: Vec<String> = dups.into_iter().filter(|d| !self.dups.contains(d)).collect();
         let jumped = self.jumped();
-        if fresh.is_empty() && !jumped { return Vec::new(); }
+        if fresh.is_empty() && !jumped { return lines; }
         self.dups.extend(fresh.iter().cloned());
         let rec = self.recording(viewport);
         let at = self.ring.len().saturating_sub(2);
-        check(&rec).into_iter()
+        lines.extend(check(&rec).into_iter()
             .filter(|f| LOGGED.contains(&f.kind))
             .filter(|f| if f.kind == "twice" { fresh.contains(&f.element) } else { jumped && f.frame == at && !self.ring[at].input })
-            .map(|f| self.line(&rec, &f, events))
-            .collect()
+            .map(|f| self.line(&rec, &f, events)));
+        lines
+    }
+
+    /// An element drawn for the first time, which may be a flight's destination.
+    pub fn mount(&mut self, path: &str, key: Option<&str>) {
+        self.flights.mount(path, key);
     }
 
     /// The frame before the latest has an edge that was still, stepped at least the jump
@@ -233,7 +248,7 @@ pub struct Frame {
     paths: Vec<(NodeId, String, Option<String>)>,
     /// The paths sent before are forgotten.
     reset: bool,
-    viewport: (f32, f32),
+    window: Window,
     input: bool,
     load: bool,
     /// The app's events, when they changed.
@@ -287,7 +302,9 @@ impl Feed {
         let events = (events.seq != self.event_seq).then(|| (events.seq, events.recent.iter().cloned().collect()));
         self.event_seq = rt.state.motion_events.seq;
         self.seq += 1;
-        Frame { seq: self.seq, els, paths, reset, viewport: rt.viewport, input, load: rt.settled, events, ms }
+        let at_end = match &rt.state.route { Route::Session(id) => rt.state.ends.at_end(id), _ => false };
+        let window = Window { size: rt.viewport, zoom: rt.state.zoom, at_end };
+        Frame { seq: self.seq, els, paths, reset, window, input, load: rt.settled, events, ms }
     }
 }
 
@@ -312,13 +329,14 @@ impl Worker {
         if f.seq != self.seq + 1 { self.watch = Watch { dups: std::mem::take(&mut self.watch.dups), ..Watch::default() }; }
         self.seq = f.seq;
         if f.reset { self.paths.clear(); }
+        for (_, path, key) in &f.paths { self.watch.mount(path, key.as_deref()); }
         self.paths.extend(f.paths.drain(..).map(|(id, path, key)| (id, (path, key))));
         if let Some((seq, recent)) = f.events.take() {
             self.events.seq = seq;
             self.events.recent = recent.into();
         }
         let els = self.infos(&f.els);
-        self.watch.push(&els, f.viewport, f.input, f.load, &self.events, f.ms)
+        self.watch.push(&els, f.window, f.input, f.load, &self.events, f.ms)
     }
 
     /// The visible elements as the checks read them, parents remapped to the nearest one kept.

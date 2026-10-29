@@ -29,7 +29,7 @@ fn run(frames: impl IntoIterator<Item = (Vec<ElementInfo>, bool)>) -> Vec<Value>
     let events = Events::default();
     let mut lines = Vec::new();
     for (k, (els, input)) in frames.into_iter().enumerate() {
-        lines.extend(watch.push(&els, (800.0, 600.0), input, false, &events, k as f64 * 8.33));
+        lines.extend(watch.push(&els, Window::new((800.0, 600.0)), input, false, &events, k as f64 * 8.33));
     }
     lines
 }
@@ -86,7 +86,7 @@ fn the_ring_stays_inside_its_caps() {
     let mut watch = Watch::default();
     let events = Events::default();
     for k in 0..200 {
-        watch.push(&timeline(-1000.0), (800.0, 600.0), false, false, &events, k as f64);
+        watch.push(&timeline(-1000.0), Window::new((800.0, 600.0)), false, false, &events, k as f64);
         assert!(watch.ring.len() <= FRAMES && watch.bytes <= BYTES);
     }
     let mut events = Events::default();

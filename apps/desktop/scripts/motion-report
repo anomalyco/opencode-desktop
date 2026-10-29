@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Summarizes the live app's motion log (apps/desktop/src/motion_log.rs) by rule: how many
+entries each rule logged in the last N hours, the keys it hit most, and the latest entry's detail.
+
+  apps/desktop/scripts/motion-report [--hours 24] [--rule end-snap] [--flights] [--top 5] [LOG ...]
+
+With no file, reads ~/Library/Logs/opencode-rune/motion.jsonl and its rotated motion.1.jsonl.
+Keys are grouped with their message and session ids folded to `*`, so one rule hitting every
+bubble reads as one row. --flights keeps only flight entries (wrong-start, wrong-side, reversal,
+end-snap, size). --rule prints that rule's entries in full, newest last.
+"""
+import argparse, collections, datetime, json, os, re
+
+ap = argparse.ArgumentParser()
+ap.add_argument("logs", nargs="*")
+ap.add_argument("--hours", type=float, default=24)
+ap.add_argument("--rule")
+ap.add_argument("--flights", action="store_true")
+ap.add_argument("--top", type=int, default=5)
+a = ap.parse_args()
+
+base = os.path.expanduser("~/Library/Logs/opencode-rune")
+paths = a.logs or [p for p in (f"{base}/motion.1.jsonl", f"{base}/motion.jsonl") if os.path.exists(p)]
+since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=a.hours)
+entries = []
+for path in paths:
+    for line in open(path):
+        try:
+            e = json.loads(line)
+            t = datetime.datetime.fromisoformat(e["time"].replace("Z", "+00:00"))
+        except (ValueError, KeyError):
+            continue
+        if t >= since and (not a.flights or e.get("flight")):
+            entries.append((t, e))
+entries.sort(key=lambda x: x[0])
+
+def fold(key):
+    return re.sub(r"(ses|msg|prt|que)_[A-Za-z0-9]+", r"\1_*", key or "?")
+
+if a.rule:
+    for t, e in entries:
+        if e["rule"] == a.rule:
+            print(json.dumps(e, indent=1))
+    raise SystemExit
+
+if not entries:
+    print(f"nothing logged in the last {a.hours:g} h ({', '.join(paths) or 'no log'})")
+    raise SystemExit
+
+by_rule = collections.defaultdict(list)
+for t, e in entries:
+    by_rule[e["rule"]].append((t, e))
+print(f"{len(entries)} entries in the last {a.hours:g} h, {entries[0][0]:%m-%d %H:%M} to {entries[-1][0]:%m-%d %H:%M} UTC\n")
+for rule, es in sorted(by_rule.items(), key=lambda kv: -len(kv[1])):
+    kind = "flight" if es[0][1].get("flight") else "jump"
+    print(f"{rule} ({kind}): {len(es)}")
+    keys = collections.Counter(fold((e.get("keys") or [e.get("element")])[0]) for _, e in es)
+    for key, n in keys.most_common(a.top):
+        print(f"  {n:4}  {key}")
+    t, last = es[-1]
+    extra = ""
+    if last.get("flight"):
+        extra = f"  zoom {last.get('zoom')}, window {last.get('window')}, at end {last.get('at_end')}"
+    print(f"  latest {t:%m-%d %H:%M:%S}: {last.get('detail')}{extra}\n")
