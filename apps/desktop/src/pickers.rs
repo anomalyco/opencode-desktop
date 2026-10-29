@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
+use crate::mentions::list::{Highlight, cycle};
 use crate::{App, Route};
 use opencode_kit::model::{ModelRef, capitalize};
 
@@ -49,8 +50,7 @@ pub struct Pickers {
     pub open: Option<Kind>,
     pub search: TextEdit,
     pub toolbar_focus: Option<Kind>,
-    active: Option<String>,
-    searched: String,
+    active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
     selections: HashMap<String, Selection>,
     /// The model each agent last had in a session, by session then agent, so switching back to
@@ -109,8 +109,7 @@ impl Pickers {
     }
 
     pub fn activate(&mut self, key: String) {
-        self.searched.clone_from(&self.search.text);
-        self.active = Some(key);
+        self.active.set(key, self.search.text.clone());
     }
 }
 
@@ -252,9 +251,8 @@ impl App {
     }
 
     pub fn picker_active(&self) -> Option<String> {
-        if self.pickers.search.text != self.pickers.searched {
-            self.picker_items().first().map(|i| i.key.clone())
-        } else { self.pickers.active.clone() }
+        let items = self.picker_items();
+        self.pickers.active.resolve(&self.pickers.search.text, items.iter().map(|i| i.key.as_str()))
     }
 
     pub fn open_picker(&mut self, kind: Kind) {
@@ -262,10 +260,8 @@ impl App {
         self.pickers.open = Some(kind);
         self.pickers.search = TextEdit::new("");
         self.pickers.search.focused = kind == Kind::Model;
-        self.pickers.searched.clear();
         let current = self.picker_current(kind);
-        let items = self.picker_items();
-        self.pickers.active = items.iter().find(|i| i.key == current).or(items.first()).map(|i| i.key.clone());
+        self.pickers.active.set(current, String::new());
         self.composer.focused = false;
         self.pickers.toolbar_focus = None;
     }
@@ -337,9 +333,9 @@ impl App {
                     let items = self.picker_items();
                     if !items.is_empty() {
                         let active = self.picker_active();
-                        let index = items.iter().position(|i| Some(&i.key) == active.as_ref()).unwrap_or(0);
-                        let next = if ev.key == Key::Down { (index + 1) % items.len() } else { (index + items.len() - 1) % items.len() };
-                        self.pickers.activate(items[next].key.clone());
+                        let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
+                        let step = if ev.key == Key::Down { 1 } else { -1 };
+                        self.pickers.activate(items[cycle(items.len(), at, step)].key.clone());
                     }
                 }
                 Key::Enter => {
