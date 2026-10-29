@@ -39,6 +39,8 @@ pub enum Prompt {
     Line,
     Lines,
     Image,
+    /// A pasted transcript, long enough to land folded (`fold.rs`).
+    Long,
 }
 
 /// What's true before the action: one cell's column of the matrix.
@@ -75,6 +77,7 @@ impl Circ {
             Prompt::Line => {}
             Prompt::Lines => parts.push("multi-line"),
             Prompt::Image => parts.push("image"),
+            Prompt::Long => parts.push("long-prompt"),
         }
         if self.zoomed {
             parts.push("zoomed");
@@ -88,6 +91,7 @@ impl Circ {
 
     pub fn body(&self) -> &'static str {
         match self.prompt {
+            Prompt::Long => crate::fold_stories::LONG,
             Prompt::Lines => "Three things before you merge:\n- keep the backoff capped at 30 s\n- log every retry with its attempt number\n- and add a test that drops the socket twice in a row",
             _ => "Can you also check the reconnect jitter?",
         }

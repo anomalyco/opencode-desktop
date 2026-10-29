@@ -1,4 +1,5 @@
 use super::*;
+use crate::fold::Fold;
 use crate::session_menu::{Spot, Target};
 
 // ---------------------------------------------------------------------------------------------
@@ -243,10 +244,10 @@ pub(super) struct RowSpec {
 }
 
 pub(super) enum RowContent {
-    User { message: usize, tight: bool, above: bool, below: bool },
+    User { message: usize, tight: bool, above: bool, below: bool, fold: Option<Fold> },
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
-    Pending { id: String, tight: bool, above: bool, below: bool },
+    Pending { id: String, tight: bool, above: bool, below: bool, fold: Option<Fold> },
     Note(usize),
     Compaction { message: usize, piece: crate::compaction::Piece },
     /// A compaction the server admitted but hasn't started.
@@ -265,20 +266,22 @@ impl RowSpec {
         #[cfg(test)]
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
-            RowContent::User { message, tight, above, below } => match &t.messages[*message] {
+            RowContent::User { message, tight, above, below, fold } => match &t.messages[*message] {
                 Message::User { id, text, .. } => {
                     let glow = s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at));
-                    user_bubble(s, p, id, text, *tight, *above, *below, glow, None, crate::quote_cards::on_message(s, p, id, text))
+                    let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                    user_bubble(s, p, id, text, run, glow, None, crate::quote_cards::on_message(s, p, id, text))
                 }
                 _ => unreachable!(),
             },
-            RowContent::Pending { id, tight, above, below } => {
+            RowContent::Pending { id, tight, above, below, fold } => {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
                         let cards = crate::quote_cards::on_message(s, p, id, &item.text);
                         let label = if cards.is_some() { item.text.clone() } else { crate::queue::pending_label(item) };
-                        user_bubble(s, p, id, &label, *tight, *above, *below, 0.0, Some(&t.session), cards)
+                        let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                        user_bubble(s, p, id, &label, run, 0.0, Some(&t.session), cards)
                     }
                     None => col(),
                 }
@@ -397,6 +400,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let shown = t.visible_len(revert);
     let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
     let pending: Vec<&InboxItem> = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
+    let fold = crate::fold::place(s, &t.session);
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
@@ -416,7 +420,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 };
                 let tight = prompt_images(&mut out, id);
                 if !body.trim().is_empty() || !model::user_quotes(id).is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below }, streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
                 }
             }
             Message::Note { id, .. } => {
@@ -448,7 +452,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         let above = prev.is_some_and(|x| prompts_join(x, item));
         let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n));
         let tight = prompt_images(&mut out, &item.id);
-        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below }, streaming: false });
+        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
     }
     if let Some(last) = last_assistant {
@@ -534,8 +538,17 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
     }
 }
 
+/// Where a prompt's bubble sits in its run (see `user_bubble`), and where it lays out.
+#[derive(Clone, Copy)]
+pub(super) struct Place {
+    tight: bool,
+    above: bool,
+    below: bool,
+    fold: Option<Fold>,
+}
+
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
-pub(super) const BUBBLE_MAX: f32 = 565.0;
+pub(crate) const BUBBLE_MAX: f32 = 565.0;
 
 /// Whether prompt `b` joins the run of prompt `a` just above it: both have words and `b` brings
 /// no files (Desktop's `user-runs.ts`).
@@ -562,8 +575,8 @@ pub(super) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 ///
 /// `quotes` are the prompt's quote cards: inside the bubble under its words, or in its place
 /// when it has none.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, above: bool, below: bool, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
+pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
+    let Place { tight, above, below, fold } = place;
     let words = body.to_owned();
     let copy = match pending {
         Some(session) => crate::queue::pending_actions(p, session, id, below),
@@ -603,7 +616,8 @@ pub(super) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, tight: bool, a
     let ink = if pending.is_some() { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges) = s.bubble_badges(p, id, body);
-    bubble = bubble.child(readable(p, text(shown).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges)));
+    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges));
+    bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards,
         Some(cards) => bubble.w(342.0).pb(12.0).child(cards),

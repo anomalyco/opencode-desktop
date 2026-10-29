@@ -42,6 +42,9 @@ const ALLOW: &[(&str, &str, &str, &str)] = &[
     ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/timeline-area", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
+    ("fade-snap", "actions/copy", "fold/", "a prompt's Copy shows with its row's hover at once (view::user_bubble); scrolling to Show less puts the prompt under the pointer"),
+    ("jerk", "editor-scroll/editor-pad", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
+    ("offset-jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
 ];
 
@@ -68,7 +71,7 @@ fn places(base: Circ) -> Vec<Circ> {
 /// `places`, plus each prompt shape and the docks that can be open.
 fn sends(base: Circ, docks: &[Dock]) -> Vec<Circ> {
     let mut v = places(base);
-    for prompt in [Prompt::Lines, Prompt::Image] {
+    for prompt in [Prompt::Lines, Prompt::Image, Prompt::Long] {
         for length in [Length::Long, Length::Empty] {
             v.push(Circ { prompt, length, ..base });
         }
@@ -229,6 +232,28 @@ const ACTIONS: &[Action] = &[
         r.play(0.6);
         tap_trigger(r, Some(&group));
         r.play(0.6);
+    } },
+    // A long prompt lands folded; Read more opens it on the growth spring with its top held,
+    // and Show less closes it again.
+    Action { name: "fold", circs: || {
+        let long = Circ { prompt: Prompt::Long, ..Circ::default() };
+        let mut v = wide_and_narrow(long);
+        v.push(Circ { length: Length::Empty, ..long });
+        v
+    }, run: |r| {
+        r.type_prompt();
+        r.enter(false);
+        r.play_out(1.0);
+        let opened = |r: &Run| r.rt.state.expanded.iter().any(|k| k.starts_with("user-expanded:"));
+        r.act("Read more", |rt| Run::tap(rt, "fold-toggle"));
+        assert!(opened(r), "Read more opens the prompt");
+        r.play(0.8);
+        // Down to Show less at the end of the opened prompt, its top now above the timeline:
+        // closing holds the toggle where it's pressed.
+        r.swipe_up(-1200.0, 0.8);
+        r.act("Show less", |rt| Run::tap(rt, "fold-toggle"));
+        assert!(!opened(r), "Show less folds it again");
+        r.play(0.8);
     } },
     Action { name: "send-during-reflow", circs: || wide_and_narrow(Circ::default()), run: |r| {
         r.type_prompt();

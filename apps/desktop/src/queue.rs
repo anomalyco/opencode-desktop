@@ -256,7 +256,7 @@ pub fn docked(s: &App) -> bool {
 
 fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool) -> El {
     let files = model::user_files(&item.id).len().max(item.files.len());
-    let label = if item.text.trim().is_empty() { attachments_label(files) } else { item.text.lines().next().unwrap_or("").to_owned() };
+    let label = if item.text.trim().is_empty() { attachments_label(files) } else { item.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned() };
     let (ss, is) = (session.to_owned(), item.id.clone());
     let (su, iu) = (session.to_owned(), item.id.clone());
     let (sr, ir) = (session.to_owned(), item.id.clone());
@@ -278,7 +278,7 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         })
         .child(icon(&ic::ARROW_UP, 14.0).color(p.icon_faint))
         .child(text(if busy { "Steer" } else { "Send" }).font(UI_MED).color(p.faint));
-    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(p.text).truncate());
+    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(p.text).truncate_fade());
     if files > 0 && !item.text.trim().is_empty() {
         left = left.child(text(attachments_label(files)).font(UI).color(p.muted));
     }

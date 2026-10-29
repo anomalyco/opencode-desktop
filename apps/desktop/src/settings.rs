@@ -32,17 +32,25 @@ impl Scheme {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub open: bool,
     /// The composer's agent picker; the agent still applies when it's hidden.
     pub show_agent: bool,
     pub scheme: Scheme,
+    /// Fold prompts past 12 lines behind Read more (`fold.rs`). On unless turned off.
+    pub fold_user: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { open: false, show_agent: false, scheme: Scheme::default(), fold_user: true }
+    }
 }
 
 impl Settings {
     pub fn to_json(&self) -> Value {
-        json!({ "showAgentPicker": self.show_agent, "appearance": self.scheme.name() })
+        json!({ "showAgentPicker": self.show_agent, "appearance": self.scheme.name(), "foldUserMessages": self.fold_user })
     }
 
     pub fn from_json(v: &Value) -> Settings {
@@ -50,6 +58,7 @@ impl Settings {
             open: false,
             show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
+            fold_user: v["foldUserMessages"].as_bool().unwrap_or(true),
         }
     }
 }
@@ -112,6 +121,10 @@ impl App {
         self.pickers.toolbar_focus = self.pickers.toolbar_focus.filter(|k| on || *k != crate::pickers::Kind::Agent);
     }
 
+    pub fn set_fold_user(&mut self, on: bool) {
+        self.change_settings(|s| s.fold_user = on);
+    }
+
     pub fn set_scheme(&mut self, scheme: Scheme) {
         self.change_settings(|s| s.scheme = scheme);
     }
@@ -156,6 +169,14 @@ pub fn page(s: &App, p: &Pal) -> El {
             "Choose the agent from the composer. Hidden, the last agent still applies.",
             switch(p, "show-agent", s.settings.show_agent)
                 .on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent)),
+            true,
+        ))
+        .child(setting(
+            p,
+            "fold-user",
+            "Fold long messages",
+            "Fold your messages past 12 lines behind a Read more button",
+            switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user)),
             true,
         ))
         .child(setting(p, "appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p), true))
@@ -347,7 +368,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let on = Settings { open: false, show_agent: true, scheme: Scheme::Light };
+        let on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false };
         write(&path, &on);
         assert_eq!(read(&path), on);
         let _ = std::fs::remove_dir_all(dir);

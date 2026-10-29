@@ -148,6 +148,7 @@ pub static STORIES: &[Story] = &[
     Story { path: "Header/Ticking", scene: |s| watch(s, ticking_view), knobs: &[], keys: crate::odometer_stories::TICKING_KEYS, variants: &[] },
     Story { path: "Timeline/Arrival glow", scene: |s| stage(s, session_view), knobs: GLOW_KNOBS, keys: GLOW_KEYS, variants: &[] },
     Story { path: "Timeline/Send", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: SEND_KEYS, variants: &[] },
+    Story { path: "Timeline/Long prompt", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: crate::fold_stories::KEYS, variants: crate::fold_stories::VARIANTS },
     Story { path: "Timeline/Streaming text", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: STREAM_KEYS, variants: &[] },
     Story { path: "Timeline/Tool rows", scene: |s| stage(s, session_view), knobs: ROW_KNOBS, keys: TOOL_KEYS, variants: &[] },
     Story { path: "Timeline/Selection", scene: |s| stage(s, session_view), knobs: &[], keys: crate::selection_stories::KEYS, variants: &[] },

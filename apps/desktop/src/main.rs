@@ -22,6 +22,10 @@ mod dictation_tests;
 mod disk;
 mod dropzone;
 mod events;
+mod fold;
+mod fold_stories;
+#[cfg(test)]
+mod fold_tests;
 mod frosted_stories;
 mod history;
 mod history_story;
