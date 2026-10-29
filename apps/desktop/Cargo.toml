@@ -11,6 +11,7 @@ hot = ["rune/hot"]
 knobs = ["rune-knobs/panel"]
 
 [dependencies]
+browser-pane = { path = "../../crates/browser-pane" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
 rune-mac.workspace = true

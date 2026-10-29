@@ -214,6 +214,7 @@ const ORDER: &[&str] = &[
     "Timeline/Frosted surfaces",
     "Timeline/Turn actions",
     "Navigation/Back and forward",
+    "Browser/Pane",
 ];
 
 /// Every story, in the storybook's order.
@@ -245,7 +246,7 @@ pub fn playground() -> Playground<App> {
         .scenes(|name| name.contains('/'))
         .fresh(fresh)
         .keep(keep)
-        .typing(|s| !s.stage.is_some_and(|st| st.watch) && (s.composer.focused || s.question_takes_text()))
+        .typing(|s| !s.stage.is_some_and(|st| st.watch) && (s.composer.focused || s.question_takes_text() || s.browser.address.focused))
         .folds(load_folds, save_folds);
     for st in stories() {
         for t in st.keys {

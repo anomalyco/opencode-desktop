@@ -504,6 +504,19 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
+    Action { name: "browser-split", circs: || vec![Circ::default()], run: |r| {
+        r.act("open browser", |rt| Run::tap(rt, "browser"));
+        r.rec.loads.push(r.rec.frames - 1);
+        r.quiet();
+        r.play(0.6);
+        r.type_prompt();
+        r.enter(false);
+        r.play_out(1.0);
+        r.act("close browser", |rt| Run::tap(rt, "browser-close"));
+        r.rec.loads.push(r.rec.frames - 1);
+        r.quiet();
+        r.play(0.6);
+    } },
 ];
 
 /// The run starts a step whose shell call blocks it, and the hint shows.

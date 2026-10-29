@@ -14,6 +14,8 @@ mod arrivals;
 mod attachments;
 mod background;
 mod background_stories;
+mod browser;
+mod browser_stories;
 mod capsule_stories;
 mod picker_stories;
 mod compaction;
@@ -232,6 +234,7 @@ pub struct App {
     waker: Option<Waker>,
     launch: launch::Launch,
     pub icons: project_icon::Icons,
+    pub browser: browser::BrowserPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
@@ -656,6 +659,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_commands();
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
+    changed |= s.poll_browser(tx);
     if let Source::Live { server, .. } = &s.source
         && s.persists()
     {
@@ -673,6 +677,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
     s.icons.set_sync(headless());
+    s.setup_browser(waker);
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
@@ -713,11 +718,16 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 
 /// The app as it runs: its history, its storybook (⌘⇧D) and its window chrome.
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
-    history::install(rune::App::new(spec).playground(stories::playground()).chrome(rune::Chrome {
-        full_size_content: true,
-        traffic_lights: Some((25.0, 25.0)),
-        drag_regions: true,
-    }))
+    history::install(
+        rune::App::new(spec)
+            .playground(stories::playground())
+            .on_ime(|s, ime, _| s.browser_ime(ime))
+            .chrome(rune::Chrome {
+                full_size_content: true,
+                traffic_lights: Some((25.0, 25.0)),
+                drag_regions: true,
+            }),
+    )
 }
 
 fn main() {

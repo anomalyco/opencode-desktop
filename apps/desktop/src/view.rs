@@ -110,6 +110,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
+    let win_w = cx.layout("zoomed").map_or(0.0, |r| r[2]);
+    let panel_w = cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom);
+    let panel_sz = cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom));
     let mut root = row()
         .key("window")
         .role("window")
@@ -138,14 +141,18 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p),
                     Route::Session(id) => session_page(s, p, id),
-                    Route::Draft => draft_page(s, p, cx.layout("panel").map_or(0.0, |r| r[2] / s.zoom)),
+                    Route::Draft => draft_page(s, p, panel_w),
                 } })
-                .child(crate::dropzone::overlay(s, p, cx.layout("panel").map_or((0.0, 0.0), |r| (r[2] / s.zoom, r[3] / s.zoom)))),
+                .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
+        .children(crate::browser::view::aside(s, p))
         // The empty inset above the panels moves the window, as the titlebar does.
         .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(8.0).window_drag());
     if open {
         root = root.child(resize_handle(s, p, w));
+    }
+    if let Some(handle) = crate::browser::view::resize_handle(s, p, win_w) {
+        root = root.child(handle);
     }
     root = root.child(sidebar_toggle(p, open, w));
     root

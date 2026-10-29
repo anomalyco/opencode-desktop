@@ -33,13 +33,15 @@ pub enum Command {
     Home,
     ToggleSidebar,
     Settings,
+    ToggleBrowser,
 }
 
-const COMMANDS: [(Command, &str, &str, &str); 4] = [
+const COMMANDS: [(Command, &str, &str, &str); 5] = [
     (Command::NewSession, "new", "New session", "⌘T"),
     (Command::Home, "home", "Home", "⌘B"),
     (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
     (Command::Settings, "settings", "Settings", "⌘,"),
+    (Command::ToggleBrowser, "browser", "Toggle browser", "⌥⌘B"),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -246,7 +248,7 @@ impl App {
             open: self.tabs.iter().any(|t| t.id == s.id),
         });
         if q.is_empty() {
-            return commands.take(RECENT).chain(sessions.take(RECENT)).collect();
+            return commands.take(4).chain(sessions.take(RECENT)).collect();
         }
         let found: Vec<Entry> = commands.filter(|e| matches(e, q)).chain(sessions.filter(|e| matches(e, q)).take(MATCHES)).collect();
         rank(found)
@@ -309,6 +311,7 @@ impl App {
             }
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
             Action::Command(Command::Settings) => self.open_settings(),
+            Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),
         }
     }
 

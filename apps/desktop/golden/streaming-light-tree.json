@@ -1,6 +1,6 @@
 {
   "anim_t": 0.0,
-  "animating": false,
+  "animating": true,
   "dark_system": false,
   "elements": [
     {
@@ -197,7 +197,7 @@
         10.0,
         64.0,
         248.0,
-        92.0
+        124.0
       ],
       "role": "group",
       "scale": 1.0
@@ -475,13 +475,75 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "browser",
+      "label": "Browser",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/browser",
+      "rect": [
+        10.0,
+        160.0,
+        248.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/browser/#0",
+      "rect": [
+        16.0,
+        166.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/browser/#1",
+      "rect": [
+        38.0,
+        166.0,
+        51.0,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Browser"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
       "key": "tabs-gap",
       "loopPhase": null,
       "opacity": 1.0,
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-gap",
       "rect": [
         10.0,
-        156.0,
+        188.0,
         248.0,
         16.0
       ],
@@ -501,11 +563,11 @@
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll",
       "rect": [
         10.0,
-        172.0,
+        204.0,
         248.0,
-        638.0
+        606.0
       ],
-      "role": "group",
+      "role": "list",
       "scale": 1.0
     },
     {
@@ -521,11 +583,33 @@
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs",
       "rect": [
         10.0,
-        172.0,
+        204.0,
         248.0,
         268.0
       ],
       "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "itemSelected": true,
+      "key": "t-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "label": "Fix flaky reconnect in the event stream",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        10.0,
+        204.0,
+        248.0,
+        30.0
+      ],
+      "role": "button",
       "scale": 1.0
     },
     {
@@ -535,18 +619,37 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "t-ses_fx0001aaaaaaaaaaaaaaaaaa",
-      "label": "Fix flaky reconnect in the event stream",
+      "key": "pill",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill",
       "rect": [
         10.0,
-        172.0,
+        204.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        204.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -559,10 +662,10 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
-        172.0,
+        204.0,
         218.0,
         28.0
       ],
@@ -571,17 +674,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
-        178.0,
+        210.0,
         16.0,
         16.0
       ],
@@ -598,10 +701,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
         20.75,
-        178.0,
+        210.0,
         6.5,
         16.0
       ],
@@ -619,10 +722,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
-        178.0,
+        210.0,
         240.0,
         16.0
       ],
@@ -640,10 +743,10 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
-        176.0,
+        208.0,
         20.0,
         20.0
       ],
@@ -659,10 +762,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/status/#0",
       "rect": [
         244.0,
-        186.0,
+        218.0,
         0.0,
         0.0
       ],
@@ -680,10 +783,10 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
-        176.0,
+        208.0,
         20.0,
         20.0
       ],
@@ -700,10 +803,10 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
-        176.0,
+        208.0,
         20.0,
         20.0
       ],
@@ -720,10 +823,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0001aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
-        178.0,
+        210.0,
         16.0,
         16.0
       ],
@@ -734,7 +837,7 @@
       "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
-      "focusable": false,
+      "focusable": true,
       "focused": false,
       "inert": false,
       "key": "t-ses_fx0003aaaaaaaaaaaaaaaaaa",
@@ -744,11 +847,51 @@
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
-        204.0,
+        234.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "pill",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill",
+      "rect": [
+        10.0,
+        236.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        236.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -761,10 +904,10 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
-        204.0,
+        236.0,
         238.0,
         28.0
       ],
@@ -773,17 +916,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
-        210.0,
+        242.0,
         16.0,
         16.0
       ],
@@ -800,10 +943,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
         20.75,
-        210.0,
+        242.0,
         6.5,
         16.0
       ],
@@ -821,10 +964,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
-        210.0,
+        242.0,
         209.0,
         16.0
       ],
@@ -842,10 +985,10 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
-        208.0,
+        240.0,
         20.0,
         20.0
       ],
@@ -861,10 +1004,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/status/#0",
       "rect": [
         244.0,
-        218.0,
+        250.0,
         0.0,
         0.0
       ],
@@ -882,10 +1025,10 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
-        208.0,
+        240.0,
         20.0,
         20.0
       ],
@@ -902,10 +1045,10 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
-        208.0,
+        240.0,
         20.0,
         20.0
       ],
@@ -922,10 +1065,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0003aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
-        210.0,
+        242.0,
         16.0,
         16.0
       ],
@@ -936,7 +1079,7 @@
       "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
-      "focusable": false,
+      "focusable": true,
       "focused": false,
       "inert": false,
       "key": "t-ses_fx0006aaaaaaaaaaaaaaaaaa",
@@ -946,11 +1089,51 @@
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
-        236.0,
+        266.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "pill",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill",
+      "rect": [
+        10.0,
+        268.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        268.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -963,10 +1146,10 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
-        236.0,
+        268.0,
         218.0,
         28.0
       ],
@@ -975,17 +1158,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
-        242.0,
+        274.0,
         16.0,
         16.0
       ],
@@ -1002,10 +1185,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
         19.75,
-        242.0,
+        274.0,
         8.5,
         16.0
       ],
@@ -1023,10 +1206,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
-        242.0,
+        274.0,
         253.5,
         16.0
       ],
@@ -1044,10 +1227,10 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
-        240.0,
+        272.0,
         20.0,
         20.0
       ],
@@ -1064,10 +1247,10 @@
       "key": "ring",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring",
       "rect": [
         237.0,
-        243.0,
+        275.0,
         14.0,
         14.0
       ],
@@ -1085,10 +1268,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.6510000228881836,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d0",
       "rect": [
         237.88,
-        243.88,
+        275.88,
         1.75,
         1.75
       ],
@@ -1106,10 +1289,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.7149999737739563,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d1",
       "rect": [
         240.5,
-        243.88,
+        275.88,
         1.75,
         1.75
       ],
@@ -1127,10 +1310,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d2",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d2",
       "rect": [
         243.13,
-        243.88,
+        275.88,
         1.75,
         1.75
       ],
@@ -1148,10 +1331,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d3",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d3",
       "rect": [
         245.75,
-        243.88,
+        275.88,
         1.75,
         1.75
       ],
@@ -1169,10 +1352,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d4",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d4",
       "rect": [
         248.38,
-        243.88,
+        275.88,
         1.75,
         1.75
       ],
@@ -1190,10 +1373,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.5299999713897705,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d5",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d5",
       "rect": [
         237.88,
-        246.5,
+        278.5,
         1.75,
         1.75
       ],
@@ -1211,10 +1394,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.6510000228881836,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d6",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d6",
       "rect": [
         240.5,
-        246.5,
+        278.5,
         1.75,
         1.75
       ],
@@ -1232,10 +1415,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d7",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d7",
       "rect": [
         243.13,
-        246.5,
+        278.5,
         1.75,
         1.75
       ],
@@ -1253,10 +1436,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d8",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d8",
       "rect": [
         245.75,
-        246.5,
+        278.5,
         1.75,
         1.75
       ],
@@ -1274,10 +1457,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d9",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d9",
       "rect": [
         248.38,
-        246.5,
+        278.5,
         1.75,
         1.75
       ],
@@ -1295,10 +1478,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.38499999046325684,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d10",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d10",
       "rect": [
         237.88,
-        249.13,
+        281.13,
         1.75,
         1.75
       ],
@@ -1316,10 +1499,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.38499999046325684,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d11",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d11",
       "rect": [
         240.5,
-        249.13,
+        281.13,
         1.75,
         1.75
       ],
@@ -1336,10 +1519,10 @@
       "key": "d12",
       "loopPhase": null,
       "opacity": 0.7369999885559082,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d12",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d12",
       "rect": [
         243.13,
-        249.13,
+        281.13,
         1.75,
         1.75
       ],
@@ -1357,10 +1540,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d13",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d13",
       "rect": [
         245.75,
-        249.13,
+        281.13,
         1.75,
         1.75
       ],
@@ -1378,10 +1561,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d14",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d14",
       "rect": [
         248.38,
-        249.13,
+        281.13,
         1.75,
         1.75
       ],
@@ -1399,10 +1582,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.31299999356269836,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d15",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d15",
       "rect": [
         237.88,
-        251.75,
+        283.75,
         1.75,
         1.75
       ],
@@ -1420,10 +1603,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.2879999876022339,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d16",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d16",
       "rect": [
         240.5,
-        251.75,
+        283.75,
         1.75,
         1.75
       ],
@@ -1441,10 +1624,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d17",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d17",
       "rect": [
         243.13,
-        251.75,
+        283.75,
         1.75,
         1.75
       ],
@@ -1462,10 +1645,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d18",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d18",
       "rect": [
         245.75,
-        251.75,
+        283.75,
         1.75,
         1.75
       ],
@@ -1483,10 +1666,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d19",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d19",
       "rect": [
         248.38,
-        251.75,
+        283.75,
         1.75,
         1.75
       ],
@@ -1504,10 +1687,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.2879999876022339,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d20",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d20",
       "rect": [
         237.88,
-        254.38,
+        286.38,
         1.75,
         1.75
       ],
@@ -1525,10 +1708,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.2750000059604645,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d21",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d21",
       "rect": [
         240.5,
-        254.38,
+        286.38,
         1.75,
         1.75
       ],
@@ -1546,10 +1729,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d22",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d22",
       "rect": [
         243.13,
-        254.38,
+        286.38,
         1.75,
         1.75
       ],
@@ -1567,10 +1750,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d23",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d23",
       "rect": [
         245.75,
-        254.38,
+        286.38,
         1.75,
         1.75
       ],
@@ -1588,10 +1771,10 @@
       "loopPhase": 0.0,
       "moving": true,
       "opacity": 0.27000001072883606,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/status/ring/d24",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/status/ring/d24",
       "rect": [
         248.38,
-        254.38,
+        286.38,
         1.75,
         1.75
       ],
@@ -1609,10 +1792,10 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
-        240.0,
+        272.0,
         20.0,
         20.0
       ],
@@ -1629,10 +1812,10 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
-        240.0,
+        272.0,
         20.0,
         20.0
       ],
@@ -1649,10 +1832,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0006aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
-        242.0,
+        274.0,
         16.0,
         16.0
       ],
@@ -1663,7 +1846,7 @@
       "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
-      "focusable": false,
+      "focusable": true,
       "focused": false,
       "inert": false,
       "key": "t-ses_fx0004aaaaaaaaaaaaaaaaaa",
@@ -1673,11 +1856,51 @@
       "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa",
       "rect": [
         10.0,
-        268.0,
+        298.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "pill",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill",
+      "rect": [
+        10.0,
+        300.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        300.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -1690,10 +1913,10 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
-        268.0,
+        300.0,
         218.0,
         28.0
       ],
@@ -1702,17 +1925,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
-        274.0,
+        306.0,
         16.0,
         16.0
       ],
@@ -1729,10 +1952,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
         20.75,
-        274.0,
+        306.0,
         6.5,
         16.0
       ],
@@ -1750,10 +1973,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
-        274.0,
+        306.0,
         299.0,
         16.0
       ],
@@ -1771,10 +1994,10 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
-        272.0,
+        304.0,
         20.0,
         20.0
       ],
@@ -1790,209 +2013,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/status/#0",
-      "rect": [
-        240.5,
-        278.5,
-        7.0,
-        7.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#fafafaff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "close",
-      "label": "Close tab",
-      "loopPhase": null,
-      "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close",
-      "rect": [
-        234.0,
-        272.0,
-        20.0,
-        20.0
-      ],
-      "role": "button",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000016",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "close-ink",
-      "loopPhase": null,
-      "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink",
-      "rect": [
-        234.0,
-        272.0,
-        20.0,
-        20.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
-      "rect": [
-        236.0,
-        274.0,
-        16.0,
-        16.0
-      ],
-      "role": "icon",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "t-ses_fx0008aaaaaaaaaaaaaaaaaa",
-      "label": "Explain the tile cache eviction policy",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa",
-      "rect": [
-        10.0,
-        300.0,
-        248.0,
-        28.0
-      ],
-      "role": "button",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "link",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link",
-      "rect": [
-        10.0,
-        300.0,
-        218.0,
-        28.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#ee7330ff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0",
-      "rect": [
-        16.0,
-        306.0,
-        16.0,
-        16.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#ffffffff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#0/#0",
-      "rect": [
-        20.25,
-        306.0,
-        7.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "T"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/link/#1",
-      "rect": [
-        38.0,
-        306.0,
-        224.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Explain the tile cache eviction policy"
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "status",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status",
-      "rect": [
-        234.0,
-        304.0,
-        20.0,
-        20.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#cb9f34ff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/status/#0",
       "rect": [
         240.5,
         310.5,
@@ -2013,7 +2034,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
         304.0,
@@ -2033,7 +2054,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
         304.0,
@@ -2053,7 +2074,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
         306.0,
@@ -2067,162 +2088,41 @@
       "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "t-ses_fx0008aaaaaaaaaaaaaaaaaa",
+      "label": "Explain the tile cache eviction policy",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        10.0,
+        330.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "t-ses_fx0010aaaaaaaaaaaaaaaaaa",
-      "label": "Fix footnote numbering in exported PDFs",
+      "key": "pill",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill",
       "rect": [
         10.0,
         332.0,
         248.0,
         28.0
       ],
-      "role": "button",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "link",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link",
-      "rect": [
-        10.0,
-        332.0,
-        238.0,
-        28.0
-      ],
       "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#5c5c5cff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0",
-      "rect": [
-        16.0,
-        338.0,
-        16.0,
-        16.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#ffffffff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#0/#0",
-      "rect": [
-        19.75,
-        338.0,
-        8.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Q"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/link/#1",
-      "rect": [
-        38.0,
-        338.0,
-        253.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Fix footnote numbering in exported PDFs"
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "status",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status",
-      "rect": [
-        234.0,
-        336.0,
-        20.0,
-        20.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/status/#0",
-      "rect": [
-        244.0,
-        346.0,
-        0.0,
-        0.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#fafafaff",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "close",
-      "label": "Close tab",
-      "loopPhase": null,
-      "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close",
-      "rect": [
-        234.0,
-        336.0,
-        20.0,
-        20.0
-      ],
-      "role": "button",
       "scale": 1.0
     },
     {
@@ -2232,58 +2132,17 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "close-ink",
+      "key": "hover",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink",
-      "rect": [
-        234.0,
-        336.0,
-        20.0,
-        20.0
-      ],
-      "role": "group",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
-      "rect": [
-        236.0,
-        338.0,
-        16.0,
-        16.0
-      ],
-      "role": "icon",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "t-ses_fx0007aaaaaaaaaaaaaaaaaa",
-      "label": "Retry uploads after a dropped connection",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/hover",
       "rect": [
         10.0,
-        364.0,
+        332.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -2296,10 +2155,10 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
-        364.0,
+        332.0,
         218.0,
         28.0
       ],
@@ -2308,17 +2167,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
-        370.0,
+        338.0,
         16.0,
         16.0
       ],
@@ -2335,16 +2194,16 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
-        19.75,
-        370.0,
-        8.5,
+        20.25,
+        338.0,
+        7.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "H"
+      "text": "T"
     },
     {
       "blur": 0.0,
@@ -2356,16 +2215,16 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
-        370.0,
-        257.5,
+        338.0,
+        224.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "Retry uploads after a dropped connection"
+      "text": "Explain the tile cache eviction policy"
     },
     {
       "blur": 0.0,
@@ -2377,10 +2236,10 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
-        368.0,
+        336.0,
         20.0,
         20.0
       ],
@@ -2389,17 +2248,17 @@
     },
     {
       "blur": 0.0,
-      "fill": "#3b5cf6ff",
+      "fill": "#cb9f34ff",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/status/#0",
       "rect": [
         240.5,
-        374.5,
+        342.5,
         7.0,
         7.0
       ],
@@ -2417,7 +2276,249 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/close",
+      "rect": [
+        234.0,
+        336.0,
+        20.0,
+        20.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "close-ink",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
+      "rect": [
+        234.0,
+        336.0,
+        20.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0008aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
+      "rect": [
+        236.0,
+        338.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "t-ses_fx0010aaaaaaaaaaaaaaaaaa",
+      "label": "Fix footnote numbering in exported PDFs",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        10.0,
+        362.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "pill",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill",
+      "rect": [
+        10.0,
+        364.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        364.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "link",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/link",
+      "rect": [
+        10.0,
+        364.0,
+        238.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/link/#0",
+      "rect": [
+        16.0,
+        370.0,
+        16.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
+      "rect": [
+        19.75,
+        370.0,
+        8.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Q"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/link/#1",
+      "rect": [
+        38.0,
+        370.0,
+        253.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Fix footnote numbering in exported PDFs"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "status",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/status",
+      "rect": [
+        234.0,
+        368.0,
+        20.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/status/#0",
+      "rect": [
+        244.0,
+        378.0,
+        0.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#fafafaff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "close",
+      "label": "Close tab",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
         368.0,
@@ -2437,7 +2538,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
         368.0,
@@ -2457,7 +2558,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0010aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
         370.0,
@@ -2471,21 +2572,61 @@
       "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "t-ses_fx0007aaaaaaaaaaaaaaaaaa",
+      "label": "Retry uploads after a dropped connection",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        10.0,
+        394.0,
+        248.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "t-ses_fx0005aaaaaaaaaaaaaaaaaa",
-      "label": "Profile scroll jank in long transcripts",
+      "key": "pill",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill",
       "rect": [
         10.0,
         396.0,
         248.0,
         28.0
       ],
-      "role": "button",
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        396.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -2498,11 +2639,11 @@
       "key": "link",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/link",
       "rect": [
         10.0,
         396.0,
-        238.0,
+        218.0,
         28.0
       ],
       "role": "group",
@@ -2510,14 +2651,14 @@
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/link/#0",
       "rect": [
         16.0,
         402.0,
@@ -2537,16 +2678,16 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#0/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
       "rect": [
-        20.75,
+        19.75,
         402.0,
-        6.5,
+        8.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "L"
+      "text": "H"
     },
     {
       "blur": 0.0,
@@ -2558,16 +2699,16 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/link/#1",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/link/#1",
       "rect": [
         38.0,
         402.0,
-        221.5,
+        257.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "Profile scroll jank in long transcripts"
+      "text": "Retry uploads after a dropped connection"
     },
     {
       "blur": 0.0,
@@ -2579,7 +2720,7 @@
       "key": "status",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/status",
       "rect": [
         234.0,
         400.0,
@@ -2591,19 +2732,19 @@
     },
     {
       "blur": 0.0,
-      "fill": "#00000000",
+      "fill": "#3b5cf6ff",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/status/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/status/#0",
       "rect": [
-        244.0,
-        410.0,
-        0.0,
-        0.0
+        240.5,
+        406.5,
+        7.0,
+        7.0
       ],
       "role": "group",
       "scale": 1.0
@@ -2619,7 +2760,7 @@
       "label": "Close tab",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/close",
       "rect": [
         234.0,
         400.0,
@@ -2639,7 +2780,7 @@
       "key": "close-ink",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
       "rect": [
         234.0,
         400.0,
@@ -2659,10 +2800,252 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/close/close-ink/#0",
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0007aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
       "rect": [
         236.0,
         402.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "t-ses_fx0005aaaaaaaaaaaaaaaaaa",
+      "label": "Profile scroll jank in long transcripts",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        10.0,
+        426.0,
+        248.0,
+        30.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "pill",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill",
+      "rect": [
+        10.0,
+        428.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "hover",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/hover",
+      "rect": [
+        10.0,
+        428.0,
+        248.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "link",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/link",
+      "rect": [
+        10.0,
+        428.0,
+        238.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/link/#0",
+      "rect": [
+        16.0,
+        434.0,
+        16.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/link/#0/#0",
+      "rect": [
+        20.75,
+        434.0,
+        6.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "L"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/link/#1",
+      "rect": [
+        38.0,
+        434.0,
+        221.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Profile scroll jank in long transcripts"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "status",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/status",
+      "rect": [
+        234.0,
+        432.0,
+        20.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/status/#0",
+      "rect": [
+        244.0,
+        442.0,
+        0.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#fafafaff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "close",
+      "label": "Close tab",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/close",
+      "rect": [
+        234.0,
+        432.0,
+        20.0,
+        20.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000016",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "close-ink",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/close/close-ink",
+      "rect": [
+        234.0,
+        432.0,
+        20.0,
+        20.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/tabs-scroll/tabs/t-ses_fx0005aaaaaaaaaaaaaaaaaa/pill/close/close-ink/#0",
+      "rect": [
+        236.0,
+        434.0,
         16.0,
         16.0
       ],
@@ -2762,16 +3145,16 @@
       "path": "zoom/zoomed/window/panel/session/header/crumbs",
       "rect": [
         290.0,
-        24.0,
-        323.0,
-        16.0
+        18.0,
+        355.0,
+        28.0
       ],
       "role": "group",
       "scale": 1.0
     },
     {
       "blur": 0.0,
-      "fill": "#5c5c5cff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
@@ -2853,6 +3236,27 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "title",
+      "label": "Fix flaky reconnect in the event stream",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/title",
+      "rect": [
+        369.0,
+        18.0,
+        248.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
       "color": "#161616ff",
       "fill": "#00000000",
       "focusVisible": false,
@@ -2861,11 +3265,11 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/header/crumbs/#3",
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/title/#0",
       "rect": [
-        369.0,
+        373.0,
         24.0,
-        244.0,
+        240.0,
         16.0
       ],
       "role": "text",
@@ -2879,13 +3283,54 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "header-more",
+      "label": "More options",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/header-more",
+      "rect": [
+        617.0,
+        18.0,
+        28.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/crumbs/header-more/#0",
+      "rect": [
+        623.0,
+        24.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/header/#2",
       "rect": [
-        621.0,
+        653.0,
         32.0,
-        535.5,
+        499.5,
         0.0
       ],
       "role": "group",
@@ -2903,9 +3348,9 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/header/usage",
       "rect": [
-        1164.5,
+        1160.5,
         24.0,
-        93.5,
+        97.5,
         16.0
       ],
       "role": "group",
@@ -2923,7 +3368,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/header/usage/ring",
       "rect": [
-        1164.5,
+        1160.5,
         24.0,
         16.0,
         16.0
@@ -2943,7 +3388,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/header/usage/ring/#0",
       "rect": [
-        1164.5,
+        1160.5,
         24.0,
         16.0,
         16.0
@@ -2963,7 +3408,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/header/usage/ring/#1",
       "rect": [
-        1164.5,
+        1160.5,
         24.0,
         16.0,
         16.0
@@ -2973,24 +3418,157 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "label": "63.8K",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        1178.9,
+        22.08,
+        42.2,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "63.8K"
+    },
+    {
+      "blur": 0.0,
       "color": "#5c5c5cff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/header/usage/#1",
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.1",
       "rect": [
-        1186.5,
+        1182.5,
         24.0,
-        34.0,
+        7.77,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "63.8K"
+      "text": "6"
+    },
+    {
+      "blur": 0.0,
+      "color": "#5c5c5cff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.2",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.2",
+      "rect": [
+        1190.27,
+        24.0,
+        7.78,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "3"
+    },
+    {
+      "blur": 0.0,
+      "color": "#5c5c5cff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.3",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.3",
+      "rect": [
+        1198.05,
+        24.0,
+        3.22,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "."
+    },
+    {
+      "blur": 0.0,
+      "color": "#5c5c5cff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.4",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.4",
+      "rect": [
+        1201.27,
+        24.0,
+        7.77,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "8"
+    },
+    {
+      "blur": 0.0,
+      "color": "#5c5c5cff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.5",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa/ctx-ses_fx0001aaaaaaaaaaaaaaaaaa.5",
+      "rect": [
+        1209.05,
+        24.0,
+        8.45,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "K"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "label": "$1.84",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "rect": [
+        1219.9,
+        22.08,
+        41.7,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "$1.84"
     },
     {
       "blur": 0.0,
@@ -3000,18 +3578,127 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa.1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/header/usage/#2",
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa/cost-ses_fx0001aaaaaaaaaaaaaaaaaa.1",
       "rect": [
-        1226.5,
+        1223.5,
         24.0,
-        31.5,
+        7.73,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
-      "text": "$1.84"
+      "text": "$"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa.2",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa/cost-ses_fx0001aaaaaaaaaaaaaaaaaa.2",
+      "rect": [
+        1231.23,
+        24.0,
+        7.77,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "1"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa.3",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa/cost-ses_fx0001aaaaaaaaaaaaaaaaaa.3",
+      "rect": [
+        1239.0,
+        24.0,
+        3.22,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "."
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa.4",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa/cost-ses_fx0001aaaaaaaaaaaaaaaaaa.4",
+      "rect": [
+        1242.22,
+        24.0,
+        7.78,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "8"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "cost-ses_fx0001aaaaaaaaaaaaaaaaaa.5",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/header/usage/cost-ses_fx0001aaaaaaaaaaaaaaaaaa/cost-ses_fx0001aaaaaaaaaaaaaaaaaa.5",
+      "rect": [
+        1250.0,
+        24.0,
+        8.0,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "4"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "timeline-area",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area",
+      "rect": [
+        268.0,
+        56.0,
+        1004.0,
+        636.0
+      ],
+      "role": "group",
+      "scale": 1.0
     },
     {
       "blur": 0.0,
@@ -3023,7 +3710,7 @@
       "key": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa",
       "rect": [
         268.0,
         56.0,
@@ -3043,12 +3730,12 @@
       "key": "timeline",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline",
       "rect": [
         268.0,
-        -599.0,
+        -603.0,
         1004.0,
-        1291.0
+        1295.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -3056,7 +3743,7 @@
         268.0,
         56.0,
         1004.0,
-        1291.0
+        1295.0
       ]
     },
     {
@@ -3069,10 +3756,10 @@
       "key": "u-msg_001a162c32a80001fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00",
       "rect": [
         422.0,
-        -591.0,
+        -595.0,
         696.0,
         90.0
       ],
@@ -3094,10 +3781,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0",
       "rect": [
         422.0,
-        -591.0,
+        -595.0,
         696.0,
         90.0
       ],
@@ -3119,10 +3806,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0",
       "rect": [
         422.0,
-        -583.0,
+        -587.0,
         696.0,
         58.0
       ],
@@ -3144,10 +3831,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0",
       "rect": [
         547.28,
-        -583.0,
+        -587.0,
         570.72,
         58.0
       ],
@@ -3170,10 +3857,10 @@
       "key": "bubble",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble",
       "rect": [
         553.0,
-        -583.0,
+        -587.0,
         565.0,
         58.0
       ],
@@ -3197,10 +3884,10 @@
       "key": "text-msg_001a162c32a80001fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble/text-msg_001a162c32a80001fixture00",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/#0/#0/bubble/text-msg_001a162c32a80001fixture00",
       "rect": [
         565.0,
-        -575.0,
+        -579.0,
         541.0,
         42.0
       ],
@@ -3224,10 +3911,10 @@
       "key": "actions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions",
       "rect": [
         422.0,
-        -521.0,
+        -525.0,
         696.0,
         20.0
       ],
@@ -3251,10 +3938,10 @@
       "label": "Copy message",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy",
       "rect": [
         1098.0,
-        -521.0,
+        -525.0,
         20.0,
         20.0
       ],
@@ -3277,10 +3964,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162c32a80001fixture00/#0/actions/copy/#0",
       "rect": [
         1101.0,
-        -518.0,
+        -522.0,
         14.0,
         14.0
       ],
@@ -3303,10 +3990,10 @@
       "key": "c-msg_001a162c33250002fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0",
       "rect": [
         422.0,
-        -501.0,
+        -505.0,
         696.0,
         28.0
       ],
@@ -3328,10 +4015,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0",
       "rect": [
         422.0,
-        -501.0,
+        -505.0,
         696.0,
         28.0
       ],
@@ -3355,10 +4042,10 @@
       "label": "Used 1 Thought",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger",
       "rect": [
         422.0,
-        -501.0,
+        -505.0,
         696.0,
         28.0
       ],
@@ -3382,10 +4069,10 @@
       "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/used",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/used",
       "rect": [
         422.0,
-        -495.0,
+        -499.0,
         32.5,
         16.0
       ],
@@ -3401,20 +4088,48 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "c-msg_001a162c33250002fixture00-0-count",
+      "label": "1",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/c-msg_001a162c33250002fixture00-0-count",
+      "rect": [
+        454.6,
+        -500.92,
+        16.3,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        454.6,
+        158.08,
+        16.3,
+        19.84
+      ],
+      "text": "1"
+    },
+    {
+      "blur": 0.0,
       "color": "#161616ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "n1",
+      "key": "c-msg_001a162c33250002fixture00-0-count.1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/n1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/c-msg_001a162c33250002fixture00-0-count/c-msg_001a162c33250002fixture00-0-count.1",
       "rect": [
         458.5,
-        -495.0,
-        5.5,
+        -499.0,
+        8.5,
         16.0
       ],
       "role": "text",
@@ -3422,7 +4137,7 @@
       "target": [
         458.5,
         160.0,
-        5.5,
+        8.5,
         16.0
       ],
       "text": "1"
@@ -3438,17 +4153,17 @@
       "key": "title-Thought",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/title-Thought",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/title-Thought",
       "rect": [
-        468.0,
-        -495.0,
+        471.0,
+        -499.0,
         52.5,
         16.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        468.0,
+        471.0,
         160.0,
         52.5,
         16.0
@@ -3466,17 +4181,17 @@
       "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/chevron",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-msg_001a162c33250002fixture00-0/#0/trigger/chevron",
       "rect": [
-        524.5,
-        -494.0,
+        527.5,
+        -498.0,
         14.0,
         14.0
       ],
       "role": "icon",
       "scale": 1.0,
       "target": [
-        524.5,
+        527.5,
         161.0,
         14.0,
         14.0
@@ -3489,13 +4204,13 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "t-msg_001a162c33250002fixture00-1",
+      "key": "t-msg_001a162c33250002fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-0",
       "rect": [
         422.0,
-        -473.0,
+        -477.0,
         696.0,
         38.5
       ],
@@ -3517,10 +4232,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-0/#0",
       "rect": [
         422.0,
-        -473.0,
+        -477.0,
         696.0,
         38.5
       ],
@@ -3542,10 +4257,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-0/#0/#0",
       "rect": [
         422.0,
-        -457.0,
+        -461.0,
         696.0,
         22.5
       ],
@@ -3569,10 +4284,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-1/#0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c33250002fixture00-0/#0/#0/b0",
       "rect": [
         422.0,
-        -457.0,
+        -461.0,
         696.0,
         22.5
       ],
@@ -3596,10 +4311,10 @@
       "key": "c-call_grep_27000",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000",
       "rect": [
         422.0,
-        -434.5,
+        -438.5,
         696.0,
         44.0
       ],
@@ -3621,10 +4336,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0",
       "rect": [
         422.0,
-        -434.5,
+        -438.5,
         696.0,
         44.0
       ],
@@ -3648,10 +4363,10 @@
       "label": "Used 3 Grep, Read",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger",
       "rect": [
         422.0,
-        -418.5,
+        -422.5,
         696.0,
         28.0
       ],
@@ -3675,10 +4390,10 @@
       "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/used",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/used",
       "rect": [
         422.0,
-        -412.5,
+        -416.5,
         32.5,
         16.0
       ],
@@ -3694,19 +4409,47 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "c-call_grep_27000-count",
+      "label": "3",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/c-call_grep_27000-count",
+      "rect": [
+        454.6,
+        -418.42,
+        16.3,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        454.6,
+        240.58,
+        16.3,
+        19.84
+      ],
+      "text": "3"
+    },
+    {
+      "blur": 0.0,
       "color": "#161616ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "n3",
+      "key": "c-call_grep_27000-count.1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/n3",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/c-call_grep_27000-count/c-call_grep_27000-count.1",
       "rect": [
         458.5,
-        -412.5,
+        -416.5,
         8.5,
         16.0
       ],
@@ -3731,10 +4474,10 @@
       "key": "title-Grep, Read",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/title-Grep, Read",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/title-Grep, Read",
       "rect": [
         471.0,
-        -412.5,
+        -416.5,
         69.0,
         16.0
       ],
@@ -3759,10 +4502,10 @@
       "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/chevron",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_grep_27000/#0/trigger/chevron",
       "rect": [
         544.0,
-        -411.5,
+        -415.5,
         14.0,
         14.0
       ],
@@ -3785,10 +4528,10 @@
       "key": "t-msg_001a162c36130003fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0",
       "rect": [
         422.0,
-        -390.5,
+        -394.5,
         696.0,
         650.0
       ],
@@ -3810,10 +4553,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0",
       "rect": [
         422.0,
-        -390.5,
+        -394.5,
         696.0,
         650.0
       ],
@@ -3835,10 +4578,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0",
       "rect": [
         422.0,
-        -374.5,
+        -378.5,
         696.0,
         634.0
       ],
@@ -3862,10 +4605,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b0",
       "rect": [
         422.0,
-        -374.5,
+        -378.5,
         696.0,
         24.0
       ],
@@ -3890,10 +4633,10 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b1",
       "rect": [
         422.0,
-        -340.5,
+        -344.5,
         696.0,
         68.0
       ],
@@ -3905,7 +4648,7 @@
         696.0,
         68.0
       ],
-      "text": "The server sends a heartbeat every 10 seconds, but  stream.ts  only reconnects on an  error  event. When the machine sleeps, the TCP connection goes half-open: the browser never sees an error, so the client waits forever."
+      "text": "The server sends a heartbeat every 10 seconds, but   stream.ts   only reconnects on an   error   event. When the machine sleeps, the TCP connection goes half-open: the browser never sees an error, so the client waits forever."
     },
     {
       "blur": 0.0,
@@ -3918,10 +4661,10 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b2",
       "rect": [
         422.0,
-        -260.5,
+        -264.5,
         696.0,
         22.5
       ],
@@ -3945,10 +4688,10 @@
       "key": "b3",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3",
       "rect": [
         422.0,
-        -226.0,
+        -230.0,
         696.0,
         50.0
       ],
@@ -3971,10 +4714,10 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0",
       "rect": [
         422.0,
-        -226.0,
+        -230.0,
         696.0,
         23.0
       ],
@@ -3997,10 +4740,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#0",
       "rect": [
         422.0,
-        -226.0,
+        -230.0,
         32.0,
         23.0
       ],
@@ -4023,10 +4766,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1",
       "rect": [
         454.0,
-        -226.0,
+        -230.0,
         664.0,
         23.0
       ],
@@ -4050,10 +4793,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i0/#1/b0",
       "rect": [
         454.0,
-        -226.0,
+        -230.0,
         664.0,
         23.0
       ],
@@ -4065,7 +4808,7 @@
         664.0,
         23.0
       ],
-      "text": " backoff.ts  resets its delay on every message, so a flapping server is retried at full speed."
+      "text": "  backoff.ts   resets its delay on every message, so a flapping server is retried at full speed."
     },
     {
       "blur": 0.0,
@@ -4077,10 +4820,10 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1",
       "rect": [
         422.0,
-        -199.0,
+        -203.0,
         696.0,
         23.0
       ],
@@ -4103,10 +4846,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#0",
       "rect": [
         422.0,
-        -199.0,
+        -203.0,
         32.0,
         23.0
       ],
@@ -4129,10 +4872,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1",
       "rect": [
         454.0,
-        -199.0,
+        -203.0,
         664.0,
         23.0
       ],
@@ -4156,10 +4899,10 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b3/i1/#1/b0",
       "rect": [
         454.0,
-        -199.0,
+        -203.0,
         664.0,
         23.0
       ],
@@ -4171,7 +4914,7 @@
         664.0,
         23.0
       ],
-      "text": "The sidebar store ignores  session.updated  events that arrive before the first list fetch."
+      "text": "The sidebar store ignores   session.updated   events that arrive before the first list fetch."
     },
     {
       "blur": 0.0,
@@ -4184,10 +4927,10 @@
       "key": "b4",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b4",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b4",
       "rect": [
         422.0,
-        -156.0,
+        -160.0,
         696.0,
         20.0
       ],
@@ -4212,10 +4955,10 @@
       "key": "b5",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b5",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b5",
       "rect": [
         422.0,
-        -128.0,
+        -132.0,
         696.0,
         45.0
       ],
@@ -4239,10 +4982,10 @@
       "key": "b6",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6",
       "rect": [
         422.0,
-        -71.0,
+        -75.0,
         696.0,
         284.0
       ],
@@ -4265,10 +5008,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b6/#0",
       "rect": [
         434.0,
-        -59.0,
+        -63.0,
         672.0,
         260.0
       ],
@@ -4293,10 +5036,10 @@
       "key": "b7",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b7",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c36130003fixture00-0/#0/#0/b7",
       "rect": [
         422.0,
-        237.0,
+        233.0,
         696.0,
         22.5
       ],
@@ -4320,10 +5063,10 @@
       "key": "c-call_edit_50000",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000",
       "rect": [
         422.0,
-        259.5,
+        255.5,
         696.0,
         44.0
       ],
@@ -4345,10 +5088,10 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0",
       "rect": [
         422.0,
-        259.5,
+        255.5,
         696.0,
         44.0
       ],
@@ -4372,10 +5115,10 @@
       "label": "Used 3 Edit, Shell",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger",
       "rect": [
         422.0,
-        275.5,
+        271.5,
         696.0,
         28.0
       ],
@@ -4399,10 +5142,10 @@
       "key": "used",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/used",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/used",
       "rect": [
         422.0,
-        281.5,
+        277.5,
         32.5,
         16.0
       ],
@@ -4418,19 +5161,47 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "c-call_edit_50000-count",
+      "label": "3",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/c-call_edit_50000-count",
+      "rect": [
+        454.6,
+        275.58,
+        16.3,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        454.6,
+        934.58,
+        16.3,
+        19.84
+      ],
+      "text": "3"
+    },
+    {
+      "blur": 0.0,
       "color": "#161616ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "n3",
+      "key": "c-call_edit_50000-count.1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/n3",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/c-call_edit_50000-count/c-call_edit_50000-count.1",
       "rect": [
         458.5,
-        281.5,
+        277.5,
         8.5,
         16.0
       ],
@@ -4455,10 +5226,10 @@
       "key": "title-Edit, Shell",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/title-Edit, Shell",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/title-Edit, Shell",
       "rect": [
         471.0,
-        281.5,
+        277.5,
         61.5,
         16.0
       ],
@@ -4483,10 +5254,10 @@
       "key": "chevron",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/chevron",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/c-call_edit_50000/#0/trigger/chevron",
       "rect": [
         536.5,
-        282.5,
+        278.5,
         14.0,
         14.0
       ],
@@ -4509,12 +5280,12 @@
       "key": "a-call_subagent_60500",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500",
       "rect": [
         422.0,
-        303.5,
+        299.5,
         696.0,
-        44.0
+        48.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -4522,7 +5293,7 @@
         422.0,
         958.5,
         696.0,
-        44.0
+        48.0
       ]
     },
     {
@@ -4534,12 +5305,12 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0",
       "rect": [
         422.0,
-        303.5,
+        299.5,
         696.0,
-        44.0
+        48.0
       ],
       "role": "group",
       "scale": 1.0,
@@ -4547,7 +5318,7 @@
         422.0,
         958.5,
         696.0,
-        44.0
+        48.0
       ]
     },
     {
@@ -4557,24 +5328,154 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "chip",
-      "label": "General Review the reconnect change",
+      "key": "agent-card",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card",
       "rect": [
         422.0,
-        311.5,
+        307.5,
         696.0,
-        36.0
+        40.0
       ],
-      "role": "button",
+      "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
         966.5,
         696.0,
-        36.0
+        40.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "member-call_subagent_60500",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500",
+      "rect": [
+        426.0,
+        311.5,
+        688.0,
+        32.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        426.0,
+        970.5,
+        688.0,
+        32.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "agent-line",
+      "label": "General Review the reconnect change",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line",
+      "rect": [
+        426.0,
+        311.5,
+        688.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0,
+      "target": [
+        426.0,
+        970.5,
+        688.0,
+        32.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "mark",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/mark",
+      "rect": [
+        434.0,
+        319.5,
+        16.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        434.0,
+        978.5,
+        16.0,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "done",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/mark/done",
+      "rect": [
+        434.0,
+        319.5,
+        16.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        434.0,
+        978.5,
+        16.0,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#198b43ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/mark/done/#0",
+      "rect": [
+        434.0,
+        319.5,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0,
+      "target": [
+        434.0,
+        978.5,
+        16.0,
+        16.0
       ]
     },
     {
@@ -4585,50 +5486,22 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "agent",
+      "key": "title",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/agent",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/title",
       "rect": [
-        434.0,
-        319.5,
-        48.5,
+        458.0,
+        317.5,
+        183.5,
         20.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        434.0,
-        974.5,
-        48.5,
-        20.0
-      ],
-      "text": "General"
-    },
-    {
-      "blur": 0.0,
-      "color": "#161616ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "subtitle",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/subtitle",
-      "rect": [
-        490.5,
-        319.5,
-        182.0,
-        20.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        490.5,
-        974.5,
-        182.0,
+        458.0,
+        976.5,
+        183.5,
         20.0
       ],
       "text": "Review the reconnect change"
@@ -4640,23 +5513,355 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "now",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/#2",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/now",
       "rect": [
-        680.5,
-        329.5,
-        401.5,
-        0.0
+        649.5,
+        314.5,
+        308.5,
+        26.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
-        680.5,
-        984.5,
-        401.5,
-        0.0
+        649.5,
+        973.5,
+        308.5,
+        26.0
       ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "result",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/now/result",
+      "rect": [
+        649.5,
+        317.5,
+        308.5,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        649.5,
+        976.5,
+        308.5,
+        20.0
+      ],
+      "text": "The watchdog is correct. One suggestion: also restart on `visibilitychange`."
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "tag",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/tag",
+      "rect": [
+        966.0,
+        318.5,
+        56.5,
+        18.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        966.0,
+        977.5,
+        56.5,
+        18.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/tag/#0",
+      "rect": [
+        972.0,
+        319.5,
+        44.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        972.0,
+        978.5,
+        44.5,
+        16.0
+      ],
+      "text": "General"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time",
+      "rect": [
+        1030.5,
+        319.5,
+        51.5,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        1030.5,
+        978.5,
+        51.5,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500",
+      "label": "20m 00s",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500",
+      "rect": [
+        1026.9,
+        317.58,
+        58.7,
+        19.84
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1026.9,
+        976.58,
+        58.7,
+        19.84
+      ],
+      "text": "20m 00s"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.1",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.1",
+      "rect": [
+        1030.5,
+        319.5,
+        7.77,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1030.5,
+        978.5,
+        7.77,
+        16.0
+      ],
+      "text": "2"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.2",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.2",
+      "rect": [
+        1038.27,
+        319.5,
+        7.78,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1038.27,
+        978.5,
+        7.78,
+        16.0
+      ],
+      "text": "0"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.3",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.3",
+      "rect": [
+        1046.05,
+        319.5,
+        10.57,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1046.05,
+        978.5,
+        10.57,
+        16.0
+      ],
+      "text": "m"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.4",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.4",
+      "rect": [
+        1056.63,
+        319.5,
+        3.22,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1056.63,
+        978.5,
+        3.22,
+        16.0
+      ],
+      "text": " "
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.5",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.5",
+      "rect": [
+        1059.84,
+        319.5,
+        7.77,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1059.84,
+        978.5,
+        7.77,
+        16.0
+      ],
+      "text": "0"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.6",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.6",
+      "rect": [
+        1067.62,
+        319.5,
+        7.78,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1067.62,
+        978.5,
+        7.78,
+        16.0
+      ],
+      "text": "0"
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "time-call_subagent_60500.7",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.7",
+      "rect": [
+        1075.4,
+        319.5,
+        6.6,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        1075.4,
+        978.5,
+        6.6,
+        16.0
+      ],
+      "text": "s"
     },
     {
       "blur": 0.0,
@@ -4669,10 +5874,10 @@
       "key": "open",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/chip/open",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/open",
       "rect": [
         1090.0,
-        321.5,
+        319.5,
         16.0,
         16.0
       ],
@@ -4680,7 +5885,7 @@
       "scale": 1.0,
       "target": [
         1090.0,
-        976.5,
+        978.5,
         16.0,
         16.0
       ]
@@ -4695,7 +5900,7 @@
       "key": "t-msg_001a162c52a38005fixture00-0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0",
       "rect": [
         422.0,
         347.5,
@@ -4706,7 +5911,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1002.5,
+        1006.5,
         696.0,
         207.5
       ]
@@ -4720,7 +5925,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0",
       "rect": [
         422.0,
         347.5,
@@ -4731,7 +5936,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1002.5,
+        1006.5,
         696.0,
         207.5
       ]
@@ -4745,7 +5950,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0",
       "rect": [
         422.0,
         363.5,
@@ -4756,7 +5961,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1018.5,
+        1022.5,
         696.0,
         191.5
       ]
@@ -4772,7 +5977,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b0",
       "rect": [
         422.0,
         363.5,
@@ -4783,7 +5988,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1018.5,
+        1022.5,
         696.0,
         22.5
       ],
@@ -4799,7 +6004,7 @@
       "key": "b1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1",
       "rect": [
         422.0,
         398.0,
@@ -4810,7 +6015,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1053.0,
+        1057.0,
         696.0,
         76.5
       ]
@@ -4825,7 +6030,7 @@
       "key": "i0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0",
       "rect": [
         422.0,
         398.0,
@@ -4836,7 +6041,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1053.0,
+        1057.0,
         696.0,
         23.0
       ]
@@ -4851,7 +6056,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#0",
       "rect": [
         422.0,
         398.0,
@@ -4862,7 +6067,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1053.0,
+        1057.0,
         32.0,
         23.0
       ],
@@ -4877,7 +6082,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1",
       "rect": [
         454.0,
         398.0,
@@ -4888,7 +6093,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1053.0,
+        1057.0,
         664.0,
         23.0
       ]
@@ -4904,7 +6109,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i0/#1/b0",
       "rect": [
         454.0,
         398.0,
@@ -4915,11 +6120,11 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1053.0,
+        1057.0,
         664.0,
         23.0
       ],
-      "text": "Watchdog:  stream.ts  closes and reopens the stream after 25 s of silence."
+      "text": "Watchdog:   stream.ts   closes and reopens the stream after 25 s of silence."
     },
     {
       "blur": 0.0,
@@ -4931,7 +6136,7 @@
       "key": "i1",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1",
       "rect": [
         422.0,
         425.0,
@@ -4942,7 +6147,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1080.0,
+        1084.0,
         696.0,
         22.5
       ]
@@ -4957,7 +6162,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#0",
       "rect": [
         422.0,
         425.0,
@@ -4968,7 +6173,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1080.0,
+        1084.0,
         32.0,
         22.5
       ],
@@ -4983,7 +6188,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1",
       "rect": [
         454.0,
         425.0,
@@ -4994,7 +6199,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1080.0,
+        1084.0,
         664.0,
         22.5
       ]
@@ -5010,7 +6215,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i1/#1/b0",
       "rect": [
         454.0,
         425.0,
@@ -5021,7 +6226,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1080.0,
+        1084.0,
         664.0,
         22.5
       ],
@@ -5037,7 +6242,7 @@
       "key": "i2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2",
       "rect": [
         422.0,
         451.5,
@@ -5048,7 +6253,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1106.5,
+        1110.5,
         696.0,
         23.0
       ]
@@ -5063,7 +6268,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#0",
       "rect": [
         422.0,
         451.5,
@@ -5074,7 +6279,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1106.5,
+        1110.5,
         32.0,
         23.0
       ],
@@ -5089,7 +6294,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1",
       "rect": [
         454.0,
         451.5,
@@ -5100,7 +6305,7 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1106.5,
+        1110.5,
         664.0,
         23.0
       ]
@@ -5116,7 +6321,7 @@
       "key": "b0",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1/b0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b1/i2/#1/b0",
       "rect": [
         454.0,
         451.5,
@@ -5127,11 +6332,11 @@
       "scale": 1.0,
       "target": [
         454.0,
-        1106.5,
+        1110.5,
         664.0,
         23.0
       ],
-      "text": "Sidebar: early  session.updated  events are queued until the list loads."
+      "text": "Sidebar: early   session.updated   events are queued until the list loads."
     },
     {
       "blur": 0.0,
@@ -5144,7 +6349,7 @@
       "key": "b2",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b2",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/t-msg_001a162c52a38005fixture00-0/#0/#0/b2",
       "rect": [
         422.0,
         486.5,
@@ -5155,11 +6360,11 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1141.5,
+        1145.5,
         696.0,
         68.5
       ],
-      "text": "The reviewer agreed and suggested one change, which I applied: the watchdog now also restarts on  visibilitychange , so waking the laptop reconnects immediately instead of after 25 s. All 14 tests in  src/net  pass."
+      "text": "The reviewer agreed and suggested one change, which I applied: the watchdog now also restarts on   visibilitychange  , so waking the laptop reconnects immediately instead of after 25 s. All 14 tests in   src/net   pass."
     },
     {
       "blur": 0.0,
@@ -5171,7 +6376,7 @@
       "key": "u-msg_001a162cb67e0006fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00",
       "rect": [
         422.0,
         555.0,
@@ -5182,7 +6387,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1210.0,
+        1214.0,
         696.0,
         77.0
       ]
@@ -5196,7 +6401,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0",
       "rect": [
         422.0,
         555.0,
@@ -5207,7 +6412,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1210.0,
+        1214.0,
         696.0,
         77.0
       ]
@@ -5221,7 +6426,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0",
       "rect": [
         422.0,
         571.0,
@@ -5232,7 +6437,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1226.0,
+        1230.0,
         696.0,
         37.0
       ]
@@ -5246,7 +6451,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0",
       "rect": [
         547.28,
         571.0,
@@ -5257,7 +6462,7 @@
       "scale": 1.0,
       "target": [
         547.28,
-        1226.0,
+        1230.0,
         570.72,
         37.0
       ]
@@ -5272,7 +6477,7 @@
       "key": "bubble",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble",
       "rect": [
         647.5,
         571.0,
@@ -5283,7 +6488,7 @@
       "scale": 1.0,
       "target": [
         647.5,
-        1226.0,
+        1230.0,
         470.5,
         37.0
       ]
@@ -5299,7 +6504,7 @@
       "key": "text-msg_001a162cb67e0006fixture00",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble/text-msg_001a162cb67e0006fixture00",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/#0/#0/bubble/text-msg_001a162cb67e0006fixture00",
       "rect": [
         659.5,
         579.0,
@@ -5310,7 +6515,7 @@
       "scale": 1.0,
       "target": [
         659.5,
-        1234.0,
+        1238.0,
         446.5,
         21.0
       ],
@@ -5326,7 +6531,7 @@
       "key": "actions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions",
       "rect": [
         422.0,
         612.0,
@@ -5337,7 +6542,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1267.0,
+        1271.0,
         696.0,
         20.0
       ]
@@ -5353,7 +6558,7 @@
       "label": "Copy message",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy",
       "rect": [
         1098.0,
         612.0,
@@ -5364,7 +6569,7 @@
       "scale": 1.0,
       "target": [
         1098.0,
-        1267.0,
+        1271.0,
         20.0,
         20.0
       ]
@@ -5379,7 +6584,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/u-msg_001a162cb67e0006fixture00/#0/actions/copy/#0",
       "rect": [
         1101.0,
         615.0,
@@ -5390,7 +6595,7 @@
       "scale": 1.0,
       "target": [
         1101.0,
-        1270.0,
+        1274.0,
         14.0,
         14.0
       ]
@@ -5405,7 +6610,7 @@
       "key": "turn-actions",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions",
       "rect": [
         422.0,
         632.0,
@@ -5416,7 +6621,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1287.0,
+        1291.0,
         696.0,
         36.0
       ]
@@ -5430,7 +6635,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0",
       "rect": [
         422.0,
         632.0,
@@ -5441,7 +6646,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1287.0,
+        1291.0,
         696.0,
         36.0
       ]
@@ -5455,7 +6660,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0",
       "rect": [
         422.0,
         640.0,
@@ -5466,7 +6671,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1295.0,
+        1299.0,
         696.0,
         28.0
       ]
@@ -5481,50 +6686,724 @@
       "key": "working",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working",
       "rect": [
         422.0,
         640.0,
-        65.5,
+        73.5,
         28.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
-        1295.0,
-        65.5,
+        1299.0,
+        73.5,
         28.0
       ]
     },
     {
       "blur": 0.0,
-      "fill": "#3b5cf6ff",
+      "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "ring",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring",
       "rect": [
         422.0,
-        645.0,
-        6.0,
-        6.0
+        641.0,
+        14.0,
+        14.0
       ],
       "role": "group",
       "scale": 1.0,
       "target": [
         422.0,
         1300.0,
-        6.0,
-        6.0
+        14.0,
+        14.0
       ]
     },
     {
       "blur": 0.0,
-      "color": "#5c5c5cff",
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d0",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.6510000228881836,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d0",
+      "rect": [
+        422.88,
+        641.88,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.88,
+        1300.88,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d1",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.7149999737739563,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d1",
+      "rect": [
+        425.5,
+        641.88,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        425.5,
+        1300.88,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d2",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d2",
+      "rect": [
+        428.13,
+        641.88,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        428.13,
+        1300.88,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d3",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d3",
+      "rect": [
+        430.75,
+        641.88,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        430.75,
+        1300.88,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d4",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d4",
+      "rect": [
+        433.38,
+        641.88,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        433.38,
+        1300.88,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d5",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.5299999713897705,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d5",
+      "rect": [
+        422.88,
+        644.5,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.88,
+        1303.5,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d6",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.6510000228881836,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d6",
+      "rect": [
+        425.5,
+        644.5,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        425.5,
+        1303.5,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d7",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d7",
+      "rect": [
+        428.13,
+        644.5,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        428.13,
+        1303.5,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d8",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d8",
+      "rect": [
+        430.75,
+        644.5,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        430.75,
+        1303.5,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d9",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d9",
+      "rect": [
+        433.38,
+        644.5,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        433.38,
+        1303.5,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d10",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.38499999046325684,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d10",
+      "rect": [
+        422.88,
+        647.13,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.88,
+        1306.13,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d11",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.38499999046325684,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d11",
+      "rect": [
+        425.5,
+        647.13,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        425.5,
+        1306.13,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d12",
+      "loopPhase": null,
+      "opacity": 0.7369999885559082,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d12",
+      "rect": [
+        428.13,
+        647.13,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        428.13,
+        1306.13,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d13",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d13",
+      "rect": [
+        430.75,
+        647.13,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        430.75,
+        1306.13,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d14",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d14",
+      "rect": [
+        433.38,
+        647.13,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        433.38,
+        1306.13,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d15",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.31299999356269836,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d15",
+      "rect": [
+        422.88,
+        649.75,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.88,
+        1308.75,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d16",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.2879999876022339,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d16",
+      "rect": [
+        425.5,
+        649.75,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        425.5,
+        1308.75,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d17",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d17",
+      "rect": [
+        428.13,
+        649.75,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        428.13,
+        1308.75,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d18",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d18",
+      "rect": [
+        430.75,
+        649.75,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        430.75,
+        1308.75,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d19",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d19",
+      "rect": [
+        433.38,
+        649.75,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        433.38,
+        1308.75,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d20",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.2879999876022339,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d20",
+      "rect": [
+        422.88,
+        652.38,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        422.88,
+        1311.38,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d21",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.2750000059604645,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d21",
+      "rect": [
+        425.5,
+        652.38,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        425.5,
+        1311.38,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d22",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d22",
+      "rect": [
+        428.13,
+        652.38,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        428.13,
+        1311.38,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d23",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d23",
+      "rect": [
+        430.75,
+        652.38,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        430.75,
+        1311.38,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#808080ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "d24",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 0.27000001072883606,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/ring/d24",
+      "rect": [
+        433.38,
+        652.38,
+        1.75,
+        1.75
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        433.38,
+        1311.38,
+        1.75,
+        1.75
+      ]
+    },
+    {
+      "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
@@ -5532,9 +7411,36 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1",
       "rect": [
-        436.0,
+        444.0,
+        640.0,
+        51.5,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        444.0,
+        1299.0,
+        51.5,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#8f8f8fff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "label",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1/label",
+      "rect": [
+        444.0,
         640.0,
         51.5,
         16.0
@@ -5542,8 +7448,90 @@
       "role": "text",
       "scale": 1.0,
       "target": [
-        436.0,
-        1295.0,
+        444.0,
+        1299.0,
+        51.5,
+        16.0
+      ],
+      "text": "Working"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "sheen",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1/sheen",
+      "rect": [
+        304.0,
+        640.0,
+        140.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        444.0,
+        1299.0,
+        140.0,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "lit",
+      "loopPhase": 0.0,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1/sheen/lit",
+      "rect": [
+        444.0,
+        640.0,
+        140.0,
+        16.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        444.0,
+        1299.0,
+        140.0,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#3e3e3eff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/working/#1/sheen/lit/#0",
+      "rect": [
+        444.0,
+        640.0,
+        51.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "target": [
+        444.0,
+        1299.0,
         51.5,
         16.0
       ],
@@ -5560,7 +7548,7 @@
       "label": "Copy response",
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy",
       "rect": [
         422.0,
         640.0,
@@ -5571,7 +7559,7 @@
       "scale": 1.0,
       "target": [
         422.0,
-        1295.0,
+        1299.0,
         28.0,
         28.0
       ]
@@ -5586,7 +7574,7 @@
       "inert": false,
       "loopPhase": null,
       "opacity": 0.0,
-      "path": "zoom/zoomed/window/panel/session/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy/#0",
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/turn-actions/#0/#0/copy/#0",
       "rect": [
         428.0,
         640.0,
@@ -5597,7 +7585,145 @@
       "scale": 1.0,
       "target": [
         428.0,
-        1295.0,
+        1299.0,
+        16.0,
+        16.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "lane-room",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/lane-room",
+      "rect": [
+        292.0,
+        668.0,
+        956.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        292.0,
+        1327.0,
+        956.0,
+        0.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "jump-lane",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/jump-lane",
+      "rect": [
+        268.0,
+        656.0,
+        1004.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "activity-lane",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/jump-lane/activity-lane",
+      "rect": [
+        422.0,
+        656.0,
+        696.0,
+        28.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/jump-lane/activity-lane/#0",
+      "rect": [
+        422.0,
+        670.0,
+        668.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffeb",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "key": "jump-latest",
+      "label": "Jump to latest",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/jump-lane/activity-lane/jump-latest",
+      "rect": [
+        1090.0,
+        660.0,
+        28.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0,
+      "target": [
+        1090.0,
+        656.0,
+        28.0,
+        28.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#161616ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/session/timeline-area/jump-lane/activity-lane/jump-latest/#0",
+      "rect": [
+        1096.0,
+        666.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
+      "scale": 1.0,
+      "target": [
+        1096.0,
+        662.0,
         16.0,
         16.0
       ]
@@ -5644,6 +7770,86 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "queue",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/queue",
+      "rect": [
+        422.0,
+        692.0,
+        696.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "queue-clip",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/queue/queue-clip",
+      "rect": [
+        422.0,
+        692.0,
+        696.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "queue-face",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/queue/queue-clip/queue-face",
+      "rect": [
+        422.0,
+        698.0,
+        696.0,
+        1.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "queue-tuck",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/queue/queue-tuck",
+      "rect": [
+        422.5,
+        692.0,
+        695.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
       "fill": "#ffffffff",
       "focusVisible": false,
       "focusable": false,
@@ -5684,7 +7890,47 @@
     },
     {
       "blur": 0.0,
-      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "editor-scroll",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/editor/editor-scroll",
+      "rect": [
+        422.0,
+        692.0,
+        696.0,
+        56.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "editor-pad",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/editor/editor-scroll/editor-pad",
+      "rect": [
+        422.0,
+        692.0,
+        696.0,
+        56.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#161616ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": true,
@@ -5693,7 +7939,7 @@
       "key": "prompt",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/editor/prompt",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/editor/editor-scroll/editor-pad/prompt",
       "rect": [
         438.0,
         708.0,
@@ -5773,75 +8019,13 @@
       "focusable": false,
       "focused": false,
       "inert": false,
-      "key": "agent",
-      "label": "Choose agent",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent",
-      "rect": [
-        462.0,
-        764.0,
-        64.5,
-        28.0
-      ],
-      "role": "button",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "color": "#5c5c5cff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#0",
-      "rect": [
-        470.0,
-        770.0,
-        30.5,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Build"
-    },
-    {
-      "blur": 0.0,
-      "color": "#aeaeaeff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/agent/#1",
-      "rect": [
-        502.5,
-        770.0,
-        16.0,
-        16.0
-      ],
-      "role": "icon",
-      "scale": 1.0
-    },
-    {
-      "blur": 0.0,
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
       "key": "model",
       "label": "Choose model",
       "loopPhase": null,
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model",
       "rect": [
-        530.5,
+        462.0,
         764.0,
         135.5,
         28.0
@@ -5861,7 +8045,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#0",
       "rect": [
-        538.5,
+        470.0,
         770.0,
         101.5,
         16.0
@@ -5882,7 +8066,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/model/#1",
       "rect": [
-        642.0,
+        573.5,
         770.0,
         16.0,
         16.0
@@ -5903,7 +8087,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort",
       "rect": [
-        670.0,
+        601.5,
         764.0,
         62.5,
         28.0
@@ -5923,7 +8107,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#0",
       "rect": [
-        678.0,
+        609.5,
         770.0,
         28.5,
         16.0
@@ -5944,7 +8128,7 @@
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/effort/#1",
       "rect": [
-        708.5,
+        640.0,
         770.0,
         16.0,
         16.0
@@ -5959,16 +8143,59 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "key": "room",
       "loopPhase": null,
       "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/#4",
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/room",
       "rect": [
-        736.5,
-        778.0,
-        341.5,
-        0.0
+        668.0,
+        764.0,
+        378.0,
+        28.0
       ],
       "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "help": "Dictate with Hex ⇧⌘M",
+      "inert": false,
+      "key": "mic",
+      "label": "Dictate with Hex",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/mic",
+      "rect": [
+        1050.0,
+        764.0,
+        28.0,
+        28.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/panel/session/dock/composer/toolbar/mic/#0",
+      "rect": [
+        1056.0,
+        770.0,
+        16.0,
+        16.0
+      ],
+      "role": "icon",
       "scale": 1.0
     },
     {
@@ -6010,6 +8237,26 @@
         16.0
       ],
       "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "key": "drop-layer",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/panel/drop-layer",
+      "rect": [
+        268.0,
+        8.0,
+        1004.0,
+        804.0
+      ],
+      "role": "group",
       "scale": 1.0
     },
     {
@@ -6132,12 +8379,33 @@
       ],
       "role": "icon",
       "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "knobs-layer",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/knobs-layer",
+      "rect": [
+        0.0,
+        0.0,
+        1280.0,
+        820.0
+      ],
+      "role": "group",
+      "scale": 1.0
     }
   ],
   "reduced_motion": false,
   "scale": 2.0,
   "t": 0.0,
   "time_scale": 1.0,
+  "title": "OpenCode (Rune)",
   "viewport": [
     1280.0,
     820.0

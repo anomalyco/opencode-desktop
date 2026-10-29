@@ -1,20 +1,17 @@
 //! Sidecar connection, multi-tab state, and one-line Rune `NativeSurface` element builder.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use base64::Engine as _;
 use rune::native_surface::{ByteFrame, ColorInfo, Format};
 use rune::{
-    Drag, El, Ime, Key, KeyEvent, Mods, NativeSurface, Phase, PointerButton, PointerEvent,
-    SurfaceFit, Waker, WheelEvent, el,
+    Drag, El, Ime, Key, KeyEvent, NativeSurface, Phase, PointerButton, PointerEvent, SurfaceFit,
+    Waker, WheelEvent, el,
 };
 use serde_json::Value;
 
@@ -25,6 +22,7 @@ use crate::mach_pipe::MachReceiver;
 use crate::protocol::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot, pack_mods,
 };
+use crate::transport::{is_shell_shortcut, named_key_str, spawn_and_attach_bg, wire_stream};
 
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
@@ -40,6 +38,8 @@ pub struct BrowserTab {
     pub cursor: CursorKind,
     pub inspecting: bool,
     pub surface: NativeSurface,
+    viewport_pt: (f32, f32),
+    scale: f32,
 }
 
 pub struct BrowserHost {
@@ -152,6 +152,8 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             inspecting: false,
             surface,
+            viewport_pt: (800.0, 600.0),
+            scale: 2.0,
         });
         self.focused_tab = Some(id);
         *self.status.lock().unwrap() = status;
@@ -177,6 +179,8 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             inspecting: false,
             surface,
+            viewport_pt: (800.0, 600.0),
+            scale: 2.0,
         });
         self.focused_tab = Some(id);
 
@@ -323,12 +327,17 @@ impl BrowserHost {
                 EngineMsg::Ready { .. } => {
                     *self.status.lock().unwrap() = EngineStatus::Ready;
                     for (tab_id, url) in std::mem::take(&mut self.pending_opens) {
+                        let ((width_pt, height_pt), scale) = self
+                            .tabs
+                            .iter()
+                            .find(|t| t.id == tab_id)
+                            .map_or(((800.0, 600.0), 2.0), |t| (t.viewport_pt, t.scale));
                         self.send(HostMsg::OpenTab {
                             tab_id,
                             url,
-                            width_pt: 800.0,
-                            height_pt: 600.0,
-                            scale: 2.0,
+                            width_pt,
+                            height_pt,
+                            scale,
                             focused: self.focused_tab == Some(tab_id),
                         });
                     }
@@ -438,12 +447,15 @@ impl BrowserHost {
             .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward])
             .native_surface(&tab.surface, SurfaceFit::Fill)
             .on_layout(move |s: &mut S, [_x, _y, w, h]| {
-                access(s).send(HostMsg::Resize {
-                    tab_id,
-                    width_pt: w.max(1.0),
-                    height_pt: h.max(1.0),
-                    scale: scale.max(1.0),
-                });
+                let width_pt = w.max(1.0);
+                let height_pt = h.max(1.0);
+                let sc = scale.max(1.0);
+                let host = access(s);
+                if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.viewport_pt = (width_pt, height_pt);
+                    t.scale = sc;
+                }
+                host.send(HostMsg::Resize { tab_id, width_pt, height_pt, scale: sc });
             })
             .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {
                 access(s).send(HostMsg::MouseMove {
@@ -624,6 +636,8 @@ impl BrowserHost {
             cursor: snap.cursor,
             inspecting: false,
             surface,
+            viewport_pt: (800.0, 600.0),
+            scale: 2.0,
         });
         true
     }
@@ -704,129 +718,3 @@ impl BrowserHost {
     }
 }
 
-fn spawn_and_attach_bg(
-    bin: PathBuf,
-    sock: PathBuf,
-    mach_service: Option<String>,
-    status: Arc<Mutex<EngineStatus>>,
-    outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
-    inbox_tx: Sender<EngineMsg>,
-    waker: Option<Waker>,
-) {
-    let _ = std::fs::remove_file(&sock);
-    if let Err(e) = Command::new(&bin).arg("--socket").arg(&sock).spawn() {
-        *status.lock().unwrap() = EngineStatus::Failed(format!("failed to start {}: {e}", bin.display()));
-        if let Some(w) = waker {
-            w();
-        }
-        return;
-    }
-    for _ in 0..80 {
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            wire_stream(stream, mach_service, &status, &outbox, inbox_tx, waker);
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    *status.lock().unwrap() = EngineStatus::Failed(format!("timed out waiting for {}", Path::display(&sock)));
-    if let Some(w) = waker {
-        w();
-    }
-}
-
-fn wire_stream(
-    stream: UnixStream,
-    mach_service: Option<String>,
-    status: &Arc<Mutex<EngineStatus>>,
-    outbox: &Arc<Mutex<Option<Sender<HostMsg>>>>,
-    inbox_tx: Sender<EngineMsg>,
-    waker: Option<Waker>,
-) {
-    let Ok(reader_stream) = stream.try_clone() else {
-        return;
-    };
-    let (tx, rx) = mpsc::channel::<HostMsg>();
-    let _ = tx.send(HostMsg::Hello { mach_service, pid: std::process::id() });
-    *outbox.lock().unwrap() = Some(tx);
-    *status.lock().unwrap() = EngineStatus::Connecting;
-
-    let outbox_writer = outbox.clone();
-    std::thread::Builder::new()
-        .name("rune-browser-tx".into())
-        .spawn(move || {
-            let mut writer = stream;
-            while let Ok(msg) = rx.recv() {
-                let is_shutdown = matches!(msg, HostMsg::Shutdown);
-                if let Ok(mut line) = serde_json::to_string(&msg) {
-                    line.push('\n');
-                    if writer.write_all(line.as_bytes()).is_err() {
-                        break;
-                    }
-                    let _ = writer.flush();
-                }
-                if is_shutdown {
-                    break;
-                }
-            }
-            *outbox_writer.lock().unwrap() = None;
-        })
-        .ok();
-
-    let outbox_reader = outbox.clone();
-    std::thread::Builder::new()
-        .name("rune-browser-rx".into())
-        .spawn(move || {
-            let reader = BufReader::new(reader_stream);
-            for line in reader.lines() {
-                let Ok(line) = line else { break };
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Ok(msg) = serde_json::from_str::<EngineMsg>(&line) {
-                    let is_frame = matches!(msg, EngineMsg::CpuFrame { .. });
-                    let _ = inbox_tx.send(msg);
-                    if !is_frame && let Some(w) = &waker {
-                        w();
-                    }
-                }
-            }
-            *outbox_reader.lock().unwrap() = None;
-        })
-        .ok();
-}
-
-fn is_shell_shortcut(ev: &KeyEvent) -> bool {
-    let m: Mods = ev.mods;
-    if m.alt && !m.cmd && !m.ctrl && matches!(ev.key, Key::Up | Key::Down) {
-        return true;
-    }
-    if m.ctrl && !m.cmd && !m.alt && ev.key == Key::Tab {
-        return true;
-    }
-    match ev.key {
-        Key::Command(c) => matches!(
-            c.to_ascii_lowercase(),
-            'k' | 'l' | 't' | 'n' | 'w' | 'b' | ',' | '[' | ']' | '1'..='9' | '=' | '+' | '-' | '_' | '0'
-        ),
-        _ => false,
-    }
-}
-
-fn named_key_str(key: &Key) -> Option<&'static str> {
-    match key {
-        Key::Enter => Some("Enter"),
-        Key::Backspace => Some("Backspace"),
-        Key::Delete => Some("Delete"),
-        Key::Tab => Some("Tab"),
-        Key::Escape => Some("Escape"),
-        Key::Left => Some("ArrowLeft"),
-        Key::Right => Some("ArrowRight"),
-        Key::Up => Some("ArrowUp"),
-        Key::Down => Some("ArrowDown"),
-        Key::Home => Some("Home"),
-        Key::End => Some("End"),
-        Key::PageUp => Some("PageUp"),
-        Key::PageDown => Some("PageDown"),
-        _ => None,
-    }
-}

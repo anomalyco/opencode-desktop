@@ -13,6 +13,7 @@ pub mod mach_pipe;
 pub mod protocol;
 #[cfg(test)]
 mod tests;
+mod transport;
 
 pub use address::resolve_address;
 pub use client::BrowserHost;
