@@ -6,7 +6,7 @@
 # virtual clock, every element per frame), runs Rune's scripts/motion-audit/analyze.py over the
 # traces, and exits non-zero on any finding that scripts/audit/allow.json doesn't list with a
 # reason. The analyzer comes from the Rune rev Cargo.toml pins (RUNE=checkout overrides it). On
-# Studio, the build and the runs share one HiveMind cargo lease (AUDIT_WORKER, default studio).
+# Studio, the build and the runs share one HiveMind cargo lease on mini (AUDIT_WORKER pins a worker).
 #
 # A scenario is a Rune script plus: "scene", or "playground" (a storybook story's path, with
 # "variant" by name) to start on one with its motion playing, "secs", "fixture" (keys merged over the fixture),
@@ -28,7 +28,8 @@ ANALYZE="$RUNE/scripts/motion-audit/analyze.py"
 test -f "$ANALYZE" || { echo "motion-audit: no scripts/motion-audit/analyze.py in $RUNE (set RUNE)" >&2; exit 2; }
 
 if [[ -z "${HIVEMIND_ACTIVE:-}" ]] && command -v hivemind >/dev/null; then
-  exec hivemind run --kind cargo --worker "${AUDIT_WORKER:-studio}" -- "$SELF" "$@"
+  if [[ -n "${AUDIT_WORKER:-}" ]]; then WHERE=(--worker "$AUDIT_WORKER"); else WHERE=(--prefer mini); fi
+  exec hivemind run --kind cargo "${WHERE[@]}" -- "$SELF" "$@"
 fi
 
 OUT="$ROOT/target/motion-audit"; BUILD=1; NAMES=()
