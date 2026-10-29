@@ -209,9 +209,12 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.6);
     } },
+    // Zoomed too: the delivery flight draws under the window's scale.
     Action { name: "queue-lands", circs: || {
         let mut v = places(streaming());
         v.push(Circ { dock: Dock::Pending, ..streaming() });
+        v.push(Circ { zoomed: true, ..streaming() });
+        v.push(Circ { zoomed: true, narrow: true, ..streaming() });
         v
     }, run: |r| {
         r.start_stream();
