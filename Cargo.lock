@@ -5224,7 +5224,7 @@ dependencies = [
 [[package]]
 name = "wraith-core"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4ea26993de229ea1cff93cb76ec202f83c05c842#4ea26993de229ea1cff93cb76ec202f83c05c842"
+source = "git+https://github.com/anomalyco/wraith?rev=3b07ad7713ea0472086bfc3c88964c334528a9b6#3b07ad7713ea0472086bfc3c88964c334528a9b6"
 dependencies = [
  "ed25519-dalek",
  "postcard",
@@ -5235,7 +5235,7 @@ dependencies = [
 [[package]]
 name = "wraith-do"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4ea26993de229ea1cff93cb76ec202f83c05c842#4ea26993de229ea1cff93cb76ec202f83c05c842"
+source = "git+https://github.com/anomalyco/wraith?rev=3b07ad7713ea0472086bfc3c88964c334528a9b6#3b07ad7713ea0472086bfc3c88964c334528a9b6"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -5250,7 +5250,7 @@ dependencies = [
 [[package]]
 name = "wraith-folder"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4ea26993de229ea1cff93cb76ec202f83c05c842#4ea26993de229ea1cff93cb76ec202f83c05c842"
+source = "git+https://github.com/anomalyco/wraith?rev=3b07ad7713ea0472086bfc3c88964c334528a9b6#3b07ad7713ea0472086bfc3c88964c334528a9b6"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -5267,7 +5267,7 @@ dependencies = [
 [[package]]
 name = "wraith-local"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4ea26993de229ea1cff93cb76ec202f83c05c842#4ea26993de229ea1cff93cb76ec202f83c05c842"
+source = "git+https://github.com/anomalyco/wraith?rev=3b07ad7713ea0472086bfc3c88964c334528a9b6#3b07ad7713ea0472086bfc3c88964c334528a9b6"
 dependencies = [
  "getrandom 0.3.4",
  "rusqlite",
@@ -5282,7 +5282,7 @@ dependencies = [
 [[package]]
 name = "wraith-text"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=4ea26993de229ea1cff93cb76ec202f83c05c842#4ea26993de229ea1cff93cb76ec202f83c05c842"
+source = "git+https://github.com/anomalyco/wraith?rev=3b07ad7713ea0472086bfc3c88964c334528a9b6#3b07ad7713ea0472086bfc3c88964c334528a9b6"
 dependencies = [
  "postcard",
  "serde",
