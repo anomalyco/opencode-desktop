@@ -104,15 +104,30 @@ fn panel_box(s: &App, p: &Pal, width: f32) -> El {
         .w(width)
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
         .shadow(2.0, 4.0, p.shadow)
         .shadow(1.0, 2.0, p.shadow)
-        .clip_soft(0.0)
-        .child(tab_strip(s, p))
-        .child(el().w_full().h(0.5).fill(p.border_muted))
-        .child(address_bar(s, p))
-        .child(el().w_full().h(0.5).fill(p.border_muted))
-        .child(viewport(s, p))
+        .child(
+            col()
+                .key("browser-body")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .clip_rounded(10.0)
+                .child(tab_strip(s, p))
+                .child(el().w_full().h(0.5).fill(p.border_muted))
+                .child(address_bar(s, p))
+                .child(el().w_full().h(0.5).fill(p.border_muted))
+                .child(viewport(s, p)),
+        )
+        .child(
+            el().key("browser-ring")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .radius(10.0)
+                .border(0.5, p.ring)
+                .inert(),
+        )
 }
 
 fn tab_strip(s: &App, p: &Pal) -> El {
