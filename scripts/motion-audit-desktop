@@ -7,7 +7,7 @@
 #   scripts/motion-audit-desktop --dump 'send/pinned/long/wide|path part[|from|to]'
 #   scripts/motion-audit-desktop --allowed [CELL-FILTER]   also list allowlisted findings
 # The same gate runs in `cargo test -p opencode-desktop` (motion_gate::scenarios).
-# Thresholds and allowlist: apps/desktop/src/motion_gate/{check.rs RULES, scenarios.rs ALLOW}.
+# Thresholds: Rune's rune::motion_gate RULES; allowlist: apps/desktop/src/motion_gate/scenarios.rs ALLOW.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${MOTION_GATE_OUT:-${TMPDIR:-/tmp}/motion-gate}

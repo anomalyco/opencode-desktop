@@ -73,9 +73,6 @@ mod session_pages;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
-#[cfg_attr(not(test), allow(dead_code))]
-#[path = "motion_gate/check.rs"]
-mod motion_check;
 #[cfg(test)]
 mod motion_gate;
 mod motion_log;

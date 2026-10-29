@@ -10,7 +10,7 @@
 use serde_json::{Value, json};
 
 use super::{Events, Sample, iso};
-use crate::motion_check::short;
+use rune::motion_gate::short;
 
 /// The app's `Tx::launch` pairs (`send.rs`, `arrivals.rs`): a destination selector with `{q}`
 /// for the prompt's id, and the sources it may leave from, the first one seen winning.
