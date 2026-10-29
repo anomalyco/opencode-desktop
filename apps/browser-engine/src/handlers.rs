@@ -1,0 +1,467 @@
+//! CEF display, load, DevTools observer, and Mach `IOSurface` frame sender.
+
+use std::collections::HashMap;
+use std::ffi::{CString, c_char, c_void};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+
+use base64::Engine as _;
+use cef::rc::Rc as _;
+use cef::{
+    AcceleratedPaintInfo, Browser, CefString, CursorInfo, CursorType, DevToolsMessageObserver,
+    DisplayHandler, Frame, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
+    ImplLoadHandler, ImplRenderHandler, LoadHandler, PaintElementType, Rect, RenderHandler,
+    ScreenInfo, WrapDevToolsMessageObserver, WrapDisplayHandler, WrapLoadHandler,
+    WrapRenderHandler, sys, wrap_dev_tools_message_observer, wrap_display_handler,
+    wrap_load_handler, wrap_render_handler,
+};
+use serde_json::Value;
+
+use crate::wire::{CursorKind, EngineMsg, MOD_ALT, MOD_CMD, MOD_CTRL, MOD_SHIFT, TabSnapshot};
+
+#[cfg(target_os = "macos")]
+mod mach_tx {
+    use super::*;
+
+    type MachPort = u32;
+    type KernReturn = i32;
+
+    const MACH_MSGH_BITS_COMPLEX: u32 = 0x8000_0000;
+    const MACH_MSG_TYPE_MOVE_SEND: u8 = 17;
+    const MACH_MSG_TYPE_COPY_SEND: u32 = 19;
+    const MACH_MSG_PORT_DESCRIPTOR: u8 = 0;
+    const MACH_SEND_MSG: i32 = 0x0000_0001;
+    const TASK_BOOTSTRAP_PORT: i32 = 4;
+
+    unsafe extern "C" {
+        fn mach_task_self() -> MachPort;
+        fn task_get_special_port(task: MachPort, which: i32, port: *mut MachPort) -> KernReturn;
+        fn mach_port_deallocate(task: MachPort, name: MachPort) -> KernReturn;
+        fn bootstrap_look_up(bp: MachPort, service_name: *const c_char, sp: *mut MachPort) -> KernReturn;
+        fn mach_msg(
+            msg: *mut MachMsgHeader,
+            option: i32,
+            send_size: u32,
+            rcv_size: u32,
+            rcv_name: MachPort,
+            timeout: u32,
+            notify: MachPort,
+        ) -> KernReturn;
+    }
+
+    #[link(name = "IOSurface", kind = "framework")]
+    unsafe extern "C" {
+        fn IOSurfaceCreateMachPort(buffer: *const c_void) -> MachPort;
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct MachMsgHeader {
+        msgh_bits: u32,
+        msgh_size: u32,
+        msgh_remote_port: MachPort,
+        msgh_local_port: MachPort,
+        msgh_voucher_port: MachPort,
+        msgh_id: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct MachMsgBody {
+        msgh_descriptor_count: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct MachMsgPortDescriptor {
+        name: MachPort,
+        pad1: u32,
+        pad2: u16,
+        disposition: u8,
+        type_: u8,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct FrameSendMsg {
+        header: MachMsgHeader,
+        body: MachMsgBody,
+        port_desc: MachMsgPortDescriptor,
+        tab_id: u64,
+        frame_id: u64,
+        width: u32,
+        height: u32,
+    }
+
+    pub fn lookup(name: &str) -> u32 {
+        let Ok(c_name) = CString::new(name) else { return 0 };
+        let mut bp: MachPort = 0;
+        if unsafe { task_get_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, &mut bp) } != 0 {
+            return 0;
+        }
+        let mut port: MachPort = 0;
+        if unsafe { bootstrap_look_up(bp, c_name.as_ptr(), &mut port) } == 0 {
+            port
+        } else {
+            0
+        }
+    }
+
+    pub unsafe fn send_surface(
+        remote_port: u32,
+        tab_id: u64,
+        frame_id: u64,
+        width: u32,
+        height: u32,
+        raw: *const c_void,
+    ) -> bool {
+        if remote_port == 0 || raw.is_null() {
+            return false;
+        }
+        let surface_port = unsafe { IOSurfaceCreateMachPort(raw) };
+        if surface_port == 0 {
+            return false;
+        }
+        let mut msg = FrameSendMsg {
+            header: MachMsgHeader {
+                msgh_bits: MACH_MSGH_BITS_COMPLEX | MACH_MSG_TYPE_COPY_SEND,
+                msgh_size: std::mem::size_of::<FrameSendMsg>() as u32,
+                msgh_remote_port: remote_port,
+                msgh_local_port: 0,
+                msgh_voucher_port: 0,
+                msgh_id: 0x4345_4632,
+            },
+            body: MachMsgBody { msgh_descriptor_count: 1 },
+            port_desc: MachMsgPortDescriptor {
+                name: surface_port,
+                pad1: 0,
+                pad2: 0,
+                disposition: MACH_MSG_TYPE_MOVE_SEND,
+                type_: MACH_MSG_PORT_DESCRIPTOR,
+            },
+            tab_id,
+            frame_id,
+            width,
+            height,
+        };
+        let kr = unsafe {
+            mach_msg(&mut msg.header, MACH_SEND_MSG, msg.header.msgh_size, 0, 0, 0, 0)
+        };
+        if kr != 0 {
+            unsafe {
+                let _ = mach_port_deallocate(mach_task_self(), surface_port);
+            }
+            false
+        } else {
+            true
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub use mach_tx::lookup as lookup_mach_port;
+
+#[derive(Clone, Debug)]
+pub struct ViewRectState {
+    pub width_pt: f32,
+    pub height_pt: f32,
+    pub scale: f32,
+}
+
+wrap_render_handler! {
+    pub struct TabRenderHandler {
+        tab_id: u64,
+        view_state: Arc<Mutex<ViewRectState>>,
+        mach_port: Arc<AtomicU32>,
+        out_tx: Sender<EngineMsg>,
+        frame_seq: Arc<AtomicU64>,
+    }
+
+    impl RenderHandler {
+        fn view_rect(&self, _browser: Option<&mut Browser>, rect: Option<&mut Rect>) {
+            let Some(rect) = rect else { return };
+            let v = self.view_state.lock().unwrap();
+            rect.x = 0;
+            rect.y = 0;
+            rect.width = v.width_pt.round().max(1.0) as i32;
+            rect.height = v.height_pt.round().max(1.0) as i32;
+        }
+
+        fn screen_info(&self, _browser: Option<&mut Browser>, info: Option<&mut ScreenInfo>) -> i32 {
+            let Some(info) = info else { return 0 };
+            let v = self.view_state.lock().unwrap();
+            let r = Rect {
+                x: 0,
+                y: 0,
+                width: v.width_pt.round().max(1.0) as i32,
+                height: v.height_pt.round().max(1.0) as i32,
+            };
+            info.device_scale_factor = v.scale;
+            info.depth = 32;
+            info.depth_per_component = 8;
+            info.is_monochrome = 0;
+            info.rect = r.clone();
+            info.available_rect = r;
+            1
+        }
+
+        fn on_accelerated_paint(
+            &self,
+            _browser: Option<&mut Browser>,
+            type_: PaintElementType,
+            _dirty: Option<&[Rect]>,
+            info: Option<&AcceleratedPaintInfo>,
+        ) {
+            if type_ != PaintElementType::default() {
+                return;
+            }
+            let Some(info) = info else { return };
+            let id = self.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;
+            #[cfg(target_os = "macos")]
+            {
+                let port = self.mach_port.load(Ordering::Relaxed);
+                unsafe {
+                    let _ = mach_tx::send_surface(
+                        port,
+                        self.tab_id,
+                        id,
+                        info.extra.coded_size.width as u32,
+                        info.extra.coded_size.height as u32,
+                        info.shared_texture_io_surface,
+                    );
+                }
+            }
+        }
+
+        fn on_paint(
+            &self,
+            _browser: Option<&mut Browser>,
+            type_: PaintElementType,
+            _dirty: Option<&[Rect]>,
+            buffer: *const u8,
+            width: i32,
+            height: i32,
+        ) {
+            if type_ != PaintElementType::default() || buffer.is_null() || width <= 0 || height <= 0 {
+                return;
+            }
+            let id = self.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;
+            let len = (width as usize) * (height as usize) * 4;
+            let slice = unsafe { std::slice::from_raw_parts(buffer, len) };
+            let b64 = base64::engine::general_purpose::STANDARD.encode(slice);
+            let _ = self.out_tx.send(EngineMsg::CpuFrame {
+                tab_id: self.tab_id,
+                frame_id: id,
+                width: width as u32,
+                height: height as u32,
+                bgra_b64: b64,
+            });
+        }
+    }
+}
+
+wrap_display_handler! {
+    pub struct TabDisplayHandler {
+        snap: Arc<Mutex<TabSnapshot>>,
+        out_tx: Sender<EngineMsg>,
+    }
+
+    impl DisplayHandler {
+        fn on_address_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            url: Option<&CefString>,
+        ) {
+            if frame.is_some_and(|f| f.is_main() != 1) {
+                return;
+            }
+            if let Some(url) = url {
+                let mut s = self.snap.lock().unwrap();
+                s.url = url.to_string();
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            }
+        }
+
+        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if let Some(title) = title {
+                let mut s = self.snap.lock().unwrap();
+                s.title = title.to_string();
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            }
+        }
+
+        fn on_cursor_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            _cursor: *mut u8,
+            type_: CursorType,
+            _custom: Option<&CursorInfo>,
+        ) -> i32 {
+            use sys::cef_cursor_type_t as C;
+            let kind = match *type_.as_ref() {
+                C::CT_HAND => CursorKind::Pointer,
+                C::CT_IBEAM | C::CT_VERTICALTEXT => CursorKind::Text,
+                C::CT_CROSS => CursorKind::Crosshair,
+                C::CT_COLUMNRESIZE | C::CT_EASTWESTRESIZE | C::CT_EASTRESIZE | C::CT_WESTRESIZE => {
+                    CursorKind::ResizeColumn
+                }
+                C::CT_ROWRESIZE | C::CT_NORTHSOUTHRESIZE | C::CT_NORTHRESIZE | C::CT_SOUTHRESIZE => {
+                    CursorKind::ResizeRow
+                }
+                C::CT_GRAB => CursorKind::Grab,
+                C::CT_GRABBING => CursorKind::Grabbing,
+                C::CT_NOTALLOWED => CursorKind::NotAllowed,
+                C::CT_MOVE => CursorKind::Move,
+                _ => CursorKind::Default,
+            };
+            let mut s = self.snap.lock().unwrap();
+            if s.cursor != kind {
+                s.cursor = kind;
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            }
+            1
+        }
+    }
+}
+
+wrap_load_handler! {
+    pub struct TabLoadHandler {
+        snap: Arc<Mutex<TabSnapshot>>,
+        out_tx: Sender<EngineMsg>,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            is_loading: i32,
+            can_go_back: i32,
+            can_go_forward: i32,
+        ) {
+            let mut s = self.snap.lock().unwrap();
+            s.loading = is_loading != 0;
+            s.can_go_back = can_go_back != 0;
+            s.can_go_forward = can_go_forward != 0;
+            let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+        }
+    }
+}
+
+wrap_dev_tools_message_observer! {
+    pub struct TabCdpObserver {
+        tab_id: u64,
+        id_map: Arc<Mutex<HashMap<i32, u64>>>,
+        internal_picked: Arc<Mutex<Vec<i64>>>,
+        out_tx: Sender<EngineMsg>,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(
+            &self,
+            _browser: Option<&mut Browser>,
+            message_id: i32,
+            success: i32,
+            result: Option<&[u8]>,
+        ) {
+            let Some(req_id) = self.id_map.lock().unwrap().remove(&message_id) else {
+                return;
+            };
+            let val = result
+                .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+                .unwrap_or(Value::Null);
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id: self.tab_id,
+                request_id: req_id,
+                ok: success != 0,
+                result: val,
+            });
+        }
+
+        fn on_dev_tools_event(
+            &self,
+            _browser: Option<&mut Browser>,
+            method: Option<&CefString>,
+            params: Option<&[u8]>,
+        ) {
+            let Some(m) = method.map(CefString::to_string) else { return };
+            let val = params
+                .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+                .unwrap_or(Value::Null);
+            if m == "Overlay.inspectNodeRequested"
+                && let Some(backend_id) = val["backendNodeId"].as_i64()
+            {
+                self.internal_picked.lock().unwrap().push(backend_id);
+            }
+            let session_id = val["sessionId"].as_str().map(str::to_owned);
+            let _ = self.out_tx.send(EngineMsg::CdpEvent {
+                tab_id: self.tab_id,
+                method: m,
+                params: val,
+                session_id,
+            });
+        }
+    }
+}
+
+pub fn cef_mods(bits: u8) -> u32 {
+    let mut flags = 0u32;
+    if bits & MOD_SHIFT != 0 {
+        flags |= sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
+    }
+    if bits & MOD_CTRL != 0 {
+        flags |= sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
+    }
+    if bits & MOD_ALT != 0 {
+        flags |= sys::cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
+    }
+    if bits & MOD_CMD != 0 {
+        flags |= sys::cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
+    }
+    flags
+}
+
+pub fn ascii_vk(ch: char) -> i32 {
+    match ch {
+        'a'..='z' | 'A'..='Z' => ch.to_ascii_uppercase() as i32,
+        '0'..='9' => ch as i32,
+        ' ' => 0x20, '-' | '_' => 0xBD, '=' | '+' => 0xBB, '[' | '{' => 0xDB,
+        ']' | '}' => 0xDD, '\\' | '|' => 0xDC, ';' | ':' => 0xBA, '\'' | '"' => 0xDE,
+        ',' | '<' => 0xBC, '.' | '>' => 0xBE, '/' | '?' => 0xBF, '`' | '~' => 0xC0,
+        _ => ch as i32,
+    }
+}
+
+pub fn mac_key_code(ch: char) -> i32 {
+    match ch.to_ascii_lowercase() {
+        'a' => 0, 's' => 1, 'd' => 2, 'f' => 3, 'h' => 4, 'g' => 5, 'z' => 6, 'x' => 7,
+        'c' => 8, 'v' => 9, 'b' => 11, 'q' => 12, 'w' => 13, 'e' => 14, 'r' => 15,
+        'y' => 16, 't' => 17, '1' | '!' => 18, '2' | '@' => 19, '3' | '#' => 20,
+        '4' | '$' => 21, '6' | '^' => 22, '5' | '%' => 23, '=' | '+' => 24, '9' | '(' => 25,
+        '7' | '&' => 26, '-' | '_' => 27, '8' | '*' => 28, '0' | ')' => 29, ']' | '}' => 30,
+        'o' => 31, 'u' => 32, '[' | '{' => 33, 'i' => 34, 'p' => 35, 'l' => 37, 'j' => 38,
+        '\'' | '"' => 39, 'k' => 40, ';' | ':' => 41, '\\' | '|' => 42, ',' | '<' => 43,
+        '/' | '?' => 44, 'n' => 45, 'm' => 46, '.' | '>' => 47, ' ' => 49, '`' | '~' => 50,
+        _ => 0,
+    }
+}
+
+pub fn named_codes(name: &str) -> Option<(i32, i32, Option<u16>)> {
+    match name {
+        "Enter" => Some((0x0D, 36, Some('\r' as u16))),
+        "Backspace" => Some((0x08, 51, None)),
+        "Delete" => Some((0x2E, 117, None)),
+        "Tab" => Some((0x09, 48, None)),
+        "Escape" => Some((0x1B, 53, None)),
+        "ArrowLeft" => Some((0x25, 123, None)),
+        "ArrowRight" => Some((0x27, 124, None)),
+        "ArrowDown" => Some((0x28, 125, None)),
+        "ArrowUp" => Some((0x26, 126, None)),
+        "Home" => Some((0x24, 115, None)),
+        "End" => Some((0x23, 119, None)),
+        "PageUp" => Some((0x21, 116, None)),
+        "PageDown" => Some((0x22, 121, None)),
+        _ => None,
+    }
+}
