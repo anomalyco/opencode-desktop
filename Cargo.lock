@@ -3440,6 +3440,7 @@ dependencies = [
 name = "seer-sketch"
 version = "0.0.1"
 dependencies = [
+ "block2 0.5.1",
  "cpal",
  "hex-client",
  "image",
