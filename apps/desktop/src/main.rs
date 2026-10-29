@@ -2,6 +2,10 @@
 //! from a synthetic fixture. Live, it sends prompts, answers permission requests and questions,
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
+/// Counts each thread's allocations for the frame diagnostics and the benchmarks.
+#[global_allocator]
+static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
+
 mod add_menu;
 mod agent_rows;
 mod agent_rows_view;
@@ -11,6 +15,7 @@ mod attachments;
 mod capsule_stories;
 mod compaction;
 mod compaction_stories;
+mod diagnostics;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
@@ -827,10 +832,17 @@ fn main() {
         let app = rune_app(spec(App::new));
         let handle = app.handle();
         let mut motion_log = motion_log::Log::default();
+        let diagnostics = diagnostics::Diagnostics::default();
+        let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
-            .on_frame_drawn(move |rt| motion_log.frame(rt))
+            .on_frame_encoded(move |f| encoded.encoded(f))
+            .on_frame_drawn(move |rt| {
+                drawn.drawn(rt);
+                motion_log.frame(rt);
+            })
             .on_close(|s, _| s.save_on_close())
             .run();
         disk::flush();
+        diagnostics.shutdown();
     }
 }

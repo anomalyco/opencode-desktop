@@ -2475,6 +2475,7 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-mac",
+ "rune-perf",
  "rune-theme-opencode",
  "serde_json",
 ]
@@ -2833,7 +2834,7 @@ dependencies = [
 [[package]]
 name = "procwatch"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "libc",
 ]
@@ -3109,7 +3110,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "arboard",
  "blake3",
@@ -3176,7 +3177,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -3187,7 +3188,7 @@ dependencies = [
 [[package]]
 name = "rune-knobs"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "rune",
 ]
@@ -3195,7 +3196,7 @@ dependencies = [
 [[package]]
 name = "rune-mac"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "objc2 0.5.3",
 ]
@@ -3203,7 +3204,16 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
+
+[[package]]
+name = "rune-perf"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
+dependencies = [
+ "procwatch",
+ "serde_json",
+]
 
 [[package]]
 name = "rune-rolling"
@@ -3215,7 +3225,7 @@ dependencies = [
 [[package]]
 name = "rune-theme-opencode"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=07520d007df09a1fa899a6085cd6279d6b6275a5#07520d007df09a1fa899a6085cd6279d6b6275a5"
+source = "git+https://github.com/anomalyco/rune?rev=53bbf993087a2669386d4ee7f0f09ed08cd520ec#53bbf993087a2669386d4ee7f0f09ed08cd520ec"
 dependencies = [
  "rune",
  "rune-kit",

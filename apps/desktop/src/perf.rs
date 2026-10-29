@@ -3,9 +3,6 @@ use crate::{App, Route, view};
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus, Transcript};
 use rune::{Env, Runtime};
 
-#[global_allocator]
-static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
-
 pub fn fixture() -> App {
     let mut app = App::empty();
     let mut messages = Vec::new();
@@ -125,6 +122,12 @@ thread_local! {
     pub(crate) static CANDIDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
+thread_local! {
+    /// The recorder the `Diagnostics` experiment sends to, writing to a scratch directory.
+    static DIAGNOSTICS: crate::diagnostics::Diagnostics =
+        crate::diagnostics::Diagnostics::at(&std::env::temp_dir().join(format!("opencode-desktop-bench-perf-{}", std::process::id())));
+}
+
 /// A technique `frame_benchmark` can turn off for its baseline.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Experiment {
@@ -132,10 +135,12 @@ pub(crate) enum Experiment {
     QuietBackground,
     /// Rune snaps painted rects to whole device pixels (on unless `El::pixel_snap(false)`).
     PixelSnap,
+    /// Each frame sends its diagnostics record, as `on_frame_encoded` does in a live window.
+    Diagnostics,
 }
 
 /// The technique the benchmark's baseline turns off; every other one stays on.
-const UNDER_TEST: Experiment = Experiment::PixelSnap;
+const UNDER_TEST: Experiment = Experiment::Diagnostics;
 
 /// Whether `e` is on: always, except in the baseline half of `frame_benchmark`.
 pub(crate) fn candidate(e: Experiment) -> bool {
@@ -152,6 +157,10 @@ fn measured(rt: &mut Runtime<App>, step: impl FnOnce(&mut Runtime<App>)) -> [f64
     let alloc = procwatch::alloc::thread_allocations();
     let start = rune::thread_cpu_ms();
     step(rt);
+    // Only while it's the experiment under test: `candidate` reads true for the others.
+    if UNDER_TEST == Experiment::Diagnostics && candidate(Experiment::Diagnostics) {
+        DIAGNOSTICS.with(|d| d.drawn_frame(rt.stats.commits as u64));
+    }
     let cpu = rune::thread_cpu_ms() - start;
     let allocations = (procwatch::alloc::thread_allocations() - alloc) as f64;
     let phases = rune::take_frame_phases();
