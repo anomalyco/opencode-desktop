@@ -210,8 +210,9 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             .child(text("No models found").font(UI).color(p.faint).h(48.0).px(10.0).pt(16.0)));
         height = 48.0;
     }
-    menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
-        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list))
+    let above = kind != Kind::Project;
+    super::follow_zoom(menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
+        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list)), s.zoom, above)
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

@@ -95,6 +95,7 @@ pub struct Row {
 /// The popover over the composer, 8 points up: rows of an optional lead, a label and a muted
 /// description. It appears and goes at once, and so does its highlight.
 pub fn popup(
+    zoom: f32,
     p: &Pal,
     spec: Spec,
     rows: Vec<Row>,
@@ -147,7 +148,7 @@ pub fn popup(
         let h = (count as f32 * ROW_H + 2.0 * PAD).min(MAX_H);
         col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_edge_fade(16.0).scroll_margin(PAD).child(list)
     };
-    col()
+    let popover = col()
         .key(spec.key)
         .role("listbox")
         .label(spec.label)
@@ -160,5 +161,6 @@ pub fn popup(
         .clip_soft(0.0)
         .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
         .on_press(|_: &mut App| {})
-        .child(body)
+        .child(body);
+    crate::view::follow_zoom(popover, zoom, true)
 }

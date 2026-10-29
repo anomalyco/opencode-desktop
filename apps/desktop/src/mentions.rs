@@ -636,7 +636,7 @@ pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind)), description: i.description.clone() })
         .collect();
     let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
-    Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
+    Some(popup(s.zoom, p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
 }
 
 #[cfg(test)]
