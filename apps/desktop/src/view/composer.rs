@@ -29,6 +29,9 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
     col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer(s, p))
 }
 
+/// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
+pub const COMPOSER_MAX_H: f32 = 180.0;
+
 pub fn composer_fill(p: &Pal) -> Color {
     if p.dark { p.layer1 } else { p.bg_base }
 }
@@ -72,7 +75,13 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         Some(face) => composer.children(face),
         None => composer.children(crate::attachments::chips(s, p))
         .child(
-            col().key("editor").transition(crate::question::face_transition(s)).w_full().px(16.0).pt(16.0).pb(8.0).child(
+            // Desktop's editor: 180 pt with its padding, then the text scrolls inside it, fading
+            // under each edge while it hides lines. The bottom padding stays outside the scroll,
+            // so a caret followed to the last line leaves the prompt's end flush.
+            col().key("editor").transition(crate::question::face_transition(s)).w_full().shrink().pb(8.0).child(
+                col().key("editor-scroll").w_full().shrink().max_h(COMPOSER_MAX_H - 8.0)
+                .scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(16.0).scroll_margin(16.0)
+                .child(col().key("editor-pad").w_full().px(16.0).pt(16.0).child(
                 text_input(&s.composer, if s.add.shell { SHELL_PROMPT } else { PROMPT })
                     .key("prompt")
                     .color(p.text)
@@ -96,7 +105,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     })
                     .on_input_paste(crate::attachments::paste)
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
-            ),
+            ))),
         )
         .child(
             row()

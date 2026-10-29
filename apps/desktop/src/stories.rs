@@ -56,7 +56,7 @@ pub struct Story {
 }
 
 /// What the Composer story shows.
-const COMPOSER_VARIANTS: &[(&str, usize)] = &[("Empty", 0), ("Draft", 1), ("Queued", 2), ("Subagent running", 3)];
+const COMPOSER_VARIANTS: &[(&str, usize)] = &[("Empty", 0), ("Draft", 1), ("Queued", 2), ("Subagent running", 3), ("Long paste", 4)];
 /// The Question story's form.
 const QUESTION_VARIANTS: &[(&str, usize)] = &[("One", 0), ("Two", 1), ("Multi-select", 2), ("Long", 3), ("Typing", 4)];
 /// What the Custom answer story's typed answer holds.
@@ -371,7 +371,7 @@ pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     tx.wake_after(std::time::Duration::ZERO);
 }
 
-fn composer_open(s: &mut App, _: &mut Play<App>) {
+fn composer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     match s.variant {
         1 => s.composer = TextEdit::new(DRAFT),
@@ -379,8 +379,19 @@ fn composer_open(s: &mut App, _: &mut Play<App>) {
         3 => {
             s.running.insert(CHILD.into());
         }
+        // A call transcript pasted whole: the editor stops at its cap and shows the end.
+        4 => {
+            s.composer = TextEdit::new(long_paste());
+            tx.scroll_to_bottom_instant("editor");
+        }
         _ => {}
     }
+}
+
+/// Three hundred lines of a call transcript.
+pub(crate) fn long_paste() -> String {
+    (1..=300).map(|i| format!("[{:02}:{:02}] {}: so the composer grows with every line we paste, line {i} of the call transcript",
+        i / 60, i % 60, if i % 2 == 0 { "Kit" } else { "Dax" })).collect::<Vec<_>>().join("\n")
 }
 
 /// The open session still running, with a steer and a queued prompt waiting for it.

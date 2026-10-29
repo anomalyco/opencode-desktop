@@ -406,6 +406,20 @@ const ACTIONS: &[Action] = &[
         r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
         r.play(0.6);
     } },
+    // A call transcript pasted whole: the composer grows to its cap and the text scrolls inside
+    // it, typing at the end keeps the caret in view, and the wheel over it scrolls the prompt.
+    Action { name: "long-paste", circs: || wide_and_narrow(Circ::default()), run: |r| {
+        r.act("tap the composer", |rt| Run::tap(rt, "prompt"));
+        r.act("paste", |rt| rt.paste(crate::stories::long_paste()));
+        r.play(1.0);
+        r.act("type", |rt| rt.key(KeyEvent { key: Key::Text(" and one more line".into()), mods: Mods::default() }));
+        r.play(0.6);
+        r.act("wheel over it", |rt| {
+            let (x, y) = rt.find("editor").expect("the editor");
+            rt.wheel(x, y, 120.0);
+        });
+        r.play_out(0.6);
+    } },
     Action { name: "jump-latest", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: |r| {
         r.swipe_up(1400.0, 1.0);
         if r.rt.find("jump-latest").is_none() { return; }
