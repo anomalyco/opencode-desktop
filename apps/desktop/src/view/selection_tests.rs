@@ -196,10 +196,20 @@ fn a_selection_survives_streaming_below_it() {
 /// The fixture's open session in a short window, pinned to its end, so its first rows are
 /// scrolled out and never built.
 fn short_session() -> (Runtime<App>, MemoryClipboard) {
+    short_session_with(false)
+}
+
+/// `capsule`: a subagent runs, so its capsule floats over the timeline's bottom edge.
+fn short_session_with(capsule: bool) -> (Runtime<App>, MemoryClipboard) {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
+    if capsule {
+        let parent = crate::stories::sid(&app);
+        app.sessions.push(opencode_kit::model::SessionInfo { id: "sub".into(), parent: Some(parent), ..Default::default() });
+        app.running.insert("sub".into());
+    }
     app.reduced_motion = true;
     let mut rt = Runtime::new(app, super::app, (1280.0, 520.0), Env::new(true, 1.0));
     rt.on_key = Some(crate::on_key);
@@ -220,11 +230,20 @@ fn last_text(rt: &Runtime<App>) -> (ElementInfo, String) {
 }
 
 fn on_screen(rt: &Runtime<App>, start: &str) -> bool {
-    rt.elements().iter().any(|e| !e.exiting && e.text.as_deref().is_some_and(|t| t.starts_with(start)))
+    rt.elements().iter().any(|e| !e.exiting && e.visible[3] > 0.0 && e.text.as_deref().is_some_and(|t| t.starts_with(start)))
 }
 
 #[test]
 fn a_selection_from_a_row_scrolled_out_copies_every_row_to_the_last() {
+    scrolled_out_selection(false);
+}
+
+#[test]
+fn under_the_capsule_a_selection_still_copies_every_row() {
+    scrolled_out_selection(true);
+}
+
+fn scrolled_out_selection(capsule: bool) {
     // Every row built: the drag from the prompt to the last line copies what all rows hold.
     let (mut tall, board) = session("");
     tall.update(|s, _| s.composer.focused = false);
@@ -237,7 +256,7 @@ fn a_selection_from_a_row_scrolled_out_copies_every_row_to_the_last() {
 
     // The same selection made a screen at a time: pressed at the prompt, scrolled to the end,
     // then Shift+clicked there, with the prompt's row scrolled out.
-    let (mut rt, board) = short_session();
+    let (mut rt, board) = short_session_with(capsule);
     let (_, last_row) = last_text(&rt);
     rt.update(|_, tx| tx.scroll_into_view(PROMPT_ROW));
     settle(&mut rt);
@@ -245,6 +264,11 @@ fn a_selection_from_a_row_scrolled_out_copies_every_row_to_the_last() {
     click(&mut rt, from);
     rt.update(move |_, tx| tx.scroll_into_view(last_row));
     settle(&mut rt);
+    // At the very end, so the last line stands clear of the capsule's lane.
+    if capsule {
+        rt.update(|s, tx| tx.scroll_to_bottom_instant(format!("scroll-{}", crate::stories::sid(s))));
+        settle(&mut rt);
+    }
     assert!(!on_screen(&rt, "The event stream drops"), "the prompt's row is scrolled out");
     let (end, _) = last_text(&rt);
     rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
