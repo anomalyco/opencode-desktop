@@ -28,6 +28,10 @@ mod disclosure;
 mod disk;
 mod dropzone;
 mod events;
+mod find;
+mod find_stories;
+#[cfg(test)]
+mod find_tests;
 mod fixture_ids;
 mod fold;
 mod fold_stories;
@@ -187,6 +191,7 @@ pub struct App {
     pub attach: attachments::Attach,
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
     pub quote: quote::Quotes,
+    pub find: find::Find,
     pub search: TextEdit,
     /// Session menus, the title being renamed and Delete's confirmation.
     pub menus: session_menu::Menus,
@@ -403,7 +408,7 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
-        if dictation::key(self, ev, tx) || background::key(self, ev, tx) {
+        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) {
             return true;
         }
         if let Some(forward) = history::bracket(ev, tx.physical_key()) {
@@ -666,6 +671,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
+    changed |= find::poll(s, tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands();
@@ -715,7 +721,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 
 /// The app as it runs: its history, its storybook (⌘⇧D) and its window chrome.
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
-    history::install(
+    find::install(history::install(
         rune::App::new(spec)
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
@@ -724,7 +730,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
                 traffic_lights: Some((25.0, 25.0)),
                 drag_regions: true,
             }),
-    )
+    ))
 }
 
 fn main() {

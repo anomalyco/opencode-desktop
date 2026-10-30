@@ -125,6 +125,14 @@ impl App {
         let (text, marks) = bubble(body, &opencode_kit::mention::user_mentions(id), |sid| self.mention_title(sid));
         (text, marks.into_iter().map(|(r, k)| (r, style(p, k))).collect())
     }
+
+    /// Message `id`'s rendered bubble text, borrowing `body` when it holds no `@` mentions.
+    pub fn bubble_text<'a>(&self, id: &str, body: &'a str) -> std::borrow::Cow<'a, str> {
+        if !body.contains('@') {
+            return std::borrow::Cow::Borrowed(body);
+        }
+        std::borrow::Cow::Owned(bubble(body, &opencode_kit::mention::user_mentions(id), |sid| self.mention_title(sid)).0)
+    }
 }
 
 #[cfg(test)]

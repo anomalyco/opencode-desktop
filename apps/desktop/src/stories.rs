@@ -169,6 +169,7 @@ const ORDER: &[&str] = &[
     "Timeline/Tool rows",
     "Timeline/Long tool group",
     "Timeline/Selection",
+    "Timeline/Find",
     "Timeline/Quote",
     "Timeline/Question answers",
     "Timeline/Compaction",
@@ -221,7 +222,8 @@ pub fn playground() -> Playground<App> {
                 && (s.composer.focused
                     || s.question_takes_text()
                     || s.browser.address.focused
-                    || s.project_switcher.search.focused)
+                    || s.project_switcher.search.focused
+                    || s.find_focused())
         })
         .folds(load_folds, save_folds);
     for st in stories() {

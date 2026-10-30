@@ -78,7 +78,8 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     let ink = if pending.is_some() { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges) = s.bubble_badges(p, id, body);
-    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges));
+    let highlights = if pending.is_none() { s.find.text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
+    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges).text_highlights(highlights));
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),
@@ -165,12 +166,21 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
 // ---------------------------------------------------------------------------------------------
 // Markdown
 
+#[cfg(test)]
 pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
     markdown_tinted(p, src, fade, streaming, p.text)
 }
 
+pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
+    markdown_with_highlights(p, src, fade, streaming, p.text, s.find.markdown_highlights(p, row_key))
+}
+
 /// `markdown_view` with its body text in `color`.
 pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color) -> El {
+    markdown_with_highlights(p, src, fade, streaming, color, Vec::new())
+}
+
+fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
     let style = MarkdownStyle::from_kit(crate::palette::kit(p.dark))
         .text(color)
         .muted(p.muted)
@@ -187,7 +197,7 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
         .selection(p.selection);
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
-    Markdown::new(src).style(style).reveal(fade).streaming(streaming).selectable(true)
+    Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
         .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| {
             if s.live() || cfg!(test) {
                 let _ = tx.open_url(url);

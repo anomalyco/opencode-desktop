@@ -33,6 +33,8 @@
    "reason": "\"ed\" waits 80 ms before it rolls in, as Desktop's transition-delay does; its offset and blur hold through the wait"},
   {"trace": "send", "element": "/t-msg_zzzzreply", "kind": "pop-in",
    "reason": "a reply that thought first mounts its answer's row empty, at zero height, so the stream reveals into it; nothing paints until words arrive"},
+  {"trace": "find", "element": "#mark-", "kind": ["pop-in", "pop-out", "jump", "sibling-jump"],
+   "reason": "text match highlights paint, clear and resize in the keystroke's frame, as CSS Highlights do (find)"},
   {"kind": "hitch",
    "reason": "headless CPU spikes on a shared machine; the perf profile is the place to measure frame time"},
   {"element": "agent-line/open", "kind": "invisible-work", "reason": "a subagent row's open chevron shows only on hover; when a starting row wakes it mounts and settles hidden"},

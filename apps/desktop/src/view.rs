@@ -53,6 +53,7 @@ pub(crate) const CONTENT_W: f32 = 696.0;
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
+    crate::find::measure(s, cx);
     let mut inner = match s.stage {
         Some(st) => {
             cx.reduced_motion(s.reduced_motion);

@@ -131,6 +131,7 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         .child(collapsed_slot(s))
         .child(crumbs.mr(if reserve_side { 0.0 } else { 8.0 }))
         .child(spacer())
+        .children(crate::find::bar(s, p))
         .children(t.filter(|_| last.is_some()).map(|_| usage))
         .children(s.stage.is_none().then(|| {
             el().key("header-side-slot")
@@ -205,21 +206,23 @@ impl RowSpec {
     }
 
     fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
+        s.find.note_mounted(&self.key);
         #[cfg(test)]
         let eager = EAGER_ROWS.get();
         #[cfg(not(test))]
         let eager = false;
+        let find_ver = s.find.row_version(&self.key);
         if !eager {
             match &self.content {
                 RowContent::TurnText { message, part, live, pt } => {
                     if let Message::Assistant(a) = &t.messages[*message]
                         && let Some(Part::Text { text: body }) = a.parts.get(*part)
                     {
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming);
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver);
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.wrap(col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)))
+                            self.wrap(col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)))
                         });
                     }
                 }
@@ -250,7 +253,7 @@ impl RowSpec {
                         && !text.contains("@ses_")
                     {
                         let open = s.expanded.contains(&crate::fold::key(id));
-                        let ver = (&t.session, id.as_str(), text.as_str(), *tight, *above, *below, fold.viewport.to_bits(), fold.past, s.settings.fold_user, open, p.dark, self.streaming);
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.settings.fold_user, open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver);
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
@@ -312,7 +315,7 @@ impl RowSpec {
             RowContent::Built(el) => (**el).clone(),
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
-                    Part::Text { text: body } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
+                    Part::Text { text: body } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
@@ -325,7 +328,7 @@ impl RowSpec {
                 let busy = *live && *block + 1 == blocks.len();
                 match &blocks[*block] {
                     Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
-                    Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
+                    Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
                     Block::Agent { .. } => crate::agent_rows_view::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Block::Question { id, status, input, metadata } =>
                         crate::question_row::view(s, p, id, status, input, metadata).pt(*pt),
@@ -360,12 +363,24 @@ thread_local! {
     pub(crate) static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+#[cfg(test)]
+pub(crate) fn timeline_reset_row_builds() {
+    ROW_BUILDS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn timeline_row_builds() -> usize {
+    ROW_BUILDS.get()
+}
+
 /// The timeline's padding under its last row.
 const END: f32 = 24.0;
 
 /// `lane` is the room under the last row, beyond `END`, for what floats over the timeline's
 /// bottom edge.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
+    let scroll_key = format!("scroll-{id}");
+    s.find.clear_mounted(&scroll_key);
     let e = edge::FEATHER;
     let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
     let mut stack = col()

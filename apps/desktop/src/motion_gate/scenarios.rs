@@ -33,6 +33,18 @@ const ALLOW: &[Allow] = &[
     ("offset-jump", "timeline/t-", "send-from-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
     ("pop-out", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
+    ("pop-in", "header/find-bar", "", "the Find bar opens at once on ⌘F, as Desktop's utility bars do (find::bar)"),
+    ("pop-out", "header/find-bar", "", "the Find bar closes at once on Esc or close (find::bar)"),
+    ("jump", "header/crumbs", "find/", "crumbs make room for the Find bar in the frame ⌘F opens it (view::header)"),
+    ("jump", "crumbs/", "find/", "the header title shortens at once when the Find bar takes its header slot (view::header)"),
+    ("pop-in", "find-bar/find-count", "", "the match count appears at once with the first typed character (find::bar)"),
+    ("pop-out", "find-bar/find-count", "", "the match count clears at once when the query clears (find::bar)"),
+    ("jump", "find-bar/", "find/", "the Find field and count resize at once as typed characters change the match count (find::bar)"),
+    ("text-swap", "find-bar/find-count", "", "the match count updates at once on each keystroke or step (find::bar)"),
+    ("pop-in", "#mark-", "find/", "text match highlights paint and clear at once, as CSS Highlights do (find)"),
+    ("pop-out", "#mark-", "find/", "text match highlights paint and clear at once, as CSS Highlights do (find)"),
+    ("jump", "#mark-", "find/", "each typed letter widens or narrows the highlighted match boxes in that keystroke's frame (find)"),
+    ("text-swap", "#mark-", "find/", "each typed letter extends the highlighted substring in that keystroke's frame (find)"),
     ("pop-in", "composer/attachments", "dropzone/", "a dropped file's chip lands at once and the composer grows to hold it, as a picked file's does; the overlay's fade is what this cell checks (dropzone::drop)"),
     ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
@@ -572,6 +584,23 @@ const ACTIONS: &[Action] = &[
         r.type_prompt();
         r.enter(false);
         r.play_out(1.0);
+    } },
+    Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
+        let mut cmd = Mods::default();
+        cmd.cmd = true;
+        r.act("⌘F", |rt| rt.key(KeyEvent { key: Key::Command('f'), mods: cmd }));
+        r.play(0.2);
+        for ch in "stream".chars() {
+            r.act("type find", |rt| rt.key(KeyEvent { key: Key::Text(ch.to_string()), mods: Mods::default() }));
+            r.play(0.08);
+        }
+        r.play(0.5);
+        r.act("next match", |rt| rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() }));
+        r.play(0.6);
+        r.act("next match", |rt| rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() }));
+        r.play(0.6);
+        r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
+        r.play(0.4);
     } },
 ];
 
