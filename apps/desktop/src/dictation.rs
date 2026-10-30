@@ -22,7 +22,7 @@ use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI_SMALL, activity_ring_on};
+use crate::view::{UI_SMALL, activity_ring_sized};
 
 /// Who Hex says is recording.
 const SOURCE: &str = "OpenCode";
@@ -405,7 +405,7 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .preserve_focus_on_press(true);
     b = match &d.rec {
         None => b.label("Dictate with Hex").help("Dictate with Hex ⇧⌘M").child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
-        Some(_) if finishing => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_on(p, p.layer2, 14.0)),
+        Some(_) if finishing => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_sized(p, 14.0)),
         // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
         Some(_) => b.label("Stop dictation").help("Stop dictation ⇧⌘M").fill(p.layer2)
             .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
@@ -425,8 +425,7 @@ pub fn status(s: &App, p: &Pal) -> Option<El> {
     let d = &s.dictation;
     let line = row().key("dictation-status").px(16.0).pb(12.0).gap(8.0).center_y();
     if d.preparing() {
-        let bg = crate::view::composer_fill(p);
-        return Some(line.child(activity_ring_on(p, bg, 12.0)).child(text("Preparing dictation…").font(UI_SMALL).color(p.muted)));
+        return Some(line.child(activity_ring_sized(p, 12.0)).child(text("Preparing dictation…").font(UI_SMALL).color(p.muted)));
     }
     d.error().map(|why| line.child(text(why.to_owned()).font(UI_SMALL).color(p.danger)))
 }

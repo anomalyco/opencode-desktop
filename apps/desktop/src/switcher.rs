@@ -18,7 +18,7 @@ use opencode_kit::model::{self, SessionInfo};
 
 use crate::mentions::list::{Debounce, Highlight, cycle, spawn_fetch, upsert_sessions};
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, avatar, title_of};
+use crate::view::{UI, UI_MED, title_of};
 use crate::{App, Source};
 
 /// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`), and a
@@ -54,6 +54,8 @@ pub struct Entry {
     pub key: String,
     pub action: Action,
     pub title: String,
+    /// A session's project id, for its icon.
+    pub project: String,
     /// A session's project, a command's nothing.
     pub description: String,
     pub hint: &'static str,
@@ -226,6 +228,7 @@ impl App {
             key: format!("command:{key}"),
             action: Action::Command(c),
             title: title.into(),
+            project: String::new(),
             description: String::new(),
             hint,
             group: "Commands",
@@ -237,6 +240,7 @@ impl App {
             key: format!("session:{}", s.id),
             action: Action::Session(s.id.clone()),
             title: title_of(s),
+            project: s.project.clone(),
             description: self.project_label(s),
             hint: "",
             group,
@@ -442,12 +446,12 @@ fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: C
     }
 }
 
-fn entry_row(p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
+fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
     let key = e.key.clone();
     let hover = e.key.clone();
     let mut main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
     if matches!(e.action, Action::Session(_)) {
-        let mut badge = el().key("badge").size(16.0, 16.0).child(avatar(p, &e.description));
+        let mut badge = el().key("badge").size(16.0, 16.0).child(crate::icons::badge(s, p, s.project(&e.project), &e.description));
         if e.open {
             badge = badge.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
         }
@@ -534,7 +538,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(text(group).font(UI).color(p.muted)),
         );
         for e in &entries[i..end] {
-            section = section.child(entry_row(p, e, active.as_deref() == Some(e.key.as_str()), q, s.now_ms));
+            section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, s.now_ms));
         }
         results = results.child(section);
         i = end;

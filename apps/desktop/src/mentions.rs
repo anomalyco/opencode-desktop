@@ -7,7 +7,7 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use rune::{El, Icon, Key, KeyEvent, Tx, Waker, icon};
+use rune::{Cx, El, Icon, Key, KeyEvent, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -569,10 +569,11 @@ fn row_icon(p: &Pal, kind: Kind) -> El {
 
 /// The popover over the composer, full width, 8 points up: rows of icon, label and a muted
 /// description. It appears and goes at once.
-pub fn view(s: &App, p: &Pal, width: f32) -> Option<El> {
+pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     if !s.mentions.open || s.mention_query().is_none() {
         return None;
     }
+    let width = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
     let items = s.mention_items();
     let active = s.mention_active(&items);
     let rows = items

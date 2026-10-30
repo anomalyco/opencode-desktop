@@ -35,7 +35,6 @@ pub(crate) const INSTANT: Anim = Anim::INSTANT;
 pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 pub(crate) const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
-const AVATAR: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0);
 const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
 pub(crate) const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
 const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
@@ -81,9 +80,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
-    let composer_w = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
-    inner = inner.children(crate::mentions::view(s, p, composer_w));
-    inner = inner.children(crate::slash::commands_view(s, p, composer_w));
+    inner = inner.children(crate::mentions::view(s, p, cx));
+    inner = inner.children(crate::slash::commands_view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));
@@ -92,8 +90,12 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::session_menu_view::confirm(s, p));
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
-    let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
-    let sized = if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() };
+    let sized = if (s.zoom - 1.0).abs() > 1e-4 {
+        let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
+        if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() }
+    } else {
+        el().w_full().h_full()
+    };
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
         .w_full()
@@ -116,8 +118,12 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
-    let win_w = cx.layout_size("zoomed").map_or(0.0, |[w, _]| w);
-    let panel_sz = cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom));
+    let need_panel_sz = (!s.settings.open && s.route == Route::Draft) || s.attach.drop.over;
+    let panel_sz = if need_panel_sz {
+        cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom))
+    } else {
+        (0.0, 0.0)
+    };
     let mut root = row()
         .key("window")
         .role("window")
@@ -156,8 +162,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if open {
         root = root.child(resize_handle(s, p, w));
     }
-    if let Some(handle) = crate::browser::view::resize_handle(s, p, win_w) {
-        root = root.child(handle);
+    if s.browser.open {
+        let win_w = cx.layout_size("zoomed").map_or(0.0, |[w, _]| w);
+        if let Some(handle) = crate::browser::view::resize_handle(s, p, win_w) {
+            root = root.child(handle);
+        }
     }
     root = root.child(sidebar_toggle(p, open, w));
     root
@@ -165,18 +174,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
 
 // ---------------------------------------------------------------------------------------------
 // Pieces
-
-pub(crate) fn avatar(p: &Pal, name: &str) -> El {
-    let k = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) as usize % p.avatars.len();
-    let (bg, border) = p.avatars[k];
-    let letter = name.chars().find(|c| c.is_alphanumeric()).map_or("?".into(), |c| c.to_uppercase().to_string());
-    el().size(16.0, 16.0)
-        .radius(4.0)
-        .fill(bg)
-        .border(0.5, border)
-        .center()
-        .child(text(letter).font(AVATAR).color(p.avatar_fg))
-}
 
 fn roots(s: &App) -> impl Iterator<Item = &SessionInfo> {
     s.sessions.iter().filter(|x| x.parent.is_none())

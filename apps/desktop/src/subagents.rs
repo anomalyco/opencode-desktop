@@ -13,7 +13,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::odometer::{odometer, odometer_end};
 use crate::palette::Pal;
-use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
+use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_sized};
 use crate::{App, Route};
 
 /// One running subagent of a session, for the capsule's list.
@@ -233,7 +233,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
             tx.instant();
             s.activity_open = !s.activity_open;
         })
-        .child(activity_ring_on(p, bg, 16.0))
+        .child(activity_ring_sized(p, 16.0))
         .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
     if s.activity_open {
         chip = chip.fill(p.pressed);
@@ -283,7 +283,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                     tx.instant();
                     s.open_child(&parent, &child, &title, &agent, tx);
                 })
-                .child(activity_ring_on(p, p.layer1, 16.0))
+                .child(activity_ring_sized(p, 16.0))
                 .child(text(name).font(UI_MED).color(p.text).w(agent_w))
                 .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
                 .child(row().key("time").w(time_w).ml(8.0).justify_end().children(ms_of(it).map(|ms| odometer_end(format!("sub-time-{}", it.session), elapsed(ms), (ms / 1000) as f64, ELAPSED, p.muted)))),

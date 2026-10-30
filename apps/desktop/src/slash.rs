@@ -3,7 +3,7 @@
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use rune::{El, Key, KeyEvent, Tx};
+use rune::{Cx, El, Key, KeyEvent, Tx};
 use serde_json::Value;
 
 use crate::palette::Pal;
@@ -164,8 +164,9 @@ impl App {
 }
 
 /// The `/` popover over the composer: each command's `/name` and description.
-pub fn commands_view(s: &App, p: &Pal, width: f32) -> Option<El> {
+pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     s.slash_query()?;
+    let width = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
     let items = s.slash_items();
     let active = s.slash_active();
     let rows = items

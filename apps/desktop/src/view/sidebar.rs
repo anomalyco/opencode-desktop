@@ -138,12 +138,6 @@ pub(super) const TAB_PITCH: f32 = TAB_H + TAB_GAP;
 /// sortable transition (250 ms, `cubic-bezier(0.25, 1, 0.5, 1)`) as a spring with no bounce.
 pub(super) const REORDER_SPRING: Spring = Spring::new(0.25, 0.0);
 
-/// `t` of the way from `a` to `b` in gamma-encoded sRGB, as CSS opacity blends.
-pub(super) fn srgb_mix(a: Color, b: Color, t: f32) -> Color {
-    let m = |x: f32, y: f32| { use rune::color::{srgb_decode as dec, srgb_encode as enc}; dec(enc(x) + (enc(y) - enc(x)) * t) };
-    Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: 1.0 }
-}
-
 /// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
 pub(super) fn over(top: Color, bottom: Color) -> Color {
     let a = top.a + bottom.a * (1.0 - top.a);
@@ -368,18 +362,15 @@ pub(super) fn collapsed_slot(s: &App) -> El {
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
-/// around each square ring, leaving a fading trail (`spinner-radar.ts`), 14px, icon-muted, over
-/// the page.
+/// around each square ring, leaving a fading trail (`spinner-radar.ts`), 14px, icon-muted.
 pub(crate) fn activity_ring(p: &Pal) -> El {
-    activity_ring_on(p, p.bg_base, 14.0)
+    activity_ring_sized(p, 14.0)
 }
 
-/// The spinner at `size` over the opaque `bg`. Its dots' opacities are Desktop's (0.2 at rest, 1
-/// lit), re-solved so a dot over `bg` comes out the pixel a browser blends in sRGB; blended as is
-/// in linear light, a resting dot would show at about twice its brightness.
-pub(crate) fn activity_ring_on(p: &Pal, bg: Color, size: f32) -> El {
+/// The spinner at `size`: Desktop's dot opacities (0.2 at rest, 1 lit), composited in sRGB.
+pub(crate) fn activity_ring_sized(p: &Pal, size: f32) -> El {
     let mut r = el().key("ring").size(size, size);
-    for (k, d) in ring_dots(p.icon_muted, bg, size).iter().enumerate() {
+    for (k, d) in ring_dots(size).iter().enumerate() {
         let mut dot = el().key(format!("d{k}")).absolute(d.x, d.y).size(d.size, d.size).radius(d.size * 0.24).fill(p.icon_muted);
         dot = match d.cycle {
             Some(c) => dot.cycle(c),
@@ -398,39 +389,27 @@ pub(super) struct RadarDot {
     cycle: Option<Cycle>,
 }
 
-/// The opacity that, blended in linear light, gives the pixel `a` gives in sRGB.
-pub(crate) fn srgb_opacity(a: f32, fg: Color, bg: Color) -> f32 {
-    use rune::theme::{srgb_decode, srgb_encode};
-    let solve = |f: f32, b: f32| {
-        let t = srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));
-        ((t - b) / (f - b)).clamp(0.0, 1.0)
-    };
-    let pairs = [(fg.r, bg.r), (fg.g, bg.g), (fg.b, bg.b)];
-    let solved: Vec<f32> = pairs.iter().filter(|(f, b)| (f - b).abs() > 1e-4).map(|&(f, b)| solve(f, b)).collect();
-    if solved.is_empty() { a } else { solved.iter().sum::<f32>() / solved.len() as f32 }
-}
-
-/// The radar's dots for one colour, backdrop and size, built once each.
-pub(super) fn ring_dots(fg: Color, bg: Color, size: f32) -> &'static [RadarDot] {
-    type Key = [u32; 7];
-    static BUILT: std::sync::Mutex<Vec<(Key, &'static [RadarDot])>> = std::sync::Mutex::new(Vec::new());
-    let key: Key = [fg.r, fg.g, fg.b, bg.r, bg.g, bg.b, size].map(f32::to_bits);
+/// The radar's dots for one size, built once each.
+pub(super) fn ring_dots(size: f32) -> &'static [RadarDot] {
+    static BUILT: std::sync::Mutex<Vec<(u32, &'static [RadarDot])>> = std::sync::Mutex::new(Vec::new());
+    let key = size.to_bits();
     let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&(_, dots)) = built.iter().find(|(k, _)| *k == key) {
         return dots;
     }
     let scale = size / 16.0;
-    let op = |a: f32| srgb_opacity(a, fg, bg);
     let dots: Vec<RadarDot> = radar()
         .iter()
         .map(|d| {
             let (x, y, side) = (d.x * scale, d.y * scale, d.size * scale);
-            let still = op(d.still);
-            let cycle = d.stops.as_ref().map(|(at, stops)| {
-                let stops: Vec<(f32, f32)> = stops.iter().map(|&(t, a)| (t, op(a))).collect();
-                Cycle { period: RADAR_LOOP, phase: *at, stops: Box::leak(stops.into_boxed_slice()), still, fps: 30.0 }
+            let cycle = d.stops.as_ref().map(|(at, stops)| Cycle {
+                period: RADAR_LOOP,
+                phase: *at,
+                stops: Box::leak(stops.clone().into_boxed_slice()),
+                still: d.still,
+                fps: 30.0,
             });
-            RadarDot { x, y, size: side, still, cycle }
+            RadarDot { x, y, size: side, still: d.still, cycle }
         })
         .collect();
     let dots: &'static [RadarDot] = Box::leak(dots.into_boxed_slice());

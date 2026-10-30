@@ -150,9 +150,9 @@ fn build(dark: bool) -> Pal {
 }
 
 pub fn pal(dark: bool) -> &'static Pal {
-    static DARK: OnceLock<Pal> = OnceLock::new();
-    static LIGHT: OnceLock<Pal> = OnceLock::new();
-    if dark { DARK.get_or_init(|| build(true)) } else { LIGHT.get_or_init(|| build(false)) }
+    static PALS: [[OnceLock<Pal>; 2]; 2] = [const { [const { OnceLock::new() }; 2] }; 2];
+    let srgb = rune::theme::blends_srgb();
+    PALS[dark as usize][srgb as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(dark)))
 }
 
 /// The neutral component kit for an appearance, built once.

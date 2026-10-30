@@ -39,8 +39,7 @@ pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
     ];
     let span = 0.8 * if width > 0.0 { (width - 48.0).min(720.0) } else { 720.0 };
     let k = ((span / 39.0).round().max(2.0)) / 6.0;
-    // Mixed in sRGB as the browser composites the 16% group, so it's as faint as Desktop's.
-    let (stem, weak) = (srgb_mix(p.bg_base, p.icon, 0.16), srgb_mix(p.bg_base, p.icon, 0.16 * 0.3));
+    let (stem, weak) = (p.icon.alpha(0.16), p.icon.alpha(0.16 * 0.3));
     let mut logo = el().key("wordmark").size(234.0 * k, 42.0 * k);
     for (x, y, w, h, counter) in RECTS {
         logo = logo.child(el().absolute(x * k, y * k).size(w * k, h * k).fill(if counter { weak } else { stem }));

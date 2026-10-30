@@ -735,6 +735,7 @@ impl App {
 
     pub(crate) fn into_runtime(self) -> rune::Runtime<Self> {
         let mut rt = rune::Runtime::new(self, view::app, (1280.0, 820.0), rune::Env::new(true, 1.0));
+        rt.set_srgb_blend(true);
         rt.poll = Some(poll);
         rt.on_key = Some(on_key);
         rt

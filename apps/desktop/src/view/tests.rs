@@ -692,3 +692,18 @@ fn a_long_header_title_shrinks_before_usage_at_large_zoom() {
         }
     }
 }
+
+#[test]
+fn resizing_a_wide_window_skips_rebuilding_the_view() {
+    let mut rt = Runtime::new(crate::perf::fixture(), super::app, (1280.0, 820.0), Env::new(true, 2.0));
+    rt.frame(0.0);
+    for _ in 0..60 {
+        if !rt.frame(1.0 / 60.0) {
+            break;
+        }
+    }
+    super::ROW_BUILDS.set(0);
+    rt.set_viewport((1160.0, 760.0), 2.0);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(super::ROW_BUILDS.get(), 0, "wide resize re-solves layout without running view");
+}

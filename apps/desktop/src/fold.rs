@@ -28,16 +28,22 @@ pub struct Fold {
     pub past: bool,
 }
 
-/// Where prompts lay out, for folding them (`fold.rs`): the timeline's width, and for an opened
-/// prompt whether its top is scrolled above the timeline. Before the timeline's first layout,
-/// the widest column: a prompt that's long there is long at any width.
+/// Where prompts lay out, for folding them (`fold.rs`): the timeline's width (clamped to the
+/// content column so wide window resizes don't invalidate row memos), and for an opened prompt
+/// whether its top is scrolled above the timeline.
 pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
-    let view = rune::memo::layout_with(&format!("scroll-{session}"), |r| [r[1], r[2]]);
+    let zoom = s.zoom.max(1e-3);
+    let any_open = s.settings.fold_user && s.expanded.iter().any(|k| k.starts_with("user-expanded:"));
+    let viewport = s
+        .settings
+        .fold_user
+        .then(|| rune::memo::layout_with(&format!("scroll-{session}"), move |r| (r[2] / zoom).min(CONTENT_W + 48.0)))
+        .flatten()
+        .unwrap_or(CONTENT_W + 48.0);
+    let top = any_open.then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
     move |id| {
-        let Some([top, w]) = view else { return Fold { viewport: CONTENT_W + 48.0, past: false } };
-        let open = s.expanded.contains(&key(id));
-        let past = open && rune::memo::layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false);
-        Fold { viewport: w / s.zoom, past }
+        let past = top.is_some_and(|top| s.expanded.contains(&key(id)) && rune::memo::layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));
+        Fold { viewport, past }
     }
 }
 
