@@ -41,6 +41,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
     ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
+    ("pop-in", "timeline/t-msg_0older", "older-history/", "at the very top, a page that lands above shows its last row in the gap over the first, as Desktop's does; nothing on screen moves (session_pages::load_older)"),
     ("pop-in", "timeline/u-", "scrolled-up", "read further up, a send flies nowhere: the timeline cuts to its end and the message is there (App::land)"),
     ("offset-jump", "timeline/t-", "send-from-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
@@ -608,6 +609,7 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
+    Action { name: "older-history", circs: || vec![Circ { scrolled: true, ..Circ::default() }, Circ { scrolled: true, narrow: true, zoomed: true, ..Circ::default() }], run: super::history::older },
     Action { name: "side-region", circs: || vec![Circ::default()], run: super::panels::side_region },
     Action { name: "review", circs: || vec![Circ::default()], run: super::panels::review },
     Action { name: "files", circs: || vec![Circ::default()], run: super::panels::files },

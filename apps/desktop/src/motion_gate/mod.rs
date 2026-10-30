@@ -8,6 +8,7 @@
 //! reports it (`MOTION_GATE=<filter>` narrows it, `MOTION_GATE_OUT` names the report).
 
 mod flights;
+mod history;
 mod odometers;
 mod panels;
 mod rewind;

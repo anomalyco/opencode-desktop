@@ -121,6 +121,9 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(24.0).center().child(lane))
         .children(centred)
+        // Over the timeline's top edge, not in it: a row there would move what's on screen.
+        .children(s.pages.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(12.0), Some(0.0), None).center()
+            .child(crate::view::activity_ring(p))))
 }
 
 #[cfg(test)]

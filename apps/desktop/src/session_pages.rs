@@ -16,22 +16,77 @@ const MEMORY_BYTES: usize = 64 << 20;
 const PAGE_BYTES: usize = 4 << 20;
 pub const WARM: usize = 6;
 const HOLD: Duration = Duration::from_millis(150);
+/// Older pages as you scroll up: Desktop's `messagePageLimit`, asked for once the timeline
+/// stands within its 200 px of the top (`interaction.ts` `onHistoryScroll`).
+const OLDER: usize = 20;
+const NEAR_TOP: f32 = 200.0;
+/// A failed or stuck older page isn't asked for again sooner (the pool's own backoff).
+const RETRY: Duration = Duration::from_secs(30);
 
-/// Session-page prefetch pool and delayed history-cursor expansion.
+/// Session-page prefetch pool, delayed history-cursor expansion, and older pages on scroll.
 #[derive(Default)]
 pub struct State {
     pool: Option<Pages>,
     history: Option<(Instant, Key, String)>,
-    history_loaded: HashSet<String>,
+    /// Sessions whose first history page landed, with the cursor to older messages (None at
+    /// the session's start).
+    older: HashMap<String, Option<String>>,
+    fetching: Option<Fetching>,
+    /// The session whose timeline stands near its top, told by its scroll viewport.
+    near_top: std::rc::Rc<std::cell::RefCell<String>>,
+    wake: Option<Waker>,
 }
+
+/// The older page being read.
+struct Fetching { id: String, at: Instant, slow: bool, failed: bool }
 
 impl State {
     pub fn set(&mut self, pages: Pages) {
+        self.wake = pages.wake.clone();
+        self.older.clear();
+        self.fetching = None;
         self.pool = Some(pages);
     }
 
     pub fn has_pool(&self) -> bool {
         self.pool.is_some()
+    }
+
+    /// For session `id`'s timeline scroll viewport: standing near its top, the next poll reads
+    /// the page before it.
+    pub fn watch_top(&self, id: &str) -> impl Fn(rune::ScrollPos) + 'static {
+        let (near, wake, id) = (self.near_top.clone(), self.wake.clone(), id.to_owned());
+        move |at| {
+            let is = at.offset[1] < NEAR_TOP;
+            let mut n = near.borrow_mut();
+            if is && *n != id {
+                *n = id.clone();
+                drop(n);
+                // The scroll may have stopped on this frame; poll without waiting for another.
+                if let Some(wake) = &wake { wake(); }
+            } else if !is && *n == id { n.clear(); }
+        }
+    }
+
+    /// An older page for `id` has taken longer than the opening hold: show that it's coming.
+    pub fn loading_older(&self, id: &str) -> bool {
+        self.fetching.as_ref().is_some_and(|f| f.id == id && f.slow && !f.failed)
+    }
+
+    /// Whether a page before `id`'s oldest loaded message is still to read.
+    pub fn more_above(&self, id: &str) -> bool {
+        self.older.get(id).is_some_and(Option::is_some)
+    }
+
+    #[cfg(test)]
+    pub fn older(&self, id: &str) -> Option<&Option<String>> {
+        self.older.get(id)
+    }
+
+    /// As though `id`'s first history page had landed, leaving `cursor` to read before it.
+    #[cfg(test)]
+    pub fn set_older(&mut self, id: &str, cursor: Option<String>) {
+        self.older.insert(id.into(), cursor);
     }
 }
 
@@ -61,7 +116,7 @@ pub struct Page {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct Job { key: Key, cursor: Option<String>, foreground: bool }
+struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
 
 #[derive(Default)]
 struct Queue {
@@ -78,6 +133,7 @@ pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, String> + Send + Sync>;
 pub struct Pages {
     shared: Shared,
     pub results: Receiver<Result<Arc<Page>, (Key, String)>>,
+    wake: Option<Waker>,
 }
 
 impl Drop for Pages {
@@ -93,7 +149,7 @@ impl Pages {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
-        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results }, send)
+        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None }, send)
     }
     pub fn live(server: Server, wake: Waker) -> Self {
         let dir = disk_dir(&server.base);
@@ -108,7 +164,7 @@ impl Pages {
             std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
                 .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
         }
-        Self { shared, results }
+        Self { shared, results, wake: Some(wake) }
     }
 
     /// Memory is ready before the worker wakes the app, so a click racing that wake can paint.
@@ -121,11 +177,12 @@ impl Pages {
     }
 
     pub fn request(&self, key: Key, foreground: bool) {
-        self.enqueue(Job { key, foreground, cursor: None });
+        self.enqueue(Job { key, foreground, cursor: None, limit: LATEST });
     }
 
-    pub fn history(&self, key: Key, cursor: String) {
-        self.enqueue(Job { key, foreground: false, cursor: Some(cursor) });
+    /// The `limit` messages before `cursor`.
+    pub fn history(&self, key: Key, cursor: String, limit: usize) {
+        self.enqueue(Job { key, foreground: false, cursor: Some(cursor), limit });
     }
 
     fn enqueue(&self, job: Job) {
@@ -189,8 +246,8 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             publish(&value, true);
         }
         let path = match &job.cursor {
-            Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, 80 - LATEST, super::switcher::encode(cursor)),
-            None => format!("/api/session/{}/message?limit={LATEST}&order=desc", job.key.id),
+            Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, super::switcher::encode(cursor)),
+            None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
         };
         match fetch(&path) {
             Ok(value) => {
@@ -376,14 +433,23 @@ impl super::App {
         self.settle_inbox(id, &delivered);
         let cold = !page.cached && self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
-        if first || page.history || cold { tx.settle(); }
-        if page.history { self.pages.history_loaded.insert(id.clone()); }
+        // Not for older pages read while scrolled back: a settle pins the timeline to its end.
+        let older = page.history && self.pages.older.contains_key(id);
+        if first || (page.history && !older) || cold { tx.settle(); }
+        if page.history {
+            // An empty page ends it too, so a server that keeps handing out cursors can't loop.
+            let older = page.cursor.clone().filter(|_| !page.messages.is_empty());
+            self.pages.older.insert(id.clone(), older);
+            if self.pages.fetching.as_ref().is_some_and(|f| f.id == *id) { self.pages.fetching = None; }
+            // Where the page leaves the reader is reported next frame; read on only from there.
+            self.pages.near_top.borrow_mut().clear();
+        }
         self.schedule_history(page, tx);
     }
 
     fn schedule_history(&mut self, page: &Page, tx: &mut rune::Tx) {
         let id = &page.key.id;
-        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && !self.pages.history_loaded.contains(id) && let Some(cursor) = &page.cursor {
+        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && !self.pages.older.contains_key(id) && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
             self.pages.history = Some((Instant::now() + Duration::from_millis(50), page.key.clone(), cursor.clone()));
             tx.wake_after(Duration::from_millis(50));
@@ -401,16 +467,42 @@ impl super::App {
                     self.opening.as_mut().unwrap().error = Some(error);
                     changed = true;
                 }
-                Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => { self.status = error; changed = true; }
+                Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => {
+                    if let Some(f) = &mut self.pages.fetching && f.id == key.id { f.failed = true; }
+                    self.status = error;
+                    changed = true;
+                }
                 _ => {}
             }
         }
         changed |= self.poll_open(tx);
         if self.pages.history.as_ref().is_some_and(|(at, _, _)| *at <= Instant::now()) {
             let (_, key, cursor) = self.pages.history.take().unwrap();
-            if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages.pool { pages.history(key, cursor); }
+            if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages.pool { pages.history(key, cursor, 80 - LATEST); }
         }
-        changed
+        changed | self.load_older(tx)
+    }
+
+    /// Reads the page before the open session's oldest message once its timeline nears the
+    /// top. It lands above what's on screen without moving it: the virtual list holds its
+    /// first visible row (Rune `VirtualList::anchor_delta`).
+    fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
+        if let Some(f) = &mut self.pages.fetching {
+            let waited = f.at.elapsed();
+            if waited < RETRY {
+                if f.failed || f.slow || waited < HOLD { return false; }
+                f.slow = true;
+                return true;
+            }
+            self.pages.fetching = None;
+        }
+        let super::Route::Session(id) = &self.route else { return false };
+        if *self.pages.near_top.borrow() != *id { return false; }
+        let (Some(Some(cursor)), Some(pages)) = (self.pages.older.get(id), &self.pages.pool) else { return false };
+        pages.history(self.page_key(id), cursor.clone(), OLDER);
+        self.pages.fetching = Some(Fetching { id: id.clone(), at: Instant::now(), slow: false, failed: false });
+        tx.wake_after(HOLD);
+        false
     }
 }
 
@@ -510,7 +602,7 @@ mod tests {
             assert!(!path.contains("order="));
             Ok(page("history"))
         }), None, Arc::new(|| {}));
-        pages.history(key("ses_a"), "older+/=".into());
+        pages.history(key("ses_a"), "older+/=".into(), 68);
         assert!(receive(&pages).history);
         let dir = Scratch::new();
         for i in 0..16 { disk_write(&dir.0, &key(&format!("ses_{i}")), &page("cached")); }

@@ -449,6 +449,8 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .shrink()
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
+        // Near its top, older messages load above what's on screen.
+        .on_scroll_offset(s.pages.watch_top(id))
         // Its edges fade only while rows are under them, and never over a stuck group header.
         .scroll_edge_fade(16.0)
         .child(stack)
@@ -466,6 +468,8 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     // Working, or a compaction waiting to start, sits between the last prompt and the steers.
     let queued = if revert.is_none() { s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) } else { None };
     let runs_off = last_assistant.is_some() || queued.is_some();
+    // Not the session's start while older messages remain to land above.
+    let older = s.pages.more_above(&t.session);
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
@@ -484,7 +488,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                     Some(n) => joins(m, n),
                     None => !runs_off && pending.first().is_some_and(|n| prompts_join(body, n)),
                 };
-                let tight = prompt_images(&mut out, id);
+                let tight = prompt_images(&mut out, id, older);
                 if !body.trim().is_empty() || !model::user_quotes(id).is_empty() {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
                 }
@@ -523,7 +527,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     for (k, item) in pending.iter().enumerate() {
         let above = prev.is_some_and(|x| prompts_join(x, item));
         let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n));
-        let tight = prompt_images(&mut out, &item.id);
+        let tight = prompt_images(&mut out, &item.id, older);
         out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
     }
@@ -537,12 +541,14 @@ pub(crate) fn row_keys(s: &App, t: &Transcript) -> Vec<String> {
 }
 
 /// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
-/// under what's above it.
-pub(super) fn prompt_images(out: &mut Vec<RowSpec>, id: &str) -> bool {
+/// under what's above it. With `older` messages still to land above, the first prompt keeps the
+/// gap it will have under them.
+pub(super) fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
+    let start = out.is_empty() && !older;
     let gallery = crate::attachments::shows(&model::user_files(id));
-    let tight = out.is_empty() || gallery;
+    let tight = start || gallery;
     if gallery {
-        let pt = if out.is_empty() { 8.0 } else { 16.0 };
+        let pt = if start { 8.0 } else { 16.0 };
         out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false });
     }
     tight

@@ -105,6 +105,8 @@ mod session_menu_stories;
 #[cfg(test)]
 mod session_menu_tests;
 mod session_menu_view;
+#[cfg(test)]
+mod session_older_tests;
 mod session_open;
 mod session_pages;
 mod settings;

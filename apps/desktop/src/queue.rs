@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "3 pt sink from three Rune springs on delivery; RUNE fixing, un-ignore on the next bump"]
+    #[ignore = "3 pt sink from three Rune springs on delivery, still 3.2 pt on Rune 96cff9e8; RUNE fixing"]
     fn a_steer_keeps_its_identity_when_delivered() {
         let mut rt = settled_busy_app();
         let first = type_and_submit(&mut rt, "Use tabs, not spaces, everywhere in the parser module please", false);
