@@ -114,12 +114,6 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .child(crate::knobs::layer(s))
 }
 
-/// An anchored overlay escapes the window's zoom, so it scales itself: it grows about the corner that touches its anchor (`above` is the
-/// bottom-left, else the top-left), landing at once.
-pub(crate) fn follow_zoom(overlay: El, zoom: f32, above: bool) -> El {
-    overlay.scale(zoom).scale_motion(Spring::NONE).origin(0.0, if above { 1.0 } else { 0.0 })
-}
-
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);

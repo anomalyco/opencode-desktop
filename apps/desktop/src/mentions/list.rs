@@ -106,7 +106,6 @@ pub struct Row {
 /// The popover over the composer, 8 points up: rows of an optional lead, a label and a muted
 /// description. It appears and goes at once, and so does its highlight.
 pub fn popup(
-    zoom: f32,
     p: &Pal,
     spec: Spec,
     rows: Vec<Row>,
@@ -173,5 +172,5 @@ pub fn popup(
         .transition(rune::Transition::none())
         .on_press(|_: &mut App| {})
         .child(body);
-    crate::view::follow_zoom(popover, zoom, true)
+    popover
 }

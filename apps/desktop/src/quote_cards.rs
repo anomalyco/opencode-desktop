@@ -203,7 +203,7 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .on_press(|_: &mut App| {})
         .child(field)
         .child(footer);
-    Some(crate::view::follow_zoom(popover, s.zoom, true))
+    Some(popover)
 }
 
 /// A sent prompt's quote cards (`UserMessageComments`), when it has any. Under its words

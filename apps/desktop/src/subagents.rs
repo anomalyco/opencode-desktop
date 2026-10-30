@@ -314,7 +314,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .transition(rune::Transition::none())
         .on_press(|_: &mut App| {})
         .child(rows);
-    Some(crate::view::follow_zoom(panel, s.zoom, true))
+    Some(panel)
 }
 
 /// The run-time column's width: room for "59m 59s" at least, and for the widest time shown with

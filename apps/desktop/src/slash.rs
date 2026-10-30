@@ -173,5 +173,5 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .map(|c| Row { id: c.name.clone(), key: format!("command-{}", c.name), label: format!("/{}", c.name), lead: None, description: c.description.clone() })
         .collect();
     let spec = Spec { key: "commands", label: "Commands", empty: "No matching commands", width };
-    Some(popup(s.zoom, p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name| s.pick_command(name)))
+    Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name| s.pick_command(name)))
 }

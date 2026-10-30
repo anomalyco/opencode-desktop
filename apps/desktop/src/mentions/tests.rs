@@ -333,5 +333,5 @@ fn popovers_follow_the_text_size() {
     assert!((big.scale - 1.6).abs() < 1e-3, "rows scale with zoom: {}", big.scale);
     assert!((big.rect[3] / small.rect[3] - 1.6).abs() < 0.01, "row height {} vs {}", big.rect[3], small.rect[3]);
     assert!((popover.rect[2] - composer.rect[2]).abs() < 0.5, "still the composer's width: {:?} vs {:?}", popover.rect, composer.rect);
-    assert!((popover.rect[1] + popover.rect[3] + 8.0 - composer.rect[1]).abs() < 0.5, "still 8 points above");
+    assert!((popover.rect[1] + popover.rect[3] + 8.0 * 1.6 - composer.rect[1]).abs() < 0.5, "still 8 page points above");
 }

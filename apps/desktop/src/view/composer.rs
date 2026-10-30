@@ -229,7 +229,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         }
         body = body.child(add_row);
     }
-    super::follow_zoom(body, s.zoom, true)
+    body
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

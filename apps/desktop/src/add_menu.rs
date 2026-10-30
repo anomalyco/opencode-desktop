@@ -336,7 +336,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 tx.instant();
                 s.close_add_menu();
             })
-            .child(crate::view::follow_zoom(menu, s.zoom, true)),
+            .child(menu),
     )
 }
 

@@ -84,7 +84,7 @@ pub struct Mentions {
     /// Sessions the server found for a query's first word.
     found: Vec<SessionInfo>,
     searched: Option<String>,
-    sessions_fetch: Latest<Option<Vec<SessionInfo>>>,
+    sessions_fetch: Latest<Vec<SessionInfo>>,
     /// The last file search's query and paths, and the query asked for since.
     files: (String, Vec<String>),
     files_asked: Option<String>,
@@ -116,9 +116,9 @@ impl Default for Mentions {
 
 impl Mentions {
     pub fn set_waker(&mut self, waker: Waker) {
-        self.catalog_fetch = Latest::new(waker.clone());
-        self.files_fetch = Latest::new(waker.clone()).debounce(FILE_DEBOUNCE);
-        self.sessions_fetch = Latest::new(waker).debounce(SESSION_DEBOUNCE);
+        self.catalog_fetch.set_waker(waker.clone());
+        self.files_fetch.set_waker(waker.clone());
+        self.sessions_fetch.set_waker(waker);
     }
 
     /// A session the `@` search found.
@@ -149,7 +149,7 @@ impl Mentions {
             self.files = (query, paths);
             changed = true;
         }
-        if let Some(Some(list)) = self.sessions_fetch.take() {
+        if let Some(list) = self.sessions_fetch.take() {
             upsert_sessions(&mut self.found, list);
             changed = true;
         }
@@ -212,7 +212,7 @@ impl Mentions {
         }
         self.searched = Some(word.to_owned());
         let server = server.clone();
-        self.sessions_fetch.request(word.to_owned(), move |word| {
+        self.sessions_fetch.request_opt(word.to_owned(), move |word| {
             let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
             server.get(&path).ok().map(|v| model::parse_sessions(&v))
         });
@@ -580,7 +580,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind)), description: i.description.clone() })
         .collect();
     let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
-    Some(popup(s.zoom, p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
+    Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key| s.pick_mention(key)))
 }
 
 #[cfg(test)]
