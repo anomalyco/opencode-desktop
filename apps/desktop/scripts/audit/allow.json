@@ -1,4 +1,6 @@
 [
+  {"element": "toolbar/submit/", "kind": ["pop-in", "pop-out"],
+   "reason": "Send's arrow and Stop's square swap at once, so a stop shows in the frame of the press (stop.rs, t1036)"},
   {"trace": "close-tab", "element": "tabs-scroll/tabs", "kind": ["jump", "sibling-jump", "pop-out"],
    "reason": "closing a tab lands at once, its neighbours close the gap in the same frame (docs/kit-design.md: changes are immediate)"},
   {"trace": "cmdk-results", "element": "window/panel/home", "kind": "pop-out",

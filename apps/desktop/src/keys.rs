@@ -26,10 +26,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.cancel_open(tx);
             true
         }
-        Key::Escape if s.composer.focused && matches!(&s.route, Route::Session(id) if s.busy(id)) => {
-            s.stop();
-            true
-        }
+        Key::Escape if crate::stop::key(s, ev, tx) => true,
         Key::Escape if s.project_state.home_menu_open => {
             tx.instant();
             s.project_state.home_menu_open = false;

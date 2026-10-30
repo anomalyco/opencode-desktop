@@ -39,6 +39,8 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
     ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
+    ("pop-in", "submit/", "", "Send's arrow and Stop's square swap at once, so a stop shows in the frame of the press (view::composer, stop.rs, t1036)"),
+    ("pop-out", "submit/", "", "Send's arrow and Stop's square swap at once, so a stop shows in the frame of the press (view::composer, stop.rs, t1036)"),
     ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-in", "timeline/t-msg_0older", "older-history/", "at the very top, a page that lands above shows its last row in the gap over the first, as Desktop's does; nothing on screen moves (session_pages::load_older)"),

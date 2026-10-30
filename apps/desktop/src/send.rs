@@ -141,6 +141,8 @@ impl App {
                 sent
             }
         };
+        // A prompt sent while a stop settles runs next, so its Working shows.
+        self.stops.forget(&id);
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         self.echo_mentions(&local);
         opencode_kit::model::set_user_quotes(&local, quotes);

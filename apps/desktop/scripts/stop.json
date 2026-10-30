@@ -1,0 +1,7 @@
+{
+  "events": [
+    { "t": 1.6, "type": "move", "key": "submit" },
+    { "t": 2.4, "type": "tap", "key": "submit" },
+    { "t": 3.0, "type": "tap", "key": "submit" }
+  ]
+}

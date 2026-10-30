@@ -65,7 +65,9 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .center()
         .fill(if ready { p.contrast } else { p.layer2 })
         .hover(p.hover)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| if stop { s.stop() } else { s.send(tx) })
+        // Stop and Send swap glyphs in the frame of the press, with no fade.
+        .instant_changes()
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| if stop { crate::stop::press(s, tx) } else { s.send(tx) })
         .child(if stop {
             el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text)
         } else {
@@ -106,7 +108,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .pill_style(crate::mentions::badge::pill_style(p))
                     .on_input_change(|s: &mut App, tx| { crate::quote::typed(s, tx); s.mentions_changed(tx); s.slash_changed(tx) })
                     .on_input_key(|s: &mut App, ev, tx| {
-                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) {
+                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) || crate::stop::key(s, ev, tx) {
                             return true;
                         }
                         if ev.key == Key::Escape && !s.route_busy() && crate::status_toast::key(s, ev, tx) {

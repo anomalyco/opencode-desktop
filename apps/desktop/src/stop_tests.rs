@@ -1,0 +1,214 @@
+//! A stop shows in the frame of the press, whatever the server does next: slow, silent, or
+//! refusing the interrupt.
+use std::sync::mpsc::{Receiver, Sender, channel};
+
+use opencode_kit::client::{Incoming, Write};
+use rune::{KeyEvent, Mods, Runtime};
+use serde_json::json;
+
+use super::*;
+use rune::Key;
+
+const DT: f64 = 1.0 / 120.0;
+
+struct Live {
+    rt: Runtime<App>,
+    sid: String,
+    writes: Receiver<Write>,
+    /// What the server sends back, as the write thread and the event stream would.
+    server: Sender<Incoming>,
+}
+
+/// The fixture's open session mid-run on a live source: its writes land in a channel and nothing
+/// answers them until a test says so.
+fn live() -> Live {
+    let mut app = App::fixture_session();
+    crate::scenes::busy_scene(&mut app);
+    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    app.running.retain(|id| *id == sid);
+    let writes = app.fake_writes();
+    let (server, inbox) = channel();
+    app.inbox = Some(inbox);
+    let mut rt = app.into_runtime();
+    rt.frame(0.0);
+    let mut l = Live { rt, sid, writes, server };
+    tap(&mut l, "prompt");
+    l.rt.frame(DT);
+    assert!(l.rt.state.composer.focused);
+    assert_eq!(submit(&l), "Stop", "running, the button stops");
+    assert!(working(&l) > 0.999, "and Working shows");
+    l.rt.frame(DT);
+    l
+}
+
+fn submit(l: &Live) -> String {
+    l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("submit")).and_then(|e| e.label).expect("the submit button")
+}
+
+fn working(l: &Live) -> f32 {
+    l.rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some("working")).map(|e| e.opacity).fold(0.0, f32::max)
+}
+
+fn tap(l: &mut Live, key: &str) {
+    let r = l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("no {key}")).rect;
+    let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    l.rt.pointer_move(x, y);
+    l.rt.pointer_down(x, y);
+    l.rt.pointer_up(x, y);
+}
+
+fn esc(l: &mut Live) {
+    l.rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+    l.rt.frame(DT);
+}
+
+fn play(l: &mut Live, secs: f64) {
+    for _ in 0..(secs / DT).round() as usize {
+        l.rt.frame(DT);
+    }
+}
+
+fn event(l: &mut Live, ty: &str, data: serde_json::Value) {
+    let mut data = data;
+    data["sessionID"] = l.sid.clone().into();
+    l.server.send(Incoming::Event { ty: ty.into(), data }).unwrap();
+    l.rt.frame(DT);
+}
+
+fn stopped(l: &Live) {
+    assert_eq!(submit(l), "Send", "Stop turned back into Send");
+    assert!(!l.rt.elements().iter().any(|e| e.key.as_deref() == Some("stop-glyph")), "the stop square left without a fade");
+    assert!(working(l) < 0.001, "Working went");
+    assert!(!l.rt.state.busy(&l.sid), "Enter sends a new prompt rather than steering");
+}
+
+fn running(l: &Live) {
+    assert_eq!(submit(l), "Stop");
+    assert!(working(l) > 0.999);
+}
+
+#[test]
+fn a_stop_shows_in_the_frame_of_the_press_while_the_server_takes_its_time() {
+    let mut l = live();
+    esc(&mut l);
+    stopped(&l);
+    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(s)) if s == l.sid), "the interrupt went out");
+
+    // Words already on their way still land, and Working stays gone.
+    let reply = match l.rt.state.transcripts[&l.sid].messages.last() {
+        Some(opencode_kit::model::Message::Assistant(a)) => a.id.clone(),
+        _ => panic!("no running step"),
+    };
+    event(&mut l, "session.text.delta", json!({ "assistantMessageID": reply, "delta": " late words" }));
+    play(&mut l, 2.0);
+    stopped(&l);
+
+    // A second press asks for nothing more and doesn't fall through to another Esc.
+    esc(&mut l);
+    assert!(l.writes.try_recv().is_err(), "one interrupt");
+    assert!(l.rt.state.composer.focused);
+
+    // A resync that still lists the run doesn't bring it back while the stop is pending.
+    l.server.send(Incoming::Active(vec![l.sid.clone()])).unwrap();
+    l.rt.frame(DT);
+    stopped(&l);
+
+    // The server confirms; the step closes after it.
+    event(&mut l, "session.execution.interrupted", json!({ "reason": "user" }));
+    stopped(&l);
+    event(&mut l, "session.step.failed", json!({ "assistantMessageID": reply, "error": { "message": "Interrupted" } }));
+    play(&mut l, CONFIRM_SECS + 1.0);
+    stopped(&l);
+    assert!(l.rt.state.stops.by.is_empty(), "the stop is over");
+    assert!(l.rt.state.status.is_empty() || !l.rt.state.status.contains("stop"), "no toast: {}", l.rt.state.status);
+}
+
+#[test]
+fn the_composer_stop_button_lands_on_the_press_too() {
+    let mut l = live();
+    tap(&mut l, "submit");
+    l.rt.frame(DT);
+    stopped(&l);
+    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(_))));
+    tap(&mut l, "submit");
+    l.rt.frame(DT);
+    assert!(l.writes.try_recv().is_err(), "a second press sends nothing");
+    stopped(&l);
+}
+
+#[test]
+fn an_interrupt_that_fails_puts_the_run_back_and_says_so() {
+    let mut l = live();
+    esc(&mut l);
+    stopped(&l);
+    let error = format!("POST /api/session/{}/interrupt: http status: 500", l.sid);
+    l.server.send(Incoming::Status(error)).unwrap();
+    l.rt.frame(DT);
+    running(&l);
+    assert_eq!(l.rt.state.status, "Couldn't stop the session: http status: 500");
+    assert!(l.rt.state.toast.current.as_ref().is_some_and(|t| t.persistent), "a toast that waits for Kit");
+    // ⌃G stops it again, as Esc does.
+    l.rt.key(KeyEvent { key: Key::Text("g".into()), mods: Mods { ctrl: true, ..Mods::default() } });
+    l.rt.frame(DT);
+    stopped(&l);
+    assert!(l.rt.state.composer.focused);
+}
+
+#[test]
+fn a_stop_the_server_never_confirms_comes_back_after_a_few_seconds() {
+    let mut l = live();
+    esc(&mut l);
+    play(&mut l, CONFIRM_SECS - 0.1);
+    stopped(&l);
+    play(&mut l, 0.2);
+    running(&l);
+    assert_eq!(l.rt.state.status, "The server didn't confirm the stop");
+}
+
+#[test]
+fn a_prompt_sent_while_the_stop_settles_shows_working_for_itself() {
+    let mut l = live();
+    esc(&mut l);
+    stopped(&l);
+    l.rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new("try the other way");
+        s.send(tx);
+    });
+    l.rt.frame(DT);
+    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(_))));
+    assert!(matches!(l.writes.try_recv(), Ok(Write::Send { .. })), "sent as a new prompt");
+    assert!(working(&l) > 0.999, "the new prompt's Working shows");
+}
+
+#[test]
+fn the_fixture_ends_its_stream_as_a_server_would() {
+    let mut app = App::empty();
+    app.load_fixture(crate::FIXTURE);
+    crate::scenes::open_scene(&mut app);
+    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    app.start_stream_if_due(&sid);
+    let mut rt = app.into_runtime();
+    rt.frame(0.0);
+    for _ in 0..(2.0 / DT) as usize {
+        rt.frame(DT);
+    }
+    assert!(rt.state.busy(&sid), "streaming");
+    rt.update(|s, _| s.stop());
+    rt.frame(DT);
+    assert!(!rt.state.busy(&sid));
+    for _ in 0..(10.0 / DT) as usize {
+        rt.frame(DT);
+    }
+    assert!(!rt.state.busy(&sid), "the rest of the run never came");
+    assert!(rt.state.stops.by.is_empty(), "the step closed as interrupted");
+    let Some(opencode_kit::model::Message::Assistant(a)) = rt.state.transcripts[&sid].messages.last() else { panic!() };
+    assert_eq!(a.error.as_deref(), Some("Step interrupted"));
+}
+
+#[test]
+fn other_writes_failing_are_not_a_stop() {
+    let mut app = App::empty();
+    assert!(!failed(&mut app, "POST /api/session/ses_a/background: http status: 500"));
+    assert!(!failed(&mut app, "POST /api/session/ses_a/prompt: timed out"));
+    assert!(failed(&mut app, "POST /api/session/ses_a/interrupt: timed out"));
+}

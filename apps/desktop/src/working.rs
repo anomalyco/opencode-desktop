@@ -48,8 +48,8 @@ impl Working {
 /// ended, and ends a pass a new label interrupted once it's over. True when what's drawn
 /// changed.
 pub fn sync(s: &mut App) -> bool {
-    let App { working, transcripts, running, clock, .. } = s;
-    let live = |id: &str| running.contains(id) || transcripts.get(id).is_some_and(|t| t.busy());
+    let App { working, transcripts, running, stops, clock, .. } = s;
+    let live = |id: &str| running.contains(id) || (transcripts.get(id).is_some_and(|t| t.busy()) && !stops.has(id));
     let runs = working.since.len();
     working.since.retain(|id, _| live(id));
     let mut changed = working.since.len() != runs;

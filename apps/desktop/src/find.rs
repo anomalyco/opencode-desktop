@@ -439,7 +439,7 @@ impl App {
         };
         let mut parts = std::mem::take(&mut self.find.parts);
         if let Some(t) = self.transcripts.get(&current) {
-            let busy = t.busy();
+            let busy = t.busy() && !self.stops.has(&current);
             let mut steps: Vec<&Assistant> = Vec::new();
             let flush_steps = |steps: &[&Assistant], live: bool, parts: &mut HashMap<(String, usize), CachedPart>, record: &mut dyn FnMut(&mut HashMap<(String, usize), CachedPart>, String, (String, usize), &str, bool)| {
                 for (mi, a) in steps.iter().enumerate() {

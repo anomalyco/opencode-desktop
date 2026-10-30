@@ -114,6 +114,8 @@ mod shortcuts;
 mod side_stories;
 mod slash;
 mod status_toast;
+mod stop;
+mod stop_stories;
 mod stories;
 mod subagents;
 mod switcher;
@@ -198,6 +200,8 @@ pub struct App {
     pub zoom: f32,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
+    /// Runs stopped on a press, until the server confirms (`stop.rs`).
+    pub stops: stop::Stops,
     /// Pending permission and form requests: (session, request id).
     pub requests: HashSet<(String, String)>,
     /// The open permission requests and forms we know the details of.
@@ -539,16 +543,6 @@ impl App {
         matches!(&self.route, Route::Session(id) if self.busy(id))
     }
 
-    /// Stops every running session in the open session's family.
-    pub fn stop(&mut self) {
-        let Route::Session(id) = self.route.clone() else { return };
-        let root = self.root_of(&id).to_owned();
-        let running: Vec<String> = self.running.iter().filter(|s| self.root_of(s) == root).cloned().collect();
-        for s in running {
-            self.write(Write::Interrupt(s));
-        }
-    }
-
     pub fn new_session(&mut self, tx: &mut Tx) {
         self.close_picker(false);
         self.close_project_switcher(false);
@@ -654,7 +648,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         continue;
                     }
                     Incoming::Status(e) => {
-                        if !rewind::failed(s, &e) {
+                        if !rewind::failed(s, &e) && !stop::failed(s, &e) {
                             s.status = background::status(e);
                         }
                     }
@@ -670,7 +664,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Active(ids) => {
                         tx.instant();
-                        s.running = ids.into_iter().collect();
+                        // A stop the server hasn't confirmed yet stays stopped.
+                        s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
                     }
                     Incoming::Projects(projects) => {
                         tx.instant();
@@ -722,6 +717,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if let Some(arrivals) = arrivals {
         arrivals.land(s, now, tx);
     }
+    changed |= stop::poll(s, now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     if s.question_shown() != asked {

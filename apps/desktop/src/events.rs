@@ -9,10 +9,12 @@ impl App {
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);
                 }
+                self.stops.forget(sid);
                 self.running.insert(sid.to_owned())
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 let was = self.running.remove(sid);
+                crate::stop::confirmed(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }

@@ -458,7 +458,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
 
 pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
-    let busy = t.busy();
+    let busy = t.busy() && !s.stops.has(&t.session);
     // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
     let revert = s.session(&t.session).and_then(|i| i.revert.as_deref());
     let shown = t.visible_len(revert);
