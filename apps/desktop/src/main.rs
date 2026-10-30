@@ -74,6 +74,8 @@ mod notifications;
 mod odometer;
 mod odometer_stories;
 mod open_in;
+#[cfg(test)]
+mod open_replay;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
@@ -131,6 +133,7 @@ mod switcher;
 mod tab_actions;
 mod tab_badges;
 mod tabs;
+mod telemetry;
 mod terminal;
 mod themes;
 mod todos;
@@ -835,6 +838,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    telemetry::launched();
     rune_mac::launch();
     rune::prewarm_gpu();
     let _ = rune::set_app_icon(include_bytes!("../assets/icon.icns").as_slice());
@@ -851,9 +855,13 @@ fn main() {
         let diagnostics = diagnostics::Diagnostics::default();
         let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
-            .on_frame_encoded(move |f| encoded.encoded(f))
+            .on_frame_encoded(move |f| {
+                encoded.encoded(f);
+                telemetry::encoded(f);
+            })
             .on_frame_drawn(move |rt| {
                 drawn.drawn(rt);
+                if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
                 motion_log.frame(rt);
             })
             .on_close(|s, _| s.save_on_close())

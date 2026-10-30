@@ -30,7 +30,7 @@ use crate::palette::Pal;
 mod images;
 mod viewer;
 
-pub(crate) use images::{Fetched, PreparedImage, prepare_images};
+pub(crate) use images::{Fetched, PreparedImage, inline_images, prepare_images};
 use images::Media;
 #[cfg(test)]
 use images::{Fetch, fit};

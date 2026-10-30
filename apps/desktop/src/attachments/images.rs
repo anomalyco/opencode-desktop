@@ -29,6 +29,8 @@ impl PreparedImage {
         Self { size: dimensions(&bytes), image: cache.load(bytes.clone()), bytes }
     }
 
+    pub fn handle(&self) -> Image { self.image.clone() }
+
     pub fn weight(&self) -> usize {
         // RGBA plus the mip chain; encoded bytes are counted by the page cache.
         self.size.map_or(0, |[w, h]| w as usize * h as usize * 16 / 3)
@@ -62,6 +64,21 @@ pub(crate) fn prepare_images(messages: &[Message], cache: &ImageCache) -> Vec<Pr
         }
     }
     prepared
+}
+
+/// How many decodable images a page carries inline, and their encoded bytes.
+pub(crate) fn inline_images(messages: &[Message]) -> (usize, usize) {
+    use opencode_kit::model::{Part, user_files};
+    let (mut count, mut bytes) = (0, 0);
+    let mut add = |f: &Attachment| if decodable(&f.mime) && f.media.is_none() { count += 1; bytes += f.bytes.len(); };
+    for m in messages {
+        match m {
+            Message::User { id, .. } => user_files(id).iter().for_each(&mut add),
+            Message::Assistant(a) => for p in &a.parts { if let Part::Tool { files, .. } = p { files.iter().for_each(&mut add); } },
+            _ => {}
+        }
+    }
+    (count, bytes)
 }
 
 /// Reads a `media:` ref's bytes (`Server::media` live; a stub in tests).

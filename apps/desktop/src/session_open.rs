@@ -4,7 +4,9 @@ impl App {
     /// Opens a session: lands at the bottom on the first frame with nothing animating in.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.cancel_open(tx);
-        if self.pages.has_pool() && self.route != Route::Session(id.to_owned()) {
+        let held = self.pages.has_pool() && self.route != Route::Session(id.to_owned());
+        if self.route != Route::Session(id.to_owned()) { crate::telemetry::open_begin(id, held); }
+        if held {
             self.begin_open(id, tx);
         } else {
             self.open_now(id, tx);
@@ -14,6 +16,7 @@ impl App {
 
     /// Commits the route, header and transcript together, once the opening gate is ready.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
+        crate::telemetry::committed(id, false);
         let prev_route = self.route.clone();
         self.close_picker(false);
         self.close_message_menu();

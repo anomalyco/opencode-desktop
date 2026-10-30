@@ -12,7 +12,7 @@ fn older_page(tag: &str) -> Page {
             "content": [{"type": "text", "text": "It starts in the socket's close handler, which schedules the first retry. ".repeat(4)}]})
     }).collect();
     let messages = opencode_kit::model::parse_messages(&serde_json::json!({"data": data}));
-    Page { key: Key { id: SID.into(), updated: 0 }, messages, cursor: Some(format!("before-{tag}")), cached: false, history: true, images: vec![], bytes: 0 }
+    Page { key: Key { id: SID.into(), updated: 0 }, messages, cursor: Some(format!("before-{tag}")), cached: false, history: true, images: vec![], bytes: 0, read: Default::default() }
 }
 
 /// From the top (reached unrecorded), a page lands as a scroll comes to rest, and another at rest.

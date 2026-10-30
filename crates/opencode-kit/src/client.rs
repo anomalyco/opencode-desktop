@@ -8,7 +8,7 @@
 use std::io::{BufRead, BufReader};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rune::Waker;
 use serde_json::Value;
@@ -179,6 +179,14 @@ fn list(v: &Value) -> Vec<Value> {
     v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default()
 }
 
+/// When a read's response started (headers in), its body's size, and when JSON parsing began.
+#[derive(Clone, Copy, Debug)]
+pub struct ReadTiming {
+    pub first_byte: Instant,
+    pub bytes: usize,
+    pub parsing: Instant,
+}
+
 #[derive(Clone)]
 pub struct Server {
     pub base: String,
@@ -269,6 +277,15 @@ impl Server {
     }
 
     fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, String> {
+        self.get_timed(path, capabilities).map(|(v, _)| v)
+    }
+
+    /// `read`, with when its response started, its body size and when parsing started.
+    pub fn read_timed(&self, path: &str) -> Result<(Value, ReadTiming), String> {
+        self.get_timed(path, self.media_refs.then_some(MEDIA_CAPABILITY))
+    }
+
+    fn get_timed(&self, path: &str, capabilities: Option<&str>) -> Result<(Value, ReadTiming), String> {
         let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
@@ -277,13 +294,16 @@ impl Server {
             req = req.header("X-OpenCode-Capabilities", c);
         }
         let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
+        let first_byte = Instant::now();
         let text = resp
             .body_mut()
             .with_config()
             .limit(64 << 20)
             .read_to_string()
             .map_err(|e| format!("GET {path}: {e}"))?;
-        serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))
+        let parsing = Instant::now();
+        let value = serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))?;
+        Ok((value, ReadTiming { first_byte, bytes: text.len(), parsing }))
     }
 
     /// The bytes behind a `media:<hash>` ref (`GET /api/experimental/media/:hash`). They never

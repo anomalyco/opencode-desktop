@@ -37,10 +37,16 @@ pub struct First {
 
 impl First {
     pub fn fetch(server: &Server) -> Result<First, String> {
-        let projects = server.get("/api/project")?;
-        let sessions = server.get("/api/session?limit=120").ok();
-        let models = server.get("/api/model").ok().map(|m| (m, server.get("/api/agent").unwrap_or_default()));
-        let active = server.get("/api/session/active").ok();
+        let get = |path: &'static str| {
+            let start = std::time::Instant::now();
+            let r = server.get(path);
+            crate::telemetry::launch_read(path, start);
+            r
+        };
+        let projects = get("/api/project")?;
+        let sessions = get("/api/session?limit=120").ok();
+        let models = get("/api/model").ok().map(|m| (m, get("/api/agent").unwrap_or_default()));
+        let active = get("/api/session/active").ok();
         Ok(First { projects, sessions, models, active })
     }
 }
@@ -203,6 +209,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
         s.inbox = Some(inbox);
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session(id) = s.route.clone() {
+            crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));
             s.open(&id, tx);
         }
     }

@@ -113,6 +113,8 @@ pub struct Page {
     pub history: bool,
     pub images: Vec<super::attachments::PreparedImage>,
     pub(crate) bytes: usize,
+    /// How the reader got it, for the open's trace.
+    pub read: crate::telemetry::Read,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -153,7 +155,10 @@ impl Pages {
     }
     pub fn live(server: Server, wake: Waker) -> Self {
         let dir = disk_dir(&server.base);
-        Self::new(Arc::new(move |path| server.read(path)), dir, wake)
+        Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
+            crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
+            value
+        })), dir, wake)
     }
 
     pub fn new(fetch: Fetch, dir: Option<PathBuf>, wake: Waker) -> Self {
@@ -221,14 +226,22 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
                 state = q.1.wait(state).unwrap();
             }
         };
-        let publish = |value: &Value, cached| {
+        let publish = |value: &Value, cached, mut read: crate::telemetry::Read| {
+            let parsing = Instant::now();
             let messages = model::parse_messages(value);
+            let preparing = Instant::now();
             let prepared = if job.cursor.is_none() { super::attachments::prepare_images(&messages, &images) } else { vec![] };
+            let done = Instant::now();
+            (read.parse, read.images, read.messages) = (Some((parsing, preparing)), Some((preparing, done)), messages.len());
+            (read.inline_images, read.inline_image_bytes) = super::attachments::inline_images(&messages);
+            read.prepared = prepared.iter().map(|p| p.handle()).collect();
+            read.thread = std::thread::current().name().unwrap_or("").to_owned();
             let page = Arc::new(Page {
                 key: job.key.clone(), messages,
                 cursor: value["cursor"]["next"].as_str().map(str::to_owned), cached, history: job.cursor.is_some(),
                 bytes: serde_json::to_vec(value).map_or(0, |v| v.len()) + prepared.iter().map(|p| p.weight()).sum::<usize>(),
                 images: prepared,
+                read,
             });
             if !page.history {
                 let mut state = q.0.lock().unwrap();
@@ -242,16 +255,27 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             }
             if out.send(Ok(page)).is_ok() { wake(); }
         };
-        if job.cursor.is_none() && let Some(dir) = &dir && let Some(value) = disk_read(dir, &job.key) {
-            publish(&value, true);
+        if job.cursor.is_none() && let Some(dir) = &dir {
+            let start = Instant::now();
+            if let Some(value) = disk_read(dir, &job.key) {
+                publish(&value, true, crate::telemetry::Read { source: "disk", fetch: Some((start, Instant::now())), ..Default::default() });
+            }
         }
         let path = match &job.cursor {
             Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, super::switcher::encode(cursor)),
             None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
         };
+        let start = Instant::now();
+        crate::telemetry::take_read();
         match fetch(&path) {
             Ok(value) => {
-                publish(&value, false);
+                let end = Instant::now();
+                let mut read = crate::telemetry::Read { source: "server", fetch: Some((start, end)), ..Default::default() };
+                if let Some((first_byte, bytes, parsing)) = crate::telemetry::take_read() {
+                    (read.first_byte, read.bytes, read.json) = (Some(first_byte), bytes, Some((parsing, end)));
+                    read.fetch = Some((start, parsing));
+                }
+                publish(&value, false, read);
                 if job.cursor.is_none() && let Some(dir) = &dir { disk_write(dir, &job.key, &value); }
             }
             Err(error) => {
@@ -359,10 +383,18 @@ impl super::App {
         let expired = if self.live() { opening.started.elapsed() >= HOLD } else { self.clock >= opening.clock + HOLD.as_secs_f64() };
         if expired && !opening.loading {
             self.opening.as_mut().unwrap().loading = true;
+            crate::telemetry::committed(&id, true);
             self.open_now(&id, tx);
             return true;
         }
         false
+    }
+
+    /// The session on screen with its messages painted (not held, not loading), for traces.
+    pub fn painted_session(&self) -> Option<(&str, usize)> {
+        let super::Route::Session(id) = &self.route else { return None };
+        if self.opening.is_some() { return None; }
+        Some((id, self.transcripts.get(id).map_or(0, |t| t.messages.len())))
     }
 
     pub fn loading_session(&self, id: &str) -> bool {
@@ -414,6 +446,12 @@ impl super::App {
     }
 
     pub(crate) fn show_page(&mut self, page: &Page, tx: &mut rune::Tx) {
+        let shown = Instant::now();
+        self.merge_page(page, tx);
+        crate::telemetry::page(&page.key.id, page.history, &page.read, (shown, Instant::now()));
+    }
+
+    fn merge_page(&mut self, page: &Page, tx: &mut rune::Tx) {
         if let Some(o) = &mut self.opening && o.id == page.key.id && !page.history { o.received = true; }
         self.attach.adopt(&page.images);
         let id = &page.key.id;
@@ -581,7 +619,7 @@ mod tests {
     fn cached_page_and_history_do_not_rewind_live_messages() {
         let mut app = App::empty();
         app.route = Route::Session("ses_a".into());
-        let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, images: vec![], bytes: 0 };
+        let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, images: vec![], bytes: 0, read: Default::default() };
         app.show_page(&p, &mut Tx::default());
         p.messages = model::parse_messages(&page("old"));
         p.cached = true;
@@ -646,7 +684,7 @@ mod tests {
             assert_eq!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Loading messages…")), loading, "at {at}");
             assert!(!rt.elements().iter().any(|e| e.path.contains("/usage/") && e.text.as_deref() == Some("0")));
         }
-        let result = |id: &str| Arc::new(Page { key:key(id), messages:model::parse_messages(&page("All ready")), cursor:None, cached:false, history:false, images:vec![], bytes:0 });
+        let result = |id: &str| Arc::new(Page { key:key(id), messages:model::parse_messages(&page("All ready")), cursor:None, cached:false, history:false, images:vec![], bytes:0, read:Default::default() });
         send.send(Ok(result("ses_slow"))).unwrap();
         rt.update(|s, tx| { s.poll_pages(tx); });
         rt.frame(1.0/60.0);
@@ -724,7 +762,7 @@ mod tests {
             if frame == 10 {
                 let history = Page { key: key("ses_target"), messages: (0..24).map(|i| Message::User {
                     id:format!("old_{i}"), text:format!("Earlier discussion {i}. {}", "A long note about the prior revision. ".repeat(12)),
-                }).collect(), cursor:None, cached:false, history:true, images:vec![], bytes:0 };
+                }).collect(), cursor:None, cached:false, history:true, images:vec![], bytes:0, read:Default::default() };
                 rt.update(|s, tx| s.show_page(&history, tx));
             }
             if frame == 6 { for image in rt.state.attach.image_handles() { image.wait().unwrap(); } }
