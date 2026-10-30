@@ -244,11 +244,14 @@ fn a_failed_search_says_so() {
     let mut a = app();
     a.open_switcher();
     query(&mut a, "zzz");
-    a.switcher.loading = Some("zzz".into());
-    let _ = a.switcher.found_tx.send(Found { query: "zzz".into(), sessions: vec![], failed: true });
     a.switcher.searched = "zzz".into();
+    a.switcher.fetch = rune::Latest::default();
+    a.switcher.fetch.request((), |()| Found { query: "zzz".into(), sessions: vec![], failed: true });
+    while a.switcher.fetch.is_pending() {
+        std::thread::yield_now();
+    }
     assert!(a.poll_switcher(&mut Tx::default()));
     assert_eq!(a.switcher.failed.as_deref(), Some("zzz"));
-    assert_eq!(a.switcher.loading, None);
+    assert!(!a.switcher.fetch.is_pending());
 }
 

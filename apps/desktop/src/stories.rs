@@ -314,7 +314,10 @@ fn fresh(real: &App) -> App {
     w.waker = real.waker.clone();
     if let Some(waker) = w.waker.clone() {
         w.attach.set_waker(waker.clone());
-        w.icons.set_waker(waker);
+        w.icons.set_waker(waker.clone());
+        w.mentions.set_waker(waker.clone());
+        w.switcher.set_waker(waker.clone());
+        w.add.slash.set_waker(waker);
     }
     open_scene(&mut w);
     w

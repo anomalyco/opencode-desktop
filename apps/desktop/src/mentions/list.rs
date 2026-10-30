@@ -1,15 +1,10 @@
 //! What the popovers and palettes share: the list popover, the highlight that follows a query,
-//! arrow-key stepping, debounced server fetches, and the server's `{ data: [..] }` lists.
+//! arrow-key stepping, and the server's `{ data: [..] }` lists.
 
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
-use std::time::Duration;
 
-use opencode_kit::client::Server;
 use opencode_kit::model::SessionInfo;
-use rune::{Color, El, KeyEvent, Tx, Waker, col, row, text};
+use rune::{Color, El, KeyEvent, Tx, col, row, text};
 use serde_json::Value;
 
 use crate::App;
@@ -33,53 +28,6 @@ pub fn upsert_sessions(into: &mut Vec<SessionInfo>, incoming: Vec<SessionInfo>) 
         match into.iter_mut().find(|x| x.id == s.id) {
             Some(old) => *old = s,
             None => into.push(s),
-        }
-    }
-}
-
-/// Runs `work` off the UI thread; an answer is sent to `out` and wakes the UI.
-pub fn spawn_fetch<T: Send + 'static>(
-    server: &Server,
-    wake: &Option<Waker>,
-    out: &Sender<T>,
-    work: impl FnOnce(&Server) -> Option<T> + Send + 'static,
-) {
-    let (server, wake, out) = (server.clone(), wake.clone(), out.clone());
-    std::thread::spawn(move || {
-        if let Some(v) = work(&server)
-            && out.send(v).is_ok()
-            && let Some(w) = wake
-        {
-            w();
-        }
-    });
-}
-
-/// Counts asks so a fetch that waited out a newer one (or a close) can drop itself.
-#[derive(Default)]
-pub struct Debounce(Arc<AtomicU64>);
-
-impl Debounce {
-    pub fn cancel(&self) {
-        self.0.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// `work` for a thread: it waits `wait`, then runs unless a later ask came in, and is
-    /// handed a check for that to repeat once it has its answer.
-    pub fn after<T: Send + 'static>(
-        &self,
-        wait: Duration,
-        work: impl FnOnce(&Server, &dyn Fn() -> bool) -> Option<T> + Send + 'static,
-    ) -> impl FnOnce(&Server) -> Option<T> + Send + 'static {
-        let generation = self.0.fetch_add(1, Ordering::Relaxed) + 1;
-        let current = self.0.clone();
-        move |server| {
-            std::thread::sleep(wait);
-            let live = || current.load(Ordering::Relaxed) == generation;
-            if !live() {
-                return None;
-            }
-            work(server, &live)
         }
     }
 }

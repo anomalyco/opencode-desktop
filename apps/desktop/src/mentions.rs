@@ -4,10 +4,9 @@
 //! an atomic pill in the text, and sending turns the pills into the prompt's `agents`, `skills`
 //! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`).
 
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use rune::{Cx, El, Icon, Key, KeyEvent, Tx, Waker, icon};
+use rune::{Cx, El, Icon, Key, KeyEvent, Latest, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -17,7 +16,7 @@ use opencode_kit::model::{self, SessionInfo};
 use crate::palette::Pal;
 use crate::view::title_of;
 use crate::{App, Route, Source};
-use list::{Debounce, Highlight, Row, Spec, data_list, nav_step, popup, spawn_fetch, step_key, upsert_sessions};
+use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key, upsert_sessions};
 
 pub mod badge;
 pub mod list;
@@ -67,13 +66,7 @@ pub struct Skill {
     pub description: String,
 }
 
-enum Fetched {
-    /// A directory's subagents (name, description) and skills.
-    Catalog { directory: String, agents: Vec<(String, String)>, skills: Vec<Skill> },
-    Sessions(Vec<SessionInfo>),
-    /// `/api/fs/find`'s paths (relative to the directory, directories end in `/`) for a query.
-    Files { query: String, paths: Vec<String> },
-}
+type Catalog = (String, Vec<(String, String)>, Vec<Skill>);
 
 pub struct Mentions {
     /// The popover is open; its query is the text between the `@` and the caret.
@@ -87,23 +80,21 @@ pub struct Mentions {
     pub skills: Vec<Skill>,
     /// The directory `agents` and `skills` belong to, once asked for.
     catalog: Option<String>,
+    catalog_fetch: Latest<Catalog>,
     /// Sessions the server found for a query's first word.
     found: Vec<SessionInfo>,
     searched: Option<String>,
-    sessions_debounce: Debounce,
+    sessions_fetch: Latest<Option<Vec<SessionInfo>>>,
     /// The last file search's query and paths, and the query asked for since.
     files: (String, Vec<String>),
     files_asked: Option<String>,
-    files_debounce: Debounce,
+    files_fetch: Latest<(String, Vec<String>)>,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
-    fetched_tx: Sender<Fetched>,
-    fetched: Receiver<Fetched>,
 }
 
 impl Default for Mentions {
     fn default() -> Self {
-        let (fetched_tx, fetched) = channel();
         Mentions {
             open: false,
             seen: (String::new(), 0),
@@ -111,20 +102,25 @@ impl Default for Mentions {
             agents: Vec::new(),
             skills: Vec::new(),
             catalog: None,
+            catalog_fetch: Latest::default(),
             found: Vec::new(),
             searched: None,
-            sessions_debounce: Debounce::default(),
+            sessions_fetch: Latest::default().debounce(SESSION_DEBOUNCE),
             files: (String::new(), Vec::new()),
             files_asked: None,
-            files_debounce: Debounce::default(),
+            files_fetch: Latest::default().debounce(FILE_DEBOUNCE),
             file_index: Vec::new(),
-            fetched_tx,
-            fetched,
         }
     }
 }
 
 impl Mentions {
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.catalog_fetch = Latest::new(waker.clone());
+        self.files_fetch = Latest::new(waker.clone()).debounce(FILE_DEBOUNCE);
+        self.sessions_fetch = Latest::new(waker).debounce(SESSION_DEBOUNCE);
+    }
+
     /// A session the `@` search found.
     pub fn found_session(&self, id: &str) -> Option<&SessionInfo> {
         self.found.iter().find(|s| s.id == id)
@@ -136,91 +132,90 @@ impl Mentions {
         self.skills = skills(&fixture["skills"]);
         self.file_index = found_paths(&fixture["files"]);
     }
-}
 
-/// Where a fetch thread asks and where its answer goes.
-struct Fetch {
-    server: Server,
-    wake: Option<Waker>,
-    out: Sender<Fetched>,
-}
-
-impl Fetch {
-    fn spawn(&self, work: impl FnOnce(&Server) -> Option<Fetched> + Send + 'static) {
-        spawn_fetch(&self.server, &self.wake, &self.out, work);
-    }
-}
-
-impl Mentions {
-    /// Takes in what the fetch threads sent; whether any did.
+    /// Takes in what the fetch workers returned; whether any changed state.
     fn drain(&mut self) -> bool {
         let mut changed = false;
-        while let Ok(f) = self.fetched.try_recv() {
-            match f {
-                Fetched::Catalog { directory, agents, skills } => {
-                    if self.catalog.as_deref() == Some(directory.as_str()) {
-                        self.agents = agents;
-                        self.skills = skills;
-                    }
-                }
-                Fetched::Files { query, paths } => {
-                    if self.files_asked.as_deref() == Some(query.as_str()) {
-                        self.files = (query, paths);
-                    }
-                }
-                Fetched::Sessions(list) => upsert_sessions(&mut self.found, list),
-            }
+        if let Some((directory, agents, skills)) = self.catalog_fetch.take()
+            && self.catalog.as_deref() == Some(directory.as_str())
+        {
+            self.agents = agents;
+            self.skills = skills;
+            changed = true;
+        }
+        if let Some((query, paths)) = self.files_fetch.take()
+            && self.files_asked.as_deref() == Some(query.as_str())
+        {
+            self.files = (query, paths);
+            changed = true;
+        }
+        if let Some(Some(list)) = self.sessions_fetch.take() {
+            upsert_sessions(&mut self.found, list);
             changed = true;
         }
         changed
     }
 
     /// The directory's subagents and skills, once.
-    fn ask_catalog(&mut self, fetch: &Fetch, directory: String) {
+    fn ask_catalog(&mut self, server: &Server, directory: String) {
         if self.catalog.as_deref() == Some(directory.as_str()) {
             return;
         }
         self.catalog = Some(directory.clone());
         self.files = (String::new(), Vec::new());
         self.files_asked = None;
-        fetch.spawn(move |server| {
+        self.files_fetch.cancel();
+        let server = server.clone();
+        self.catalog_fetch.request(directory, move |directory| {
             let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
             let agents = server.get(&format!("/api/agent?{at}")).map(|v| subagents(&v)).unwrap_or_default();
             let skills = server.get(&format!("/api/skill?{at}")).map(|v| skills(&v)).unwrap_or_default();
-            Some(Fetched::Catalog { directory, agents, skills })
+            (directory, agents, skills)
         });
     }
 
     /// Files for a one-word query, after a pause for more typing.
-    fn ask_files(&mut self, fetch: &Fetch, directory: String, query: &str) {
-        if query.trim().is_empty() || query.contains(char::is_whitespace) || self.files_asked.as_deref() == Some(query) {
+    fn ask_files(&mut self, server: &Server, directory: String, query: &str) {
+        if query.trim().is_empty() || query.contains(char::is_whitespace) {
+            if self.files_asked.take().is_some() {
+                self.files_fetch.cancel();
+            }
+            return;
+        }
+        if self.files_asked.as_deref() == Some(query) {
             return;
         }
         self.files_asked = Some(query.to_owned());
-        let query = query.to_owned();
-        fetch.spawn(self.files_debounce.after(FILE_DEBOUNCE, move |server, live| {
+        let server = server.clone();
+        self.files_fetch.request((directory, query.to_owned()), move |(directory, query)| {
             let path = format!(
                 "/api/fs/find?location%5Bdirectory%5D={}&query={}",
                 crate::switcher::encode(&directory),
                 crate::switcher::encode(&query)
             );
             let paths = server.get(&path).map(|v| found_paths(&v)).unwrap_or_default();
-            live().then_some(Fetched::Files { query, paths })
-        }));
+            (query, paths)
+        });
     }
 
     /// Sessions matching the query's first word, after a pause for more typing.
-    fn ask_sessions(&mut self, fetch: &Fetch, query: &str) {
+    fn ask_sessions(&mut self, server: &Server, query: &str) {
         let word = query.split(' ').next().unwrap_or("");
-        if word.is_empty() || self.searched.as_deref() == Some(word) {
+        if word.is_empty() {
+            if self.searched.take().is_some() {
+                self.sessions_fetch.cancel();
+            }
+            return;
+        }
+        if self.searched.as_deref() == Some(word) {
             return;
         }
         self.searched = Some(word.to_owned());
-        let word = word.to_owned();
-        fetch.spawn(self.sessions_debounce.after(SESSION_DEBOUNCE, move |server, _| {
+        let server = server.clone();
+        self.sessions_fetch.request(word.to_owned(), move |word| {
             let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
-            server.get(&path).ok().map(|v| Fetched::Sessions(model::parse_sessions(&v)))
-        }));
+            server.get(&path).ok().map(|v| model::parse_sessions(&v))
+        });
     }
 }
 
@@ -520,13 +515,17 @@ impl App {
         changed |= was != self.mentions.open;
         let Some(query) = self.mention_query() else {
             self.mentions.searched = None;
+            self.mentions.files_asked = None;
+            self.mentions.sessions_fetch.cancel();
+            self.mentions.files_fetch.cancel();
             return changed;
         };
         let Source::Live { server, .. } = &self.source else { return changed };
-        let fetch = Fetch { server: server.clone(), wake: self.waker.clone(), out: self.mentions.fetched_tx.clone() };
-        self.mentions.ask_catalog(&fetch, self.composer_directory());
-        self.mentions.ask_files(&fetch, self.composer_directory(), &query);
-        self.mentions.ask_sessions(&fetch, &query);
+        let server = server.clone();
+        let directory = self.composer_directory();
+        self.mentions.ask_catalog(&server, directory.clone());
+        self.mentions.ask_files(&server, directory, &query);
+        self.mentions.ask_sessions(&server, &query);
         changed
     }
 

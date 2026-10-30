@@ -647,6 +647,9 @@ fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
+    s.mentions.set_waker(waker.clone());
+    s.switcher.set_waker(waker.clone());
+    s.add.slash.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker);
     if !s.playback.is_empty() {

@@ -8,15 +8,14 @@
 //! the newest) ahead of commands.
 
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, TextEdit, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, Latest, ScrollSpec, Span, TextEdit, Transition, Tx, Waker, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::{self, SessionInfo};
 
-use crate::mentions::list::{Debounce, Highlight, cycle, spawn_fetch, upsert_sessions};
+use crate::mentions::list::{Highlight, cycle, upsert_sessions};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, title_of};
 use crate::{App, Source};
@@ -80,18 +79,14 @@ pub struct Switcher {
     restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes.
     pub(crate) loaded: Vec<SessionInfo>,
-    /// The query last sent to the server, the one still in flight and the one that failed.
+    /// The query last sent to the server and the one that failed.
     searched: String,
-    loading: Option<String>,
     failed: Option<String>,
-    debounce: Debounce,
-    found_tx: Sender<Found>,
-    found: Receiver<Found>,
+    fetch: Latest<Found>,
 }
 
 impl Default for Switcher {
     fn default() -> Self {
-        let (found_tx, found) = channel();
         Switcher {
             open: false,
             search: TextEdit::new(""),
@@ -99,16 +94,17 @@ impl Default for Switcher {
             restore_composer: false,
             loaded: Vec::new(),
             searched: String::new(),
-            loading: None,
             failed: None,
-            debounce: Debounce::default(),
-            found_tx,
-            found,
+            fetch: Latest::default().debounce(Duration::from_millis(100)),
         }
     }
 }
 
 impl Switcher {
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.fetch = Latest::new(waker).debounce(Duration::from_millis(100));
+    }
+
     pub fn activate(&mut self, key: String) {
         self.active.set(key, self.search.text.clone());
     }
@@ -273,7 +269,7 @@ impl App {
         self.switcher.active.clear();
         self.switcher.loaded.clear();
         self.switcher.searched.clear();
-        self.switcher.loading = None;
+        self.switcher.fetch.cancel();
         self.switcher.failed = None;
     }
 
@@ -285,8 +281,7 @@ impl App {
         self.switcher.open = false;
         self.switcher.search.focused = false;
         self.switcher.search.preedit = None;
-        self.switcher.debounce.cancel();
-        self.switcher.loading = None;
+        self.switcher.fetch.cancel();
         self.composer.focused = restore && self.switcher.restore_composer;
     }
 
@@ -368,10 +363,9 @@ impl App {
     /// Takes in server results, and sends a changed query to the server.
     pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
         let mut changed = false;
-        for f in self.switcher.found.try_iter() {
+        if let Some(f) = self.switcher.fetch.take() {
             upsert_sessions(&mut self.switcher.loaded, f.sessions);
-            if self.switcher.loading.as_deref() == Some(f.query.as_str()) {
-                self.switcher.loading = None;
+            if self.switcher.searched == f.query {
                 self.switcher.failed = f.failed.then_some(f.query);
             }
             changed = true;
@@ -394,15 +388,14 @@ impl App {
         self.switcher.searched = q.clone();
         self.switcher.failed = None;
         tx.scroll_to_y("switcher-scroll", 0.0);
-        self.switcher.debounce.cancel();
-        self.switcher.loading = None;
+        self.switcher.fetch.cancel();
         let Source::Live { server, .. } = &self.source else { return true };
         if q.is_empty() {
             return true;
         }
-        self.switcher.loading = Some(q.clone());
         // Typed searches wait for a pause, and a newer keystroke cancels this one.
-        let search = self.switcher.debounce.after(Duration::from_millis(100), move |server, _| {
+        let server = server.clone();
+        self.switcher.fetch.request(q, move |q| {
             let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", encode(&q));
             let listed = server.get(&path);
             // `looksLikeSessionID`: a pasted id finds its session even when no title matches.
@@ -415,9 +408,8 @@ impl App {
             if let Ok(v) = &listed {
                 sessions.extend(model::parse_sessions(v));
             }
-            Some(Found { query: q, sessions, failed })
+            Found { query: q, sessions, failed }
         });
-        spawn_fetch(server, &self.waker, &self.switcher.found_tx, search);
         true
     }
 }
@@ -544,7 +536,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         i = end;
     }
     if entries.is_empty() {
-        let state = if s.switcher.loading.as_deref() == Some(q) {
+        let state = if s.switcher.fetch.is_pending() {
             "Loading"
         } else if s.switcher.failed.as_deref() == Some(q) {
             "Request failed"

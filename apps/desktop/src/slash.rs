@@ -1,13 +1,11 @@
 //! The `/` command popover over the composer, as in Desktop (`suggestions/machine.ts`): the
 //! server's commands for the composer's directory, filtered by the draft's first word.
 
-use std::sync::mpsc::{Receiver, Sender, channel};
-
-use rune::{Cx, El, Key, KeyEvent, Tx};
+use rune::{Cx, El, Key, KeyEvent, Latest, Tx, Waker};
 use serde_json::Value;
 
 use crate::palette::Pal;
-use crate::mentions::list::{Highlight, Row, Spec, data_list, nav_step, popup, spawn_fetch, step_key};
+use crate::mentions::list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key};
 use crate::{App, Source};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +14,7 @@ pub struct Command {
     pub description: String,
 }
 
+#[derive(Default)]
 pub struct Slash {
     /// `/api/command` for `dir`.
     pub commands: Vec<Command>,
@@ -26,14 +25,12 @@ pub struct Slash {
     pub(crate) closed: Option<String>,
     /// Whether the popover showed after the last edit.
     shown: bool,
-    fetched_tx: Sender<(String, Vec<Command>)>,
-    fetched: Receiver<(String, Vec<Command>)>,
+    fetch: Latest<(String, Vec<Command>)>,
 }
 
-impl Default for Slash {
-    fn default() -> Self {
-        let (fetched_tx, fetched) = channel();
-        Slash { commands: Vec::new(), dir: None, active: Highlight::default(), closed: None, shown: false, fetched_tx, fetched }
+impl Slash {
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.fetch = Latest::new(waker);
     }
 }
 
@@ -134,11 +131,11 @@ impl App {
     /// Takes in fetched commands, and asks for the composer directory's when a `/` needs them.
     pub fn poll_commands(&mut self) -> bool {
         let mut changed = false;
-        for (directory, list) in self.add.slash.fetched.try_iter() {
-            if self.add.slash.dir.as_deref() == Some(directory.as_str()) {
-                self.add.slash.commands = list;
-                changed = true;
-            }
+        if let Some((directory, list)) = self.add.slash.fetch.take()
+            && self.add.slash.dir.as_deref() == Some(directory.as_str())
+        {
+            self.add.slash.commands = list;
+            changed = true;
         }
         if self.slash_query().is_none() {
             return changed;
@@ -149,9 +146,11 @@ impl App {
             return changed;
         }
         self.add.slash.dir = Some(directory.clone());
-        spawn_fetch(server, &self.waker, &self.add.slash.fetched_tx, move |server| {
+        let server = server.clone();
+        self.add.slash.fetch.request(directory, move |directory| {
             let path = format!("/api/command?location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-            Some((directory, server.get(&path).map(|v| commands(&v)).unwrap_or_default()))
+            let list = server.get(&path).map(|v| commands(&v)).unwrap_or_default();
+            (directory, list)
         });
         changed
     }
