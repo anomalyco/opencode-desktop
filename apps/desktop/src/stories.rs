@@ -187,6 +187,7 @@ const ORDER: &[&str] = &[
     "Navigation/Back and forward",
     "Side panel/Side region",
     "Browser/Pane",
+    "Terminal/Pane",
     "Projects/Open project",
     "Projects/Project switcher",
 ];

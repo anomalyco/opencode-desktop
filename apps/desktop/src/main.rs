@@ -105,6 +105,7 @@ mod subagents;
 mod switcher;
 mod tab_actions;
 mod tabs;
+mod terminal;
 mod tool_group_stories;
 mod turns;
 mod view;
@@ -252,6 +253,7 @@ pub struct App {
     pub side: panels::SideState,
     pub browser: browser::BrowserPane,
     pub review: review::ReviewPane,
+    pub terminal: terminal::TerminalPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
@@ -686,6 +688,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.poll_panels(tx);
+    changed |= s.poll_terminal(tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {
@@ -720,6 +723,10 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
             include_bytes!("../assets/fonts/InterVariable.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),
             include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf"),
+            include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
+            include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
+            include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
+            include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
         ],
         families: ("Inter", "IBM Plex Mono"),
         setup: Some(setup),
