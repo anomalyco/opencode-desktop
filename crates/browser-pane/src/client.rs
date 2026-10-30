@@ -9,18 +9,16 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use rune::native_surface::{ByteFrame, ColorInfo, Format};
-use rune::{
-    Drag, El, Ime, Key, KeyEvent, NativeSurface, Phase, PointerButton, PointerEvent, SurfaceFit,
-    Waker, WheelEvent, el,
-};
+use rune::{Ime, Key, KeyEvent, NativeSurface, Waker};
 use serde_json::Value;
 
 use crate::address::resolve_address;
 use crate::installer::{self, EngineStatus};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
+use crate::site_zoom::{SiteZoom, site_of};
 use crate::protocol::{
-    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot, pack_mods,
+    CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot, pack_mods,
 };
 use crate::transport::{is_shell_shortcut, named_key_str, spawn_and_attach_bg, wire_stream};
 
@@ -38,13 +36,13 @@ pub struct BrowserTab {
     pub cursor: CursorKind,
     pub inspecting: bool,
     pub surface: NativeSurface,
-    viewport_pt: (f32, f32),
-    scale: f32,
-    sent_resize: Option<(f32, f32, f32)>,
+    pub(crate) viewport_pt: (f32, f32),
+    pub(crate) scale: f32,
+    pub(crate) sent_resize: Option<(f32, f32, f32)>,
 }
 
 pub struct BrowserHost {
-    tabs: Vec<BrowserTab>,
+    pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
     surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
     status: Arc<Mutex<EngineStatus>>,
@@ -60,6 +58,7 @@ pub struct BrowserHost {
     pending_opens: Vec<(u64, String)>,
     cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
+    site_zoom: SiteZoom,
     #[cfg(target_os = "macos")]
     mach: Option<MachReceiver>,
 }
@@ -95,9 +94,15 @@ impl BrowserHost {
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
             picked: VecDeque::new(),
+            site_zoom: SiteZoom::default(),
             #[cfg(target_os = "macos")]
             mach: None,
         }
+    }
+
+    /// Remembers each site's page zoom in `file` (JSON) and opens its pages at it again.
+    pub fn remember_site_zoom(&mut self, file: PathBuf) {
+        self.site_zoom = SiteZoom::load(file);
     }
 
     pub fn set_shell_shortcut(&mut self, check: fn(&KeyEvent) -> bool) {
@@ -283,6 +288,7 @@ impl BrowserHost {
             } else {
                 ((t.zoom * 100.0).round() as i32 + dir.signum() * 10).clamp(25, 500) as f64 / 100.0
             };
+            self.site_zoom.set(&t.url, t.zoom);
             t.zoom
         } else {
             return;
@@ -488,138 +494,12 @@ impl BrowserHost {
 
     /// Builds a focusable Rune `El` displaying `tab_id`'s zero-copy `NativeSurface` and forwarding
     /// layout resizes, pointer clicks/drags/wheel, cursor shapes, and non-shell keys.
-    pub fn surface_el<S: 'static>(
-        &self,
-        key: impl Into<String>,
-        tab_id: u64,
-        scale: f32,
-        access: fn(&mut S) -> &mut BrowserHost,
-    ) -> El {
-        let Some(tab) = self.tab(tab_id) else {
-            return el().key(key.into());
-        };
-        el().key(key.into())
-            .grow(1.0)
-            .min_w(0.0)
-            .min_h(0.0)
-            .w_full()
-            .focusable(true)
-            .cursor(tab.cursor.to_rune())
-            .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward])
-            .native_surface(&tab.surface, SurfaceFit::Fill)
-            .on_layout(move |s: &mut S, [_x, _y, w, h]| {
-                let width_pt = w.max(1.0);
-                let height_pt = h.max(1.0);
-                let sc = scale.max(1.0);
-                let host = access(s);
-                let connected = host.is_connected();
-                let mut should_send = false;
-                if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    t.viewport_pt = (width_pt, height_pt);
-                    t.scale = sc;
-                    let changed = t.sent_resize.is_none_or(|(pw, ph, ps)| {
-                        (pw - width_pt).abs() > 0.5
-                            || (ph - height_pt).abs() > 0.5
-                            || (ps - sc).abs() > 0.01
-                    });
-                    if connected && changed {
-                        t.sent_resize = Some((width_pt, height_pt, sc));
-                        should_send = true;
-                    }
-                }
-                if should_send {
-                    host.send(HostMsg::Resize { tab_id, width_pt, height_pt, scale: sc });
-                }
-            })
-            .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {
-                access(s).send(HostMsg::MouseMove {
-                    tab_id,
-                    x: p.x,
-                    y: p.y,
-                    mods: pack_mods(tx.mods()),
-                    leave: false,
-                });
-                tx.live_only();
-            })
-            .on_hover_change(move |s: &mut S, inside: bool, tx| {
-                if !inside {
-                    access(s).send(HostMsg::MouseMove {
-                        tab_id,
-                        x: -1.0,
-                        y: -1.0,
-                        mods: pack_mods(tx.mods()),
-                        leave: true,
-                    });
-                }
-            })
-            .on_drag(move |s: &mut S, d: &mut Drag, tx| {
-                let mods = pack_mods(tx.mods());
-                let btn = PointerBtn::from(tx.button());
-                let host = access(s);
-                match d.phase {
-                    Phase::Down => host.send(HostMsg::MouseButton {
-                        tab_id,
-                        x: d.x,
-                        y: d.y,
-                        button: btn,
-                        up: false,
-                        clicks: d.clicks.clamp(1, 3),
-                        mods,
-                    }),
-                    Phase::Move => host.send(HostMsg::MouseMove {
-                        tab_id,
-                        x: d.x,
-                        y: d.y,
-                        mods,
-                        leave: false,
-                    }),
-                    Phase::Up => host.send(HostMsg::MouseButton {
-                        tab_id,
-                        x: d.x,
-                        y: d.y,
-                        button: btn,
-                        up: true,
-                        clicks: d.clicks.clamp(1, 3),
-                        mods,
-                    }),
-                }
-            })
-            .on_secondary_press_local(move |s: &mut S, p: PointerEvent, tx| {
-                let mods = pack_mods(tx.mods());
-                let host = access(s);
-                for up in [false, true] {
-                    host.send(HostMsg::MouseButton {
-                        tab_id,
-                        x: p.x,
-                        y: p.y,
-                        button: PointerBtn::Secondary,
-                        up,
-                        clicks: 1,
-                        mods,
-                    });
-                }
-            })
-            .on_wheel(move |s: &mut S, w: WheelEvent, _tx| {
-                access(s).send(HostMsg::Wheel {
-                    tab_id,
-                    x: w.x,
-                    y: w.y,
-                    dx: w.dx,
-                    dy: w.dy,
-                    mods: pack_mods(w.mods),
-                });
-                true
-            })
-            .on_key(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, true))
-            .on_key_up(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, false))
-    }
-
     pub fn shutdown_sidecar(&mut self) {
         self.send(HostMsg::Shutdown);
         *self.outbox.lock().unwrap() = None;
     }
 
-    fn forward_key(&self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
+    pub(crate) fn forward_key(&self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;
         }
@@ -665,19 +545,21 @@ impl BrowserHost {
         id
     }
 
-    fn is_connected(&self) -> bool {
+    pub(crate) fn is_connected(&self) -> bool {
         self.outbox.lock().unwrap().is_some()
     }
 
-    fn send(&self, msg: HostMsg) {
+    pub(crate) fn send(&self, msg: HostMsg) {
         if let Some(tx) = self.outbox.lock().unwrap().as_ref() {
             let _ = tx.send(msg);
         }
     }
 
-    fn upsert_tab(&mut self, snap: TabSnapshot) -> bool {
+    pub(crate) fn upsert_tab(&mut self, snap: TabSnapshot) -> bool {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
+        let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
             let changed = t.url != snap.url
                 || t.title != snap.title
                 || t.loading != snap.loading
@@ -692,6 +574,12 @@ impl BrowserHost {
             t.can_go_forward = snap.can_go_forward;
             t.zoom = snap.zoom;
             t.cursor = snap.cursor;
+            if new_site {
+                let changed = changed || (t.zoom - want_zoom).abs() > 0.001;
+                t.zoom = want_zoom;
+                self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
+                return changed;
+            }
             return changed;
         }
         let surface = NativeSurface::new();
@@ -699,6 +587,10 @@ impl BrowserHost {
             surface.set_waker(w.clone());
         }
         self.surfaces.lock().unwrap().insert(snap.tab_id, surface.clone());
+        let is_site = site_of(&snap.url).is_some();
+        if is_site && (snap.zoom - want_zoom).abs() > 0.001 {
+            self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
+        }
         self.tabs.push(BrowserTab {
             id: snap.tab_id,
             url: snap.url,
@@ -706,7 +598,7 @@ impl BrowserHost {
             loading: snap.loading,
             can_go_back: snap.can_go_back,
             can_go_forward: snap.can_go_forward,
-            zoom: snap.zoom,
+            zoom: if is_site { want_zoom } else { snap.zoom },
             cursor: snap.cursor,
             inspecting: false,
             surface,

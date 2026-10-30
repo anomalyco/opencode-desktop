@@ -210,6 +210,11 @@ impl App {
     pub fn setup_browser(&mut self, waker: Waker) {
         self.browser.host.set_waker(waker.clone());
         self.browser.host.set_shell_shortcut(claims_app_shortcut);
+        if self.persists()
+            && let Some(dir) = crate::restore::data_dir()
+        {
+            self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
+        }
         if self.live() && !crate::headless() && !cfg!(test) {
             self.browser.api = agent_api::AgentServer::start(waker);
         }

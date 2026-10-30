@@ -7,6 +7,8 @@
 
 pub mod address;
 mod client;
+mod site_zoom;
+mod surface;
 pub mod installer;
 #[cfg(target_os = "macos")]
 pub mod mach_pipe;

@@ -324,7 +324,8 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
                     .child(s.browser.host.surface_el(
                         "browser-surface",
                         tab.id,
-                        env_scale * s.zoom,
+                        env_scale,
+                        s.zoom,
                         |app: &mut App| &mut app.browser.host,
                     ))
             } else {

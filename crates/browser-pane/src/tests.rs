@@ -392,3 +392,55 @@ fn valid_archive_verifies_sha256_reports_progress_and_swaps_atomically() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+
+fn snapshot(tab_id: u64, url: &str, zoom: f64) -> TabSnapshot {
+    TabSnapshot {
+        tab_id,
+        url: url.into(),
+        title: String::new(),
+        loading: false,
+        can_go_back: false,
+        can_go_forward: false,
+        zoom,
+        cursor: CursorKind::Pointer,
+    }
+}
+
+#[test]
+fn site_of_is_host_and_port() {
+    use crate::site_zoom::site_of;
+    assert_eq!(site_of("https://GitHub.com/anomalyco?tab=1").as_deref(), Some("github.com"));
+    assert_eq!(site_of("http://localhost:3000/a#b").as_deref(), Some("localhost:3000"));
+    assert_eq!(site_of("http://user@example.com/").as_deref(), Some("example.com"));
+    assert_eq!(site_of("about:blank"), None);
+    assert_eq!(site_of(""), None);
+}
+
+#[test]
+fn page_zoom_is_remembered_per_site() {
+    let dir = std::env::temp_dir().join(format!("browser-pane-zoom-{}", std::process::id()));
+    let file = dir.join("zoom.json");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let mut host = BrowserHost::new();
+    host.remember_site_zoom(file.clone());
+    host.upsert_tab(snapshot(1, "https://example.com/a", 1.0));
+    host.step_zoom(1, 1);
+    host.step_zoom(1, 1);
+    assert_eq!(host.tab(1).unwrap().zoom, 1.2);
+
+    // Another page on the site opens at its zoom; another site starts at 100%.
+    host.upsert_tab(snapshot(2, "https://example.com/b", 1.0));
+    assert_eq!(host.tab(2).unwrap().zoom, 1.2);
+    host.upsert_tab(snapshot(1, "https://other.dev/", 1.2));
+    assert_eq!(host.tab(1).unwrap().zoom, 1.0);
+
+    // It survives a relaunch, and resetting to 100% forgets the site.
+    let mut again = BrowserHost::new();
+    again.remember_site_zoom(file.clone());
+    again.upsert_tab(snapshot(7, "https://example.com/", 1.0));
+    assert_eq!(again.tab(7).unwrap().zoom, 1.2);
+    again.step_zoom(7, 0);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "{}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
