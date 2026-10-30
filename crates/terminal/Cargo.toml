@@ -1,0 +1,23 @@
+[package]
+name = "terminal"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+libc = "0.2"
+opencode-kit = { path = "../opencode-kit" }
+parking_lot = "0.12"
+rune.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+
+[build-dependencies]
+libc = "0.2"
+sha2 = "0.10"
+ureq = { workspace = true, features = ["rustls"] }
+
+[dev-dependencies]
+sha2 = "0.10"

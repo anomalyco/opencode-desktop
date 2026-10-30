@@ -97,7 +97,7 @@ pub enum Write {
 pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
 
 /// `encodeURIComponent`, for a query value.
-fn encode_component(s: &str) -> String {
+pub(crate) fn encode_component(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
@@ -154,7 +154,7 @@ fn list(v: &Value) -> Vec<Value> {
 #[derive(Clone)]
 pub struct Server {
     pub base: String,
-    auth: Option<String>,
+    pub(crate) auth: Option<String>,
     media_refs: bool,
 }
 
@@ -232,7 +232,7 @@ impl Server {
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     }
 
-    fn agent(timeout: Option<Duration>) -> ureq::Agent {
+    pub(crate) fn agent(timeout: Option<Duration>) -> ureq::Agent {
         ureq::Agent::config_builder().timeout_global(timeout).http_status_as_error(true).build().into()
     }
 
@@ -285,6 +285,13 @@ impl Server {
             }
             "PATCH" => {
                 let mut req = agent.patch(url).header("Content-Type", "application/json");
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
+                }
+                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+            }
+            "PUT" => {
+                let mut req = agent.put(url).header("Content-Type", "application/json");
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }

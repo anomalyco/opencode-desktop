@@ -7,4 +7,5 @@ pub mod model;
 pub mod pairing;
 pub mod project;
 pub mod prompt;
+pub mod pty;
 pub mod quote;
