@@ -8,8 +8,10 @@ use std::collections::HashMap;
 
 use opencode_kit::client::{Request, Write};
 use opencode_kit::model::Message;
+use rune::{El, Spring, SpringPair, Transition};
 use serde_json::json;
 
+use crate::palette::Pal;
 use crate::{App, Route, Source};
 
 /// How long the server has to confirm a stop before the run shows again.
@@ -114,10 +116,33 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     s.stopping_family(&id)
 }
 
-/// A press of Stop: everything it changes lands in this frame, colours too.
-pub fn press(s: &mut App, tx: &mut rune::Tx) {
-    tx.instant();
+/// A press of Stop: everything it changes starts in this frame. Stop's square shrinks into
+/// Send's arrow, Working goes, and Interrupted rises into its place ([`interrupted`]).
+pub fn press(s: &mut App, _tx: &mut rune::Tx) {
     s.stop();
+}
+
+/// The two glyphs of the submit button changing places: the leaving one shrinks away as the
+/// arriving one grows in, quickly and without bounce.
+pub fn glyph_swap() -> Transition {
+    Transition::scale(0.5).allow_small_scale().springs(SpringPair::new(Spring::new(0.2, 0.0), Spring::new(0.14, 0.0)))
+}
+
+/// A stopped turn's tail: Desktop's quiet Interrupted beside Copy, as its reply footer says
+/// it. It rises out of Working's place as Working goes, so the stop reads as the run settling.
+pub fn interrupted(p: &Pal, beside_copy: bool) -> El {
+    use crate::working::{H, LANE, LANE_PAD};
+    // Copy's glyph is the top 16 of its 28.
+    let (y, h) = (LANE - 28.0, 16.0);
+    let rise = LANE_PAD + H / 2.0 - (y + h / 2.0);
+    let arrive = Transition::offset(0.0, rise).combined(Transition::opacity());
+    rune::row()
+        .key("interrupted")
+        .absolute(if beside_copy { 28.0 } else { 0.0 }, y)
+        .h(h)
+        .center_y()
+        .transition(Transition::asymmetric(arrive, Transition::opacity()).springs(SpringPair::new(Spring::new(0.24, 0.0), Spring::new(0.12, 0.0))))
+        .child(rune::text("Interrupted").font(crate::view::UI_SMALL).color(p.faint))
 }
 
 /// The server ended `sid`'s run.

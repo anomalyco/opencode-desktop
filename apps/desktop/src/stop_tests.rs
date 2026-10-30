@@ -75,16 +75,46 @@ fn event(l: &mut Live, ty: &str, data: serde_json::Value) {
     l.rt.frame(DT);
 }
 
+fn shown(l: &Live, key: &str) -> Option<rune::ElementInfo> {
+    l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key))
+}
+
+/// Stopped as of this frame: the button sends, the square is on its way out and Interrupted on
+/// its way in, and Working goes.
 fn stopped(l: &Live) {
     assert_eq!(submit(l), "Send", "Stop turned back into Send");
-    assert!(!l.rt.elements().iter().any(|e| e.key.as_deref() == Some("stop-glyph")), "the stop square left without a fade");
-    assert!(working(l) < 0.001, "Working went");
+    assert!(shown(l, "stop-glyph").is_none() && shown(l, "send-glyph").is_some(), "the arrow took the square's place");
+    assert!(shown(l, "interrupted").is_some(), "the turn says Interrupted");
+    assert!(working(l) < 0.999, "Working is going");
     assert!(!l.rt.state.busy(&l.sid), "Enter sends a new prompt rather than steering");
 }
 
 fn running(l: &Live) {
     assert_eq!(submit(l), "Stop");
+    assert!(shown(l, "interrupted").is_none());
     assert!(working(l) > 0.999);
+}
+
+#[test]
+fn the_stop_square_shrinks_into_the_arrow_as_interrupted_rises_into_workings_place() {
+    let mut l = live();
+    let working_y = l.rt.elements().into_iter().find(|e| e.key.as_deref() == Some("working")).unwrap().rect[1];
+    tap(&mut l, "submit");
+    l.rt.frame(DT);
+    play(&mut l, 0.05);
+    let leaving = l.rt.elements().into_iter().find(|e| e.exiting && e.key.as_deref() == Some("stop-glyph")).expect("the square leaves");
+    assert!(leaving.scale < 0.95 && leaving.opacity < 0.95, "shrinking as it fades: {} {}", leaving.scale, leaving.opacity);
+    let arrow = shown(&l, "send-glyph").unwrap();
+    assert!(arrow.scale < 0.95 && arrow.scale >= 0.5, "the arrow grows in: {}", arrow.scale);
+    let rising = shown(&l, "interrupted").unwrap();
+    assert!(rising.opacity < 0.95, "Interrupted fades in: {}", rising.opacity);
+    play(&mut l, 0.4);
+    assert!(!l.rt.elements().iter().any(|e| e.key.as_deref() == Some("stop-glyph")), "the square is gone");
+    let (arrow, label) = (shown(&l, "send-glyph").unwrap(), shown(&l, "interrupted").unwrap());
+    assert!(arrow.scale > 0.999 && label.opacity > 0.999 && working(&l) < 0.001);
+    assert!(rising.rect[1] > label.rect[1] + 0.5, "it rose: {} to {}", rising.rect[1], label.rect[1]);
+    assert!(label.rect[1] < working_y + 1.0, "it sits beside Copy, a little above Working's line");
+    assert!(l.rt.elements().iter().all(|e| e.text.as_deref() != Some("Step interrupted")), "no red error under the turn");
 }
 
 #[test]
@@ -116,7 +146,7 @@ fn a_stop_shows_in_the_frame_of_the_press_while_the_server_takes_its_time() {
     // The server confirms; the step closes after it.
     event(&mut l, "session.execution.interrupted", json!({ "reason": "user" }));
     stopped(&l);
-    event(&mut l, "session.step.failed", json!({ "assistantMessageID": reply, "error": { "message": "Interrupted" } }));
+    event(&mut l, "session.step.failed", json!({ "assistantMessageID": reply, "error": { "type": "aborted", "message": "Step interrupted" } }));
     play(&mut l, CONFIRM_SECS + 1.0);
     stopped(&l);
     assert!(l.rt.state.stops.by.is_empty(), "the stop is over");
@@ -203,6 +233,7 @@ fn the_fixture_ends_its_stream_as_a_server_would() {
     assert!(rt.state.stops.by.is_empty(), "the step closed as interrupted");
     let Some(opencode_kit::model::Message::Assistant(a)) = rt.state.transcripts[&sid].messages.last() else { panic!() };
     assert_eq!(a.error.as_deref(), Some("Step interrupted"));
+    assert!(a.failure.as_ref().is_some_and(|f| crate::view::interrupted(&f.kind)), "its tail says Interrupted rather than an error");
 }
 
 #[test]

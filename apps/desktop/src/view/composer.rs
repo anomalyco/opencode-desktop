@@ -65,14 +65,14 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .center()
         .fill(if ready { p.contrast } else { p.layer2 })
         .hover(p.hover)
-        // Stop and Send swap glyphs in the frame of the press, with no fade.
-        .instant_changes()
+        // The fill changes at once; Stop's square and Send's arrow change places (stop::glyph_swap).
+        .motion(rune::Spring::NONE)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| if stop { crate::stop::press(s, tx) } else { s.send(tx) })
         .child(if stop {
             el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text)
         } else {
-            icon(&ic::ARROW_UP, 16.0).color(match (ready, p.dark) { (false, _) => p.icon_faint, (true, true) => p.text, (true, false) => p.q.contrast_text })
-        });
+            icon(&ic::ARROW_UP, 16.0).key("send-glyph").color(match (ready, p.dark) { (false, _) => p.icon_faint, (true, true) => p.text, (true, false) => p.q.contrast_text })
+        }.transition(crate::stop::glyph_swap()));
     let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
     let composer = col()
         .key("composer")

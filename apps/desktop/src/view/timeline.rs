@@ -637,8 +637,9 @@ pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usi
     }
 }
 
-/// An abort or interruption, which Desktop doesn't report as an error.
-fn interrupted(kind: &str) -> bool {
+/// An abort or interruption, which Desktop doesn't report as an error: the turn's tail says
+/// Interrupted instead (`view::turn_actions`).
+pub(crate) fn interrupted(kind: &str) -> bool {
     let k = kind.to_lowercase();
     k.contains("abort") || k.contains("interrupt")
 }

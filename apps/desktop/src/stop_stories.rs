@@ -1,7 +1,7 @@
 //! The storybook's Stop story (Timeline › Stop): a run streams its answer under Working. S
-//! stops it as the composer's Stop does: Stop turns back into Send and Working goes on the
-//! press, the words already on their way still land, and a moment later the server ends the
-//! step as interrupted.
+//! stops it as the composer's Stop does: on the press Stop's square shrinks into Send's arrow
+//! and Interrupted rises into Working's place, the words already on their way still land, and
+//! a moment later the server ends the step as interrupted.
 
 use rune::Play;
 use serde_json::json;
