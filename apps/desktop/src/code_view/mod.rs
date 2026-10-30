@@ -10,6 +10,8 @@ pub mod diff_view;
 pub mod file_state;
 pub mod file_view;
 #[cfg(test)]
+mod edge_fade_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
@@ -33,6 +35,8 @@ pub const GAP_H: f32 = 28.0;
 pub const NOTE_H: f32 = 36.0;
 pub const BAR_W: f32 = 3.0;
 pub const CODE_PAD: (f32, f32) = (10.0, 20.0);
+/// Width of the fade where long lines run under the no-wrap viewers' edges.
+pub const EDGE_FADE: f32 = 24.0;
 pub const CHUNK_LINES: u32 = 128;
 
 #[derive(Clone, Copy)]

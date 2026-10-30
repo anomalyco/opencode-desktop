@@ -15,7 +15,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::diff_state::{DiffDocState, DiffRow};
 use super::{
-    BAR_W, CODE_PAD, CodeLook, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
+    BAR_W, CODE_PAD, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
     layer_spans,
 };
 use crate::palette::Pal;
@@ -135,7 +135,7 @@ impl<S: 'static> DiffViewer<S> {
             .grow(1.0)
             .min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false });
-        let scroll = if wrap { scroll } else { scroll.scroll_xy() }.child(list);
+        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list);
 
         let mut root = col()
             .key(root_key)

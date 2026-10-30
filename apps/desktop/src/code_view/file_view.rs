@@ -9,7 +9,7 @@ use rune::{
 };
 
 use super::file_state::CodeDocState;
-use super::{CODE_PAD, CodeLook, LINE_H, expand_tabs, layer_spans};
+use super::{CODE_PAD, CodeLook, EDGE_FADE, LINE_H, expand_tabs, layer_spans};
 use crate::palette::Pal;
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -112,7 +112,7 @@ impl<S: 'static> CodeViewer<S> {
             .grow(1.0)
             .min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false });
-        let scroll = if wrap { scroll } else { scroll.scroll_xy() }.child(list);
+        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list);
 
         col()
             .key(root_key)
