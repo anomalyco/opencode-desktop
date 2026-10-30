@@ -309,7 +309,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
                         .child(icon(&ic::GLOBE, 20.0).color(p.icon_muted))
                         .child(text("Enter a URL or :port above").font(UI_MED).color(p.text))
                         .child(
-                            text("Press ⌘L to jump to the address bar, or ⇧⌘C to pick an element.")
+                            text("⌘L jumps to the address bar, ⌘T opens a new tab, ⇧⌘C picks an element.")
                                 .font(UI_SMALL)
                                 .color(p.muted)
                                 .truncate_fade(),

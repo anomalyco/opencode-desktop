@@ -58,6 +58,56 @@ fn alt_cmd_b_toggles_side_region_and_cmd_l_navigates_browser() {
     assert!(!rt.state.side_open());
 }
 
+fn cmd_t() -> KeyEvent {
+    KeyEvent { key: Key::Command('t'), mods: Mods { cmd: true, logo: true, ..Default::default() } }
+}
+
+#[test]
+fn cmd_t_in_the_browser_pane_opens_a_browser_tab_and_elsewhere_the_chooser() {
+    let mut rt = test_runtime();
+    let first = rt.state.open_new_browser_tab("http://localhost:3000/");
+    if !rt.state.side_open() {
+        rt.update(|s, tx| s.toggle_side_region(tx));
+    }
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.side_open());
+
+    // A click in the page, then ⌘T, opens another browser tab with its address bar focused.
+    rt.update(|s, _| s.composer.focused = true);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    let (x, y) = rt.find("browser-surface").expect("page surface mounted");
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert!(!rt.state.composer.focused && rt.state.side.focused, "a click in the page focuses its pane");
+    let pane = rt.state.side.active_pane_focus;
+    rt.key(cmd_t());
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.browser.host.tabs().len(), 2);
+    let second = rt.state.active_browser_tab_id().expect("new browser tab is active");
+    assert_ne!(second, first);
+    assert!(rt.state.browser.address.focused, "address bar focused for typing");
+    assert_eq!(rt.state.side.active_pane_focus, pane);
+
+    // From the address bar it opens a third.
+    rt.key(cmd_t());
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.browser.host.tabs().len(), 3);
+
+    // Focus in the composer: ⌘T keeps doing what it did (a new session), no browser tab.
+    rt.update(|s, _| {
+        s.composer.focused = true;
+        s.side.focused = false;
+        s.browser.address.focused = false;
+    });
+    rt.key(cmd_t());
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.browser.host.tabs().len(), 3, "no browser tab from outside the pane");
+}
+
 #[test]
 fn multi_tab_close_hides_region_when_last_tab_closes() {
     let mut rt = test_runtime();

@@ -246,6 +246,19 @@ impl App {
         tid.parse::<u64>().ok()
     }
 
+    /// The pane of the active browser tab when focus is in it: its page or the address bar.
+    fn focused_browser_pane(&self) -> Option<SessionPane> {
+        if self.composer.focused {
+            return None;
+        }
+        let sid = self.active_session_id()?;
+        let key = panel_key("browser", &self.active_browser_tab_id()?.to_string());
+        let st = self.side.sessions.get(sid)?;
+        let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
+        let in_pane = self.side.focused && !self.side.dock_focused && self.side.active_pane_focus == pane;
+        (self.browser.address.focused || in_pane).then_some(pane)
+    }
+
     pub fn open_browser_url(&mut self, url: &str) {
         if let Some(id) = self.active_browser_tab_id() {
             let resolved = browser_pane::resolve_address(url);
@@ -367,6 +380,23 @@ impl App {
             self.browser.address.focused = true;
             let len = self.browser.address.text.len();
             self.browser.address.set_selection(0, len);
+            return true;
+        }
+
+        // ⌘T in a browser tab's pane (page or address bar) opens another browser tab, like Brave.
+        if ev.is_command('t')
+            && !ev.mods.alt
+            && !ev.mods.ctrl
+            && !ev.mods.shift
+            && let Some(pane) = self.focused_browser_pane()
+        {
+            tx.instant();
+            self.open_new_browser_tab_in("about:blank", Some(pane));
+            self.composer.focused = false;
+            self.side.focused = true;
+            self.side.active_pane_focus = pane;
+            self.browser.address.focused = true;
+            self.browser.address.set_selection(0, self.browser.address.text.len());
             return true;
         }
 
