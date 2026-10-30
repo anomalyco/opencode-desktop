@@ -90,8 +90,9 @@ pub(super) fn home(s: &App, p: &Pal) -> El {
 /// One session in Home's list: opens on a click, and has Desktop's right-click menu. While it's
 /// being renamed the row is the field, and doesn't open.
 pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize) -> El {
-    let project = s.project(&ses.project);
-    let proj = project.map_or("", |x| x.name.as_str());
+    let project = s.project_for_session(ses);
+    let proj_name = project_or_dir(project, &ses.directory);
+    let proj = proj_name.as_str();
     let id = ses.id.clone();
     let hover_id = id.clone();
     let nav = nav_ids.clone();

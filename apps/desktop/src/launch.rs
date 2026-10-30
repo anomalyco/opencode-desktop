@@ -158,6 +158,11 @@ impl App {
         if std::mem::take(&mut self.launch.recent_tabs) {
             self.tabs = self.recent_tabs();
         }
+        let saved_projects = match &self.source {
+            Source::Live { server, .. } => crate::tabs::load_projects(&server.base),
+            Source::Fixture => None,
+        };
+        self.init_used_projects(saved_projects);
         if let Route::Session(id) = &self.route
             && !self.tabs.iter().any(|t| t.id == *id)
             && !self.sessions.iter().any(|s| s.id == *id)

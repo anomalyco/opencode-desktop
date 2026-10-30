@@ -45,7 +45,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
     r
 }
 
-pub(super) fn sidebar(s: &App, p: &Pal) -> El {
+pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let current = match &s.route {
         Route::Session(id) => Some(s.root_of(id)),
         _ => None,
@@ -154,7 +154,7 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
     let info = s.session(&t.id);
     let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
-    let project = info.and_then(|i| s.project(&i.project));
+    let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
     let proj = project_or_dir(project, dir);
     let status = s.tab_status(&t.id);
     // The title fades out before the status/close slot (`--tab-title-fade-offset`).

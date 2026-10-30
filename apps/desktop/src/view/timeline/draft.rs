@@ -3,7 +3,7 @@ use super::super::*;
 /// The new-session page, as Desktop's `new-session/view.tsx`: the wordmark about a quarter of
 /// the way down, the composer 32 below it with where the session will start under that.
 /// `width`: the panel's width last frame.
-pub(in crate::view) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
+pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
     let content = col()
         .key("draft-content")
         .w_full()
@@ -52,7 +52,7 @@ pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
 pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
     let project = s.draft_project();
     let name = project_or_dir(project, &s.draft_dir);
-    let dir = s.draft_dir.replace(&home_dir(), "~");
+    let dir = s.draft_dir.replace("/Users/demo", "~").replace(&home_dir(), "~");
     let open = s.pickers.open == Some(Kind::Project);
     let button = row()
         .key("project")

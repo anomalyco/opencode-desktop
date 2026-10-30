@@ -32,14 +32,16 @@ pub enum Command {
     ToggleSidebar,
     Settings,
     ToggleBrowser,
+    OpenProject,
 }
 
-const COMMANDS: [(Command, &str, &str, &str); 5] = [
+const COMMANDS: [(Command, &str, &str, &str); 6] = [
     (Command::NewSession, "new", "New session", "⌘T"),
     (Command::Home, "home", "Home", "⌘B"),
     (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
     (Command::Settings, "settings", "Settings", "⌘,"),
     (Command::ToggleBrowser, "browser", "Toggle browser", "⌥⌘B"),
+    (Command::OpenProject, "open-project", "Open project", "⌘O"),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +113,10 @@ impl Switcher {
 
     pub fn query(&self) -> &str {
         self.search.text.trim()
+    }
+
+    pub(crate) fn restore_composer(&self) -> bool {
+        self.restore_composer
     }
 }
 
@@ -202,7 +208,7 @@ pub fn target(sections: &[&str], index: usize, mv: Move) -> Option<usize> {
 impl App {
     /// The project name a row shows: the project's, or the directory's last part.
     pub(crate) fn project_label(&self, s: &SessionInfo) -> String {
-        crate::view::project_or_dir(self.project(&s.project), &s.directory)
+        crate::view::project_or_dir(self.project_for_session(s), &s.directory)
     }
 
     /// Loaded root sessions and `extra` server matches, newest metadata winning, newest first.
@@ -303,6 +309,7 @@ impl App {
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
             Action::Command(Command::Settings) => self.open_settings(),
             Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),
+            Action::Command(Command::OpenProject) => self.open_project_dialog(tx),
         }
     }
 
@@ -509,7 +516,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .placeholder("Search commands and sessions", p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.switcher.search)
-                .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx)),
+                .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),
         );
 
     let mut results = col().key("switcher-results").w_full().px(6.0).pt(6.0).pb(8.0);

@@ -61,6 +61,8 @@ mod palette;
 mod perf;
 mod picker_stories;
 mod pickers;
+mod project_stories;
+mod projects;
 mod prompt_history;
 mod prompt_history_story;
 mod question;
@@ -196,6 +198,7 @@ pub struct App {
     /// Hex dictation into the composer (⇧⌘M or the mic).
     pub dictation: dictation::Dictation,
     pub switcher: switcher::Switcher,
+    pub project_state: projects::ProjectsState,
     pub settings: settings::Settings,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
@@ -263,7 +266,7 @@ impl App {
             draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
             sidebar_open: !flag("--sidebar-closed"),
             sidebar_w: view::SIDEBAR_W,
-            zoom: 1.0,
+            zoom: arg("--zoom").and_then(|z| z.parse::<f32>().ok()).map_or(1.0, |z| z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX)),
             composer: TextEdit::new(""),
             search: TextEdit::new(""),
             reduced_motion: flag("--reduced-motion"),
@@ -328,7 +331,13 @@ impl App {
         self.status = "Fixture".into();
         self.fixture = v;
         self.source = Source::Fixture;
+        self.init_used_projects(None);
         self.sort_projects();
+        if arg("--directory").is_none()
+            && let Some(p) = self.projects.first()
+        {
+            self.draft_dir = p.directory.clone();
+        }
     }
 
     fn load_live(&mut self, server: Server, fallback_fixture: bool) -> bool {
@@ -412,6 +421,7 @@ impl App {
                 }
             }
             Action::NewSession => self.new_session(tx),
+            Action::OpenProject => self.open_project_dialog(tx),
             Action::Settings => self.toggle_settings(tx),
             Action::CloseTab => {
                 if let Some(id) = self.current_tab() {
@@ -573,6 +583,14 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     Incoming::Active(ids) => {
                         tx.instant();
                         s.running = ids.into_iter().collect();
+                    }
+                    Incoming::Projects(projects) => {
+                        tx.instant();
+                        s.projects = projects;
+                        s.sort_projects();
+                    }
+                    Incoming::ProjectOpened { location, projects, session } => {
+                        s.apply_project_opened(location, projects, session, tx);
                     }
                     Incoming::Created(info) => {
                         let id = info.id.clone();

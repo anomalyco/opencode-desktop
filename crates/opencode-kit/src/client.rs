@@ -36,11 +36,18 @@ pub enum Incoming {
     Reconnected,
     /// The sessions running right now (the reply to `Request::Active`).
     Active(Vec<String>),
+    /// The server's project list (`/api/project`).
+    Projects(Vec<model::Project>),
+    /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
+    /// project list and, when `start_session` was set, the new session opened in it.
+    ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
 }
 
 pub enum Request {
     Session(String),
     Sessions,
+    /// The server's project list (`/api/project`).
+    Projects,
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     Pending(String),
@@ -82,6 +89,9 @@ pub enum Write {
     /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
     /// `quiet` drops a failure rather than reporting it, as a steer's move does.
     Background { session: String, quiet: bool },
+    /// Resolves `directory` (`/api/location`, registering its project on the server), reloads
+    /// `/api/project`, and when `start_session` is set creates a session in `directory`.
+    OpenProject { directory: String, start_session: bool },
 }
 
 pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
@@ -404,6 +414,27 @@ impl Server {
         if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
     }
 
+    /// Resolves `directory` (`GET /api/location?location[directory]=…`), registering its project
+    /// on the server as Desktop's `projects.add` does.
+    pub fn resolve_location(&self, directory: &str) -> Result<model::LocationInfo, String> {
+        let path = format!("/api/location?location%5Bdirectory%5D={}", encode_component(directory));
+        let v = self.get(&path)?;
+        model::parse_location(&v).ok_or_else(|| format!("GET {path}: no location in the reply"))
+    }
+
+    /// Lists the server's non-archived projects (`GET /api/project`).
+    pub fn projects(&self) -> Result<Vec<model::Project>, String> {
+        self.get("/api/project").map(|v| model::parse_projects(&v))
+    }
+
+    /// Registers `directory` as a project on the server and returns its resolved location and the
+    /// refreshed project list.
+    pub fn open_project(&self, directory: &str) -> Result<(model::LocationInfo, Vec<model::Project>), String> {
+        let location = self.resolve_location(directory)?;
+        let projects = self.projects()?;
+        Ok((location, projects))
+    }
+
     /// `session.update` with a title: the body is `{"title": …}` and nothing else.
     pub fn rename_session(&self, session: &str, title: &str) -> Result<(), String> {
         self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "title": title }))).map(|_| ())
@@ -553,6 +584,11 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
                         }),
                         Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
+                        Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
+                            let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
+                            let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
+                            Ok(())
+                        }),
                     };
                     if let Err(e) = result
                         && inbox_tx.send(Incoming::Status(e)).is_err()
@@ -586,6 +622,10 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         },
                         Request::Sessions => match sessions(&server) {
                             Ok(list) => send(Incoming::Sessions(list)),
+                            Err(e) => send(Incoming::Status(e)),
+                        },
+                        Request::Projects => match server.projects() {
+                            Ok(list) => send(Incoming::Projects(list)),
                             Err(e) => send(Incoming::Status(e)),
                         },
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
@@ -1064,5 +1104,43 @@ mod tests {
         let (base, h) = mock_once();
         Server { base, auth: None, media_refs: false }.interrupt("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("POST /api/session/ses_a/interrupt HTTP/1.1"));
+    }
+
+    #[test]
+    fn open_project_resolves_location_refreshes_projects_and_creates_session() {
+        use std::io::{Read, Write as IoWrite};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let replies = [
+            r#"{"directory":"/Users/demo/code/my repo","project":{"id":"proj_1","directory":"/Users/demo/code/my repo","canonical":"/Users/demo/code/my repo"}}"#,
+            r#"[{"id":"proj_1","canonical":"/Users/demo/code/my repo","name":"My Repo","time":{"active":42},"sandboxes":[]}]"#,
+            r#"{"data":{"id":"ses_new_proj","projectID":"proj_1","location":{"directory":"/Users/demo/code/my repo"},"time":{"created":42,"updated":42}}}"#,
+        ];
+        let h = std::thread::spawn(move || {
+            replies
+                .into_iter()
+                .map(|body| {
+                    let (mut s, _) = listener.accept().unwrap();
+                    s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+                    let mut buf = [0u8; 4096];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}", body.len());
+                    let _ = s.write_all(head.as_bytes());
+                    String::from_utf8_lossy(&buf[..n]).into_owned()
+                })
+                .collect::<Vec<_>>()
+        });
+        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false };
+        let (loc, projects) = server.open_project("/Users/demo/code/my repo").unwrap();
+        let created = server.create_session(&loc.directory).unwrap();
+        let reqs = h.join().unwrap();
+        assert!(reqs[0].starts_with("GET /api/location?location%5Bdirectory%5D=%2FUsers%2Fdemo%2Fcode%2Fmy%20repo HTTP/1.1"), "{}", reqs[0]);
+        assert!(reqs[1].starts_with("GET /api/project HTTP/1.1"), "{}", reqs[1]);
+        assert!(reqs[2].starts_with("POST /api/session HTTP/1.1"), "{}", reqs[2]);
+        assert_eq!(body_of(&reqs[2]), serde_json::json!({ "location": { "directory": "/Users/demo/code/my repo" } }));
+        assert_eq!(loc.project_id, "proj_1");
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "My Repo");
+        assert_eq!(created.id, "ses_new_proj");
     }
 }

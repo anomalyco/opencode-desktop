@@ -154,7 +154,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let selected = s.picker_current(kind);
     let items = s.picker_items();
     let mut menu = col().key(format!("picker-{}", kind.key())).role("menu").label(format!("Choose {}", kind.key()))
-        .anchored(kind.key(), if kind == Kind::Project { Side::Bottom } else { Side::Top }, Align::Start, 6.0)
+        .anchored(kind.key(), Side::Top, Align::Start, 6.0)
         .w(match kind { Kind::Model => 284.0, Kind::Project => 240.0, _ => 180.0 })
         .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::none())
@@ -174,10 +174,12 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     // Filtering is instant, like Desktop's list: rows come and go in the keystroke.
     let appear = rune::Transition::none();
     let mut list = col().key("picker-options").w_full();
+    let mut footer: Option<El> = None;
     let mut group = "";
     let mut height = 0.0_f32;
     for item in &items {
-        if !item.group.is_empty() && item.group != group {
+        let is_add = kind == Kind::Project && item.key == crate::pickers::ADD_PROJECT_KEY;
+        if !is_add && !item.group.is_empty() && item.group != group {
             list = list.child(col().key(format!("group-{}", item.group)).h(24.0).transition(appear.clone())
                 .child(text(item.group.clone()).font(UI_SMALL).color(p.faint).h(24.0).px(10.0).pt(4.0)));
             height += 24.0;
@@ -196,9 +198,21 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
                     s.pickers.activate(hover_key.clone());
                 }
             })
-            .on_press(move |s: &mut App| s.choose_picker(&key))
-            .child(text(item.label.clone()).font(UI).color(p.text)).child(spacer());
-        if item.key == selected { option = option.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon)); }
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx));
+        if is_add {
+            option = option.child(icon(&ic::PLUS, 16.0).color(p.icon_muted));
+        } else if kind == Kind::Project {
+            option = option.child(crate::icons::badge(s, p, s.project(&item.key), &item.label));
+        }
+        option = option.child(text(item.label.clone()).font(UI).color(p.text).truncate_fade()).child(spacer());
+        if is_add {
+            option = option.child(text("⌘O").font(UI).color(p.faint));
+            footer = Some(option);
+            continue;
+        }
+        if item.key == selected {
+            option = option.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon));
+        }
         list = list.child(option);
         height += 28.0;
     }
@@ -207,9 +221,15 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             .child(text("No models found").font(UI).color(p.faint).h(48.0).px(10.0).pt(16.0)));
         height = 48.0;
     }
-    let above = kind != Kind::Project;
-    super::follow_zoom(menu.child(col().key("picker-scroll").w_full().h(height.min(220.0))
-        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list)), s.zoom, above)
+    let mut body = menu.child(col().key("picker-scroll").w_full().h(height.min(200.0))
+        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list));
+    if let Some(add_row) = footer {
+        if height > 0.0 {
+            body = body.child(el().key("picker-add-divider").h(0.5).w_full().my(2.0).fill(p.border_muted));
+        }
+        body = body.child(add_row);
+    }
+    super::follow_zoom(body, s.zoom, true)
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

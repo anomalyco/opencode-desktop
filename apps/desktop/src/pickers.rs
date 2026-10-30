@@ -15,6 +15,8 @@ use opencode_kit::model::{ModelRef, capitalize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind { Agent, Model, Effort, Project }
 
+pub const ADD_PROJECT_KEY: &str = "+add";
+
 impl Kind {
     pub fn key(self) -> &'static str {
         match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
@@ -223,18 +225,19 @@ impl App {
                 std::iter::once(Item { key: "default".into(), label: "Default".into(), group: String::new() })
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item { key: v.clone(), label: capitalize(v), group: String::new() })).collect()
             }
-            Some(Kind::Project) => self.projects.iter().map(|p| Item { key: p.id.clone(), label: p.name.clone(), group: String::new() }).collect(),
+            Some(Kind::Project) => self
+                .projects
+                .iter()
+                .map(|p| Item { key: p.id.clone(), label: p.name.clone(), group: String::new() })
+                .chain(std::iter::once(Item { key: ADD_PROJECT_KEY.into(), label: "Add project".into(), group: String::new() }))
+                .collect(),
             None => vec![],
         }
     }
 
     /// The project a new session would start in: the one whose folder holds the draft's.
     pub fn draft_project(&self) -> Option<&opencode_kit::model::Project> {
-        let dir = self.draft_dir.as_str();
-        self.projects
-            .iter()
-            .filter(|p| !p.directory.is_empty() && (dir == p.directory || dir.starts_with(&format!("{}/", p.directory))))
-            .max_by_key(|p| p.directory.len())
+        self.project_at(&self.draft_dir)
     }
 
     /// Whether the selected model has an effort to choose: Desktop shows the picker (with
@@ -279,10 +282,21 @@ impl App {
     }
 
     pub fn choose_picker(&mut self, key: &str) {
+        self.choose_picker_tx(key, &mut Tx::default());
+    }
+
+    pub fn choose_picker_tx(&mut self, key: &str, tx: &mut Tx) {
         // Never accept a stale, filtered-out item or a non-option (including empty results).
         if !self.picker_items().iter().any(|i| i.key == key) { return; }
         if self.pickers.open == Some(Kind::Project) {
-            if let Some(p) = self.projects.iter().find(|p| p.id == key) { self.draft_dir = p.directory.clone(); }
+            if key == ADD_PROJECT_KEY {
+                self.open_project_dialog(tx);
+                return;
+            }
+            if let Some(p) = self.projects.iter().find(|p| p.id == key).cloned() {
+                self.draft_dir = p.directory;
+                self.touch_project(&p.id);
+            }
             self.close_picker(true);
             return;
         }
@@ -318,12 +332,12 @@ impl App {
     /// A picker's keys. Opening it and moving in it land in the keystroke. (Not closing: an
     /// instant unmount of the focused search field drops the focus handed back to the composer.)
     pub fn picker_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        let used = self.picker_keys(ev);
+        let used = self.picker_keys(ev, tx);
         if used && self.pickers.open.is_some() { tx.instant(); }
         used
     }
 
-    fn picker_keys(&mut self, ev: &KeyEvent) -> bool {
+    fn picker_keys(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if self.pickers.open.is_some() {
             match &ev.key {
                 Key::Escape => self.close_picker(true),
@@ -343,7 +357,7 @@ impl App {
                     }
                 }
                 Key::Enter => {
-                    if self.pickers.search.preedit.is_none() && let Some(key) = self.picker_active() { self.choose_picker(&key); }
+                    if self.pickers.search.preedit.is_none() && let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
                 }
                 _ => return self.pickers.open != Some(Kind::Model),
             }
@@ -371,8 +385,8 @@ impl App {
         };
         if let Some((kind, backwards)) = cycle {
             self.open_picker(kind);
-            self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() });
-            if let Some(key) = self.picker_active() { self.choose_picker(&key); }
+            self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() }, tx);
+            if let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
             return true;
         }
         false

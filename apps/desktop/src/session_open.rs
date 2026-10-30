@@ -33,8 +33,11 @@ impl App {
         }
         if !self.tabs.iter().any(|t| t.id == root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
-            self.tabs.push(Tab { id: root, title, directory });
+            self.tabs.push(Tab { id: root.clone(), title, directory });
             self.save_tabs();
+        }
+        if let Some(pid) = self.session(&root).and_then(|s| self.project_for_session(s)).map(|p| p.id.clone()) {
+            self.touch_project(&pid);
         }
         tx.settle();
         match &self.source {
@@ -55,6 +58,7 @@ impl App {
         let Source::Live { requests: Some(r), .. } = &self.source else { return };
         let _ = r.send(Request::Active);
         let _ = r.send(Request::Sessions);
+        let _ = r.send(Request::Projects);
         let open = match &self.route {
             Route::Session(id) => Some(id.clone()),
             _ => None,

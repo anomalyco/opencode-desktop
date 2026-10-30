@@ -1,0 +1,9 @@
+{
+  "scene": "draft", "secs": 2.4,
+  "events": [
+    {"t": 0.2, "type": "tap", "key": "project", "expect": "instant"},
+    {"t": 0.5, "type": "move", "key": "option-+add", "expect": "instant"},
+    {"t": 0.8, "type": "key", "name": "o", "cmd": true, "expect": "instant"},
+    {"t": 1.1, "type": "file-dialog", "path": "/Users/demo/code/orbit", "expect": "instant"}
+  ]
+}

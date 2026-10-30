@@ -6,7 +6,7 @@ mod draft;
 mod parts;
 mod requests;
 
-pub(in crate::view) use draft::*;
+pub(crate) use draft::*;
 pub(crate) use parts::*;
 pub(in crate::view) use requests::*;
 

@@ -12,6 +12,7 @@ mod compaction;
 mod compaction_tests;
 
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
+pub use crate::project::{LocationInfo, parse_location, parse_project, project_sandboxes, set_project_sandboxes};
 pub use crate::quote::{Quote, set_user_quotes, user_quotes};
 
 #[derive(Clone, Debug)]
@@ -379,23 +380,7 @@ fn i(v: &Value) -> i64 {
 
 pub fn parse_projects(v: &Value) -> Vec<Project> {
     let list = v.as_array().or_else(|| v["data"].as_array());
-    list.into_iter()
-        .flatten()
-        .filter_map(|p| {
-            let dir = s(&p["canonical"]);
-            if dir.is_empty() {
-                return None;
-            }
-            let name = dir.rsplit('/').next().unwrap_or(&dir).to_owned();
-            Some(Project {
-                id: s(&p["id"]),
-                name,
-                directory: dir.clone(),
-                active: i(&p["time"]["active"]).max(i(&p["time"]["updated"])),
-                icon: ProjectIcon::parse(&p["icon"]),
-            })
-        })
-        .collect()
+    list.into_iter().flatten().filter_map(crate::project::parse_project).collect()
 }
 
 pub fn parse_session(p: &Value) -> SessionInfo {

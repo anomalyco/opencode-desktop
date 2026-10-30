@@ -184,6 +184,7 @@ const ORDER: &[&str] = &[
     "Timeline/Turn actions",
     "Navigation/Back and forward",
     "Browser/Pane",
+    "Projects/Open project",
 ];
 
 /// Every story, in the storybook's order.

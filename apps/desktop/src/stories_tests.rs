@@ -247,6 +247,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Turn actions",
     "Navigation/Back and forward",
     "Browser/Pane",
+    "Projects/Open project",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",

@@ -16,6 +16,7 @@ pub enum Action {
     /// ⌘1 to ⌘8 pick that tab, ⌘9 the last.
     TabAt(usize),
     NewSession,
+    OpenProject,
     CloseTab,
     ReopenTab,
     Settings,
@@ -37,6 +38,7 @@ pub fn action(ev: &KeyEvent) -> Option<Action> {
         Key::Command(',') if !m.shift => Some(Action::Settings),
         Key::Command('t') if m.shift => Some(Action::ReopenTab),
         Key::Command('t' | 'n') if !m.shift => Some(Action::NewSession),
+        Key::Command(c) if c.eq_ignore_ascii_case(&'o') && !m.shift => Some(Action::OpenProject),
         Key::Command('w') if !m.shift => Some(Action::CloseTab),
         Key::Command(c @ '1'..='9') if !m.shift => Some(Action::TabAt(*c as usize - '1' as usize)),
         _ => None,
@@ -99,6 +101,7 @@ mod tests {
         assert_eq!(action(&ev(Key::Command('0'), cmd)), Some(Action::ZoomReset));
         assert_eq!(action(&ev(Key::Command('t'), cmd)), Some(Action::NewSession));
         assert_eq!(action(&ev(Key::Command('t'), |m| (m.cmd, m.shift) = (true, true))), Some(Action::ReopenTab));
+        assert_eq!(action(&ev(Key::Command('o'), cmd)), Some(Action::OpenProject));
         assert_eq!(action(&ev(Key::Command('w'), cmd)), Some(Action::CloseTab));
         assert_eq!(action(&ev(Key::Command(','), cmd)), Some(Action::Settings));
         assert_eq!(action(&ev(Key::Command('3'), cmd)), Some(Action::TabAt(2)));

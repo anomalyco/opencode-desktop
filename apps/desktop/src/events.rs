@@ -137,12 +137,13 @@ impl App {
             }
         }
         if ty == "project.updated"
-            && let Some(p) = self.projects.iter_mut().find(|p| Some(p.id.as_str()) == data["id"].as_str())
+            && let Some(updated) = opencode_kit::model::parse_project(data)
         {
-            p.active = data["time"]["active"].as_i64().unwrap_or(p.active);
-            if data.get("canonical").is_some() {
-                p.icon = opencode_kit::model::ProjectIcon::parse(&data["icon"]);
+            match self.projects.iter_mut().find(|p| p.id == updated.id && updated.id != "global") {
+                Some(p) => *p = updated,
+                None => self.projects.push(updated),
             }
+            self.sort_projects();
             changed = true;
         }
         changed

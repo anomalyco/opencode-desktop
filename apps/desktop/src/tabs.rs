@@ -192,6 +192,20 @@ pub fn save_zoom(zoom: f32) {
     update("zoom", "zoom".into(), json!(f64::from((zoom * 100.0).round()) / 100.0));
 }
 
+/// Project IDs this client has used on `server`, most recent first.
+pub fn load_projects(server: &str) -> Option<Vec<String>> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
+    let list = v.get(format!("projects:{server}"))?.as_array()?;
+    Some(list.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+}
+
+pub fn save_projects(server: &str, ids: &[String]) {
+    if cfg!(test) {
+        return;
+    }
+    update("projects", format!("projects:{server}"), json!(ids));
+}
+
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
 /// written window first. Read-only: `mode=ro` and `-readonly`.
 pub fn from_beta() -> Option<Vec<Tab>> {
