@@ -17,6 +17,10 @@ use crate::{App, Source, tabs};
 pub struct ProjectsState {
     /// Projects this client has opened or used, most recent first.
     pub used: Vec<String>,
+    /// Selected project ID filtering Home's session list (`None` shows all projects).
+    pub home_selected: Option<String>,
+    /// Whether Home's compact project filter popover is open.
+    pub home_menu_open: bool,
     /// Counter for sessions opened in fixture mode.
     opened: u32,
 }
@@ -108,6 +112,67 @@ impl App {
         }
     }
 
+    /// Projects this client has used, in recent-use order, one per canonical directory.
+    pub fn used_projects(&self) -> Vec<&Project> {
+        let mut seen_dirs = HashSet::new();
+        let mut out = Vec::new();
+        for id in &self.project_state.used {
+            if let Some(p) = self.projects.iter().find(|p| &p.id == id)
+                && seen_dirs.insert(clean_dir(&p.directory))
+            {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// Server projects this client hasn't added or has hidden from its used list.
+    pub fn other_projects(&self) -> Vec<&Project> {
+        let used_dirs: HashSet<String> = self.used_projects().into_iter().map(|p| clean_dir(&p.directory)).collect();
+        let mut seen = HashSet::new();
+        self.projects
+            .iter()
+            .filter(|p| {
+                let d = clean_dir(&p.directory);
+                !used_dirs.contains(&d) && seen.insert(d)
+            })
+            .collect()
+    }
+
+    /// Removes project `id` from this client's used list (`HomeProjects` Close); the server keeps it.
+    pub fn hide_project(&mut self, id: &str, tx: &mut Tx) {
+        tx.instant();
+        let dir = self.project(id).map(|p| clean_dir(&p.directory));
+        let drop_ids: HashSet<String> = self
+            .projects
+            .iter()
+            .filter(|p| p.id == id || dir.as_deref().is_some_and(|d| clean_dir(&p.directory) == d))
+            .map(|p| p.id.clone())
+            .collect();
+        self.project_state.used.retain(|x| !drop_ids.contains(x) && x != id);
+        if self.project_state.home_selected.as_deref() == Some(id) {
+            self.project_state.home_selected = None;
+        }
+        self.project_state.home_menu_open = false;
+        self.save_used_projects();
+    }
+
+    pub fn toggle_home_project(&mut self, id: &str, tx: &mut Tx) {
+        tx.instant();
+        if self.project_state.home_selected.as_deref() == Some(id) {
+            self.project_state.home_selected = None;
+        } else if self.project(id).is_some() {
+            self.project_state.home_selected = Some(id.to_owned());
+        }
+        self.project_state.home_menu_open = false;
+    }
+
+    pub fn clear_home_project(&mut self, tx: &mut Tx) {
+        tx.instant();
+        self.project_state.home_selected = None;
+        self.project_state.home_menu_open = false;
+    }
+
     /// Resolves the project that owns `dir`: exact root or worktree sandbox first, then longest
     /// containing project root.
     pub fn project_at(&self, dir: &str) -> Option<&Project> {
@@ -135,6 +200,8 @@ impl App {
         tx.instant();
         self.close_picker(false);
         self.close_switcher(false);
+        self.close_project_switcher(false);
+        self.project_state.home_menu_open = false;
         self.settings.open = false;
         self.menus.on = None;
         self.activity_open = false;

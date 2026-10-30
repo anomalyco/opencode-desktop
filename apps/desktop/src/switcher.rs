@@ -33,15 +33,17 @@ pub enum Command {
     Settings,
     ToggleBrowser,
     OpenProject,
+    SelectProject,
 }
 
-const COMMANDS: [(Command, &str, &str, &str); 6] = [
+const COMMANDS: [(Command, &str, &str, &str); 7] = [
     (Command::NewSession, "new", "New session", "⌘T"),
     (Command::Home, "home", "Home", "⌘B"),
     (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
     (Command::Settings, "settings", "Settings", "⌘,"),
     (Command::ToggleBrowser, "browser", "Toggle browser", "⌥⌘B"),
     (Command::OpenProject, "open-project", "Open project", "⌘O"),
+    (Command::SelectProject, "select-project", "Search projects", "⇧⌘O"),
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -265,8 +267,11 @@ impl App {
         if self.switcher.open {
             return;
         }
+        let restore = self.composer.focused || (self.project_switcher.open && self.project_switcher.restore_composer());
         self.close_picker(false);
-        self.switcher.restore_composer = self.composer.focused;
+        self.close_project_switcher(false);
+        self.project_state.home_menu_open = false;
+        self.switcher.restore_composer = restore;
         self.composer.focused = false;
         self.search.focused = false;
         self.switcher.open = true;
@@ -310,6 +315,7 @@ impl App {
             Action::Command(Command::Settings) => self.open_settings(),
             Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),
             Action::Command(Command::OpenProject) => self.open_project_dialog(tx),
+            Action::Command(Command::SelectProject) => self.toggle_project_switcher(tx),
         }
     }
 

@@ -24,8 +24,7 @@ mod sidebar;
 mod timeline;
 
 pub use composer::*;
-pub(crate) use home::session_row;
-use home::*;
+pub(crate) use home::{home, session_row};
 pub use sidebar::*;
 pub(crate) use timeline::*;
 
@@ -83,8 +82,14 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::mentions::view(s, p, cx));
     inner = inner.children(crate::slash::commands_view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));
+    if let Some(pop) = home::home_projects_popover(s, p) {
+        inner = inner.children(pop);
+    }
     if s.switcher.open {
         inner = inner.children(crate::switcher::view(s, p, cx));
+    }
+    if s.project_switcher.open {
+        inner = inner.children(crate::project_switcher::view(s, p, cx));
     }
     inner = inner.children(crate::attachments::viewer(s, p, cx));
     inner = inner.children(crate::session_menu_view::confirm(s, p));
@@ -118,7 +123,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
-    let need_panel_sz = (!s.settings.open && s.route == Route::Draft) || s.attach.drop.over;
+    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft | Route::Home)) || s.attach.drop.over;
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom))
     } else {
@@ -150,7 +155,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .on_drop_files(crate::dropzone::drop)
                 .on_drop_hover(crate::dropzone::hover)
                 .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
-                    Route::Home => home(s, p),
+                    Route::Home => home(s, p, panel_sz.0),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft => draft_page(s, p, panel_sz.0),
                 } })

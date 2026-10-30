@@ -62,6 +62,7 @@ mod perf;
 mod picker_stories;
 mod pickers;
 mod project_stories;
+mod project_switcher;
 mod projects;
 mod prompt_history;
 mod prompt_history_story;
@@ -198,6 +199,7 @@ pub struct App {
     /// Hex dictation into the composer (⇧⌘M or the mic).
     pub dictation: dictation::Dictation,
     pub switcher: switcher::Switcher,
+    pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
     pub settings: settings::Settings,
     /// System notifications for finished runs, permission requests and errors.
@@ -422,6 +424,7 @@ impl App {
             }
             Action::NewSession => self.new_session(tx),
             Action::OpenProject => self.open_project_dialog(tx),
+            Action::SelectProject => self.toggle_project_switcher(tx),
             Action::Settings => self.toggle_settings(tx),
             Action::CloseTab => {
                 if let Some(id) = self.current_tab() {
@@ -486,10 +489,27 @@ impl App {
 
     pub fn new_session(&mut self, tx: &mut Tx) {
         self.close_picker(false);
-        if let Route::Session(id) = &self.route
-            && let Some(dir) = self.session(id).map(|s| s.directory.clone()).filter(|d| !d.is_empty())
-        {
-            self.draft_dir = dir;
+        self.close_project_switcher(false);
+        self.project_state.home_menu_open = false;
+        match &self.route {
+            Route::Session(id) => {
+                if let Some(dir) = self.session(id).map(|s| s.directory.clone()).filter(|d| !d.is_empty()) {
+                    self.draft_dir = dir;
+                }
+            }
+            Route::Home => {
+                let dir = self
+                    .project_state
+                    .home_selected
+                    .as_deref()
+                    .and_then(|id| self.project(id))
+                    .or_else(|| self.used_projects().into_iter().next())
+                    .map(|p| p.directory.clone());
+                if let Some(dir) = dir.filter(|d| !d.is_empty()) {
+                    self.draft_dir = dir;
+                }
+            }
+            Route::Draft => {}
         }
         self.opening = None;
         self.route = Route::Draft;

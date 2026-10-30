@@ -1,12 +1,23 @@
 use opencode_kit::client::{Incoming, Write};
 use opencode_kit::model::{LocationInfo, Project, ProjectIcon, SessionInfo};
-use rune::{FileDialogKind, Key, KeyEvent, Mods, Runtime};
+use rune::{FileDialogKind, Key, KeyEvent, Mods, Runtime, Tx};
 
 use crate::pickers::{ADD_PROJECT_KEY, Kind};
+use crate::project_switcher::StepMode;
 use crate::{App, Route, fixture_runtime};
 
 fn cmd_o(rt: &mut Runtime<App>) {
     rt.key(KeyEvent { key: Key::Command('o'), mods: Mods { cmd: true, ..Default::default() } });
+    rt.frame(1.0 / 60.0);
+}
+
+fn shift_cmd_o(rt: &mut Runtime<App>) {
+    rt.key(KeyEvent { key: Key::Command('O'), mods: Mods { cmd: true, shift: true, ..Default::default() } });
+    rt.frame(1.0 / 60.0);
+}
+
+fn key(rt: &mut Runtime<App>, k: Key) {
+    rt.key(KeyEvent { key: k, mods: Mods::default() });
     rt.frame(1.0 / 60.0);
 }
 
@@ -80,14 +91,22 @@ fn draft_project_picker_add_project_and_cmd_k_trigger_open_project() {
     rt.frame(1.0 / 60.0);
     assert!(matches!(&rt.state.route, Route::Session(id) if rt.state.session(id).unwrap().directory == "/Users/demo/code/nova"));
 
-    // ⌘K finds "Open project" and triggers the folder picker too.
+    // ⌘K finds "Open project" and "Search projects".
+    rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Default::default() } });
+    rt.frame(1.0 / 60.0);
+    rt.key(KeyEvent { key: Key::Text("project".into()), mods: Mods::default() });
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:open-project" && e.hint == "⌘O"));
+    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:select-project" && e.hint == "⇧⌘O"));
+    rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+    rt.frame(1.0 / 60.0);
+
+    // ⌘K -> open project
     rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Default::default() } });
     rt.frame(1.0 / 60.0);
     rt.key(KeyEvent { key: Key::Text("open project".into()), mods: Mods::default() });
     rt.frame(1.0 / 60.0);
-    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:open-project" && e.hint == "⌘O"));
-    rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
-    rt.frame(1.0 / 60.0);
+    key(&mut rt, Key::Enter);
     assert!(!rt.state.switcher.open);
     assert_eq!(rt.file_dialog().map(|(k, _)| k), Some(FileDialogKind::Folder));
 }
@@ -139,4 +158,109 @@ fn live_open_project_queues_write_and_applies_server_reply() {
     assert!(rt.state.tabs.iter().any(|t| t.id == "ses_live_beacon_0001"));
     assert_eq!(rt.state.projects[0].id, "proj_beacon");
     assert!(rt.state.composer.focused);
+}
+
+#[test]
+fn shift_cmd_o_switches_recent_projects_worktrees_and_other_projects() {
+    let mut rt = fixture_runtime();
+    // Hide kiln so it sits under "Other projects".
+    let kiln_id = rt.state.projects.iter().find(|p| p.name == "kiln").unwrap().id.clone();
+    rt.update(|s, tx| s.hide_project(&kiln_id, tx));
+    rt.frame(1.0 / 60.0);
+
+    shift_cmd_o(&mut rt);
+    assert!(rt.state.project_switcher.open);
+    let rows = rt.state.project_switcher_rows();
+    assert_eq!(rows[0].title, "lumen");
+    assert!(rows.iter().any(|r| r.key == "other"), "hidden project shows Other projects row");
+    assert_eq!(rows.last().map(|r| r.key.as_str()), Some("+add"));
+
+    // → on lumen drills into existing worktrees (main + reconnect-fix, never "New worktree").
+    key(&mut rt, Key::Right);
+    assert!(matches!(rt.state.project_switcher.mode, StepMode::Worktrees(_)));
+    let wt_rows = rt.state.project_switcher_rows();
+    let wt_titles: Vec<&str> = wt_rows.iter().map(|r| r.title.as_str()).collect();
+    assert_eq!(wt_titles, ["lumen", "reconnect-fix"]);
+    assert!(!wt_titles.iter().any(|t| t.to_lowercase().contains("new")), "no worktree creation row");
+
+    // ← steps back to projects; picking reconnect-fix from a session opens a session in that worktree.
+    key(&mut rt, Key::Left);
+    assert_eq!(rt.state.project_switcher.mode, StepMode::Projects);
+    key(&mut rt, Key::Right);
+    key(&mut rt, Key::Down);
+    key(&mut rt, Key::Enter);
+    assert!(!rt.state.project_switcher.open);
+    let Route::Session(wt_sid) = rt.state.route.clone() else { panic!("expected session in worktree") };
+    assert_eq!(rt.state.session(&wt_sid).unwrap().directory, "/Users/demo/code/worktrees/lumen/reconnect-fix");
+
+    // On Draft, ⇧⌘O updates draft_dir in place (including finding hidden kiln by search) and keeps Route::Draft.
+    rt.update(|s, tx| s.new_session(tx));
+    rt.frame(1.0 / 60.0);
+    shift_cmd_o(&mut rt);
+    key(&mut rt, Key::Text("kiln".into()));
+    key(&mut rt, Key::Enter);
+    assert_eq!(rt.state.route, Route::Draft);
+    assert_eq!(rt.state.draft_dir, "/Users/demo/code/kiln");
+    assert_eq!(rt.state.used_projects()[0].name, "kiln", "picking kiln moves it to most-recent used");
+
+    // ⌘O inside ⇧⌘O closes the switcher and opens the native folder dialog.
+    shift_cmd_o(&mut rt);
+    cmd_o(&mut rt);
+    assert!(!rt.state.project_switcher.open);
+    assert_eq!(rt.file_dialog().map(|(k, _)| k), Some(FileDialogKind::Folder));
+}
+
+#[test]
+fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
+    let mut rt = fixture_runtime();
+    let harbor_id = rt.state.projects.iter().find(|p| p.name == "harbor").unwrap().id.clone();
+
+    // Wide Home (1280x820 at zoom 1.0: panel is ~1004pt >= 860pt) shows the left Projects column.
+    rt.update(|s, tx| s.go_home(tx));
+    rt.frame(1.0 / 60.0);
+    assert!(rt.elements().iter().any(|e| !e.exiting && e.key.as_deref() == Some("home-projects")));
+    tap(&mut rt, &format!("hp-{harbor_id}"));
+    assert_eq!(rt.state.project_state.home_selected.as_deref(), Some(harbor_id.as_str()));
+
+    let session_rows: Vec<String> = rt
+        .elements()
+        .into_iter()
+        .filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("r-ses_")))
+        .filter_map(|e| e.key.map(|k| k.trim_start_matches("r-").to_owned()))
+        .collect();
+    assert!(!session_rows.is_empty());
+    assert!(session_rows.iter().all(|id| rt.state.session(id).unwrap().project == harbor_id));
+
+    // Clicking "New session" on Home while harbor is selected starts the draft in harbor.
+    tap(&mut rt, "new-session");
+    assert_eq!(rt.state.route, Route::Draft);
+    assert_eq!(rt.state.draft_dir, "/Users/demo/code/harbor");
+
+    // At zoom 1.6 (panel ~524pt), Home switches to the compact dropdown whose popover scales with zoom.
+    rt.update(|s, tx| {
+        s.zoom = 1.6;
+        s.project_state.home_selected = None;
+        s.go_home(tx);
+    });
+    rt.frame(1.0 / 60.0);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.elements().iter().any(|e| !e.exiting && e.key.as_deref() == Some("home-projects-trigger")));
+    tap(&mut rt, "home-projects-trigger");
+    assert!(rt.state.project_state.home_menu_open);
+
+    let pop = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("home-projects-popover")).expect("popover");
+    let trigger = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("home-projects-trigger")).expect("trigger");
+    assert!((pop.rect[2] - 232.0 * 1.6).abs() < 1.0, "popover width scales by 1.6x zoom: {:?}", pop.rect);
+    assert!((pop.rect[0] - trigger.rect[0]).abs() < 1.5, "popover aligns with trigger start");
+
+    tap(&mut rt, &format!("hpm-{harbor_id}"));
+    assert!(!rt.state.project_state.home_menu_open);
+    assert_eq!(rt.state.project_state.home_selected.as_deref(), Some(harbor_id.as_str()));
+
+    // Escape closes an open Home projects popover.
+    tap(&mut rt, "home-projects-trigger");
+    assert!(rt.state.project_state.home_menu_open);
+    key(&mut rt, Key::Escape);
+    assert!(!rt.state.project_state.home_menu_open);
+    let _ = Tx::default();
 }

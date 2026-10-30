@@ -1,4 +1,5 @@
-//! Storybook stories for opening and choosing projects (`Projects/Open project`).
+//! Storybook stories for opening and switching projects (`Projects/Open project`,
+//! `Projects/Project switcher`).
 
 use rune::{El, Play, Tx, col, row};
 
@@ -7,10 +8,10 @@ use crate::pickers::Kind;
 use crate::stories::{Story, Trigger, replay, stage};
 use crate::{App, Route, view};
 
-pub const VARIANTS: &[(&str, usize)] = &[("Draft picker", 0), ("Opened session", 1)];
+pub const OPEN_VARIANTS: &[(&str, usize)] = &[("Draft picker", 0), ("Opened session", 1)];
 
-pub const KEYS: &[Trigger] = &[
-    replay(open),
+pub const OPEN_KEYS: &[Trigger] = &[
+    replay(open_story),
     Trigger {
         key: 'o',
         label: "Open orbit folder",
@@ -27,8 +28,29 @@ pub const KEYS: &[Trigger] = &[
     },
 ];
 
-fn open(s: &mut App, _: &mut Play<App>) {
+pub const SWITCHER_VARIANTS: &[(&str, usize)] =
+    &[("Recent projects", 0), ("Worktrees", 1), ("Home filter (compact)", 2), ("Home projects (wide)", 3)];
+
+pub const SWITCHER_KEYS: &[Trigger] = &[
+    replay(switcher_story),
+    Trigger { key: 's', label: "Toggle ⇧⌘O switcher", run: |s, tx| s.toggle_project_switcher(tx) },
+    Trigger {
+        key: 'w',
+        label: "Drill into lumen worktrees",
+        run: |s, tx| {
+            if !s.project_switcher.open {
+                s.open_project_switcher();
+            }
+            if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
+                s.drill_project_worktrees(&id, tx);
+            }
+        },
+    },
+];
+
+fn open_story(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
+    s.close_project_switcher(false);
     if s.variant == 1 {
         s.open_project_dir("/Users/demo/code/orbit", true, &mut Tx::default());
     } else {
@@ -37,16 +59,55 @@ fn open(s: &mut App, _: &mut Play<App>) {
     }
 }
 
+fn switcher_story(s: &mut App, _: &mut Play<App>) {
+    s.finish_stream();
+    s.close_picker(false);
+    s.close_project_switcher(false);
+    s.project_state.home_menu_open = false;
+    s.project_state.home_selected = None;
+    match s.variant {
+        1 => {
+            s.open_project_switcher();
+            s.project_switcher.search.focused = false;
+            if let Some(id) = s.projects.iter().find(|p| p.name == "lumen").map(|p| p.id.clone()) {
+                s.drill_project_worktrees(&id, &mut Tx::default());
+                s.project_switcher.search.focused = false;
+            }
+        }
+        2 => {
+            s.route = Route::Home;
+            if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
+                s.project_state.home_selected = Some(id);
+            }
+            s.project_state.home_menu_open = true;
+        }
+        3 => {
+            s.route = Route::Home;
+            if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
+                s.project_state.home_selected = Some(id);
+            }
+        }
+        _ => {
+            if let Some(id) = s.projects.iter().find(|p| p.name == "kiln").map(|p| p.id.clone()) {
+                s.hide_project(&id, &mut Tx::default());
+            }
+            s.open_project_switcher();
+            s.project_switcher.search.focused = false;
+        }
+    }
+}
+
 fn story_view(s: &App, p: &Pal) -> El {
+    let panel_w = if s.route == Route::Home && s.variant == 3 { 900.0 } else { 720.0 };
     let page = match &s.route {
-        Route::Draft => view::draft_page(s, p, 720.0),
+        Route::Draft => view::draft_page(s, p, panel_w),
         Route::Session(id) => view::session_page(s, p, id),
-        Route::Home => col().w_full().h_full(),
+        Route::Home => view::home(s, p, panel_w),
     };
     row()
         .key("story-open-project")
         .w_full()
-        .max_w(980.0)
+        .max_w(1180.0)
         .h_full()
         .fill(p.bg_deep)
         .radius(10.0)
@@ -69,5 +130,6 @@ fn story_view(s: &App, p: &Pal) -> El {
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [
-    Story { path: "Projects/Open project", scene: |s| stage(s, story_view), knobs: &[], keys: KEYS, variants: VARIANTS },
+    Story { path: "Projects/Open project", scene: |s| stage(s, story_view), knobs: &[], keys: OPEN_KEYS, variants: OPEN_VARIANTS },
+    Story { path: "Projects/Project switcher", scene: |s| stage(s, story_view), knobs: &[], keys: SWITCHER_KEYS, variants: SWITCHER_VARIANTS },
 ]);

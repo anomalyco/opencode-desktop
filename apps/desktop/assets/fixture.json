@@ -38,7 +38,9 @@
     "updated": 1792659280000,
     "active": 1792659280000
    },
-   "sandboxes": []
+   "sandboxes": [
+    "/Users/demo/code/worktrees/lumen/reconnect-fix"
+   ]
   },
   {
    "id": "686172626f720000",
