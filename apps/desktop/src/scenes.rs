@@ -40,6 +40,7 @@ const ORDER: &[&str] = &[
     "question-morph",
     "sidebar-closed",
     "status",
+    "tab-badges",
 ];
 
 pub(crate) fn all() -> Vec<Scene> {

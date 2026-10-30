@@ -176,20 +176,32 @@ impl App {
     /// Resolves the project that owns `dir`: exact root or worktree sandbox first, then longest
     /// containing project root.
     pub fn project_at(&self, dir: &str) -> Option<&Project> {
+        self.project_exactly_at(dir, "").or_else(|| self.project_containing(dir))
+    }
+
+    /// Resolves a session's project (`projectForSession` in Desktop): a project rooted exactly at
+    /// its directory first (so `"global"` folders and moved repos whose sessions keep an old
+    /// project ID resolve as the server does now), then `session.project`, and only then a
+    /// project whose root merely contains the directory, so a parent folder like `~/code` that
+    /// was once opened never claims every repo under it.
+    pub fn project_for_session(&self, s: &SessionInfo) -> Option<&Project> {
+        let by_id = || (!s.project.is_empty() && s.project != "global").then(|| self.project(&s.project)).flatten();
+        self.project_exactly_at(&s.directory, &s.project).or_else(by_id).or_else(|| self.project_containing(&s.directory))
+    }
+
+    /// The project rooted at `dir` or with it as a sandbox, preferring `id` when several are.
+    fn project_exactly_at(&self, dir: &str, id: &str) -> Option<&Project> {
         let dir = clean_dir(dir);
         if dir.is_empty() {
             return None;
         }
-        self.projects
-            .iter()
-            .find(|p| p.directory == dir || project_sandboxes(&p.id).iter().any(|s| clean_dir(s) == dir))
-            .or_else(|| self.projects.iter().filter(|p| same_or_within(&p.directory, &dir)).max_by_key(|p| p.directory.len()))
+        let at = |p: &&Project| p.directory == dir || project_sandboxes(&p.id).iter().any(|s| clean_dir(s) == dir);
+        self.projects.iter().filter(at).find(|p| p.id == id).or_else(|| self.projects.iter().find(at))
     }
 
-    /// Resolves a session's project (`projectForSession` in Desktop): directory match first so
-    /// `"global"` non-git folders keep their own identity, then `session.project`.
-    pub fn project_for_session(&self, s: &SessionInfo) -> Option<&Project> {
-        self.project_at(&s.directory).or_else(|| (!s.project.is_empty() && s.project != "global").then(|| self.project(&s.project)).flatten())
+    fn project_containing(&self, dir: &str) -> Option<&Project> {
+        let dir = clean_dir(dir);
+        self.projects.iter().filter(|p| same_or_within(&p.directory, &dir)).max_by_key(|p| p.directory.len())
     }
 
     /// Opens the native folder chooser (`⌘O`, "Open project") and opens the chosen folder.

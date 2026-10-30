@@ -1,6 +1,7 @@
 //! Project icons beside a project's name, for any Rune app on OpenCode: the server's image for
-//! the project (Desktop's `icon.override` or `icon.url`, PNG, JPEG or SVG), else the app's own
-//! icon found in its directory, else a quiet procedural mark seeded by the project's name.
+//! the project (Desktop's `icon.override` or `icon.url`, PNG, JPEG or SVG), else (unless
+//! `set_repo_icons(false)`) the app's own icon found in its directory, else a quiet procedural
+//! mark seeded by the project's name.
 //!
 //! ```ignore
 //! let icons = project_icon::Icons::new(waker); // keep it in app state
@@ -81,6 +82,7 @@ const PX: u32 = 64;
 pub struct Icons {
     waker: Option<Waker>,
     sync: bool,
+    no_repo: bool,
     scale: Cell<f32>,
     look: Cell<Look>,
     inner: RefCell<Option<Inner>>,
@@ -118,6 +120,7 @@ struct Job {
     dir: String,
     name: String,
     server: Option<String>,
+    repo: bool,
     previous: Option<Key>,
 }
 
@@ -136,6 +139,12 @@ impl Icons {
     /// Resolve and decode in the view, so a headless snapshot's first frame shows icons.
     pub fn set_sync(&mut self, sync: bool) {
         self.sync = sync;
+    }
+
+    /// Whether to look for an icon file in the project's directory when the server has none
+    /// (default on). OpenCode Desktop never does: it shows the server's image or the letter.
+    pub fn set_repo_icons(&mut self, on: bool) {
+        self.no_repo = !on;
     }
 
     /// Device pixels per point that marks and SVGs rasterize for (default 2).
@@ -186,10 +195,10 @@ impl Icons {
 
     /// The project's real icon once it's found and decoded.
     fn found(&self, p: &Project) -> Option<Shown> {
-        if p.directory.is_empty() && p.image.is_none() {
+        let server = p.image.filter(|u| find::is_data_image(u));
+        if server.is_none() && (p.directory.is_empty() || self.no_repo) {
             return None;
         }
-        let server = p.image.filter(|u| find::is_data_image(u));
         let stamp = server.map_or((0, 0), stamp);
         let dir = if p.directory.is_empty() { format!("id:{}", p.id) } else { p.directory.to_owned() };
         self.with(|inner| {
@@ -200,7 +209,8 @@ impl Icons {
                 (stale && !f.pending).then(|| {
                     f.pending = true;
                     f.server = stamp;
-                    Job { dir: dir.clone(), name: p.name.to_owned(), server: server.map(str::to_owned), previous: f.key.clone() }
+                    let previous = f.key.clone();
+                    Job { dir: dir.clone(), name: p.name.to_owned(), server: server.map(str::to_owned), repo: !self.no_repo, previous }
                 })
             };
             if let Some(job) = job {
@@ -373,7 +383,7 @@ fn run(cache: &ImageCache, job: &Job) -> Option<(Key, Option<Shown>)> {
             None => {}
         }
     }
-    if job.dir.is_empty() || job.dir.starts_with("id:") {
+    if !job.repo || job.dir.is_empty() || job.dir.starts_with("id:") {
         return None;
     }
     let mut cands = find::candidates(Path::new(&job.dir), &job.name);

@@ -110,3 +110,27 @@ fn marks_are_stable_rounded_and_differ_by_name() {
     }
     assert_eq!(Style::from_name("mesh"), Some(Style::Mesh));
 }
+
+#[test]
+fn icon_files_in_the_directory_can_be_turned_off() {
+    let root = std::env::temp_dir().join(format!("project-icon-repo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("apps/desktop/assets")).unwrap();
+    // Seer's repo: the Rune app's icon two folders down, which isn't the project's own.
+    let data = png(128, 128, 255);
+    let mut icns = b"icns\0\0\0\0".to_vec();
+    icns.extend_from_slice(b"ic07");
+    icns.extend_from_slice(&(data.len() as u32 + 8).to_be_bytes());
+    icns.extend_from_slice(&data);
+    std::fs::write(root.join("apps/desktop/assets/icon.icns"), icns).unwrap();
+    let dir = root.to_string_lossy().into_owned();
+    let p = Project { id: "p", name: "seer", directory: &dir, image: None, color: "" };
+    let mut icons = Icons::default();
+    icons.set_sync(true);
+    assert!(icons.found(&p).is_some());
+    let mut icons = Icons::default();
+    icons.set_sync(true);
+    icons.set_repo_icons(false);
+    assert!(icons.found(&p).is_none(), "Desktop shows the letter tile when the server has no image");
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -207,6 +207,7 @@ const APP_SCENES: &[&str] = &[
     "question-morph",
     "sidebar-closed",
     "status",
+    "tab-badges",
 ];
 
 const STORY_PATHS: &[&str] = &[

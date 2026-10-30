@@ -116,6 +116,7 @@ mod stories;
 mod subagents;
 mod switcher;
 mod tab_actions;
+mod tab_badges;
 mod tabs;
 mod terminal;
 mod themes;
@@ -310,6 +311,7 @@ impl App {
             reduced_motion: flag("--reduced-motion"),
             motion: appearance::Motion::new(flag("--reduced-motion")),
             debug: flag("--debug"),
+            icons: desktop_icons(),
             ..Default::default()
         }
     }
@@ -737,6 +739,14 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         }
     }
     changed
+}
+
+/// As in Desktop: the server's image for a project or its letter, never a file found in its
+/// folder (Seer's repo holds this app's icon, `~/code` every app's).
+fn desktop_icons() -> project_icon::Icons {
+    let mut icons = project_icon::Icons::default();
+    icons.set_repo_icons(false);
+    icons
 }
 
 fn setup(s: &mut App, waker: Waker) {
