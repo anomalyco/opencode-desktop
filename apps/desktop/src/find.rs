@@ -5,13 +5,12 @@
 //! so streaming replies only re-scan the changed part, and hashed per row so `rune::memo` only
 //! rebuilds mounted rows whose highlights or active match actually changed.
 
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
 use opencode_kit::model::{Assistant, Message, Part, Transcript};
-use rune::{Color, Cx, El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
+use rune::{Color, El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
 use rune_kit::markdown::{self, Case};
 use rune_theme_opencode::icons as ic;
 
@@ -21,24 +20,6 @@ use crate::{App, Route};
 
 const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
 const ACTIVE_KEY: &str = "find-active";
-
-#[derive(Clone, Default)]
-enum CenterPlan {
-    #[default]
-    None,
-    /// `v.before == 0`: exact scroll offset for `Tx::scroll_to` / `Tx::scroll_to_y`.
-    Offset { target_y: f32, diff: f32 },
-    /// `v.before > 0`: `at` below viewport top for `Tx::scroll_key_to(&row_key, at)`.
-    Anchor { at: f32 },
-}
-
-thread_local! {
-    /// Row keys `El::virtual_rows` mounted in the last commit, the timeline viewport size,
-    /// and the centred scroll target measured when `pending` is armed.
-    static MOUNTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    static VIEWPORT_SIZE: std::cell::Cell<[f32; 2]> = const { std::cell::Cell::new([800.0, 600.0]) };
-    static MEASURED_CENTER: std::cell::Cell<Option<CenterPlan>> = const { std::cell::Cell::new(None) };
-}
 
 #[derive(Clone, Default)]
 struct Saved {
@@ -52,7 +33,6 @@ struct Saved {
 struct Hit {
     row_key: String,
     local: usize,
-    start_byte: usize,
     end_byte: usize,
 }
 
@@ -68,16 +48,6 @@ struct CachedPart {
     len: usize,
     head_tail: u64,
     ranges: Vec<Vec<Range<usize>>>,
-}
-
-#[derive(Clone, Debug)]
-struct PendingSeek {
-    session: String,
-    row_key: String,
-    first_key: String,
-    glide: bool,
-    wait_mount: bool,
-    tries: u8,
 }
 
 #[derive(Default)]
@@ -96,7 +66,6 @@ pub struct Find {
     parts: HashMap<(String, usize), CachedPart>,
     matches: Vec<Hit>,
     rows: HashMap<String, RowHits>,
-    pending: Option<PendingSeek>,
 }
 
 impl Find {
@@ -155,23 +124,6 @@ impl Find {
                 (rs.as_slice(), hl)
             })
             .collect()
-    }
-
-    pub(crate) fn clear_mounted(&self, scroll_key: &str) {
-        if self.open {
-            if let Some(sz) = rune::memo::layout_size(scroll_key) {
-                VIEWPORT_SIZE.set(sz);
-            }
-            MOUNTED.with_borrow_mut(HashSet::clear);
-        }
-    }
-
-    pub(crate) fn note_mounted(&self, row_key: &str) {
-        if self.open {
-            MOUNTED.with_borrow_mut(|m| {
-                m.insert(row_key.to_owned());
-            });
-        }
     }
 }
 
@@ -292,7 +244,6 @@ impl App {
         self.find.input.preedit = None;
         self.find.active = 0;
         self.find.restore_composer = false;
-        self.find.pending = None;
         self.find.matches.clear();
         self.find.rows.clear();
         self.find.indexed_query.clear();
@@ -356,8 +307,7 @@ impl App {
         };
         let shown = self.bubble_text(id, &body);
         let quotes = !opencode_kit::model::user_quotes(id).is_empty() && !body.trim().is_empty();
-        let [vw, _] = VIEWPORT_SIZE.get();
-        let wrap_w = crate::fold::text_width(vw / self.zoom.max(1e-3), quotes);
+        let wrap_w = crate::fold::text_width(crate::fold::viewport_width(), quotes);
         if crate::fold::lines(&shown, wrap_w) <= crate::fold::OVER {
             return false;
         }
@@ -377,27 +327,16 @@ impl App {
         let Route::Session(sid) = self.route.clone() else { return };
         let idx = self.find.active_index();
         let Some(hit) = self.find.matches.get(idx).cloned() else { return };
-        let unfolded = self.unfold_if_hidden(&sid, &hit);
-        let first_key = self.transcripts.get(&sid).and_then(first_row_key).unwrap_or_default();
-        let mounted = MOUNTED.with_borrow(|m| m.contains(&hit.row_key));
-        let scroll_key = format!("scroll-{sid}");
-        let [_, vh] = VIEWPORT_SIZE.get();
-        let vh = vh.max(120.0);
-        if !mounted || unfolded {
-            // Unmounted virtual row or newly-unfolded prompt: reveal at once, and refine once laid out.
+        if self.unfold_if_hidden(&sid, &hit) {
             tx.instant();
-            tx.scroll_into_view_in(&scroll_key, &hit.row_key);
-            tx.scroll_into_view_in(&scroll_key, ACTIVE_KEY);
-            if !unfolded && hit.start_byte < 240 {
-                tx.scroll_key_to(&hit.row_key, (vh * 0.5 - 22.0).max(0.0));
-                self.find.pending = None;
-            } else {
-                self.find.pending = Some(PendingSeek { session: sid, row_key: hit.row_key, first_key, glide: false, wait_mount: true, tries: 2 });
-                tx.wake_after(std::time::Duration::ZERO);
-            }
+        }
+        let scroll_key = format!("scroll-{sid}");
+        if glide {
+            tx.scroll_center_in(&scroll_key, &hit.row_key);
+            tx.scroll_center_in(&scroll_key, ACTIVE_KEY);
         } else {
-            self.find.pending = Some(PendingSeek { session: sid, row_key: hit.row_key, first_key, glide, wait_mount: false, tries: 2 });
-            tx.wake_after(std::time::Duration::ZERO);
+            tx.scroll_center_in_instant(&scroll_key, &hit.row_key);
+            tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
         }
     }
 
@@ -426,7 +365,6 @@ impl App {
         self.find.input = TextEdit::new(restored.query);
         self.find.active = restored.active;
         self.find.restore_composer = restored.restore_composer;
-        self.find.pending = None;
         self.find.matches.clear();
         self.find.rows.clear();
         self.find.indexed_session.clear();
@@ -492,9 +430,8 @@ impl App {
             };
             if !ranges.is_empty() {
                 for (local, rs) in ranges.iter().enumerate() {
-                    let start_byte = rs.first().map_or(0, |r| r.start);
-                    let end_byte = rs.last().map_or(start_byte, |r| r.end);
-                    matches.push(Hit { row_key: row_key.clone(), local, start_byte, end_byte });
+                    let end_byte = rs.last().map_or(0, |r| r.end);
+                    matches.push(Hit { row_key: row_key.clone(), local, end_byte });
                 }
                 let version = row_hash(&ranges, None);
                 rows.insert(row_key, RowHits { ranges, active: None, version });
@@ -556,7 +493,6 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
     s.find.active = 0;
     s.sync_find_index();
     if s.find.matches.is_empty() {
-        s.find.pending = None;
         tx.instant();
         return;
     }
@@ -564,93 +500,17 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
     s.seek_active(false, tx);
 }
 
-fn first_row_key(t: &Transcript) -> Option<String> {
-    t.messages.first().map(|m| match m {
-        Message::User { id, .. } => format!("u-{id}"),
-        Message::Assistant(a) => format!("t-{}-0", a.id),
-        Message::Note { id, .. } => format!("n-{id}"),
-        Message::Compaction(c) => format!("cmp-{}", c.id),
-    })
-}
-
-/// Captures the centred scroll target during `view` only on the single frame `pending` is armed,
-/// so normal scrolling and streaming read zero layout rects.
-pub fn measure(s: &App, cx: &Cx<App>) {
-    let Some(p) = s.find.pending.as_ref().filter(|p| !p.wait_mount) else {
-        MEASURED_CENTER.set(None);
-        return;
-    };
-    let scroll_key = format!("scroll-{}", p.session);
-    let (Some(scroll), Some(stack), Some(row), Some(mark)) =
-        (cx.layout(&scroll_key), cx.layout("timeline"), cx.layout(&p.row_key), cx.layout(ACTIVE_KEY))
-    else {
-        MEASURED_CENTER.set(None);
-        return;
-    };
-    let top_mounted = !p.first_key.is_empty() && MOUNTED.with_borrow(|m| m.contains(&p.first_key));
-    if top_mounted {
-        let offset = scroll[1] - stack[1];
-        let rel_y = mark[1] - scroll[1];
-        let want_y = ((scroll[3] - mark[3]) * 0.5).max(0.0);
-        let target_y = (offset + rel_y - want_y).max(0.0);
-        MEASURED_CENTER.set(Some(CenterPlan::Offset { target_y, diff: (rel_y - want_y).abs() }));
-    } else {
-        // When `virtual_rows` culled rows above the window (`v.before > 0`), `mark[1] - row[1]`
-        // cancels `v.before` out and `Tx::scroll_key_to` anchors `row_key` from unshifted layout.
-        let in_row = mark[1] - row[1];
-        let at = scroll[3] * 0.5 - (in_row + mark[3] * 0.5);
-        MEASURED_CENTER.set(Some(CenterPlan::Anchor { at }));
-    }
-}
-
-pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+pub fn poll(s: &mut App) -> bool {
     let cur = match &s.route {
         Route::Session(id) if !s.settings.open => id.as_str(),
         _ => "",
     };
-    if !s.find.open && s.find.pending.is_none() && s.find.session == cur && !s.find.saved.contains_key(cur) {
+    if !s.find.open && s.find.session == cur && !s.find.saved.contains_key(cur) {
         return false;
     }
     let was_fp = (s.find.indexed_fp, s.find.matches.len());
     s.sync_find_index();
-    let changed = s.find.open && (s.find.indexed_fp, s.find.matches.len()) != was_fp;
-    if let Some(mut p) = s.find.pending.take() {
-        if p.wait_mount {
-            p.wait_mount = false;
-            s.find.pending = Some(p);
-            tx.instant();
-            tx.wake_after(std::time::Duration::ZERO);
-            return true;
-        }
-        match MEASURED_CENTER.take() {
-            Some(CenterPlan::Offset { target_y, diff }) => {
-                if diff > 1.0 {
-                    let scroll_key = format!("scroll-{}", p.session);
-                    if p.glide && !s.reduced_motion {
-                        tx.scroll_to(&scroll_key, 0.0, target_y);
-                    } else {
-                        tx.instant();
-                        tx.scroll_to_y(&scroll_key, target_y);
-                    }
-                    return true;
-                }
-            }
-            Some(CenterPlan::Anchor { at }) => {
-                tx.instant();
-                tx.scroll_key_to(&p.row_key, at);
-                return true;
-            }
-            Some(CenterPlan::None) => {}
-            None if p.tries > 1 => {
-                p.tries -= 1;
-                s.find.pending = Some(p);
-                tx.wake_after(std::time::Duration::ZERO);
-                return true;
-            }
-            None => {}
-        }
-    }
-    changed
+    s.find.open && (s.find.indexed_fp, s.find.matches.len()) != was_fp
 }
 
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;

@@ -20,6 +20,15 @@ pub const SHOW: usize = 8;
 /// The fade at the folded edge (Desktop's mask: the last 40 px).
 const FADE: f32 = 40.0;
 
+thread_local! {
+    static VIEWPORT_W: std::cell::Cell<f32> = const { std::cell::Cell::new(CONTENT_W + 48.0) };
+}
+
+/// Last measured timeline viewport width (in zoomed shell points).
+pub fn viewport_width() -> f32 {
+    VIEWPORT_W.get()
+}
+
 /// Where a prompt's bubble is laid out, for folding it: the timeline viewport's width, and
 /// whether the row's top is scrolled above it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,6 +49,7 @@ pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
         .then(|| rune::memo::layout_with(&format!("scroll-{session}"), move |r| (r[2] / zoom).min(CONTENT_W + 48.0)))
         .flatten()
         .unwrap_or(CONTENT_W + 48.0);
+    VIEWPORT_W.set(viewport);
     let top = any_open.then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
     move |id| {
         let past = top.is_some_and(|top| s.expanded.contains(&key(id)) && rune::memo::layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));

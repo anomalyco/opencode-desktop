@@ -213,7 +213,6 @@ impl RowSpec {
     }
 
     fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
-        s.find.note_mounted(&self.key);
         #[cfg(test)]
         let eager = EAGER_ROWS.get();
         #[cfg(not(test))]
@@ -387,8 +386,6 @@ const END: f32 = 24.0;
 /// `lane` is the room under the last row, beyond `END`, for what floats over the timeline's
 /// bottom edge.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
-    let scroll_key = format!("scroll-{id}");
-    s.find.clear_mounted(&scroll_key);
     let e = edge::FEATHER;
     let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
     let mut stack = col()

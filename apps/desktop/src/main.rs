@@ -682,7 +682,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
-    changed |= find::poll(s, tx);
+    changed |= find::poll(s);
     changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
