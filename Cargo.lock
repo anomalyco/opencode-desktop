@@ -3247,6 +3247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-fx"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=a4ef91dbbba264d57a85187934e6c5b594bad112#a4ef91dbbba264d57a85187934e6c5b594bad112"
+dependencies = [
+ "bytemuck",
+ "rune-motion",
+ "rune-staging",
+ "wgpu",
+]
+
+[[package]]
 name = "rune-kit"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=a4ef91dbbba264d57a85187934e6c5b594bad112#a4ef91dbbba264d57a85187934e6c5b594bad112"
@@ -3537,6 +3548,7 @@ dependencies = [
  "procwatch",
  "project-icon",
  "rune",
+ "rune-fx",
  "rune-kit",
  "rune-knobs",
  "rune-mac",
