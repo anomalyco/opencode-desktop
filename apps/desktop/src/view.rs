@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use rune::{
     Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
-    Align, Shadow, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
+    Align, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
 
 use rune_kit::{Markdown, MarkdownStyle};

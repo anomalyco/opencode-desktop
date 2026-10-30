@@ -66,12 +66,11 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
         .corners([10.0, top, end, 10.0])
         .fill(if pending.is_some() { p.layer1 } else { p.layer2 });
     if glow > 0.0 {
-        // A soft inner glow and a slight lift, under the text.
-        let (rim, lift) = if p.dark { (p.accent.mix(Color::WHITE, 0.45), p.text) } else { (p.accent, Color::WHITE) };
+        // A quiet surface lift under the text, with no glow rim.
+        let lift = if p.dark { p.text } else { Color::WHITE };
         bubble = bubble.child(
             el().key("glow").absolute(0.0, 0.0).w_full().h_full().corners([10.0, top, end, 10.0])
                 .fill(lift.alpha(0.1))
-                .box_shadow(Shadow { blur: 14.0, color: rim.alpha(0.55), inset: true, ..Shadow::default() })
                 .opacity(glow)
                 .opacity_motion(INSTANT),
         );
