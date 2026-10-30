@@ -3518,6 +3518,7 @@ name = "seer-note-web"
 version = "0.0.1"
 dependencies = [
  "js-sys",
+ "libc",
  "rune",
  "rune-kit",
  "rune-knobs",
