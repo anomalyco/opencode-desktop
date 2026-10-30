@@ -5,7 +5,7 @@ set -euo pipefail
 # `~/Library/Application Support/co.anomaly.opencode/browser-engine/<version>/`
 # (or a custom directory passed as `$1`).
 
-ENGINE_VERSION="156.0.14"
+ENGINE_VERSION="156.0.14.1"
 DEST_ROOT="${1:-$HOME/Library/Application Support/co.anomaly.opencode/browser-engine/$ENGINE_VERSION}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,8 +39,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>co.anomaly.opencode.browser-engine</string>
   <key>CFBundleExecutable</key><string>opencode-browser-engine</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>156.0.14</string>
-  <key>CFBundleShortVersionString</key><string>156.0.14</string>
+  <key>CFBundleVersion</key><string>156.0.14.1</string>
+  <key>CFBundleShortVersionString</key><string>156.0.14.1</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -73,8 +73,8 @@ for SUFFIX in "Helper" "Helper (GPU)" "Helper (Renderer)" "Helper (Plugin)" "Hel
   <key>CFBundleIdentifier</key><string>co.anomaly.opencode.browser-engine.$ID_SUFFIX</string>
   <key>CFBundleExecutable</key><string>$HNAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleVersion</key><string>156.0.14</string>
-  <key>CFBundleShortVersionString</key><string>156.0.14</string>
+  <key>CFBundleVersion</key><string>156.0.14.1</string>
+  <key>CFBundleShortVersionString</key><string>156.0.14.1</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>LSEnvironment</key><dict>

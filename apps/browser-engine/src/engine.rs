@@ -1,7 +1,6 @@
 //! Multi-tab CEF OSR manager inside the sidecar process.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -21,12 +20,13 @@ use crate::handlers::{
     TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, ViewRectState, ascii_vk,
     cef_mods, mac_key_code, named_codes,
 };
+use crate::profile::Profile;
 use crate::wire::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
 };
 
 pub struct CefRuntime {
-    cache_dir: PathBuf,
+    profile: Profile,
     #[cfg(target_os = "macos")]
     _loader: cef::library_loader::LibraryLoader,
 }
@@ -46,11 +46,7 @@ impl CefRuntime {
 
         let _ = cef::api_hash(sys::CEF_API_VERSION_LAST, 0);
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        let cache_dir = PathBuf::from(home)
-            .join("Library/Caches/co.anomaly.opencode/cef-profile")
-            .join(format!("pid-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&cache_dir);
+        let profile = Profile::open();
 
         let exe_str = std::env::current_exe()
             .ok()
@@ -65,7 +61,9 @@ impl CefRuntime {
             windowless_rendering_enabled: 1,
             external_message_pump: 1,
             no_sandbox: 1,
-            root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
+            cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
+            persist_session_cookies: 1,
             log_severity: sys::cef_log_severity_t::LOGSEVERITY_WARNING.into(),
             ..Default::default()
         };
@@ -73,7 +71,7 @@ impl CefRuntime {
         assert_eq!(ok, 1, "cef::initialize failed");
 
         Self {
-            cache_dir,
+            profile,
             #[cfg(target_os = "macos")]
             _loader: loader,
         }
@@ -83,7 +81,9 @@ impl CefRuntime {
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
-        let _ = std::fs::remove_dir_all(&self.cache_dir);
+        if self.profile.temporary {
+            let _ = std::fs::remove_dir_all(&self.profile.root);
+        }
     }
 }
 

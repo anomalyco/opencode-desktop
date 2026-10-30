@@ -9,22 +9,22 @@ use std::sync::{Arc, Mutex};
 use rune::Waker;
 use sha2::{Digest, Sha256};
 
-pub const ENGINE_VERSION: &str = "156.0.14";
+pub const ENGINE_VERSION: &str = "156.0.14.1";
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 pub const ENGINE_BIN_REL: &str = "Contents/MacOS/opencode-browser-engine";
-/// Approximate archive size in decimal megabytes (`128_352_035` bytes), shown in the one-time download prompt.
+/// Approximate archive size in decimal megabytes (`128_330_085` bytes), shown in the one-time download prompt.
 pub const ENGINE_DOWNLOAD_MB: u64 = 128;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub const ENGINE_DEFAULT_URL: Option<&str> = Some(
-    "https://github.com/anomalyco/seer/releases/download/browser-engine-156.0.14/OpenCode-Browser-Engine-156.0.14-macos-arm64.zip",
+    "https://github.com/anomalyco/seer/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
 );
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub const ENGINE_DEFAULT_URL: Option<&str> = None;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub const ENGINE_DEFAULT_SHA256: Option<&str> =
-    Some("530aa7f0cce6efa1b9b302cab06db0b2c42dc883478c775193d61cc9437710d6");
+    Some("92291cae38cec0cf280e64ac3eb43cb77e0b44cdd3f304279a050fa8c69cfa18");
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub const ENGINE_DEFAULT_SHA256: Option<&str> = None;
 

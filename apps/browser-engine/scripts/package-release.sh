@@ -10,7 +10,7 @@
 #   package-release.sh --sign-zip <unsigned.zip> <out-dir> sign, notarize, staple & package release zip
 set -euo pipefail
 
-ENGINE_VERSION="156.0.14"
+ENGINE_VERSION="156.0.14.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ENGINE_DIR/Cargo.toml"

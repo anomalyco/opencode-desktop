@@ -444,3 +444,80 @@ fn page_zoom_is_remembered_per_site() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "{}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A cookie set before the engine quits is sent again after it relaunches (the profile persists).
+/// Run with `OPENCODE_BROWSER_ENGINE_SMOKE=1` and `OPENCODE_BROWSER_PROFILE` set to a scratch dir.
+#[test]
+fn live_engine_keeps_cookies_across_relaunch() {
+    if std::env::var("OPENCODE_BROWSER_ENGINE_SMOKE").as_deref() != Ok("1") {
+        return;
+    }
+    use std::io::Read;
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut s = stream;
+            let mut buf = [0u8; 4096];
+            let Ok(n) = s.read(&mut buf) else { continue };
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let cookie = req
+                .lines()
+                .find_map(|l| l.strip_prefix("Cookie: ").or_else(|| l.strip_prefix("cookie: ")))
+                .unwrap_or("none")
+                .to_owned();
+            let (extra, title) = if req.starts_with("GET /set") {
+                ("Set-Cookie: sid=signed-in; Max-Age=86400; Path=/\r\n", "set".to_owned())
+            } else {
+                ("", format!("cookie={cookie}"))
+            };
+            let body = format!("<title>{title}</title>");
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+
+    let sock_dir = std::env::temp_dir().join(format!("bp-cookie-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&sock_dir);
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let sock = sock_dir.join("live.sock");
+
+    let load = |url: String, want: &dyn Fn(&str) -> bool| -> (BrowserHost, String) {
+        let mut host = BrowserHost::with_socket(sock.clone());
+        host.set_waker(Arc::new(|| {}));
+        let id = host.open_tab(&url);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            host.poll();
+            if host.tab(id).is_some_and(|t| want(&t.title) && !t.loading) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let title = host.tab(id).map(|t| t.title.clone()).unwrap_or_default();
+        (host, title)
+    };
+    let quit = |mut host: BrowserHost| {
+        host.shutdown_sidecar();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while sock.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!sock.exists(), "engine exited");
+        std::thread::sleep(Duration::from_millis(300));
+    };
+
+    let (host, title) = load(format!("http://127.0.0.1:{port}/set"), &|t| t == "set");
+    assert_eq!(title, "set");
+    quit(host);
+
+    let (host, title) = load(format!("http://127.0.0.1:{port}/check"), &|t| t.starts_with("cookie="));
+    assert_eq!(title, "cookie=sid=signed-in", "the cookie survived the relaunch");
+    quit(host);
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}

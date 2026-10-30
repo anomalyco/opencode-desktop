@@ -7,6 +7,7 @@ mod engine;
 mod handlers;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod profile;
 mod wire;
 
 use std::io::{BufRead, BufReader, Write};
