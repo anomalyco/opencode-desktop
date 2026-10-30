@@ -51,6 +51,9 @@ pub struct Settings {
     pub reduce_motion: crate::appearance::ReduceMotion,
     /// The terminal's font, an index into the Terminal font knob's choices.
     pub terminal_font: usize,
+    /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
+    pub ui_font: usize,
+    pub code_font: usize,
 }
 
 impl Default for Settings {
@@ -66,6 +69,8 @@ impl Default for Settings {
             theme: crate::themes::DEFAULT.into(),
             reduce_motion: Default::default(),
             terminal_font: 0,
+            ui_font: 0,
+            code_font: 0,
         }
     }
 }
@@ -82,6 +87,8 @@ impl Settings {
             "theme": self.theme,
             "reduceMotion": self.reduce_motion.name(),
             "terminalFont": self.terminal_font,
+            "uiFont": crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name,
+            "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
         })
     }
 
@@ -97,6 +104,8 @@ impl Settings {
             theme: crate::themes::all()[crate::themes::index(v["theme"].as_str().unwrap_or_default())].id.clone(),
             reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(0, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
+            ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
+            code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
         }
     }
 }
@@ -440,7 +449,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2 };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2 };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

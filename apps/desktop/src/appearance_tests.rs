@@ -134,3 +134,78 @@ fn markdown_code_diffs_and_the_odometer_share_one_kit_that_follows_the_theme() {
     let before = rune::theme::with_blend(true, || rune_kit::syntax::SyntaxTheme::from_kit(rune_theme_opencode::kit(true)));
     assert_eq!(format!("{:?}", crate::code_view::CodeLook::new(&p).syntax), format!("{before:?}"), "the default's code keeps its colours");
 }
+
+/// `app` in a window with the app's own fonts and families, as it launches.
+fn launched(app: App, scale: f32) -> Runtime<App> {
+    let spec = crate::spec(App::empty);
+    let text = rune::text::TextSystem::new(spec.fonts, spec.families);
+    let mut rt = Runtime::with_text(app, crate::view::app, (1280.0, 820.0), rune::Env::new(true, scale), text);
+    rt.poll = Some(crate::poll);
+    frames(&mut rt, 2);
+    rt
+}
+
+/// Runs `set` as a handler and draws the frame after it; the rows the timeline built.
+fn switch(rt: &mut Runtime<App>, set: impl FnOnce(&mut App, &mut Tx)) -> usize {
+    crate::view::timeline_reset_row_builds();
+    rt.update(set);
+    frames(rt, 1);
+    crate::view::timeline_row_builds()
+}
+
+// Only the mono slot switches here: `rune::text::measure` follows the process's families, and
+// tests on other threads measure sans text. These take turns, since `font_epoch` is shared.
+static FONTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn picking_the_code_font_again_rebuilds_nothing_and_a_new_one_lays_out_again() {
+    let _turn = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rt = launched(App::fixture_session(), 1.0);
+    assert_eq!(rt.font_families(), (UI_FONTS[0].family, CODE_FONTS[0].family));
+    // Any update builds the few rows that aren't memoized (the open session's last turn).
+    let live = switch(&mut rt, |_, _| {});
+    let epoch = rune::text::font_epoch();
+    assert_eq!(switch(&mut rt, |s, tx| s.set_code_font(0, tx)), live, "the same font rebuilds no more than any update");
+    assert_eq!(rune::text::font_epoch(), epoch, "and changes no measured size");
+    let built = switch(&mut rt, |s, tx| s.set_code_font(1, tx));
+    assert_eq!(rt.font_families(), ("Inter", "CommitMono, IBM Plex Mono"));
+    assert!(built > live, "a new font builds the memoized rows again: {built} vs {live}");
+    assert_eq!(rt.state.settings.code_font, 1);
+    assert_eq!(crate::settings::Settings::from_json(&rt.state.settings.to_json()).code_font, 1, "saved by name");
+    switch(&mut rt, |s, tx| s.set_code_font(0, tx));
+    assert_eq!(rt.font_families().1, "IBM Plex Mono");
+}
+
+#[test]
+fn a_font_switch_drops_the_terminals_cached_cell_sizes() {
+    let _turn = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rt = launched(App::fixture_session(), 1.0);
+    let style = rune::TextStyle::new(13.0, 400.0).mono();
+    let first = crate::terminal::grid::cell_metrics(99, style);
+    let cached = crate::terminal::grid::cached_metrics();
+    assert_eq!(crate::terminal::grid::cell_metrics(99, style), first);
+    assert_eq!(crate::terminal::grid::cached_metrics(), cached, "a repeat is a cache hit");
+    switch(&mut rt, |s, tx| s.set_code_font(2, tx));
+    crate::terminal::grid::cell_metrics(99, style);
+    assert_eq!(crate::terminal::grid::cached_metrics(), cached + 1, "the switch measures again");
+    switch(&mut rt, |s, tx| s.set_code_font(0, tx));
+}
+
+#[test]
+fn the_font_rows_sit_after_theme_and_pick_by_name() {
+    let mut rt = settings();
+    let y = |rt: &Runtime<App>, k: &str| rt.find(k).unwrap_or_else(|| panic!("{k}")).1;
+    assert!(y(&rt, "theme-select") < y(&rt, "ui-font-select"));
+    assert!(y(&rt, "ui-font-select") < y(&rt, "code-font-select"));
+    assert!(y(&rt, "code-font-select") < y(&rt, "terminal-font-select"));
+    assert!(y(&rt, "terminal-font-select") < y(&rt, "reduce-motion-control"));
+    tap(&mut rt, "ui-font-select");
+    let menu = rt.popup_menu().expect("the UI font button opens a menu");
+    assert!(menu.find("0").is_some_and(|i| i.is_checked() && i.title() == "Inter"));
+    assert_eq!(menu.find("1").map(|i| i.title()), Some("SF Pro"));
+    rt.resolve_popup(None).unwrap();
+    assert_eq!(font_index(&CODE_FONTS, Some("SF Mono")), 2);
+    assert_eq!(font_index(&CODE_FONTS, Some("Comic Sans")), 0, "an unknown name is the default");
+    let s = crate::settings::Settings { ui_font: 1, code_font: 2, ..Default::default() };
+    assert_eq!(families(&s), ("System Font, Inter", "ui-monospace, IBM Plex Mono"));
+}

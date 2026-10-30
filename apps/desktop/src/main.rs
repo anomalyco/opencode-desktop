@@ -809,7 +809,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
             include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
             include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
         ],
-        families: ("Inter", "IBM Plex Mono"),
+        families: (appearance::UI_FONTS[0].family, appearance::CODE_FONTS[0].family),
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
@@ -836,13 +836,13 @@ fn main() {
     rune::prewarm_gpu();
     let _ = rune::set_app_icon(include_bytes!("../assets/icon.icns").as_slice());
     #[cfg(feature = "hot")]
-    rune::run(spec(App::new));
+    rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
     #[cfg(not(feature = "hot"))]
     {
         if !headless() {
             launch::defer();
         }
-        let app = rune_app(spec(App::new));
+        let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
         let handle = app.handle();
         let mut motion_log = motion_log::Log::default();
         let diagnostics = diagnostics::Diagnostics::default();

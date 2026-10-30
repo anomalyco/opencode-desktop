@@ -29,7 +29,7 @@ pub const PAD_Y: f32 = 8.0;
 const SCROLLBAR_W: f32 = 8.0;
 
 thread_local! {
-    static METRIC_CACHE: RefCell<HashMap<(u8, u32), (f32, f32)>> = RefCell::new(HashMap::new());
+    static METRIC_CACHE: RefCell<HashMap<(u8, u32, u64), (f32, f32)>> = RefCell::new(HashMap::new());
 }
 
 pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
@@ -37,7 +37,8 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
     let size = knobs.get(&TERM_SIZE).clamp(10.0, 22.0);
     let lh = (size * 1.45).round();
     let family = match choice {
-        1 => Family::Mono,
+        // By name, so the code font (the mono slot) doesn't change the terminal's.
+        1 => Family::Named("IBM Plex Mono"),
         2 => Family::SystemMono,
         _ => Family::Named("CommitMono"),
     };
@@ -49,7 +50,8 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
 }
 
 pub fn cell_metrics(choice: u8, style: TextStyle) -> (f32, f32) {
-    let key = (choice, style.size.to_bits());
+    // A font switch (Settings › Appearance) can change what a style's family resolves to.
+    let key = (choice, style.size.to_bits(), rune::text::font_epoch());
     METRIC_CACHE.with(|c| {
         if let Some(&m) = c.borrow().get(&key) {
             return m;
@@ -61,6 +63,12 @@ pub fn cell_metrics(choice: u8, style: TextStyle) -> (f32, f32) {
         c.borrow_mut().insert(key, pair);
         pair
     })
+}
+
+/// How many cell sizes `cell_metrics` holds on this thread.
+#[cfg(test)]
+pub fn cached_metrics() -> usize {
+    METRIC_CACHE.with(|c| c.borrow().len())
 }
 
 #[allow(clippy::too_many_arguments)]

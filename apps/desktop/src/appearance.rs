@@ -1,7 +1,7 @@
 //! Settings › Appearance, as Desktop has it (`settings/appearance/appearance.tsx`): colour
-//! scheme, theme (`themes.rs`), interface zoom, Reduce motion (System / On / Off) and the
-//! terminal font. Desktop's UI and code font rows wait on Rune: its sans and mono families are
-//! fixed when the window opens.
+//! scheme, theme (`themes.rs`), the UI, code and terminal fonts, interface zoom and Reduce
+//! motion (System / On / Off). Desktop's font rows take any family name; here they pick from
+//! the faces the app bundles or macOS always has, since Rune loads only those.
 
 use std::cell::Cell;
 
@@ -59,12 +59,69 @@ impl Motion {
 /// The Terminal font knob's choices (`terminal::TERM_FONT`), which the setting picks.
 pub const TERMINAL_FONTS: [&str; 3] = ["Commit Mono", "IBM Plex Mono", "SF Mono"];
 
-/// `--color-theme <id>` paints a run in one of Desktop's themes (`themes::all`).
+/// A font a row offers: its name, and the family list behind Rune's sans or mono slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Font {
+    pub name: &'static str,
+    pub family: &'static str,
+}
+
+const fn font(name: &'static str, family: &'static str) -> Font {
+    Font { name, family }
+}
+
+/// The UI font row's choices, Desktop's default (Inter) first.
+pub const UI_FONTS: [Font; 4] = [
+    font("Inter", "Inter"),
+    font("SF Pro", "System Font, Inter"),
+    font("IBM Plex Mono", "IBM Plex Mono, Inter"),
+    font("Commit Mono", "CommitMono, Inter"),
+];
+
+/// The code font row's choices, Desktop's default (IBM Plex Mono) first.
+pub const CODE_FONTS: [Font; 3] = [
+    font("IBM Plex Mono", "IBM Plex Mono"),
+    font("Commit Mono", "CommitMono, IBM Plex Mono"),
+    font("SF Mono", "ui-monospace, IBM Plex Mono"),
+];
+
+/// The index of the font named `name` in `fonts`, the default when there's none.
+pub fn font_index(fonts: &[Font], name: Option<&str>) -> usize {
+    fonts.iter().position(|f| Some(f.name) == name).unwrap_or(0)
+}
+
+/// The sans and mono families `settings` picks, as `AppSpec::families` and
+/// `Tx::set_font_families` take them.
+pub fn families(settings: &crate::settings::Settings) -> (&'static str, &'static str) {
+    (UI_FONTS[settings.ui_font.min(UI_FONTS.len() - 1)].family, CODE_FONTS[settings.code_font.min(CODE_FONTS.len() - 1)].family)
+}
+
+/// The families a window opens with: the saved settings (a fixture run's are the defaults),
+/// with `--ui-font` and `--code-font` applied as `apply_args` applies them.
+pub fn launch_families() -> (&'static str, &'static str) {
+    let mut settings = if crate::arg("--fixture").is_some() { Default::default() } else { crate::settings::load() };
+    apply_font_args(&mut settings);
+    families(&settings)
+}
+
+/// `--ui-font <name>` and `--code-font <name>` pick a row's font by name ("SF Pro").
+fn apply_font_args(settings: &mut crate::settings::Settings) {
+    if let Some(name) = crate::arg("--ui-font") {
+        settings.ui_font = font_index(&UI_FONTS, Some(&name));
+    }
+    if let Some(name) = crate::arg("--code-font") {
+        settings.code_font = font_index(&CODE_FONTS, Some(&name));
+    }
+}
+
+/// `--color-theme <id>` paints a run in one of Desktop's themes (`themes::all`); `--ui-font`
+/// and `--code-font` pick its fonts.
 pub fn apply_args(app: &mut App) {
     let args = rune::extra_args();
     if let Some(id) = args.iter().position(|a| a == "--color-theme").and_then(|i| args.get(i + 1)) {
         app.settings.theme = id.clone();
     }
+    apply_font_args(&mut app.settings);
 }
 
 /// Picks up a change in macOS's Reduce motion.
@@ -90,6 +147,22 @@ impl App {
         tx.instant();
         self.change_settings(|s| s.terminal_font = i);
         self.knobs.set(&crate::terminal::TERM_FONT, i as f32);
+    }
+
+    /// Switches the UI font in this frame: every window lays its text out again in it.
+    pub fn set_ui_font(&mut self, i: usize, tx: &mut Tx) {
+        tx.instant();
+        self.change_settings(|s| s.ui_font = i.min(UI_FONTS.len() - 1));
+        let (sans, mono) = families(&self.settings);
+        tx.set_font_families(sans, mono);
+    }
+
+    /// Switches the code font in this frame.
+    pub fn set_code_font(&mut self, i: usize, tx: &mut Tx) {
+        tx.instant();
+        self.change_settings(|s| s.code_font = i.min(CODE_FONTS.len() - 1));
+        let (sans, mono) = families(&self.settings);
+        tx.set_font_families(sans, mono);
     }
 
     /// Sets `reduced_motion` from the flag, the setting and the system; true when it changed.
@@ -130,15 +203,38 @@ impl App {
     }
 }
 
-/// The rows, in Desktop's order (its font rows come later).
+/// The rows, in Desktop's order.
 pub fn rows(s: &App, p: &Pal) -> Vec<(&'static str, &'static str, &'static str, El)> {
     vec![
         ("appearance", "Color scheme", "Choose whether OpenCode follows the system, light, or dark theme", crate::settings::scheme_control(s, p)),
         ("theme", "Theme", "Customise how OpenCode is themed.", theme_select(s, p)),
+        ("ui-font", "UI Font", "Customise the font used throughout the interface", ui_font_select(s, p)),
+        ("code-font", "Code Font", "Customise the font used in code blocks", code_font_select(s, p)),
+        ("terminal-font", "Terminal Font", "Customise the font used in the terminal", terminal_font_select(s, p)),
         ("zoom", "Zoom", "Make text and controls larger across the app. ⌘+ ⌘− ⌘0 do the same.", crate::settings::zoom_control(s, p)),
         ("reduce-motion", "Reduce motion", "Reduce animations or match your system", reduce_motion_control(s, p)),
-        ("terminal-font", "Terminal Font", "Customise the font used in the terminal", terminal_font_select(s, p)),
     ]
+}
+
+fn ui_font_select(s: &App, p: &Pal) -> El {
+    font_select(p, "ui-font-select", "Choose UI font", &UI_FONTS, s.settings.ui_font, App::set_ui_font)
+}
+
+fn code_font_select(s: &App, p: &Pal) -> El {
+    font_select(p, "code-font-select", "Choose code font", &CODE_FONTS, s.settings.code_font, App::set_code_font)
+}
+
+/// A font row's select: the current font's name, opening the choices over the button.
+fn font_select(p: &Pal, key: &'static str, label: &'static str, fonts: &'static [Font], current: usize, set: fn(&mut App, usize, &mut Tx)) -> El {
+    let current = current.min(fonts.len() - 1);
+    select(p, key, label, fonts[current].name).on_press_tx(move |_: &mut App, tx: &mut Tx| {
+        let menu = PopupMenu::picker(fonts.iter().enumerate().map(|(i, f)| (i.to_string(), f.name)), &current.to_string());
+        tx.popup_menu(menu, PopupAnchor::Key(key.into()), move |s: &mut App, picked, tx| {
+            if let Some(i) = picked.and_then(|i| i.parse().ok()) {
+                set(s, i, tx);
+            }
+        });
+    })
 }
 
 fn theme_select(s: &App, p: &Pal) -> El {
