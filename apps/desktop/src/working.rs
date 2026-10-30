@@ -1,4 +1,4 @@
-//! The Working row under a running turn: Desktop's spinner and its label, with a smooth sweep
+//! The Working row under a running turn: Desktop's label, with a smooth sweep
 //! of light across the words, tuned by the Working knobs (⌘⇧K, Working).
 //!
 //! The sweep is loops the renderer runs by itself, so nothing lays out again per frame. Its
@@ -18,7 +18,7 @@ use crate::knobs::{
     secs,
 };
 use crate::palette::Pal;
-use crate::view::{UI, activity_ring};
+use crate::view::UI;
 
 #[derive(Default)]
 pub struct Working {
@@ -80,17 +80,12 @@ pub fn sync(s: &mut App) -> bool {
     changed
 }
 
-/// The spinner and the label. Hidden, it is drawn still: its loops would keep waking frames.
+/// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
+/// loops would keep waking frames.
 pub(crate) fn row(s: &App, p: &Pal, session: &str, live: bool) -> El {
-    let ring = if live { activity_ring(p) } else { el().key("ring").size(RING, RING) };
-    rune::row().h(H).gap(GAP).center_y().child(ring).child(label(s, p, session, live && !s.reduced_motion))
+    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion))
 }
 
-const RING: f32 = 14.0;
-const GAP: f32 = 8.0;
-/// The ring and its gap, hung left of the text column so the words sit on it, as Desktop's
-/// Working does.
-pub(crate) const LEAD: f32 = RING + GAP;
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
 pub(crate) const LANE_PAD: f32 = 12.0;
 pub(crate) const H: f32 = 24.0;

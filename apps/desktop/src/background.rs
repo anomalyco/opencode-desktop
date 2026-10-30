@@ -135,7 +135,7 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     if !busy || blocking(s, session).is_empty() {
         return None;
     }
-    // Working's label, which sits on the column with its ring hung left of it, then the lane's gap.
+    // Working's label, which starts the column, then the lane's gap.
     let x = crate::working::width(s.working.label()) + 8.0;
     let y = crate::working::LANE_PAD + (crate::working::H - HINT_H) / 2.0;
     let hint = row()

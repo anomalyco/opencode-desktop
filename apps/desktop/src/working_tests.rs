@@ -32,9 +32,9 @@ fn play(rt: &mut Runtime<App>, secs: f64) {
     }
 }
 
-/// The Working label's looping elements (the spinner's aside).
+/// The Working label's looping elements.
 fn loops(rt: &Runtime<App>) -> Vec<ElementInfo> {
-    rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/working/") && !e.path.contains("/ring") && e.loop_phase.is_some()).collect()
+    rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/working/") && e.loop_phase.is_some()).collect()
 }
 
 fn sheen(rt: &Runtime<App>) -> ElementInfo {

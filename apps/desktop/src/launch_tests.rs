@@ -78,8 +78,9 @@ fn another_sessions_stream_does_not_redraw() {
     assert!(crate::poll(&mut app, 0.1, &mut Tx::default()), "its spinner starts");
 }
 
-fn spinner(rt: &rune::Runtime<App>) -> bool {
-    rt.elements().iter().any(|e| !e.exiting && e.path.contains("working") && e.key.as_deref() == Some("d0"))
+/// Working's shimmer, which sweeps only while the run is live.
+fn shimmer(rt: &rune::Runtime<App>) -> bool {
+    rt.elements().iter().any(|e| !e.exiting && e.path.contains("/working/") && e.key.as_deref() == Some("sheen"))
 }
 
 #[test]
@@ -102,7 +103,7 @@ fn a_run_that_ended_during_a_stream_gap_stops_after_reconnect() {
         rt.frame(1.0 / 120.0);
     }
     assert!(rt.state.busy(&id));
-    assert!(spinner(&rt), "the spinner shows");
+    assert!(shimmer(&rt), "Working shimmers");
 
     // The stream drops, the run ends in the gap, the stream comes back.
     send.send(Incoming::Reconnected).unwrap();
@@ -119,7 +120,7 @@ fn a_run_that_ended_during_a_stream_gap_stops_after_reconnect() {
         rt.frame(1.0 / 120.0);
     }
     assert!(rt.state.running.is_empty() && !rt.state.busy(&id));
-    assert!(!spinner(&rt), "the spinner is gone");
+    assert!(!shimmer(&rt), "the shimmer is gone");
     let working = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("working")).expect("the reserved row");
     assert_eq!(working.opacity, 0.0, "the Working row is hidden");
     assert!(!rt.frame(1.0 / 120.0), "and the window rests");
