@@ -7,6 +7,8 @@
 pub mod diff_nav;
 pub mod diff_state;
 pub mod diff_view;
+pub mod file_state;
+pub mod file_view;
 #[cfg(test)]
 mod tests;
 
@@ -22,6 +24,8 @@ use crate::palette::Pal;
 
 pub use diff_state::{DiffDocState, ExpandMode};
 pub use diff_view::DiffViewer;
+pub use file_state::{CodeDocState, FileLineSelection};
+pub use file_view::CodeViewer;
 
 pub const LINE_H: f32 = 20.0;
 pub const HEADER_H: f32 = 38.0;

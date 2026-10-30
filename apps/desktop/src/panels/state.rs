@@ -609,6 +609,9 @@ impl App {
         if key != crate::review::REVIEW_KEY {
             self.review.filter.focused = false;
         }
+        if !key.starts_with("file:") {
+            self.files.filter.focused = false;
+        }
         let pane = {
             let st = self.session_side_mut(&sid);
             let p = session_tab_pane(&st.tab_state.tabs, key);

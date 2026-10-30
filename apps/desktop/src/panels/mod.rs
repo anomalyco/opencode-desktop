@@ -131,6 +131,10 @@ impl ShortcutChord {
         Self { key: 'j', cmd: true, ctrl: false, alt: false, shift: false, hint: "⌘J" }
     }
 
+    pub const fn cmd_p() -> Self {
+        Self { key: 'p', cmd: true, ctrl: false, alt: false, shift: false, hint: "⌘P" }
+    }
+
     pub const fn ctrl_backtick() -> Self {
         Self { key: '`', cmd: false, ctrl: true, alt: false, shift: false, hint: "⌃`" }
     }
@@ -240,6 +244,11 @@ impl PanelTabDesc {
 
     pub fn transient(mut self) -> Self {
         self.transient = true;
+        self
+    }
+
+    pub fn missing(mut self, missing: bool) -> Self {
+        self.missing = missing;
         self
     }
 

@@ -29,6 +29,7 @@ mod disclosure;
 mod disk;
 mod dropzone;
 mod events;
+mod files;
 mod find;
 mod find_stories;
 #[cfg(test)]
@@ -253,6 +254,7 @@ pub struct App {
     pub side: panels::SideState,
     pub browser: browser::BrowserPane,
     pub review: review::ReviewPane,
+    pub files: files::FilesPane,
     pub terminal: terminal::TerminalPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
@@ -707,6 +709,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.home_search.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
     s.review.set_waker(waker.clone());
+    s.files.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker);
     if !s.playback.is_empty() {

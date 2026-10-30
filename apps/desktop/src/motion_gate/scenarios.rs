@@ -572,6 +572,7 @@ const ACTIONS: &[Action] = &[
     } },
     Action { name: "side-region", circs: || vec![Circ::default()], run: super::panels::side_region },
     Action { name: "review", circs: || vec![Circ::default()], run: super::panels::review },
+    Action { name: "files", circs: || vec![Circ::default()], run: super::panels::files },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();
         cmd.cmd = true;

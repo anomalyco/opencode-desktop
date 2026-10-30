@@ -373,6 +373,7 @@ impl App {
             Action::Command(Command::ToggleSidePanel) => self.toggle_side_region(tx),
             Action::Command(Command::OpenProject) => self.open_project_dialog(tx),
             Action::Command(Command::SelectProject) => self.toggle_project_switcher(tx),
+            Action::Panel("file") => self.open_file_palette(tx),
             Action::Panel(plugin) => {
                 if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
                     if p.region == crate::panels::PanelRegion::Dock && p.open_launcher.is_none() {

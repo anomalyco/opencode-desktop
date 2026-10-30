@@ -188,6 +188,10 @@ const ORDER: &[&str] = &[
     "Side panel/Side region",
     "Browser/Pane",
     "Terminal/Pane",
+    "Review/Changes",
+    "Review/Inline diff",
+    "Files/Pane",
+    "Files/Quick open (⌘P)",
     "Projects/Open project",
     "Projects/Project switcher",
 ];

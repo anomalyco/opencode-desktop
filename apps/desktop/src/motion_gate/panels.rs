@@ -58,3 +58,33 @@ pub fn review(r: &mut Run) {
     r.rec.loads.push(r.rec.frames - 1);
     r.play_out(0.8);
 }
+
+pub fn files(r: &mut Run) {
+    r.act("seed file open", |rt| {
+        rt.update(|s, tx| {
+            s.open_workspace_file("src/net/stream.ts", false, Some(12), tx);
+            tx.settle();
+        });
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.15);
+    r.act("toggle file tree", |rt| Run::tap(rt, "files-tree-toggle"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("open ⌘P", |rt| {
+        rt.update(|s, tx| s.open_file_palette(tx));
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("close ⌘P", |rt| {
+        rt.update(|s, tx| {
+            tx.instant();
+            s.close_file_palette(true);
+        });
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("close side region", |rt| Run::tap(rt, "side-toggle"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play_out(0.8);
+}
