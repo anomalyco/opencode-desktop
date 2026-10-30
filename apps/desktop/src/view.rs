@@ -95,6 +95,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::session_menu_view::confirm(s, p));
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
+    inner = inner.children(crate::panels::view::context_menus(s, p));
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {
         let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
         if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() }
@@ -123,12 +124,18 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let open = s.sidebar_open;
+    let win_w = if s.right_column_open() {
+        cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
+    } else {
+        0.0
+    };
     let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft | Route::Home)) || s.attach.drop.over;
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom))
     } else {
         (0.0, 0.0)
     };
+    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, cx);
     let mut root = row()
         .key("window")
         .role("window")
@@ -144,13 +151,20 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .ml(8.0)
                 .mt(8.0)
                 .mr(8.0)
-                .mb(8.0)
+                .mb(8.0 + bottom_reserve)
                 .radius(10.0)
                 .fill(p.bg_base)
                 .border(0.5, p.ring)
                 .shadow(2.0, 4.0, p.shadow)
                 .shadow(1.0, 2.0, p.shadow)
                 .clip_soft(0.0)
+                .motion(crate::panels::view::SIDE_SPRING)
+                .on_press(|s: &mut App| {
+                    s.side.focused = false;
+                    s.side.dock_focused = false;
+                    s.side.tab_menu = None;
+                    s.side.add_menu = None;
+                })
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::dropzone::drop)
                 .on_drop_hover(crate::dropzone::hover)
@@ -161,17 +175,24 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
-        .children(crate::browser::view::aside(s, p))
+        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx))
         // The empty inset above the panels moves the window, as the titlebar does.
         .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(8.0).window_drag());
+    if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
+        let left = if open { w } else { 0.0 };
+        root = root.child(
+            dock.pin(Some(left), None, Some(0.0), Some(0.0))
+                .motion(crate::panels::view::SIDE_SPRING),
+        );
+    }
     if open {
         root = root.child(resize_handle(s, p, w));
     }
-    if s.browser.open {
-        let win_w = cx.layout_size("zoomed").map_or(0.0, |[w, _]| w);
-        if let Some(handle) = crate::browser::view::resize_handle(s, p, win_w) {
-            root = root.child(handle);
-        }
+    if let Some(handle) = crate::panels::view::resize_handle(s, p, win_w) {
+        root = root.child(handle);
+    }
+    if let Some(toggle) = crate::panels::view::side_toggle(s, p) {
+        root = root.child(toggle);
     }
     root = root.child(sidebar_toggle(p, open, w));
     root

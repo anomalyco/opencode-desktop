@@ -17,7 +17,6 @@ mod attachments;
 mod background;
 mod background_stories;
 mod browser;
-mod browser_stories;
 mod capsule_stories;
 mod compaction;
 mod compaction_stories;
@@ -57,6 +56,7 @@ mod open_story;
 #[cfg(test)]
 mod open_story_tests;
 mod palette;
+pub mod panels;
 #[cfg(test)]
 mod perf;
 mod picker_stories;
@@ -89,6 +89,7 @@ mod session_open;
 mod session_pages;
 mod settings;
 mod shortcuts;
+mod side_stories;
 mod slash;
 mod stories;
 mod subagents;
@@ -237,6 +238,7 @@ pub struct App {
     waker: Option<Waker>,
     launch: launch::Launch,
     pub icons: project_icon::Icons,
+    pub side: panels::SideState,
     pub browser: browser::BrowserPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
@@ -669,7 +671,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_commands();
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
-    changed |= s.poll_browser(tx);
+    changed |= s.poll_panels(tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {
@@ -716,7 +718,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     history::install(
         rune::App::new(spec)
             .playground(stories::playground())
-            .on_ime(|s, ime, _| s.browser_ime(ime))
+            .on_ime(|s, ime, _| s.panels_ime(ime))
             .chrome(rune::Chrome {
                 full_size_content: true,
                 traffic_lights: Some((25.0, 25.0)),

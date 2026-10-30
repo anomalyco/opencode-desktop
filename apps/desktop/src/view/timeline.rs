@@ -110,24 +110,34 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         .key("usage")
         .gap(6.0)
         .center_y()
-        // Its numbers widen to the left; the row slides on their spring, so they roll in place.
+        // Its numbers widen to the left; the row slides on their spring, so they roll in place,
+        // while `ride_trailing` keeps it locked to `header`'s right edge as the side region moves.
         .motion(crate::odometer::SPRING)
         .width_leads()
+        .ride_trailing()
         .child(ring(p, (ctx as f32 / limit).min(1.0)))
         .child(odometer_end(format!("ctx-{sid}"), model::tokens_short(ctx), ctx as f64, UI_SMALL, p.muted))
         .child(odometer_end(format!("cost-{sid}"), format!("${cost:.2}"), (cost * 100.0).round(), UI_SMALL, p.faint));
+    let reserve_side = !s.right_column_open() && s.stage.is_none();
     row()
         .key("header")
         .h(48.0)
         .pl(14.0)
         .pr(14.0)
-        .gap(8.0)
+        .gap(if reserve_side { 8.0 } else { 0.0 })
         .center_y()
         .window_drag()
+        .motion(crate::panels::view::SIDE_SPRING)
         .child(collapsed_slot(s))
-        .child(crumbs)
+        .child(crumbs.mr(if reserve_side { 0.0 } else { 8.0 }))
         .child(spacer())
         .children(t.filter(|_| last.is_some()).map(|_| usage))
+        .children(s.stage.is_none().then(|| {
+            el().key("header-side-slot")
+                .w(if reserve_side { 30.0 } else { 0.0 })
+                .h(28.0)
+                .motion(crate::panels::view::SIDE_SPRING)
+        }))
 }
 
 /// Context ring: a track circle and an arc, both icons built once per 1/32 step.

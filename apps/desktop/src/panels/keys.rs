@@ -1,0 +1,282 @@
+//! Panel polling, IME forwarding, and side/dock region keyboard shortcuts.
+
+use std::collections::HashSet;
+
+use rune::{Ime, Key, KeyEvent, Tx};
+
+use super::tabs::{SessionTabs, panel_key};
+use super::{PanelRegion, SessionPane};
+use crate::App;
+
+impl App {
+    pub fn select_adjacent_side_tab(&mut self, offset: i32, tx: &mut Tx) -> bool {
+        let Some(reg) = self.resolve_side_region() else { return false };
+        let pane = self.side.active_pane_focus;
+        let keys: Vec<&str> = reg.pane_entries(pane).into_iter().map(|e| e.key.as_str()).collect();
+        if keys.len() <= 1 {
+            return false;
+        }
+        let empty = SessionTabs::default();
+        let stored = self
+            .side
+            .sessions
+            .get(&reg.session_id)
+            .map_or(&empty, |s| &s.tab_state.tabs);
+        let cur = reg.pane_active(pane, stored);
+        if let Some(next) = crate::shortcuts::adjacent(&keys, cur.as_deref(), offset, |_| true) {
+            self.select_side_tab(&next, tx);
+            return true;
+        }
+        false
+    }
+
+    pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
+        let mut changed = false;
+        let has_stored_tabs = self
+            .active_session_id()
+            .and_then(|sid| self.side.sessions.get(sid))
+            .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
+        if has_stored_tabs
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            let panels = self.all_panels();
+            if let Some(st) = self.side.sessions.get_mut(&sid) {
+                for prov in panels.iter().filter(|p| p.region == PanelRegion::Side) {
+                    for &(old, new_id) in prov.legacy {
+                        for k in &mut st.tab_state.tabs.all {
+                            if k == old {
+                                *k = panel_key(prov.plugin, new_id);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if panels.iter().any(|p| p.region == PanelRegion::Side && p.transient)
+                && let Some(reg) = self.resolve_side_region()
+            {
+                let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();
+                let transient_prefixes: Vec<String> = panels
+                    .iter()
+                    .filter(|p| p.region == PanelRegion::Side && p.transient)
+                    .map(|p| format!("{}:", p.plugin))
+                    .collect();
+                if let Some(st) = self.side.sessions.get_mut(&sid) {
+                    let before = st.tab_state.tabs.all.len();
+                    st.tab_state.tabs.all.retain(|k| {
+                        listed.contains(k.as_str())
+                            || !transient_prefixes.iter().any(|pref| k.starts_with(pref))
+                    });
+                    if st.tab_state.tabs.all.len() != before {
+                        changed = true;
+                    }
+                }
+            }
+        }
+        // Static slice iteration on idle frames: 0 heap allocations.
+        for p in super::registered_panels() {
+            if let Some(poll) = p.poll {
+                changed |= poll(self, tx);
+            }
+        }
+        #[cfg(test)]
+        if !self.side.extra_panels.is_empty() {
+            let extras = self.side.extra_panels.clone();
+            for p in extras {
+                if let Some(poll) = p.poll {
+                    changed |= poll(self, tx);
+                }
+            }
+        }
+        changed
+    }
+
+    pub fn panels_ime(&mut self, ime: &Ime) -> bool {
+        let any_open = self.side_open() || self.dock_open() || self.bottom_open();
+        if !any_open || self.composer.focused {
+            return false;
+        }
+        for p in self.all_panels() {
+            if let Some(on_ime) = p.on_ime
+                && on_ime(self, ime)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn panels_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        let is_close_key = ev.mods.cmd
+            && !ev.mods.alt
+            && !ev.mods.ctrl
+            && !ev.mods.shift
+            && matches!(&ev.key, Key::Command('w' | 'W'));
+
+        if self.side.emptied_guard {
+            if is_close_key {
+                return true;
+            }
+            self.side.emptied_guard = false;
+        }
+
+        if ev.key == Key::Escape && (self.side.tab_menu.is_some() || self.side.add_menu.is_some()) {
+            tx.instant();
+            self.side.tab_menu = None;
+            self.side.add_menu = None;
+            return true;
+        }
+
+        let on_session = self.active_session_id().is_some() && !self.settings.open;
+        if !on_session {
+            return false;
+        }
+
+        // 1. Toggle side region: ⌥⌘B or Desktop's ⇧⌘R (`review.toggle`).
+        let toggle_alt_cmd_b = ev.mods.cmd
+            && ev.mods.alt
+            && !ev.mods.ctrl
+            && !ev.mods.shift
+            && matches!(&ev.key, Key::Command('b' | 'B'));
+        let toggle_shift_cmd_r = ev.mods.cmd
+            && ev.mods.shift
+            && !ev.mods.alt
+            && !ev.mods.ctrl
+            && matches!(&ev.key, Key::Command('r' | 'R'));
+        if toggle_alt_cmd_b || toggle_shift_cmd_r {
+            self.toggle_side_region(tx);
+            return true;
+        }
+
+        // 2. Registered panel global launcher shortcuts (e.g. ⌃⌘B Browser, ⌃⌘R Review, ⌃⌘P Files, ⌘J / ⌃` Terminal).
+        for p in self.all_panels() {
+            if let Some(sc) = p.shortcut
+                && sc.matches(ev)
+            {
+                if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
+                    self.toggle_dock(tx);
+                    return true;
+                }
+                if let Some(open_fn) = p.open_launcher {
+                    open_fn(self, p.default_pane, tx);
+                    return true;
+                }
+            }
+        }
+
+        // 3. ⌘J toggles the `Dock` region when any `PanelRegion::Dock` provider is registered,
+        //    or toggles `SessionPane::Bottom` when bottom tabs exist.
+        if ev.mods.cmd
+            && !ev.mods.alt
+            && !ev.mods.ctrl
+            && !ev.mods.shift
+            && matches!(&ev.key, Key::Command('j' | 'J'))
+        {
+            if self.has_dock_provider() {
+                self.toggle_dock(tx);
+                return true;
+            }
+            if self
+                .resolve_side_region()
+                .is_some_and(|r| r.strip.iter().any(|e| e.pane == SessionPane::Bottom))
+            {
+                self.toggle_bottom_region(tx);
+                return true;
+            }
+        }
+
+        let region_visible = self.side_open() || self.dock_open() || self.bottom_open();
+        if !region_visible {
+            return false;
+        }
+
+        // 4. Active panels' own scoped key handlers (e.g. Browser's ⌘L, ⌘R, ⇧⌘C, or Terminal's keys).
+        for p in self.all_panels() {
+            if let Some(on_key) = p.on_key
+                && on_key(self, ev, tx)
+            {
+                return true;
+            }
+        }
+
+        if !self.side.focused {
+            return false;
+        }
+
+        // 5. Side-region tab strip shortcuts when focus is in the side/bottom tab strip.
+        let m = ev.mods;
+        if is_close_key {
+            let sid = self.active_session_id().unwrap().to_owned();
+            let pane = self.side.active_pane_focus;
+            let pane_act = self.resolve_side_region().and_then(|reg| {
+                let empty = SessionTabs::default();
+                let stored = self.side.sessions.get(&sid).map_or(&empty, |s| &s.tab_state.tabs);
+                reg.pane_active(pane, stored)
+            });
+            if let Some(nt) = self.shown_new_tab(&sid, pane, pane_act.as_deref()).cloned() {
+                tx.instant();
+                self.dismiss_side_new_tab(&nt.id);
+                if !self.side_open() {
+                    self.side.emptied_guard = true;
+                }
+                return true;
+            }
+            if let Some(act_key) = pane_act {
+                self.close_side_tab(&act_key, tx);
+                if !self.side_open() && pane != SessionPane::Bottom {
+                    self.side.emptied_guard = true;
+                }
+                return true;
+            }
+            self.toggle_side_region(tx);
+            self.side.emptied_guard = true;
+            return true;
+        }
+
+        if m.cmd && !m.alt && !m.ctrl && !m.shift && matches!(&ev.key, Key::Command('t' | 'T')) {
+            tx.instant();
+            self.open_side_new_tab(self.side.active_pane_focus);
+            return true;
+        }
+
+        if m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command('t' | 'T')) {
+            return self.reopen_closed_side_tab(None, tx);
+        }
+
+        if m.cmd
+            && !m.alt
+            && !m.ctrl
+            && !m.shift
+            && let Key::Command(c @ '1'..='9') = ev.key
+        {
+            let idx = (c as usize) - ('1' as usize);
+            if let Some(reg) = self.resolve_side_region() {
+                let keys: Vec<String> = reg
+                    .pane_entries(self.side.active_pane_focus)
+                    .into_iter()
+                    .map(|e| e.key.clone())
+                    .collect();
+                let target = if idx == 8 { keys.last() } else { keys.get(idx) };
+                if let Some(k) = target {
+                    let k = k.clone();
+                    self.select_side_tab(&k, tx);
+                    return true;
+                }
+            }
+        }
+
+        let prev_bracket = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command('[' | '{'));
+        let next_bracket = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command(']' | '}'));
+        let prev_arrow = m.cmd && m.alt && !m.ctrl && !m.shift && ev.key == Key::Left;
+        let next_arrow = m.cmd && m.alt && !m.ctrl && !m.shift && ev.key == Key::Right;
+        let ctrl_tab = m.ctrl && !m.cmd && !m.alt && ev.key == Key::Tab;
+        if prev_bracket || prev_arrow || (ctrl_tab && m.shift) {
+            return self.select_adjacent_side_tab(-1, tx);
+        }
+        if next_bracket || next_arrow || (ctrl_tab && !m.shift) {
+            return self.select_adjacent_side_tab(1, tx);
+        }
+
+        false
+    }
+}

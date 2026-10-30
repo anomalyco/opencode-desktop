@@ -35,6 +35,7 @@ unsafe extern "C" {
         poly_poly: u32,
     ) -> KernReturn;
     fn mach_port_deallocate(task: MachPort, name: MachPort) -> KernReturn;
+    fn mach_port_mod_refs(task: MachPort, name: MachPort, right: u32, delta: i32) -> KernReturn;
     fn bootstrap_register2(
         bp: MachPort,
         service_name: *const c_char,
@@ -123,6 +124,7 @@ fn bootstrap_port() -> Result<MachPort, String> {
 
 pub struct MachReceiver {
     pub service_name: String,
+    recv_port: MachPort,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -208,7 +210,7 @@ impl MachReceiver {
             })
             .map_err(|e| e.to_string())?;
 
-        Ok(Self { service_name, stop, handle: Some(handle) })
+        Ok(Self { service_name, recv_port, stop, handle: Some(handle) })
     }
 }
 
@@ -217,6 +219,14 @@ impl Drop for MachReceiver {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(h) = self.handle.take() {
             let _ = h.join();
+        }
+        if self.recv_port != 0 {
+            unsafe {
+                let task = mach_task_self();
+                let _ = mach_port_deallocate(task, self.recv_port);
+                let _ = mach_port_mod_refs(task, self.recv_port, MACH_PORT_RIGHT_RECEIVE, -1);
+            }
+            self.recv_port = 0;
         }
     }
 }

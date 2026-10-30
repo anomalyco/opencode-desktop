@@ -40,13 +40,22 @@ pub struct Settings {
     pub scheme: Scheme,
     /// Fold prompts past 12 lines behind Read more (`fold.rs`). On unless turned off.
     pub fold_user: bool,
+    /// Where `PanelRegion::Dock` (Terminal) renders: `"side"` (default) or `"bottom"`.
+    pub terminal_placement: crate::panels::DockPlacement,
     /// Which events post a system notification (`notifications.rs`), with Desktop's defaults.
     pub notify: crate::notifications::Kinds,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { open: false, show_agent: false, scheme: Scheme::default(), fold_user: true, notify: Default::default() }
+        Settings {
+            open: false,
+            show_agent: false,
+            scheme: Scheme::default(),
+            fold_user: true,
+            terminal_placement: crate::panels::DockPlacement::Side,
+            notify: Default::default(),
+        }
     }
 }
 
@@ -56,6 +65,7 @@ impl Settings {
             "showAgentPicker": self.show_agent,
             "appearance": self.scheme.name(),
             "foldUserMessages": self.fold_user,
+            "terminalPlacement": self.terminal_placement.name(),
             "notifications": self.notify.to_json(),
         })
     }
@@ -66,6 +76,7 @@ impl Settings {
             show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(true),
+            terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
         }
     }
@@ -381,7 +392,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, notify: Default::default() };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default() };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

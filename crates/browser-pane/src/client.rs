@@ -40,6 +40,7 @@ pub struct BrowserTab {
     pub surface: NativeSurface,
     viewport_pt: (f32, f32),
     scale: f32,
+    sent_resize: Option<(f32, f32, f32)>,
 }
 
 pub struct BrowserHost {
@@ -51,12 +52,12 @@ pub struct BrowserHost {
     inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
     waker: Option<Waker>,
+    shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     socket_override: Option<PathBuf>,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
     cdp_responses: HashMap<u64, Result<Value, Value>>,
-    cdp_events: VecDeque<(u64, String, Value, Option<String>)>,
     picked: VecDeque<PickedElement>,
     #[cfg(target_os = "macos")]
     mach: Option<MachReceiver>,
@@ -85,16 +86,20 @@ impl BrowserHost {
             inbox_tx,
             inbox_rx,
             waker: None,
+            shell_shortcut: None,
             socket_override: None,
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
-            cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             #[cfg(target_os = "macos")]
             mach: None,
         }
+    }
+
+    pub fn set_shell_shortcut(&mut self, check: fn(&KeyEvent) -> bool) {
+        self.shell_shortcut = Some(check);
     }
 
     pub fn with_socket(socket: PathBuf) -> Self {
@@ -154,6 +159,7 @@ impl BrowserHost {
             surface,
             viewport_pt: (800.0, 600.0),
             scale: 2.0,
+            sent_resize: None,
         });
         self.focused_tab = Some(id);
         *self.status.lock().unwrap() = status;
@@ -181,6 +187,7 @@ impl BrowserHost {
             surface,
             viewport_pt: (800.0, 600.0),
             scale: 2.0,
+            sent_resize: None,
         });
         self.focused_tab = Some(id);
 
@@ -306,10 +313,6 @@ impl BrowserHost {
         self.cdp_responses.remove(&request_id)
     }
 
-    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = (u64, String, Value, Option<String>)> + '_ {
-        self.cdp_events.drain(..)
-    }
-
     pub fn drain_picked_elements(&mut self) -> impl Iterator<Item = PickedElement> + '_ {
         self.picked.drain(..)
     }
@@ -326,12 +329,18 @@ impl BrowserHost {
             match msg {
                 EngineMsg::Ready { .. } => {
                     *self.status.lock().unwrap() = EngineStatus::Ready;
+                    for t in &mut self.tabs {
+                        t.sent_resize = None;
+                    }
                     for (tab_id, url) in std::mem::take(&mut self.pending_opens) {
                         let ((width_pt, height_pt), scale) = self
                             .tabs
-                            .iter()
+                            .iter_mut()
                             .find(|t| t.id == tab_id)
-                            .map_or(((800.0, 600.0), 2.0), |t| (t.viewport_pt, t.scale));
+                            .map_or(((800.0, 600.0), 2.0), |t| {
+                                t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
+                                (t.viewport_pt, t.scale)
+                            });
                         self.send(HostMsg::OpenTab {
                             tab_id,
                             url,
@@ -380,13 +389,7 @@ impl BrowserHost {
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;
                 }
-                EngineMsg::CdpEvent { tab_id, method, params, session_id } => {
-                    self.cdp_events.push_back((tab_id, method, params, session_id));
-                    if self.cdp_events.len() > 256 {
-                        self.cdp_events.pop_front();
-                    }
-                    changed = true;
-                }
+                EngineMsg::CdpEvent { .. } => {}
                 EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } => {
                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(bgra_b64) {
                         if let Some(surface) = self.surfaces.lock().unwrap().get(&tab_id).cloned() {
@@ -451,11 +454,24 @@ impl BrowserHost {
                 let height_pt = h.max(1.0);
                 let sc = scale.max(1.0);
                 let host = access(s);
+                let connected = host.is_connected();
+                let mut should_send = false;
                 if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.viewport_pt = (width_pt, height_pt);
                     t.scale = sc;
+                    let changed = t.sent_resize.is_none_or(|(pw, ph, ps)| {
+                        (pw - width_pt).abs() > 0.5
+                            || (ph - height_pt).abs() > 0.5
+                            || (ps - sc).abs() > 0.01
+                    });
+                    if connected && changed {
+                        t.sent_resize = Some((width_pt, height_pt, sc));
+                        should_send = true;
+                    }
                 }
-                host.send(HostMsg::Resize { tab_id, width_pt, height_pt, scale: sc });
+                if should_send {
+                    host.send(HostMsg::Resize { tab_id, width_pt, height_pt, scale: sc });
+                }
             })
             .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {
                 access(s).send(HostMsg::MouseMove {
@@ -546,7 +562,7 @@ impl BrowserHost {
     }
 
     fn forward_key(&self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
-        if is_shell_shortcut(ev) {
+        if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;
         }
         if down && let Key::Command(c) = ev.key {
@@ -638,6 +654,7 @@ impl BrowserHost {
             surface,
             viewport_pt: (800.0, 600.0),
             scale: 2.0,
+            sent_resize: None,
         });
         true
     }

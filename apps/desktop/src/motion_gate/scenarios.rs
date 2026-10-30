@@ -546,18 +546,32 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
-    Action { name: "browser-split", circs: || vec![Circ::default()], run: |r| {
-        r.act("open browser", |rt| Run::tap(rt, "browser"));
+    Action { name: "side-region", circs: || vec![Circ::default()], run: |r| {
+        r.act("seed side tabs", |rt| {
+            rt.update(|s, tx| {
+                tx.settle();
+                s.open_new_browser_tab("http://localhost:3000/");
+                s.open_new_browser_tab("https://github.com/anomalyco/rune");
+            });
+        });
         r.rec.loads.push(r.rec.frames - 1);
-        r.quiet();
+        r.play(0.15);
+        r.act("close side region", |rt| Run::tap(rt, "side-toggle"));
+        r.rec.loads.push(r.rec.frames - 1);
         r.play(0.6);
+        r.act("reopen side region", |rt| Run::tap(rt, "side-toggle"));
+        r.rec.loads.push(r.rec.frames - 1);
+        r.play(0.6);
+        r.act("switch tab", |rt| {
+            rt.update(|s, tx| {
+                let _ = s.select_adjacent_side_tab(-1, tx);
+            });
+        });
+        r.rec.loads.push(r.rec.frames - 1);
+        r.play(0.3);
         r.type_prompt();
         r.enter(false);
         r.play_out(1.0);
-        r.act("close browser", |rt| Run::tap(rt, "browser-close"));
-        r.rec.loads.push(r.rec.frames - 1);
-        r.quiet();
-        r.play(0.6);
     } },
 ];
 

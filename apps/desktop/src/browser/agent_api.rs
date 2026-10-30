@@ -70,14 +70,9 @@ impl AgentServer {
                         Ok((mut stream, _)) => {
                             let _ = stream.set_nonblocking(false);
                             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                            let mut buf = vec![0u8; 65536];
-                            let n = stream.read(&mut buf).unwrap_or(0);
-                            if n == 0 {
+                            let Some(req) = read_http_json_body(&mut stream) else {
                                 continue;
-                            }
-                            let raw = String::from_utf8_lossy(&buf[..n]);
-                            let body_str = raw.split("\r\n\r\n").nth(1).unwrap_or("");
-                            let req: Value = serde_json::from_str(body_str).unwrap_or(Value::Null);
+                            };
                             let (rtx, rrx) = mpsc::channel();
                             if tx.send((req, rtx)).is_ok() {
                                 waker();
@@ -113,6 +108,47 @@ impl AgentServer {
             handle: Some(handle),
         })
     }
+
+    pub fn drop_tab_refs(&mut self, tab_id: u64) {
+        self.ref_nodes.retain(|(tid, _), _| *tid != tab_id);
+    }
+}
+
+fn read_http_json_body(stream: &mut std::net::TcpStream) -> Option<Value> {
+    let mut data = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let header_end = loop {
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            return None;
+        }
+        data.extend_from_slice(&chunk[..n]);
+        if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos + 4;
+        }
+        if data.len() > 65_536 {
+            return None;
+        }
+    };
+    let headers = String::from_utf8_lossy(&data[..header_end]);
+    let content_len = headers
+        .lines()
+        .find_map(|line| {
+            let (k, v) = line.split_once(':')?;
+            k.trim().eq_ignore_ascii_case("content-length").then(|| v.trim().parse::<usize>().ok())?
+        })
+        .unwrap_or(0)
+        .min(4 * 1024 * 1024);
+
+    while data.len() < header_end + content_len {
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&chunk[..n]);
+    }
+    let body = &data[header_end..(header_end + content_len).min(data.len())];
+    serde_json::from_slice(body).ok()
 }
 
 impl Drop for AgentServer {
@@ -188,21 +224,21 @@ fn handle_request(s: &mut App, api: &mut AgentServer, req: Value, reply: Sender<
                 .collect();
             let _ = reply.send(json!({
                 "ok": true,
-                "open": s.browser.open,
+                "open": s.side_open(),
                 "focusedTabID": s.browser.host.focused_tab_id(),
                 "tabs": tabs,
             }));
         }
         "tabs.open" => {
             let url = req["url"].as_str().unwrap_or("about:blank");
-            s.browser.open = true;
             let id = s.open_new_browser_tab(url);
             let _ = reply.send(json!({ "ok": true, "tabID": id }));
         }
         "tabs.focus" => {
             if let Some(id) = tab_id {
-                s.browser.open = true;
+                s.register_existing_browser_tab(id);
                 s.browser.host.focus_tab(id);
+                s.sync_browser_address(true);
                 let _ = reply.send(json!({ "ok": true, "tabID": id }));
             } else {
                 let _ = reply.send(json!({ "ok": false, "error": "no tabID" }));
@@ -210,10 +246,11 @@ fn handle_request(s: &mut App, api: &mut AgentServer, req: Value, reply: Sender<
         }
         "tabs.close" => {
             if let Some(id) = tab_id {
-                s.browser.host.close_tab(id);
-                if s.browser.host.tabs().is_empty() {
-                    s.browser.open = false;
-                }
+                api.drop_tab_refs(id);
+                let key = crate::panels::panel_key("browser", &id.to_string());
+                let mut tx = rune::Tx::default();
+                s.close_side_tab(&key, &mut tx);
+                s.sync_browser_address(true);
                 let _ = reply.send(json!({ "ok": true }));
             } else {
                 let _ = reply.send(json!({ "ok": false, "error": "no tabID" }));
@@ -223,6 +260,7 @@ fn handle_request(s: &mut App, api: &mut AgentServer, req: Value, reply: Sender<
             let url = req["url"].as_str().unwrap_or("about:blank");
             if let Some(id) = tab_id {
                 s.browser.host.navigate(id, url);
+                s.sync_browser_address(true);
                 let _ = reply.send(json!({ "ok": true, "tabID": id }));
             } else {
                 s.open_browser_url(url);

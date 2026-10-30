@@ -246,6 +246,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Frosted surfaces",
     "Timeline/Turn actions",
     "Navigation/Back and forward",
+    "Side panel/Side region",
     "Browser/Pane",
     "Projects/Open project",
     "Projects/Project switcher",

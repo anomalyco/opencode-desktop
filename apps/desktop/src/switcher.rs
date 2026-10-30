@@ -31,7 +31,7 @@ pub enum Command {
     Home,
     ToggleSidebar,
     Settings,
-    ToggleBrowser,
+    ToggleSidePanel,
     OpenProject,
     SelectProject,
 }
@@ -41,7 +41,7 @@ const COMMANDS: [(Command, &str, &str, &str); 7] = [
     (Command::Home, "home", "Home", "⌘B"),
     (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
     (Command::Settings, "settings", "Settings", "⌘,"),
-    (Command::ToggleBrowser, "browser", "Toggle browser", "⌥⌘B"),
+    (Command::ToggleSidePanel, "side", "Toggle side panel", "⌥⌘B"),
     (Command::OpenProject, "open-project", "Open project", "⌘O"),
     (Command::SelectProject, "select-project", "Search projects", "⇧⌘O"),
 ];
@@ -50,6 +50,7 @@ const COMMANDS: [(Command, &str, &str, &str); 7] = [
 pub enum Action {
     Session(String),
     Command(Command),
+    Panel(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -133,14 +134,15 @@ pub fn matches(e: &Entry, q: &str) -> bool {
     let id = match &e.action {
         Action::Session(id) => id.as_str(),
         Action::Command(_) => "",
+        Action::Panel(plugin) => plugin,
     };
-    let group = if matches!(e.action, Action::Command(_)) { e.group } else { "" };
+    let group = if matches!(e.action, Action::Command(_) | Action::Panel(_)) { e.group } else { "" };
     [e.title.as_str(), e.description.as_str(), id, group].iter().any(|t| t.to_lowercase().contains(&q))
 }
 
 /// `rankCommandPaletteEntries`: sessions lead, open tabs first and then the newest, then commands.
 pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
-    let kind = |e: &Entry| u8::from(matches!(e.action, Action::Command(_)));
+    let kind = |e: &Entry| u8::from(matches!(e.action, Action::Command(_) | Action::Panel(_)));
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
             (Action::Session(_), Action::Session(_)) => b.open.cmp(&a.open).then(b.updated.cmp(&a.updated)),
@@ -251,10 +253,33 @@ impl App {
             updated: Some(s.updated),
             open: self.tabs.iter().any(|t| t.id == s.id),
         });
+        let panel_cmds: Vec<Entry> = self
+            .all_panels()
+            .into_iter()
+            .filter_map(|p| {
+                let title = p.command_title?;
+                let hint = p.shortcut.map_or("", |s| s.hint);
+                Some(Entry {
+                    key: format!("panel:{}", p.plugin),
+                    action: Action::Panel(p.plugin),
+                    title: title.into(),
+                    project: String::new(),
+                    description: String::new(),
+                    hint,
+                    group: "Commands",
+                    updated: None,
+                    open: false,
+                })
+            })
+            .collect();
         if q.is_empty() {
             return commands.take(4).chain(sessions.take(RECENT)).collect();
         }
-        let found: Vec<Entry> = commands.filter(|e| matches(e, q)).chain(sessions.filter(|e| matches(e, q)).take(MATCHES)).collect();
+        let found: Vec<Entry> = commands
+            .chain(panel_cmds)
+            .filter(|e| matches(e, q))
+            .chain(sessions.filter(|e| matches(e, q)).take(MATCHES))
+            .collect();
         rank(found)
     }
 
@@ -313,9 +338,18 @@ impl App {
             Action::Command(Command::Home) => self.go_home(tx),
             Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
             Action::Command(Command::Settings) => self.open_settings(),
-            Action::Command(Command::ToggleBrowser) => self.toggle_browser(tx),
+            Action::Command(Command::ToggleSidePanel) => self.toggle_side_region(tx),
             Action::Command(Command::OpenProject) => self.open_project_dialog(tx),
             Action::Command(Command::SelectProject) => self.toggle_project_switcher(tx),
+            Action::Panel(plugin) => {
+                if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
+                    if p.region == crate::panels::PanelRegion::Dock && p.open_launcher.is_none() {
+                        self.toggle_dock(tx);
+                    } else if let Some(open_fn) = p.open_launcher {
+                        open_fn(self, p.default_pane, tx);
+                    }
+                }
+            }
         }
     }
 

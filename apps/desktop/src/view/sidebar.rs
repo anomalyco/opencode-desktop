@@ -100,9 +100,6 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             ))
             .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.new_session(tx),
-            ))
-            .child(action_row(p, "browser", &ic::GLOBE, "Browser", "", s.browser.open).on_press_tx(
-                |s: &mut App, tx: &mut Tx| s.toggle_browser(tx),
             )),
     )
     .child(el().key("tabs-gap").w_full().h(16.0))

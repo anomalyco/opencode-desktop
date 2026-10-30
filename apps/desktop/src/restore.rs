@@ -93,6 +93,7 @@ impl App {
         if let Some(sidebar) = v["sidebar"].as_bool() {
             self.sidebar_open = sidebar;
         }
+        self.side.restore_json(&v["side"]);
         self.show_draft();
         self.restore.saved = Some(self.ui_json());
         self.restore.stamp = Some(self.restore_stamp());
@@ -136,12 +137,18 @@ impl App {
                 drafts.insert(k.clone(), self.composer.text.clone());
             }
         }
-        json!({ "route": route_json(&self.route), "drafts": drafts, "sidebar": self.sidebar_open })
+        json!({
+            "route": route_json(&self.route),
+            "drafts": drafts,
+            "sidebar": self.sidebar_open,
+            "side": self.side.to_json(),
+        })
     }
 
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
         (&self.route, self.sidebar_open, &self.composer.text).hash(&mut h);
+        self.side.stamp_hash(&mut h);
         h.finish()
     }
 
