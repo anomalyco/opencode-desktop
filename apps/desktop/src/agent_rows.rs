@@ -181,16 +181,18 @@ impl App {
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let (now, last) = (s.now_ms, s.agent_rows.polled);
     s.agent_rows.polled = now;
-    s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
-    let Route::Session(id) = &s.route else { return false };
-    let starts: Vec<i64> = s.running.iter().filter(|r| *r != id && s.descends(r, id)).filter_map(|r| s.session(r)).map(|i| i.created).collect();
-    if starts.is_empty() {
+    if !s.agent_rows.ended.is_empty() {
+        s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
+    }
+    if s.running.is_empty() {
         return false;
     }
+    let Route::Session(id) = &s.route else { return false };
+    let starts = || s.running.iter().filter(|r| *r != id && s.descends(r, id)).filter_map(|r| s.session(r)).map(|i| i.created);
     let second = |t: i64, start: i64| (t - start).div_euclid(1000);
-    let next = starts.iter().map(|&c| c + (second(now, c) + 1) * 1000).min().unwrap_or(now + 1000);
+    let Some(next) = starts().map(|c| c + (second(now, c) + 1) * 1000).min() else { return false };
     tx.wake_after(std::time::Duration::from_millis((next - now).max(1) as u64));
-    starts.iter().any(|&c| second(now, c) != second(last, c))
+    starts().any(|c| second(now, c) != second(last, c))
 }
 
 #[cfg(test)]

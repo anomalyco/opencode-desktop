@@ -3,6 +3,7 @@
 //! `<data dir>/rune-opencode/ui.json`, one entry per server.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
@@ -25,6 +26,7 @@ pub struct Restore {
     /// Which draft `App::composer` holds.
     pub shown: Option<String>,
     saved: Option<Value>,
+    stamp: Option<u64>,
 }
 
 /// The platform's per-user data directory.
@@ -75,25 +77,31 @@ impl App {
         self.restore.drafts =
             v["drafts"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.clone(), t.as_str()?.to_owned()))).collect();
         if let Some(route) = route_from(&v["route"]) {
-            let known = |id: &str| self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
+            let known = |id: &str| self.launch.waiting || self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
             if !matches!(&route, Route::Session(id) if !known(id)) {
+                if self.launch.waiting
+                    && let Route::Session(id) = &route
+                    && !self.transcripts.contains_key(id)
+                    && let Some(messages) = crate::session_pages::load_cached_latest(server, id)
+                {
+                    self.transcripts.insert(id.clone(), opencode_kit::model::Transcript { session: id.clone(), messages });
+                    self.launch.cold_transcript = Some(id.clone());
+                }
                 self.route = route;
             }
         }
         if let Some(sidebar) = v["sidebar"].as_bool() {
             self.sidebar_open = sidebar;
         }
-        self.restore.saved = Some(self.ui_json());
         self.show_draft();
+        self.restore.saved = Some(self.ui_json());
+        self.restore.stamp = Some(self.restore_stamp());
     }
 
     /// When the window closes: the newest draft goes out, and every write waits to land.
     pub fn save_on_close(&mut self) {
-        if let crate::Source::Live { server, .. } = &self.source
-            && self.persists()
-        {
-            let base = server.base.clone();
-            self.poll_restore(&base);
+        if self.persists() {
+            self.poll_restore();
         }
         crate::disk::flush();
     }
@@ -131,17 +139,29 @@ impl App {
         json!({ "route": route_json(&self.route), "drafts": drafts, "sidebar": self.sidebar_open })
     }
 
+    fn restore_stamp(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        (&self.route, self.sidebar_open, &self.composer.text).hash(&mut h);
+        h.finish()
+    }
+
     /// Called every poll: keeps drafts per route and, on any change, writes the file off the UI
     /// thread (it's a few hundred bytes, renamed into place).
-    pub fn poll_restore(&mut self, server: &str) {
+    pub fn poll_restore(&mut self) {
         self.show_draft();
+        let stamp = self.restore_stamp();
+        if self.restore.stamp == Some(stamp) {
+            return;
+        }
+        self.restore.stamp = Some(stamp);
+        let crate::Source::Live { server, .. } = &self.source else { return };
         let v = self.ui_json();
         if self.restore.saved.as_ref() == Some(&v) {
             return;
         }
         let Some(path) = file() else { return };
+        let server = server.base.clone();
         self.restore.saved = Some(v.clone());
-        let server = server.to_owned();
         crate::disk::later("ui", move || {
             let mut all = read();
             all[server] = v;
@@ -163,7 +183,7 @@ mod tests {
 
     #[test]
     fn each_session_keeps_its_own_draft() {
-        let mut a = App::new();
+        let mut a = App::empty();
         a.route = Route::Session("ses_a".into());
         a.show_draft();
         a.composer = rune::TextEdit::new("half a thought");

@@ -34,7 +34,15 @@ impl History {
     }
 
     /// Where the app is now. The first call starts the stack with Home behind it.
-    fn observe(&mut self, now: Place, opening: bool) {
+    fn observe(&mut self, route: &Route, settings: bool, opening: bool) {
+        if self.expect.is_none()
+            && let Some(cur) = self.stack.get(self.index)
+            && cur.route == *route
+            && cur.settings == settings
+        {
+            return;
+        }
+        let now = Place { route: route.clone(), settings };
         if let Some(want) = &self.expect {
             if *want == now {
                 self.expect = None;
@@ -115,14 +123,9 @@ pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool>
 }
 
 impl App {
-    fn here(&self) -> Place {
-        Place { route: self.route.clone(), settings: self.settings.open }
-    }
-
     /// Notes where the app is, so a move made since the last look joins the history.
     pub fn sync_history(&mut self) {
-        let (place, opening) = (self.here(), self.opening.is_some());
-        self.nav.observe(place, opening);
+        self.nav.observe(&self.route, self.settings.open, self.opening.is_some());
     }
 
     /// Opens the entry before (or after) this one. False when there's nowhere to go.

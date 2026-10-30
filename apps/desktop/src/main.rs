@@ -110,7 +110,7 @@ use tabs::Tab;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Route {
     #[default]
     Home,
@@ -296,8 +296,9 @@ impl App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
         let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into())).with_media_refs();
-        let want_live = fixture_path.is_none() && (flag("--live") || (!headless() && server.reachable()));
-        if want_live && app.load_live(server) { return app; }
+        let deferred = fixture_path.is_none() && launch::deferred();
+        let want_live = fixture_path.is_none() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
+        if want_live && app.load_live(server, deferred && !flag("--live")) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
             None => FIXTURE.to_owned(),
@@ -343,18 +344,24 @@ impl App {
         self.sort_projects();
     }
 
-    fn load_live(&mut self, server: Server) -> bool {
-        // A headless snapshot reads the server now; a window reads it after its first frame.
+    fn load_live(&mut self, server: Server, fallback_fixture: bool) -> bool {
+        // A headless snapshot reads the server now; a window reads it and probes after its first frame.
         let first = if launch::deferred() {
             self.launch.waiting = true;
+            self.launch.fallback_fixture = fallback_fixture;
             None
         } else {
             let Ok(first) = launch::First::fetch(&server) else { return false };
             Some(first)
         };
-        match tabs::load(&server.base).or_else(|| if server.base == DEFAULT_SERVER { tabs::from_beta() } else { None }) {
+        match tabs::load(&server.base).or_else(|| {
+            (!self.launch.waiting && server.base == DEFAULT_SERVER).then(tabs::from_beta).flatten()
+        }) {
             Some(tabs) => self.tabs = tabs,
-            None => self.launch.recent_tabs = true,
+            None => {
+                self.launch.beta_tabs = self.launch.waiting && server.base == DEFAULT_SERVER;
+                self.launch.recent_tabs = true;
+            }
         }
         if let Some(first) = first {
             self.apply_first(first);
@@ -508,102 +515,117 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= quote::poll(s, now, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
-    let arrivals = arrivals::Arrivals::before(s);
+    let mut arrivals = None;
     let asked = s.question_shown();
     if let Some(inbox) = s.inbox.take() {
-        for m in inbox.try_iter() {
-            match m {
-                Incoming::Sessions(mut list) => {
-                    for n in &mut list {
-                        if let Some(old) = s.session(&n.id) {
-                            n.viewed = n.viewed.max(old.viewed);
+        if let Ok(first_in) = inbox.try_recv() {
+            arrivals = Some(arrivals::Arrivals::before(s));
+            for m in std::iter::once(first_in).chain(inbox.try_iter()) {
+                match m {
+                    Incoming::Sessions(mut list) => {
+                        for n in &mut list {
+                            if let Some(old) = s.session(&n.id) {
+                                n.viewed = n.viewed.max(old.viewed);
+                            }
+                        }
+                        // Sessions past the page (a tab's, a subagent's parent) stay known.
+                        let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
+                        list.extend(rest);
+                        s.sessions = list;
+                        s.sort_projects();
+                    }
+                    Incoming::Info(mut info) => {
+                        let parent = info.parent.clone();
+                        match s.sessions.iter_mut().find(|x| x.id == info.id) {
+                            Some(old) => {
+                                info.viewed = info.viewed.max(old.viewed);
+                                *old = info;
+                            }
+                            None => s.sessions.push(info),
+                        }
+                        if let Some(missing) = parent.and_then(|p| s.missing_ancestor(&p)) {
+                            s.fetch_info(&missing);
                         }
                     }
-                    // Sessions past the page (a tab's, a subagent's parent) stay known.
-                    let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
-                    list.extend(rest);
-                    s.sessions = list;
-                    s.sort_projects();
-                }
-                Incoming::Info(mut info) => {
-                    let parent = info.parent.clone();
-                    match s.sessions.iter_mut().find(|x| x.id == info.id) {
-                        Some(old) => {
-                            info.viewed = info.viewed.max(old.viewed);
-                            *old = info;
+                    Incoming::Messages { session, messages } => {
+                        let cold = s.launch.cold_transcript.as_deref() == Some(session.as_str());
+                        if cold {
+                            s.launch.cold_transcript = None;
                         }
-                        None => s.sessions.push(info),
+                        let first = !s.transcripts.contains_key(&session);
+                        let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
+                        attachments::reconcile(&mut s.attach.echoes, t, &messages);
+                        let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
+                        t.merge(messages);
+                        s.settle_inbox(&session, &delivered);
+                        if (first || cold) && s.route == Route::Session(session) {
+                            // Guarantee 8: the first load of the open session lands, nothing grows in.
+                            tx.settle();
+                        }
+                        if cold {
+                            arrivals = None;
+                        }
                     }
-                    if let Some(missing) = parent.and_then(|p| s.missing_ancestor(&p)) {
-                        s.fetch_info(&missing);
+                    // Most events are other sessions' streams: they redraw only what they change.
+                    Incoming::Event { ty, data } => {
+                        s.motion_events.note(&ty);
+                        changed |= s.apply_event(&ty, &data);
+                        continue;
+                    }
+                    Incoming::Status(e) => s.status = background::status(e),
+                    Incoming::Pending { session, items } => {
+                        s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
+                        for p in items {
+                            s.add_pending(p);
+                        }
+                    }
+                    Incoming::Reconnected => {
+                        tx.instant();
+                        s.resync();
+                    }
+                    Incoming::Active(ids) => {
+                        tx.instant();
+                        s.running = ids.into_iter().collect();
+                    }
+                    Incoming::Created(info) => {
+                        let id = info.id.clone();
+                        if s.session(&id).is_none() {
+                            s.sessions.insert(0, info);
+                        }
+                        s.status = format!("Live · {}", DEFAULT_SERVER.trim_start_matches("http://"));
+                        s.open(&id, tx);
                     }
                 }
-                Incoming::Messages { session, messages } => {
-                    let first = !s.transcripts.contains_key(&session);
-                    let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
-                    attachments::reconcile(&mut s.attach.echoes, t, &messages);
-                    let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
-                    t.merge(messages);
-                    s.settle_inbox(&session, &delivered);
-                    if first && s.route == Route::Session(session) {
-                        // Guarantee 8: the first load of the open session lands, nothing grows in.
-                        tx.settle();
-                    }
-                }
-                // Most events are other sessions' streams: they redraw only what they change.
-                Incoming::Event { ty, data } => {
-                    s.motion_events.note(&ty);
-                    changed |= s.apply_event(&ty, &data);
-                    continue;
-                }
-                Incoming::Status(e) => s.status = background::status(e),
-                Incoming::Pending { session, items } => {
-                    s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
-                    for p in items {
-                        s.add_pending(p);
-                    }
-                }
-                Incoming::Reconnected => {
-                    tx.instant();
-                    s.resync();
-                }
-                Incoming::Active(ids) => {
-                    tx.instant();
-                    s.running = ids.into_iter().collect();
-                }
-                Incoming::Created(info) => {
-                    let id = info.id.clone();
-                    if s.session(&id).is_none() {
-                        s.sessions.insert(0, info);
-                    }
-                    s.status = format!("Live · {}", DEFAULT_SERVER.trim_start_matches("http://"));
-                    s.open(&id, tx);
-                }
+                changed = true;
             }
-            changed = true;
         }
         s.inbox = Some(inbox);
     }
-    while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
-        let (_, ty, mut data) = s.playback.pop_front().unwrap();
-        // A scripted delivery names the oldest prompt of its kind, which has no id until sent.
-        if let Some(kind) = Delivery::parse(&data["next"])
-            && let Some(item) = s.inboxes.get(data["sessionID"].as_str().unwrap_or("")).and_then(|i| i.items.iter().find(|i| i.delivery == kind))
-        {
-            data["inboxID"] = item.id.clone().into();
-        }
-        if ty == "fixture.page" {
-            s.show_fixture_page(data["sessionID"].as_str().unwrap_or(""), tx);
+    if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
+        arrivals.get_or_insert_with(|| arrivals::Arrivals::before(s));
+        while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
+            let (_, ty, mut data) = s.playback.pop_front().unwrap();
+            // A scripted delivery names the oldest prompt of its kind, which has no id until sent.
+            if let Some(kind) = Delivery::parse(&data["next"])
+                && let Some(item) = s.inboxes.get(data["sessionID"].as_str().unwrap_or("")).and_then(|i| i.items.iter().find(|i| i.delivery == kind))
+            {
+                data["inboxID"] = item.id.clone().into();
+            }
+            if ty == "fixture.page" {
+                s.show_fixture_page(data["sessionID"].as_str().unwrap_or(""), tx);
+                changed = true;
+                continue;
+            }
+            s.apply_event(&ty, &data);
+            if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::Session(sid.to_string())) {
+                s.refresh_fixture_page(sid);
+            }
             changed = true;
-            continue;
         }
-        s.apply_event(&ty, &data);
-        if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::Session(sid.to_string())) {
-            s.refresh_fixture_page(sid);
-        }
-        changed = true;
     }
-    arrivals.land(s, now, tx);
+    if let Some(arrivals) = arrivals {
+        arrivals.land(s, now, tx);
+    }
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     if s.question_shown() != asked {
@@ -622,11 +644,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.poll_browser(tx);
-    if let Source::Live { server, .. } = &s.source
-        && s.persists()
-    {
-        let base = server.base.clone();
-        s.poll_restore(&base);
+    if s.persists() {
+        s.poll_restore();
         if !s.framed {
             s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }

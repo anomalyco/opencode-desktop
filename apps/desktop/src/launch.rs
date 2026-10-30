@@ -45,15 +45,29 @@ impl First {
     }
 }
 
+/// What `on_ready`'s background startup worker brings back: Desktop Beta's tabs (when no
+/// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
+/// reachable and the window should fall back to the fixture.
+pub struct Ready {
+    pub beta_tabs: Option<Vec<crate::tabs::Tab>>,
+    pub first: Option<Result<First, String>>,
+}
+
 #[derive(Default)]
 pub struct Launch {
     started: bool,
-    /// The first reads, on their way.
-    first: Option<Receiver<Result<First, String>>>,
+    /// The `on_ready` probe, Beta tab read and first server reads, on their way.
+    first: Option<Receiver<Ready>>,
     /// The first reads wait for `on_ready` (a windowed live run).
     pub waiting: bool,
+    /// Fall back to the built-in fixture when the background probe finds no server.
+    pub fallback_fixture: bool,
+    /// Read Desktop Beta's `drafts.sqlite` tabs in `on_ready` before falling back to recent sessions.
+    pub beta_tabs: bool,
     /// No tabs were saved: the first reads' recent sessions become them.
     pub recent_tabs: bool,
+    /// Restored session id whose cached messages painted on frame 0 and settle on first live refresh.
+    pub cold_transcript: Option<String>,
 }
 
 /// `setup`: connects now unless `on_ready` will start the reads.
@@ -63,7 +77,7 @@ pub fn setup(s: &mut App) {
     }
 }
 
-/// `on_ready`, after the first frame: starts the first reads (once; a window can be created again).
+/// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) {
     start(s, tx);
@@ -76,10 +90,17 @@ fn start(s: &mut App, tx: &mut Tx) {
     let (Source::Live { server, .. }, true) = (&s.source, s.launch.waiting) else { return connect(s, tx) };
     let (out, rx) = std::sync::mpsc::channel();
     let (server, wake) = (server.clone(), s.waker.clone());
+    let (fallback, beta_tabs) = (s.launch.fallback_fixture, std::mem::take(&mut s.launch.beta_tabs));
     std::thread::Builder::new()
         .name("opencode-first".into())
         .spawn(move || {
-            let _ = out.send(First::fetch(&server));
+            let ready = if fallback && !server.reachable() {
+                Ready { beta_tabs: None, first: None }
+            } else {
+                let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+                Ready { beta_tabs, first: Some(First::fetch(&server)) }
+            };
+            let _ = out.send(ready);
             if let Some(w) = wake {
                 w();
             }
@@ -91,14 +112,26 @@ fn start(s: &mut App, tx: &mut Tx) {
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let Some(rx) = &s.launch.first else { return false };
-    let result = match rx.try_recv() {
+    let ready = match rx.try_recv() {
         Ok(r) => r,
         Err(TryRecvError::Empty) => return false,
-        Err(TryRecvError::Disconnected) => Err("The first server reads stopped".into()),
+        Err(TryRecvError::Disconnected) => Ready { beta_tabs: None, first: Some(Err("The first server reads stopped".into())) },
     };
     s.launch.first = None;
     s.launch.waiting = false;
     tx.instant();
+    let Some(result) = ready.first else {
+        s.launch.cold_transcript = None;
+        s.transcripts.clear();
+        s.tabs.clear();
+        s.route = Route::Home;
+        s.load_fixture(crate::FIXTURE);
+        return true;
+    };
+    if let Some(tabs) = ready.beta_tabs {
+        s.tabs = tabs;
+        s.launch.recent_tabs = false;
+    }
     match result {
         Ok(first) => {
             s.apply_first(first);
@@ -124,6 +157,13 @@ impl App {
         }
         if std::mem::take(&mut self.launch.recent_tabs) {
             self.tabs = self.recent_tabs();
+        }
+        if let Route::Session(id) = &self.route
+            && !self.tabs.iter().any(|t| t.id == *id)
+            && !self.sessions.iter().any(|s| s.id == *id)
+        {
+            self.launch.cold_transcript = None;
+            self.route = Route::Home;
         }
         self.sort_projects();
     }

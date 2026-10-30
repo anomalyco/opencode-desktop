@@ -195,7 +195,10 @@ pub fn save_zoom(zoom: f32) {
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
 /// written window first. Read-only: `mode=ro` and `-readonly`.
 pub fn from_beta() -> Option<Vec<Tab>> {
-    let db = crate::restore::base_dir()?.join("ai.opencode.desktop.beta/drafts.sqlite");
+    from_beta_db(&crate::restore::base_dir()?.join("ai.opencode.desktop.beta/drafts.sqlite"))
+}
+
+pub(crate) fn from_beta_db(db: &std::path::Path) -> Option<Vec<Tab>> {
     if !db.exists() {
         return None;
     }

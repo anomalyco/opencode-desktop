@@ -525,3 +525,78 @@ fn prefetched_image_benchmark() {
         report(&format!("{name}_prefetched_images_click_ms"), &mut clicks);
     }
 }
+
+/// Paired AB/BA benchmark for time to first frame (`init` + `Runtime::new` + `frame(0.0)`):
+/// `sync_before` runs the TCP probe + `sqlite3` Beta tab read before frame 0 (the old `init`
+/// path); `deferred_after` paints the last-known local state on frame 0 and leaves the probe
+/// and `sqlite3` read to `on_ready`.
+#[test]
+#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+fn launch_first_frame_benchmark() {
+    use std::process::Command;
+    use std::time::Instant;
+    assert!(!cfg!(debug_assertions), "use --profile perf");
+    let dir = std::env::temp_dir().join(format!("opencode-desktop-launch-bench-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("drafts.sqlite");
+    let status = Command::new("sqlite3")
+        .arg(&db)
+        .arg(
+            "create table state (name text, key text, value text, updated_at integer); \
+             insert into state values ('opencode.window.1', 'tabs', '[{\"type\":\"session\",\"server\":\"sidecar\",\"sessionId\":\"ses_bench1\"}]', 1); \
+             insert into state values ('opencode.window.1', 'tabs.info', '{\"sidecar\\n/server/x/session/ses_bench1\":{\"title\":\"Bench\",\"directory\":\"/w\"}}', 1);",
+        )
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let page_json = serde_json::to_vec(&serde_json::json!({
+        "data": [
+            { "id": "u1", "type": "user", "text": "Check the startup path.", "time": { "created": 1 } },
+            { "id": "a1", "type": "assistant", "content": [{ "type": "text", "text": "Moved the probe and sqlite read to `on_ready`." }], "time": { "created": 2, "completed": 3 } }
+        ]
+    }))
+    .unwrap();
+    let page_file = dir.join("ses_bench1-3.json");
+    std::fs::write(&page_file, &page_json).unwrap();
+    let mut wall = [vec![], vec![]];
+    let mut cpu = [vec![], vec![]];
+    let mut allocs = [vec![], vec![]];
+    for sample in 0..10 {
+        for variant in if sample % 2 == 0 { [0, 1] } else { [1, 0] } {
+            let keep = sample > 1;
+            let a0 = procwatch::alloc::thread_allocations();
+            let c0 = rune::thread_cpu_ms();
+            let t0 = Instant::now();
+            let mut app = App::empty();
+            if variant == 0 {
+                let _ = opencode_kit::client::Server::new("http://127.0.0.1:9").reachable();
+                app.tabs = crate::tabs::from_beta_db(&db).unwrap_or_default();
+                app.route = Route::Session("ses_bench1".into());
+            } else {
+                app.launch.waiting = true;
+                app.launch.beta_tabs = true;
+                app.tabs = vec![crate::tabs::Tab { id: "ses_bench1".into(), title: "Bench".into(), directory: "/w".into() }];
+                app.route = Route::Session("ses_bench1".into());
+                let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&page_file).unwrap()).unwrap();
+                app.transcripts.insert("ses_bench1".into(), Transcript { session: "ses_bench1".into(), messages: opencode_kit::model::parse_messages(&v) });
+            }
+            let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
+            rt.frame(0.0);
+            let w_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            let c_ms = rune::thread_cpu_ms() - c0;
+            let al = (procwatch::alloc::thread_allocations() - a0) as f64;
+            if keep {
+                wall[variant].push(w_ms);
+                cpu[variant].push(c_ms);
+                allocs[variant].push(al);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    for (v, name) in ["sync_before", "deferred_after"].iter().enumerate() {
+        report(&format!("{name}_first_frame_wall_ms"), &mut wall[v]);
+        report(&format!("{name}_first_frame_cpu_ms"), &mut cpu[v]);
+        report(&format!("{name}_first_frame_allocations"), &mut allocs[v]);
+    }
+}
