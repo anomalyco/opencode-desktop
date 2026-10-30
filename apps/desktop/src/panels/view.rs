@@ -70,23 +70,29 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
 
     if let Some(reg) = reg.as_ref() {
         let env_scale = cx.env().scale;
-        let col_h = if col_open {
-            cx.layout_size("side-column").map_or(720.0, |[_, h]| h / s.zoom)
+        let col_h = if col_open || s.side.mounted {
+            cx.layout_size("side-column")
+                .map_or(720.0 / s.zoom, |[_, h]| h / s.zoom)
         } else {
-            720.0
+            720.0 / s.zoom
         };
         let max_dock_h = (col_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
         let dock_h = s.side.dock_height.clamp(DOCK_MIN_H, max_dock_h);
         let stacked = tabs_open && dock_side_open;
 
+        let show_solo_dock = !tabs_open
+            && s.dock_placement() == super::DockPlacement::Side
+            && (dock_side_open || (s.side.dock_last_solo && dock_entry.is_some()));
+        let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
+
         let mut column = col()
             .key("side-column")
-            .pin(Some(0.0), Some(8.0), None, Some(8.0 + bottom_reserve))
+            .pin(Some(0.0), Some(8.0), None, Some(col_bottom))
             .w(w)
             .opacity(if col_open { 1.0 } else { FADE_FLOOR })
             .opacity_motion(SIDE_SPRING);
 
-        if tabs_open || !dock_side_open {
+        if tabs_open || !show_solo_dock {
             let side_h = if stacked { (col_h - dock_h - 8.0).max(120.0) } else { col_h };
             let mut card = region_card(s, p, reg, w, side_h, env_scale)
                 .key("side-panel")
@@ -98,33 +104,62 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
             column = column.child(card);
         }
 
-        if stacked {
-            column = column.child(dock_resize_handle(s, p, "dock-side-resize", max_dock_h));
-        }
-
-        if dock_side_open
+        if show_solo_dock
             && let Some((ref sid, ref dir, ref proj, ref dentry)) = dock_entry
         {
-            let dh = if stacked { dock_h } else { col_h };
-            let dock_card = render_dock_card(
+            let mut dock_card = render_dock_card(
                 s,
                 p,
                 sid,
                 dir,
                 proj,
                 dentry,
-                (w, dh),
+                (w, col_h),
                 env_scale,
-                !tabs_open,
+                true,
             )
             .key("dock-panel")
-            .w(w);
-            let sized = if stacked {
-                dock_card.h(dock_h)
-            } else {
-                dock_card.grow(1.0).min_h(0.0)
-            };
-            column = column.child(sized);
+            .w(w)
+            .grow(1.0)
+            .min_h(0.0);
+            if !dock_side_open {
+                dock_card = dock_card.inert();
+            }
+            column = column.child(dock_card);
+        } else if s.dock_placement() == super::DockPlacement::Side
+            && (dock_side_open || s.side.dock_mounted)
+            && let Some((ref sid, ref dir, ref proj, ref dentry)) = dock_entry
+        {
+            let slot_open = tabs_open && dock_side_open;
+            let slot_h = if slot_open { dock_h + 8.0 } else { 0.0 };
+            let mut slot = col()
+                .key("dock-side-slot")
+                .role("region")
+                .w(w)
+                .h(slot_h)
+                .clip_soft(0.0)
+                .motion(SIDE_SPRING)
+                .child(dock_resize_handle(s, p, "dock-side-resize", max_dock_h))
+                .child(
+                    render_dock_card(
+                        s,
+                        p,
+                        sid,
+                        dir,
+                        proj,
+                        dentry,
+                        (w, dock_h),
+                        env_scale,
+                        false,
+                    )
+                    .key("dock-panel")
+                    .w(w)
+                    .h(dock_h),
+                );
+            if !slot_open {
+                slot = slot.inert();
+            }
+            column = column.child(slot);
         }
 
         if !col_open {
@@ -174,6 +209,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         .instant_changes()
         .on_press(|s: &mut App| {
             s.side.focused = true;
+            s.side.dock_focused = false;
             s.composer.focused = false;
             s.side.tab_menu = None;
             s.side.add_menu = None;
@@ -322,6 +358,7 @@ pub(super) fn pane_box(
         .min_h(0.0)
         .on_press(move |s: &mut App| {
             s.side.focused = true;
+            s.side.dock_focused = false;
             s.side.active_pane_focus = pane;
             s.composer.focused = false;
         })

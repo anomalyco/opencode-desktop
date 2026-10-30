@@ -690,7 +690,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.poll_panels(tx);
-    changed |= s.poll_terminal(tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {

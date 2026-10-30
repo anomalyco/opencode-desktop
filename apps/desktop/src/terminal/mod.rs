@@ -1,10 +1,13 @@
-//! Native Ghostty terminal pane state, workspace tabs, theme sync, and knobs (`apps/desktop/src/terminal/`).
+//! Native Ghostty terminal pane (`PanelRegion::Dock`, `⌘J` / `⌃\``), workspace tabs, persistence,
+//! theme sync, and knobs (`apps/desktop/src/terminal/`).
 
 #[cfg(test)]
 mod bench;
+mod dock_ops;
 mod draw;
 pub mod grid;
 pub mod input;
+pub mod persist;
 pub mod story;
 pub mod streams;
 #[cfg(test)]
@@ -20,11 +23,14 @@ use opencode_kit::pty::PtyCreate;
 use rune::{Tx, Waker};
 use rune_knobs::{Group, Knob};
 use terminal::{
-    RestoreState, StreamHandle, TerminalConfig, TerminalSession, TerminalTheme, VtEvent,
+    RestoreState, SessionStatus, StreamHandle, TerminalConfig, TerminalSession, TerminalTheme,
+    VtEvent,
 };
 
 use crate::palette::{Pal, pal};
+use crate::panels::{PanelRegistration, ShortcutChord};
 use crate::{App, Route, Source};
+use persist::StoredWorkspace;
 
 pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 
@@ -50,6 +56,23 @@ rune_register::register!(crate::knobs::GROUP_LIST: Group = [
     Group::new("Terminal", "terminal", TERMINAL_KNOBS),
 ]);
 
+const EXTRA_SHORTCUTS: &[(ShortcutChord, fn(&mut App, &mut Tx))] = &[
+    (ShortcutChord::ctrl_backtick(), dock_ops::shortcut_toggle_terminal),
+    (ShortcutChord::ctrl_alt('t', "⌃⌥T"), dock_ops::shortcut_new_terminal),
+];
+
+rune_register::register!(crate::panels::PANELS: PanelRegistration = [
+    PanelRegistration::dock("terminal", dock_ops::list_dock_tabs, dock_ops::render_dock)
+        .order(20)
+        .command("Toggle terminal", ShortcutChord::cmd_j())
+        .shortcuts(EXTRA_SHORTCUTS)
+        .launcher(dock_ops::launcher_desc, dock_ops::open_from_launcher)
+        .on_enter(dock_ops::on_enter_dock)
+        .poll(dock_ops::poll_panel)
+        .on_key(dock_ops::key_terminal)
+        .on_ime(dock_ops::ime_terminal),
+]);
+
 pub struct TerminalTab {
     pub id: String,
     pub title: String,
@@ -57,9 +80,12 @@ pub struct TerminalTab {
     pub custom_title: bool,
     pub session: TerminalSession,
     pub stream: Option<StreamHandle>,
+    pub fixture_shell: bool,
     pub scroll_px_accum: f32,
     pub drag_anchor: Option<(u16, u16)>,
-    last_fit: Cell<(u16, u16, u32, u32)>,
+    pub needs_recovery: bool,
+    pub recovery_buffer: Vec<u8>,
+    pub(crate) last_fit: Cell<(u16, u16, u32, u32)>,
 }
 
 impl TerminalTab {
@@ -92,7 +118,13 @@ impl TerminalWorkspace {
         let used: BTreeSet<usize> = self
             .tabs
             .iter()
-            .filter_map(|t| (t.title_number > 0).then_some(t.title_number))
+            .filter_map(|t| {
+                if t.title_number > 0 {
+                    Some(t.title_number)
+                } else {
+                    persist::number_from_title(&t.title)
+                }
+            })
             .collect();
         (1..=used.len() + 1).find(|n| !used.contains(n)).unwrap_or(1)
     }
@@ -100,6 +132,7 @@ impl TerminalWorkspace {
 
 pub struct TerminalPane {
     pub workspaces: HashMap<String, TerminalWorkspace>,
+    pub stored: HashMap<String, StoredWorkspace>,
     pub lru_order: Vec<String>,
     pub blink_epoch: f64,
     pub bell_until: f64,
@@ -114,6 +147,7 @@ impl Default for TerminalPane {
     fn default() -> Self {
         Self {
             workspaces: HashMap::new(),
+            stored: HashMap::new(),
             lru_order: Vec::new(),
             blink_epoch: 0.0,
             bell_until: 0.0,
@@ -137,12 +171,13 @@ impl TerminalPane {
         self.last_blink_lit = true;
     }
 
-    fn touch_lru(&mut self, key: &str) {
+    pub(crate) fn touch_lru(&mut self, key: &str) {
         self.lru_order.retain(|k| k != key);
         self.lru_order.push(key.to_owned());
         while self.lru_order.len() > MAX_TERMINAL_WORKSPACES {
             let oldest = self.lru_order.remove(0);
             self.workspaces.remove(&oldest);
+            self.stored.remove(&oldest);
         }
     }
 }
@@ -170,6 +205,25 @@ pub fn workspace_key(server_base: &str, directory: &str) -> String {
 }
 
 impl App {
+    pub(crate) fn server_id_str(&self) -> &str {
+        match &self.source {
+            Source::Live { server, .. } => server.base.as_str(),
+            Source::Fixture => "fixture",
+        }
+    }
+
+    pub(crate) fn use_live_pty(&self) -> bool {
+        matches!(
+            &self.source,
+            Source::Live {
+                allow_send: true,
+                ..
+            }
+        ) && !crate::headless()
+            && !cfg!(test)
+            && self.stage.is_none()
+    }
+
     pub fn terminal_waker(&self) -> Waker {
         let dirty = self.terminal.dirty_flag.clone();
         let app_waker = self.waker.clone();
@@ -181,6 +235,14 @@ impl App {
         })
     }
 
+    pub fn terminal_workspace_key_for_session(&self, session_id: &str) -> String {
+        let dir = self
+            .session(session_id)
+            .map(|s| s.directory.as_str())
+            .unwrap_or(&self.draft_dir);
+        workspace_key(self.server_id_str(), dir)
+    }
+
     pub fn active_terminal_workspace_key(&self) -> Option<String> {
         if self.stage.is_some() {
             return Some("story\0/workspace/seer".into());
@@ -188,15 +250,19 @@ impl App {
         let Route::Session(sid) = &self.route else {
             return None;
         };
-        let dir = self
-            .session(sid)
-            .map(|s| s.directory.as_str())
-            .unwrap_or(&self.draft_dir);
-        let server_id = match &self.source {
-            Source::Live { server, .. } => server.base.as_str(),
-            Source::Fixture => "fixture",
-        };
-        Some(workspace_key(server_id, dir))
+        Some(self.terminal_workspace_key_for_session(sid))
+    }
+
+    pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
+        self.ensure_terminal_workspace_hydrated(ws_key);
+        let empty = self
+            .terminal
+            .workspaces
+            .get(ws_key)
+            .is_none_or(|ws| ws.tabs.is_empty());
+        if empty {
+            self.new_terminal_in(ws_key);
+        }
     }
 
     pub fn focus_terminal_surface(&mut self) {
@@ -217,16 +283,37 @@ impl App {
     }
 
     pub fn select_terminal_tab(&mut self, ws_key: &str, tab_id: &str) {
+        let mut changed = false;
         if let Some(ws) = self.terminal.workspaces.get_mut(ws_key)
             && ws.tabs.iter().any(|t| t.id == tab_id)
+            && ws.active.as_deref() != Some(tab_id)
         {
             ws.active = Some(tab_id.to_owned());
+            changed = true;
         }
         self.focus_terminal_surface();
+        if changed {
+            self.queue_terminal_save();
+        }
+    }
+
+    pub fn select_adjacent_terminal_tab(&mut self, ws_key: &str, offset: i32, tx: &mut Tx) -> bool {
+        let next = self.terminal.workspaces.get(ws_key).and_then(|ws| {
+            if ws.tabs.len() <= 1 {
+                return None;
+            }
+            let keys: Vec<&str> = ws.tabs.iter().map(|t| t.id.as_str()).collect();
+            crate::shortcuts::adjacent(&keys, ws.active.as_deref(), offset, |_| true)
+        });
+        if let Some(id) = next {
+            tx.instant();
+            self.select_terminal_tab(ws_key, &id);
+            return true;
+        }
+        false
     }
 
     pub fn close_terminal_tab(&mut self, ws_key: &str, tab_id: &str, tx: &mut Tx) {
-        tx.instant();
         let mut became_empty = false;
         let mut directory = String::new();
         if let Some(ws) = self.terminal.workspaces.get_mut(ws_key) {
@@ -261,7 +348,10 @@ impl App {
         if became_empty && self.stage.is_none() && self.dock_open() {
             self.side.emptied_guard = true;
             self.close_dock(tx);
+        } else {
+            tx.instant();
         }
+        self.queue_terminal_save();
     }
 
     pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
@@ -284,17 +374,7 @@ impl App {
         let title = format!("Terminal {num}");
         let waker = self.terminal_waker();
 
-        let use_live_pty = matches!(
-            &self.source,
-            Source::Live {
-                allow_send: true,
-                ..
-            }
-        ) && !crate::headless()
-            && !cfg!(test)
-            && self.stage.is_none();
-
-        if use_live_pty
+        if self.use_live_pty()
             && let Source::Live { server, .. } = &self.source
         {
             let srv = server.clone();
@@ -309,7 +389,7 @@ impl App {
                 },
             ) && let Ok(session) = TerminalSession::spawn_server_pty(
                 srv,
-                directory,
+                directory.clone(),
                 info.id.clone(),
                 TerminalConfig {
                     theme: theme.clone(),
@@ -327,28 +407,75 @@ impl App {
                     custom_title: false,
                     session,
                     stream: None,
+                    fixture_shell: false,
                     scroll_px_accum: 0.0,
                     drag_anchor: None,
+                    needs_recovery: false,
+                    recovery_buffer: Vec::new(),
                     last_fit: Cell::new((80, 24, 8, 18)),
                 });
                 ws.active = Some(id.clone());
                 self.focus_terminal_surface();
+                self.queue_terminal_save();
                 return Some(id);
             }
         }
 
-        self.insert_stream_terminal(
+        let (font_choice, style) = grid::terminal_font_style(&self.knobs);
+        let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
+        let est_w = (self.side.width - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
+        let est_bar = if self.side_open() { grid::BAR_H } else { 48.0 };
+        let est_pane_h = if self.side_open() || self.dock_placement() == crate::panels::DockPlacement::Bottom {
+            self.side.dock_height
+        } else {
+            804.0 / self.zoom
+        };
+        let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
+        let init_cols = ((est_w / cell_w).floor() as u16).clamp(10, 500);
+        let init_rows = ((est_h / cell_h).floor() as u16).clamp(2, 240);
+
+        let short_dir = directory
+            .rsplit('/')
+            .find(|s| !s.is_empty())
+            .unwrap_or("workspace");
+        let banner = if num == 1 {
+            format!(
+                "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m cargo test --quiet\r\n\
+                 \x1b[1;32m   Finished\x1b[0m `test` profile in 0.42s\r\n\
+                 \x1b[1;32mtest result: ok.\x1b[0m 14 passed; 0 failed\r\n\r\n\
+                 \x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
+            )
+        } else {
+            format!(
+                "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
+            )
+        };
+        let id = self.insert_stream_terminal(
             ws_key,
             &format!("term_{num}"),
             &title,
             num,
             TerminalConfig {
+                cols: init_cols,
+                rows: init_rows,
                 theme,
                 ..TerminalConfig::default()
             },
-            None,
-            b"\x1b[1;34m~/workspace\x1b[0m \x1b[1;32m\xe2\x9d\xaf\x1b[0m ",
-        )
+            Some(RestoreState {
+                buffer: banner.into_bytes(),
+                cols: Some(init_cols),
+                rows: Some(init_rows),
+                scroll_y: None,
+                cursor: None,
+            }),
+            b"",
+        )?;
+        if let Some(tab) = self.terminal_tab_mut(ws_key, &id) {
+            tab.fixture_shell = true;
+        }
+        self.focus_terminal_surface();
+        self.queue_terminal_save();
+        Some(id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -387,15 +514,18 @@ impl App {
             custom_title: false,
             session,
             stream: Some(handle),
+            fixture_shell: false,
             scroll_px_accum: 0.0,
             drag_anchor: None,
+            needs_recovery: false,
+            recovery_buffer: Vec::new(),
             last_fit: Cell::new((0, 0, 0, 0)),
         });
         ws.active = Some(id.to_owned());
         Some(id.to_owned())
     }
 
-    /// Drains worker updates, visual bell flashes, and phase-locked cursor blink edges.
+    /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
     /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
     pub fn poll_terminal(&mut self, tx: &mut Tx) -> bool {
         if self.stage.is_some()
@@ -404,23 +534,90 @@ impl App {
             story::init_story(self);
             return true;
         }
+
+        // Hydrate / spawn initial terminal when a session starts with `dock_open == true` (zero alloc when closed).
+        let dock_open_in_session = self.stage.is_none()
+            && self
+                .active_session_id()
+                .and_then(|id| self.side.sessions.get(id))
+                .is_some_and(|st| st.dock_open);
+        if dock_open_in_session
+            && let Some(wk) = self.active_terminal_workspace_key()
+            && self
+                .terminal
+                .workspaces
+                .get(&wk)
+                .is_none_or(|ws| ws.tabs.is_empty())
+        {
+            self.ensure_workspace_ready(&wk);
+            return true;
+        }
+
+        if !self.terminal.workspaces.is_empty() {
+            let dark = self.settings.scheme != crate::settings::Scheme::Light;
+            if self.terminal.last_dark != Some(dark) {
+                self.terminal.last_dark = Some(dark);
+                let theme = theme_from_pal(pal(dark));
+                for ws in self.terminal.workspaces.values() {
+                    for tab in &ws.tabs {
+                        tab.session.set_theme(theme.clone());
+                    }
+                }
+            }
+        }
+
         let mut changed = self.terminal.dirty_flag.swap(false, Ordering::AcqRel);
 
         if changed {
             let now = self.clock;
             let mut bell = false;
-            for ws in self.terminal.workspaces.values_mut() {
+            let mut title_changed = false;
+            let mut to_recover: Vec<(String, String)> = Vec::new();
+            let mut to_remove: Vec<String> = Vec::new();
+
+            for (wk, ws) in &mut self.terminal.workspaces {
                 for tab in &mut ws.tabs {
                     for ev in tab.session.drain_events() {
                         match ev {
                             VtEvent::Bell => bell = true,
-                            VtEvent::TitleChanged(new_title) if !tab.custom_title && !new_title.is_empty() => {
-                                tab.title = new_title;
+                            VtEvent::TitleChanged(new_title)
+                                if !tab.custom_title && !new_title.is_empty() =>
+                            {
+                                if tab.title != new_title {
+                                    tab.title = new_title;
+                                    title_changed = true;
+                                }
                             }
                             _ => {}
                         }
                     }
+                    match tab.session.status() {
+                        SessionStatus::Connected if tab.needs_recovery => {
+                            tab.needs_recovery = false;
+                            tab.recovery_buffer.clear();
+                        }
+                        SessionStatus::Exited { .. } | SessionStatus::Failed(_)
+                            if tab.needs_recovery =>
+                        {
+                            tab.needs_recovery = false;
+                            to_recover.push((wk.clone(), tab.id.clone()));
+                        }
+                        SessionStatus::Exited { .. } if self.stage.is_none() => {
+                            to_remove.push(tab.id.clone());
+                        }
+                        _ => {}
+                    }
                 }
+            }
+
+            for (wk, tid) in to_recover {
+                let _ = self.recover_restored_tab(&wk, &tid);
+            }
+            for tid in to_remove {
+                let _ = self.remove_exited_pty(&tid);
+            }
+            if title_changed {
+                self.queue_terminal_save();
             }
             if bell {
                 self.terminal.bell_until = now + 0.14;
@@ -438,11 +635,7 @@ impl App {
         } else if self.stage.is_some() {
             self.terminal.story_focused
         } else {
-            self.side.dock_focused
-                && self
-                    .active_session_id()
-                    .and_then(|id| self.side.sessions.get(id))
-                    .is_some_and(|st| st.dock_open)
+            self.side.dock_focused && !self.composer.focused && dock_open_in_session
         };
 
         if visible_and_focused {
@@ -453,7 +646,8 @@ impl App {
                     let tab = ws
                         .active
                         .as_deref()
-                        .and_then(|id| ws.tabs.iter().find(|t| t.id == id))?;
+                        .and_then(|id| ws.tabs.iter().find(|t| t.id == id))
+                        .or_else(|| ws.tabs.first())?;
                     let c = tab.session.snapshot().cursor;
                     Some(c.visible && c.in_viewport && c.blinking)
                 })

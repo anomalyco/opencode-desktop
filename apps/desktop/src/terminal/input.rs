@@ -1,12 +1,21 @@
-#![allow(dead_code)]
 //! Keyboard and IME translation from Rune events into `terminal::KeyInput`, copy/paste, and scroll.
 
 use rune::{Ime, Key, KeyEvent, Tx};
-use terminal::{GhosttyKey, KeyAction, KeyInput, ScrollOp, SelectionOp, TerminalSession};
+use terminal::{
+    GhosttyKey, KeyAction, KeyInput, ScrollOp, SelectionOp, StreamHandle, TerminalSession,
+};
 
 use crate::App;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyOutcome {
+    Ignored,
+    Consumed,
+    ConsumedResetBlink,
+}
+
 /// Handles a key event while the terminal holds focus; returns `true` when consumed.
+#[cfg(test)]
 pub fn handle_key(
     s: &mut App,
     session: &TerminalSession,
@@ -14,6 +23,32 @@ pub fn handle_key(
     viewport_rows: u16,
     tx: &mut Tx,
 ) -> bool {
+    let ws_key = s.active_terminal_workspace_key();
+    let tab_id = ws_key
+        .as_ref()
+        .and_then(|k| s.terminal.workspaces.get(k))
+        .and_then(|w| w.active.clone());
+    match dispatch_key(session, None, false, ws_key, tab_id, ev, viewport_rows, tx) {
+        KeyOutcome::Ignored => false,
+        KeyOutcome::Consumed => true,
+        KeyOutcome::ConsumedResetBlink => {
+            s.terminal.reset_blink(s.clock);
+            true
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_key(
+    session: &TerminalSession,
+    stream: Option<&StreamHandle>,
+    fixture_shell: bool,
+    ws_key: Option<String>,
+    tab_id: Option<String>,
+    ev: &KeyEvent,
+    viewport_rows: u16,
+    tx: &mut Tx,
+) -> KeyOutcome {
     let m = ev.mods;
 
     // Leave app-level command palette (`⌘K`), settings (`⌘,`), session switcher, and panel toggles
@@ -21,9 +56,9 @@ pub fn handle_key(
     if ev.is_command('c') && !m.alt && !m.ctrl && !m.shift {
         if let Some(sel) = session.selected_text() {
             tx.copy(sel);
-            return true;
+            return KeyOutcome::Consumed;
         }
-        return false;
+        return KeyOutcome::Ignored;
     }
 
     // `Ctrl+Shift+C` also copies selection (matches Desktop `terminal.tsx:477`).
@@ -32,19 +67,13 @@ pub fn handle_key(
         && !m.cmd
         && !m.alt
         && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("c"))
+        && let Some(sel) = session.selected_text()
     {
-        if let Some(sel) = session.selected_text() {
-            tx.copy(sel);
-            return true;
-        }
+        tx.copy(sel);
+        return KeyOutcome::Consumed;
     }
 
     if ev.is_command('v') && !m.alt && !m.ctrl && !m.shift {
-        let ws_key = s.active_terminal_workspace_key();
-        let tab_id = ws_key
-            .as_ref()
-            .and_then(|k| s.terminal.workspaces.get(k))
-            .and_then(|w| w.active.clone());
         tx.read_clipboard(move |app: &mut App, content, _tx| {
             let text = content.text();
             if text.is_empty() {
@@ -58,15 +87,20 @@ pub fn handle_key(
                     .and_then(|w| w.tabs.iter().find(|t| &t.id == tid))
             {
                 tab.session.paste(text);
+                if tab.fixture_shell
+                    && let Some(st) = &tab.stream
+                {
+                    st.feed(text.as_bytes());
+                }
                 app.terminal.reset_blink(app.clock);
             }
         });
-        return true;
+        return KeyOutcome::Consumed;
     }
 
     if ev.is_command('a') && !m.alt && !m.ctrl && !m.shift {
         session.select(SelectionOp::All);
-        return true;
+        return KeyOutcome::Consumed;
     }
 
     // `⌘Backspace` kills the line (`\x15`, matching OpenCode Desktop `terminal-key-event.ts`).
@@ -74,35 +108,33 @@ pub fn handle_key(
         let mut ki = KeyInput::press(GhosttyKey::Backspace);
         ki.cmd = true;
         session.send_key(ki);
-        s.terminal.reset_blink(s.clock);
-        return true;
+        return KeyOutcome::ConsumedResetBlink;
     }
 
     // Let other `⌘` shortcuts (`⌘J`, `⌘W`, `⌘T`, `⌘K`, `⌘1..9`, `⌘+`/`⌘-`, `⌘,`) bubble up.
     if m.cmd {
-        return false;
+        return KeyOutcome::Ignored;
     }
 
-    // `Shift+PageUp` / `Shift+PageDown` / `Shift+Home` / `Shift+End` scroll terminal scrollback
-    // when not on the alternate screen.
+    // `Shift+PageUp` / `Shift+PageDown` / `Shift+Home` / `Shift+End` scroll terminal scrollback.
     if m.shift && !m.ctrl && !m.alt {
         let page = viewport_rows.saturating_sub(2).max(1) as isize;
         match ev.key {
             Key::PageUp => {
                 session.scroll(ScrollOp::Delta(-page));
-                return true;
+                return KeyOutcome::Consumed;
             }
             Key::PageDown => {
                 session.scroll(ScrollOp::Delta(page));
-                return true;
+                return KeyOutcome::Consumed;
             }
             Key::Home => {
                 session.scroll(ScrollOp::Top);
-                return true;
+                return KeyOutcome::Consumed;
             }
             Key::End => {
                 session.scroll(ScrollOp::Bottom);
-                return true;
+                return KeyOutcome::Consumed;
             }
             _ => {}
         }
@@ -117,32 +149,67 @@ pub fn handle_key(
     {
         session.write_bytes(b"\x1b\r".to_vec());
         session.scroll(ScrollOp::Bottom);
-        s.terminal.reset_blink(s.clock);
-        return true;
+        return KeyOutcome::ConsumedResetBlink;
     }
 
     let Some(ki) = map_key_event(ev) else {
-        return false;
+        return KeyOutcome::Ignored;
     };
     session.select(SelectionOp::Clear);
     if !session.snapshot().scrollbar.at_bottom {
         session.scroll(ScrollOp::Bottom);
     }
     session.send_key(ki);
-    s.terminal.reset_blink(s.clock);
-    true
+
+    if fixture_shell
+        && let Some(st) = stream
+    {
+        let short_dir = ws_key
+            .as_deref()
+            .and_then(|k| k.split_once('\0'))
+            .and_then(|(_, d)| d.rsplit('/').find(|s| !s.is_empty()))
+            .unwrap_or("workspace");
+        echo_fixture_key(st, ev, short_dir);
+    }
+
+    KeyOutcome::ConsumedResetBlink
 }
 
-#[allow(dead_code)]
-pub fn handle_ime(s: &mut App, session: &TerminalSession, ime: &Ime) -> bool {
+pub fn dispatch_ime(
+    session: &TerminalSession,
+    stream: Option<&StreamHandle>,
+    fixture_shell: bool,
+    ime: &Ime,
+) -> bool {
     match ime {
         Ime::Commit(text) if !text.is_empty() => {
             session.select(SelectionOp::Clear);
             session.write_bytes(text.as_bytes().to_vec());
-            s.terminal.reset_blink(s.clock);
+            if fixture_shell
+                && let Some(st) = stream
+            {
+                st.feed(text.as_bytes());
+            }
             true
         }
         _ => false,
+    }
+}
+
+fn echo_fixture_key(st: &StreamHandle, ev: &KeyEvent, short_dir: &str) {
+    if ev.mods.ctrl || ev.mods.alt || ev.mods.cmd {
+        return;
+    }
+    match &ev.key {
+        Key::Enter => st.feed(
+            format!(
+                "\r\n\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
+            )
+            .as_bytes(),
+        ),
+        Key::Backspace => st.feed(b"\x08 \x08"),
+        Key::Text(s) if !s.is_empty() => st.feed(s.as_bytes()),
+        _ => {}
     }
 }
 

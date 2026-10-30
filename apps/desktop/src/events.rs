@@ -100,6 +100,9 @@ impl App {
         }
         changed |= self.apply_status(ty, data, &sid);
         changed |= self.note_review_event(ty);
+        if ty.starts_with("pty.") {
+            changed |= self.apply_pty_event(ty, data);
+        }
         crate::notifications::event(self, ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);

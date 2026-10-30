@@ -270,3 +270,29 @@ fn kitty_keyboard_mouse_paste_effects_and_vt_serialize_roundtrip() {
         .unwrap();
     assert_eq!(pass_row.cells[0].fg, TerminalTheme::opencode_dark().ansi_base[2]);
 }
+
+#[test]
+fn serialize_vt_capped_truncates_old_scrollback_at_row_limit() {
+    let mut vt = VtCore::new(60, 10, 5_000, TerminalTheme::opencode_dark()).unwrap();
+    let mut big = Vec::with_capacity(120_000);
+    for i in 0..3_000 {
+        big.extend_from_slice(format!("row-{i:04} \x1b[36mpayload\x1b[0m\r\n").as_bytes());
+    }
+    vt.feed(&big);
+    let _ = vt.snapshot();
+
+    let capped = vt.serialize_vt_capped(2_000);
+    let text = String::from_utf8_lossy(&capped);
+    assert!(
+        !text.contains("row-0050"),
+        "ancient scrollback rows before 2,000-row cap should be pruned"
+    );
+    assert!(
+        text.contains("row-2999"),
+        "recent rows and viewport must be preserved"
+    );
+
+    let mut restored = VtCore::new(60, 10, 5_000, TerminalTheme::opencode_dark()).unwrap();
+    restored.feed(&capped);
+    assert!(restored.snapshot().viewport_text().contains("row-2999"));
+}

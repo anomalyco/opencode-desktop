@@ -72,6 +72,7 @@ pub struct SideState {
     /// never mount or unmount mid-flight (`side-region.tsx` `contentMounted`).
     pub mounted: bool,
     pub dock_mounted: bool,
+    pub dock_last_solo: bool,
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
     pub dock_focused: bool,
@@ -104,6 +105,7 @@ impl Default for SideState {
             bottom_drag_origin: None,
             mounted: false,
             dock_mounted: false,
+            dock_last_solo: false,
             focused: false,
             dock_focused: false,
             active_pane_focus: SessionPane::Side,
@@ -181,7 +183,10 @@ impl App {
         #[allow(unused_mut)]
         let mut out = registered_panels().to_vec();
         #[cfg(test)]
-        out.extend(self.side.extra_panels.iter().copied());
+        if !self.side.extra_panels.is_empty() {
+            out.retain(|p| !self.side.extra_panels.iter().any(|e| e.plugin == p.plugin));
+            out.extend(self.side.extra_panels.iter().copied());
+        }
         out.sort_by_key(|p| (p.order, p.plugin));
         out
     }
@@ -266,6 +271,7 @@ impl App {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         self.side.mounted = true;
         self.side.dock_mounted = true;
+        self.side.dock_last_solo = !self.side_open();
         self.session_side_mut(&sid).dock_open = true;
         self.side.dock_focused = true;
         self.side.focused = false;
@@ -279,6 +285,7 @@ impl App {
 
     pub fn close_dock(&mut self, _tx: &mut Tx) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        self.side.dock_last_solo = !self.side_open();
         self.session_side_mut(&sid).dock_open = false;
         self.side.dock_focused = false;
     }
@@ -458,6 +465,8 @@ impl App {
         });
         self.side.chosen_new_tab.insert(pane, id.clone());
         self.side.focused = true;
+        self.side.dock_focused = false;
+        self.side.dock_last_solo = false;
         self.side.active_pane_focus = pane;
         self.composer.focused = false;
         self.side.mounted = true;
@@ -491,15 +500,21 @@ impl App {
         self.side.add_menu = None;
         let was_open = self.side_open();
         if was_open {
+            self.side.dock_last_solo = false;
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
             self.browser.address.focused = false;
+            if self.dock_open() {
+                self.side.dock_focused = true;
+            }
             return;
         }
 
         self.side.mounted = true;
+        self.side.dock_last_solo = false;
         self.session_side_mut(&sid).open = true;
         self.side.focused = true;
+        self.side.dock_focused = false;
         self.side.active_pane_focus = SessionPane::Side;
 
         let reg = self.resolve_side_region();
@@ -576,6 +591,8 @@ impl App {
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == actual_pane));
         self.side.focused = true;
+        self.side.dock_focused = false;
+        self.side.dock_last_solo = false;
         self.side.active_pane_focus = actual_pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)
@@ -621,6 +638,7 @@ impl App {
         };
         self.side.adding.retain(|n| !(n.session_id == sid && n.pane == pane));
         self.side.focused = true;
+        self.side.dock_focused = false;
         self.side.active_pane_focus = pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)

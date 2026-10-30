@@ -14,7 +14,8 @@ pub mod types;
 pub use core::VtCore;
 pub use ffi::GhosttyKey;
 pub use pty::{
-    PersistedTerminal, RestoreState, SessionStatus, StreamHandle, TerminalConfig, TerminalSession,
+    MAX_PERSIST_SCROLLBACK, PersistedTerminal, RestoreState, SessionPersistHandle, SessionStatus,
+    StreamHandle, TerminalConfig, TerminalSession,
 };
 pub use theme::{Rgb, TerminalTheme};
 pub use types::{

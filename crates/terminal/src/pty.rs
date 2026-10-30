@@ -17,6 +17,7 @@ use crate::types::{
     GridPoint, KeyInput, MouseInput, ScrollOp, SelectionOp, TerminalSnapshot, VtEvent,
 };
 
+pub const MAX_PERSIST_SCROLLBACK: usize = 2_000;
 pub(crate) const COALESCE_BUDGET: Duration = Duration::from_millis(2);
 pub(crate) const COALESCE_MAX_BYTES: usize = 256 * 1024;
 pub(crate) const RENDER_HOLD_TIMEOUT: Duration = Duration::from_secs(1);
@@ -126,6 +127,21 @@ impl StreamHandle {
 
     pub fn take_resizes(&self) -> Vec<(u16, u16)> {
         std::mem::take(&mut *self.resizes.lock())
+    }
+}
+
+/// Lightweight `Send` handle so background save threads (`opencode-saves`) can snapshot a
+/// terminal's 2,000-row VT buffer without blocking the UI thread or holding `TerminalSession` alive.
+#[derive(Clone)]
+pub struct SessionPersistHandle {
+    cmd_tx: Sender<WorkerCmd>,
+}
+
+impl SessionPersistHandle {
+    pub fn capture(&self, timeout: Duration) -> Option<PersistedTerminal> {
+        let (tx, rx) = mpsc::channel();
+        self.cmd_tx.send(WorkerCmd::Persist(tx)).ok()?;
+        rx.recv_timeout(timeout).ok()
     }
 }
 
@@ -298,10 +314,14 @@ impl TerminalSession {
         let _ = self.cmd_tx.send(WorkerCmd::SetTheme(theme));
     }
 
+    pub fn persist_handle(&self) -> SessionPersistHandle {
+        SessionPersistHandle {
+            cmd_tx: self.cmd_tx.clone(),
+        }
+    }
+
     pub fn persist_snapshot(&self, timeout: Duration) -> Option<PersistedTerminal> {
-        let (tx, rx) = mpsc::channel();
-        self.cmd_tx.send(WorkerCmd::Persist(tx)).ok()?;
-        rx.recv_timeout(timeout).ok()
+        self.persist_handle().capture(timeout)
     }
 }
 
@@ -441,7 +461,7 @@ pub(crate) fn apply_worker_cmd(
         WorkerCmd::Persist(reply) => {
             let snap = shared.snapshot.lock().clone();
             let _ = reply.send(PersistedTerminal {
-                buffer: core.serialize_vt(),
+                buffer: core.serialize_vt_capped(MAX_PERSIST_SCROLLBACK),
                 cols: snap.cols,
                 rows: snap.rows,
                 scroll_y: snap.scrollbar.offset,

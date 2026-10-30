@@ -18,9 +18,9 @@ use tungstenite::{Message, WebSocket};
 use crate::core::VtCore;
 use crate::ffi::GHOSTTY_MODE_COLOR_SCHEME_REPORT;
 use crate::pty::{
-    COALESCE_BUDGET, COALESCE_MAX_BYTES, PersistedTerminal, RENDER_HOLD_TIMEOUT, RestoreState,
-    SessionStatus, SharedState, TerminalConfig, WorkerCmd, apply_worker_cmd, build_core,
-    publish_if_ready,
+    COALESCE_BUDGET, COALESCE_MAX_BYTES, MAX_PERSIST_SCROLLBACK, PersistedTerminal,
+    RENDER_HOLD_TIMEOUT, RestoreState, SessionStatus, SharedState, TerminalConfig, WorkerCmd,
+    apply_worker_cmd, build_core, publish_if_ready,
 };
 
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(100);
@@ -338,7 +338,7 @@ fn handle_reconnect_or_exit(
             Ok(WorkerCmd::Persist(reply)) => {
                 let snap = shared.snapshot.lock().clone();
                 let _ = reply.send(PersistedTerminal {
-                    buffer: core.serialize_vt(),
+                    buffer: core.serialize_vt_capped(MAX_PERSIST_SCROLLBACK),
                     cols: snap.cols,
                     rows: snap.rows,
                     scroll_y: snap.scrollbar.offset,

@@ -206,6 +206,56 @@ impl VtCore {
         self.format_with(GhosttyFormatterTerminalOptions::vt_full())
     }
 
+    /// Serializes terminal state to VT escape sequences, capping scrollback at `max_scrollback` rows
+    /// (matching OpenCode Desktop's 2,000-line persistence cap) while keeping full viewport + styles.
+    pub fn serialize_vt_capped(&self, max_scrollback: usize) -> Vec<u8> {
+        let mut sb = GhosttyTerminalScrollbar::default();
+        let cols = self.cb.size.columns.max(1);
+        let ok = unsafe {
+            ffi::ghostty_terminal_get(
+                self.term,
+                GHOSTTY_TERMINAL_DATA_SCROLLBAR,
+                (&mut sb as *mut GhosttyTerminalScrollbar).cast(),
+            ) == GHOSTTY_SUCCESS
+        };
+        let keep = (max_scrollback as u64).saturating_add(sb.len.max(1));
+        if ok && sb.total > keep {
+            let start_row = sb.total.saturating_sub(keep) as u32;
+            let end_row = sb.total.saturating_sub(1) as u32;
+            let mut sref = GhosttyGridRef::default();
+            let mut eref = GhosttyGridRef::default();
+            let ok_s = unsafe {
+                ffi::ghostty_terminal_grid_ref(
+                    self.term,
+                    GhosttyPoint::new(GHOSTTY_POINT_TAG_SCREEN, 0, start_row),
+                    &mut sref,
+                ) == GHOSTTY_SUCCESS
+            };
+            let ok_e = unsafe {
+                ffi::ghostty_terminal_grid_ref(
+                    self.term,
+                    GhosttyPoint::new(GHOSTTY_POINT_TAG_SCREEN, cols.saturating_sub(1), end_row),
+                    &mut eref,
+                ) == GHOSTTY_SUCCESS
+            };
+            if ok_s && ok_e {
+                let sel = GhosttySelection {
+                    size: std::mem::size_of::<GhosttySelection>(),
+                    start: sref,
+                    end: eref,
+                    rectangle: false,
+                };
+                let mut opts = GhosttyFormatterTerminalOptions::vt_full();
+                opts.selection = &sel;
+                let capped = self.format_with(opts);
+                if !capped.is_empty() {
+                    return capped;
+                }
+            }
+        }
+        self.serialize_vt()
+    }
+
     pub fn format_plain(&self) -> String {
         String::from_utf8_lossy(&self.format_with(GhosttyFormatterTerminalOptions::plain_trimmed()))
             .into_owned()

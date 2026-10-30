@@ -94,6 +94,7 @@ impl App {
             self.sidebar_open = sidebar;
         }
         self.side.restore_json(&v["side"]);
+        self.load_persisted_terminals(server);
         self.show_draft();
         self.restore.saved = Some(self.ui_json());
         self.restore.stamp = Some(self.restore_stamp());
@@ -103,6 +104,7 @@ impl App {
     pub fn save_on_close(&mut self) {
         if self.persists() {
             self.poll_restore();
+            self.queue_terminal_save();
         }
         crate::disk::flush();
     }

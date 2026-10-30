@@ -129,7 +129,8 @@ pub(super) fn dock_resize_handle(s: &App, p: &Pal, key: &'static str, max_h: f32
             el().size(40.0, 4.0)
                 .radius(2.0)
                 .fill(if dragging { p.icon } else { p.icon_muted })
-                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
+                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0)
+                .transition(rune::Transition::none()),
         )
 }
 
@@ -140,9 +141,11 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         return None;
     }
 
-    if s.dock_bottom_open()
+    if s.dock_placement() == super::DockPlacement::Bottom
+        && (s.dock_bottom_open() || s.side.dock_mounted)
         && let Some((sid, dir, proj, dentry)) = s.resolve_dock_entry()
     {
+        let open = s.dock_bottom_open();
         let env_scale = cx.env().scale;
         let [win_w, win_h] = cx
             .layout_size("window")
@@ -150,6 +153,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         let left_w = if s.sidebar_open { s.sidebar_w } else { 0.0 };
         let max_h = (win_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
         let h = s.side.dock_height.clamp(DOCK_MIN_H, max_h);
+        let slot_h = if open { h + 16.0 } else { 0.0 };
         let handle = dock_resize_handle(s, p, "dock-bottom-resize", max_h);
         let card = render_dock_card(
             s,
@@ -165,7 +169,19 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .key("dock-bottom-panel")
         .w_full()
         .h(h);
-        return Some(col().key("bottom-dock").w_full().pl(8.0).pr(8.0).pb(8.0).child(handle).child(card));
+        let mut outer = col()
+            .key("bottom-dock")
+            .role("region")
+            .w_full()
+            .h(slot_h)
+            .clip_soft(0.0)
+            .pl(8.0)
+            .pr(8.0)
+            .child(col().w_full().pb(8.0).child(handle).child(card));
+        if !open {
+            outer = outer.inert();
+        }
+        return Some(outer);
     }
 
     let reg = s.resolve_side_region()?;
@@ -212,7 +228,8 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             el().size(40.0, 4.0)
                 .radius(2.0)
                 .fill(if dragging { p.icon } else { p.icon_muted })
-                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
+                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0)
+                .transition(rune::Transition::none()),
         );
 
     let card = col()

@@ -152,6 +152,11 @@ impl App {
         self.change_settings(|s| s.scheme = scheme);
     }
 
+    pub fn set_terminal_placement(&mut self, placement: crate::panels::DockPlacement, tx: &mut Tx) {
+        tx.instant();
+        self.change_settings(|s| s.terminal_placement = placement);
+    }
+
     /// Esc closes the page.
     pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if self.settings.open && ev.key == Key::Escape {
@@ -183,6 +188,7 @@ pub fn page(s: &App, p: &Pal) -> El {
             switch(p, "show-agent", s.settings.show_agent).on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent))),
         ("fold-user", "Fold long messages", "Fold your messages past 12 lines behind a Read more button",
             switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user))),
+        ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
         ("appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p)),
         ("zoom", "Interface zoom", "Scale the whole window. ⌘+ ⌘− ⌘0 do the same.", zoom_control(s, p)),
     ]);
@@ -268,6 +274,28 @@ fn switch(p: &Pal, key: &str, on: bool) -> El {
         .radius(4.0)
         .fill(if on { p.bg_accent } else { p.q.layer4 })
         .child(if on { row().w_full().child(spacer()).child(thumb) } else { row().w_full().child(thumb) })
+}
+
+fn placement_control(s: &App, p: &Pal) -> El {
+    use crate::panels::DockPlacement;
+    let mut r = row().key("terminal-placement-control").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
+    for (pl, label) in [(DockPlacement::Side, "Side"), (DockPlacement::Bottom, "Bottom")] {
+        let on = s.settings.terminal_placement == pl;
+        r = r.child(
+            row()
+                .key(format!("placement-{}", pl.name()))
+                .role("button")
+                .h(24.0)
+                .px(10.0)
+                .center()
+                .radius(4.0)
+                .fill(if on { p.bg_base } else { Color::TRANSPARENT })
+                .hover(if on { p.bg_base } else { p.hover })
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.set_terminal_placement(pl, tx))
+                .child(text(label).font(UI).color(if on { p.text } else { p.muted })),
+        );
+    }
+    r
 }
 
 fn scheme_control(s: &App, p: &Pal) -> El {

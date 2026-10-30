@@ -77,8 +77,9 @@ pub fn render_terminal_pane(
     let (font_choice, style) = terminal_font_style(&s.knobs);
     let (cell_w, cell_h) = cell_metrics(font_choice, style);
     let (pane_w, pane_h) = (pane_size.0.max(200.0), pane_size.1.max(100.0));
+    let bar_h = if reserve_top_right { 48.0 } else { BAR_H };
     let body_w = (pane_w - PAD_X * 2.0 - SCROLLBAR_W).max(cell_w * 10.0);
-    let body_h = (pane_h - BAR_H - PAD_Y * 2.0).max(cell_h * 2.0);
+    let body_h = (pane_h - bar_h - PAD_Y * 2.0).max(cell_h * 2.0);
     let fit_cols = ((body_w / cell_w).floor() as u16).clamp(10, 500);
     let fit_rows = ((body_h / cell_h).floor() as u16).clamp(2, 240);
     let cw_px = ((cell_w * s.zoom * env_scale).round() as u32).max(1);
@@ -139,6 +140,7 @@ pub fn render_terminal_pane(
         font_choice,
         cell_w,
         cell_h,
+        fit_cols,
         body_h,
         focused,
     );
@@ -170,7 +172,9 @@ fn tab_bar(
         .gap(4.0)
         .center_y()
         .grow(1.0)
-        .min_w(0.0);
+        .min_w(0.0)
+        .scroll(rune::ScrollSpec { stick_bottom: false })
+        .clip_fade(0.0, 0.0, 12.0, 0.0);
 
     for t in tabs {
         let tid = t.id.clone();
@@ -235,13 +239,15 @@ fn tab_bar(
     let mut bar = row()
         .key("terminal-tabbar")
         .w_full()
-        .h(BAR_H)
+        .h(if reserve_top_right { 48.0 } else { BAR_H })
         .pl(8.0)
         .pr(8.0)
         .gap(4.0)
         .center_y()
-        .child(strip)
-        .child(spacer());
+        .child(strip);
+    if reserve_top_right {
+        bar = bar.window_drag();
+    }
 
     if show_close_dock {
         bar = bar.child(
@@ -272,42 +278,55 @@ fn render_viewport(
     font_choice: u8,
     cell_w: f32,
     cell_h: f32,
+    fit_cols: u16,
     body_h: f32,
     focused: bool,
 ) -> El {
     let style_key = (font_choice, style.size.to_bits(), cell_w.to_bits(), cell_h.to_bits());
-    let grid_w = f32::from(snap.cols) * cell_w;
-    let grid_h = f32::from(snap.rows) * cell_h;
+    let avail_h = body_h.max(cell_h);
+    let slot_rows = (((avail_h / cell_h).ceil() as usize) + 1).max(snap.screen_rows.len());
+    let clip_w = f32::from(fit_cols) * cell_w;
+    let grid_h = (slot_rows as f32) * cell_h;
 
-    let mut rows_col = col().key("terminal-rows").w(grid_w).h(grid_h);
-    for (idx, row_arc) in snap.screen_rows.iter().enumerate() {
-        // Key memo by Ghostty's persistent `RowId` (`u128` hex) so clean and scrolled rows skip
-        // view building completely and replay cached glyphs from `TextSystem::glyphs_in_band_cached`.
-        let memo_id = format!("tr-{:032x}-{idx}", row_arc.id);
-        let version = (row_arc.id, row_arc.content_hash, style_key, p.dark);
-        let cloned: Arc<TerminalRow> = row_arc.clone();
-        let row_el = memo(memo_id, version, move || {
-            render_row(&cloned, p, cell_w, cell_h, style)
-        });
-        rows_col = rows_col.child(row_el);
+    let mut rows_col = col().key("terminal-rows").w(clip_w).h(grid_h);
+    for idx in 0..slot_rows {
+        let memo_id = format!("tr-{idx}");
+        if let Some(row_arc) = snap.screen_rows.get(idx) {
+            let version = (row_arc.id, row_arc.content_hash, style_key, p.dark, clip_w.to_bits());
+            let cloned: Arc<TerminalRow> = row_arc.clone();
+            let row_el = memo(memo_id, version, move || {
+                render_row(&cloned, p, cell_w, cell_h, style)
+            });
+            rows_col = rows_col.child(row_el);
+        } else {
+            let empty_ver = (0u128, 0u64, style_key, p.dark, clip_w.to_bits());
+            let w = clip_w;
+            let row_el = memo(memo_id, empty_ver, move || {
+                el().w(w)
+                    .h(cell_h)
+                    .child(el().key("line").absolute(0.0, 0.0).size(w, cell_h).child(rich(String::new(), Vec::new()).font(style)))
+                    .child(canvas(Shape::new()).key("vec").absolute(0.0, 0.0).size(w, cell_h).inert())
+            });
+            rows_col = rows_col.child(row_el);
+        }
     }
 
     let mut canvas_layer = el()
-        .key("terminal-canvas")
-        .w(grid_w)
-        .h(grid_h)
+        .key(format!("terminal-canvas-{}", tab.id))
+        .w(clip_w)
+        .h(avail_h)
+        .clip_soft(0.0)
         .child(rows_col);
 
-    // Phase-locked cursor overlay.
+    // Phase-locked cursor overlay (kept mounted with transparent fill during off-half so motion
+    // audits never see an element pop-in/pop-out on 500 ms blink edges).
     if snap.cursor.visible && snap.cursor.in_viewport {
         let lit = if focused && snap.cursor.blinking {
             s.terminal.cursor_lit(s.clock)
         } else {
             true
         };
-        if lit {
-            canvas_layer = canvas_layer.child(render_cursor(p, snap, cell_w, cell_h, focused));
-        }
+        canvas_layer = canvas_layer.child(render_cursor(p, snap, cell_w, cell_h, focused, lit));
     }
 
     let wk_drag = ws_key.to_owned();
@@ -450,42 +469,61 @@ fn render_cursor(
     cell_w: f32,
     cell_h: f32,
     focused: bool,
+    lit: bool,
 ) -> El {
     let x = f32::from(snap.cursor.col) * cell_w;
     let y = f32::from(snap.cursor.row) * cell_h;
     let cur_w = if snap.cursor.wide_tail { cell_w * 2.0 } else { cell_w };
     let color = snap.cursor_color.to_rune();
 
+    let mut shape = Shape::new();
     if !focused || snap.cursor.shape == CursorShape::HollowBlock {
-        return el()
-            .key("terminal-cursor")
-            .absolute(x, y)
-            .size(cur_w, cell_h)
-            .border(1.0, p.text.alpha(0.75))
-            .inert();
+        if !focused || lit {
+            let stroke = p.text.alpha(0.75);
+            shape = shape.stroke_with(
+                vec![
+                    [0.5, 0.5],
+                    [cur_w - 0.5, 0.5],
+                    [cur_w - 0.5, cell_h - 0.5],
+                    [0.5, cell_h - 0.5],
+                ],
+                true,
+                1.0,
+                LineCap::Butt,
+                stroke,
+            );
+        }
+    } else if lit {
+        match snap.cursor.shape {
+            CursorShape::Bar => {
+                shape = shape.fill(
+                    vec![[0.0, 0.0], [2.0, 0.0], [2.0, cell_h], [0.0, cell_h]],
+                    color,
+                );
+            }
+            CursorShape::Underline => {
+                let uy = (cell_h - 2.0).max(0.0);
+                shape = shape.fill(
+                    vec![[0.0, uy], [cur_w, uy], [cur_w, cell_h], [0.0, cell_h]],
+                    color,
+                );
+            }
+            CursorShape::Block | CursorShape::HollowBlock => {
+                shape = shape.fill(
+                    vec![[0.0, 0.0], [cur_w, 0.0], [cur_w, cell_h], [0.0, cell_h]],
+                    color.alpha(0.42),
+                );
+            }
+        }
     }
 
-    match snap.cursor.shape {
-        CursorShape::Bar => el()
-            .key("terminal-cursor")
-            .absolute(x, y)
-            .size(2.0, cell_h)
-            .radius(1.0)
-            .fill(color)
-            .inert(),
-        CursorShape::Underline => el()
-            .key("terminal-cursor")
-            .absolute(x, y + cell_h - 2.0)
-            .size(cur_w, 2.0)
-            .fill(color)
-            .inert(),
-        CursorShape::Block | CursorShape::HollowBlock => el()
-            .key("terminal-cursor")
-            .absolute(x, y)
-            .size(cur_w, cell_h)
-            .fill(color.alpha(0.42))
-            .inert(),
-    }
+    canvas(shape)
+        .key("terminal-cursor")
+        .absolute(x, y)
+        .size(cur_w, cell_h)
+        .instant_changes()
+        .transition(rune::Transition::none())
+        .inert()
 }
 
 fn render_scrollbar(
@@ -559,38 +597,18 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
         }
     }
 
-    // 2. Coalesced ASCII/Latin text runs + pinned wide/emoji cells + vector box/decoration shapes.
+    // 2. Single stable `line` rich-text node per row + pinned wide/emoji cells + vector `Shape`.
+    // Keeping `line` always mounted prevents element pop-out/pop-in when rows wrap, scroll, or clear.
     let mut shape = Shape::new();
-    let mut has_shape = false;
 
-    let mut run_start_col: Option<u16> = None;
-    let mut run_text = String::new();
-    let mut run_spans: Vec<Span> = Vec::new();
-    let mut text_children: Vec<El> = Vec::new();
-
-    let flush_run = |start: &mut Option<u16>,
-                     txt: &mut String,
-                     spans: &mut Vec<Span>,
-                     out: &mut Vec<El>| {
-        let Some(sc) = start.take() else { return };
-        if !txt.trim_matches(' ').is_empty() || !spans.is_empty() {
-            let content = std::mem::take(txt);
-            let sp = std::mem::take(spans);
-            out.push(
-                el().absolute(f32::from(sc) * cell_w, 0.0)
-                    .h(cell_h)
-                    .child(rich(content, sp).font(base_style).truncate_fade_width(0.0)),
-            );
-        } else {
-            txt.clear();
-            spans.clear();
-        }
-    };
+    let mut line_text = String::with_capacity(row_data.cells.len());
+    let mut line_spans: Vec<Span> = Vec::new();
+    let mut pinned_children: Vec<El> = Vec::new();
 
     for (idx, cell) in row_data.cells.iter().enumerate() {
         let col_idx = idx as u16;
         if cell.flags.contains(CellFlags::WIDE_SPACER_TAIL) || cell.flags.contains(CellFlags::INVISIBLE) {
-            flush_run(&mut run_start_col, &mut run_text, &mut run_spans, &mut text_children);
+            line_text.push(' ');
             continue;
         }
 
@@ -602,7 +620,6 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             let x1 = x0 + f32::from(cell.width.max(1)) * cell_w;
             let ym = (cell_h * 0.52).round();
             shape = shape.line([x0, ym], [x1, ym], 1.0, LineCap::Butt, fg);
-            has_shape = true;
         }
         if !matches!(cell.underline, UnderlineKind::None | UnderlineKind::Single) {
             let ul_c = cell.underline_color.map_or(fg, |c| c.to_rune());
@@ -614,21 +631,19 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
                 cell_h,
                 ul_c,
             );
-            has_shape = true;
         }
 
         if let Some(ch) = single_char(&cell.grapheme)
             && draw_box_or_block(&mut shape, ch, f32::from(col_idx) * cell_w, cell_w, cell_h, fg)
         {
-            has_shape = true;
-            flush_run(&mut run_start_col, &mut run_text, &mut run_spans, &mut text_children);
+            line_text.push(' ');
             continue;
         }
 
         // Wide glyphs, emoji, and non-Latin scripts get exact cell-pinned boxes so fallback font
         // advances can never drift subsequent columns off the monospace grid.
         if cell.width != 1 || !is_grid_safe_monospaced(&cell.grapheme) {
-            flush_run(&mut run_start_col, &mut run_text, &mut run_spans, &mut text_children);
+            line_text.push(' ');
             if !cell.grapheme.is_empty() && cell.grapheme != " " {
                 let mut cell_style = base_style;
                 if cell.flags.contains(CellFlags::BOLD) {
@@ -638,8 +653,9 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
                     cell_style.italic = true;
                 }
                 let w = f32::from(cell.width.max(1)) * cell_w;
-                text_children.push(
-                    el().absolute(f32::from(col_idx) * cell_w, 0.0)
+                pinned_children.push(
+                    el().key(format!("g-{col_idx}"))
+                        .absolute(f32::from(col_idx) * cell_w, 0.0)
                         .size(w, cell_h)
                         .child(text(cell.grapheme.clone()).font(cell_style).color(fg)),
                 );
@@ -647,23 +663,20 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             continue;
         }
 
-        if run_start_col.is_none() {
-            run_start_col = Some(col_idx);
-        }
-        let byte_start = run_text.len();
+        let byte_start = line_text.len();
         if cell.grapheme.is_empty() {
-            run_text.push(' ');
+            line_text.push(' ');
         } else {
-            run_text.push_str(&cell.grapheme);
+            line_text.push_str(&cell.grapheme);
         }
-        let byte_end = run_text.len();
+        let byte_end = line_text.len();
 
         let weight = cell.flags.contains(CellFlags::BOLD).then_some(700.0);
         let italic = cell.flags.contains(CellFlags::ITALIC);
         let underline = (cell.underline == UnderlineKind::Single)
             .then(|| cell.underline_color.map_or(fg, |c| c.to_rune()));
 
-        if let Some(last) = run_spans.last_mut()
+        if let Some(last) = line_spans.last_mut()
             && last.end as usize == byte_start
             && last.color == Some(fg)
             && last.weight == weight
@@ -676,24 +689,38 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             sp.weight = weight;
             sp.italic = italic;
             sp.underline = underline;
-            run_spans.push(sp);
+            line_spans.push(sp);
         }
     }
 
-    flush_run(&mut run_start_col, &mut run_text, &mut run_spans, &mut text_children);
+    let trimmed_len = line_text.trim_end_matches(' ').len();
+    line_text.truncate(trimmed_len);
+    line_spans.retain_mut(|sp| {
+        if sp.start as usize >= trimmed_len {
+            false
+        } else {
+            sp.end = sp.end.min(trimmed_len as u32);
+            sp.end > sp.start
+        }
+    });
 
-    for child in text_children {
+    container = container.child(
+        el().key("line")
+            .absolute(0.0, 0.0)
+            .size(row_w, cell_h)
+            .child(rich(line_text, line_spans).font(base_style).truncate_fade_width(0.0)),
+    );
+
+    for child in pinned_children {
         container = container.child(child);
     }
-    if has_shape {
-        container = container.child(
-            canvas(shape)
-                .absolute(0.0, 0.0)
-                .size(row_w, cell_h)
-                .inert(),
-        );
-    }
-    container
+    container.child(
+        canvas(shape)
+            .key("vec")
+            .absolute(0.0, 0.0)
+            .size(row_w, cell_h)
+            .inert(),
+    )
 }
 
 fn cell_fg_color(cell: &RenderedCell) -> Color {
@@ -726,5 +753,7 @@ fn bar_btn(p: &Pal, key: &str, label: &str, glyph: &'static rune::Icon, sz: f32)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
+        .instant_changes()
+        .transition(rune::Transition::none())
         .child(icon(glyph, sz).color(p.icon_muted))
 }

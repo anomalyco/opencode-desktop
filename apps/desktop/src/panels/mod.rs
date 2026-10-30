@@ -139,6 +139,10 @@ impl ShortcutChord {
         Self { key: '`', cmd: false, ctrl: true, alt: false, shift: false, hint: "⌃`" }
     }
 
+    pub const fn ctrl_alt(key: char, hint: &'static str) -> Self {
+        Self { key, cmd: false, ctrl: true, alt: true, shift: false, hint }
+    }
+
     pub fn matches(&self, ev: &KeyEvent) -> bool {
         let m = ev.mods;
         if m.cmd != self.cmd || m.ctrl != self.ctrl || m.alt != self.alt || m.shift != self.shift {
@@ -153,6 +157,17 @@ impl ShortcutChord {
             }
             _ => false,
         }
+    }
+
+    pub fn matches_tx(&self, ev: &KeyEvent, tx: &Tx) -> bool {
+        if self.matches(ev) {
+            return true;
+        }
+        let m = ev.mods;
+        if m.cmd != self.cmd || m.ctrl != self.ctrl || m.alt != self.alt || m.shift != self.shift {
+            return false;
+        }
+        tx.key_base().is_some_and(|b| b.eq_ignore_ascii_case(&self.key))
     }
 }
 
@@ -343,6 +358,8 @@ pub struct PanelRegistration {
     /// Optional global shortcut & `⌘K` palette title for launching/toggling this panel.
     pub shortcut: Option<ShortcutChord>,
     pub command_title: Option<&'static str>,
+    /// Additional session-scoped global shortcuts (e.g. `⌃\`` toggle and `⌃⌥T` new terminal).
+    pub extra_shortcuts: &'static [(ShortcutChord, fn(&mut App, &mut Tx))],
     /// Optional `+` / `"New tab"` launcher entry.
     pub launcher: Option<fn(&App, &PanelSessionCtx) -> Option<PanelLauncherDesc>>,
     /// Invoked when the user triggers the launcher or global command.
@@ -385,6 +402,7 @@ impl PanelRegistration {
             legacy: &[],
             shortcut: None,
             command_title: None,
+            extra_shortcuts: &[],
             launcher: None,
             open_launcher: None,
             list,
@@ -441,6 +459,14 @@ impl PanelRegistration {
     pub const fn command(mut self, title: &'static str, shortcut: ShortcutChord) -> Self {
         self.command_title = Some(title);
         self.shortcut = Some(shortcut);
+        self
+    }
+
+    pub const fn shortcuts(
+        mut self,
+        shortcuts: &'static [(ShortcutChord, fn(&mut App, &mut Tx))],
+    ) -> Self {
+        self.extra_shortcuts = shortcuts;
         self
     }
 

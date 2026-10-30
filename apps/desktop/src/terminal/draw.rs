@@ -107,6 +107,19 @@ pub fn draw_box_or_block(
         '░' => rect(shape, x, 0.0, x1, y1, color.alpha(0.25)),
         '▒' => rect(shape, x, 0.0, x1, y1, color.alpha(0.50)),
         '▓' => rect(shape, x, 0.0, x1, y1, color.alpha(0.75)),
+        '❯' => {
+            *shape = std::mem::take(shape).stroke_with(
+                vec![
+                    [x + w * 0.22, h * 0.29],
+                    [x + w * 0.72, ym],
+                    [x + w * 0.22, h * 0.71],
+                ],
+                false,
+                1.6,
+                LineCap::Round,
+                color,
+            );
+        }
         _ => return false,
     }
     true

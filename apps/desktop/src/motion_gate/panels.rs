@@ -58,7 +58,6 @@ pub fn review(r: &mut Run) {
     r.rec.loads.push(r.rec.frames - 1);
     r.play_out(0.8);
 }
-
 pub fn files(r: &mut Run) {
     r.act("seed file open", |rt| {
         rt.update(|s, tx| {
@@ -85,6 +84,42 @@ pub fn files(r: &mut Run) {
     r.rec.loads.push(r.rec.frames - 1);
     r.play(0.2);
     r.act("close side region", |rt| Run::tap(rt, "side-toggle"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play_out(0.8);
+}
+
+pub fn terminal_dock(r: &mut Run) {
+    use rune::{Key, KeyEvent, Mods};
+    let cmd = |c| KeyEvent {
+        key: Key::Command(c),
+        mods: Mods { cmd: true, logo: true, ..Mods::default() },
+    };
+    r.act("seed terminal open", |rt| {
+        rt.update(|s, tx| {
+            s.toggle_dock(tx);
+            tx.settle();
+        });
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.15);
+    r.act("new terminal ⌃⌥T", |rt| {
+        rt.key(KeyEvent {
+            key: Key::Text("t".into()),
+            mods: Mods { ctrl: true, alt: true, ..Mods::default() },
+        });
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("switch terminal tab", |rt| Run::tap(rt, "ttab-term_1"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("close terminal tab ⌘W", |rt| rt.key(cmd('w')));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.2);
+    r.act("close terminal ⌘J", |rt| rt.key(cmd('j')));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.6);
+    r.act("reopen terminal ⌘J", |rt| rt.key(cmd('j')));
     r.rec.loads.push(r.rec.frames - 1);
     r.play_out(0.8);
 }

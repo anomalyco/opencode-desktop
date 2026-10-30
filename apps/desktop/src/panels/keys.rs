@@ -148,10 +148,10 @@ impl App {
             return true;
         }
 
-        // 2. Registered panel global launcher shortcuts (e.g. ⌃⌘B Browser, ⌃⌘R Review, ⌃⌘P Files, ⌘J / ⌃` Terminal).
+        // 2. Registered panel global launcher shortcuts (e.g. ⌃⌘B Browser, ⌃⌘R Review, ⌃⌘P Files, ⌘J / ⌃` / ⌃⌥T Terminal).
         for p in self.all_panels() {
             if let Some(sc) = p.shortcut
-                && sc.matches(ev)
+                && sc.matches_tx(ev, tx)
             {
                 if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
                     self.toggle_dock(tx);
@@ -159,6 +159,12 @@ impl App {
                 }
                 if let Some(open_fn) = p.open_launcher {
                     open_fn(self, p.default_pane, tx);
+                    return true;
+                }
+            }
+            for &(sc, handler) in p.extra_shortcuts {
+                if sc.matches_tx(ev, tx) {
+                    handler(self, tx);
                     return true;
                 }
             }
