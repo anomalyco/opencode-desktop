@@ -247,3 +247,17 @@ fn a_prompt_of_only_quotes_shows_its_cards() {
     assert!(card.path.contains("/bubble/"), "the cards stand in for the bubble: {}", card.path);
     model::set_user_quotes("msg_quote_only", Vec::new());
 }
+
+#[test]
+fn the_comment_editor_follows_the_text_size() {
+    let mut rt = quoting("");
+    rt.update(|s, tx| {
+        let k = s.quote.push(Quote { text: "quoted line".into(), comment: None });
+        crate::quote_cards::open_editor(s, k);
+        s.zoom = 1.6;
+        tx.instant();
+    });
+    settle(&mut rt);
+    let editor = find(&rt, |e| e.key.as_deref() == Some("quote-comment"));
+    assert!((editor.scale - 1.6).abs() < 1e-3, "scales with zoom: {}", editor.scale);
+}

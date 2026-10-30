@@ -60,7 +60,7 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
 }
 
 pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
-    let mut crumbs = row().key("crumbs").gap(0.0).center_y().shrink();
+    let mut crumbs = row().key("crumbs").gap(0.0).center_y().shrink().min_w(0.0);
     if let Some(info) = info {
         let project = s.project(&info.project);
         let proj = project.map_or("", |x| x.name.as_str());
@@ -72,13 +72,13 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
             let pid = parent.id.clone();
             crumbs = crumbs
                 .child(
-                    row().key("parent-crumb").role("button").label(format!("Open {}", title_of(parent))).h(24.0).px(4.0).center_y().radius(4.0)
+                    row().key("parent-crumb").role("button").label(format!("Open {}", title_of(parent))).h(24.0).px(4.0).center_y().radius(4.0).shrink().min_w(0.0)
                         .hover(p.hover).hover_motion(INSTANT, INSTANT)
                         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                             tx.instant();
                             s.open(&pid, tx);
                         })
-                        .child(text(title_of(parent)).font(UI_MED).color(p.faint).truncate()),
+                        .child(text(title_of(parent)).font(UI_MED).color(p.faint).truncate_fade()),
                 )
                 .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(4.0).pr(4.0));
         }
@@ -565,7 +565,7 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
 /// button beside it) and renames when clicked; a subagent's is plain.
 fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     if info.parent.is_some() {
-        return vec![text(title_of(info)).font(UI_MED).color(p.text).truncate().pl(4.0)];
+        return vec![text(title_of(info)).font(UI_MED).color(p.text).truncate_fade().pl(4.0)];
     }
     let target = Target::new(&info.id, Spot::Header);
     let marked = s.menus.on.as_ref() == Some(&target);
@@ -574,12 +574,12 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
         None => {
             let begin = target.clone();
-            let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
-                .child(text(title_of(info)).font(UI_MED).color(p.text).truncate());
+                .child(text(title_of(info)).font(UI_MED).color(p.text).truncate_fade());
             if marked {
                 t = t.fill(p.hover);
             }

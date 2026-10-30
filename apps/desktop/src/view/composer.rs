@@ -223,7 +223,7 @@ pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
         .gap(12.0)
         .center_y()
         .child(icon(&ic::FOLDER, 14.0).color(p.icon_faint))
-        .child(text(dir).font(UI_SMALL).color(p.faint).truncate())
+        .child(text(dir).font(UI_SMALL).color(p.faint).truncate_fade())
         .child(spacer())
         .child(
             row()

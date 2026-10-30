@@ -120,10 +120,10 @@ pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc
     }
     r = match editing {
         Some(field) => r.child(field.grow(1.0)),
-        None => r.on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx)).child(text(title_of(ses)).font(UI_MED).color(p.text).truncate()),
+        None => r.on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx)).child(text(title_of(ses)).font(UI_MED).color(p.text).truncate_fade()),
     };
     crate::session_menu::on(
-        r.child(text(proj.to_owned()).font(UI).color(p.faint).truncate())
+        r.child(text(proj.to_owned()).font(UI).color(p.faint).truncate_fade())
             .child(spacer())
             .child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
         target,

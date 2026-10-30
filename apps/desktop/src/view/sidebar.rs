@@ -35,7 +35,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(ink).group_color(p.text))
-        .child(text(label).font(UI).color(ink).group_color(p.text).truncate());
+        .child(text(label).font(UI).color(ink).group_color(p.text).truncate_fade());
     if pressed {
         r = r.fill(p.pressed);
     }

@@ -7,52 +7,56 @@ use rune_knobs::{Group, Knob, Knobs, Preset};
 use crate::App;
 
 /// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
-pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0);
+pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("How solid the subagent capsule fill is");
 /// Its corner radius in points: 12 is Desktop's; 14 makes a full pill.
-pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0);
+pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0).about("Corner radius of the subagent capsule");
 /// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
-pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0);
+pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("Strength of the subagent capsule hairline");
 /// Where "Jump to latest" sits: at the composer's right end, or centred above it as on Desktop.
-pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0);
+pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0)
+    .about("Where Jump to latest sits over composer")
+    .hints(&["At the composer's right end", "Centred above the composer"]);
 
 /// The composer ⇄ question morph's curve: a spring (duration and bounce) or an eased tween
 /// over the duration.
-pub const MORPH_CURVE: Knob = Knob::choice("Morph curve", &["Spring", "Ease out", "In-out", "Expo out"], 0);
+pub const MORPH_CURVE: Knob = Knob::choice("Morph curve", &["Spring", "Ease out", "In-out", "Expo out"], 0)
+    .about("Curve for the composer question morph")
+    .hints(&["Zero-bounce or bouncy spring", "Cubic ease-out curve", "Cubic ease-in-out curve", "Exponential ease-out curve"]);
 /// The morph's duration in seconds: a spring's perceptual duration, a tween's length.
-pub const MORPH_DURATION: Knob = Knob::new("Morph duration", 0.1, 1.0, 0.4).step(0.01);
+pub const MORPH_DURATION: Knob = Knob::new("Morph duration", 0.1, 1.0, 0.4).step(0.01).about("Seconds the composer question morph takes");
 /// The spring's bounce; tweens ignore it.
-pub const MORPH_BOUNCE: Knob = Knob::new("Morph bounce", 0.0, 0.4, 0.0).step(0.01);
+pub const MORPH_BOUNCE: Knob = Knob::new("Morph bounce", 0.0, 0.4, 0.0).step(0.01).about("Spring bounce on the question morph");
 /// The arriving face's fade and rise, as a spring's duration.
-pub const FACE_IN: Knob = Knob::new("Face in", 0.1, 1.0, 0.4).step(0.01);
+pub const FACE_IN: Knob = Knob::new("Face in", 0.1, 1.0, 0.4).step(0.01).about("Seconds the arriving dock face fades in");
 /// How far the arriving face rises, in points.
-pub const FACE_RISE: Knob = Knob::new("Face rise", 0.0, 16.0, 6.0).step(1.0);
+pub const FACE_RISE: Knob = Knob::new("Face rise", 0.0, 16.0, 6.0).step(1.0).about("Points the arriving dock face rises");
 /// The leaving face's fade, as a spring's duration.
-pub const FADE_OUT: Knob = Knob::new("Fade out", 0.05, 0.5, 0.15).step(0.01);
+pub const FADE_OUT: Knob = Knob::new("Fade out", 0.05, 0.5, 0.15).step(0.01).about("Seconds the leaving dock face fades out");
 /// A new question's text and answers sliding in, as a spring's duration.
-pub const ARRIVE: Knob = Knob::new("Arrive", 0.1, 0.8, 0.3).step(0.01);
+pub const ARRIVE: Knob = Knob::new("Arrive", 0.1, 0.8, 0.3).step(0.01).about("Seconds a new question's options slide in");
 /// How far they slide, in points.
-pub const ARRIVE_SLIDE: Knob = Knob::new("Arrive slide", 0.0, 32.0, 12.0).step(1.0);
+pub const ARRIVE_SLIDE: Knob = Knob::new("Arrive slide", 0.0, 32.0, 12.0).step(1.0).about("Points a new question's options slide");
 
 /// The timeline's motion. The defaults are the curves it shipped with, and stay those exactly
 /// (`timeline_defaults_are_what_shipped`).
 ///
 /// A message from another client glows as it lands: a quick rise, then a fast decay with a
 /// slower tail (half-lives in seconds), faded to nothing between "Glow fades at" and its length.
-pub const GLOW_LENGTH: Knob = Knob::new("Glow length", 0.3, 2.0, 0.9);
-pub const GLOW_RISE: Knob = Knob::new("Glow rise", 0.0, 0.3, 0.07);
-pub const GLOW_DECAY: Knob = Knob::new("Glow decay", 0.02, 0.5, 0.11);
-pub const GLOW_TAIL: Knob = Knob::new("Glow tail", 0.02, 0.8, 0.2);
-pub const GLOW_FADE: Knob = Knob::new("Glow fades at", 0.1, 1.9, 0.7);
+pub const GLOW_LENGTH: Knob = Knob::new("Glow length", 0.3, 2.0, 0.9).about("Total seconds an arriving message stays lit");
+pub const GLOW_RISE: Knob = Knob::new("Glow rise", 0.0, 0.3, 0.07).about("Seconds an arriving message takes to brighten");
+pub const GLOW_DECAY: Knob = Knob::new("Glow decay", 0.02, 0.5, 0.11).about("Fast half-life of the arrival lift");
+pub const GLOW_TAIL: Knob = Knob::new("Glow tail", 0.02, 0.8, 0.2).about("Slow tail half-life of arrival lift");
+pub const GLOW_FADE: Knob = Knob::new("Glow fades at", 0.1, 1.9, 0.7).about("When the arrival lift finishes fading out");
 /// Rows growing in and finished content gliding open, as a spring's duration.
-pub const ROW_GROWTH: Knob = Knob::new("Row growth", 0.1, 0.8, 0.32);
+pub const ROW_GROWTH: Knob = Knob::new("Row growth", 0.1, 0.8, 0.32).about("Spring duration for rows growing in");
 /// The tail under a turn, where Working hands over to the turn's actions, as a spring.
-pub const ACTIONS_TAIL: Knob = Knob::new("Actions tail", 0.1, 0.8, 0.34);
+pub const ACTIONS_TAIL: Knob = Knob::new("Actions tail", 0.1, 0.8, 0.34).about("Spring duration for the turn tail");
 /// Jump to latest showing and hiding (tweens, seconds) and how far it rises as it shows.
-pub const JUMP_IN: Knob = Knob::new("Jump in", 0.05, 0.5, 0.15);
-pub const JUMP_OUT: Knob = Knob::new("Jump out", 0.05, 0.5, 0.11);
-pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0);
+pub const JUMP_IN: Knob = Knob::new("Jump in", 0.05, 0.5, 0.15).about("Seconds Jump to latest takes to show");
+pub const JUMP_OUT: Knob = Knob::new("Jump out", 0.05, 0.5, 0.11).about("Seconds Jump to latest takes to hide");
+pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0).about("Points Jump to latest rises on enter");
 /// An image flying out of its thumbnail into the viewer and back, as a spring.
-pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25);
+pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25).about("Spring duration for opening image viewer");
 
 pub const TIMELINE: &[Knob] = &[
     GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
@@ -75,20 +79,26 @@ pub const QUESTION_DOCK: Group =
 
 /// The Working row's sweep (`working.rs`): a wide soft band at a steady speed.
 /// Seconds per pass in "Fixed period".
-pub const WORKING_PERIOD: Knob = Knob::new("Period", 0.4, 4.0, 1.2).step(0.05);
+pub const WORKING_PERIOD: Knob = Knob::new("Period", 0.4, 4.0, 1.2).step(0.05).about("Seconds per sweep in fixed-period mode");
 /// One pass per period whatever the label's width, or a steady speed.
-pub const WORKING_PACE: Knob = Knob::choice("Pace", &["Fixed period", "pt/s"], 1);
-pub const WORKING_SPEED: Knob = Knob::new("Speed (pt/s)", 20.0, 400.0, 90.0).step(5.0);
+pub const WORKING_PACE: Knob = Knob::choice("Pace", &["Fixed period", "pt/s"], 1)
+    .about("Whether Working sweeps by period or speed")
+    .hints(&["Same pass time for any width", "Constant speed in points per second"]);
+pub const WORKING_SPEED: Knob = Knob::new("Speed (pt/s)", 20.0, 400.0, 90.0).step(5.0).about("Sweep speed in points per second");
 /// The band's width, in points or as a percentage of the label's.
-pub const WORKING_BAND: Knob = Knob::new("Band width", 8.0, 240.0, 140.0).step(1.0);
-pub const WORKING_UNIT: Knob = Knob::choice("Band unit", &["pt", "% of label"], 0);
+pub const WORKING_BAND: Knob = Knob::new("Band width", 8.0, 240.0, 140.0).step(1.0).about("Width of the moving highlight band");
+pub const WORKING_UNIT: Knob = Knob::choice("Band unit", &["pt", "% of label"], 0)
+    .about("Units for the Working highlight band width")
+    .hints(&["Fixed width in window points", "Percentage of the label width"]);
 /// How far the highlight goes from the weak colour to the strong one.
-pub const WORKING_INTENSITY: Knob = Knob::new("Intensity", 0.0, 1.0, 0.85);
+pub const WORKING_INTENSITY: Knob = Knob::new("Intensity", 0.0, 1.0, 0.85).about("Peak brightness of the Working sweep");
 /// How much of the band's half-width is a soft edge.
-pub const WORKING_SOFTNESS: Knob = Knob::new("Softness", 0.0, 1.0, 1.0);
-pub const WORKING_DIRECTION: Knob = Knob::choice("Direction", &["Left to right", "Right to left"], 0);
+pub const WORKING_SOFTNESS: Knob = Knob::new("Softness", 0.0, 1.0, 1.0).about("Softness of the sweep band's edges");
+pub const WORKING_DIRECTION: Knob = Knob::choice("Direction", &["Left to right", "Right to left"], 0)
+    .about("Direction the Working highlight sweeps across")
+    .hints(&["Sweeps from left to right", "Sweeps from right to left"]);
 /// Seconds of rest between passes.
-pub const WORKING_PAUSE: Knob = Knob::new("Pause", 0.0, 3.0, 0.0).step(0.05);
+pub const WORKING_PAUSE: Knob = Knob::new("Pause", 0.0, 3.0, 0.0).step(0.05).about("Seconds of rest between Working sweeps");
 
 pub const WORKING: Group = Group::new(
     "Working",
@@ -229,5 +239,22 @@ mod tests {
         assert_eq!(jump(&k, false), Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0)));
         assert_eq!(k.get(&JUMP_RISE), 4.0);
         assert_eq!(Spring::new(k.get(&IMAGE_FLIGHT), 0.0), Spring::new(0.25, 0.0));
+    }
+
+    #[test]
+    fn every_knob_says_what_it_does() {
+        for g in groups() {
+            for k in g.knobs {
+                let words = k.about.split_whitespace().count();
+                assert!((1..=8).contains(&words), "{} › {}: `.about` needs 1..=8 words, got {words} ({:?})", g.name, k.name, k.about);
+                if !k.labels.is_empty() {
+                    assert_eq!(k.hints.len(), k.labels.len(), "{} › {}: one hint per choice option", g.name, k.name);
+                    for (opt, hint) in k.labels.iter().zip(k.hints) {
+                        let hw = hint.split_whitespace().count();
+                        assert!((1..=8).contains(&hw), "{} › {} ({opt}): hint needs 1..=8 words, got {hw} ({hint:?})", g.name, k.name);
+                    }
+                }
+            }
+        }
     }
 }

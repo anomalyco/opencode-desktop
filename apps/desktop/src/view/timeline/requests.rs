@@ -42,7 +42,7 @@ pub(in crate::view) fn request_card(p: &Pal, r: &Pending) -> El {
                 c = c.child(text(message.clone()).font(UI).color(p.muted).wrap());
             }
             for (i, res) in resources.iter().take(6).enumerate() {
-                c = c.child(text(res.clone()).key(format!("res-{i}")).font(CODE).color(p.muted).truncate());
+                c = c.child(text(res.clone()).key(format!("res-{i}")).font(CODE).color(p.muted).truncate_fade());
             }
             let b = |key: &str, label: &str, decision: &'static str, primary: bool| {
                 let rid = rid.clone();

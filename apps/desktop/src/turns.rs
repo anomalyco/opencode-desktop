@@ -192,7 +192,7 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
         .center_y()
         .child(icon(tool_icon(name), 14.0).color(p.icon_muted))
         .child(readable(p, text(tool_title(name).to_owned()).font(UI_MED).color(color)))
-        .child(readable(p, text(title.to_owned()).font(UI).color(p.faint).truncate()))
+        .child(readable(p, text(title.to_owned()).font(UI).color(p.faint).truncate_fade()))
 }
 
 /// The folded row: its label and chevron, and when open, every step in order. Opening and
@@ -214,7 +214,7 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         Some(n) => trigger
             .child(text("Used").key("used").font(UI).color(p.muted))
             .child(odometer(format!("{key}-count"), n.to_string(), n as f64, UI, p.text))
-            .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate()),
+            .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()),
         None => trigger.child(text(l.title.clone()).key("thinking").font(UI).color(p.muted)),
     };
     trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));

@@ -70,7 +70,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { tx.instant(); } })
         .child(crate::icons::badge(s, p, project, &name))
-        .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate());
+        .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate_fade());
     row()
         .key("location")
         .w_full()
@@ -81,5 +81,5 @@ pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
         .center_y()
         .child(button)
         .child(spacer())
-        .child(text(dir).font(UI).color(p.faint).truncate().shrink().pr(6.0))
+        .child(text(dir).font(UI).color(p.faint).truncate_fade().pr(6.0))
 }

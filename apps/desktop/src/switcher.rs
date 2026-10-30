@@ -433,7 +433,7 @@ pub(crate) fn encode(s: &str) -> String {
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
-    let t = text(s.to_owned()).font(style).color(color).truncate();
+    let t = text(s.to_owned()).font(style).color(color).truncate_fade();
     let lower = s.to_lowercase();
     let needle = q.trim().to_lowercase();
     match lower.find(&needle) {

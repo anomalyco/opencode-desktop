@@ -668,3 +668,27 @@ fn typing_reuses_memoized_timeline_rows() {
     // plain prompt bubble hits `rune::memo`.
     assert!(super::ROW_BUILDS.get() <= 1, "expected <= 1 row build on typing, got {}", super::ROW_BUILDS.get());
 }
+
+#[test]
+fn a_long_header_title_shrinks_before_usage_at_large_zoom() {
+    for w in [1040.0, 860.0] {
+        let mut app = App::fixture_session();
+        app.zoom = 1.6;
+        if let crate::Route::Session(id) = app.route.clone()
+            && let Some(info) = app.sessions.iter_mut().find(|s| s.id == id)
+        {
+            info.title = "Refactor reconnect backoff, bounded session cache, and virtual timeline rows".into();
+        }
+        let mut rt = Runtime::new(app, super::app, (w, 680.0), Env::new(true, 1.0));
+        rt.frame(0.0);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let rect = |key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap().rect;
+        let (crumbs, title, usage) = (rect("crumbs"), rect("title"), rect("usage"));
+        assert!(crumbs[0] + crumbs[2] <= usage[0] + 0.5, "w={w}: crumbs {:?} must stay left of usage {:?}", crumbs, usage);
+        if w >= 1040.0 {
+            assert!(title[2] > 80.0, "w={w}: title keeps readable room before fading: {:?}", title);
+        }
+    }
+}

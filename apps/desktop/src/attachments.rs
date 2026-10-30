@@ -350,8 +350,8 @@ fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .radius(6.0)
         .fill(p.hover)
         .border(0.5, p.border)
-        .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate().w_full())
-        .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate())
+        .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
+        .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade())
 }
 
 /// A file's type as the card's second line: its extension, upper-cased (Desktop's `typeLabel`).

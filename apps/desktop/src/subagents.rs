@@ -174,7 +174,7 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
     }
     if !parts.is_empty() {
         let rest = format!("{}{}", dot(head.is_none()), parts.join(" · "));
-        summary = summary.child(text(rest).key("rest").font(UI_SMALL).color(p.faint).truncate().shrink());
+        summary = summary.child(text(rest).key("rest").font(UI_SMALL).color(p.faint).truncate_fade());
     }
     line = line
         .child(summary)
@@ -298,24 +298,23 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .scroll_edge_fade(12.0)
         .scroll_margin(PANEL_PAD)
         .child(list);
-    Some(
-        col()
-            .key("activity-panel")
-            .role("menu")
-            .label("Subagents")
-            .above("activity-chip", 8.0)
-            .w(natural.clamp(240.0, 360.0).ceil())
-            .radius(10.0)
-            .fill(p.layer1)
-            // --v2-elevation-floating: two drops and a hairline ring.
-            .border(0.5, p.ring)
-            .shadow(8.0, 16.0, p.shadow_far)
-            .shadow(4.0, 8.0, p.shadow)
-            .clip_soft(0.0)
-            .transition(rune::Transition::none())
-            .on_press(|_: &mut App| {})
-            .child(rows),
-    )
+    let panel = col()
+        .key("activity-panel")
+        .role("menu")
+        .label("Subagents")
+        .above("activity-chip", 8.0)
+        .w(natural.clamp(240.0, 360.0).ceil())
+        .radius(10.0)
+        .fill(p.layer1)
+        // --v2-elevation-floating: two drops and a hairline ring.
+        .border(0.5, p.ring)
+        .shadow(8.0, 16.0, p.shadow_far)
+        .shadow(4.0, 8.0, p.shadow)
+        .clip_soft(0.0)
+        .transition(rune::Transition::none())
+        .on_press(|_: &mut App| {})
+        .child(rows);
+    Some(crate::view::follow_zoom(panel, s.zoom, true))
 }
 
 /// The run-time column's width: room for "59m 59s" at least, and for the widest time shown with
@@ -497,5 +496,26 @@ mod tests {
         assert_eq!(s.route, Route::Session("ses_unlisted".into()));
         assert_eq!(s.root_of("ses_unlisted"), MAIN);
         assert!(!s.tabs.iter().any(|t| t.id == "ses_unlisted"));
+    }
+
+    #[test]
+    fn the_panel_follows_the_text_size() {
+        let mut rt = rt();
+        rt.update(|s, tx| {
+            s.running.insert(REVIEW.into());
+            s.activity_open = true;
+            tx.instant();
+        });
+        rt.frame(1.0 / 60.0);
+        let small = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("activity-panel")).unwrap();
+        assert!((small.scale - 1.0).abs() < 1e-3);
+        rt.update(|s, tx| {
+            s.zoom = 1.6;
+            tx.instant();
+        });
+        rt.frame(1.0 / 60.0);
+        let big = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("activity-panel")).unwrap();
+        assert!((big.scale - 1.6).abs() < 1e-3, "scales with zoom: {}", big.scale);
+        assert!((big.rect[3] / small.rect[3] - 1.6).abs() < 0.01, "height {} vs {}", big.rect[3], small.rect[3]);
     }
 }

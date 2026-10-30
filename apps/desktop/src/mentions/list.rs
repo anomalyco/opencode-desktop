@@ -176,7 +176,7 @@ pub fn popup(
         let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(r.lead);
         words = words.child(text(r.label.clone()).font(UI).color(p.text));
         if !r.description.is_empty() {
-            words = words.child(text(r.description).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
+            words = words.child(text(r.description).font(UI).color(p.muted).truncate_fade());
         }
         list = list.child(
             row()

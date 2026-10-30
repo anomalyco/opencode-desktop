@@ -49,7 +49,7 @@ fn card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
     let line = |key: &str, glyph, label: String, color| {
         row().key(key).w_full().h(14.0).gap(4.0).center_y().min_w(0.0)
             .child(icon(glyph, 12.0).color(color))
-            .child(text(label).font(CARD_SUBTITLE).color(color).truncate().shrink())
+            .child(text(label).font(CARD_SUBTITLE).color(color).truncate_fade())
     };
     let mut subtitle = el().key("subtitle").w_full().h(14.0);
     if hint {
@@ -183,28 +183,27 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .keeps_text_selection()
         .child(row().key("quote-comment-quote").shrink().min_w(0.0).gap(4.0).center_y()
             .child(icon(&OUTLINE_QUOTE, 16.0).color(p.faint))
-            .child(text(preview(&item.quote.text)).font(META).color(p.faint).truncate().shrink()))
+            .child(text(preview(&item.quote.text)).font(META).color(p.faint).truncate_fade()))
         .child(spacer())
         .child(row().gap(8.0).center_y().child(cancel).child(submit_button));
-    Some(
-        col()
-            .key("quote-comment")
-            .anchored(chip_key(key), Side::Top, Align::Start, 8.0)
-            .w(EDITOR_W.min(window - 16.0))
-            .padding(12.0)
-            .gap(12.0)
-            .radius(6.0)
-            .fill(p.layer1)
-            .border(0.5, p.ring)
-            .shadow(2.0, 4.0, p.shadow_far)
-            .shadow(1.0, 2.0, p.shadow)
-            .transition(Transition::none())
-            .motion(rune::Spring::NONE)
-            // Empty space in it takes the press instead of what's under it.
-            .on_press(|_: &mut App| {})
-            .child(field)
-            .child(footer),
-    )
+    let popover = col()
+        .key("quote-comment")
+        .anchored(chip_key(key), Side::Top, Align::Start, 8.0)
+        .w(EDITOR_W.min(window - 16.0))
+        .padding(12.0)
+        .gap(12.0)
+        .radius(6.0)
+        .fill(p.layer1)
+        .border(0.5, p.ring)
+        .shadow(2.0, 4.0, p.shadow_far)
+        .shadow(1.0, 2.0, p.shadow)
+        .transition(Transition::none())
+        .motion(rune::Spring::NONE)
+        // Empty space in it takes the press instead of what's under it.
+        .on_press(|_: &mut App| {})
+        .child(field)
+        .child(footer);
+    Some(crate::view::follow_zoom(popover, s.zoom, true))
 }
 
 /// A sent prompt's quote cards (`UserMessageComments`), when it has any. Under its words
