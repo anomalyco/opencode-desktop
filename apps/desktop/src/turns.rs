@@ -21,7 +21,7 @@ use crate::view::{UI, UI_MED, chevron, readable, reasoning};
 /// One step inside a group.
 #[derive(Debug)]
 pub enum Step<'a> {
-    Thought { key: String, body: &'a str, secs: Option<i64> },
+    Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64> },
     Tool { id: &'a str, name: &'a str, title: &'a str, status: &'a ToolStatus, files: &'a [Attachment] },
 }
 
@@ -30,7 +30,7 @@ pub enum Step<'a> {
 pub enum Block<'a> {
     /// Folded thoughts and tool calls.
     Group { key: String, steps: Vec<Step<'a>> },
-    Text { key: String, body: &'a str, live: bool },
+    Text { key: String, body: &'a str, msg: usize, part: usize, live: bool },
     /// A subagent call. `session`: its child session, once the call names it.
     Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str> },
     /// A question call, once answered, dismissed or failed (`question_row`).
@@ -42,10 +42,15 @@ pub enum Block<'a> {
 pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
     let mut out = Vec::new();
     let mut group: Vec<Step<'a>> = Vec::new();
-    let mut key = String::new();
-    let flush = |out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, key: &str| {
+    let mut key: Option<(&'a str, Option<usize>)> = None;
+    let flush = |out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, key: &mut Option<(&'a str, Option<usize>)>| {
         if !group.is_empty() {
-            out.push(Block::Group { key: format!("c-{key}"), steps: std::mem::take(group) });
+            let key = match key.take() {
+                Some((id, Some(n))) => format!("c-{id}-{n}"),
+                Some((id, None)) => format!("c-{id}"),
+                None => String::from("c-"),
+            };
+            out.push(Block::Group { key, steps: std::mem::take(group) });
         }
     };
     for (mi, a) in steps.iter().enumerate() {
@@ -55,9 +60,9 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
         let (mut texts, mut thoughts) = (0, 0);
         for (pi, part) in a.parts.iter().enumerate() {
             let is_last = live_msg && pi + 1 == a.parts.len();
-            let mut fold_in = |group: &mut Vec<Step<'a>>, first: String, step: Step<'a>| {
+            let mut fold_in = |group: &mut Vec<Step<'a>>, first: (&'a str, Option<usize>), step: Step<'a>| {
                 if group.is_empty() {
-                    key = first;
+                    key = Some(first);
                 }
                 group.push(step);
             };
@@ -69,8 +74,8 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                     if text.trim().is_empty() && !is_last {
                         continue;
                     }
-                    flush(&mut out, &mut group, &key);
-                    out.push(Block::Text { key: format!("t-{}-{n}", a.id), body: text, live: is_last });
+                    flush(&mut out, &mut group, &mut key);
+                    out.push(Block::Text { key: format!("t-{}-{n}", a.id), body: text, msg: mi, part: pi, live: is_last });
                 }
                 Part::Reasoning { text, started, completed } => {
                     let n = thoughts;
@@ -79,13 +84,12 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                         continue;
                     }
                     let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(1.0) as i64);
-                    let k = format!("{}-{n}", a.id);
-                    fold_in(&mut group, k.clone(), Step::Thought { key: format!("r-{k}"), body: text, secs });
+                    fold_in(&mut group, (&a.id, Some(n)), Step::Thought { msg: &a.id, index: n, body: text, secs });
                 }
                 Part::Tool { id, name, title, status, input, files, metadata } => match name.as_str() {
                     "todowrite" => {}
                     "task" | "subagent" => {
-                        flush(&mut out, &mut group, &key);
+                        flush(&mut out, &mut group, &mut key);
                         // `agent` today; older servers' `task` calls said `subagent_type`.
                         let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("general");
                         let session = opencode_kit::model::subagent_session(input, metadata);
@@ -93,16 +97,16 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                     }
                     "question" => {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
-                            flush(&mut out, &mut group, &key);
+                            flush(&mut out, &mut group, &mut key);
                             out.push(Block::Question { id, status, input, metadata });
                         }
                     }
-                    _ => fold_in(&mut group, id.clone(), Step::Tool { id, name, title, status, files }),
+                    _ => fold_in(&mut group, (id, None), Step::Tool { id, name, title, status, files }),
                 },
             }
         }
     }
-    flush(&mut out, &mut group, &key);
+    flush(&mut out, &mut group, &mut key);
     out
 }
 
@@ -219,8 +223,9 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         let mut list = col().key("steps").w_full().pl(4.0);
         for step in steps {
             list = list.child(match step {
-                Step::Thought { key, body, secs } => {
-                    reasoning(p, key, body, *secs, s.expanded.contains(key), fade).key(key.clone())
+                Step::Thought { msg, index, body, secs } => {
+                    let key = format!("r-{msg}-{index}");
+                    reasoning(p, &key, body, *secs, s.expanded.contains(&key), fade).key(key)
                 }
                 Step::Tool { id, name, title, status, files } => {
                     let r = tool_row(p, id, name, title, status);

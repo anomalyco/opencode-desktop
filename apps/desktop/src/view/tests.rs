@@ -649,3 +649,22 @@ fn escape_puts_a_dragged_tab_back() {
     assert_eq!(ids(&rt), before);
     assert!((tab_y(&rt, &key) - rest).abs() < 0.01, "back in its place");
 }
+
+#[test]
+fn typing_reuses_memoized_timeline_rows() {
+    let mut app = crate::perf::fixture();
+    app.composer.focused = true;
+    let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 2.0));
+    rt.frame(0.0);
+    for _ in 0..60 {
+        if !rt.frame(1.0 / 60.0) {
+            break;
+        }
+    }
+    super::ROW_BUILDS.set(0);
+    rt.key(KeyEvent { key: Key::Text("a".into()), mods: Default::default() });
+    rt.frame(1.0 / 60.0);
+    // Only `turn-actions` rebuilds; every mounted Markdown reply, collapsed tool group and
+    // plain prompt bubble hits `rune::memo`.
+    assert!(super::ROW_BUILDS.get() <= 1, "expected <= 1 row build on typing, got {}", super::ROW_BUILDS.get());
+}

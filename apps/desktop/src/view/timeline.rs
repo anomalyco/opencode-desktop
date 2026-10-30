@@ -177,6 +177,7 @@ pub(super) enum RowContent {
     Compaction { message: usize, piece: crate::compaction::Piece },
     /// A compaction the server admitted but hasn't started.
     CompactionQueued,
+    TurnText { message: usize, part: usize, live: bool, pt: f32 },
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
     /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
@@ -187,7 +188,70 @@ pub(super) enum RowContent {
 }
 
 impl RowSpec {
+    fn wrap(&self, el: El) -> El {
+        let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
+        // Finished content opens in one quick glide, which a pinned timeline follows.
+        if self.streaming { row } else { row.arrives_whole() }
+    }
+
     fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
+        #[cfg(test)]
+        let eager = EAGER_ROWS.get();
+        #[cfg(not(test))]
+        let eager = false;
+        if !eager {
+            match &self.content {
+                RowContent::TurnText { message, part, live, pt } => {
+                    if let Message::Assistant(a) = &t.messages[*message]
+                        && let Some(Part::Text { text: body }) = a.parts.get(*part)
+                    {
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming);
+                        return rune::memo(self.key.clone(), ver, || {
+                            #[cfg(test)]
+                            ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+                            self.wrap(col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)))
+                        });
+                    }
+                }
+                RowContent::Turn { start, end, block, live, pt }
+                    if self.key.starts_with("c-") && !s.expanded.contains(&self.key) =>
+                {
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming);
+                    return rune::memo(self.key.clone(), ver, || {
+                        #[cfg(test)]
+                        ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+                        let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
+                            Message::Assistant(a) => Some(a), _ => None,
+                        }).collect();
+                        let blocks = turns::fold(&steps, *live);
+                        let busy = *live && *block + 1 == blocks.len();
+                        let el = match &blocks[*block] {
+                            Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
+                            _ => unreachable!(),
+                        };
+                        self.wrap(el)
+                    });
+                }
+                RowContent::User { message, tight, above, below, fold } => {
+                    if let Message::User { id, text, .. } = &t.messages[*message]
+                        && !s.glows.contains_key(id)
+                        && model::user_quotes(id).is_empty()
+                        && opencode_kit::mention::user_mentions(id).is_empty()
+                        && !text.contains("@ses_")
+                    {
+                        let open = s.expanded.contains(&crate::fold::key(id));
+                        let ver = (&t.session, id.as_str(), text.as_str(), *tight, *above, *below, fold.viewport.to_bits(), fold.past, s.settings.fold_user, open, p.dark, self.streaming);
+                        return rune::memo(self.key.clone(), ver, || {
+                            #[cfg(test)]
+                            ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+                            let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                            self.wrap(user_bubble(s, p, id, text, run, 0.0, None, None))
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
         #[cfg(test)]
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
@@ -236,6 +300,13 @@ impl RowSpec {
                 files.and_then(|f| crate::attachments::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::Built(el) => (**el).clone(),
+            RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
+                Message::Assistant(a) => match &a.parts[*part] {
+                    Part::Text { text: body } => col().w_full().pt(*pt).child(markdown_view(p, body, fade, *live)),
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            },
             RowContent::Turn { start, end, block, live, pt } => {
                 let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
                     Message::Assistant(a) => Some(a), _ => None,
@@ -251,10 +322,26 @@ impl RowSpec {
                 }
             }
         };
-        let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
-        // Finished content opens in one quick glide, which a pinned timeline follows.
-        if self.streaming { row } else { row.arrives_whole() }
+        self.wrap(el)
     }
+}
+
+fn group_hash(messages: &[Message]) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    for m in messages {
+        if let Message::Assistant(a) = m {
+            (&a.id, a.completed, a.parts.len()).hash(&mut h);
+            for p in &a.parts {
+                match p {
+                    Part::Tool { id, name, status, .. } => (0u8, id, name, std::mem::discriminant(status)).hash(&mut h),
+                    Part::Reasoning { text, completed, .. } => (1u8, text.len(), completed).hash(&mut h),
+                    Part::Text { text } => (2u8, text.len()).hash(&mut h),
+                }
+            }
+        }
+    }
+    h.finish()
 }
 
 #[cfg(test)]
@@ -431,10 +518,14 @@ pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
-    let skip: Vec<bool> = (0..n).map(|i| crate::agent_rows_view::skip(&blocks, i)).collect();
+    let skip: Vec<bool> = if blocks.iter().any(|b| matches!(b, Block::Agent { .. })) {
+        (0..n).map(|i| crate::agent_rows_view::skip(&blocks, i)).collect()
+    } else {
+        Vec::new()
+    };
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
-    for (i, b) in blocks.into_iter().enumerate().filter(|(i, _)| !skip[*i]) {
+    for (i, b) in blocks.into_iter().enumerate().filter(|(i, _)| !skip.get(*i).copied().unwrap_or(false)) {
         let tool = !matches!(b, Block::Text { .. });
         let pt = part_gap(prev, tool);
         let content = RowContent::Turn { start, end, block: i, live, pt };
@@ -452,7 +543,10 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
                     }
                 }
             }
-            Block::Text { key, live, .. } => out.push(RowSpec { content, key, streaming: live }),
+            Block::Text { key, msg, part, live, .. } => {
+                let content = if end - start == steps.len() { RowContent::TurnText { message: start + msg, part, live, pt } } else { content };
+                out.push(RowSpec { content, key, streaming: live });
+            }
             Block::Agent { id, .. } => out.push(RowSpec { key: format!("a-{id}"), content, streaming: false }),
             Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
         }
