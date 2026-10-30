@@ -55,7 +55,7 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
         .fill(if pending.is_some() { p.layer1 } else { p.layer2 });
     if glow > 0.0 {
         // A quiet surface lift under the text, with no glow rim.
-        let lift = if p.dark { p.text } else { Color::WHITE };
+        let lift = p.lift;
         bubble = bubble.child(
             el().key("glow").absolute(0.0, 0.0).w_full().h_full().corners([10.0, top, end, 10.0])
                 .fill(lift.alpha(0.1))
@@ -168,7 +168,7 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
 }
 
 fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
-    let style = MarkdownStyle::from_kit(crate::palette::kit(p.dark))
+    let style = MarkdownStyle::from_kit(crate::palette::kit(p))
         .text(color)
         .muted(p.muted)
         .link(p.accent)
@@ -182,6 +182,10 @@ fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, colo
         .heading_font(3, H3)
         .code_block_font(CODE)
         .selection(p.selection);
+    let style = match p.code {
+        Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
+        None => style,
+    };
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
@@ -190,7 +194,7 @@ fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, colo
                 let _ = tx.open_url(url);
             }
         })
-        .build(crate::palette::kit(p.dark)).selection_group(false)
+        .build(crate::palette::kit(p)).selection_group(false)
 }
 
 /// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome

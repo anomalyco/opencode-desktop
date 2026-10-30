@@ -4,7 +4,6 @@
 //! gives session mentions a raised chip; here every kind gets a chip, tinted by its colour.
 
 use std::ops::Range;
-use std::sync::OnceLock;
 
 use opencode_kit::mention::{self, MentionKind, UserMention};
 use rune::{Color, PillStyle};
@@ -30,23 +29,21 @@ pub(super) struct Ink {
     pub info: Color,
 }
 
-pub(super) fn ink(dark: bool) -> &'static Ink {
-    static DARK: OnceLock<Ink> = OnceLock::new();
-    static LIGHT: OnceLock<Ink> = OnceLock::new();
-    let build = || {
-        let hex = |s: &str| rune::color::hex(s).unwrap_or(Color::BLACK);
-        Ink {
-            agent: if dark { hex("#ecf58c") } else { hex("#596600") },
-            file: if dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
-            info: crate::palette::pal(dark).info,
-        }
-    };
-    if dark { DARK.get_or_init(build) } else { LIGHT.get_or_init(build) }
+pub(super) fn ink(p: &Pal) -> Ink {
+    if let Some(code) = p.code {
+        return Ink { agent: code.ty, file: code.property, info: p.info };
+    }
+    let hex = |s: &str| rune::color::hex(s).unwrap_or(p.text);
+    Ink {
+        agent: if p.dark { hex("#ecf58c") } else { hex("#596600") },
+        file: if p.dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
+        info: p.info,
+    }
 }
 
 /// A mention's badge: a chip and label, no icon, as Desktop draws mentions as text alone.
 pub fn style(p: &Pal, kind: MentionKind) -> PillStyle {
-    let k = ink(p.dark);
+    let k = ink(p);
     let tinted = |c: Color| PillStyle::new().bg(c.alpha(tint(p.dark))).fg(c);
     let neutral = |fg: Color| PillStyle::new().bg(p.text.alpha(neutral(p.dark))).fg(fg);
     match kind {

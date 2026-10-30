@@ -137,7 +137,8 @@ pub struct TerminalPane {
     pub blink_epoch: f64,
     pub bell_until: f64,
     pub last_blink_lit: bool,
-    pub last_dark: Option<bool>,
+    /// The appearance and theme (`Pal::theme`) the open terminals were last painted in.
+    pub last_dark: Option<(bool, usize)>,
     pub dirty_flag: Arc<AtomicBool>,
     pub story_focused: bool,
     pub story_built_variant: Option<usize>,
@@ -188,7 +189,7 @@ pub fn theme_from_pal(p: &Pal) -> TerminalTheme {
     } else {
         TerminalTheme::opencode_light()
     };
-    let fg = terminal::Rgb::from_rune(p.text);
+    let fg = terminal::Rgb::from_rune(p.term_fg);
     let bg = terminal::Rgb::from_rune(p.bg_base);
     TerminalTheme {
         dark: p.dark,
@@ -555,8 +556,9 @@ impl App {
 
         if !self.terminal.workspaces.is_empty() {
             let dark = self.settings.scheme != crate::settings::Scheme::Light;
-            if self.terminal.last_dark != Some(dark) {
-                self.terminal.last_dark = Some(dark);
+            let painted = Some((dark, crate::themes::active()));
+            if self.terminal.last_dark != painted {
+                self.terminal.last_dark = painted;
                 let theme = theme_from_pal(pal(dark));
                 for ws in self.terminal.workspaces.values() {
                     for tab in &ws.tabs {

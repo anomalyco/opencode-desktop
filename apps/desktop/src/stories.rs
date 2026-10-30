@@ -295,6 +295,7 @@ fn fresh(real: &App) -> App {
     w.reduced_motion = real.reduced_motion;
     w.debug = real.debug;
     w.settings.scheme = real.settings.scheme;
+    w.settings.theme = real.settings.theme.clone();
     w.clock = real.clock;
     // Relative times read as the fixture has them, however long the app has run.
     w.base_ms -= (real.clock * 1000.0) as i64;

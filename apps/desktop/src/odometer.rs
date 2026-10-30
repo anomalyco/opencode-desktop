@@ -28,5 +28,5 @@ pub fn odometer_end(key: impl Into<String>, text: impl Into<String>, value: f64,
 }
 
 fn build(label: RollingText, value: f64, font: TextStyle, color: Color) -> El {
-    label.value(value).font(font.features("\"tnum\"")).color(color).spring(SPRING).build(crate::palette::kit(true))
+    label.value(value).font(font.features("\"tnum\"")).color(color).spring(SPRING).build(crate::palette::kit(crate::palette::pal(true)))
 }

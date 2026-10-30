@@ -260,6 +260,7 @@ const STORY_PATHS: &[&str] = &[
     "Files/Quick open (⌘P)",
     "Projects/Open project",
     "Projects/Project switcher",
+    "Settings/Appearance",
     "Composer/Auto-accept",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",

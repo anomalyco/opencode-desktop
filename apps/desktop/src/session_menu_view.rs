@@ -63,7 +63,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
                     s.menus.confirm = None;
                 }))
                 .child(
-                    button("delete-confirm", "Delete session", Color::WHITE, Some(p.danger))
+                    button("delete-confirm", "Delete session", p.on_fill, Some(p.danger))
                         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx)),
                 ),
         );
@@ -72,7 +72,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
-            .fill(Color::BLACK.alpha(if p.dark { 0.5 } else { 0.25 }))
+            .fill(p.dim)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.menus.confirm = None;
@@ -94,7 +94,7 @@ pub fn preview(p: &Pal, key: &str, lines: &[Line], hot: Option<&str>) -> El {
 }
 
 fn entry(p: &Pal, i: &Item, hot: bool) -> El {
-    let ink = if hot { Color::WHITE } else if i.enabled { p.text } else { p.faint };
+    let ink = if hot { p.on_fill } else if i.enabled { p.text } else { p.faint };
     let mut r = row().key(format!("item-{}", i.id)).w_full().h(22.0).px(10.0).radius(4.0).center_y();
     if hot {
         r = r.fill(p.bg_accent);

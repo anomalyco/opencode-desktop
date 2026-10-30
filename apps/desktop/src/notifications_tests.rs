@@ -195,7 +195,7 @@ fn settings_lists_the_three_switches() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     app.settings.open = true;
-    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
+    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 1400.0), Env::new(true, 1.0));
     rt.frame(0.0);
     for key in ["notify-agent", "notify-permissions", "notify-errors"] {
         assert!(rt.find(key).is_some(), "{key}");

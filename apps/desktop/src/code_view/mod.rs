@@ -82,7 +82,7 @@ fn tint(base: Color, hue: Color, t: f32) -> Color {
 
 impl CodeLook {
     pub fn new(p: &Pal) -> Self {
-        let kit = rune_theme_opencode::kit(p.dark);
+        let kit = crate::palette::kit(p);
         let bg = p.bg_base;
         let dark = p.dark;
         let mk_tints = |hue: Color| DiffTints {
@@ -99,9 +99,10 @@ impl CodeLook {
         let label_med = TextStyle::new(12.5, 530.0).lh(18.0).tracking(-0.04);
         let mut h = DefaultHasher::new();
         dark.hash(&mut h);
-        for c in [bg, p.text, p.success, p.danger, p.info, p.layer1] {
+        for c in [bg, p.text, p.diff_add, p.diff_del, p.info, p.layer1] {
             [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(&mut h);
         }
+        p.theme.hash(&mut h);
         mono.size.to_bits().hash(&mut h);
 
         Self {
@@ -119,8 +120,8 @@ impl CodeLook {
             border: p.border,
             border_muted: p.border_muted,
             hover: p.hover,
-            add: mk_tints(p.success),
-            del: mk_tints(p.danger),
+            add: mk_tints(p.diff_add),
+            del: mk_tints(p.diff_del),
             gap_bg: tint(bg, p.info, if dark { 0.09 } else { 0.055 }),
             empty_bg: tint(bg, p.text, if dark { 0.03 } else { 0.025 }),
             selected: tint(bg, p.info, if dark { 0.20 } else { 0.14 }),
@@ -129,7 +130,10 @@ impl CodeLook {
             match_bg: tint(bg, p.warning, if dark { 0.28 } else { 0.22 }),
             active_match_bg: tint(bg, p.warning, if dark { 0.48 } else { 0.38 }),
             accent: p.info,
-            syntax: SyntaxTheme::from_kit(kit),
+            syntax: match p.code {
+                Some(code) => code.syntax(SyntaxTheme::from_kit(kit), p.diff_add, p.diff_del),
+                None => SyntaxTheme::from_kit(kit),
+            },
             version: h.finish(),
         }
     }

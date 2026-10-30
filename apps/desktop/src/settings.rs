@@ -46,6 +46,11 @@ pub struct Settings {
     pub notify: crate::notifications::Kinds,
     /// Answer every permission request "once" as it arrives (Desktop's `permissions.autoApprove`).
     pub auto_accept: bool,
+    /// Desktop's colour theme id (`themes.rs`); `oc-2` is OpenCode's own.
+    pub theme: String,
+    pub reduce_motion: crate::appearance::ReduceMotion,
+    /// The terminal's font, an index into the Terminal font knob's choices.
+    pub terminal_font: usize,
 }
 
 impl Default for Settings {
@@ -58,6 +63,9 @@ impl Default for Settings {
             terminal_placement: crate::panels::DockPlacement::Side,
             notify: Default::default(),
             auto_accept: false,
+            theme: crate::themes::DEFAULT.into(),
+            reduce_motion: Default::default(),
+            terminal_font: 0,
         }
     }
 }
@@ -71,6 +79,9 @@ impl Settings {
             "terminalPlacement": self.terminal_placement.name(),
             "notifications": self.notify.to_json(),
             "permissions": { "autoApprove": self.auto_accept },
+            "theme": self.theme,
+            "reduceMotion": self.reduce_motion.name(),
+            "terminalFont": self.terminal_font,
         })
     }
 
@@ -83,6 +94,9 @@ impl Settings {
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
             auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
+            theme: crate::themes::all()[crate::themes::index(v["theme"].as_str().unwrap_or_default())].id.clone(),
+            reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
+            terminal_font: v["terminalFont"].as_u64().map_or(0, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
         }
     }
 }
@@ -196,8 +210,6 @@ pub fn page(s: &App, p: &Pal) -> El {
         ("auto-accept", "Auto-accept permissions", "Permission requests will be automatically approved",
             switch(p, "auto-accept-switch", s.settings.auto_accept).on_press(|s: &mut App| s.set_auto_accept(!s.settings.auto_accept))),
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
-        ("appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p)),
-        ("zoom", "Interface zoom", "Scale the whole window. ⌘+ ⌘− ⌘0 do the same.", zoom_control(s, p)),
     ]);
     let section = |title: &'static str, list: El| col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list);
     col()
@@ -219,6 +231,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
                 .child(section("General", general))
+                .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
         )
 }
@@ -238,7 +251,7 @@ fn notification_list(s: &App, p: &Pal) -> El {
     }))
 }
 
-fn settings_card<'a, K: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, &'a str, El)>) -> El {
+pub(crate) fn settings_card<'a, K: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, &'a str, El)>) -> El {
     let items: Vec<_> = items.into_iter().collect();
     let n = items.len();
     let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
@@ -269,7 +282,7 @@ fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divi
 
 /// Desktop's switch: 24 × 16, the thumb 12 × 12, accent when on. It flips in the press's frame.
 fn switch(p: &Pal, key: &str, on: bool) -> El {
-    let thumb = el().size(12.0, 12.0).radius(2.0).fill(if p.dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE });
+    let thumb = el().size(12.0, 12.0).radius(2.0).fill(p.switch_thumb);
     row()
         .key(key)
         .role("switch")
@@ -305,7 +318,7 @@ fn placement_control(s: &App, p: &Pal) -> El {
     r
 }
 
-fn scheme_control(s: &App, p: &Pal) -> El {
+pub(crate) fn scheme_control(s: &App, p: &Pal) -> El {
     let mut r = row().key("scheme").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
     for scheme in Scheme::ALL {
         let on = s.settings.scheme == scheme;
@@ -326,7 +339,7 @@ fn scheme_control(s: &App, p: &Pal) -> El {
     r
 }
 
-fn zoom_control(s: &App, p: &Pal) -> El {
+pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
     let step = |key: &str, label: &str, dir: i32| {
         row()
             .key(key.to_owned())
@@ -427,7 +440,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2 };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

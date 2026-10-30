@@ -209,6 +209,9 @@ fn sweep(run: Run, words: &'static str, font: TextStyle, base: El, lit: Color, b
 /// Desktop's `--text-weak` and `--text-strong` (white at 42.2% and 93.6% on dark), each solved
 /// to the opaque colour a browser blends over the page in sRGB.
 fn colors(p: &Pal) -> (Color, Color) {
+    if p.theme > 0 {
+        return (p.muted, p.text);
+    }
     if !p.dark {
         return (hex("#8f8f8f").unwrap(), hex("#171717").unwrap());
     }

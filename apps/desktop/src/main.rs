@@ -12,6 +12,8 @@ mod agent_rows_view;
 mod agent_start;
 mod agent_start_stories;
 mod agent_stories;
+mod appearance;
+mod appearance_stories;
 mod arrivals;
 mod attachments;
 mod auto_accept;
@@ -116,6 +118,7 @@ mod switcher;
 mod tab_actions;
 mod tabs;
 mod terminal;
+mod themes;
 mod tool_group_stories;
 mod turns;
 mod view;
@@ -236,6 +239,8 @@ pub struct App {
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
     framed: bool,
     pub reduced_motion: bool,
+    /// Where `reduced_motion` comes from (`appearance.rs`).
+    pub motion: appearance::Motion,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
     /// Where each session's timeline stands against its end (`jump.rs`).
@@ -303,6 +308,7 @@ impl App {
             composer: TextEdit::new(""),
             search: TextEdit::new(""),
             reduced_motion: flag("--reduced-motion"),
+            motion: appearance::Motion::new(flag("--reduced-motion")),
             debug: flag("--debug"),
             ..Default::default()
         }
@@ -332,6 +338,8 @@ impl App {
 
     fn new() -> App {
         let mut app = Self::load();
+        appearance::apply_args(&mut app);
+        app.apply_appearance();
         if let Some(name) = arg("--preset") {
             knobs::apply_preset(&mut app, &name);
         }
@@ -568,6 +576,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     let mut changed = dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
+    changed |= appearance::poll(s);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= dropzone::poll(s, tx);

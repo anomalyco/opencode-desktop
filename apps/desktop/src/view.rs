@@ -51,6 +51,8 @@ pub(crate) const CONTENT_W: f32 = 696.0;
 /// outer, unscaled element is always mounted (it reports the window's size and keeps every
 /// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
+    crate::themes::set_active(&s.settings.theme);
+    s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
     let mut inner = match s.stage {

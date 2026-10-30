@@ -560,7 +560,7 @@ static FILE_DOCUMENT: Icon = Icon {
 fn row_icon(p: &Pal, kind: Kind) -> El {
     match kind {
         Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(p.icon),
-        Kind::Agent => icon(&ic::BRAIN, 16.0).color(badge::ink(p.dark).info),
+        Kind::Agent => icon(&ic::BRAIN, 16.0).color(badge::ink(p).info),
         Kind::Skill => icon(&POST_SKILL, 16.0).color(p.icon),
         Kind::File => icon(&FILE_DOCUMENT, 16.0).color(p.icon),
     }

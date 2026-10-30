@@ -46,7 +46,7 @@ fn a_badge_is_one_unit_for_the_caret_selection_and_backspace() {
 fn every_kind_gets_a_chip_in_its_colour_and_no_icon() {
     for dark in [false, true] {
         let p = *crate::palette::pal(dark);
-        let k = ink(dark);
+        let k = ink(&p);
         let style = pill_style(&p);
         let agent = style("agent:explore");
         let file = style("file:src/a.rs");
