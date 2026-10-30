@@ -61,6 +61,7 @@ mod motion_log;
 mod notifications;
 mod odometer;
 mod odometer_stories;
+mod open_in;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
@@ -255,6 +256,7 @@ pub struct App {
     pub browser: browser::BrowserPane,
     pub review: review::ReviewPane,
     pub files: files::FilesPane,
+    pub open_in: open_in::OpenIn,
     pub terminal: terminal::TerminalPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
@@ -349,6 +351,8 @@ impl App {
             }
         }
         self.status = "Fixture".into();
+        self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode"])));
+        self.open_in.detect();
         self.fixture = v;
         self.source = Source::Fixture;
         self.init_used_projects(None);
@@ -386,6 +390,7 @@ impl App {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         self.settings = settings::load();
+        self.load_open_in();
         self.prompts = prompt_history::PromptHistory::load();
         self.restore_ui(&server.base);
         self.base_ms = wall_ms();
@@ -550,6 +555,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= quote::poll(s, now, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
+    changed |= s.poll_open_in();
     let mut arrivals = None;
     let asked = s.question_shown();
     if let Some(inbox) = s.inbox.take() {
@@ -709,6 +715,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.add.slash.set_waker(waker.clone());
     s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());
+    s.open_in.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker);
     if !s.playback.is_empty() {

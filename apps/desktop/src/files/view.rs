@@ -271,6 +271,7 @@ fn workspace_tree_view(
                 let is_dir = node.dir;
                 let id_click = tr.id.to_owned();
                 let id_dbl = tr.id.to_owned();
+                let id_ctx = tr.id.to_owned();
                 let indent = 6.0 + tr.depth as f32 * 12.0;
 
                 let chev = match tr.expanded {
@@ -331,7 +332,7 @@ fn workspace_tree_view(
                     };
                     r = r.child(text(lbl).font(MONO_TINY).color(col_fg));
                 }
-                r
+                crate::open_in::context(r, id_ctx)
             },
         );
     col()
@@ -430,7 +431,7 @@ fn filtered_files_view(
                 } else {
                     r = r.child(el().grow(1.0));
                 }
-                r
+                crate::open_in::context(r, path.clone())
             },
         );
     col()
@@ -635,7 +636,8 @@ fn files_main(
                     tx.copy(path_copy.clone());
                 })
                 .child(icon(&ic::COPY, 13.0).color(p.icon_muted)),
-        );
+        )
+        .children(crate::open_in::button(s, p, "files-open-in", path));
 
     let mut out = col()
         .key("files-main")

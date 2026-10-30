@@ -389,7 +389,7 @@ fn tree_row_el(
             r = r.child(diff_counts_badge(p, m.additions, m.deletions));
         }
     }
-    r
+    crate::open_in::context(r, node_id.to_owned())
 }
 
 fn filtered_list_view(s: &App, p: &Pal, session_id: &str, sr: &SessionReview) -> El {
@@ -473,7 +473,7 @@ fn filtered_list_view(s: &App, p: &Pal, session_id: &str, sr: &SessionReview) ->
                 if let Some(m) = meta {
                     row_el = row_el.child(diff_counts_badge(&pal, m.additions, m.deletions));
                 }
-                row_el
+                crate::open_in::context(row_el, path.clone())
             },
         );
     col()
@@ -704,7 +704,8 @@ fn review_main(
         .child(start)
         .child(el().grow(1.0))
         .child(expand_seg)
-        .child(style_seg);
+        .child(style_seg)
+        .children(sr.active_path.as_deref().and_then(|ap| crate::open_in::button(s, p, "review-open-in", ap)));
 
     let body = if !sr.ready {
         col()
