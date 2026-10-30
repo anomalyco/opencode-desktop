@@ -3510,7 +3510,9 @@ dependencies = [
 name = "seer-ffi"
 version = "0.0.0"
 dependencies = [
+ "rune",
  "seer-domain",
+ "seer-note-web",
  "seer-sync",
  "serde_json",
 ]
