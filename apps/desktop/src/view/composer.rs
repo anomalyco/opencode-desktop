@@ -146,11 +146,6 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
     button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } })
 }
 
-/// Kept for `queue.rs` while its in-flight branch lands; prefer `Transition::none()` / `Spring::NONE`.
-pub fn no_motion() -> rune::SpringPair {
-    rune::SpringPair::NONE
-}
-
 pub(super) fn picker(s: &App, p: &Pal) -> El {
     let kind = s.pickers.open.unwrap();
     let active = s.picker_active();

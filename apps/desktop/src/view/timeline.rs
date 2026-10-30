@@ -455,6 +455,9 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
     let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
     let pending: Vec<&InboxItem> = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
     let fold = crate::fold::place(s, &t.session);
+    // Working, or a compaction waiting to start, sits between the last prompt and the steers.
+    let queued = if revert.is_none() { s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) } else { None };
+    let runs_off = last_assistant.is_some() || queued.is_some();
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
@@ -467,10 +470,11 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
             Message::User { id, text: body, .. } => {
                 turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
-                // The last prompt runs on into the pending steers under it.
+                // The last prompt runs on into the pending steers under it, unless Working
+                // stands between them.
                 let below = match t.messages[..shown].get(mi + 1) {
                     Some(n) => joins(m, n),
-                    None => pending.first().is_some_and(|n| prompts_join(body, n)),
+                    None => !runs_off && pending.first().is_some_and(|n| prompts_join(body, n)),
                 };
                 let tight = prompt_images(&mut out, id);
                 if !body.trim().is_empty() || !model::user_quotes(id).is_empty() {
@@ -492,14 +496,20 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         }
     }
     turn_rows(p, &mut out, &steps, start, shown, busy && revert.is_none());
-    // A compaction waiting to start sits under the running work, above the steers, as Desktop's.
-    if revert.is_none() && let Some(id) = s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) {
+    if let Some(last) = last_assistant {
+        // Working lasts the whole run, like Desktop's session status: each step's message
+        // finishes before the next one starts, and those gaps used to blink it out.
+        let busy = busy || s.running.contains(&t.session);
+        out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
+    }
+    // A compaction waiting to start sits under Working, above the steers, as Desktop's.
+    if let Some(id) = queued {
         out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued, streaming: false });
     }
-    // Undelivered steers wait below the running work and above Working, as Desktop shows them,
-    // in the row each becomes when the server delivers it to the end of the transcript.
+    // Undelivered steers wait under Working, as Desktop shows them, in the row each becomes
+    // when the server delivers it to the end of the transcript; Rune slides it up into place.
     let mut prev = match t.messages[..shown].last() {
-        Some(Message::User { text, .. }) if steps.is_empty() => Some(text.as_str()),
+        Some(Message::User { text, .. }) if steps.is_empty() && !runs_off => Some(text.as_str()),
         _ => None,
     };
     for (k, item) in pending.iter().enumerate() {
@@ -508,12 +518,6 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
         let tight = prompt_images(&mut out, &item.id);
         out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
-    }
-    if let Some(last) = last_assistant {
-        // Working lasts the whole run, like Desktop's session status: each step's message
-        // finishes before the next one starts, and those gaps used to blink it out.
-        let busy = busy || s.running.contains(&t.session);
-        out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     out
 }

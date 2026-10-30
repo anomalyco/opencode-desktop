@@ -191,7 +191,7 @@ const ACTIONS: &[Action] = &[
             tool(r, &running, "call_steer_live_a");
         }
         r.play(0.03);
-        r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        r.event_now("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
         r.play(0.03);
         let model = json!({ "id": "claude-opus-5-5", "providerID": "anthropic", "variant": "high" });
         r.event("session.step.started", json!({ "sessionID": SID, "assistantMessageID": "msg_zzzzsteerlive", "agent": "build", "model": model }));
@@ -213,6 +213,21 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play(0.8);
         let Some(id) = r.rt.state.inboxes.get(SID).and_then(|i| i.items.last()).map(|i| i.id.clone()) else { return };
+        r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        r.play_out(1.0);
+    } },
+    // Two steers wait under Working; the first's delivery slides it up over Working while the
+    // second stays below.
+    Action { name: "steers-land", circs: || places(streaming()), run: |r| {
+        r.start_stream();
+        r.play(1.2);
+        r.type_prompt();
+        r.enter(false);
+        r.play(0.8);
+        let Some(id) = r.rt.state.inboxes.get(SID).and_then(|i| i.items.last()).map(|i| i.id.clone()) else { return };
+        r.type_prompt();
+        r.enter(false);
+        r.play(0.8);
         r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
         r.play_out(1.0);
     } },
