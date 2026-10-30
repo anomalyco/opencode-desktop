@@ -11,6 +11,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
+    ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
+    ("pop-out", "timeline/", "tool-group-fold/pinned/long/wide/zoomed/", "known, also on main (hidden there by the gate's loop heuristic): opening unpins the timeline and the virtual list windows again by the open group's full height, unmounting the rows under it two frames before the fold covers them (rune virtual_list::select)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
@@ -256,8 +259,8 @@ const ACTIONS: &[Action] = &[
         tap_trigger(r, Some(&group));
         r.play(0.6);
     } },
-    // A 40-tool group near the end opens and shuts with its header held where it was pressed;
-    // a second press mid-motion springs back from there; scrolled into, its header sticks to
+    // A 40-tool group near the end opens and shuts in about 0.2 s with its header held where it
+    // was pressed; a second press mid-motion springs back from there; scrolled into, its header sticks to
     // the top, and a press there shuts it in place (t988).
     Action { name: "tool-group-fold", circs: || {
         let base = Circ { long_group: true, ..Circ::default() };
@@ -268,17 +271,26 @@ const ACTIONS: &[Action] = &[
         let held = |r: &Run| trigger(r, Some(&path)).map(|t| t.2);
         let near = |a: Option<f32>, b: Option<f32>| matches!((a, b), (Some(a), Some(b)) if (a - b).abs() < 0.5);
         let at = held(r);
+        // The group's own height, header and steps, as presented.
+        let row_h = |r: &Run| r.rt.elements().into_iter().find(|e| e.key.as_deref() == Some(crate::tool_group_stories::GROUP)).map_or(0.0, |e| e.rect[3]);
+        let shut_h = row_h(r);
+        tap_trigger(r, Some(&path));
+        r.play(0.3);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "opening holds the header where it was pressed", held(r), at);
+        let open_h = row_h(r);
+        r.play(0.3);
+        assert!(open_h > shut_h + 300.0 && (row_h(r) - open_h).abs() < 0.5, "a 40-tool group is open within 0.3 s: {shut_h} -> {open_h} -> {}", row_h(r));
+        tap_trigger(r, Some(&path));
+        r.play(0.3);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "shutting holds the header where it was pressed", held(r), at);
+        assert!((row_h(r) - shut_h).abs() < 0.5, "and shut within 0.3 s: {} vs {shut_h}", row_h(r));
+        r.play(0.3);
+        tap_trigger(r, Some(&path));
+        r.play(0.06);
         tap_trigger(r, Some(&path));
         r.play(0.5);
-        assert!(near(held(r), at), "{}: {:?} vs {:?}", "opening holds the header where it was pressed", held(r), at);
-        tap_trigger(r, Some(&path));
-        r.play(0.8);
-        assert!(near(held(r), at), "{}: {:?} vs {:?}", "shutting holds the header where it was pressed", held(r), at);
-        tap_trigger(r, Some(&path));
-        r.play(0.08);
-        tap_trigger(r, Some(&path));
-        r.play(0.8);
         assert!(near(held(r), at), "{}: {:?} vs {:?}", "a press mid-motion springs back with the header held", held(r), at);
+        assert!(row_h(r) < shut_h + 0.5, "reversed mid-fold, it shuts again: {} vs {shut_h}", row_h(r));
         tap_trigger(r, Some(&path));
         r.play(0.5);
         // Scroll the header 200 pt past the timeline's top, into the open group.

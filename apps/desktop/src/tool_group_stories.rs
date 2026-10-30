@@ -64,6 +64,8 @@ fn scroll(s: &mut App, tx: &mut Tx) {
     }
 }
 
+const KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Tool group", "stage", &[crate::disclosure::FOLD_SPEED])];
+
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
-    crate::stories::Story::session("Timeline/Long tool group", KEYS).knobs(crate::stories::ROW_KNOBS),
+    crate::stories::Story::session("Timeline/Long tool group", KEYS).knobs(KNOBS),
 ]);

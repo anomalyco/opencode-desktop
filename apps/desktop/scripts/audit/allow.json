@@ -1,8 +1,4 @@
 [
-  {"trace": "tool-group", "kind": ["reversal", "dog-leg"],
-   "reason": "known, t988 follow-up: shutting from the stuck header, Tx::keep_on_screen scrolls the row's top under the header in the press frame, so the rows below dip 424pt before rising; the header itself lands right (motion_gate tool-group-fold)"},
-  {"trace": "tool-group", "kind": "idle-frames",
-   "reason": "the shut group's growth spring settles its last fraction of a point after the trace stops seeing change"},
   {"trace": "close-tab", "element": "tabs-scroll/tabs", "kind": ["jump", "sibling-jump", "pop-out"],
    "reason": "closing a tab lands at once, its neighbours close the gap in the same frame (docs/kit-design.md: changes are immediate)"},
   {"trace": "cmdk-results", "element": "window/panel/home", "kind": "pop-out",

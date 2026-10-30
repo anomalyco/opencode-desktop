@@ -199,10 +199,17 @@ pub(super) enum RowContent {
 }
 
 impl RowSpec {
-    fn wrap(&self, el: El) -> El {
+    fn wrap(&self, s: &App, el: El) -> El {
         let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
-        // Finished content opens in one quick glide, which a pinned timeline follows.
-        if self.streaming { row } else { row.arrives_whole() }
+        if self.streaming {
+            row
+        } else if self.key.starts_with("c-") {
+            // A tool group folds on its own quick spring, however long it is.
+            row.fold_glide(crate::disclosure::fold(&s.knobs))
+        } else {
+            // Finished content opens in one quick glide, which a pinned timeline follows.
+            row.arrives_whole()
+        }
     }
 
     fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
@@ -222,14 +229,15 @@ impl RowSpec {
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.wrap(col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)))
+                            self.wrap(s, col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)))
                         });
                     }
                 }
                 RowContent::Turn { start, end, block, live, pt }
                     if self.key.starts_with("c-") && !s.expanded.contains(&self.key) && !s.shutting(&self.key) =>
                 {
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming);
+                    let fold = crate::disclosure::fold(&s.knobs).duration.to_bits();
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, fold);
                     return rune::memo(self.key.clone(), ver, || {
                         #[cfg(test)]
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
@@ -242,7 +250,7 @@ impl RowSpec {
                             Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
                             _ => unreachable!(),
                         };
-                        self.wrap(el)
+                        self.wrap(s, el)
                     });
                 }
                 RowContent::User { message, tight, above, below, fold } => {
@@ -258,7 +266,7 @@ impl RowSpec {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
-                            self.wrap(user_bubble(s, p, id, text, run, 0.0, None, None))
+                            self.wrap(s, user_bubble(s, p, id, text, run, 0.0, None, None))
                         });
                     }
                 }
@@ -335,7 +343,7 @@ impl RowSpec {
                 }
             }
         };
-        self.wrap(el)
+        self.wrap(s, el)
     }
 }
 
