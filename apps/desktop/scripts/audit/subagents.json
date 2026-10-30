@@ -7,7 +7,7 @@
     {"t": 0.9, "type": "move", "key": "sub-ses_fx0002aaaaaaaaaaaaaaaaaa", "expect": "instant"},
     {"t": 1.2, "type": "tap", "key": "activity-chip", "expect": "instant"},
     {"t": 1.5, "type": "scroll", "x": 700, "y": 300, "dy": 650, "dur": 0.25},
-    {"t": 2.6, "type": "tap", "key": "a-call_subagent_60500/#0/chip"},
+    {"t": 2.6, "type": "tap", "key": "member-call_subagent_60500/agent-line"},
     {"t": 3.6, "type": "key", "name": "Escape"}
   ]
 }

@@ -9,6 +9,8 @@
    "reason": "opening a subagent and coming back swap the page, crumbs and dock at once"},
   {"trace": "switch", "kind": "pop-out",
    "reason": "switching sessions swaps the page and the submit glyph at once"},
+  {"element": "working/#0/sheen", "kind": "jump",
+   "reason": "Working's sheen loops: its band wraps back to the start only once it has cleared the label, where nothing of it shows"},
   {"trace": "queue", "element": "session/dock/queue", "kind": "pop-in",
    "reason": "the queue panel lands with its first prompt"},
   {"trace": "queue", "kind": "never-settles",

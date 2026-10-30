@@ -10,7 +10,7 @@
     {"t": 1.5, "type": "move", "key": "c-msg_001a162cb6dbc013fixture00-0/#0/trigger", "expect": "instant"},
     {"t": 1.8, "type": "move", "x": 700, "y": 300, "expect": "instant"},
     {"t": 2.0, "type": "scroll", "x": 700, "y": 300, "dy": 650, "dur": 0.25},
-    {"t": 3.1, "type": "move", "key": "a-call_subagent_60500/#0/chip", "expect": "instant"},
+    {"t": 3.1, "type": "move", "key": "member-call_subagent_60500/agent-line", "expect": "instant"},
     {"t": 3.4, "type": "move", "x": 1200, "y": 790, "expect": "instant"}
   ]
 }
