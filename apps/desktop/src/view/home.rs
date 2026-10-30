@@ -385,7 +385,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
             s.project_state.home_menu_open = false;
         });
 
-    Some([dismiss, super::follow_zoom(menu, s.zoom, false)])
+    Some([dismiss, menu])
 }
 
 /// One session in Home's list: opens on a click, and has Desktop's right-click menu. While it's
