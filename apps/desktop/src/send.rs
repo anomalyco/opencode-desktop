@@ -26,6 +26,9 @@ impl App {
             return;
         }
         self.close_mentions();
+        if self.run_slash(&wire.text, tx) {
+            return;
+        }
         let command = self.slash_command(&wire.text);
         // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
         let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };

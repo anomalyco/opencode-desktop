@@ -477,12 +477,17 @@ impl App {
             _ => None,
         };
         if let Some((kind, backwards)) = cycle {
-            self.open_picker(kind);
-            self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() }, tx);
-            if let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
+            self.cycle_picker(kind, backwards, tx);
             return true;
         }
         false
+    }
+
+    /// ⌘. and ⇧⌘D: the next (or previous) agent or variant, picked without showing the list.
+    pub fn cycle_picker(&mut self, kind: Kind, backwards: bool, tx: &mut Tx) {
+        self.open_picker(kind);
+        self.picker_keys(&KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() }, tx);
+        if let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
     }
 }
 

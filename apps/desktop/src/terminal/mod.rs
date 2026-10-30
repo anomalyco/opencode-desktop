@@ -65,6 +65,7 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::dock("terminal", dock_ops::list_dock_tabs, dock_ops::render_dock)
         .order(20)
         .command("Toggle terminal", ShortcutChord::cmd_j())
+        .slash("terminal")
         .shortcuts(EXTRA_SHORTCUTS)
         .launcher(dock_ops::launcher_desc, dock_ops::open_from_launcher)
         .on_enter(dock_ops::on_enter_dock)

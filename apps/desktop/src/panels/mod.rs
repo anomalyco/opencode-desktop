@@ -358,6 +358,8 @@ pub struct PanelRegistration {
     /// Optional global shortcut & `⌘K` palette title for launching/toggling this panel.
     pub shortcut: Option<ShortcutChord>,
     pub command_title: Option<&'static str>,
+    /// The `/name` that runs the command from the composer.
+    pub slash: Option<&'static str>,
     /// Additional session-scoped global shortcuts (e.g. `⌃\`` toggle and `⌃⌥T` new terminal).
     pub extra_shortcuts: &'static [(ShortcutChord, fn(&mut App, &mut Tx))],
     /// Optional `+` / `"New tab"` launcher entry.
@@ -402,6 +404,7 @@ impl PanelRegistration {
             legacy: &[],
             shortcut: None,
             command_title: None,
+            slash: None,
             extra_shortcuts: &[],
             launcher: None,
             open_launcher: None,
@@ -459,6 +462,11 @@ impl PanelRegistration {
     pub const fn command(mut self, title: &'static str, shortcut: ShortcutChord) -> Self {
         self.command_title = Some(title);
         self.shortcut = Some(shortcut);
+        self
+    }
+
+    pub const fn slash(mut self, name: &'static str) -> Self {
+        self.slash = Some(name);
         self
     }
 

@@ -64,6 +64,8 @@ pub struct Row {
     pub label: String,
     pub lead: Option<El>,
     pub description: String,
+    /// Drawn at the row's end: a command's keys.
+    pub trail: Option<El>,
 }
 
 /// The popover over the composer, 8 points up: rows of an optional lead, a label and a muted
@@ -74,7 +76,7 @@ pub fn popup(
     rows: Vec<Row>,
     active: Option<&str>,
     hover: impl Fn(&mut App, &str) + 'static,
-    pick: impl Fn(&mut App, &str) + 'static,
+    pick: impl Fn(&mut App, &str, &mut Tx) + 'static,
 ) -> El {
     let (hover, pick) = (Rc::new(hover), Rc::new(pick));
     let empty = rows.is_empty();
@@ -106,11 +108,12 @@ pub fn popup(
                         hover(s, &id_hover);
                     }
                 })
-                .on_press(move |s: &mut App| {
-                    pick(s, &id);
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     s.composer.focused = true;
+                    pick(s, &id, tx);
                 })
-                .child(words),
+                .child(words)
+                .children(r.trail),
         );
     }
     let scroll = format!("{}-scroll", spec.key);

@@ -126,6 +126,7 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .order(15)
         .legacy(&[("open-file", OPEN_TAB_ID)])
         .command("Open file", ShortcutChord::cmd_p())
+        .slash("open")
         .launcher(launcher_desc, open_files_launcher)
         .on_focus(on_focus_file)
         .on_restore(on_restore_file)

@@ -2,6 +2,8 @@
 //! (`home/start/command-palette.tsx`, `shell/commands/{palette,search,dialog}.ts(x)`,
 //! `ui/forms/search-list`): commands and sessions, opening a session as a tab.
 //!
+//! ⇧⌘P opens it on commands alone (`commands.search`); the commands are `commands.rs`'s list.
+//!
 //! Empty, it lists a few commands, then the five newest sessions. Typed, it filters on title,
 //! project and session id, asks the server for title matches past the loaded list
 //! (`/api/session?search=`, after a 100 ms pause), and ranks sessions first (open tabs, then
@@ -31,34 +33,15 @@ pub enum SwitcherMode {
     #[default]
     All,
     Sessions,
+    /// ⇧⌘P: commands only.
+    Commands,
 }
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Command {
-    NewSession,
-    Home,
-    ToggleSidebar,
-    Settings,
-    ToggleSidePanel,
-    OpenProject,
-    SelectProject,
-}
-
-const COMMANDS: [(Command, &str, &str, &str); 7] = [
-    (Command::NewSession, "new", "New session", "⌘T"),
-    (Command::Home, "home", "Home", "⌘B"),
-    (Command::ToggleSidebar, "sidebar", "Toggle sidebar", "⇧⌘B"),
-    (Command::Settings, "settings", "Settings", "⌘,"),
-    (Command::ToggleSidePanel, "side", "Toggle side panel", "⌥⌘B"),
-    (Command::OpenProject, "open-project", "Open project", "⌘O"),
-    (Command::SelectProject, "select-project", "Search projects", "⇧⌘O"),
-];
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Session(String),
-    Command(Command),
-    Panel(&'static str),
+    /// A command's id in `commands.rs`.
+    Command(&'static str),
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +51,7 @@ pub struct Entry {
     pub title: String,
     /// A session's project id, for its icon.
     pub project: String,
-    /// A session's project, a command's nothing.
+    /// A session's project, a command's description.
     pub description: String,
     pub hint: &'static str,
     pub group: &'static str,
@@ -141,18 +124,16 @@ pub fn matches(e: &Entry, q: &str) -> bool {
     if q.is_empty() {
         return true;
     }
-    let id = match &e.action {
-        Action::Session(id) => id.as_str(),
-        Action::Command(_) => "",
-        Action::Panel(plugin) => plugin,
+    let (id, group) = match &e.action {
+        Action::Session(id) => (id.as_str(), ""),
+        Action::Command(_) => ("", e.group),
     };
-    let group = if matches!(e.action, Action::Command(_) | Action::Panel(_)) { e.group } else { "" };
     [e.title.as_str(), e.description.as_str(), id, group].iter().any(|t| t.to_lowercase().contains(&q))
 }
 
 /// `rankCommandPaletteEntries`: sessions lead, open tabs first and then the newest, then commands.
 pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
-    let kind = |e: &Entry| u8::from(matches!(e.action, Action::Command(_) | Action::Panel(_)));
+    let kind = |e: &Entry| u8::from(matches!(e.action, Action::Command(_)));
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
             (Action::Session(_), Action::Session(_)) => b.open.cmp(&a.open).then(b.updated.cmp(&a.updated)),
@@ -240,17 +221,21 @@ impl App {
 
     pub fn switcher_entries(&self) -> Vec<Entry> {
         let q = self.switcher.query();
-        let commands = COMMANDS.iter().map(|&(c, key, title, hint)| Entry {
-            key: format!("command:{key}"),
-            action: Action::Command(c),
-            title: title.into(),
+        let all = self.commands();
+        let command = |c: &crate::commands::Command| Entry {
+            key: format!("command:{}", c.id),
+            action: Action::Command(c.id),
+            title: c.title.into(),
             project: String::new(),
-            description: String::new(),
-            hint,
+            description: c.description.into(),
+            hint: c.keys,
             group: "Commands",
             updated: None,
             open: false,
-        });
+        };
+        if self.switcher.mode == SwitcherMode::Commands {
+            return all.iter().filter(|c| c.id != crate::commands::SEARCH).map(command).filter(|e| matches(e, q)).collect();
+        }
         let group = if q.is_empty() { "Recent sessions" } else { "Session" };
         let sessions = self.merged_roots(&self.switcher.loaded).into_iter().map(|s| Entry {
             key: format!("session:{}", s.id),
@@ -263,25 +248,6 @@ impl App {
             updated: Some(s.updated),
             open: self.tabs.iter().any(|t| t.id == s.id),
         });
-        let panel_cmds: Vec<Entry> = self
-            .all_panels()
-            .into_iter()
-            .filter_map(|p| {
-                let title = p.command_title?;
-                let hint = p.shortcut.map_or("", |s| s.hint);
-                Some(Entry {
-                    key: format!("panel:{}", p.plugin),
-                    action: Action::Panel(p.plugin),
-                    title: title.into(),
-                    project: String::new(),
-                    description: String::new(),
-                    hint,
-                    group: "Commands",
-                    updated: None,
-                    open: false,
-                })
-            })
-            .collect();
         if self.switcher.mode == SwitcherMode::Sessions {
             if q.is_empty() {
                 return sessions.take(RECENT_SESSIONS).collect();
@@ -289,13 +255,11 @@ impl App {
             return rank(sessions.filter(|e| matches(e, q)).take(MATCHES).collect());
         }
         if q.is_empty() {
-            return commands.take(4).chain(sessions.take(RECENT)).collect();
+            let common = crate::commands::COMMON.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command);
+            return common.take(RECENT).chain(sessions.take(RECENT)).collect();
         }
-        let found: Vec<Entry> = commands
-            .chain(panel_cmds)
-            .filter(|e| matches(e, q))
-            .chain(sessions.filter(|e| matches(e, q)).take(MATCHES))
-            .collect();
+        let found: Vec<Entry> =
+            all.iter().map(command).filter(|e| matches(e, q)).chain(sessions.filter(|e| matches(e, q)).take(MATCHES)).collect();
         rank(found)
     }
 
@@ -311,6 +275,12 @@ impl App {
     pub fn open_session_search(&mut self, tx: &mut Tx) {
         tx.instant();
         self.open_switcher_mode(SwitcherMode::Sessions);
+    }
+
+    /// ⇧⌘P: the palette on commands alone.
+    pub fn open_command_search(&mut self, tx: &mut Tx) {
+        tx.instant();
+        self.open_switcher_mode(SwitcherMode::Commands);
     }
 
     fn open_switcher_mode(&mut self, mode: SwitcherMode) {
@@ -366,29 +336,22 @@ impl App {
                 }
                 self.open(&id, tx);
             }
-            Action::Command(Command::NewSession) => self.new_session(tx),
-            Action::Command(Command::Home) => self.go_home(tx),
-            Action::Command(Command::ToggleSidebar) => self.sidebar_open = !self.sidebar_open,
-            Action::Command(Command::Settings) => self.open_settings(),
-            Action::Command(Command::ToggleSidePanel) => self.toggle_side_region(tx),
-            Action::Command(Command::OpenProject) => self.open_project_dialog(tx),
-            Action::Command(Command::SelectProject) => self.toggle_project_switcher(tx),
-            Action::Panel("file") => self.open_file_palette(tx),
-            Action::Panel(plugin) => {
-                if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
-                    if p.region == crate::panels::PanelRegion::Dock && p.open_launcher.is_none() {
-                        self.toggle_dock(tx);
-                    } else if let Some(open_fn) = p.open_launcher {
-                        open_fn(self, p.default_pane, tx);
-                    }
-                }
-            }
+            Action::Command(id) => self.run_command(id, tx),
         }
     }
 
-    /// ⌘K toggles "Search everything" and ⇧⌘F toggles "Search sessions"; while open, the list's keys.
+    /// ⌘K toggles "Search everything", ⇧⌘F "Search sessions" and ⇧⌘P "Search commands"; while
+    /// open, the list's keys.
     pub fn switcher_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if !ev.mods.alt && !ev.mods.ctrl {
+            if ev.is_command('p') && ev.mods.shift {
+                if self.switcher.open && self.switcher.mode == SwitcherMode::Commands {
+                    self.close_switcher(true);
+                } else {
+                    self.open_command_search(tx);
+                }
+                return true;
+            }
             if ev.is_command('k') && !ev.mods.shift {
                 if self.switcher.open && self.switcher.mode == SwitcherMode::All {
                     self.close_switcher(true);
@@ -567,7 +530,7 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El
     if let Some(at) = e.updated {
         r = r.child(text(model::ago(now, at)).key("meta").font(UI).color(p.muted));
     } else if !e.hint.is_empty() {
-        r = r.child(spacer()).child(text(e.hint).key("hint").font(UI).color(p.faint));
+        r = r.child(spacer()).child(crate::commands::keycaps(p, e.hint).key("hint"));
     }
     r
 }
@@ -575,12 +538,22 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
     let (w, h) = ((win_w - 24.0).min(640.0), (win_h - 96.0).min(480.0));
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
+    [scrim, dialog(s, p, w, h).absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
+}
+
+/// The dialog itself, `w` × `h`.
+pub fn dialog(s: &App, p: &Pal, w: f32, h: f32) -> El {
     let q = s.switcher.query();
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
 
     let sessions_only = s.switcher.mode == SwitcherMode::Sessions;
-    let placeholder = if sessions_only { "Search sessions" } else { "Search commands and sessions" };
+    let placeholder = match s.switcher.mode {
+        _ if sessions_only => "Search sessions",
+        SwitcherMode::Commands => "Search commands",
+        _ => "Search commands and sessions",
+    };
     let search = row()
         .key("switcher-field")
         .h(36.0)
@@ -638,7 +611,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         results = results.child(col().key("switcher-empty").w_full().min_h(120.0).center().child(text(state).font(UI).color(p.muted)));
     }
 
-    let dialog = col()
+    col()
         .key("switcher")
         .role("dialog")
         .label("Search everything")
@@ -663,10 +636,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .scroll(ScrollSpec { stick_bottom: false })
                 .clip_fade(0.0, 0.0, 0.0, 24.0)
                 .child(results),
-        );
-
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog.absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
+        )
 }
 
 #[cfg(test)]

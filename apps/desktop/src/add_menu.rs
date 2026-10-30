@@ -428,7 +428,9 @@ mod tests {
         tap(&mut rt, "add-commands");
         assert_eq!(rt.state.composer.text, "/");
         assert!(shown(&rt, "commands").is_some());
-        assert_eq!(rt.state.slash_items().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["init", "review"]);
+        let names: Vec<String> = rt.state.slash_items().iter().map(|c| c.name.clone()).collect();
+        assert_eq!(names[..2], ["init", "review"], "the server's commands lead the app's");
+        assert!(names.iter().any(|n| n == "compact"));
         typed(&mut rt, "rev");
         assert_eq!(rt.state.slash_active().as_deref(), Some("review"));
         key(&mut rt, Key::Enter);
@@ -447,7 +449,7 @@ mod tests {
         tap(&mut rt, "prompt");
         for c in "/rev".chars() {
             key(&mut rt, Key::Text(c.to_string()));
-            let want: Vec<String> = rt.state.slash_items().iter().map(|c| format!("command-{}", c.name)).collect();
+            let want: Vec<String> = rt.state.slash_items().iter().map(|c| format!("command-{}", c.id)).collect();
             let rows: Vec<_> = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("command-"))).collect();
             assert_eq!(rows.iter().map(|e| e.key.clone().unwrap()).collect::<Vec<_>>(), want, "after {c}");
             for e in rows {

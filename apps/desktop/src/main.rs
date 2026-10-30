@@ -23,6 +23,8 @@ mod background_stories;
 mod browser;
 mod capsule_stories;
 pub mod code_view;
+mod commands;
+mod commands_stories;
 mod compaction;
 mod compaction_stories;
 mod diagnostics;
@@ -462,7 +464,7 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
-        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) {
+        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) {
             return true;
         }
         if let Some(forward) = history::bracket(ev, tx.physical_key()) {

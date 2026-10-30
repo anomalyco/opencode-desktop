@@ -265,6 +265,7 @@ const STORY_PATHS: &[&str] = &[
     "Projects/Project switcher",
     "Settings/Appearance",
     "Composer/Auto-accept",
+    "Composer/Commands",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",

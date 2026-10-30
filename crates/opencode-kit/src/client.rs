@@ -102,6 +102,8 @@ pub enum Write {
     /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
     /// `quiet` drops a failure rather than reporting it, as a steer's move does.
     Background { session: String, quiet: bool },
+    /// Summarizes the session to shrink its context (`POST …/compact`, Desktop's Compact session).
+    Compact(String),
     /// Resolves `directory` (`/api/location`, registering its project on the server), reloads
     /// `/api/project`, and when `start_session` is set creates a session in `directory`.
     OpenProject { directory: String, start_session: bool },
@@ -445,6 +447,12 @@ impl Server {
         self.write("POST", &format!("/api/session/{session}/background"), None).map(|_| ())
     }
 
+    /// `session.compact`: asks the server to summarize the session now. It admits the compaction
+    /// to the session's inbox, steering a running turn as Desktop's does.
+    pub fn compact(&self, session: &str) -> Result<(), String> {
+        self.write("POST", &format!("/api/session/{session}/compact"), Some(serde_json::json!({}))).map(|_| ())
+    }
+
     pub fn create_session(&self, directory: &str) -> Result<SessionInfo, String> {
         let v = self.write("POST", "/api/session", Some(serde_json::json!({ "location": { "directory": directory } })))?;
         let info = model::parse_session(v.get("data").unwrap_or(&v));
@@ -621,6 +629,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
                         }),
                         Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
+                        Write::Compact(session) => server.compact(&session),
                         Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
                             let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
                             let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
@@ -875,6 +884,14 @@ mod tests {
         Server { base, auth: None, media_refs: false }.background("ses_a").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/background HTTP/1.1"), "{req}");
+    }
+
+    #[test]
+    fn compact_posts_to_the_session() {
+        let (base, h) = mock_once();
+        Server { base, auth: None, media_refs: false }.compact("ses_a").unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/compact HTTP/1.1"), "{req}");
     }
 
     #[test]

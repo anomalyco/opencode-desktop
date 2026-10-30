@@ -1,5 +1,7 @@
-//! The `/` command popover over the composer, as in Desktop (`suggestions/machine.ts`): the
-//! server's commands for the composer's directory, filtered by the draft's first word.
+//! The `/` command popover over the composer, as in Desktop (`suggestions/machine.ts`,
+//! `composer/model.ts`'s `slashCommands`): the server's commands for the composer's directory,
+//! then the app's own (`commands.rs`, those with a `/name`), filtered by the draft's first word.
+//! Picking an app command runs it at once; a server command fills in `/name `.
 
 use rune::{Cx, El, Key, KeyEvent, Latest, Tx, Waker};
 use serde_json::Value;
@@ -12,6 +14,17 @@ use crate::{App, Source};
 pub struct Command {
     pub name: String,
     pub description: String,
+}
+
+/// One row of the popover: a server command, or an app command (`builtin`, its id).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Item {
+    /// The row's id: the server command's name, or `builtin.<id>`.
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub keys: &'static str,
+    pub builtin: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -73,14 +86,31 @@ impl App {
         self.add.slash.shown = shown;
     }
 
-    pub fn slash_items(&self) -> Vec<&Command> {
+    /// Every `/` command: the server's, then the app's.
+    pub fn slash_list(&self) -> Vec<Item> {
+        let server = self.add.slash.commands.iter().map(|c| Item {
+            id: c.name.clone(),
+            name: c.name.clone(),
+            description: c.description.clone(),
+            keys: "",
+            builtin: None,
+        });
+        let own = self.commands().into_iter().filter_map(|c| {
+            let name = c.slash?;
+            let description = if c.description.is_empty() { c.title } else { c.description };
+            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), description: description.into(), keys: c.keys, builtin: Some(c.id) })
+        });
+        server.chain(own).collect()
+    }
+
+    pub fn slash_items(&self) -> Vec<Item> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        crate::mentions::fuzzy_rank(&query, &self.add.slash.commands, |c| &c.name)
+        crate::mentions::fuzzy_rank(&query, self.slash_list(), |c| &c.name)
     }
 
     pub fn slash_active(&self) -> Option<String> {
         let items = self.slash_items();
-        self.add.slash.active.resolve(&self.slash_query().unwrap_or_default(), items.iter().map(|c| c.name.as_str()))
+        self.add.slash.active.resolve(&self.slash_query().unwrap_or_default(), items.iter().map(|c| c.id.as_str()))
     }
 
     fn slash_activate(&mut self, name: String) {
@@ -88,12 +118,31 @@ impl App {
         self.add.slash.active.set(name, query);
     }
 
-    /// Replaces the draft with `/name ` (`replaceTrigger`).
-    pub fn pick_command(&mut self, name: &str) {
+    /// A server command replaces the draft with `/name ` (`replaceTrigger`); an app command
+    /// clears it and runs (`command.trigger(id, "slash")`).
+    pub fn pick_command(&mut self, id: &str, tx: &mut Tx) {
+        let Some(item) = self.slash_list().into_iter().find(|c| c.id == id) else { return };
         let len = self.composer.text.len();
         self.composer.set_selection(0, len);
-        self.composer.insert(&format!("/{name} "));
         self.add.slash.active.clear();
+        match item.builtin {
+            Some(command) => {
+                self.composer.insert("");
+                self.run_command(command, tx);
+            }
+            None => self.composer.insert(&format!("/{} ", item.name)),
+        }
+    }
+
+    /// A sent `/name` naming an app command and no server one runs it, and the draft clears.
+    pub fn run_slash(&mut self, text: &str, tx: &mut Tx) -> bool {
+        let Some((name, "")) = parse_slash(text.trim()) else { return false };
+        if self.add.slash.commands.iter().any(|c| c.name == name) {
+            return false;
+        }
+        let Some(id) = self.slash_list().into_iter().find(|c| c.builtin.is_some() && c.name == name).map(|c| c.id) else { return false };
+        self.pick_command(&id, tx);
+        true
     }
 
     pub(crate) fn slash_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -103,7 +152,7 @@ impl App {
         if let Some(step) = nav_step(ev, true) {
             if let Some(active) = self.slash_active() {
                 let items = self.slash_items();
-                let keys = items.iter().map(|c| c.name.as_str());
+                let keys = items.iter().map(|c| c.id.as_str());
                 if let Some(name) = step_key(keys, Some(&active), step, tx, "commands-scroll", "command-") {
                     self.slash_activate(name);
                 }
@@ -119,7 +168,7 @@ impl App {
             Key::Tab | Key::Enter if self.composer.preedit.is_none() && !ev.mods.cmd => match self.slash_active() {
                 Some(name) => {
                     tx.instant();
-                    self.pick_command(&name);
+                    self.pick_command(&name, tx);
                     true
                 }
                 None => false,
@@ -170,8 +219,15 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let active = s.slash_active();
     let rows = items
         .iter()
-        .map(|c| Row { id: c.name.clone(), key: format!("command-{}", c.name), label: format!("/{}", c.name), lead: None, description: c.description.clone() })
+        .map(|c| Row {
+            id: c.id.clone(),
+            key: format!("command-{}", c.id),
+            label: format!("/{}", c.name),
+            lead: None,
+            description: c.description.clone(),
+            trail: (!c.keys.is_empty()).then(|| crate::commands::keycaps(p, c.keys)),
+        })
         .collect();
     let spec = Spec { key: "commands", label: "Commands", empty: "No matching commands", width };
-    Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name| s.pick_command(name)))
+    Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name, tx| s.pick_command(name, tx)))
 }
