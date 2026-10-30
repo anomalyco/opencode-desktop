@@ -608,7 +608,9 @@
       "state": {
        "status": "completed",
        "input": {
-        "filePath": "/Users/demo/code/lumen/src/net/stream.ts"
+        "filePath": "/Users/demo/code/lumen/src/net/stream.ts",
+        "offset": 11,
+        "limit": 20
        }
       },
       "time": {
@@ -672,7 +674,9 @@
       "state": {
        "status": "completed",
        "input": {
-        "filePath": "/Users/demo/code/lumen/src/net/stream.ts"
+        "filePath": "/Users/demo/code/lumen/src/net/stream.ts",
+        "oldString": "  stream.on(\"error\", () => {\n    stream.close()\n    reconnect()\n  })",
+        "newString": "  let timer = setTimeout(fire, QUIET_MS)\n  function fire() {\n    stream.close()\n    reconnect()\n  }"
        }
       },
       "time": {
@@ -688,7 +692,9 @@
       "state": {
        "status": "completed",
        "input": {
-        "filePath": "/Users/demo/code/lumen/src/net/backoff.ts"
+        "filePath": "/Users/demo/code/lumen/src/net/backoff.ts",
+        "oldString": "  message() {\n    this.attempts = 0\n  }",
+        "newString": "  message() {\n    const t = this.now()\n    if (this.healthySince === null) {\n      this.healthySince = t\n      return\n    }\n    if (t - this.healthySince >= HEALTHY_MS) {\n      this.attempts = 0\n    }\n  }"
        }
       },
       "time": {

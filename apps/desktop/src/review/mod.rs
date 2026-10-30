@@ -69,6 +69,8 @@ pub struct SessionReview {
     pub branch_default: Option<String>,
     pub loaded_revision: Option<(ChangeMode, u64)>,
     pub pending_expand: Option<(usize, usize, Expand)>,
+    /// A tool step's change to scroll to once the diffs load (`tool_open`).
+    pub pending_focus: Option<(String, Option<crate::tool_open::Anchor>)>,
 }
 
 impl Default for SessionReview {
@@ -86,6 +88,7 @@ impl Default for SessionReview {
             branch_default: None,
             loaded_revision: None,
             pending_expand: None,
+            pending_focus: None,
         }
     }
 }
@@ -223,7 +226,9 @@ fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
     if let Some(fetched) = s.review.diff_fetch.take() {
         tx.instant();
+        let sid = fetched.session_id.clone();
         s.apply_fetched_diffs(fetched);
+        s.apply_pending_review_focus(&sid, tx);
         changed = true;
     }
     if let Some((session_id, path, content)) = s.review.file_fetch.take() {

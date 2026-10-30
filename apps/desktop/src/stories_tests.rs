@@ -266,4 +266,5 @@ const STORY_PATHS: &[&str] = &[
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",
+    "Timeline/Open tool step",
 ];

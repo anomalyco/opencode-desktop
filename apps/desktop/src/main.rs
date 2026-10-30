@@ -121,6 +121,10 @@ mod tabs;
 mod terminal;
 mod themes;
 mod tool_group_stories;
+mod tool_open;
+mod tool_open_stories;
+#[cfg(test)]
+mod tool_open_tests;
 mod turns;
 mod view;
 mod working;
@@ -274,6 +278,8 @@ pub struct App {
     pub review: review::ReviewPane,
     pub files: files::FilesPane,
     pub open_in: open_in::OpenIn,
+    /// What a tool step last opened in the side region (`tool_open`).
+    pub tool_open: Option<tool_open::Opened>,
     pub terminal: terminal::TerminalPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,

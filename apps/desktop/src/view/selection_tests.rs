@@ -127,15 +127,16 @@ fn a_double_click_in_a_tool_row_selects_a_word_and_leaves_the_row_open() {
     settle(&mut rt);
     let steps = format!("{}/steps-box/steps/", trigger.path.trim_end_matches("/trigger"));
     let tool = |rt: &Runtime<App>, name: &str| find(rt, |e| e.path.starts_with(&steps) && e.text.as_deref() == Some(name));
-    let name = tool(&rt, "Read");
-    let word = (name.rect[0] + name.rect[2] / 2.0, name.rect[1] + name.rect[3] / 2.0);
+    // Grep's row opens nothing (a Read's opens the file, `tool_open`), so a double-click selects.
+    let grep = tool(&rt, "Grep");
+    let word = (grep.rect[0] + grep.rect[2] / 2.0, grep.rect[1] + grep.rect[3] / 2.0);
     click(&mut rt, word);
     click(&mut rt, word);
-    assert_eq!(rt.selected_text().as_deref(), Some("Read"));
+    assert_eq!(rt.selected_text().as_deref(), Some("Grep"));
     assert_eq!(rt.state.expanded.len(), group + 1, "the group stays open");
     // A drag across two tools selects them without closing the group.
-    let grep = tool(&rt, "Grep");
-    drag(&mut rt, (grep.rect[0] + 1.0, grep.rect[1] + grep.rect[3] / 2.0), (name.rect[0] + name.rect[2] - 1.0, word.1));
+    let name = tool(&rt, "Read");
+    drag(&mut rt, (grep.rect[0] + 1.0, word.1), (name.rect[0] + name.rect[2] - 1.0, name.rect[1] + name.rect[3] / 2.0));
     assert_eq!(rt.selected_text().as_deref(), Some("Grep\tEventSource|heartbeat\nRead"));
     assert_eq!(rt.state.expanded.len(), group + 1);
 }

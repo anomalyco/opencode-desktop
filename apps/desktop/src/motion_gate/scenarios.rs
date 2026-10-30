@@ -19,6 +19,8 @@ const ALLOW: &[Allow] = &[
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("text-swap", "working/#0/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
     ("text-swap", "crumbs/", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
+    ("load-motion", "scroll/rows", "tool-steps/", "Changes opening at a step's change measures the rows above it over the first two frames, so the list grows upward out of sight; every row on screen holds still (code_view::DiffViewer)"),
+    ("text-swap", "files-crumb/", "tool-steps/", "a tool step opens its file's tab at once, and Esc puts the tab before back at once; the header names it as the page under it changes (tool_open)"),
     ("pop-in", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
     ("pop-out", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
     ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
@@ -604,6 +606,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "side-region", circs: || vec![Circ::default()], run: super::panels::side_region },
     Action { name: "review", circs: || vec![Circ::default()], run: super::panels::review },
     Action { name: "files", circs: || vec![Circ::default()], run: super::panels::files },
+    Action { name: "tool-steps", circs: || vec![Circ::default()], run: super::panels::tool_steps },
     Action { name: "terminal-dock", circs: || vec![Circ::default()], run: super::panels::terminal_dock },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();

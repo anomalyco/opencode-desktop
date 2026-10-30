@@ -261,6 +261,14 @@ impl CodeDocState {
         tx.scroll_to_y(scroll_key.to_owned(), (top_line - 1) as f32 * LINE_H);
     }
 
+    /// [`Self::scroll_to_line`] at `start`, selecting `start..=end`.
+    pub fn scroll_to_lines(&mut self, scroll_key: &str, start: u32, end: u32, tx: &mut Tx) {
+        self.scroll_to_line(scroll_key, start, true, tx);
+        if let Some(sel) = self.selection.as_mut() {
+            sel.end = end.clamp(sel.start, self.source.len().max(sel.start));
+        }
+    }
+
     pub fn sync_find_query(&mut self) -> bool {
         if self.find_input.text == self.find_query_applied {
             return false;

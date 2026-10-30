@@ -22,7 +22,7 @@ use crate::view::{UI, UI_MED, chevron, readable, reasoning};
 #[derive(Debug)]
 pub enum Step<'a> {
     Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64> },
-    Tool { id: &'a str, name: &'a str, title: &'a str, status: &'a ToolStatus, files: &'a [Attachment] },
+    Tool { id: &'a str, name: &'a str, title: &'a str, status: &'a ToolStatus, files: &'a [Attachment], input: &'a serde_json::Value, metadata: &'a serde_json::Value },
 }
 
 /// One timeline row of a turn's assistant work.
@@ -101,7 +101,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                             out.push(Block::Question { id, status, input, metadata });
                         }
                     }
-                    _ => fold_in(&mut group, (id, None), Step::Tool { id, name, title, status, files }),
+                    _ => fold_in(&mut group, (id, None), Step::Tool { id, name, title, status, files, input, metadata }),
                 },
             }
         }
@@ -236,8 +236,8 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
                     let key = format!("r-{msg}-{index}");
                     reasoning(p, &key, body, *secs, s.expanded.contains(&key), fade).key(key)
                 }
-                Step::Tool { id, name, title, status, files } => {
-                    let r = tool_row(p, id, name, title, status);
+                Step::Tool { id, name, title, status, files, input, metadata } => {
+                    let r = crate::tool_open::row(s, p, id, tool_row(p, id, name, title, status), name, status, input, metadata);
                     match crate::attachments::gallery(s, p, "step-images", files, false) {
                         Some(g) => col().key(format!("step-{id}")).w_full().child(r).child(g.pl(22.0)),
                         None => r,

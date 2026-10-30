@@ -41,7 +41,7 @@ pub struct SessionFiles {
     pub highlighted_filter_path: Option<String>,
     pub search_found: Vec<String>,
     pub search_asked: Option<String>,
-    pub pending_jump: HashMap<String, u32>,
+    pub pending_jump: HashMap<String, (u32, u32)>,
     pub ready: bool,
 }
 
@@ -243,9 +243,9 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             FilePayload::Binary(sz) => doc.set_binary(sz),
             FilePayload::Missing => doc.set_missing(),
         }
-        if let Some(line) = ws.pending_jump.remove(&path) {
+        if let Some((start, end)) = ws.pending_jump.remove(&path) {
             let scroll_key = format!("file-code-{session_id}-{path}-scroll");
-            doc.scroll_to_line(&scroll_key, line, true, tx);
+            doc.scroll_to_lines(&scroll_key, start, end, tx);
         }
         changed = true;
     }
@@ -498,6 +498,17 @@ impl App {
         line: Option<u32>,
         tx: &mut Tx,
     ) {
+        self.open_workspace_file_at(path, preview, line.map(|n| (n, n)), tx);
+    }
+
+    /// Opens `path` with lines `start..=end` selected and scrolled into view.
+    pub fn open_workspace_file_at(
+        &mut self,
+        path: &str,
+        preview: bool,
+        lines: Option<(u32, u32)>,
+        tx: &mut Tx,
+    ) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         tx.instant();
         self.ensure_file_loaded(&sid, path);
@@ -517,14 +528,14 @@ impl App {
         ws.rebuild_tree();
         ws.tree.select(path);
 
-        if let Some(ln) = line {
+        if let Some((start, end)) = lines {
             if let Some(doc) = ws.docs.get_mut(path)
                 && doc.ready
             {
                 let scroll_key = format!("file-code-{sid}-{path}-scroll");
-                doc.scroll_to_line(&scroll_key, ln, true, tx);
+                doc.scroll_to_lines(&scroll_key, start, end, tx);
             } else {
-                ws.pending_jump.insert(path.to_owned(), ln);
+                ws.pending_jump.insert(path.to_owned(), (start, end));
             }
         }
     }

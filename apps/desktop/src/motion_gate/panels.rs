@@ -88,6 +88,42 @@ pub fn files(r: &mut Run) {
     r.play_out(0.8);
 }
 
+/// Tool steps opening in the side region (`tool_open`): an edit opens Changes, a read switches
+/// to Files, the same click shuts it, and Esc puts back the tab that showed before.
+pub fn tool_steps(r: &mut Run) {
+    r.act("seed edit group open", |rt| {
+        rt.update(|s, tx| {
+            s.expanded.insert("c-call_edit_50000".into());
+            s.expanded.insert("c-call_grep_27000".into());
+            tx.settle();
+            tx.scroll_key_to("tool-call_edit_50000", 300.0);
+        });
+    });
+    r.rec.loads.push(r.rec.frames - 1);
+    // The scroll lands a couple of frames on; the page is loaded once it has.
+    r.play(0.1);
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("open edit step", |rt| Run::tap(rt, "tool-call_edit_50000"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("same click shuts it", |rt| Run::tap(rt, "tool-call_edit_50000"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("open Files tab", |rt| rt.update(|s, tx| s.open_workspace_file("src/net/backoff.ts", false, None, tx)));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("open edit step over it", |rt| Run::tap(rt, "tool-call_edit_50000"));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("switch to read step", |rt| rt.update(|s, tx| s.press_tool_step("call_read_28000", tx)));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play(0.3);
+    r.act("Esc back to Files", |rt| rt.key(rune::KeyEvent { key: rune::Key::Escape, mods: rune::Mods::default() }));
+    r.rec.loads.push(r.rec.frames - 1);
+    r.play_out(0.6);
+}
+
 pub fn terminal_dock(r: &mut Run) {
     use rune::{Key, KeyEvent, Mods};
     let cmd = |c| KeyEvent {

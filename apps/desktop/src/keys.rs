@@ -42,6 +42,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         Key::Escape if crate::find::dismiss_key(s, ev, tx) => true,
         Key::Escape if crate::status_toast::key(s, ev, tx) => true,
+        Key::Escape if s.dismiss_tool_step(tx) => true,
         // A subagent's session has no composer: Esc goes back to the session that started it.
         Key::Escape if s.open_parent(tx) => true,
         Key::Escape if s.route != Route::Home && !s.composer.focused => {
