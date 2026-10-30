@@ -74,6 +74,9 @@ const ALLOW: &[Allow] = &[
     ("jerk", "editor-scroll/editor-pad", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("offset-jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
+    ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
+    ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
 ];
 
 struct Action {
@@ -633,6 +636,13 @@ const ACTIONS: &[Action] = &[
         r.play(0.6);
         r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
         r.play(0.4);
+    } },
+    // The pitch demo end to end (`demo.rs`): typing, streaming, tool groups, a steer, two
+    // subagents, a question and the finish, at Kit's zoom too.
+    Action { name: "demo", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }, Circ { zoomed: true, ..Circ::default() }], run: |r| {
+        crate::demo::start(&mut r.rt.state);
+        let secs = crate::demo_script::events(&crate::demo_script::Ids::new(1)).last().map_or(0.0, |e| e.0);
+        r.play(secs + 1.5);
     } },
 ];
 

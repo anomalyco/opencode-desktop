@@ -208,6 +208,7 @@ const APP_SCENES: &[&str] = &[
     "sidebar-closed",
     "status",
     "tab-badges",
+    "demo",
 ];
 
 const STORY_PATHS: &[&str] = &[

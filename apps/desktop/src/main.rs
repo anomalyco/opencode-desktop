@@ -27,6 +27,8 @@ mod commands;
 mod commands_stories;
 mod compaction;
 mod compaction_stories;
+mod demo;
+mod demo_script;
 mod diagnostics;
 mod dictation;
 #[cfg(test)]
@@ -253,6 +255,7 @@ pub struct App {
     pub todo_open: bool,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
     pub agent_rows: agent_rows::Live,
+    pub demo: demo::Demo,
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
     framed: bool,
     pub reduced_motion: bool,
@@ -346,13 +349,17 @@ impl App {
         let fixture_path = arg("--fixture");
         let server = Server::new(&arg("--server").unwrap_or_else(default_server)).with_media_refs();
         let deferred = fixture_path.is_none() && launch::deferred();
-        let want_live = fixture_path.is_none() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
+        let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
         if want_live && app.load_live(server, deferred && !flag("--live")) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
             None => FIXTURE.to_owned(),
         };
         app.load_fixture(&src);
+        // The demo plays on Kit's own zoom; a fixture run never saves it.
+        if demo::requested() && arg("--zoom").is_none() && !headless() && let Some(z) = tabs::load_zoom() {
+            app.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
+        }
         app
     }
 
@@ -580,6 +587,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.sync_history();
     s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
+    demo::poll(s);
     // The morph loop is for watching: the composer it lands on doesn't take the keys.
     if s.stage.is_some_and(|st| st.watch()) {
         s.composer.focused = false;
@@ -703,6 +711,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 && let Some(item) = s.inboxes.get(data["sessionID"].as_str().unwrap_or("")).and_then(|i| i.items.iter().find(|i| i.delivery == kind))
             {
                 data["inboxID"] = item.id.clone().into();
+            }
+            if ty.starts_with("demo.") {
+                demo::apply(s, &ty, &data, tx);
+                changed = true;
+                continue;
             }
             if ty == "fixture.page" {
                 s.show_fixture_page(data["sessionID"].as_str().unwrap_or(""), tx);

@@ -41,6 +41,7 @@ const ORDER: &[&str] = &[
     "sidebar-closed",
     "status",
     "tab-badges",
+    "demo",
 ];
 
 pub(crate) fn all() -> Vec<Scene> {

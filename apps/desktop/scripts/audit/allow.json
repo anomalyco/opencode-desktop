@@ -47,5 +47,11 @@
    "reason": "sending empties the composer at once (docs/kit-design.md: changes are immediate): its text pad drops a long prompt's scroll in that frame, under the placeholder"},
   {"trace": "paste-queue", "element": "queue/queue-clip/queue-face", "kind": "invisible-work",
    "reason": "the queue panel opens and closes by its clip; the face's spring spends its first and last frames under it (queue::panel)"},
-  {"element": "status-toast", "kind": ["pop-in", "pop-out"], "reason": "toasts appear and dismiss at once while the timeline's rows collapse or grow underneath (docs/kit-design.md: changes are immediate)"}
+  {"element": "status-toast", "kind": ["pop-in", "pop-out"], "reason": "toasts appear and dismiss at once while the timeline's rows collapse or grow underneath (docs/kit-design.md: changes are immediate)"},
+  {"trace": "demo", "kind": "overshoot", "reason": "the pinned timeline and the subagent rows settle on their springs as rows land and docks open and close; under 1.5 pt, the app's own motion the demo only plays"},
+  {"trace": "demo", "element": "/timeline/t-msg_zzzzzdemo01005-0/", "kind": ["jump", "dog-leg"], "reason": "the summary's streaming Markdown table widens its first column when its widest cell lands, as text rewraps while it streams"},
+  {"trace": "demo", "element": "/timeline/t-msg_zzzzzdemo", "kind": "pop-in", "reason": "an answer after tool calls mounts its row empty, at zero height, so the stream reveals into it; nothing paints until words arrive (as in send)"},
+  {"trace": "demo", "element": "agent-card/member-call_demo", "kind": "invisible-work", "reason": "a new subagent row opens its card by growing the timeline row, so its fade and spinner start under that clip, as in the subagent stories"},
+  {"trace": "demo", "element": "time-call_demo", "kind": "dog-leg", "reason": "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"},
+  {"trace": "demo", "element": "session/dock/composer/question", "kind": "invisible-work", "reason": "the question dock's options and footer start their entrance clipped while the dock grows open over the composer (question::dock)"}
 ]
