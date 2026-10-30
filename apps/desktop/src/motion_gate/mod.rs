@@ -12,6 +12,7 @@ mod odometers;
 mod panels;
 mod rewind;
 mod scenarios;
+mod todos;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
 use serde_json::{Value, json};

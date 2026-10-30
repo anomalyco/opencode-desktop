@@ -120,6 +120,8 @@ mod tab_badges;
 mod tabs;
 mod terminal;
 mod themes;
+mod todos;
+mod todo_stories;
 mod tool_group_stories;
 mod tool_open;
 mod tool_open_stories;
@@ -239,6 +241,8 @@ pub struct App {
     pub restore: restore::Restore,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
+    /// The plan's list over the todo pill is open (`todos.rs`).
+    pub todo_open: bool,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
     pub agent_rows: agent_rows::Live,
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).

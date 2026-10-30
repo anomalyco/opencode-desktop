@@ -77,6 +77,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
+    if let Route::Session(id) = &s.route
+        && let Some(panel) = crate::todos::panel(s, p, id)
+    {
+        inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full()
+            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.todo_open = false;
+            }))
+            .child(panel);
+    }
     inner = inner.children(crate::mentions::view(s, p, cx));
     inner = inner.children(crate::slash::commands_view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));

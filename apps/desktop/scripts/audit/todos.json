@@ -1,0 +1,10 @@
+{
+  "scene": "session", "secs": 2.0,
+  "fixture": {"open": "ses_fx0006aaaaaaaaaaaaaaaaaa"},
+  "events": [
+    {"t": 0.5, "type": "move", "key": "todo-pill", "expect": "instant", "element": "todo-pill"},
+    {"t": 0.7, "type": "tap", "key": "todo-pill", "expect": "instant", "element": "todo-panel"},
+    {"t": 1.2, "type": "key", "name": "Escape", "expect": "instant", "element": "todo-panel"},
+    {"t": 1.5, "type": "tap", "key": "todo-pill", "expect": "instant", "element": "todo-panel"}
+  ]
+}

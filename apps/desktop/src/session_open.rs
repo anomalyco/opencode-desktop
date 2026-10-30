@@ -19,6 +19,7 @@ impl App {
         self.close_message_menu();
         self.close_fork_dialog(false);
         self.activity_open = false;
+        self.todo_open = false;
         if self.route != Route::Session(id.to_owned()) {
             // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
             self.ends.forget(id);

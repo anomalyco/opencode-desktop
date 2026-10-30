@@ -985,6 +985,289 @@
      }
     }
    }
+  ],
+  "ses_fx0006aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_001a1630a0000001fixture06",
+    "type": "user",
+    "text": "Move the config loader to the new schema. Old config files must keep working for one release.",
+    "time": {
+     "created": 1792656000000
+    }
+   },
+   {
+    "id": "msg_001a1630a0400002fixture06",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "This touches the loader, the schema and the tests. I'll plan it out so the order is clear, then start by reading the old loader.",
+      "time": {
+       "created": 1792656001000,
+       "completed": 1792656004000
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_todo_6100",
+      "name": "todowrite",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "todos": [
+         {
+          "content": "Read the old loader and list every key it accepts",
+          "status": "in_progress",
+          "priority": "medium"
+         },
+         {
+          "content": "Write the new schema with defaults",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Map old keys to new ones in a migration step",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Keep reading the old file for one release",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Update the loader tests for both shapes",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Note the change in the changelog",
+          "status": "pending",
+          "priority": "medium"
+         }
+        ]
+       }
+      },
+      "time": {
+       "created": 1792656005000,
+       "completed": 1792656005600
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_read_6200",
+      "name": "read",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "filePath": "/Users/demo/code/harbor/src/config/load.ts"
+       }
+      },
+      "time": {
+       "created": 1792656006000,
+       "completed": 1792656006600
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_grep_6300",
+      "name": "grep",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "pattern": "config\\.(get|has)\\("
+       }
+      },
+      "time": {
+       "created": 1792656007000,
+       "completed": 1792656007600
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_todo_6400",
+      "name": "todowrite",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "todos": [
+         {
+          "content": "Read the old loader and list every key it accepts",
+          "status": "completed",
+          "priority": "medium"
+         },
+         {
+          "content": "Write the new schema with defaults",
+          "status": "in_progress",
+          "priority": "medium"
+         },
+         {
+          "content": "Map old keys to new ones in a migration step",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Keep reading the old file for one release",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Update the loader tests for both shapes",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Note the change in the changelog",
+          "status": "pending",
+          "priority": "medium"
+         }
+        ]
+       }
+      },
+      "time": {
+       "created": 1792656008000,
+       "completed": 1792656008600
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_write_6500",
+      "name": "write",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "filePath": "/Users/demo/code/harbor/src/config/schema.ts"
+       }
+      },
+      "time": {
+       "created": 1792656009000,
+       "completed": 1792656009600
+      }
+     }
+    ],
+    "time": {
+     "created": 1792656000800,
+     "streamed": 1792656009800,
+     "completed": 1792656010000
+    },
+    "finish": "tool-calls",
+    "cost": 0.14,
+    "tokens": {
+     "input": 4,
+     "output": 620,
+     "reasoning": 180,
+     "cache": {
+      "read": 52000,
+      "write": 1800
+     }
+    }
+   },
+   {
+    "id": "msg_001a1630a2800003fixture06",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "The schema is in. Old files only ever set `paths.cache` as a string, so the migration is a short table, and nobody reads the changelog line for an internal loader, so I'll skip it."
+     },
+     {
+      "type": "tool",
+      "id": "call_todo_6600",
+      "name": "todowrite",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "todos": [
+         {
+          "content": "Read the old loader and list every key it accepts",
+          "status": "completed",
+          "priority": "medium"
+         },
+         {
+          "content": "Write the new schema with defaults",
+          "status": "completed",
+          "priority": "medium"
+         },
+         {
+          "content": "Map old keys to new ones in a migration step",
+          "status": "in_progress",
+          "priority": "medium"
+         },
+         {
+          "content": "Keep reading the old file for one release",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Update the loader tests for both shapes",
+          "status": "pending",
+          "priority": "medium"
+         },
+         {
+          "content": "Note the change in the changelog",
+          "status": "cancelled",
+          "priority": "medium"
+         }
+        ]
+       }
+      },
+      "time": {
+       "created": 1792656011000,
+       "completed": 1792656011600
+      }
+     },
+     {
+      "type": "tool",
+      "id": "call_edit_6700",
+      "name": "edit",
+      "executed": true,
+      "state": {
+       "status": "completed",
+       "input": {
+        "filePath": "/Users/demo/code/harbor/src/config/migrate.ts"
+       }
+      },
+      "time": {
+       "created": 1792656012000,
+       "completed": 1792656012600
+      }
+     }
+    ],
+    "time": {
+     "created": 1792656010500,
+     "streamed": 1792656012800,
+     "completed": 1792656013000
+    },
+    "finish": "tool-calls",
+    "cost": 0.09,
+    "tokens": {
+     "input": 4,
+     "output": 620,
+     "reasoning": 180,
+     "cache": {
+      "read": 52000,
+      "write": 1800
+     }
+    }
+   }
   ]
  },
  "open": "ses_fx0001aaaaaaaaaaaaaaaaaa",

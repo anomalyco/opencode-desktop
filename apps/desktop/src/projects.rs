@@ -217,6 +217,7 @@ impl App {
         self.settings.open = false;
         self.menus.on = None;
         self.activity_open = false;
+        self.todo_open = false;
         let options = FileDialogOptions { title: "Open project".into(), ..Default::default() };
         tx.open_folder(options, move |s: &mut App, result, tx| match result {
             Ok(Some(path)) => s.open_project_dir(&path.to_string_lossy(), true, tx),

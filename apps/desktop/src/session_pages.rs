@@ -276,6 +276,7 @@ impl super::App {
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         self.activity_open = false;
+        self.todo_open = false;
         self.opening = Some(Opening { id: id.into(), from: self.route.clone(), started: Instant::now(), clock: self.clock, loading: false, received: self.transcripts.contains_key(id), error:None });
         self.open_page(id, tx);
         self.poll_open(tx);

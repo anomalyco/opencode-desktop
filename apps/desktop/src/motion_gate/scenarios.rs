@@ -25,6 +25,9 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/activity-panel", "capsule-open-long", "the capsule's list opens and closes at once, as Desktop's menu does (subagents::panel)"),
     ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
+    ("pop-in", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside open at once, as the capsule's list does (todos::panel)"),
+    ("pop-out", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside close at once, as the capsule's list does (todos::panel)"),
+    ("text-swap", "todo-pill/todo-now", "", "the pill names the next todo at once, as Desktop's pill does (todos::pill)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("text-swap", "time-call_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
     ("text-swap", "-time-ses_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
@@ -499,6 +502,7 @@ const ACTIONS: &[Action] = &[
         r.act("close it", |rt| Run::tap(rt, "activity-chip"));
         r.play_out(0.6);
     } },
+    Action { name: "todo-pill", circs: || wide_and_narrow(Circ::default()), run: super::todos::todo_pill },
     Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
     // Run times tick at once (`subagents::run_time`); counts roll like an odometer (`odometer.rs`).
     Action { name: "run-time-9s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 9) },

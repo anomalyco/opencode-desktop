@@ -88,11 +88,11 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .child(icon(&ARROW_DOWN, 16.0).color(p.text))
 }
 
-/// The timeline `scroll` with the button and the subagent `capsule` floating over its bottom
-/// edge, so the transcript runs under them and they ride up as the docks under it grow. At the
+/// The timeline `scroll` with the button and the `pills` (the subagent capsule, the todo pill)
+/// floating over its bottom edge, so the transcript runs under them and they ride up as the docks under it grow. At the
 /// right (the ⌘⇧K Composer default) the button ends where the composer ends, on the capsule's
 /// row; centred, it's Desktop's.
-pub fn over(s: &App, p: &Pal, id: &str, scroll: El, capsule: Option<El>) -> El {
+pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
     let shown = s.ends.far(id);
     // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
     let curve = crate::knobs::jump(&s.knobs, shown);
@@ -107,7 +107,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, capsule: Option<El>) -> El {
     if !shown {
         button = button.inert();
     }
-    let lane = row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).center_y().children(capsule).child(spacer());
+    let lane = row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).center_y().children(pills).child(spacer());
     let (lane, centred) = if s.knobs.get(&crate::knobs::JUMP_PLACE) as usize == 1 {
         (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
     } else {

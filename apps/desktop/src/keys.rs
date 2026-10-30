@@ -40,6 +40,11 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.activity_open = false;
             true
         }
+        Key::Escape if s.todo_open => {
+            tx.instant();
+            s.todo_open = false;
+            true
+        }
         Key::Escape if crate::find::dismiss_key(s, ev, tx) => true,
         Key::Escape if crate::status_toast::key(s, ev, tx) => true,
         Key::Escape if s.dismiss_tool_step(tx) => true,

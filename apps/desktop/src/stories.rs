@@ -154,6 +154,7 @@ const ORDER: &[&str] = &[
     "Composer/Pickers",
     "Composer/Mentions",
     "Composer/Subagents capsule, 30 running",
+    "Composer/Todo pill",
     "Question dock/Question",
     "Question dock/Custom answer",
     "Question dock/Morph",

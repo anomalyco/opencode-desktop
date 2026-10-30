@@ -26,16 +26,23 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let child = info.is_some_and(|i| i.parent.is_some());
     // The subagent capsule floats over the timeline's bottom edge beside the jump button, so
     // the transcript runs under both and fades out right at the composer's top edge.
-    let capsule = if child { None } else { crate::subagents::capsule(s, p, id) };
+    let pills = if child { Vec::new() } else { pills(s, p, id) };
     // Its chip sits one gap under the last row, as Desktop's pills sit 8 under Working.
-    let lane = if capsule.is_some() { crate::jump::CAPSULE_LANE + crate::jump::GAP - END } else { 0.0 };
+    let lane = if pills.is_empty() { 0.0 } else { crate::jump::CAPSULE_LANE + crate::jump::GAP - END };
     let mut page = page
-        .child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), capsule))
+        .child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), pills))
         .child(requests(s, p, id));
     // A subagent takes no prompts: its status line stands where the composer would.
     page = if child { page.child(crate::subagents::bar(s, p, id)) } else { page.child(composer_dock(s, p)) };
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
+}
+
+/// The pills over the composer: the subagent capsule, then the todo pill beside it.
+fn pills(s: &App, p: &Pal, id: &str) -> Vec<El> {
+    let capsule = crate::subagents::capsule(s, p, id);
+    let gap = if capsule.is_some() { crate::jump::GAP } else { 0.0 };
+    capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).collect()
 }
 
 /// The storybook's stages (`stories.rs`): the open session's timeline and what sits under it,
@@ -52,10 +59,11 @@ pub(crate) fn story_header(s: &App, p: &Pal) -> El {
 
 pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session(id) = &s.route else { return composer_dock(s, p) };
+    let pills = pills(s, p, id);
     col().key("session")
         .w_full()
-        .children(crate::subagents::capsule(s, p, id).map(|c| col().key("activity").w_full().center().px(24.0).pb(8.0)
-            .child(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).child(c))))
+        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(24.0).pb(8.0)
+            .child(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).children(pills))))
         .child(composer_dock(s, p))
 }
 

@@ -218,11 +218,25 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         return None;
     }
     let label = format!("{n} subagent{}", if n == 1 { "" } else { "s" });
+    let chip = chip(s, p, "activity-chip", label.clone(), s.activity_open)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.activity_open = !s.activity_open;
+            s.todo_open = false;
+        })
+        .child(activity_ring_sized(p, 16.0))
+        .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
+    Some(chip)
+}
+
+/// The capsule every pill over the composer shares (`[data-composer-pill]`), pressed while its
+/// list is `open`.
+pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
     let bg = crate::view::composer_fill(p);
-    let mut chip = row()
-        .key("activity-chip")
+    let chip = row()
+        .key(key)
         .role("button")
-        .label(label.clone())
+        .label(label)
         .h(28.0)
         .px(10.0)
         .gap(8.0)
@@ -234,17 +248,8 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
         .shadow(1.0, 2.0, p.shadow.alpha(p.shadow.a * s.knobs.get(&crate::knobs::CAPSULE_FILL)))
         .hover(p.hover)
         .press(p.pressed)
-        .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.activity_open = !s.activity_open;
-        })
-        .child(activity_ring_sized(p, 16.0))
-        .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
-    if s.activity_open {
-        chip = chip.fill(p.pressed);
-    }
-    Some(chip)
+        .hover_motion(INSTANT, INSTANT);
+    if open { chip.fill(p.pressed) } else { chip }
 }
 
 /// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start
