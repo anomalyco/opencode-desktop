@@ -2,10 +2,11 @@
 //! does in the iOS app: only the digits that change roll, up while the number rises and down when
 //! it falls, through a soft edge; digits are tabular, and the width eases when it changes.
 //!
-//! Every ticking number in the app goes through [`odometer`]: subagent run times, the header's
-//! context and cost, the subagents capsule, the queue's count, the question dock's "N of M" and a
-//! tool group's count. Each is keyed by what it counts (a call, a session, a form), so a number
-//! that changes because another session opened mounts fresh, at once, instead of rolling.
+//! Every counted number in the app goes through [`odometer`]: the header's context and cost, the
+//! subagents capsule, the queue's count, the question dock's "N of M" and a tool group's count.
+//! Run times aren't counts: they change at once each second, as Desktop's do
+//! (`subagents::run_time`). Each is keyed by what it counts (a call, a session, a form), so a
+//! number that changes because another session opened mounts fresh, at once, instead of rolling.
 
 use rune::{Color, El, Spring, TextStyle};
 use rune_kit::RollingText;

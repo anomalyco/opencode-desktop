@@ -1,21 +1,26 @@
-//! Odometer cells: live numbers roll only their changed digits through a soft edge
-//! (`odometer.rs`), and a number that snaps in place is a `text-swap`.
+//! Odometer cells: live counts roll only their changed digits through a soft edge
+//! (`odometer.rs`), and a count that snaps in place is a `text-swap`. Run times are the
+//! exception: they tick at once (`subagents::run_time`).
 
 use opencode_kit::model::Message;
 use rune::{Key, KeyEvent, Mods};
 
-use super::{Run, SID};
+use super::{DT, Run, SID};
 use crate::App;
 
-/// A subagent's card time ticks from `secs` to the next second: 9s → 10s widens by a digit,
-/// 59s → 1m 00s changes format. The card lands, the second turns 0.7 s in, and the run ends
-/// still, before the next one.
+/// A subagent's card time ticks from `secs` to the next second, at once rather than rolling
+/// (`subagents::run_time`): 9s → 10s widens by a digit, 59s → 1m 00s changes format. The card
+/// lands, the clock's second turns 0.7 s after the time shows `secs`, and the run ends still.
 pub fn time(r: &mut Run, secs: i64) {
-    r.act("an agent starts", |rt| rt.update(move |s, tx| {
-        crate::agent_stories::spawn(s, tx);
-        let now = s.now_ms;
+    r.act("an agent starts", |rt| rt.update(crate::agent_stories::spawn));
+    while (r.rt.state.now_ms.rem_euclid(1000) - 300).abs() > 5 {
+        r.play(DT);
+    }
+    r.act("it has run a while", |rt| rt.update(move |s, _| {
+        let start = s.run_clock() - secs * 1000;
         if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.as_deref() == Some(SID)) {
-            c.created = now - secs * 1000 - 300;
+            c.created = start;
+            s.agent_rows.started.insert(c.id.clone(), start);
         }
     }));
     r.play(1.6);

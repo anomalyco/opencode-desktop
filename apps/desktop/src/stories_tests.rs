@@ -142,12 +142,12 @@ fn the_odometer_story_ticks_and_switches_session_at_once() {
     let mut rt = story("Components/Odometer", None);
     let label = |rt: &Runtime<App>, key: &str| rt.playground_element(key).and_then(|e| e.label);
     run(&mut rt, 0.1);
-    assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("7s"));
+    assert_eq!(label(&rt, "story-cost-0").as_deref(), Some("$0.92"));
     run(&mut rt, 3.0);
-    assert_eq!(label(&rt, "story-time-7-0").as_deref(), Some("10s"), "9s turned 10s");
+    assert_eq!(label(&rt, "story-cost-0").as_deref(), Some("$1.01"), "it rose past $1.00");
     rt.playground_trigger('s');
     rt.frame(DT);
-    assert!(label(&rt, "story-time-7-0").is_none() && label(&rt, "story-time-7-1").is_some(), "another session's number mounts fresh");
+    assert!(label(&rt, "story-cost-0").is_none() && label(&rt, "story-cost-1").is_some(), "another session's number mounts fresh");
 }
 
 /// → from the list puts the keyboard on the story's knobs: → and ← step the first, ↓ picks the

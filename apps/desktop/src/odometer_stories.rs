@@ -1,8 +1,8 @@
 //! The storybook's Odometer story (Components › Odometer): every live number the app rolls,
 //! each in the font and words it has where it's used, ticking once a second. T ticks once, F
 //! ticks fast, S switches session (the numbers change at once, with no roll), R replays.
-//! Header › Ticking is the same numbers in place: a subagent card's time and the header's context
-//! and cost.
+//! Header › Ticking is the header's context and cost in place, beside a subagent card's time,
+//! which ticks at once (`subagents::run_time`).
 
 use std::cell::Cell;
 
@@ -13,7 +13,6 @@ use crate::{App, Route};
 use crate::odometer::{odometer, odometer_end};
 use crate::palette::Pal;
 use crate::stories::{Trigger, replay};
-use crate::subagents::elapsed;
 use crate::view::{UI, UI_SMALL};
 
 pub const KEYS: &[Trigger] = &[
@@ -31,8 +30,7 @@ thread_local! {
     static SESSION: Cell<i64> = const { Cell::new(0) };
 }
 
-/// The numbers start just short of their turns (9s → 10s, 59s → 1m 00s, $0.99 → $1.00) and tick
-/// once a second.
+/// The numbers start just short of their turns ($0.99 → $1.00) and tick once a second.
 fn open(_: &mut App, tx: &mut Play<App>) {
     TICK.set(0);
     SESSION.set(0);
@@ -61,7 +59,6 @@ fn switch(_: &mut App, _: &mut Play<App>) {
 pub fn view(_: &App, p: &Pal) -> El {
     let n = TICK.get();
     let sid = SESSION.get();
-    let secs = |at: i64| (at + n) * 1000;
     let tokens = (54_400 + n * 1_730) as u64;
     let cents = 92 + n * 3;
     let agents = 1 + n / 3;
@@ -70,10 +67,6 @@ pub fn view(_: &App, p: &Pal) -> El {
     let tools = 3 + n / 2;
     let place = |name: &str, el: El| {
         row().key(format!("place-{name}")).w_full().h(32.0).gap(16.0).center_y().child(text(name.to_owned()).font(UI).color(p.faint).w(180.0)).child(el)
-    };
-    let time = |at: i64| {
-        let ms = secs(at);
-        odometer_end(format!("story-time-{at}-{sid}"), elapsed(ms), (ms / 1000) as f64, UI_SMALL.lh(16.0), p.faint)
     };
     col()
         .key("story-odometer")
@@ -85,8 +78,6 @@ pub fn view(_: &App, p: &Pal) -> El {
         .radius(10.0)
         .fill(p.bg_base)
         .border(0.5, p.ring)
-        .child(place("Subagent card time", time(7)))
-        .child(place("Subagent card time", time(56)))
         .child(place("Header context", odometer_end(format!("story-ctx-{sid}"), model::tokens_short(tokens), tokens as f64, UI_SMALL, p.muted)))
         .child(place("Header cost", odometer_end(format!("story-cost-{sid}"), format!("${}.{:02}", cents / 100, cents % 100), cents as f64, UI_SMALL, p.faint)))
         .child(place("Subagents capsule", odometer(format!("story-chip-{sid}"), format!("{agents} subagent{}", if agents == 1 { "" } else { "s" }), agents as f64, UI, p.text)))

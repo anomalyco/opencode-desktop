@@ -24,7 +24,11 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
-    ("reversal", "time-call_story_agent", "agents", "the card's final time rolls its digit up as the pinned timeline slides down for the closing activity lane; against its row it travels one way (odometer::odometer_end)"),
+    ("text-swap", "time-call_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
+    ("text-swap", "-time-ses_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
+    ("jump", "time-call_", "run-time-", "a run time that gains a digit (9s → 10s, 59s → 1m 00s) widens at once, as Desktop's plain text does (subagents::run_time)"),
+    ("jump", "agent-line/", "run-time-", "what sits beside a run time moves over in the frame it widens, as in Desktop's flex row (agent_rows_view::live_row)"),
+    ("jump", "now/step-", "run-time-", "the step's words give up the width a run time takes in the frame it widens, as in Desktop's flex row (agent_rows_view::live_row)"),
     ("jump", "working/#0/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
@@ -467,9 +471,9 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
-    // Live numbers roll like an odometer (`odometer.rs`).
-    Action { name: "odometer-9s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 9) },
-    Action { name: "odometer-59s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 59) },
+    // Run times tick at once (`subagents::run_time`); counts roll like an odometer (`odometer.rs`).
+    Action { name: "run-time-9s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 9) },
+    Action { name: "run-time-59s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 59) },
     Action { name: "odometer-usage", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: super::odometers::usage },
     Action { name: "odometer-questions", circs: || vec![Circ::default()], run: super::odometers::questions },
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },

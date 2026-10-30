@@ -11,7 +11,7 @@ use rune::{El, Tx, col, el, icon, row, spacer, text};
 use opencode_kit::model::{self, Message, Part};
 use rune_theme_opencode::icons as ic;
 
-use crate::odometer::{odometer, odometer_end};
+use crate::odometer::odometer;
 use crate::palette::Pal;
 use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_sized};
 use crate::{App, Route};
@@ -110,6 +110,12 @@ pub fn elapsed(ms: i64) -> String {
     }
 }
 
+/// A run time, "12s", in tabular digits. It changes at once, as Desktop's run times do: a digit
+/// that rolls each second smears the number while it's read.
+pub fn run_time(key: String, ms: i64, font: rune::TextStyle, color: rune::Color) -> El {
+    text(elapsed(ms)).key(key).font(font.features("\"tnum\"")).color(color)
+}
+
 /// The child session a call runs in: the one it names, or before it says, the parent's newest
 /// child whose title starts with the call's description (`taskSession`).
 pub fn child_of<'a>(s: &'a App, parent: &str, named: Option<&'a str>, description: &str) -> Option<&'a str> {
@@ -138,11 +144,11 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
             _ => (None, None),
         }
     };
-    // "Running · 12s · General · Claude Opus": the status and its run time (an odometer), then
+    // "Running · 12s · General · Claude Opus": the status and its run time, then
     // the rest, which truncates.
     let mut head: Option<(&str, Option<i64>)> = None;
     if let (Some(st), Some(i)) = (status, info) {
-        let end = if running { s.now_ms } else { i.idle.unwrap_or(i.updated) };
+        let end = if running { s.run_clock() } else { i.idle.unwrap_or(i.updated) };
         head = Some((st, (i.created > 0).then(|| end - i.created)));
     }
     let mut parts: Vec<String> = Vec::new();
@@ -169,7 +175,7 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
         if let Some(ms) = ms {
             summary = summary
                 .child(text(" · ").key("dot").font(UI_SMALL).color(p.faint))
-                .child(odometer(format!("bar-time-{id}"), elapsed(ms), (ms / 1000) as f64, UI_SMALL, p.faint));
+                .child(run_time(format!("bar-time-{id}"), ms, UI_SMALL, p.faint));
         }
     }
     if !parts.is_empty() {
@@ -253,7 +259,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         return None;
     }
     let name_of = |it: &Running| if it.agent.is_empty() { "Agent".to_owned() } else { model::capitalize(&it.agent) };
-    let ms_of = |it: &Running| (it.started > 0).then(|| s.now_ms - it.started);
+    let ms_of = |it: &Running| (it.started > 0).then(|| s.run_clock() - it.started);
     let time_of = |it: &Running| ms_of(it).map(elapsed).unwrap_or_default();
     let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
     let agent_w = items.iter().map(|it| width(&name_of(it), UI_MED)).fold(0.0, f32::max);
@@ -286,7 +292,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .child(activity_ring_sized(p, 16.0))
                 .child(text(name).font(UI_MED).color(p.text).w(agent_w))
                 .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
-                .child(row().key("time").w(time_w).ml(8.0).justify_end().children(ms_of(it).map(|ms| odometer_end(format!("sub-time-{}", it.session), elapsed(ms), (ms / 1000) as f64, ELAPSED, p.muted)))),
+                .child(row().key("time").w(time_w).ml(8.0).justify_end().children(ms_of(it).map(|ms| run_time(format!("sub-time-{}", it.session), ms, ELAPSED, p.muted)))),
         );
     }
     let h = (items.len() as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);

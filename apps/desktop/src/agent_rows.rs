@@ -129,7 +129,7 @@ impl App {
         };
         let ms = info.filter(|i| i.created > 0).map(|i| {
             if running {
-                return self.now_ms - self.run_started(&i.id, None);
+                return self.run_clock() - self.run_started(&i.id, None);
             }
             let end = match ended {
                 Some(e) => e.1,
@@ -176,23 +176,35 @@ impl App {
     }
 }
 
-/// Wakes the app on each whole second of a running agent's time, counted from when it started
-/// (not the wall clock's second), while a row shows it; true when one just passed.
+impl App {
+    /// The clock running times count to: the app clock's last whole second. Every row, the
+    /// subagent bar and the capsule's list tick together, exactly a second apart, whenever
+    /// each run started.
+    pub fn run_clock(&self) -> i64 {
+        self.now_ms.div_euclid(1000) * 1000
+    }
+
+    /// Whether the open page shows a running time: a subagent at or below it runs.
+    fn run_times_shown(&self) -> bool {
+        let Route::Session(id) = &self.route else { return false };
+        self.running.iter().any(|r| self.descends(r, id) && self.session(r).is_some_and(|i| i.parent.is_some()))
+    }
+}
+
+/// Wakes the app once on each whole second of [`App::run_clock`] while the page shows a running
+/// time; true when one just passed.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let (now, last) = (s.now_ms, s.agent_rows.polled);
     s.agent_rows.polled = now;
     if !s.agent_rows.ended.is_empty() {
         s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
     }
-    if s.running.is_empty() {
+    if s.running.is_empty() || !s.run_times_shown() {
         return false;
     }
-    let Route::Session(id) = &s.route else { return false };
-    let starts = || s.running.iter().filter(|r| *r != id && s.descends(r, id)).filter_map(|r| s.session(r)).map(|i| i.created);
-    let second = |t: i64, start: i64| (t - start).div_euclid(1000);
-    let Some(next) = starts().map(|c| c + (second(now, c) + 1) * 1000).min() else { return false };
-    tx.wake_after(std::time::Duration::from_millis((next - now).max(1) as u64));
-    starts().any(|c| second(now, c) != second(last, c))
+    let second = now.div_euclid(1000);
+    tx.wake_after(std::time::Duration::from_millis(((second + 1) * 1000 - now) as u64));
+    second != last.div_euclid(1000)
 }
 
 #[cfg(test)]
