@@ -13,9 +13,12 @@
 //! or keys, is `p.row_active` ([`lit`]); a group's title is [`group_header`]; a shortcut at a
 //! row's end is [`hint`]. App-wide rows, fields and keycaps should take them from here.
 
+pub mod motion;
 pub mod nav;
+mod story;
 
 use rune::{Align, Color, El, Icon, ScrollSpec, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -88,27 +91,29 @@ pub fn surface(p: &Pal, look: Look, key: impl Into<String>, label: impl Into<Str
         .border(0.5, p.ring)
         .shadow(4.0, 12.0, p.shadow)
         .transition(Transition::none())
-        // Its height and rows follow a filter in the keystroke.
+        // Its height and rows follow a filter in the keystroke, and what it holds comes and goes
+        // with it, in commits that play its entrance or exit.
         .motion(rune::Spring::NONE)
+        .instant_changes()
         .on_press(|_: &mut App| {})
 }
 
 /// Puts `surface` on `side` of the element keyed `anchor`, `gap` away. It flips when it doesn't
 /// fit, stays 8 pt inside the window, and is at most as tall as the room it has (its scroll
-/// shrinks to fit).
-pub fn place(surface: El, anchor: &str, side: Side, align: Align, gap: f32) -> El {
-    surface.anchored_fit(anchor.to_owned(), side, align, gap)
+/// shrinks to fit). It opens and closes as the Popover knobs say ([`motion`]).
+pub fn place(k: &Knobs, surface: El, anchor: &str, side: Side, align: Align, gap: f32) -> El {
+    surface.transition(motion::transition(k, side, align)).anchored_fit(anchor.to_owned(), side, align, gap)
 }
 
 /// A window-sized layer under the popover (mount it just before): a press outside closes it
-/// (`close`), in the same frame.
+/// (`close`), in the same frame unless the popover has an exit to play.
 pub fn scrim(key: impl Into<String>, close: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     el().key(key)
         .absolute(0.0, 0.0)
         .w_full()
         .h_full()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
+            motion::closing(&s.knobs, tx);
             close(s, tx);
         })
 }

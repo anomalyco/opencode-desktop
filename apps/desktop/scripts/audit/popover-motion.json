@@ -1,0 +1,8 @@
+{
+  "playground": "Popover/Open and close", "variant": "Grow preset", "secs": 2.6,
+  "events": [
+    {"t": 1.0, "type": "key", "name": "c", "expect": "smooth", "element": "picker-model"},
+    {"t": 1.6, "type": "key", "name": "o", "expect": "smooth", "element": "picker-model"},
+    {"t": 2.1, "type": "key", "name": "t"}
+  ]
+}

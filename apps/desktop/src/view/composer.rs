@@ -158,7 +158,7 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }
-    button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } })
+    button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { crate::popover::motion::opening(&s.knobs, tx); } })
 }
 
 pub(super) fn picker(s: &App, p: &Pal) -> El {
@@ -230,7 +230,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         }
         menu = menu.child(col().key("picker-footer").w_full().padding(look.inset).child(add_row));
     }
-    pop::place(menu, kind.key(), Side::Top, Align::Start, 6.0)
+    pop::place(&s.knobs, menu, kind.key(), Side::Top, Align::Start, 6.0)
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

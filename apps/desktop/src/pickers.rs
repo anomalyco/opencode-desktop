@@ -414,11 +414,15 @@ impl App {
         self.close_picker(true);
     }
 
-    /// A picker's keys. Opening it and moving in it land in the keystroke. (Not closing: an
-    /// instant unmount of the focused search field drops the focus handed back to the composer.)
+    /// A picker's keys. Opening it (unless it has an entrance to play) and moving in it land in
+    /// the keystroke. (Not closing: an instant unmount of the focused search field drops the focus
+    /// handed back to the composer.)
     pub fn picker_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        let was = self.pickers.open;
         let used = self.picker_keys(ev, tx);
-        if used && self.pickers.open.is_some() { tx.instant(); }
+        if used && self.pickers.open.is_some() {
+            if self.pickers.open == was { tx.instant(); } else { crate::popover::motion::opening(&self.knobs, tx); }
+        }
         used
     }
 

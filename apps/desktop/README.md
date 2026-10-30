@@ -12,6 +12,7 @@ Use these; don't draw your own. When one lacks what you need, extend it in its m
 | Need | Use (`src/`) |
 |---|---|
 | A menu, picker or popover | `popover/`: `surface`, `place`, `scrim`, `search_row`, `List` (group headers), `option` (`Opt`), `nav` for the keys. Looks: `MENU` (actions, short choices) and `LIST` (long lists with search). |
+| A popover opening and closing | `popover::place` gives it the ⌘⇧K Popover knobs' entrance and exit; commits that open or close one call `popover::motion::opening` / `closing`. Story: Popover › Open and close. |
 | A lit row (pointer or keys) | `popover::lit` (`p.row_active`) |
 | A group's title | `popover::group_header` |
 | A shortcut at a row's end | `popover::hint` (11 pt at 530, faint) |

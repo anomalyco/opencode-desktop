@@ -67,7 +67,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
         .fill(if open { p.hover } else { Color::TRANSPARENT })
         .hover(p.hover)
         .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { tx.instant(); } })
+        .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { crate::popover::motion::opening(&s.knobs, tx); } })
         .child(crate::icons::badge(s, p, project, &name))
         .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate_fade());
     row()
