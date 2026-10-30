@@ -17,6 +17,17 @@ use crate::model::{self, Delivery, Message, Pending, SessionInfo};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
+/// The server to use when no `--server` was passed: `OPENCODE_SERVER_URL` when set (a Mac that
+/// reaches another Mac's server through a tunnel sets it with `launchctl setenv`, so opening the
+/// app from Spotlight or a launcher still finds it), else [`DEFAULT_SERVER`].
+pub fn default_server() -> String {
+    server_or_default(std::env::var("OPENCODE_SERVER_URL").ok())
+}
+
+fn server_or_default(env: Option<String>) -> String {
+    env.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_SERVER.to_owned())
+}
+
 /// Sent as `X-OpenCode-Capabilities` on message and inbox reads by a [`Server`] built with
 /// [`Server::with_media_refs`]: the server may answer with `media:<hash>` refs (see
 /// [`model::Attachment`]) instead of inline bytes. Servers without it ignore the header.
@@ -777,6 +788,13 @@ mod tests {
         assert_eq!(base64(b"opencode:pw"), "b3BlbmNvZGU6cHc=");
         assert_eq!(base64(b"ab"), "YWI=");
         assert_eq!(base64(b"abc"), "YWJj");
+    }
+
+    #[test]
+    fn opencode_server_url_overrides_the_default() {
+        assert_eq!(server_or_default(None), DEFAULT_SERVER);
+        assert_eq!(server_or_default(Some("  ".into())), DEFAULT_SERVER);
+        assert_eq!(server_or_default(Some("http://127.0.0.1:14096\n".into())), "http://127.0.0.1:14096");
     }
 
     #[test]

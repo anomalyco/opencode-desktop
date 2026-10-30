@@ -118,7 +118,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
 use serde_json::Value;
 
-use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
+use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write, default_server};
 use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInfo, Transcript};
 use keys::on_key;
 pub(crate) use scenes::open_scene;
@@ -305,7 +305,7 @@ impl App {
     fn load() -> App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
-        let server = Server::new(&arg("--server").unwrap_or_else(|| DEFAULT_SERVER.into())).with_media_refs();
+        let server = Server::new(&arg("--server").unwrap_or_else(default_server)).with_media_refs();
         let deferred = fixture_path.is_none() && launch::deferred();
         let want_live = fixture_path.is_none() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
         if want_live && app.load_live(server, deferred && !flag("--live")) { return app; }
