@@ -35,7 +35,7 @@ pub fn setup(s: &mut App, at: usize) {
     ]})));
     let page = Arc::new(Page { key:Key { id:TARGET.into(), updated:0 }, messages, cursor:None, cached:false, history:false, images:vec![], bytes:0 });
     let (pages, send) = Pages::fixture((at == 1).then(|| page.clone()));
-    s.pages = Some(pages);
+    s.pages.set(pages);
     s.transcripts.remove(TARGET);
     s.opening = None;
     s.attach = Default::default();

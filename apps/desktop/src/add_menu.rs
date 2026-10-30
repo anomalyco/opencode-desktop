@@ -355,10 +355,6 @@ mod tests {
         path
     }
 
-    fn live(app: &mut App) -> std::sync::mpsc::Receiver<Write> {
-        app.fake_writes()
-    }
-
     #[test]
     fn the_menu_opens_over_plus_and_context_types_an_at() {
         let mut rt = runtime();
@@ -404,7 +400,7 @@ mod tests {
     #[test]
     fn path_attachments_go_out_as_lines_and_metadata() {
         let mut app = App::empty();
-        let writes = live(&mut app);
+        let writes = app.fake_writes();
         app.route = Route::Session("ses_a".into());
         app.composer = rune::TextEdit::new("what failed?");
         app.attach.add_path(opencode_kit::client::PathAttachment { name: "b.log".into(), mime: "text/plain".into(), path: "/w/b.log".into() });
@@ -455,7 +451,7 @@ mod tests {
     #[test]
     fn a_known_command_runs_as_a_command() {
         let mut app = App::empty();
-        let writes = live(&mut app);
+        let writes = app.fake_writes();
         app.add.slash.commands = commands(&serde_json::json!({"data": [{"name": "review", "description": ""}]}));
         app.route = Route::Session("ses_a".into());
         app.composer = rune::TextEdit::new("/review HEAD~1");
@@ -495,7 +491,7 @@ mod tests {
     #[test]
     fn shell_commands_post_now_and_never_queue() {
         let mut app = App::empty();
-        let writes = live(&mut app);
+        let writes = app.fake_writes();
         app.route = Route::Session("ses_a".into());
         app.add.shell = true;
         app.composer = rune::TextEdit::new("ls -la ");

@@ -468,7 +468,7 @@ fn latest_page_benchmark() {
             if n > 0 { cold.push(elapsed); }
             let mut app = App::empty();
             app.zoom = 1.3;
-            app.pages = Some(pages);
+            app.pages.set(pages);
             let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
             rt.frame(0.0);
             let click = Instant::now();

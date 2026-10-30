@@ -4,7 +4,7 @@ impl App {
     /// Opens a session: lands at the bottom on the first frame with nothing animating in.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.cancel_open(tx);
-        if self.pages.is_some() && self.route != Route::Session(id.to_owned()) {
+        if self.pages.has_pool() && self.route != Route::Session(id.to_owned()) {
             self.begin_open(id, tx);
         } else {
             self.open_now(id, tx);
@@ -39,7 +39,7 @@ impl App {
         tx.settle();
         match &self.source {
             Source::Live { requests: Some(r), .. } => {
-                if self.pages.is_none() { let _ = r.send(Request::Session(id.to_owned())); }
+                if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Pending(id.to_owned()));
                 let _ = r.send(Request::Inbox(id.to_owned()));
                 crate::compaction::ask(self, id);

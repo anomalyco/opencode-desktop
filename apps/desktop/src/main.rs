@@ -99,7 +99,7 @@ mod working;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};
 
-use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker, edge};
+use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
 use serde_json::Value;
 
 use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
@@ -139,11 +139,9 @@ pub struct App {
     inbox: Option<Receiver<Incoming>>,
     /// The live server events taken, for the motion log (`motion_log.rs`).
     motion_events: motion_log::Events,
-    pages: Option<session_pages::Pages>,
+    pages: session_pages::State,
     opening: Option<session_pages::Opening>,
     open_demo: Option<open_story::Demo>,
-    page_history: Option<(std::time::Instant, session_pages::Key, String)>,
-    page_history_loaded: HashSet<String>,
     pub projects: Vec<Project>,
     pub sessions: Vec<SessionInfo>,
     pub route: Route,
@@ -206,7 +204,6 @@ pub struct App {
     pub agent_rows: agent_rows::Live,
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
     framed: bool,
-    pub edge: usize,
     pub reduced_motion: bool,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
@@ -259,8 +256,6 @@ fn wall_ms() -> i64 {
 
 impl App {
     fn empty() -> App {
-        let edge_name = arg("--edge").unwrap_or_else(|| "feather".into());
-        let edge = edge::ALL.iter().position(|e| e.name == edge_name).unwrap_or(0);
         App {
             draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
             sidebar_open: !flag("--sidebar-closed"),
@@ -268,7 +263,6 @@ impl App {
             zoom: 1.0,
             composer: TextEdit::new(""),
             search: TextEdit::new(""),
-            edge,
             reduced_motion: flag("--reduced-motion"),
             debug: flag("--debug"),
             ..Default::default()
@@ -364,9 +358,9 @@ impl App {
         self.restore_ui(&server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
-        self.status = format!("Live · {}", server.base.trim_start_matches("http://"));
         let allow_send = !flag("--read-only") && !headless();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
+        self.status = self.live_status();
         true
     }
 
@@ -582,7 +576,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         if s.session(&id).is_none() {
                             s.sessions.insert(0, info);
                         }
-                        s.status = format!("Live · {}", DEFAULT_SERVER.trim_start_matches("http://"));
+                        s.status = s.live_status();
                         s.open(&id, tx);
                     }
                 }

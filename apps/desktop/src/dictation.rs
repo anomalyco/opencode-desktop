@@ -86,8 +86,8 @@ pub struct Dictation {
     /// What Hex's threads heard, tagged with their recording.
     shared: Arc<Mutex<Shared>>,
     round: u64,
-    /// Seconds since launch, from the last frame.
-    now: f64,
+    /// Hex is slow to start, so "Preparing dictation…" shows.
+    preparing: bool,
     /// What Hex refused with, until the next press or send (as iOS keeps it).
     error: Option<String>,
     hold: Hold,
@@ -138,7 +138,7 @@ impl Default for Dictation {
 impl Dictation {
     fn with(backend: Backend) -> Dictation {
         let installed = backend.installed();
-        Dictation { backend, installed, looked: None, rec: None, shared: Arc::default(), round: 0, now: 0.0, error: None, hold: Hold::None, prepare: 0.0 }
+        Dictation { backend, installed, looked: None, rec: None, shared: Arc::default(), round: 0, preparing: false, error: None, hold: Hold::None, prepare: 0.0 }
     }
 
     /// The storybook's Hex, whatever the app runs on.
@@ -172,16 +172,12 @@ impl Dictation {
 
     #[cfg(test)]
     pub fn preparing_shown(&self) -> bool {
-        self.preparing()
-    }
-
-    /// Hex is slow to start, so "Preparing dictation…" shows.
-    fn preparing(&self) -> bool {
-        self.rec.as_ref().is_some_and(|r| !r.ready && !r.stopping && self.now - r.since >= PREPARING_AFTER)
+        self.preparing
     }
 
     fn fail(&mut self, why: impl Into<String>) {
         self.rec = None;
+        self.preparing = false;
         self.hold = Hold::None;
         self.error = Some(why.into());
     }
@@ -198,6 +194,7 @@ pub fn start(s: &mut App) {
         return;
     }
     d.error = None;
+    d.preparing = false;
     d.round += 1;
     let round = d.round;
     let cmd = match &d.backend {
@@ -215,14 +212,15 @@ pub fn start(s: &mut App) {
         }
     };
     let fake = cmd.is_none();
-    d.rec = Some(Rec { round, since: d.now, ready: fake && d.prepare <= 0.0, stopping: false, send_after: None, cmd, due: None });
+    d.rec = Some(Rec { round, since: s.clock, ready: fake && d.prepare <= 0.0, stopping: false, send_after: None, cmd, due: None });
 }
 
 /// Stops the microphone; the words land at the caret when Hex has them.
 pub fn stop(s: &mut App) {
+    let now = s.clock;
     let d = &mut s.dictation;
     d.hold = Hold::None;
-    let now = d.now;
+    d.preparing = false;
     let Some(rec) = d.rec.as_mut().filter(|r| !r.stopping) else { return };
     rec.stopping = true;
     match &rec.cmd {
@@ -236,6 +234,7 @@ pub fn stop(s: &mut App) {
 pub fn cancel(s: &mut App) {
     let d = &mut s.dictation;
     d.hold = Hold::None;
+    d.preparing = false;
     if let Some(Rec { cmd: Some(cmd), .. }) = d.rec.take() {
         let _ = cmd.send(Cmd::Cancel);
     }
@@ -299,7 +298,7 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if let Hold::Since(at) = s.dictation.hold
-        && s.dictation.now - at >= HOLD
+        && s.clock - at >= HOLD
     {
         tx.instant();
         stop(s);
@@ -311,8 +310,6 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// Each frame: looks for Hex, follows Hex's thread, and puts Hex's words at the caret.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let d = &mut s.dictation;
-    let was_preparing = d.preparing();
-    d.now = now;
     let mut changed = false;
     if d.rec.is_none() && d.looked.is_none_or(|t| now - t >= LOOK_SECS) {
         d.looked = Some(now);
@@ -320,7 +317,10 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= installed != d.installed;
         d.installed = installed;
     }
-    let Some(rec) = &mut d.rec else { return changed };
+    let Some(rec) = &mut d.rec else {
+        changed |= std::mem::replace(&mut d.preparing, false);
+        return changed;
+    };
     let round = rec.round;
     if d.hold == Hold::Pressed {
         d.hold = Hold::Since(now);
@@ -342,16 +342,19 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         next = next.min(t - now);
     }
     tx.wake_after(Duration::from_secs_f64(next.max(0.001)));
-    changed |= was_preparing != d.preparing();
+    let preparing = !rec.ready && !rec.stopping && now - rec.since >= PREPARING_AFTER;
+    changed |= std::mem::replace(&mut d.preparing, preparing) != preparing;
     for h in heard {
         changed = true;
         match h {
             Heard::Ready => {
+                s.dictation.preparing = false;
                 if let Some(r) = s.dictation.rec.as_mut() {
                     r.ready = true;
                 }
             }
             Heard::Words(words) => {
+                s.dictation.preparing = false;
                 let send = s.dictation.rec.take().and_then(|r| r.send_after);
                 insert(s, &words);
                 if let Some(alternate) = send {
@@ -424,7 +427,7 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
 pub fn status(s: &App, p: &Pal) -> Option<El> {
     let d = &s.dictation;
     let line = row().key("dictation-status").px(16.0).pb(12.0).gap(8.0).center_y();
-    if d.preparing() {
+    if d.preparing {
         return Some(line.child(activity_ring_sized(p, 12.0)).child(text("Preparing dictation…").font(UI_SMALL).color(p.muted)));
     }
     d.error().map(|why| line.child(text(why.to_owned()).font(UI_SMALL).color(p.danger)))
@@ -510,7 +513,6 @@ pub const STORY_KEYS: &[crate::stories::Trigger] = &[
 /// spinner while the words come, the words at the caret.
 fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
     s.dictation = Dictation::fake();
-    s.dictation.now = s.clock;
     s.composer = rune::TextEdit::new("Looks right. Before you merge,");
     start(s);
     tx.after(1.6, |s, tx| {

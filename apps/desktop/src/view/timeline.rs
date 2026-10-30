@@ -356,7 +356,7 @@ const END: f32 = 24.0;
 /// `lane` is the room under the last row, beyond `END`, for what floats over the timeline's
 /// bottom edge.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
-    let e = edge::ALL[s.edge];
+    let e = edge::FEATHER;
     let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
     let mut stack = col()
         .key("timeline")

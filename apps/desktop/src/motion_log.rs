@@ -353,18 +353,25 @@ impl Worker {
             let Some((path, key)) = self.paths.get(&m.id) else { kept[i] = parent; continue };
             kept[i] = out.len();
             out.push(ElementInfo {
-                trace_name: None, trace_namespace: None, focusable: false, focused: false, focus_visible: false,
-                inert: m.is(MotionElement::EXITING), exiting: m.is(MotionElement::EXITING), path: path.clone(), key: key.clone(),
-                role: if m.is(MotionElement::TEXT) { "text" } else { "box" }, label: None,
+                inert: m.is(MotionElement::EXITING),
+                exiting: m.is(MotionElement::EXITING),
+                path: path.clone(),
+                key: key.clone(),
+                role: if m.is(MotionElement::TEXT) { "text" } else { "box" },
                 text: (m.text_hash != 0).then(|| format!("{:016x}", m.text_hash)),
-                rect: m.rect, target: m.rect, opacity: m.opacity, scale: m.scale, blur: 0.0, radius: 0.0,
+                rect: m.rect,
+                target: m.rect,
+                opacity: m.opacity,
+                scale: m.scale,
                 fill: if m.is(MotionElement::PAINTS) { rune::Color::WHITE } else { rune::Color::TRANSPARENT },
-                text_color: None, hover: 0.0, press: 0.0, moving: false, parent: (parent != usize::MAX).then_some(parent),
-                visible: m.visible, revealing: false, in_growing_row: m.is(MotionElement::GROWING),
-                scrolling: m.is(MotionElement::SCROLLING), virtual_extent: m.is(MotionElement::VIRTUAL),
-                live_intent: u32::from(m.is(MotionElement::LIVE)), caret: None, drag_out: false, help: None, selected: None,
-                level: None, expanded: None, item_selected: false, stuck: 0.0,
+                parent: (parent != usize::MAX).then_some(parent),
+                visible: m.visible,
+                in_growing_row: m.is(MotionElement::GROWING),
+                scrolling: m.is(MotionElement::SCROLLING),
+                virtual_extent: m.is(MotionElement::VIRTUAL),
+                live_intent: u32::from(m.is(MotionElement::LIVE)),
                 loop_phase: (!m.loop_phase.is_nan()).then_some(f64::from(m.loop_phase)),
+                ..ElementInfo::default()
             });
         }
         out

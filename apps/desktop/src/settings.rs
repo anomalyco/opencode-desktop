@@ -309,13 +309,8 @@ fn zoom_control(s: &App, p: &Pal) -> El {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixture_runtime as runtime;
     use rune::{Mods, Runtime};
-
-    fn runtime() -> Runtime<App> {
-        let mut rt = App::fixture_session().into_runtime();
-        rt.frame(1.0 / 60.0);
-        rt
-    }
 
     fn has_agent(rt: &Runtime<App>) -> bool {
         rt.elements().iter().any(|e| e.label.as_deref() == Some("Choose agent"))

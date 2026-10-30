@@ -80,13 +80,8 @@ impl Story {
 
 /// What the Composer story shows.
 const COMPOSER_VARIANTS: &[(&str, usize)] = &[("Empty", 0), ("Draft", 1), ("Queued", 2), ("Subagent running", 3), ("Long paste", 4)];
-/// The Question story's form.
-const QUESTION_VARIANTS: &[(&str, usize)] = &[("One", 0), ("Two", 1), ("Multi-select", 2), ("Long", 3), ("Typing", 4)];
-/// What the Custom answer story's typed answer holds.
-const CUSTOM_VARIANTS: &[(&str, usize)] = &[("Typing", 0), ("Long, wrapped", 1), ("Left the field", 2), ("Empty", 3)];
 
 const COMPOSER_KNOBS: &[Group] = &[Group::new("Composer", "stage", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
-const MORPH_KNOBS: &[Group] = &[QUESTION_DOCK];
 const GLOW_KNOBS: &[Group] = &[Group::new("Arrival glow", "stage", &[GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH])];
 pub(crate) const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
 const WORKING_KNOBS: &[Group] = &[WORKING];
@@ -95,31 +90,7 @@ const SUBAGENT_KNOBS: &[Group] = &[Group::new("Subagent", "stage", &[CAPSULE_FIL
 const IMAGE_KNOBS: &[Group] = &[Group::new("Images", "stage", &[IMAGE_FLIGHT, ROW_GROWTH])];
 const JUMP_KNOBS: &[Group] = &[Group::new("Jump to latest", "stage", &[JUMP_PLACE, JUMP_IN, JUMP_OUT, JUMP_RISE])];
 
-const MORPH_KEYS: &[Trigger] = &[
-    Trigger { key: 'r', label: "Replay the loop", run: morph_open },
-    Trigger { key: 'o', label: "Open the dock", run: |s, tx| {
-        tx.clear();
-        if !s.question_shown() {
-            emit(s, "form.created", form(s, &[0]), tx);
-        }
-    } },
-    Trigger { key: 'c', label: "Close it", run: |s, tx| {
-        tx.clear();
-        if s.question_shown() {
-            emit(s, "form.replied", replied(s), tx);
-        }
-    } },
-];
-const UNDER_QUEUE_KEYS: &[Trigger] = &[
-    replay(under_queue_open),
-    Trigger { key: 'q', label: "Queue one", run: queue },
-    Trigger { key: 'o', label: "Open the dock", run: |s, tx| if !s.question_shown() { emit(s, "form.created", form(s, &[0]), tx) } },
-    Trigger { key: 'c', label: "Close it", run: |s, tx| if s.question_shown() { emit(s, "form.replied", replied(s), tx) } },
-    Trigger { key: 'd', label: "Deliver the oldest", run: deliver_queued },
-];
 const COMPOSER_KEYS: &[Trigger] = &[replay(composer_open)];
-const QUESTION_KEYS: &[Trigger] = &[replay(question_open)];
-const CUSTOM_KEYS: &[Trigger] = &[replay(custom_open)];
 const HEADER_KEYS: &[Trigger] = &[replay(|s, _| s.finish_stream())];
 const GLOW_KEYS: &[Trigger] = &[replay(glow_open), Trigger { key: 'a', label: "Another arrives", run: arrive }];
 const SEND_KEYS: &[Trigger] = &[replay(send_open), Trigger { key: 's', label: "Send", run: send }];
@@ -160,10 +131,6 @@ slice!(pub STORY_LIST: Story);
 register!(STORY_LIST: Story = [
     Story::composer("Composer/Composer", COMPOSER_KEYS).knobs(COMPOSER_KNOBS).variants(COMPOSER_VARIANTS),
     Story::session("Composer/Queue dock", QUEUE_KEYS).knobs(ROW_KNOBS),
-    Story::composer("Question dock/Question", QUESTION_KEYS).variants(QUESTION_VARIANTS),
-    Story::composer("Question dock/Custom answer", CUSTOM_KEYS).variants(CUSTOM_VARIANTS),
-    Story { path: "Question dock/Morph", scene: |s| watch(s, session_view), knobs: MORPH_KNOBS, keys: MORPH_KEYS, variants: &[] },
-    Story::session("Question dock/Under a queue", UNDER_QUEUE_KEYS).knobs(MORPH_KNOBS),
     Story { path: "Header/Session header", scene: |s| stage(s, header_view), knobs: &[], keys: HEADER_KEYS, variants: &[] },
     Story::session("Timeline/Arrival glow", GLOW_KEYS).knobs(GLOW_KNOBS),
     Story::session("Timeline/Send", SEND_KEYS).knobs(ROW_KNOBS),
@@ -230,8 +197,6 @@ pub(crate) fn ordered<T>(mut items: Vec<T>, order: &[&str], name: impl Fn(&T) ->
     items
 }
 
-/// Seconds the dock and the composer each stay in the morph loop.
-const BEAT: f64 = 1.6;
 const DRAFT: &str = "Also check that the sidebar recovers after the stream reconnects, and add a test for it";
 const SEND_TEXT: &str = "Can you also check the reconnect jitter?";
 const STEER_TEXT: &str = "Use the fake clock from the test utils, not a new one";
@@ -303,7 +268,6 @@ fn fresh(real: &App) -> App {
     w.zoom = real.zoom;
     w.sidebar_w = real.sidebar_w;
     w.sidebar_open = real.sidebar_open;
-    w.edge = real.edge;
     w.reduced_motion = real.reduced_motion;
     w.debug = real.debug;
     w.settings.scheme = real.settings.scheme;
@@ -465,85 +429,6 @@ fn pending(s: &mut App) {
     inbox.upsert(item("msg_story_queue", QUEUED_TEXT, Delivery::Queue));
 }
 
-/// The fixture's question form with only the questions in `keep`.
-fn form(s: &App, keep: &[usize]) -> Value {
-    let mut q = s.fixture["question"].clone();
-    let fields = q["fields"].as_array().cloned().unwrap_or_default();
-    q["fields"] = keep.iter().filter_map(|i| fields.get(*i).cloned()).collect();
-    q
-}
-
-fn replied(s: &App) -> Value {
-    let q = &s.fixture["question"];
-    json!({ "id": q["id"], "sessionID": q["sessionID"] })
-}
-
-fn question_open(s: &mut App, _: &mut Play<App>) {
-    s.finish_stream();
-    let q = match s.variant {
-        1 => form(s, &[0, 1]),
-        2 => form(s, &[1]),
-        3 => long(s),
-        _ => form(s, &[0]),
-    };
-    s.apply_event("form.created", &q);
-    if s.variant == 4 {
-        s.question_type("Fake clock, but keep one slow test on real timers");
-    }
-}
-
-/// The two-question form on its last question, with its typed answer as its variant says.
-fn custom_open(s: &mut App, _: &mut Play<App>) {
-    s.finish_stream();
-    let q = form(s, &[0, 1]);
-    s.apply_event("form.created", &q);
-    s.question_last();
-    let text = match s.variant {
-        1 | 2 => "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere",
-        3 => "",
-        _ => "All of them",
-    };
-    s.question_type(text);
-    if matches!(s.variant, 2 | 3) {
-        s.question_leave_field();
-    }
-}
-
-fn long(s: &App) -> Value {
-    let mut q = form(s, &[0]);
-    q["fields"][0]["title"] = "Backoff test and where its clock comes from".into();
-    q["fields"][0]["description"] = "The reconnect loop sleeps between attempts, doubling each time up to 30 seconds with some jitter. A test that waits on real timers would take minutes and flake on a busy machine, so how should the backoff test control time, and should it also cover the jitter staying in range?".into();
-    q["fields"][0]["options"][0]["description"] = "Inject a clock into the reconnect loop and step it by hand, so each attempt's delay is checked exactly and the test runs in milliseconds whatever the machine is doing.".into();
-    q["fields"][0]["options"][2]["description"] = "Pull the delay sequence out as a pure function of the attempt number and a seeded random source, and test only that, leaving the loop itself untested.".into();
-    q
-}
-
-/// The dock opens half a second in, then closes and opens every beat.
-fn morph_open(s: &mut App, tx: &mut Play<App>) {
-    s.finish_stream();
-    tx.after(0.5, ask);
-}
-
-fn ask(s: &mut App, tx: &mut Play<App>) {
-    emit(s, "form.created", form(s, &[0]), tx);
-    tx.after(BEAT, answer);
-}
-
-fn answer(s: &mut App, tx: &mut Play<App>) {
-    emit(s, "form.replied", replied(s), tx);
-    tx.after(BEAT, ask);
-}
-
-/// A prompt waits in the queue while the session works, then the question opens under it:
-/// the queue and the dock share one outline.
-fn under_queue_open(s: &mut App, tx: &mut Play<App>) {
-    s.finish_stream();
-    let id = sid(s);
-    s.running.insert(id);
-    tx.after(0.2, queue);
-    tx.after(1.0, |s, tx| emit(s, "form.created", form(s, &[0]), tx));
-}
-
 /// A prompt from another client lands and glows.
 fn glow_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
@@ -678,13 +563,13 @@ fn queue_open(s: &mut App, tx: &mut Play<App>) {
     tx.after(3.2, deliver_queued);
 }
 
-fn queue(s: &mut App, tx: &mut Play<App>) {
+pub(crate) fn queue(s: &mut App, tx: &mut Play<App>) {
     let queued = s.inbox_for(&sid(s)).map_or(0, |i| i.queued().count());
     prompt(s, [QUEUED_TEXT, STEER_AGAIN][queued % 2], true, tx);
 }
 
 /// The server delivers the oldest queued prompt.
-fn deliver_queued(s: &mut App, tx: &mut Play<App>) {
+pub(crate) fn deliver_queued(s: &mut App, tx: &mut Play<App>) {
     let Some(id) = s.inbox_for(&sid(s)).and_then(|i| i.queued().next()).map(|i| i.id.clone()) else { return };
     emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
 }

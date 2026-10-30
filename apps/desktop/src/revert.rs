@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use rune::{Env, Runtime};
+    use rune::Runtime;
     use serde_json::json;
 
     use crate::App;
@@ -34,8 +34,7 @@ mod tests {
         app.load_fixture(&fixture(revert));
         crate::open_scene(&mut app);
         app.finish_stream();
-        let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
-        rt.poll = Some(crate::poll);
+        let mut rt = app.into_runtime();
         rt.frame(0.0);
         rt
     }

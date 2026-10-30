@@ -3,10 +3,6 @@ use super::*;
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.settings_key(ev, tx) || s.browser_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
-        Key::Command('e') => {
-            s.edge = (s.edge + 1) % edge::ALL.len();
-            true
-        }
         Key::Command(c) if c.eq_ignore_ascii_case(&'b') && ev.mods.shift => {
             s.sidebar_open = !s.sidebar_open;
             true

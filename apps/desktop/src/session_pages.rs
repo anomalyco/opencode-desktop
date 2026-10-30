@@ -17,6 +17,24 @@ const PAGE_BYTES: usize = 4 << 20;
 pub const WARM: usize = 6;
 const HOLD: Duration = Duration::from_millis(150);
 
+/// Session-page prefetch pool and delayed history-cursor expansion.
+#[derive(Default)]
+pub struct State {
+    pool: Option<Pages>,
+    history: Option<(Instant, Key, String)>,
+    history_loaded: HashSet<String>,
+}
+
+impl State {
+    pub fn set(&mut self, pages: Pages) {
+        self.pool = Some(pages);
+    }
+
+    pub fn has_pool(&self) -> bool {
+        self.pool.is_some()
+    }
+}
+
 /// The visible route remains `from` until content can paint, or the loading deadline expires.
 pub struct Opening {
     pub id: String,
@@ -275,7 +293,7 @@ impl super::App {
         if ready {
             self.opening = None;
             self.open_now(&id, tx);
-            if let Some(page) = self.pages.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
+            if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
         // The fixture/story clock is deterministic; an idle live window must use wall time,
@@ -300,7 +318,7 @@ impl super::App {
 
     pub(crate) fn reload_session(&self, id: &str) {
         let super::Source::Live { requests: Some(r), .. } = &self.source else { return };
-        match &self.pages {
+        match &self.pages.pool {
             Some(pages) => pages.request(self.page_key(id), true),
             None => {
                 let _ = r.send(opencode_kit::client::Request::Session(id.to_owned()));
@@ -309,7 +327,7 @@ impl super::App {
     }
 
     pub fn prefetch_session(&self, id: &str) {
-        if let Some(pages) = &self.pages { pages.request(self.page_key(id), false); }
+        if let Some(pages) = &self.pages.pool { pages.request(self.page_key(id), false); }
     }
 
     /// Runs before Rune's list focus traversal; start the next highlighted row's read now.
@@ -328,7 +346,7 @@ impl super::App {
     }
 
     pub fn open_page(&mut self, id: &str, tx: &mut rune::Tx) {
-        let Some(pages) = &self.pages else { return };
+        let Some(pages) = &self.pages.pool else { return };
         let ready = pages.peek(id);
         pages.request(self.page_key(id), true);
         if let Some(page) = ready {
@@ -358,21 +376,21 @@ impl super::App {
         let cold = !page.cached && self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
         if first || page.history || cold { tx.settle(); }
-        if page.history { self.page_history_loaded.insert(id.clone()); }
+        if page.history { self.pages.history_loaded.insert(id.clone()); }
         self.schedule_history(page, tx);
     }
 
     fn schedule_history(&mut self, page: &Page, tx: &mut rune::Tx) {
         let id = &page.key.id;
-        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && !self.page_history_loaded.contains(id) && let Some(cursor) = &page.cursor {
+        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && !self.pages.history_loaded.contains(id) && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
-            self.page_history = Some((Instant::now() + Duration::from_millis(50), page.key.clone(), cursor.clone()));
+            self.pages.history = Some((Instant::now() + Duration::from_millis(50), page.key.clone(), cursor.clone()));
             tx.wake_after(Duration::from_millis(50));
         }
     }
 
     pub fn poll_pages(&mut self, tx: &mut rune::Tx) -> bool {
-        let results: Vec<_> = self.pages.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
+        let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
         let mut changed = false;
         for result in results {
             match result {
@@ -387,9 +405,9 @@ impl super::App {
             }
         }
         changed |= self.poll_open(tx);
-        if self.page_history.as_ref().is_some_and(|(at, _, _)| *at <= Instant::now()) {
-            let (_, key, cursor) = self.page_history.take().unwrap();
-            if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages { pages.history(key, cursor); }
+        if self.pages.history.as_ref().is_some_and(|(at, _, _)| *at <= Instant::now()) {
+            let (_, key, cursor) = self.pages.history.take().unwrap();
+            if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages.pool { pages.history(key, cursor); }
         }
         changed
     }
@@ -424,7 +442,7 @@ mod tests {
         pages.request(key("ses_warm"), false);
         receive(&pages);
         let mut app = App::empty();
-        app.pages = Some(pages);
+        app.pages.set(pages);
         app.open("ses_warm", &mut Tx::default());
         assert_eq!(app.transcripts["ses_warm"].messages.len(), 1);
         let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
@@ -523,7 +541,7 @@ mod tests {
     fn opening_deadline_and_navigation() {
         let mut app = App::empty();
         let (pages, send) = Pages::fixture(None);
-        app.pages = Some(pages);
+        app.pages.set(pages);
         let mut rt = Runtime::new(app, view::app, (1280.0,820.0), Env::new(true,1.0));
         rt.frame(0.0);
         rt.update(|s, tx| s.open("ses_slow", tx));
@@ -592,11 +610,11 @@ mod tests {
         let mut app = App::empty();
         app.route = Route::Session("ses_previous".into());
         app.transcripts.insert("ses_previous".into(), model::Transcript { session:"ses_previous".into(), messages:model::parse_messages(&page("Previous session stays here")) });
-        app.pages = Some(pages);
+        app.pages.set(pages);
         if prefetched {
             app.prefetch_session("ses_target");
             release.send(()).unwrap();
-            let p = receive(app.pages.as_ref().unwrap());
+            let p = receive(app.pages.pool.as_ref().unwrap());
             for image in &p.images { image.wait(); }
         }
         let mut rt = Runtime::new(app, view::app, (1280.0,820.0), Env::new(true,2.0));
@@ -607,7 +625,7 @@ mod tests {
         for frame in 0..20 {
             if frame == 3 {
                 release.send(()).unwrap();
-                let p = receive(rt.state.pages.as_ref().unwrap());
+                let p = receive(rt.state.pages.pool.as_ref().unwrap());
                 rt.update(|s, tx| s.show_page(&p, tx));
             }
             if frame == 10 {
@@ -626,7 +644,6 @@ mod tests {
             let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.label.as_deref() == Some("0"));
             let at_bottom = rt.scroll_at_bottom("scroll-ses_target");
             let image = elements.iter().find(|e| e.path.ends_with("/img-0") && !e.exiting).map(|e| e.rect);
-            println!("OPEN_FRAME warm={prefetched} frame={frame} target={target} loading={loading} grey={grey} zero={zero} bottom={at_bottom:?} image={image:?}");
             if loading || grey || zero || (target && at_bottom == Some(false)) { bad.push(frame); }
             if target && let Some(rect) = image {
                 if let Some(old) = bottom { if old != rect { bad.push(frame); } } else { bottom = Some(rect); }

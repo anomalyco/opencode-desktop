@@ -177,7 +177,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     missing.sort();
     missing.dedup();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut s.source, s.waker.clone()) {
-        s.pages = Some(session_pages::Pages::live(server.clone(), waker.clone()));
+        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
         let media = server.clone();
         s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
         let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);

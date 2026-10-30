@@ -153,11 +153,15 @@ impl Notifier {
 }
 
 impl App {
-    fn server_base(&self) -> &str {
+    pub(crate) fn server_base(&self) -> &str {
         match &self.source {
             crate::Source::Live { server, .. } => &server.base,
             crate::Source::Fixture => "",
         }
+    }
+
+    pub(crate) fn live_status(&self) -> String {
+        format!("Live · {}", self.server_base().trim_start_matches("http://"))
     }
 
     /// A session with a tab open, as Desktop asks of every notification: its title, or None.

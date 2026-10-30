@@ -110,5 +110,118 @@ pub fn answered(v: usize) -> Vec<(&'static str, Value)> {
 }
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+    crate::stories::Story::composer("Question dock/Question", QUESTION_KEYS).variants(QUESTION_VARIANTS),
+    crate::stories::Story::composer("Question dock/Custom answer", CUSTOM_KEYS).variants(CUSTOM_VARIANTS),
+    crate::stories::Story {
+        path: "Question dock/Morph",
+        scene: |s| crate::stories::watch(s, crate::stories::session_view),
+        knobs: MORPH_KNOBS,
+        keys: MORPH_KEYS,
+        variants: &[],
+    },
+    crate::stories::Story::session("Question dock/Under a queue", UNDER_QUEUE_KEYS).knobs(MORPH_KNOBS),
     crate::stories::Story::session("Timeline/Question answers", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
 ]);
+
+const BEAT: f64 = 1.6;
+const MORPH_KNOBS: &[rune_knobs::Group] = &[crate::knobs::QUESTION_DOCK];
+const QUESTION_VARIANTS: &[(&str, usize)] = &[("One", 0), ("Two", 1), ("Multi-select", 2), ("Long", 3), ("Typing", 4)];
+const CUSTOM_VARIANTS: &[(&str, usize)] = &[("Typing", 0), ("Long, wrapped", 1), ("Left the field", 2), ("Empty", 3)];
+const QUESTION_KEYS: &[Trigger] = &[replay(question_open)];
+const CUSTOM_KEYS: &[Trigger] = &[replay(custom_open)];
+const MORPH_KEYS: &[Trigger] = &[
+    Trigger { key: 'r', label: "Replay the loop", run: morph_open },
+    Trigger { key: 'o', label: "Open the dock", run: |s, tx| {
+        tx.clear();
+        if !s.question_shown() {
+            emit(s, "form.created", form(s, &[0]), tx);
+        }
+    } },
+    Trigger { key: 'c', label: "Close it", run: |s, tx| {
+        tx.clear();
+        if s.question_shown() {
+            emit(s, "form.replied", replied(s), tx);
+        }
+    } },
+];
+const UNDER_QUEUE_KEYS: &[Trigger] = &[
+    replay(under_queue_open),
+    Trigger { key: 'q', label: "Queue one", run: crate::stories::queue },
+    Trigger { key: 'o', label: "Open the dock", run: |s, tx| if !s.question_shown() { emit(s, "form.created", form(s, &[0]), tx) } },
+    Trigger { key: 'c', label: "Close it", run: |s, tx| if s.question_shown() { emit(s, "form.replied", replied(s), tx) } },
+    Trigger { key: 'd', label: "Deliver the oldest", run: crate::stories::deliver_queued },
+];
+
+fn form(s: &App, keep: &[usize]) -> Value {
+    let mut q = s.fixture["question"].clone();
+    let fields = q["fields"].as_array().cloned().unwrap_or_default();
+    q["fields"] = keep.iter().filter_map(|i| fields.get(*i).cloned()).collect();
+    q
+}
+
+fn replied(s: &App) -> Value {
+    let q = &s.fixture["question"];
+    json!({ "id": q["id"], "sessionID": q["sessionID"] })
+}
+
+fn question_open(s: &mut App, _: &mut Play<App>) {
+    s.finish_stream();
+    let q = match s.variant {
+        1 => form(s, &[0, 1]),
+        2 => form(s, &[1]),
+        3 => long(s),
+        _ => form(s, &[0]),
+    };
+    s.apply_event("form.created", &q);
+    if s.variant == 4 {
+        s.question_type("Fake clock, but keep one slow test on real timers");
+    }
+}
+
+fn custom_open(s: &mut App, _: &mut Play<App>) {
+    s.finish_stream();
+    let q = form(s, &[0, 1]);
+    s.apply_event("form.created", &q);
+    s.question_last();
+    let text = match s.variant {
+        1 | 2 => "Fake clock for the loop, but keep one slow end-to-end test on real timers so a regression in the scheduler still shows up somewhere",
+        3 => "",
+        _ => "All of them",
+    };
+    s.question_type(text);
+    if matches!(s.variant, 2 | 3) {
+        s.question_leave_field();
+    }
+}
+
+fn long(s: &App) -> Value {
+    let mut q = form(s, &[0]);
+    q["fields"][0]["title"] = "Backoff test and where its clock comes from".into();
+    q["fields"][0]["description"] = "The reconnect loop sleeps between attempts, doubling each time up to 30 seconds with some jitter. A test that waits on real timers would take minutes and flake on a busy machine, so how should the backoff test control time, and should it also cover the jitter staying in range?".into();
+    q["fields"][0]["options"][0]["description"] = "Inject a clock into the reconnect loop and step it by hand, so each attempt's delay is checked exactly and the test runs in milliseconds whatever the machine is doing.".into();
+    q["fields"][0]["options"][2]["description"] = "Pull the delay sequence out as a pure function of the attempt number and a seeded random source, and test only that, leaving the loop itself untested.".into();
+    q
+}
+
+fn morph_open(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    tx.after(0.5, morph_ask);
+}
+
+fn morph_ask(s: &mut App, tx: &mut Play<App>) {
+    emit(s, "form.created", form(s, &[0]), tx);
+    tx.after(BEAT, morph_answer);
+}
+
+fn morph_answer(s: &mut App, tx: &mut Play<App>) {
+    emit(s, "form.replied", replied(s), tx);
+    tx.after(BEAT, morph_ask);
+}
+
+fn under_queue_open(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    let id = crate::stories::sid(s);
+    s.running.insert(id);
+    tx.after(0.2, crate::stories::queue);
+    tx.after(1.0, |s, tx| emit(s, "form.created", form(s, &[0]), tx));
+}

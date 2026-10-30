@@ -251,12 +251,10 @@ fn send_and_trace(via: Via, dts: &[f64]) {
     let id = "msg_zzzzsent0001";
     let mut texts = Vec::new();
     let working = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("working")).map(|e| e.rect[1]);
-    let (mut ys, mut work, mut worst) = (Vec::new(), Vec::new(), 0.0f64);
+    let (mut ys, mut work) = (Vec::new(), Vec::new());
     let mut t = 0.0;
     for (f, &dt) in dts.iter().enumerate() {
-        let start = std::time::Instant::now();
         rt.frame(dt);
-        worst = worst.max(start.elapsed().as_secs_f64());
         t += dt;
         if f == dts.len() / 2 {
             // The server's copy of the prompt replaces the local one under the same id.
@@ -273,8 +271,6 @@ fn send_and_trace(via: Via, dts: &[f64]) {
         texts.push(b.text);
         work.extend(working(&rt).map(|y| (t, y)));
     }
-    eprintln!("{via:?}: bubble y per frame {:?}", ys.iter().map(|p| (p.1 * 10.0).round() / 10.0).collect::<Vec<_>>());
-    eprintln!("{via:?}: slowest frame {:.1} ms", worst * 1000.0);
     // It leaves from the composer: its words start where they were typed, at full size.
     // The first frame is a frame into the flight: a few points at 120 Hz.
     let (first, last) = (texts[0], texts[texts.len() - 1]);

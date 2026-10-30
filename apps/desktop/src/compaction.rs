@@ -197,11 +197,11 @@ pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) ->
             let since = s.compactions.seen.get(&c.id).map_or(s.clock, |x| x.at);
             let title = crate::working::shimmer(s, p, "Compacting", UI_MED, since);
             let tool = row().key("tool").h(28.0).gap(8.0).center_y().child(icon(&ARCHIVE, 14.0).color(p.icon_muted)).child(title);
-            col().key("running").w_full().pt(8.0).pb(8.0).role("status").label("Compacting").transition(swap()).child(tool)
+            col().key("running").w_full().pt(8.0).pb(8.0).role("status").label("Compacting").transition(Transition::none()).child(tool)
         }
         Piece::End => {
             let label = [outcome(c).to_owned(), usage(c).unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
-            divider(p, &label).key("ended").transition(swap())
+            divider(p, &label).key("ended").transition(Transition::none())
         }
         Piece::Error => error_card(p, error(c).unwrap_or_default()),
     }
@@ -218,14 +218,9 @@ pub(crate) fn divider(p: &Pal, label: &str) -> El {
     let strong = p.q.border_strong;
     let clear = Color { a: 0.0, ..strong };
     let line = |key: &'static str, angle: f32| el().key(key).h(1.0).grow(1.0).min_w(0.0).linear_gradient(angle, [(0.0, clear), (0.7, strong)]);
-    let words = text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
+    let words = text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade();
     let bar = row().key("separator").h(32.0).w_full().gap(12.0).center_y().child(line("start", FRAC_PI_2)).child(words).child(line("end", -FRAC_PI_2));
     col().w_full().pt(8.0).pb(8.0).child(bar)
-}
-
-/// The running tool row and the divider that ends it trade places at once.
-fn swap() -> Transition {
-    Transition::none()
 }
 
 fn summary(c: &Compaction) -> &str {

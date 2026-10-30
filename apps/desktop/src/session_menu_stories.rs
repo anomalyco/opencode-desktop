@@ -22,10 +22,6 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'd', label: "Ask to delete", run: |s, _| s.menus.confirm = Some(first(s)) },
 ];
 
-fn variant(s: &App) -> usize {
-    s.variant
-}
-
 fn spot(v: usize) -> Spot {
     match v {
         0 | 3 => Spot::Tab,
@@ -43,14 +39,13 @@ fn first(s: &App) -> String {
 }
 
 fn target(s: &App) -> Target {
-    Target::new(&first(s), spot(variant(s)))
+    Target::new(&first(s), spot(s.variant))
 }
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.menus = Default::default();
-    let v = variant(s);
-    match v {
+    match s.variant {
         0..=2 => {
             s.menus.on = Some(target(s));
             s.menus.hot = Some("rename".into());
@@ -62,7 +57,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
 
 /// Starts the rename; `retitle` types a new title first, as a person would.
 fn start(s: &mut App, retitle: bool) {
-    let t = Target::new(&first(s), spot(variant(s)));
+    let t = Target::new(&first(s), spot(s.variant));
     s.begin_rename(&t);
     if retitle {
         s.menus.edit.replace_text("Reconnect jitter, with a fake clock");
@@ -93,9 +88,8 @@ fn next(s: &mut App, _: &mut Tx) {
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
-    let v = variant(s);
     let t = target(s);
-    let menu = (v <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
+    let menu = (s.variant <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
     let stage = match t.spot {
         Spot::Tab => tabs(s, p, menu),
         Spot::Row => rows(s, p, menu),

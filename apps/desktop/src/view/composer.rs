@@ -214,7 +214,6 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
     let dir = info.map_or(String::new(), |i| i.directory.replace("/Users/demo", "~").replace(&home_dir(), "~"));
-    let e = edge::ALL[s.edge];
     let live = s.live();
     row()
         .key("status")
@@ -225,19 +224,6 @@ pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
         .child(icon(&ic::FOLDER, 14.0).color(p.icon_faint))
         .child(text(dir).font(UI_SMALL).color(p.faint).truncate_fade())
         .child(spacer())
-        .child(
-            row()
-                .key("edge")
-                .role("button")
-                .label("Streaming edge")
-                .h(22.0)
-                .px(6.0)
-                .center_y()
-                .radius(4.0)
-                .hover(p.hover)
-                .on_press(|s: &mut App| s.edge = (s.edge + 1) % edge::ALL.len())
-                .child(text(format!("Edge: {}", e.name)).font(UI_SMALL).color(p.faint)),
-        )
         .child(el().size(6.0, 6.0).radius(3.0).fill(if live { p.success } else { p.icon_faint }))
         .child(text(s.status.clone()).font(UI_SMALL).color(p.faint))
 }
