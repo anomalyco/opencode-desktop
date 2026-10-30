@@ -123,7 +123,6 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .h(20.0)
         .animate_edit_layout()
         .placeholder(placeholder.to_owned(), p.faint)
         .caret(p.text, p.selection)
@@ -172,6 +171,13 @@ pub fn star(p: &Pal, on: bool, toggle: impl Fn(&mut App) + 'static) -> El {
             toggle(s);
         })
         .child(icon(if on { &STAR_FILLED } else { &STAR }, 14.0).color(if on { p.icon } else { p.icon_muted }))
+}
+
+/// Muted words and a chevron at a row's end: the lit model's effort, which ← → change.
+pub fn trailing_note(p: &Pal, label: &str) -> El {
+    row().key("trailing-note").shrink().min_w(0.0).max_w(136.0).gap(2.0).center_y()
+        .child(text(label.to_owned()).font(UI).color(p.muted).shrink().min_w(0.0).truncate_fade())
+        .child(icon(&ic::CHEVRON_RIGHT, SLOT).color(p.icon_muted))
 }
 
 /// A row's shortcut at its end.
@@ -282,9 +288,10 @@ impl List {
         self.n += 1;
     }
 
-    /// A group's title, 16 pt below what's above it.
+    /// A group's title, 16 pt below the search row's hairline, or 16 pt plus the row gap below
+    /// the group above (Desktop's list).
     pub fn header(&mut self, p: &Pal, key: impl Into<String>, label: &str) {
-        let top = 16.0 - if self.n == 0 { self.look.inset } else { self.look.row_gap };
+        let top = if self.n == 0 { 16.0 - self.look.inset } else { 16.0 };
         let e = group_header(p, self.look, key, label, top);
         self.push(e, top + HEADER_H);
     }

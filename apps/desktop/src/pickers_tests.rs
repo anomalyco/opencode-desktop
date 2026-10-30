@@ -210,3 +210,30 @@ fn recent_keeps_the_last_five_picks_once() {
     prefs.toggle_favorite("y:2");
     assert_eq!(prefs.favorites, ["y:2", "x:1"]);
 }
+
+#[test]
+fn left_and_right_choose_the_lit_models_effort() {
+    let (mut rt, _) = live();
+    assert_eq!(rt.state.selection().model.variant, "high");
+    press(&mut rt, Key::Command('\''), false);
+    let lit = rt.state.picker_active().unwrap();
+    assert_eq!(rt.state.model_effort(&lit).as_deref(), Some("high"), "the lit row shows the effort it runs with");
+    assert!(rt.find("trailing-note").is_some());
+    press(&mut rt, Key::Right, false);
+    assert_eq!(rt.state.model_effort(&lit).as_deref(), Some(""), "the last effort wraps to the default");
+    press(&mut rt, Key::Escape, false);
+    assert_eq!(rt.state.selection().model.variant, "high", "closing drops a staged effort");
+
+    press(&mut rt, Key::Command('\''), false);
+    assert_eq!(rt.state.model_effort(&lit).as_deref(), Some("high"));
+    press(&mut rt, Key::Down, false);
+    let next = rt.state.picker_active().unwrap();
+    assert_ne!(next, lit);
+    press(&mut rt, Key::Left, false);
+    press(&mut rt, Key::Left, false);
+    let staged = rt.state.model_effort(&next).unwrap();
+    press(&mut rt, Key::Enter, false);
+    let s = rt.state.selection();
+    assert_eq!(format!("{}:{}", s.model.provider, s.model.id), next);
+    assert_eq!(s.model.variant, staged, "picking the row runs it with its staged effort");
+}

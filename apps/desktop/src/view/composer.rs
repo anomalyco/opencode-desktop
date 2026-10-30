@@ -168,7 +168,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let selected = s.picker_current(kind);
     let items = s.picker_items();
     let mut menu = pop::surface(p, look, format!("picker-{}", kind.key()), format!("Choose {}", kind.key()))
-        .w(match kind { Kind::Model => 320.0, Kind::Project => 240.0, _ => 180.0 });
+        .w(match kind { Kind::Model => 480.0, Kind::Project => 240.0, _ => 180.0 });
     if kind == Kind::Model {
         let field = pop::search_field(p, "picker-search", &s.pickers.search, "Search models")
             .on_edit(|s: &mut App| &mut s.pickers.search)
@@ -199,6 +199,10 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             o = o.after(pop::badge(p, "Free"));
         }
         if kind == Kind::Model && is_active {
+            if let Some(effort) = s.model_effort(&key) {
+                let label = if effort.is_empty() { "Default".to_owned() } else { model::capitalize(&effort) };
+                o = o.trailing(pop::trailing_note(p, &label).help("Effort: ← →"));
+            }
             let star = key.clone();
             o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
         }

@@ -28,6 +28,11 @@ fn search_headers_and_labels_share_one_edge() {
     assert!((query - LIST.inset - LIST.label_x()).abs() < 0.5, "query at {query}");
     assert!((header - query).abs() < 0.5, "header at {header}, query at {query}");
     assert!((label - query).abs() < 0.5, "label at {label}, query at {query}");
+    // The query is one line tall, on the glass's centre line.
+    let field = rect(&rt, "picker-search");
+    let glass = rect(&rt, "picker-search-row")[1] + LIST.inset + LIST.row_h / 2.0;
+    assert!((field[3] - UI.line_height).abs() < 0.5, "field {} tall", field[3]);
+    assert!((field[1] + field[3] / 2.0 - glass).abs() < 0.5, "field {field:?}, glass centre {glass}");
     // The highlight stays 6 pt inside the surface.
     let row = rect(&rt, "option-anthropic:claude-opus-5-5");
     assert!((row[0] - menu[0] - LIST.inset).abs() < 0.5);

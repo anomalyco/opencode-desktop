@@ -80,6 +80,9 @@ pub struct Pickers {
     /// The effort last picked for each model, which picking that model again brings back
     /// (Desktop's per-model `variant` preference).
     efforts: HashMap<String, String>,
+    /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
+    /// (Desktop's staged variant). Opening the list clears them.
+    staged: HashMap<String, String>,
     pub prefs: ModelPrefs,
 }
 
@@ -280,6 +283,30 @@ impl App {
     }
 
     /// Stars or unstars a model (⌘F on the highlighted row, or its star).
+    /// The effort the model `key` would run with if picked now: "" for its default, or none
+    /// when it has no efforts to choose.
+    pub fn model_effort(&self, key: &str) -> Option<String> {
+        let m = self.pickers.models.iter().find(|m| m.key == key).filter(|m| !m.variants.is_empty())?;
+        let s = self.selection();
+        let current = s.model.id == m.id && s.model.provider == m.provider;
+        Some(self.pickers.staged.get(key).cloned()
+            .or_else(|| current.then(|| s.model.variant.clone()))
+            .or_else(|| self.pickers.efforts.get(key).filter(|v| m.variants.contains(v)).cloned())
+            .unwrap_or_default())
+    }
+
+    /// Moves the model `key`'s staged effort `step` along Default and its efforts; false when it
+    /// has none.
+    pub fn step_effort(&mut self, key: &str, step: i64) -> bool {
+        let Some(now) = self.model_effort(key) else { return false };
+        let Some(m) = self.pickers.models.iter().find(|m| m.key == key) else { return false };
+        let options: Vec<String> = std::iter::once(String::new()).chain(m.variants.iter().cloned()).collect();
+        let at = options.iter().position(|v| *v == now);
+        let next = options[cycle(options.len(), at, step)].clone();
+        self.pickers.staged.insert(key.to_owned(), next);
+        true
+    }
+
     pub fn toggle_favorite(&mut self, key: &str) {
         self.pickers.prefs.toggle_favorite(key);
         // The row moves between groups; the highlight goes with it, and typing still searches.
@@ -319,6 +346,7 @@ impl App {
         self.pickers.open = Some(kind);
         self.pickers.search = TextEdit::new("");
         self.pickers.search.focused = kind == Kind::Model;
+        self.pickers.staged.clear();
         let current = self.picker_current(kind);
         self.pickers.active.set(current, String::new());
         self.composer.focused = false;
@@ -358,10 +386,14 @@ impl App {
             Some(Kind::Model) => {
                 let Some(m) = self.pickers.models.iter().find(|m| m.key == key) else { return };
                 self.pickers.prefs.picked(key);
+                let staged = self.pickers.staged.get(key).cloned();
                 if m.id != selected.model.id || m.provider != selected.model.provider {
-                    let variant = self.pickers.efforts.get(key).filter(|v| m.variants.contains(v)).cloned().unwrap_or_default();
+                    let variant = staged.clone().or_else(|| self.pickers.efforts.get(key).filter(|v| m.variants.contains(v)).cloned()).unwrap_or_default();
                     selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
+                } else if let Some(v) = staged.clone() {
+                    selected.model.variant = v;
                 }
+                if let Some(v) = staged { self.pickers.efforts.insert(key.to_owned(), v); }
             }
             Some(Kind::Agent) => {
                 if selected.agent != key {
@@ -413,6 +445,12 @@ impl App {
                 }
                 None if ev.is_command('f') && self.pickers.open == Some(Kind::Model) && !ev.mods.shift => {
                     if let Some(key) = self.picker_active() { self.toggle_favorite(&key); }
+                }
+                // As in Desktop's list: with no query, ← → change the lit model's effort.
+                None if matches!(ev.key, Key::Left | Key::Right) && ev.mods == Default::default()
+                    && self.pickers.open == Some(Kind::Model) && self.pickers.search.text.is_empty() => {
+                    let Some(key) = self.picker_active() else { return false };
+                    if !self.step_effort(&key, if ev.key == Key::Right { 1 } else { -1 }) { return false; }
                 }
                 None => return self.pickers.open != Some(Kind::Model),
             }
