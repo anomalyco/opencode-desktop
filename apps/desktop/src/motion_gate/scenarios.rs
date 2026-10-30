@@ -564,12 +564,11 @@ fn one_agent(r: &mut Run) {
     r.play(1.0);
 }
 
-/// "Delegating agent…" wakes into a running row, once in each Starting look: the first call
-/// opens the card, the next two join it while being written and wake in place there.
+/// "Delegating agent…" wakes into a running row three times: the first call opens the card,
+/// the next two join it while being written and wake in place there.
 fn agent_wakes(r: &mut Run) {
     use crate::agent_stories as st;
-    for look in 0..3 {
-        r.act("the look", move |rt| rt.update(move |s, _| s.knobs.set(&crate::agent_start::STARTING, look as f32)));
+    for _ in 0..3 {
         r.act("a call is written", |rt| rt.update(st::delegate));
         r.play(1.0);
         r.act("its agent starts", |rt| rt.update(st::spawn));

@@ -56,7 +56,7 @@ pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i
     let calls: Vec<Call> = blocks[i..].iter().map_while(call).collect();
     let mut card = col().key("agent-card").w_full().px(4.0).py(4.0).radius(10.0).fill(p.layer2);
     for c in &calls {
-        let line = live_row(s, p, c, 32.0, p.layer2).key("agent-line").px(8.0).radius(6.0).hover(p.hover);
+        let line = live_row(p, c, 32.0, p.layer2).key("agent-line").px(8.0).radius(6.0).hover(p.hover);
         card = card.child(row().key(format!("member-{}", c.key)).w_full().child(opens(parent, c, line)).transition(arrive()));
     }
     row().w_full().child(card)
@@ -81,9 +81,9 @@ fn arrive() -> Transition {
 
 /// The 16pt mark: a spinner, a ✓ or a ✕, each scaling and fading into the last one's place.
 /// The spinner wakes from its starting dots in place (`agent_start::spinner`).
-fn mark(s: &App, p: &Pal, c: &Call, on: rune::Color) -> El {
+fn mark(p: &Pal, c: &Call, on: rune::Color) -> El {
     let (key, glyph) = match c.run.state {
-        State::Running => ("spin", crate::agent_start::spinner(s, p, on, c.starting)),
+        State::Running => ("spin", crate::agent_start::spinner(p, on, c.starting)),
         State::Done => ("done", icon(&ic::CHECK_SMALL, 16.0).color(p.success)),
         State::Failed => ("failed", icon(&ic::CIRCLE_X, 16.0).color(p.danger)),
     };
@@ -113,9 +113,9 @@ fn time(p: &Pal, call: &str, ms: Option<i64>) -> Option<El> {
 
 /// The words a task's title shows in, fading out where they're cut. "Delegating agent…" holds
 /// its place until the call is written, then rolls up as the task rises in.
-fn title(s: &App, p: &Pal, c: &Call, font: TextStyle) -> El {
+fn title(p: &Pal, c: &Call, font: TextStyle) -> El {
     if c.pending {
-        return row().key("delegating").child(crate::agent_start::words(s, p, font)).transition(focus(0.5));
+        return row().key("delegating").child(crate::agent_start::words(p, font)).transition(focus(0.5));
     }
     text(c.title.to_owned()).key("title").font(font).color(p.text).truncate_fade().max_w(TITLE_W).transition(focus(0.5))
 }
@@ -162,7 +162,7 @@ fn opens(parent: &str, c: &Call, surface: El) -> El {
 
 /// One agent's live row, `h` tall: its mark, task, what it's doing now, type and time, and a
 /// chevron on hover when there's a session to open.
-fn live_row(s: &App, p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
+fn live_row(p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
     let r = &c.run;
     let line = row()
         .w_full()
@@ -171,8 +171,8 @@ fn live_row(s: &App, p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
         .center_y()
         // The time widening ("9s" → "10s") eases, and what sits beside it slides over with it.
         .animate_layout()
-        .child(mark(s, p, c, on))
-        .child(title(s, p, c, UI_MED.lh(20.0)));
+        .child(mark(p, c, on))
+        .child(title(p, c, UI_MED.lh(20.0)));
     if c.pending {
         return line;
     }
