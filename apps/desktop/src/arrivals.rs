@@ -32,13 +32,14 @@ impl Arrivals {
     }
 
     /// A queued prompt the server delivered leaves its row in the queue for its place at the
-    /// end of the timeline, when that end is in view.
+    /// end of the timeline, when that end is in view. Only a one-line prompt flies: its row shows
+    /// the whole of it, where a longer one's row shows only its first line.
     fn launch(&self, s: &App, tx: &mut Tx) {
         let Some(id) = self.session.as_ref().filter(|id| s.route == Route::Session((*id).clone()) && s.ends.at_end(id)) else { return };
         let Some(t) = s.transcripts.get(id) else { return };
         let waiting = |q: &String| s.inboxes.get(id).is_some_and(|i| i.items.iter().any(|i| &i.id == q));
         for q in self.queued.iter().filter(|q| !waiting(q)) {
-            if t.messages.iter().any(|m| matches!(m, Message::User { id, .. } if id == q)) {
+            if t.messages.iter().any(|m| matches!(m, Message::User { id, text } if id == q && flies_from_queue(text))) {
                 tx.launch(format!("queued-{q}/label"), format!("u-{q}/bubble"));
             }
         }
@@ -64,4 +65,9 @@ impl Arrivals {
             }
         }
     }
+}
+
+/// Whether delivered prompt `text` flies from its queue row: one line, which the row shows whole.
+pub(crate) fn flies_from_queue(text: &str) -> bool {
+    crate::fold::lines(text, crate::fold::text_width(crate::fold::viewport_width(), false)) == 1
 }

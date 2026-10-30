@@ -32,11 +32,23 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
 pub const COMPOSER_MAX_H: f32 = 180.0;
 
+thread_local! {
+    static WHOLE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Whether the composer showed its whole prompt when last laid out: a longer one scrolls inside
+/// the editor, its words starting out of sight.
+pub fn shows_whole_prompt() -> bool {
+    WHOLE.get()
+}
+
 pub fn composer_fill(p: &Pal) -> Color {
     if p.dark { p.layer1 } else { p.bg_base }
 }
 
 pub(super) fn composer(s: &App, p: &Pal) -> El {
+    let (pad, shown) = (rune::memo::layout_with("editor-pad", |r| r[3]), rune::memo::layout_with("editor-scroll", |r| r[3]));
+    WHOLE.set(!matches!((pad, shown), (Some(pad), Some(shown)) if pad > shown + 0.5));
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };

@@ -39,5 +39,11 @@
   {"element": "agent-card/member-call_story_agent_00", "kind": "invisible-work", "reason": "the first call opens its card by growing the timeline row; the row's fade runs under that clip for its first 90 ms"},
   {"element": "activity-chip/ring/d", "kind": "invisible-work", "reason": "the activity chip's radar dots start their wall-clock cycle when it mounts, under its 50 ms fade-in"},
   {"trace": "agent-wakes", "kind": "never-settles", "reason": "the turn keeps writing while its agent runs: Working's sheen and the row's spinner loop by design"},
+  {"element": "editor-scroll/editor-pad", "kind": "invisible-work",
+   "reason": "a paste longer than the editor grows the prompt under the editor's clip while its scroll follows the caret to the end; the edit-layout glide runs on the hidden part (Rune's text_input)"},
+  {"element": "editor-scroll/editor-pad", "kind": ["step", "snap"],
+   "reason": "sending empties the composer at once (docs/kit-design.md: changes are immediate): its text pad drops a long prompt's scroll in that frame, under the placeholder"},
+  {"trace": "paste-queue", "element": "queue/queue-clip/queue-face", "kind": "invisible-work",
+   "reason": "the queue panel opens and closes by its clip; the face's spring spends its first and last frames under it (queue::panel)"},
   {"element": "status-toast", "kind": ["pop-in", "pop-out"], "reason": "toasts appear and dismiss at once while the timeline's rows collapse or grow underneath (docs/kit-design.md: changes are immediate)"}
 ]

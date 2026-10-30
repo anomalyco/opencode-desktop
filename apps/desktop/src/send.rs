@@ -69,7 +69,9 @@ impl App {
             self.echo_mentions(&local);
             self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
             if alternate {
-                tx.launch("prompt", format!("queued-{local}"));
+                if crate::view::shows_whole_prompt() {
+                    tx.launch("prompt", format!("queued-{local}"));
+                }
             } else {
                 self.land(&id, &local, &from, tx);
             }
@@ -151,10 +153,13 @@ impl App {
 
     /// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the
     /// composer, its words where they were typed. Read further up, nothing flies: the timeline
-    /// cuts to its end, where the message already stands.
+    /// cuts to its end, where the message already stands. A prompt longer than the composer,
+    /// whose words start out of sight in it, arrives where it lands instead of flying.
     fn land(&mut self, id: &str, local: &str, from: &str, tx: &mut Tx) {
         if self.ends.at_end(id) {
-            tx.launch(from, format!("u-{local}/bubble"));
+            if crate::view::shows_whole_prompt() {
+                tx.launch(from, format!("u-{local}/bubble"));
+            }
         } else {
             tx.scroll_to_bottom_instant(format!("scroll-{id}"));
         }

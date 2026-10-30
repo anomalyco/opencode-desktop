@@ -38,6 +38,8 @@ enum Words {
     Line,
     Lines,
     Long,
+    /// A crash report pasted whole, longer than the composer shows: it arrives in place.
+    Paste,
     Image,
     Quote,
     QuoteOnly,
@@ -61,22 +63,24 @@ impl Case {
         s
     }
 
-    fn body(&self) -> &'static str {
-        match self.words {
+    fn body(&self) -> String {
+        let words = match self.words {
             Words::Word => "ok",
             Words::Line | Words::Image | Words::Quote => "Can you also check the reconnect jitter?",
             Words::Lines => "Three things before you merge:\n- keep the backoff capped at 30 s\n- log every retry with its attempt number\n- and add a test that drops the socket twice in a row",
             Words::Long => "The reconnect still feels wrong after sleep. When the lid opens the stream sits silent for the full 25 seconds before the watchdog notices, and in that window the sidebar shows stale sessions and the composer happily accepts prompts that go nowhere. Could we probe the socket the moment the system wakes instead, and only fall back to the watchdog when the wake notification never comes? Also please make sure the backoff resets only after a message actually arrives, not on open, because a server that accepts and immediately drops us would otherwise loop at the floor delay forever. Add tests for both, with a fake clock, and keep one slow end-to-end test on real timers so a regression shows up somewhere.",
             Words::QuoteOnly => "",
             Words::Mention => "",
-        }
+            Words::Paste => return crate::stories::long_paste(),
+        };
+        words.into()
     }
 }
 
 /// Every combination; `everyday` is the slice the suite runs by default.
 fn matrix() -> Vec<Case> {
     let mut v = Vec::new();
-    let all = [Words::Word, Words::Line, Words::Lines, Words::Long, Words::Image, Words::Quote, Words::QuoteOnly, Words::Mention];
+    let all = [Words::Word, Words::Line, Words::Lines, Words::Long, Words::Paste, Words::Image, Words::Quote, Words::QuoteOnly, Words::Mention];
     for zoomed in [false, true] {
         for narrow in [false, true] {
             for how in [How::Send, How::Steer, How::SteerTwice, How::Delivered] {
@@ -101,9 +105,9 @@ fn everyday(c: &Case) -> bool {
     matches!((c.how, c.after, c.words),
         (How::Send, After::Reply, Words::Line | Words::Mention | Words::QuoteOnly)
         | (How::Send, After::Compaction, Words::Line)
-        | (How::Steer, After::Reply, Words::Lines)
+        | (How::Steer, After::Reply, Words::Lines | Words::Paste)
         | (How::SteerTwice, After::Reply, Words::Image)
-        | (How::Delivered, After::Reply, Words::Line))
+        | (How::Delivered, After::Reply, Words::Line | Words::Paste))
 }
 
 /// One frame of the flying prompt: its outer rect and its first words' rect.
@@ -136,6 +140,8 @@ struct Measured {
     window: (f32, f32),
     /// The frame Enter (or the delivery) landed on.
     sent_at: usize,
+    /// Its source showed all its words, so it flies; otherwise it arrives in place.
+    flies: bool,
 }
 
 fn setup(case: &Case) -> Run {
@@ -219,7 +225,7 @@ fn measure(case: Case) -> Measured {
         r.enter(false);
         r.play(1.2);
     }
-    compose(&mut r, &case, case.body());
+    compose(&mut r, &case, &case.body());
     let before = rows(&r);
     // Words leave where they were typed; a prompt of only a quote leaves from its chip.
     let mut source = if case.words == Words::QuoteOnly {
@@ -228,13 +234,15 @@ fn measure(case: Case) -> Measured {
         find(&r.rt.elements(), "prompt")
     };
     let mut id: Option<String> = None;
+    let mut flies = crate::view::shows_whole_prompt();
     if case.how == How::Delivered {
         r.enter(true);
         r.play(1.2);
         let queued = r.rt.state.inboxes.get(SID).and_then(|i| i.queued().last()).map(|i| i.id.clone());
-        let Some(q) = queued else { return Measured { source: None, frames: vec![], settled: None, window, sent_at: 0 } };
+        let Some(q) = queued else { return Measured { source: None, frames: vec![], settled: None, window, sent_at: 0, flies } };
         let els = r.rt.elements();
         source = els.iter().find(|e| !e.exiting && e.key.as_deref() == Some("label") && e.path.contains(&format!("queued-{q}"))).map(|e| e.rect);
+        flies = crate::arrivals::flies_from_queue(&case.body());
         r.event_now("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": q }));
     } else {
         r.enter(false);
@@ -252,7 +260,7 @@ fn measure(case: Case) -> Measured {
     }
     r.idle(1.0);
     let settled = id.as_deref().and_then(|id| frame(&r, id)).map(|f| f.rect);
-    Measured { source, frames, settled, window, sent_at }
+    Measured { source, frames, settled, window, sent_at, flies }
 }
 
 /// What's wrong with one flight; empty when it flew as it should. Each frame is judged by its
@@ -267,6 +275,11 @@ fn judge(m: &Measured) -> Vec<String> {
         out.push(format!("shows {} frames after the send", first.k - m.sent_at));
     }
     let o0 = first.off();
+    if !m.flies {
+        let worst = m.frames.iter().map(|f| f.off()[0].abs().max(f.off()[1].abs())).fold(0.0, f32::max);
+        if worst > 1.0 { out.push(format!("should arrive in place, but sits {worst:.0} pt off its rest")); }
+        return out;
+    }
     if o0[0].abs() < 2.0 && o0[1].abs() < 2.0 {
         out.push(format!("didn't fly: first frame {:?} is its rest", first.rect.map(|v| v.round())));
         return out;

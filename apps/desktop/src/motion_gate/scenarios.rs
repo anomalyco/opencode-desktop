@@ -253,6 +253,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "queue-lands", circs: || {
         let mut v = places(streaming());
         v.push(Circ { dock: Dock::Pending, ..streaming() });
+        v.push(Circ { prompt: Prompt::Long, ..streaming() });
         v.push(Circ { zoomed: true, ..streaming() });
         v.push(Circ { zoomed: true, narrow: true, ..streaming() });
         v
