@@ -14,13 +14,17 @@ impl App {
 
     /// Commits the route, header and transcript together, once the opening gate is ready.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
+        let prev_route = self.route.clone();
         self.close_picker(false);
+        self.close_message_menu();
+        self.close_fork_dialog(false);
         self.activity_open = false;
         if self.route != Route::Session(id.to_owned()) {
             // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
             self.ends.forget(id);
         }
         self.route = Route::Session(id.to_owned());
+        self.sync_route_draft(&prev_route, id);
         let root = self.root_of(id).to_owned();
         // As in Desktop, you can type straight away. A subagent's session has no composer, and
         // a story's keys stay with the storybook.

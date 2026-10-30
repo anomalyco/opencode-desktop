@@ -52,6 +52,8 @@ pub enum Incoming {
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
+    /// A session forked from `from` before `before` (`Write::Fork`, `POST /api/session/:id/fork`).
+    Forked { from: String, before: Option<String>, session: SessionInfo },
 }
 
 pub enum Request {
@@ -103,6 +105,19 @@ pub enum Write {
     /// Resolves `directory` (`/api/location`, registering its project on the server), reloads
     /// `/api/project`, and when `start_session` is set creates a session in `directory`.
     OpenProject { directory: String, start_session: bool },
+    /// Stages a revert to `message` (`POST /api/session/:id/revert/stage`), settling active work
+    /// first (`interrupt` + `wait`) when `settle` is true, as Desktop's `revert.stage` does.
+    RevertStage { session: String, message: String, settle: bool },
+    /// Clears a staged revert (`DELETE /api/session/:id/revert`), as Desktop's `revert.redo` and
+    /// toast `Undo` do.
+    RevertClear(String),
+    /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
+    RevertCommit(String),
+    /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
+    /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
+    SendFromRevert { session: String, prompt: Prompt },
+    /// Forks `session` before `before` (`POST /api/session/:id/fork`), replying `Incoming::Forked`.
+    Fork { session: String, before: Option<String> },
 }
 
 pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
@@ -166,7 +181,7 @@ fn list(v: &Value) -> Vec<Value> {
 pub struct Server {
     pub base: String,
     pub(crate) auth: Option<String>,
-    media_refs: bool,
+    pub(crate) media_refs: bool,
 }
 
 impl std::fmt::Debug for Server {
@@ -610,6 +625,16 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
                             let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
                             Ok(())
+                        }),
+                        Write::RevertStage { session, message, settle } => {
+                            let res = if settle { server.revert_to(&session, &message) } else { server.revert_stage(&session, &message) };
+                            res.map(|_| ())
+                        }
+                        Write::RevertClear(session) => server.revert_clear(&session),
+                        Write::RevertCommit(session) => server.revert_commit(&session),
+                        Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
+                        Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|forked| {
+                            let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
                         }),
                     };
                     if let Err(e) = result

@@ -255,6 +255,7 @@ impl RowSpec {
                 RowContent::User { message, tight, above, below, fold } => {
                     if let Message::User { id, text, .. } = &t.messages[*message]
                         && !s.glows.contains_key(id)
+                        && !s.rewind.menu_open_on(id)
                         && model::user_quotes(id).is_empty()
                         && opencode_kit::mention::user_mentions(id).is_empty()
                         && !text.contains("@ses_")

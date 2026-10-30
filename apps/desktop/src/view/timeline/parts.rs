@@ -40,21 +40,9 @@ pub(in crate::view) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 /// when it has none.
 pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
     let Place { tight, above, below, fold } = place;
-    let words = body.to_owned();
-    let copy = match pending {
-        Some(session) => crate::queue::pending_actions(p, session, id, below),
-        None => row()
-            .key("copy")
-            .role("button")
-            .label("Copy message")
-            .size(20.0, 20.0)
-            .center()
-            .radius(4.0)
-            .hover(p.hover)
-            .press(p.pressed)
-            .group_opacity(0.0, 1.0)
-            .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(words.clone()))
-            .child(icon(&ic::OUTLINE_COPY, 14.0).color(p.icon_muted)),
+    let (actions, pin_x) = match pending {
+        Some(session) => (crate::queue::pending_actions(p, session, id, below), -50.0),
+        None => crate::rewind::user_actions(s, p, id, body),
     };
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
     let mut bubble = col()
@@ -86,12 +74,11 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
         Some(cards) => bubble.w(342.0).pb(12.0).child(cards),
         None => bubble,
     };
-    let copy = if below {
-        let x = if pending.is_some() { -50.0 } else { -24.0 };
-        face = face.child(copy.pin(Some(x), None, None, Some(8.5)));
+    let actions = if below {
+        face = face.child(actions.pin(Some(pin_x), None, None, Some(8.5)));
         None
     } else {
-        Some(copy)
+        Some(actions)
     };
     let c = col()
         .w_full()
@@ -99,7 +86,7 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
-    c.children(copy.map(|copy| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(copy)))
+    c.children(actions.map(|actions| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(actions)))
 }
 
 pub(crate) fn chevron(open: bool) -> &'static Icon {

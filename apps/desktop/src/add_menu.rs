@@ -207,8 +207,17 @@ impl App {
                 if self.busy(&id) {
                     prompt.delivery = Some(if alternate { Delivery::Queue } else { Delivery::Steer });
                 }
-                if !self.write(Write::Send { session: id, prompt }) {
+                let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
+                let w = if staged {
+                    Write::SendFromRevert { session: id.clone(), prompt }
+                } else {
+                    Write::Send { session: id.clone(), prompt }
+                };
+                if !self.write(w) {
                     return;
+                }
+                if staged {
+                    self.commit_staged_revert(&id);
                 }
             }
             Route::Draft if self.live() => {

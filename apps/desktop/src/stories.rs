@@ -172,6 +172,8 @@ const ORDER: &[&str] = &[
     "Timeline/Selection",
     "Timeline/Find",
     "Timeline/Quote",
+    "Timeline/Rewind",
+    "Timeline/Fork",
     "Timeline/Question answers",
     "Timeline/Compaction",
     "Timeline/Working",
@@ -232,6 +234,7 @@ pub fn playground() -> Playground<App> {
                     || s.project_switcher.search.focused
                     || s.search.focused
                     || s.switcher.search.focused
+                    || s.fork.search.focused
                     || s.find_focused())
         })
         .folds(load_folds, save_folds);

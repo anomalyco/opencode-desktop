@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
+use crate::prompt::PathAttachment;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MentionKind {
     Agent,
@@ -90,11 +92,68 @@ pub fn parse(text: &str, m: &Value) -> Vec<UserMention> {
     out
 }
 
-/// Records `m`'s mentions for message `id` when it lists any; a payload without the lists
-/// leaves what's recorded alone.
+fn created_store() -> &'static Mutex<HashMap<String, i64>> {
+    static STORE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// When user message `id` was created (`time.created`, in Unix milliseconds), if known.
+pub fn user_created(id: &str) -> Option<i64> {
+    created_store().lock().unwrap().get(id).copied()
+}
+
+/// Records when user message `id` was created (`time.created`, in Unix milliseconds).
+pub fn set_user_created(id: &str, created: i64) {
+    if created > 0 {
+        created_store().lock().unwrap().insert(id.to_owned(), created);
+    }
+}
+
+fn path_store() -> &'static Mutex<HashMap<String, Arc<[PathAttachment]>>> {
+    static STORE: OnceLock<Mutex<HashMap<String, Arc<[PathAttachment]>>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// Path-referenced attachments (`metadata.attachments`) on user message `id`.
+pub fn user_path_attachments(id: &str) -> Arc<[PathAttachment]> {
+    path_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
+}
+
+/// Records path-referenced attachments (`metadata.attachments`) on user message `id`.
+pub fn set_user_path_attachments(id: &str, items: Vec<PathAttachment>) {
+    let mut store = path_store().lock().unwrap();
+    if items.is_empty() {
+        store.remove(id);
+    } else {
+        store.insert(id.to_owned(), items.into());
+    }
+}
+
+/// Records `m`'s mentions, creation time and path attachments for message `id` when present; a
+/// payload without them leaves what's recorded alone.
 pub fn record(id: &str, text: &str, m: &Value) {
     if ["agents", "skills", "files"].iter().any(|k| m[k].is_array()) {
         set_user_mentions(id, parse(text, m));
+    }
+    if let Some(created) = m["time"]["created"].as_i64().or_else(|| m["time"]["created"].as_f64().map(|f| f as i64)) {
+        set_user_created(id, created);
+    }
+    if let Some(list) = m["metadata"]["attachments"].as_array() {
+        let items = list
+            .iter()
+            .filter_map(|a| {
+                let path = a["path"].as_str()?.to_owned();
+                if path.is_empty() {
+                    return None;
+                }
+                Some(PathAttachment {
+                    name: a["name"].as_str().unwrap_or("").to_owned(),
+                    mime: a["mime"].as_str().unwrap_or("text/plain").to_owned(),
+                    path,
+                })
+            })
+            .collect();
+        set_user_path_attachments(id, items);
     }
 }
 
@@ -149,5 +208,21 @@ mod tests {
         let text = "see @session:ses_abc1, x@session:ses_no and @session:ses_ alone";
         let got: Vec<&str> = session_tokens(text).into_iter().map(|(r, id)| { assert_eq!(&text[r.clone()][9..], id); id }).collect();
         assert_eq!(got, ["ses_abc1"]);
+    }
+
+    #[test]
+    fn records_created_time_and_path_attachments() {
+        record(
+            "msg_meta_test",
+            "check log",
+            &json!({
+                "time": { "created": 1_792_658_320_000_i64 },
+                "metadata": { "attachments": [{ "name": "build.log", "mime": "text/plain", "path": "/tmp/build.log" }] }
+            }),
+        );
+        assert_eq!(user_created("msg_meta_test"), Some(1_792_658_320_000));
+        let paths = user_path_attachments("msg_meta_test");
+        assert_eq!(paths.len(), 1);
+        assert_eq!((paths[0].name.as_str(), paths[0].path.as_str()), ("build.log", "/tmp/build.log"));
     }
 }

@@ -235,6 +235,8 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Selection",
     "Timeline/Find",
     "Timeline/Quote",
+    "Timeline/Rewind",
+    "Timeline/Fork",
     "Timeline/Question answers",
     "Timeline/Compaction",
     "Timeline/Working",

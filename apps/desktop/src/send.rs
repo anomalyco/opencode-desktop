@@ -94,13 +94,23 @@ impl App {
         let local = match &self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
-                if !self.write(Write::Send { session: id.clone(), prompt }) {
+                let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
+                let w = if staged {
+                    Write::SendFromRevert { session: id.clone(), prompt }
+                } else {
+                    Write::Send { session: id.clone(), prompt }
+                };
+                if !self.write(w) {
                     return;
+                }
+                if staged {
+                    self.commit_staged_revert(&id);
                 }
                 self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
                 local
             }
             Source::Fixture => {
+                self.commit_staged_revert(&id);
                 let selection = self.selection();
                 self.sends += 1;
                 let reply = format!("msg_zzzzreply{:04}", self.sends);

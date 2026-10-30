@@ -94,7 +94,10 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .pill_style(crate::mentions::badge::pill_style(p))
                     .on_input_change(|s: &mut App, tx| { crate::quote::typed(s, tx); s.mentions_changed(tx); s.slash_changed(tx) })
                     .on_input_key(|s: &mut App, ev, tx| {
-                        if s.mention_key(ev, tx) || s.add_key(ev, tx) {
+                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) {
+                            return true;
+                        }
+                        if ev.key == Key::Escape && !s.route_busy() && crate::status_toast::key(s, ev, tx) {
                             return true;
                         }
                         if ev.key == Key::Enter && ev.mods.cmd {

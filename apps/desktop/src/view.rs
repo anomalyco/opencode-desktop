@@ -97,6 +97,11 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
+    if s.fork.open {
+        inner = inner.children(crate::fork::view(s, p, cx));
+    }
+    inner = inner.children(crate::rewind::menu_view(s, p));
+    inner = inner.children(crate::status_toast::view(s, p));
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {
         let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
         if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() }

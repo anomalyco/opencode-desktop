@@ -10,6 +10,7 @@
 mod flights;
 mod odometers;
 mod panels;
+mod rewind;
 mod scenarios;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};

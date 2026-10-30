@@ -58,10 +58,8 @@ impl App {
     /// `committed` ends the revert and drops what it hid: the steers waiting behind it and their glows
     /// (the transcript's own rows go in `Transcript::apply`).
     pub(crate) fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
-        let next = match ty {
-            "session.revert.staged" => data["revert"]["messageID"].as_str().map(str::to_owned),
-            "session.revert.cleared" | "session.revert.committed" => None,
-            _ => return false,
+        let Some(next) = crate::rewind::resolve_event(self, ty, data, sid) else {
+            return false;
         };
         let mut changed = false;
         if let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid) {

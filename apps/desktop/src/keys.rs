@@ -1,7 +1,7 @@
 use super::*;
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.project_switcher_key(ev, tx) || s.file_palette_key(ev, tx) || s.settings_key(ev, tx) || s.panels_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
+    if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.project_switcher_key(ev, tx) || s.file_palette_key(ev, tx) || s.settings_key(ev, tx) || s.panels_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
         Key::Command(c) if c.eq_ignore_ascii_case(&'b') && ev.mods.shift => {
             s.sidebar_open = !s.sidebar_open;
@@ -41,6 +41,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             true
         }
         Key::Escape if crate::find::dismiss_key(s, ev, tx) => true,
+        Key::Escape if crate::status_toast::key(s, ev, tx) => true,
         // A subagent's session has no composer: Esc goes back to the session that started it.
         Key::Escape if s.open_parent(tx) => true,
         Key::Escape if s.route != Route::Home && !s.composer.focused => {

@@ -56,7 +56,13 @@ const ALLOW: &[Allow] = &[
     ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/timeline-area", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
-    ("fade-snap", "actions/copy", "fold/", "a prompt's Copy shows with its row's hover at once (view::user_bubble); scrolling to Show less puts the prompt under the pointer"),
+    ("fade-snap", "actions/", "", "a prompt's hover actions show and hide with its row's hover at once (view::user_bubble)"),
+    ("pop-in", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
+    ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
+    ("pop-in", "message-menu", "", "a prompt's More actions menu and its backdrop open and close at once (rewind::menu_view)"),
+    ("pop-out", "message-menu", "", "a prompt's More actions menu and its backdrop open and close at once (rewind::menu_view)"),
+    ("pop-in", "fork-", "", "the Fork from message dialog and its scrim open and close at once (fork::view)"),
+    ("pop-out", "fork-", "", "the Fork from message dialog and its scrim open and close at once (fork::view)"),
     ("jerk", "editor-scroll/editor-pad", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("offset-jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
@@ -440,6 +446,12 @@ const ACTIONS: &[Action] = &[
         r.event("session.revert.committed", json!({ "sessionID": SID, "to": to }));
         r.play(0.8);
     } },
+    Action { name: "rewind", circs: || {
+        let mut v = wide_and_narrow(Circ::default());
+        v.push(Circ { length: Length::Short, ..Circ::default() });
+        v.push(Circ { zoomed: true, ..Circ::default() });
+        v
+    }, run: super::rewind::run },
     // A compaction runs and ends: loud, its divider, summary and Compacting row, then the
     // divider with its usage; quiet, the divider's light while it runs and its label's ending.
     Action { name: "compaction", circs: || places(Circ::default()), run: |r| compaction(r, false, 1.6) },

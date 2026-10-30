@@ -39,6 +39,7 @@ mod fold;
 mod fold_stories;
 #[cfg(test)]
 mod fold_tests;
+mod fork;
 mod forms;
 mod frosted_stories;
 mod history;
@@ -87,6 +88,8 @@ mod restore;
 mod review;
 #[cfg(test)]
 mod revert;
+mod rewind;
+mod rewind_stories;
 mod scenes;
 mod selection_stories;
 mod send;
@@ -102,6 +105,7 @@ mod settings;
 mod shortcuts;
 mod side_stories;
 mod slash;
+mod status_toast;
 mod stories;
 mod subagents;
 mod switcher;
@@ -239,6 +243,9 @@ pub struct App {
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: bool,
     pub status: String,
+    pub rewind: rewind::RewindState,
+    pub fork: fork::ForkState,
+    pub toast: status_toast::StatusToast,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
     base_ms: i64,
@@ -500,6 +507,10 @@ impl App {
         self.running.iter().any(|s| self.root_of(s) == root)
     }
 
+    pub(crate) fn route_busy(&self) -> bool {
+        matches!(&self.route, Route::Session(id) if self.busy(id))
+    }
+
     /// Stops every running session in the open session's family.
     pub fn stop(&mut self) {
         let Route::Session(id) = self.route.clone() else { return };
@@ -613,7 +624,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         changed |= s.apply_event(&ty, &data);
                         continue;
                     }
-                    Incoming::Status(e) => s.status = background::status(e),
+                    Incoming::Status(e) => {
+                        if !rewind::failed(s, &e) {
+                            s.status = background::status(e);
+                        }
+                    }
                     Incoming::Pending { session, items } => {
                         s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
                         for p in items {
@@ -635,6 +650,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::ProjectOpened { location, projects, session } => {
                         s.apply_project_opened(location, projects, session, tx);
+                    }
+                    Incoming::Forked { from, before, session } => {
+                        fork::applied(s, from, before, session, tx);
                     }
                     Incoming::Created(info) => {
                         let id = info.id.clone();
@@ -696,6 +714,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.poll_panels(tx);
+    changed |= status_toast::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {

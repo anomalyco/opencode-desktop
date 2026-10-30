@@ -9,3 +9,4 @@ pub mod project;
 pub mod prompt;
 pub mod pty;
 pub mod quote;
+mod session_ops;
