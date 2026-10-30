@@ -81,6 +81,15 @@ fn multi_tab_close_hides_region_when_last_tab_closes() {
     rt.frame(1.0 / 60.0);
 
     assert!(rt.state.browser.host.tabs().is_empty());
+    assert_eq!(
+        rt.state.resolve_side_region().and_then(|r| r.active).as_deref(),
+        Some("review:changes")
+    );
+    rt.key(KeyEvent {
+        key: Key::Command('w'),
+        mods: Mods { cmd: true, logo: true, ..Default::default() },
+    });
+    rt.frame(1.0 / 60.0);
     assert!(!rt.state.side_open());
 }
 

@@ -232,6 +232,12 @@ impl PanelTabDesc {
         self
     }
 
+    pub fn pinned(mut self) -> Self {
+        self.pinned = true;
+        self.closable = CloseButtonMode::None;
+        self
+    }
+
     pub fn transient(mut self) -> Self {
         self.transient = true;
         self

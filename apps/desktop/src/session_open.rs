@@ -39,6 +39,9 @@ impl App {
         if let Some(pid) = self.session(&root).and_then(|s| self.project_for_session(s)).map(|p| p.id.clone()) {
             self.touch_project(&pid);
         }
+        if self.side_open() {
+            self.review.dirty = true;
+        }
         tx.settle();
         match &self.source {
             Source::Live { requests: Some(r), .. } => {

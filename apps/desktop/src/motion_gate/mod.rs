@@ -9,6 +9,7 @@
 
 mod flights;
 mod odometers;
+mod panels;
 mod scenarios;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};

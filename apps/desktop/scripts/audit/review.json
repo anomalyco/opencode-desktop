@@ -1,0 +1,16 @@
+{
+  "scene": "session", "secs": 6.5,
+  "events": [
+    {"t": 0.2, "type": "tap", "key": "sidebar-toggle"},
+    {"t": 0.9, "type": "tap", "key": "side-toggle"},
+    {"t": 1.6, "type": "tap", "key": "review-next-file", "expect": "instant", "scope": "side-panel"},
+    {"t": 2.1, "type": "tap", "key": "review-expand-all", "expect": "instant", "scope": "side-panel"},
+    {"t": 2.6, "type": "tap", "key": "review-collapse-unchanged", "expect": "instant", "scope": "side-panel"},
+    {"t": 3.1, "type": "tap", "key": "review-style-split", "expect": "instant"},
+    {"t": 3.6, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
+    {"t": 4.1, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
+    {"t": 4.6, "type": "tap", "key": "review-style-unified", "expect": "instant"},
+    {"t": 5.1, "type": "tap", "key": "side-toggle"},
+    {"t": 6.0, "type": "move", "x": 600, "y": 400}
+  ]
+}

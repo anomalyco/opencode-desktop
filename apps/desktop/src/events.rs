@@ -99,6 +99,7 @@ impl App {
             changed |= crate::compaction::apply_config(self, ty, data);
         }
         changed |= self.apply_status(ty, data, &sid);
+        changed |= self.note_review_event(ty);
         crate::notifications::event(self, ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);

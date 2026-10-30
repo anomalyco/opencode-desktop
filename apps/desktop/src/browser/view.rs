@@ -71,6 +71,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         .clip_rounded(6.0)
         .fill(p.bg_deep)
         .border(0.5, if s.browser.address.focused { p.border } else { p.border_muted })
+        .motion(rune::Spring::NONE)
         .child(icon(&ic::GLOBE, 13.0).color(p.faint))
         .child(
             text_input(&s.browser.address, MONO_URL)

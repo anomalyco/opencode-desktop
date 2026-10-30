@@ -58,7 +58,7 @@ fn side_region_toggles_on_spring_and_launches_browser() {
     let mut rt = test_runtime();
     assert!(!rt.state.side_open());
 
-    // ⌥⌘B opens the side region on its spring, starting on the New tab launcher view.
+    // ⌥⌘B opens the side region on its spring onto the pinned Review tab; `+` opens New tab.
     rt.key(KeyEvent {
         key: Key::Command('b'),
         mods: Mods { cmd: true, alt: true, logo: true, ..Default::default() },
@@ -71,6 +71,10 @@ fn side_region_toggles_on_spring_and_launches_browser() {
     }
     let settled_w = rt.presented("side-region").map(|(r, _)| r[2]).unwrap_or(0.0);
     assert!(mid_w < settled_w && settled_w > 350.0, "expected spring travel: mid={mid_w} settled={settled_w}");
+    rt.update(|s, _| {
+        s.open_side_new_tab(super::SessionPane::Side);
+    });
+    rt.frame(1.0 / 60.0);
     assert!(rt.find("side-launch-browser-open").is_some(), "Browser launcher card shown in New tab");
 
     // ⇧⌘R (Desktop's review.toggle) closes and reopens the region.
@@ -121,9 +125,9 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
     assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active), Some(b_key.clone()));
     assert!(rt.find("browser-address").is_some());
 
-    // ⌘2 jumps straight back to the second side tab (`notes:1`).
+    // ⌘3 jumps straight back to the third side tab (`notes:1`; ⌘1 is pinned Review, ⌘2 is Browser).
     rt.key(KeyEvent {
-        key: Key::Command('2'),
+        key: Key::Command('3'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
     rt.frame(1.0 / 120.0);
@@ -134,7 +138,7 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
 
     let session_tabs_before = rt.state.tabs.len();
 
-    // First ⌘W closes `notes:1`, leaving `browser:1`.
+    // First ⌘W closes `notes:1`, leaving `browser:1` active.
     rt.key(KeyEvent {
         key: Key::Command('w'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
@@ -143,7 +147,19 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
     assert!(rt.state.side_open());
     assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active), Some(b_key));
 
-    // Second ⌘W closes the last side tab (`browser:1`), collapsing the side region and arming `emptied_guard`.
+    // Second ⌘W closes `browser:1`, falling back to pinned `review:changes`.
+    rt.key(KeyEvent {
+        key: Key::Command('w'),
+        mods: Mods { cmd: true, logo: true, ..Default::default() },
+    });
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.side_open());
+    assert_eq!(
+        rt.state.resolve_side_region().and_then(|r| r.active).as_deref(),
+        Some("review:changes")
+    );
+
+    // Third ⌘W on pinned `review:changes` collapses the side region and arms `emptied_guard`.
     rt.key(KeyEvent {
         key: Key::Command('w'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
@@ -159,8 +175,11 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.state.tabs.len(), session_tabs_before, "extra ⌘W must not close session tab");
 
-    // Reopen side region -> Recently closed lists both closed tabs; ⌘⇧T restores the newest (`http://localhost:3000/app`).
-    rt.update(|s, tx| s.toggle_side_region(tx));
+    // Reopen side region and click `+` (`New tab`) -> Recently closed lists both closed tabs; ⌘⇧T restores the newest.
+    rt.update(|s, tx| {
+        s.toggle_side_region(tx);
+        s.open_side_new_tab(super::SessionPane::Side);
+    });
     for _ in 0..40 {
         rt.frame(1.0 / 60.0);
     }

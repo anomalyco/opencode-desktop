@@ -373,6 +373,46 @@
       "focusable": false,
       "focused": false,
       "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/search/#2",
+      "rect": [
+        144.5,
+        110.0,
+        65.0,
+        0.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#808080ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "zoom/zoomed/window/sidebar/sidebar-inner/actions/search/#3",
+      "rect": [
+        215.5,
+        102.0,
+        34.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "⇧⌘F"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
       "key": "new",
       "label": "New session",
       "loopPhase": null,
@@ -7661,6 +7701,68 @@
     },
     {
       "blur": 0.0,
+      "fill": "#00000014",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "key": "side-tab-review-changes",
+      "label": "Files Changed 4",
+      "loopPhase": null,
+      "opacity": 0.5,
+      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-tabbar-side/side-tabs-side/side-tab-review-changes",
+      "rect": [
+        1290.0,
+        18.0,
+        136.5,
+        28.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#3a3a3aff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "loopPhase": null,
+      "opacity": 0.5,
+      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-tabbar-side/side-tabs-side/side-tab-review-changes/#0",
+      "rect": [
+        1298.0,
+        25.0,
+        14.0,
+        14.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#161616ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": true,
+      "loopPhase": null,
+      "opacity": 0.5,
+      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-tabbar-side/side-tabs-side/side-tab-review-changes/#1",
+      "rect": [
+        1318.0,
+        24.0,
+        100.5,
+        16.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Files Changed 4"
+    },
+    {
+      "blur": 0.0,
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
@@ -7672,7 +7774,7 @@
       "opacity": 0.5,
       "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-tabbar-side/side-tabs-side/side-add-side",
       "rect": [
-        1290.0,
+        1430.5,
         18.0,
         28.0,
         28.0
@@ -7692,7 +7794,7 @@
       "opacity": 0.5,
       "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-tabbar-side/side-tabs-side/side-add-side/#0",
       "rect": [
-        1297.0,
+        1437.5,
         25.0,
         14.0,
         14.0
@@ -7746,10 +7848,10 @@
       "focusable": false,
       "focused": false,
       "inert": true,
-      "key": "side-empty",
+      "key": "panel-review:changes",
       "loopPhase": null,
       "opacity": 0.5,
-      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-empty",
+      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/panel-review:changes",
       "rect": [
         1280.0,
         56.5,
@@ -7761,24 +7863,23 @@
     },
     {
       "blur": 0.0,
-      "color": "#808080ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": true,
+      "key": "review-idle",
       "loopPhase": null,
       "opacity": 0.5,
-      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/side-empty/#0",
+      "path": "zoom/zoomed/window/side-region/side-column/side-panel/side-body/pane-side/panel-review:changes/review-idle",
       "rect": [
-        1435.0,
-        426.25,
-        150.0,
-        16.0
+        1280.0,
+        56.5,
+        460.0,
+        755.5
       ],
-      "role": "text",
-      "scale": 1.0,
-      "text": "Open a tab with + or ⌘T"
+      "role": "group",
+      "scale": 1.0
     },
     {
       "blur": 0.0,

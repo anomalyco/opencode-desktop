@@ -261,7 +261,11 @@ impl Server {
     /// The bytes behind a `media:<hash>` ref (`GET /api/experimental/media/:hash`). They never
     /// change, so callers cache them by hash; a 404 means nothing references them anymore.
     pub fn media(&self, hash: &str) -> Result<Vec<u8>, String> {
-        let path = format!("/api/experimental/media/{hash}");
+        self.get_bytes(&format!("/api/experimental/media/{hash}"))
+    }
+
+    /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
+    pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
         let mut req = Self::agent(Some(Duration::from_secs(60))).get(format!("{}{path}", self.base));
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);

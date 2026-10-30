@@ -222,6 +222,15 @@ impl App {
                 return true;
             }
             if let Some(act_key) = pane_act {
+                let is_pinned = self
+                    .resolve_side_region()
+                    .and_then(|r| r.entry(&act_key).map(|e| e.tab.pinned))
+                    .unwrap_or(false);
+                if is_pinned && pane != SessionPane::Bottom {
+                    self.toggle_side_region(tx);
+                    self.side.emptied_guard = true;
+                    return true;
+                }
                 self.close_side_tab(&act_key, tx);
                 if !self.side_open() && pane != SessionPane::Bottom {
                     self.side.emptied_guard = true;

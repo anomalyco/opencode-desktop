@@ -315,7 +315,6 @@ impl App {
         let providers = self.all_panels();
         let mut entries = Vec::new();
         let mut launchers = Vec::new();
-        let mut wide = false;
 
         for p in providers {
             let prefix = format!("{}:", p.plugin);
@@ -338,9 +337,6 @@ impl App {
             }
             if p.region != PanelRegion::Side {
                 continue;
-            }
-            if (p.wide)(self) {
-                wide = true;
             }
             for tab in (p.list)(self, &ctx) {
                 let key = panel_key(p.plugin, &tab.id);
@@ -397,6 +393,10 @@ impl App {
             .as_deref()
             .and_then(|k| strip.iter().find(|e| e.key == k))
             .map_or(SessionPane::Side, |e| e.pane);
+        let wide = active
+            .as_deref()
+            .and_then(|k| strip.iter().find(|e| e.key == k))
+            .is_some_and(|e| (e.provider.wide)(self));
 
         Some(ResolvedRegion {
             session_id,
@@ -603,6 +603,12 @@ impl App {
         // Switching tabs is always instant (rules.md).
         tx.instant();
         self.side.tab_menu = None;
+        if !key.starts_with("browser:") {
+            self.browser.address.focused = false;
+        }
+        if key != crate::review::REVIEW_KEY {
+            self.review.filter.focused = false;
+        }
         let pane = {
             let st = self.session_side_mut(&sid);
             let p = session_tab_pane(&st.tab_state.tabs, key);

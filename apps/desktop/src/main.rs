@@ -18,6 +18,7 @@ mod background;
 mod background_stories;
 mod browser;
 mod capsule_stories;
+pub mod code_view;
 mod compaction;
 mod compaction_stories;
 mod diagnostics;
@@ -81,6 +82,7 @@ mod quote;
 mod quote_cards;
 mod quote_stories;
 mod restore;
+mod review;
 #[cfg(test)]
 mod revert;
 mod scenes;
@@ -249,6 +251,7 @@ pub struct App {
     pub icons: project_icon::Icons,
     pub side: panels::SideState,
     pub browser: browser::BrowserPane,
+    pub review: review::ReviewPane,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
@@ -700,6 +703,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.switcher.set_waker(waker.clone());
     s.home_search.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
+    s.review.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker);
     if !s.playback.is_empty() {

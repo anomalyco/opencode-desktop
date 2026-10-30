@@ -1,32 +1,134 @@
 {
  "now": 1792659400000,
- "agents": ["build", "plan"],
+ "agents": [
+  "build",
+  "plan"
+ ],
  "agent_list": [
-  {"id": "build", "name": "build", "mode": "primary", "description": "The default agent."},
-  {"id": "general", "name": "general", "mode": "subagent", "description": "General-purpose agent for multi-step tasks."},
-  {"id": "explore", "name": "explore", "mode": "subagent", "description": "Fast agent for exploring codebases."},
-  {"id": "title", "name": "title", "mode": "primary", "hidden": true}
+  {
+   "id": "build",
+   "name": "build",
+   "mode": "primary",
+   "description": "The default agent."
+  },
+  {
+   "id": "general",
+   "name": "general",
+   "mode": "subagent",
+   "description": "General-purpose agent for multi-step tasks."
+  },
+  {
+   "id": "explore",
+   "name": "explore",
+   "mode": "subagent",
+   "description": "Fast agent for exploring codebases."
+  },
+  {
+   "id": "title",
+   "name": "title",
+   "mode": "primary",
+   "hidden": true
+  }
  ],
  "files": [
-  {"path": "src/stream/reconnect.rs", "type": "file"},
-  {"path": "src/stream/mod.rs", "type": "file"},
-  {"path": "src/stream/", "type": "directory"},
-  {"path": "src/sidebar/titles.rs", "type": "file"},
-  {"path": "docs/design notes.md", "type": "file"},
-  {"path": "Cargo.toml", "type": "file"}
+  {
+   "path": "src/stream/reconnect.rs",
+   "type": "file"
+  },
+  {
+   "path": "src/stream/mod.rs",
+   "type": "file"
+  },
+  {
+   "path": "src/stream/",
+   "type": "directory"
+  },
+  {
+   "path": "src/sidebar/titles.rs",
+   "type": "file"
+  },
+  {
+   "path": "docs/design notes.md",
+   "type": "file"
+  },
+  {
+   "path": "Cargo.toml",
+   "type": "file"
+  }
  ],
  "commands": [
-  {"name": "init", "description": "guided AGENTS.md setup"},
-  {"name": "review", "description": "review changes [commit|branch|pr], defaults to uncommitted"}
+  {
+   "name": "init",
+   "description": "guided AGENTS.md setup"
+  },
+  {
+   "name": "review",
+   "description": "review changes [commit|branch|pr], defaults to uncommitted"
+  }
  ],
  "skills": [
-  {"id": "opencode", "name": "OpenCode", "description": "Questions about OpenCode itself."}
+  {
+   "id": "opencode",
+   "name": "OpenCode",
+   "description": "Questions about OpenCode itself."
+  }
  ],
  "models": [
-  {"id": "claude-opus-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Opus 5.5", "variants": ["low", "medium", "high"], "limit": {"context": 1000000}},
-  {"id": "claude-sonnet-5-5", "provider": "anthropic", "group": "Anthropic", "name": "Claude Sonnet 5.5", "variants": ["low", "medium", "high"], "limit": {"context": 1000000}},
-  {"id": "gpt-6-astra", "provider": "openai", "group": "OpenAI", "name": "GPT-6 Astra", "variants": ["low", "medium", "high"], "limit": {"context": 400000}},
-  {"id": "gemini-4-argon", "provider": "google", "group": "Google", "name": "Gemini 4 Argon", "variants": ["low", "high"], "limit": {"context": 1048576}}
+  {
+   "id": "claude-opus-5-5",
+   "provider": "anthropic",
+   "group": "Anthropic",
+   "name": "Claude Opus 5.5",
+   "variants": [
+    "low",
+    "medium",
+    "high"
+   ],
+   "limit": {
+    "context": 1000000
+   }
+  },
+  {
+   "id": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "group": "Anthropic",
+   "name": "Claude Sonnet 5.5",
+   "variants": [
+    "low",
+    "medium",
+    "high"
+   ],
+   "limit": {
+    "context": 1000000
+   }
+  },
+  {
+   "id": "gpt-6-astra",
+   "provider": "openai",
+   "group": "OpenAI",
+   "name": "GPT-6 Astra",
+   "variants": [
+    "low",
+    "medium",
+    "high"
+   ],
+   "limit": {
+    "context": 400000
+   }
+  },
+  {
+   "id": "gemini-4-argon",
+   "provider": "google",
+   "group": "Google",
+   "name": "Gemini 4 Argon",
+   "variants": [
+    "low",
+    "high"
+   ],
+   "limit": {
+    "context": 1048576
+   }
+  }
  ],
  "projects": [
   {
@@ -2247,8 +2349,39 @@
      "name": "question",
      "input": {
       "questions": [
-       {"header": "Location", "question": "Where should the test live?", "options": [{"label": "Next to backoff.ts (Recommended)", "description": ""}, {"label": "In test/net/", "description": ""}]},
-       {"header": "Cases", "question": "Which other cases should it cover?", "multiple": true, "options": [{"label": "Cap at 30 s", "description": ""}, {"label": "Jitter stays in range", "description": ""}, {"label": "Two drops in a row", "description": ""}]}
+       {
+        "header": "Location",
+        "question": "Where should the test live?",
+        "options": [
+         {
+          "label": "Next to backoff.ts (Recommended)",
+          "description": ""
+         },
+         {
+          "label": "In test/net/",
+          "description": ""
+         }
+        ]
+       },
+       {
+        "header": "Cases",
+        "question": "Which other cases should it cover?",
+        "multiple": true,
+        "options": [
+         {
+          "label": "Cap at 30 s",
+          "description": ""
+         },
+         {
+          "label": "Jitter stays in range",
+          "description": ""
+         },
+         {
+          "label": "Two drops in a row",
+          "description": ""
+         }
+        ]
+       }
       ]
      },
      "executed": true
@@ -2261,8 +2394,23 @@
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
      "assistantMessageID": "msg_001a162cb6dbc013fixture00",
      "id": "call_question_reply",
-     "content": [{"type": "text", "text": "\u2026"}],
-     "metadata": {"answers": [["Next to backoff.ts (Recommended)"], ["Cap at 30 s", "Jitter stays in range"]]},
+     "content": [
+      {
+       "type": "text",
+       "text": "\u2026"
+      }
+     ],
+     "metadata": {
+      "answers": [
+       [
+        "Next to backoff.ts (Recommended)"
+       ],
+       [
+        "Cap at 30 s",
+        "Jitter stays in range"
+       ]
+      ]
+     },
      "executed": true
     }
    },
@@ -2603,9 +2751,21 @@
     "description": "How should the backoff test control time?",
     "custom": true,
     "options": [
-     {"value": "Fake clock", "label": "Fake clock", "description": "Inject a clock into the reconnect loop and step it by hand."},
-     {"value": "Real timers", "label": "Real timers", "description": "Shrink the delays to milliseconds and wait for them."},
-     {"value": "Only the math", "label": "Only the math", "description": "Test the delay sequence as a pure function."}
+     {
+      "value": "Fake clock",
+      "label": "Fake clock",
+      "description": "Inject a clock into the reconnect loop and step it by hand."
+     },
+     {
+      "value": "Real timers",
+      "label": "Real timers",
+      "description": "Shrink the delays to milliseconds and wait for them."
+     },
+     {
+      "value": "Only the math",
+      "label": "Only the math",
+      "description": "Test the delay sequence as a pure function."
+     }
     ]
    },
    {
@@ -2615,11 +2775,106 @@
     "description": "Which cases should it cover?",
     "custom": true,
     "options": [
-     {"value": "Reset after success", "label": "Reset after success"},
-     {"value": "Cap at 30 s", "label": "Cap at 30 s"},
-     {"value": "Jitter stays in range", "label": "Jitter stays in range"}
+     {
+      "value": "Reset after success",
+      "label": "Reset after success"
+     },
+     {
+      "value": "Cap at 30 s",
+      "label": "Cap at 30 s"
+     },
+     {
+      "value": "Jitter stays in range",
+      "label": "Jitter stays in range"
+     }
     ]
    }
   ]
+ },
+ "vcs": {
+  "provider": "git",
+  "branch": {
+   "current": "fix/reconnect-watchdog",
+   "default": "main"
+  }
+ },
+ "diffs": {
+  "git": [
+   {
+    "file": "src/net/stream.ts",
+    "status": "modified",
+    "additions": 13,
+    "deletions": 1,
+    "patch": "diff --git a/src/net/stream.ts b/src/net/stream.ts\n--- a/src/net/stream.ts\n+++ b/src/net/stream.ts\n@@ -1,6 +1,8 @@\n import type { EventStream } from \"./types\"\n import { Backoff } from \"./backoff\"\n \n+const QUIET_MS = 25_000\n+\n export interface StreamOptions {\n   url: string\n   backoff?: Backoff\n@@ -9,8 +11,21 @@ export interface StreamOptions {\n }\n \n export function watchdog(stream: EventStream, reconnect: () => void) {\n-  stream.on(\"error\", () => {\n+  let timer = setTimeout(fire, QUIET_MS)\n+  function fire() {\n     stream.close()\n     reconnect()\n+  }\n+  const reset = () => {\n+    clearTimeout(timer)\n+    timer = setTimeout(fire, QUIET_MS)\n+  }\n+  stream.on(\"message\", reset)\n+  document.addEventListener(\"visibilitychange\", () => {\n+    if (document.visibilityState === \"visible\") reset()\n   })\n+  return () => clearTimeout(timer)\n }\n"
+   },
+   {
+    "file": "src/net/backoff.ts",
+    "status": "modified",
+    "additions": 17,
+    "deletions": 2,
+    "patch": "diff --git a/src/net/backoff.ts b/src/net/backoff.ts\n--- a/src/net/backoff.ts\n+++ b/src/net/backoff.ts\n@@ -1,19 +1,32 @@\n+const HEALTHY_MS = 60_000\n+\n export interface BackoffConfig {\n   base: number\n   cap: number\n+  clock?: () => number\n }\n \n export class Backoff {\n   private attempts = 0\n+  private healthySince: number | null = null\n+  private readonly now: () => number\n \n-  constructor(private readonly cfg: BackoffConfig) {}\n+  constructor(private readonly cfg: BackoffConfig) {\n+    this.now = cfg.clock ?? Date.now\n+  }\n \n   message() {\n-    this.attempts = 0\n+    const t = this.now()\n+    if (this.healthySince === null) {\n+      this.healthySince = t\n+      return\n+    }\n+    if (t - this.healthySince >= HEALTHY_MS) {\n+      this.attempts = 0\n+    }\n   }\n \n   fail(): number {\n+    this.healthySince = null\n     const delay = Math.min(this.cfg.cap, this.cfg.base * 2 ** this.attempts)\n     this.attempts += 1\n     return delay\n"
+   },
+   {
+    "file": "src/net/backoff.test.ts",
+    "status": "added",
+    "additions": 24,
+    "deletions": 0,
+    "patch": "diff --git a/src/net/backoff.test.ts b/src/net/backoff.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/net/backoff.test.ts\n@@ -0,0 +1,24 @@\n+import { expect, test } from \"bun:test\"\n+import { Backoff } from \"./backoff\"\n+\n+test(\"flapping server keeps backing off\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  const delays = [1, 2, 3, 4].map(() => {\n+    b.message()\n+    now += 200\n+    return b.fail()\n+  })\n+  expect(delays).toEqual([1000, 2000, 4000, 8000])\n+})\n+\n+test(\"healthy minute resets retry delay\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  expect(b.fail()).toBe(1000)\n+  expect(b.fail()).toBe(2000)\n+  b.message()\n+  now += 61_000\n+  b.message()\n+  expect(b.fail()).toBe(1000)\n+})\n"
+   },
+   {
+    "file": "src/sidebar/store.ts",
+    "status": "modified",
+    "additions": 14,
+    "deletions": 3,
+    "patch": "diff --git a/src/sidebar/store.ts b/src/sidebar/store.ts\n--- a/src/sidebar/store.ts\n+++ b/src/sidebar/store.ts\n@@ -1,14 +1,27 @@\n import type { SessionSummary } from \"../types\"\n \n export function createSidebarStore() {\n+  let loaded = false\n+  const pending: Array<{ sessionID: string; title?: string }> = []\n   const items = new Map<string, SessionSummary>()\n \n+  function applyUpdate(ev: { sessionID: string; title?: string }) {\n+    const cur = items.get(ev.sessionID)\n+    if (cur && ev.title) {\n+      items.set(ev.sessionID, { ...cur, title: ev.title })\n+    }\n+  }\n+\n   return {\n     hydrate(list: SessionSummary[]) {\n       for (const s of list) items.set(s.id, s)\n+      loaded = true\n+      for (const ev of pending.splice(0)) applyUpdate(ev)\n     },\n     onEvent(ty: string, ev: { sessionID: string; title?: string }) {\n-      if (ty === \"session.updated\") {\n-        const cur = items.get(ev.sessionID)\n-        if (cur && ev.title) items.set(ev.sessionID, { ...cur, title: ev.title })\n+      if (ty === \"session.updated\" || ty === \"session.renamed\") {\n+        if (!loaded) pending.push(ev)\n+        else applyUpdate(ev)\n       }\n     },\n   }\n"
+   }
+  ],
+  "branch": [
+   {
+    "file": "src/net/stream.ts",
+    "status": "modified",
+    "additions": 13,
+    "deletions": 1,
+    "patch": "diff --git a/src/net/stream.ts b/src/net/stream.ts\n--- a/src/net/stream.ts\n+++ b/src/net/stream.ts\n@@ -1,6 +1,8 @@\n import type { EventStream } from \"./types\"\n import { Backoff } from \"./backoff\"\n \n+const QUIET_MS = 25_000\n+\n export interface StreamOptions {\n   url: string\n   backoff?: Backoff\n@@ -9,8 +11,21 @@ export interface StreamOptions {\n }\n \n export function watchdog(stream: EventStream, reconnect: () => void) {\n-  stream.on(\"error\", () => {\n+  let timer = setTimeout(fire, QUIET_MS)\n+  function fire() {\n     stream.close()\n     reconnect()\n+  }\n+  const reset = () => {\n+    clearTimeout(timer)\n+    timer = setTimeout(fire, QUIET_MS)\n+  }\n+  stream.on(\"message\", reset)\n+  document.addEventListener(\"visibilitychange\", () => {\n+    if (document.visibilityState === \"visible\") reset()\n   })\n+  return () => clearTimeout(timer)\n }\n"
+   },
+   {
+    "file": "src/net/backoff.ts",
+    "status": "modified",
+    "additions": 17,
+    "deletions": 2,
+    "patch": "diff --git a/src/net/backoff.ts b/src/net/backoff.ts\n--- a/src/net/backoff.ts\n+++ b/src/net/backoff.ts\n@@ -1,19 +1,32 @@\n+const HEALTHY_MS = 60_000\n+\n export interface BackoffConfig {\n   base: number\n   cap: number\n+  clock?: () => number\n }\n \n export class Backoff {\n   private attempts = 0\n+  private healthySince: number | null = null\n+  private readonly now: () => number\n \n-  constructor(private readonly cfg: BackoffConfig) {}\n+  constructor(private readonly cfg: BackoffConfig) {\n+    this.now = cfg.clock ?? Date.now\n+  }\n \n   message() {\n-    this.attempts = 0\n+    const t = this.now()\n+    if (this.healthySince === null) {\n+      this.healthySince = t\n+      return\n+    }\n+    if (t - this.healthySince >= HEALTHY_MS) {\n+      this.attempts = 0\n+    }\n   }\n \n   fail(): number {\n+    this.healthySince = null\n     const delay = Math.min(this.cfg.cap, this.cfg.base * 2 ** this.attempts)\n     this.attempts += 1\n     return delay\n"
+   },
+   {
+    "file": "src/net/backoff.test.ts",
+    "status": "added",
+    "additions": 24,
+    "deletions": 0,
+    "patch": "diff --git a/src/net/backoff.test.ts b/src/net/backoff.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/net/backoff.test.ts\n@@ -0,0 +1,24 @@\n+import { expect, test } from \"bun:test\"\n+import { Backoff } from \"./backoff\"\n+\n+test(\"flapping server keeps backing off\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  const delays = [1, 2, 3, 4].map(() => {\n+    b.message()\n+    now += 200\n+    return b.fail()\n+  })\n+  expect(delays).toEqual([1000, 2000, 4000, 8000])\n+})\n+\n+test(\"healthy minute resets retry delay\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  expect(b.fail()).toBe(1000)\n+  expect(b.fail()).toBe(2000)\n+  b.message()\n+  now += 61_000\n+  b.message()\n+  expect(b.fail()).toBe(1000)\n+})\n"
+   },
+   {
+    "file": "src/sidebar/store.ts",
+    "status": "modified",
+    "additions": 14,
+    "deletions": 3,
+    "patch": "diff --git a/src/sidebar/store.ts b/src/sidebar/store.ts\n--- a/src/sidebar/store.ts\n+++ b/src/sidebar/store.ts\n@@ -1,14 +1,27 @@\n import type { SessionSummary } from \"../types\"\n \n export function createSidebarStore() {\n+  let loaded = false\n+  const pending: Array<{ sessionID: string; title?: string }> = []\n   const items = new Map<string, SessionSummary>()\n \n+  function applyUpdate(ev: { sessionID: string; title?: string }) {\n+    const cur = items.get(ev.sessionID)\n+    if (cur && ev.title) {\n+      items.set(ev.sessionID, { ...cur, title: ev.title })\n+    }\n+  }\n+\n   return {\n     hydrate(list: SessionSummary[]) {\n       for (const s of list) items.set(s.id, s)\n+      loaded = true\n+      for (const ev of pending.splice(0)) applyUpdate(ev)\n     },\n     onEvent(ty: string, ev: { sessionID: string; title?: string }) {\n-      if (ty === \"session.updated\") {\n-        const cur = items.get(ev.sessionID)\n-        if (cur && ev.title) items.set(ev.sessionID, { ...cur, title: ev.title })\n+      if (ty === \"session.updated\" || ty === \"session.renamed\") {\n+        if (!loaded) pending.push(ev)\n+        else applyUpdate(ev)\n       }\n     },\n   }\n"
+   }
+  ],
+  "turn": [
+   {
+    "file": "src/net/backoff.test.ts",
+    "status": "added",
+    "additions": 24,
+    "deletions": 0,
+    "patch": "diff --git a/src/net/backoff.test.ts b/src/net/backoff.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/net/backoff.test.ts\n@@ -0,0 +1,24 @@\n+import { expect, test } from \"bun:test\"\n+import { Backoff } from \"./backoff\"\n+\n+test(\"flapping server keeps backing off\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  const delays = [1, 2, 3, 4].map(() => {\n+    b.message()\n+    now += 200\n+    return b.fail()\n+  })\n+  expect(delays).toEqual([1000, 2000, 4000, 8000])\n+})\n+\n+test(\"healthy minute resets retry delay\", () => {\n+  let now = 0\n+  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n+  expect(b.fail()).toBe(1000)\n+  expect(b.fail()).toBe(2000)\n+  b.message()\n+  now += 61_000\n+  b.message()\n+  expect(b.fail()).toBe(1000)\n+})\n"
+   }
+  ]
+ },
+ "file_contents": {
+  "src/net/stream.ts": "import type { EventStream } from \"./types\"\nimport { Backoff } from \"./backoff\"\n\nconst QUIET_MS = 25_000\n\nexport interface StreamOptions {\n  url: string\n  backoff?: Backoff\n  onEvent: (ty: string, payload: unknown) => void\n}\n\nexport function watchdog(stream: EventStream, reconnect: () => void) {\n  let timer = setTimeout(fire, QUIET_MS)\n  function fire() {\n    stream.close()\n    reconnect()\n  }\n  const reset = () => {\n    clearTimeout(timer)\n    timer = setTimeout(fire, QUIET_MS)\n  }\n  stream.on(\"message\", reset)\n  document.addEventListener(\"visibilitychange\", () => {\n    if (document.visibilityState === \"visible\") reset()\n  })\n  return () => clearTimeout(timer)\n}\n\nexport function connectStream(opts: StreamOptions) {\n  const backoff = opts.backoff ?? new Backoff({ base: 1_000, cap: 30_000 })\n  let active: EventStream | undefined\n  function open() {\n    active?.close()\n    const s = createEventStream(opts.url)\n    active = s\n    watchdog(s, () => setTimeout(open, backoff.fail()))\n    s.on(\"message\", (ev) => {\n      backoff.message()\n      opts.onEvent(ev.type, ev.data)\n    })\n  }\n  open()\n}\n",
+  "src/net/backoff.ts": "const HEALTHY_MS = 60_000\n\nexport interface BackoffConfig {\n  base: number\n  cap: number\n  clock?: () => number\n}\n\nexport class Backoff {\n  private attempts = 0\n  private healthySince: number | null = null\n  private readonly now: () => number\n\n  constructor(private readonly cfg: BackoffConfig) {\n    this.now = cfg.clock ?? Date.now\n  }\n\n  message() {\n    const t = this.now()\n    if (this.healthySince === null) {\n      this.healthySince = t\n      return\n    }\n    if (t - this.healthySince >= HEALTHY_MS) {\n      this.attempts = 0\n    }\n  }\n\n  fail(): number {\n    this.healthySince = null\n    const delay = Math.min(this.cfg.cap, this.cfg.base * 2 ** this.attempts)\n    this.attempts += 1\n    return delay\n  }\n}\n",
+  "src/net/backoff.test.ts": "import { expect, test } from \"bun:test\"\nimport { Backoff } from \"./backoff\"\n\ntest(\"flapping server keeps backing off\", () => {\n  let now = 0\n  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n  const delays = [1, 2, 3, 4].map(() => {\n    b.message()\n    now += 200\n    return b.fail()\n  })\n  expect(delays).toEqual([1000, 2000, 4000, 8000])\n})\n\ntest(\"healthy minute resets retry delay\", () => {\n  let now = 0\n  const b = new Backoff({ base: 1000, cap: 30_000, clock: () => now })\n  expect(b.fail()).toBe(1000)\n  expect(b.fail()).toBe(2000)\n  b.message()\n  now += 61_000\n  b.message()\n  expect(b.fail()).toBe(1000)\n})\n",
+  "src/sidebar/store.ts": "import type { SessionSummary } from \"../types\"\n\nexport function createSidebarStore() {\n  let loaded = false\n  const pending: Array<{ sessionID: string; title?: string }> = []\n  const items = new Map<string, SessionSummary>()\n\n  function applyUpdate(ev: { sessionID: string; title?: string }) {\n    const cur = items.get(ev.sessionID)\n    if (cur && ev.title) {\n      items.set(ev.sessionID, { ...cur, title: ev.title })\n    }\n  }\n\n  return {\n    hydrate(list: SessionSummary[]) {\n      for (const s of list) items.set(s.id, s)\n      loaded = true\n      for (const ev of pending.splice(0)) applyUpdate(ev)\n    },\n    onEvent(ty: string, ev: { sessionID: string; title?: string }) {\n      if (ty === \"session.updated\" || ty === \"session.renamed\") {\n        if (!loaded) pending.push(ev)\n        else applyUpdate(ev)\n      }\n    },\n  }\n}\n",
+  "src/stream/reconnect.rs": "pub struct Watchdog {\n    pub quiet_ms: u64,\n}\n\nimpl Watchdog {\n    pub fn new(quiet_ms: u64) -> Self {\n        Self { quiet_ms }\n    }\n}\n",
+  "Cargo.toml": "[package]\nname = \"lumen\"\nversion = \"0.4.0\"\nedition = \"2024\"\n"
  }
 }

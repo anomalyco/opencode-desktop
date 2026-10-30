@@ -1,15 +1,16 @@
 {
-  "scene": "session", "secs": 7.0,
+  "scene": "session", "secs": 7.5,
   "events": [
     {"t": 0.2, "type": "tap", "key": "sidebar-toggle"},
     {"t": 1.0, "type": "tap", "key": "side-toggle"},
-    {"t": 1.8, "type": "tap", "key": "side-launch-browser-open", "expect": "instant", "scope": "side-panel"},
-    {"t": 2.3, "type": "move", "key": "side-resize"},
+    {"t": 1.8, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
+    {"t": 2.3, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
     {"t": 2.8, "type": "drag", "key": "side-resize", "dx": -60, "dur": 0.5, "expect": "follow", "element": "side-resize"},
     {"t": 3.6, "type": "drag", "key": "side-resize", "dx": 80, "dur": 0.5, "expect": "follow", "element": "side-resize"},
     {"t": 4.4, "type": "tap", "key": "side-add-side", "expect": "instant", "scope": "side-panel"},
-    {"t": 4.9, "type": "tap", "key": "side-tab-browser-1", "expect": "instant", "scope": "side-panel"},
-    {"t": 5.5, "type": "tap", "key": "side-toggle"},
-    {"t": 6.5, "type": "move", "x": 600, "y": 400}
+    {"t": 4.9, "type": "tap", "key": "side-launch-browser-open", "expect": "instant", "scope": "side-panel"},
+    {"t": 5.4, "type": "tap", "key": "side-tab-review-changes", "expect": "instant", "scope": "side-panel"},
+    {"t": 6.0, "type": "tap", "key": "side-toggle"},
+    {"t": 7.0, "type": "move", "x": 600, "y": 400}
   ]
 }
