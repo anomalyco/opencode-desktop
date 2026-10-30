@@ -43,6 +43,9 @@ mod history;
 mod history_story;
 #[cfg(test)]
 mod history_tests;
+mod home_search;
+#[cfg(test)]
+mod home_search_tests;
 mod icons;
 mod jump;
 mod keys;
@@ -193,6 +196,7 @@ pub struct App {
     pub quote: quote::Quotes,
     pub find: find::Find,
     pub search: TextEdit,
+    pub home_search: home_search::HomeSearch,
     /// Session menus, the title being renamed and Delete's confirmation.
     pub menus: session_menu::Menus,
     pub pickers: pickers::Pickers,
@@ -672,6 +676,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= disclosure::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s, tx);
+    changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands();
@@ -693,6 +698,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.icons.set_waker(waker.clone());
     s.mentions.set_waker(waker.clone());
     s.switcher.set_waker(waker.clone());
+    s.home_search.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker);

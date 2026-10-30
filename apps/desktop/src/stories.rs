@@ -159,6 +159,7 @@ const ORDER: &[&str] = &[
     "Question dock/Morph",
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
+    "Home/Session search",
     "Components/Odometer",
     "Header/Session header",
     "Header/Ticking",
@@ -223,6 +224,8 @@ pub fn playground() -> Playground<App> {
                     || s.question_takes_text()
                     || s.browser.address.focused
                     || s.project_switcher.search.focused
+                    || s.search.focused
+                    || s.switcher.search.focused
                     || s.find_focused())
         })
         .folds(load_folds, save_folds);

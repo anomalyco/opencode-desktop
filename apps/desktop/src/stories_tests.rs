@@ -222,6 +222,7 @@ const STORY_PATHS: &[&str] = &[
     "Question dock/Morph",
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
+    "Home/Session search",
     "Components/Odometer",
     "Header/Session header",
     "Header/Ticking",

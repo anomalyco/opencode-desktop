@@ -26,7 +26,8 @@ pub fn data_list(v: &Value) -> impl Iterator<Item = &Value> {
 pub fn upsert_sessions(into: &mut Vec<SessionInfo>, incoming: Vec<SessionInfo>) {
     for s in incoming {
         match into.iter_mut().find(|x| x.id == s.id) {
-            Some(old) => *old = s,
+            Some(old) if s.updated >= old.updated => *old = s,
+            Some(_) => {}
             None => into.push(s),
         }
     }

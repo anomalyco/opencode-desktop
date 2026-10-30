@@ -14,6 +14,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 tx.settle();
             } else {
                 s.go_home(tx);
+                s.focus_home_search(tx);
             }
             true
         }

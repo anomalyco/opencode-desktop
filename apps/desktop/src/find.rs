@@ -16,7 +16,6 @@ use rune_kit::markdown::{self, Case};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
-use crate::turns;
 use crate::view::{INSTANT, UI};
 use crate::{App, Route};
 
@@ -34,10 +33,10 @@ enum CenterPlan {
 }
 
 thread_local! {
-    /// Row keys `El::virtual_rows` mounted in the last commit, the timeline viewport height,
+    /// Row keys `El::virtual_rows` mounted in the last commit, the timeline viewport size,
     /// and the centred scroll target measured when `pending` is armed.
     static MOUNTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    static VIEWPORT_H: std::cell::Cell<f32> = const { std::cell::Cell::new(600.0) };
+    static VIEWPORT_SIZE: std::cell::Cell<[f32; 2]> = const { std::cell::Cell::new([800.0, 600.0]) };
     static MEASURED_CENTER: std::cell::Cell<Option<CenterPlan>> = const { std::cell::Cell::new(None) };
 }
 
@@ -54,6 +53,7 @@ struct Hit {
     row_key: String,
     local: usize,
     start_byte: usize,
+    end_byte: usize,
 }
 
 #[derive(Clone, Default)]
@@ -158,10 +158,10 @@ impl Find {
     }
 
     pub(crate) fn clear_mounted(&self, scroll_key: &str) {
-        if let Some([_, h]) = rune::memo::layout_size(scroll_key) {
-            VIEWPORT_H.set(h);
-        }
         if self.open {
+            if let Some(sz) = rune::memo::layout_size(scroll_key) {
+                VIEWPORT_SIZE.set(sz);
+            }
             MOUNTED.with_borrow_mut(HashSet::clear);
         }
     }
@@ -335,29 +335,68 @@ impl App {
         }
     }
 
+    /// Opens a folded long user prompt when `hit` falls in or past its 40 pt fading region
+    /// (`search-controller.ts`: `rect.bottom > fold.bottom - FOLD_FADE`).
+    fn unfold_if_hidden(&mut self, sid: &str, hit: &Hit) -> bool {
+        if !self.settings.fold_user {
+            return false;
+        }
+        let Some(id) = hit.row_key.strip_prefix("u-") else { return false };
+        let fold_key = crate::fold::key(id);
+        if self.expanded.contains(&fold_key) {
+            return false;
+        }
+        let Some(body) = self.transcripts.get(sid).and_then(|t| {
+            t.messages.iter().find_map(|m| match m {
+                Message::User { id: mid, text } if mid == id => Some(text.clone()),
+                _ => None,
+            })
+        }) else {
+            return false;
+        };
+        let shown = self.bubble_text(id, &body);
+        let quotes = !opencode_kit::model::user_quotes(id).is_empty() && !body.trim().is_empty();
+        let [vw, _] = VIEWPORT_SIZE.get();
+        let wrap_w = crate::fold::text_width(vw / self.zoom.max(1e-3), quotes);
+        if crate::fold::lines(&shown, wrap_w) <= crate::fold::OVER {
+            return false;
+        }
+        let end = shown.ceil_char_boundary(hit.end_byte.min(shown.len()));
+        let prefix = &shown[..end];
+        let (_, measured_h) = rune::text::measure(prefix, &[], crate::view::BUBBLE, Some(wrap_w.max(1.0)));
+        let hard_h = prefix.split('\n').count() as f32 * crate::view::BUBBLE.line_px();
+        let clear = crate::fold::SHOW as f32 * crate::view::BUBBLE.line_px() - 40.0;
+        if measured_h.max(hard_h) <= clear {
+            return false;
+        }
+        self.expanded.insert(fold_key);
+        true
+    }
+
     fn seek_active(&mut self, glide: bool, tx: &mut Tx) {
-        let Route::Session(sid) = &self.route else { return };
+        let Route::Session(sid) = self.route.clone() else { return };
         let idx = self.find.active_index();
         let Some(hit) = self.find.matches.get(idx).cloned() else { return };
-        let first_key = self.transcripts.get(sid).and_then(|t| first_row_key(t)).unwrap_or_default();
+        let unfolded = self.unfold_if_hidden(&sid, &hit);
+        let first_key = self.transcripts.get(&sid).and_then(first_row_key).unwrap_or_default();
         let mounted = MOUNTED.with_borrow(|m| m.contains(&hit.row_key));
         let scroll_key = format!("scroll-{sid}");
-        let vh = VIEWPORT_H.get().max(120.0);
-        if !mounted {
-            // Unmounted virtual row: mount and centre in this commit when near the row's top,
-            // and refine on the next tick when the match sits deeper inside a long reply.
+        let [_, vh] = VIEWPORT_SIZE.get();
+        let vh = vh.max(120.0);
+        if !mounted || unfolded {
+            // Unmounted virtual row or newly-unfolded prompt: reveal at once, and refine once laid out.
             tx.instant();
             tx.scroll_into_view_in(&scroll_key, &hit.row_key);
             tx.scroll_into_view_in(&scroll_key, ACTIVE_KEY);
-            if hit.start_byte < 240 {
+            if !unfolded && hit.start_byte < 240 {
                 tx.scroll_key_to(&hit.row_key, (vh * 0.5 - 22.0).max(0.0));
                 self.find.pending = None;
             } else {
-                self.find.pending = Some(PendingSeek { session: sid.clone(), row_key: hit.row_key, first_key, glide: false, wait_mount: true, tries: 2 });
+                self.find.pending = Some(PendingSeek { session: sid, row_key: hit.row_key, first_key, glide: false, wait_mount: true, tries: 2 });
                 tx.wake_after(std::time::Duration::ZERO);
             }
         } else {
-            self.find.pending = Some(PendingSeek { session: sid.clone(), row_key: hit.row_key, first_key, glide, wait_mount: false, tries: 2 });
+            self.find.pending = Some(PendingSeek { session: sid, row_key: hit.row_key, first_key, glide, wait_mount: false, tries: 2 });
             tx.wake_after(std::time::Duration::ZERO);
         }
     }
@@ -454,7 +493,8 @@ impl App {
             if !ranges.is_empty() {
                 for (local, rs) in ranges.iter().enumerate() {
                     let start_byte = rs.first().map_or(0, |r| r.start);
-                    matches.push(Hit { row_key: row_key.clone(), local, start_byte });
+                    let end_byte = rs.last().map_or(start_byte, |r| r.end);
+                    matches.push(Hit { row_key: row_key.clone(), local, start_byte, end_byte });
                 }
                 let version = row_hash(&ranges, None);
                 rows.insert(row_key, RowHits { ranges, active: None, version });
@@ -499,7 +539,6 @@ impl App {
             flush_steps(&steps, busy && !has_revert, &mut parts, &mut record);
         }
         self.find.parts = parts;
-        let _ = turns::tool_title;
         self.find.matches = matches;
         self.find.rows = rows;
         if !self.find.matches.is_empty() {
@@ -614,20 +653,21 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
-/// Global session shortcuts: ⌘F opens/focuses Find; ⌘G and ⇧⌘G step while Find is open.
+/// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;
+/// ⌘G and ⇧⌘G step while session Find is open.
 pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.settings.open || s.opening.is_some() || !matches!(s.route, Route::Session(_)) {
-        return false;
-    }
     let m = ev.mods;
-    if m.alt || m.ctrl {
+    if s.settings.open || s.opening.is_some() || m.alt || m.ctrl {
         return false;
     }
     if ev.is_command('f') && !m.shift {
-        s.open_find(tx);
-        return true;
+        return match s.route {
+            Route::Session(_) => { s.open_find(tx); true }
+            Route::Home => { s.focus_home_search(tx); true }
+            Route::Draft => false,
+        };
     }
-    if s.find.open && ev.is_command('g') {
+    if matches!(s.route, Route::Session(_)) && s.find.open && ev.is_command('g') {
         s.step_find(if m.shift { -1 } else { 1 }, tx);
         return true;
     }
@@ -636,11 +676,9 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Escape when Find is open (outside a busy composer's stop).
 pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session(_)) {
-        s.close_find(true, tx);
-        return true;
-    }
-    false
+    let take = ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session(_));
+    if take { s.close_find(true, tx); }
+    take
 }
 
 fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -653,20 +691,15 @@ fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let m = ev.mods;
     if !m.alt && !m.cmd && !m.ctrl {
-        match ev.key {
-            Key::Enter => {
-                s.step_find(if m.shift { -1 } else { 1 }, tx);
-                return true;
-            }
-            Key::Down if !m.shift => {
-                s.step_find(1, tx);
-                return true;
-            }
-            Key::Up if !m.shift => {
-                s.step_find(-1, tx);
-                return true;
-            }
-            _ => {}
+        let step = match ev.key {
+            Key::Enter => Some(if m.shift { -1 } else { 1 }),
+            Key::Down if !m.shift => Some(1),
+            Key::Up if !m.shift => Some(-1),
+            _ => None,
+        };
+        if let Some(d) = step {
+            s.step_find(d, tx);
+            return true;
         }
     }
     s.switcher_key(ev, tx) || s.shortcut(ev, tx)
@@ -734,22 +767,18 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
 
 /// Native macOS Edit menu items (`keys_first` so focused fields and `on_key` see them first).
 pub fn install(app: rune::App<App>) -> rune::App<App> {
-    let items = [
-        MenuItem::new("Find…", |s: &mut App, tx: &mut Tx| s.open_find(tx))
-            .id("Edit/Find")
-            .menu("Edit")
-            .key_equivalent("cmd+f".parse().unwrap())
-            .keys_first(),
-        MenuItem::new("Find Next", |s: &mut App, tx: &mut Tx| s.step_find(1, tx))
-            .id("Edit/FindNext")
-            .menu("Edit")
-            .key_equivalent("cmd+g".parse().unwrap())
-            .keys_first(),
-        MenuItem::new("Find Previous", |s: &mut App, tx: &mut Tx| s.step_find(-1, tx))
-            .id("Edit/FindPrevious")
-            .menu("Edit")
-            .key_equivalent("shift+cmd+g".parse().unwrap())
-            .keys_first(),
-    ];
-    items.into_iter().fold(app, |a, i| a.menu_item(i))
+    let item = |title, id, key: &str, f: fn(&mut App, &mut Tx)| {
+        MenuItem::new(title, f).id(id).menu("Edit").key_equivalent(key.parse().unwrap()).keys_first()
+    };
+    [
+        item("Find…", "Edit/Find", "cmd+f", |s, tx| match s.route {
+            Route::Session(_) => s.open_find(tx),
+            Route::Home => s.focus_home_search(tx),
+            Route::Draft => {}
+        }),
+        item("Find Next", "Edit/FindNext", "cmd+g", |s, tx| s.step_find(1, tx)),
+        item("Find Previous", "Edit/FindPrevious", "shift+cmd+g", |s, tx| s.step_find(-1, tx)),
+    ]
+    .into_iter()
+    .fold(app, |a, i| a.menu_item(i))
 }

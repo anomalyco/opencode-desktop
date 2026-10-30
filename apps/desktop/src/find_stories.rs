@@ -14,14 +14,27 @@ const KEYS: &[Trigger] = &[
     Trigger { key: 'c', label: "Open or close Find", run: toggle },
 ];
 
-const VARIANTS: &[(&str, usize)] = &[("Matches", 0), ("Stepping", 1), ("No matches", 2)];
+const VARIANTS: &[(&str, usize)] = &[("Matches", 0), ("Stepping", 1), ("No matches", 2), ("Folded prompt", 3)];
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
+    if s.variant == 3 {
+        let sid = crate::stories::sid(s);
+        if let Some(t) = s.transcripts.get_mut(&sid) {
+            t.messages.push(opencode_kit::model::Message::User {
+                id: "msg_zzfold_story".into(),
+                text: crate::fold_stories::LONG.into(),
+            });
+        }
+    }
     s.open_find(tx);
     // Leave input unfocused on replay so single-letter story triggers (R, N, P, C) work;
     // clicking the field focuses it for live typing.
-    let q = if s.variant == 2 { "notpresent" } else { "stream" };
+    let q = match s.variant {
+        2 => "notpresent",
+        3 => "interface change",
+        _ => "stream",
+    };
     s.find.input = TextEdit::new(q);
     s.find.input.focused = false;
     s.composer.focused = false;

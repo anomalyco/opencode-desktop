@@ -196,10 +196,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
 // ---------------------------------------------------------------------------------------------
 // Pieces
 
-fn roots(s: &App) -> impl Iterator<Item = &SessionInfo> {
-    s.sessions.iter().filter(|x| x.parent.is_none())
-}
-
 pub(crate) fn title_of(s: &SessionInfo) -> String {
     if s.title.is_empty() { "Untitled session".into() } else { s.title.clone() }
 }

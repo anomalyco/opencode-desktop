@@ -179,3 +179,49 @@ fn the_find_story_opens_with_highlights_and_triggers_step() {
     }
     assert_eq!(crate::stories::world(&rt).find.active_index(), 1);
 }
+
+#[test]
+fn folded_user_prompt_skips_read_more_and_unfolds_when_match_is_hidden() {
+    let mut rt = crate::fixture_runtime();
+    let sid = crate::fixture_ids::MAIN.to_owned();
+    let msg_id = "msg_zzfolded_find";
+    rt.update(|s, tx| {
+        s.settings.fold_user = true;
+        s.transcripts.get_mut(&sid).unwrap().messages.push(opencode_kit::model::Message::User {
+            id: msg_id.into(),
+            text: crate::fold_stories::LONG.into(),
+        });
+        tx.scroll_to_bottom_instant(&format!("scroll-{sid}"));
+    });
+    settle(&mut rt);
+    let fold_key = crate::fold::key(msg_id);
+    assert!(!rt.state.expanded.contains(&fold_key), "long prompt starts folded");
+    assert!(rt.find("fold-toggle").is_some(), "Read more toggle shown");
+
+    // "Read more" itself is chrome, not message text.
+    cmd(&mut rt, 'f', false);
+    type_str(&mut rt, "Read more");
+    settle(&mut rt);
+    assert_eq!(rt.state.find.count(), 0);
+    assert!(!rt.state.expanded.contains(&fold_key), "stays folded");
+
+    // A match in the first visible lines ("Notes from the call") highlights without unfolding.
+    rt.update(|s, tx| {
+        s.find.input = rune::TextEdit::new("Notes from the call");
+        crate::find::typed(s, tx);
+    });
+    settle(&mut rt);
+    assert_eq!(rt.state.find.count(), 1);
+    assert!(!rt.state.expanded.contains(&fold_key), "visible top-line match keeps fold closed");
+
+    // A match hidden deep inside the fold ("interface change" on line 16) unfolds the prompt and centres it.
+    rt.update(|s, tx| {
+        s.find.input = rune::TextEdit::new("interface change");
+        crate::find::typed(s, tx);
+    });
+    settle(&mut rt);
+    assert_eq!(rt.state.find.count(), 2);
+    assert!(rt.state.expanded.contains(&fold_key), "hidden match unfolds the prompt");
+    let mark = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("find-active")).expect("unfolded highlight visible");
+    assert!(mark.visible[3] > 0.0, "active match inside unfolded prompt is visible on screen: {mark:?}");
+}

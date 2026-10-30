@@ -92,11 +92,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
-            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "", false).on_press_tx(
-                |s: &mut App, tx: &mut Tx| {
-                    s.search.focused = true;
-                    s.go_home(tx);
-                },
+            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "⇧⌘F", false).on_press_tx(
+                |s: &mut App, tx: &mut Tx| s.open_session_search(tx),
             ))
             .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.new_session(tx),

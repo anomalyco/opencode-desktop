@@ -20,10 +20,18 @@ use crate::palette::Pal;
 use crate::view::{UI, UI_MED, title_of};
 use crate::{App, Source};
 
-/// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`), and a
-/// query's local session matches.
+/// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`),
+/// `DialogSessionSearch`'s recent sessions (`RECENT_LIMIT`), and a query's local session matches.
 const RECENT: usize = 5;
+const RECENT_SESSIONS: usize = 10;
 const MATCHES: usize = 50;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwitcherMode {
+    #[default]
+    All,
+    Sessions,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
@@ -78,6 +86,7 @@ struct Found {
 
 pub struct Switcher {
     pub open: bool,
+    pub mode: SwitcherMode,
     pub search: TextEdit,
     /// The highlighted row and the query it was picked under; a new query starts from its first row.
     active: Highlight,
@@ -94,6 +103,7 @@ impl Default for Switcher {
     fn default() -> Self {
         Switcher {
             open: false,
+            mode: SwitcherMode::All,
             search: TextEdit::new(""),
             active: Highlight::default(),
             restore_composer: false,
@@ -272,6 +282,12 @@ impl App {
                 })
             })
             .collect();
+        if self.switcher.mode == SwitcherMode::Sessions {
+            if q.is_empty() {
+                return sessions.take(RECENT_SESSIONS).collect();
+            }
+            return rank(sessions.filter(|e| matches(e, q)).take(MATCHES).collect());
+        }
         if q.is_empty() {
             return commands.take(4).chain(sessions.take(RECENT)).collect();
         }
@@ -289,17 +305,33 @@ impl App {
     }
 
     pub fn open_switcher(&mut self) {
-        if self.switcher.open {
+        self.open_switcher_mode(SwitcherMode::All);
+    }
+
+    pub fn open_session_search(&mut self, tx: &mut Tx) {
+        tx.instant();
+        self.open_switcher_mode(SwitcherMode::Sessions);
+    }
+
+    fn open_switcher_mode(&mut self, mode: SwitcherMode) {
+        if self.switcher.open && self.switcher.mode == mode {
             return;
         }
-        let restore = self.composer.focused || (self.project_switcher.open && self.project_switcher.restore_composer());
+        let restore = if self.switcher.open {
+            self.switcher.restore_composer
+        } else {
+            self.composer.focused || (self.project_switcher.open && self.project_switcher.restore_composer())
+        };
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
+        self.menus.edit.focused = false;
         self.switcher.restore_composer = restore;
         self.composer.focused = false;
         self.search.focused = false;
+        self.find.input.focused = false;
         self.switcher.open = true;
+        self.switcher.mode = mode;
         self.switcher.search = TextEdit::new("");
         self.switcher.search.focused = true;
         self.switcher.active.clear();
@@ -353,17 +385,27 @@ impl App {
         }
     }
 
-    /// ⌘K toggles it from anywhere; while it's open, the list's keys.
+    /// ⌘K toggles "Search everything" and ⇧⌘F toggles "Search sessions"; while open, the list's keys.
     pub fn switcher_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if ev.is_command('k') && !ev.mods.shift && !ev.mods.alt && !ev.mods.ctrl {
-            if self.switcher.open {
-                self.close_switcher(true);
-            } else {
-                // The dialog and everything in it appear in the keystroke.
-                tx.instant();
-                self.open_switcher();
+        if !ev.mods.alt && !ev.mods.ctrl {
+            if ev.is_command('k') && !ev.mods.shift {
+                if self.switcher.open && self.switcher.mode == SwitcherMode::All {
+                    self.close_switcher(true);
+                } else {
+                    tx.instant();
+                    self.open_switcher_mode(SwitcherMode::All);
+                }
+                return true;
             }
-            return true;
+            if ev.is_command('f') && ev.mods.shift {
+                if self.switcher.open && self.switcher.mode == SwitcherMode::Sessions {
+                    self.close_switcher(true);
+                } else {
+                    tx.instant();
+                    self.open_switcher_mode(SwitcherMode::Sessions);
+                }
+                return true;
+            }
         }
         self.switcher.open && self.switcher_nav(ev, tx)
     }
@@ -475,7 +517,7 @@ pub(crate) fn encode(s: &str) -> String {
 // View: a 640 × 480 dialog centred over a scrim (`dialog.css`, `search-list.css`).
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
-fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
+pub(crate) fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
     let t = text(s.to_owned()).font(style).color(color).truncate_fade();
     let lower = s.to_lowercase();
     let needle = q.trim().to_lowercase();
@@ -536,6 +578,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
 
+    let sessions_only = s.switcher.mode == SwitcherMode::Sessions;
+    let placeholder = if sessions_only { "Search sessions" } else { "Search commands and sessions" };
     let search = row()
         .key("switcher-field")
         .h(36.0)
@@ -553,7 +597,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .grow(1.0)
                 .shrink()
                 .h(20.0)
-                .placeholder("Search commands and sessions", p.faint)
+                .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.switcher.search)
                 .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),

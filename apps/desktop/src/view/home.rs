@@ -11,18 +11,16 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
     let selected = selected_id.and_then(|id| s.project(id));
     let show_project_name = selected.is_none();
 
-    let q = s.search.text.to_lowercase();
+    let q = s.search.text.trim().to_lowercase();
+    let matched = s.home_sessions(selected);
     let mut groups: Vec<(&str, Vec<&SessionInfo>)> = vec![("Today", vec![]), ("Yesterday", vec![]), ("Older", vec![])];
     let day = |ms: i64| ms.div_euclid(86_400_000);
-    for ses in roots(s)
-        .filter(|x| selected.is_none_or(|proj| s.project_for_session(x).is_some_and(|p| p.id == proj.id)))
-        .filter(|x| q.is_empty() || x.title.to_lowercase().contains(&q))
-        .take(60)
-    {
+    for ses in matched {
         let d = day(s.now_ms) - day(ses.updated);
         groups[if d <= 0 { 0 } else if d == 1 { 1 } else { 2 }].1.push(ses);
     }
     let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|(_, items)| items.iter().map(|s| s.id.clone())).collect::<Vec<_>>());
+    let active_id = s.home_search_active(&nav_ids);
     let mut list = col().key("groups").role("list").focus_group().w_full().pr(12.0).pb(64.0);
     let mut first = true;
     for (title, items) in groups.into_iter().filter(|g| !g.1.is_empty()) {
@@ -33,7 +31,8 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
         let mut rows = col().key(format!("g-{title}")).gap(1.0).pt(16.0).mb(24.0);
         for ses in items {
             let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
-            rows = rows.child(session_row_inner(s, p, ses, &nav_ids, index, show_project_name));
+            let active = active_id.as_deref() == Some(ses.id.as_str());
+            rows = rows.child(session_row_inner(s, p, ses, &nav_ids, index, show_project_name, active, &q));
         }
         list = list.child(header).child(rows);
         first = false;
@@ -62,7 +61,8 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
         }
     }
 
-    let search = row()
+    let placeholder = selected.map_or_else(|| "Search sessions".into(), |proj| format!("Search sessions in {}", proj.name));
+    let mut search = row()
         .key("search")
         .grow(1.0)
         .shrink()
@@ -78,14 +78,32 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
         .child(
             text_input(&s.search, UI.lh(20.0))
                 .key("search-input")
+                .single_line()
                 .grow(1.0)
                 .shrink()
                 .h(20.0)
-                .placeholder("Search sessions", p.faint)
+                .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.search)
-                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx)),
+                .on_input_key(|s: &mut App, ev, tx| s.home_search_key(ev, tx)),
         );
+    if !s.search.text.is_empty() {
+        search = search.child(
+            row()
+                .key("search-clear")
+                .role("button")
+                .label("Clear search")
+                .help("Clear search")
+                .size(22.0, 22.0)
+                .center()
+                .radius(4.0)
+                .hover(p.hover)
+                .press(p.pressed)
+                .hover_motion(INSTANT, INSTANT)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_search(true, tx))
+                .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted)),
+        );
+    }
 
     let effective_w = if panel_w > 0.0 {
         panel_w
@@ -392,7 +410,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
 /// being renamed the row is the field, and doesn't open.
 #[allow(dead_code)]
 pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize) -> El {
-    session_row_inner(s, p, ses, nav_ids, index, true)
+    session_row_inner(s, p, ses, nav_ids, index, true, false, "")
 }
 
 fn session_row_inner(
@@ -402,6 +420,8 @@ fn session_row_inner(
     nav_ids: &std::rc::Rc<Vec<String>>,
     index: usize,
     show_project: bool,
+    active: bool,
+    query: &str,
 ) -> El {
     let project = s.project_for_session(ses);
     let proj_name = project_or_dir(project, &ses.directory);
@@ -425,24 +445,50 @@ fn session_row_inner(
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .on_hover_change(move |s: &mut App, inside, _: &mut Tx| {
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
                 s.prefetch_session(&hover_id);
+                if !s.search.text.trim().is_empty() {
+                    tx.instant();
+                    let q = s.search.text.clone();
+                    s.home_search.activate(hover_id.clone(), &q);
+                }
             }
         })
         .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
         .child(crate::icons::badge(s, p, project, &proj_name));
-    if marked {
+    if active {
+        r = r.fill(p.row_active);
+    } else if marked {
         r = r.fill(p.hover);
     }
+    let title = title_of(ses);
+    let title_el = if query.is_empty() {
+        text(title).font(UI_MED).color(p.text).truncate_fade()
+    } else {
+        crate::switcher::highlighted(&title, query, UI_MED, p.text, p.accent)
+    };
     r = match editing {
         Some(field) => r.child(field.grow(1.0)),
         None => r
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&id, tx))
-            .child(text(title_of(ses)).font(UI_MED).color(p.text).truncate_fade()),
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                if s.session(&id).is_none()
+                    && let Some(ses) = s.home_search.loaded.iter().find(|x| x.id == id).cloned()
+                {
+                    s.sessions.push(ses);
+                }
+                s.clear_home_search(false, tx);
+                s.open(&id, tx);
+            })
+            .child(title_el),
     };
     if show_project {
-        r = r.child(text(proj_name).font(UI).color(p.faint).truncate_fade());
+        let proj_el = if query.is_empty() {
+            text(proj_name).font(UI).color(p.faint).truncate_fade()
+        } else {
+            crate::switcher::highlighted(&proj_name, query, UI, p.faint, p.accent)
+        };
+        r = r.child(proj_el);
     }
     crate::session_menu::on(
         r.child(spacer()).child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
