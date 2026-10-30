@@ -167,18 +167,24 @@ mod tests {
     use super::*;
 
     /// The tokens the switcher, the image viewer and the mention badge once parsed for themselves.
+    /// Whatever blend mode earlier tests left on this thread, `pal` must match the theme read in it.
     #[test]
     fn pal_carries_what_the_switcher_viewer_and_badge_read_from_the_theme() {
-        for dark in [false, true] {
-            let t = Theme::from_json(THEME, dark).unwrap();
-            let c = |n: &str| t.color(n);
-            let p = pal(dark);
-            assert_eq!(p.scrim, c("overlay-simple-overlay-scrim"));
-            assert_eq!(p.row_active, if dark { c("alpha-light-10") } else { c("overlay-simple-overlay-hover") });
-            assert_eq!(p.q.layer4, c("background-bg-layer-04"));
-            assert_eq!(p.shadow_far, if dark { c("alpha-dark-30") } else { c("alpha-dark-4") });
-            assert_eq!(p.shadow, if dark { c("alpha-dark-30") } else { c("alpha-dark-8") });
-            assert_eq!(p.info, c("state-fg-info"));
+        for srgb in [true, false] {
+            rune::theme::with_blend(srgb, || {
+                for dark in [false, true] {
+                    let t = Theme::from_json(THEME, dark).unwrap();
+                    let c = |n: &str| t.color(n);
+                    let p = pal(dark);
+                    assert_eq!(p.scrim, c("overlay-simple-overlay-scrim"));
+                    assert_eq!(p.row_active, if dark { c("alpha-light-10") } else { c("overlay-simple-overlay-hover") });
+                    assert_eq!(p.q.layer4, c("background-bg-layer-04"));
+                    assert_eq!(p.shadow_far, if dark { c("alpha-dark-30") } else { c("alpha-dark-4") });
+                    assert_eq!(p.shadow, if dark { c("alpha-dark-30") } else { c("alpha-dark-8") });
+                    assert_eq!(p.info, c("state-fg-info"));
+                    assert_eq!(p.search_bg, t.alpha(c("background-bg-layer-02"), 0.6));
+                }
+            });
         }
     }
 }
