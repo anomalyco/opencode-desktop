@@ -399,7 +399,7 @@ pub(super) struct RadarDot {
 }
 
 /// The opacity that, blended in linear light, gives the pixel `a` gives in sRGB.
-pub(super) fn srgb_opacity(a: f32, fg: Color, bg: Color) -> f32 {
+pub(crate) fn srgb_opacity(a: f32, fg: Color, bg: Color) -> f32 {
     use rune::theme::{srgb_decode, srgb_encode};
     let solve = |f: f32, b: f32| {
         let t = srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));

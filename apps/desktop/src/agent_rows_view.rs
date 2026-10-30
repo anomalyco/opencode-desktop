@@ -4,7 +4,8 @@
 //! A new step rises in from below as the old one rises out, the time rolls like an odometer
 //! (`odometer.rs`), the mark crossfades and scales between spinner, ✓ and ✕, cut-off words fade
 //! out at the edge, and agents that join the card rise into place at the bottom (nothing above them
-//! moves). Hover and click are instant.
+//! moves). Hover and click are instant. A call still being written, or whose agent hasn't
+//! started, wakes in place when it does (`agent_start.rs`).
 
 use rune::{El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
 
@@ -17,7 +18,7 @@ use crate::odometer::odometer_end;
 use crate::palette::Pal;
 use crate::subagents::elapsed;
 use crate::turns::Block;
-use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_on};
+use crate::view::{INSTANT, UI, UI_MED, UI_SMALL};
 
 /// The widest a task gets, so what the agent is doing always shows beside it.
 const TITLE_W: f32 = 260.0;
@@ -29,26 +30,33 @@ struct Call<'a> {
     title: &'a str,
     child: Option<&'a str>,
     run: Run,
+    /// Still being written: "Delegating agent…" in place of its task.
+    pending: bool,
+    /// Its agent hasn't started yet: the spinner shows the starting dots.
+    starting: bool,
 }
 
 /// The row for `blocks[i]`, a subagent call: one card holding it and the calls that follow it
 /// (`skip` says which rows they took). A call still being written is Desktop's "Delegating
-/// agent…" pill.
+/// agent…" line, in the card it will run in.
 pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i: usize) -> El {
     let call = |b: &'a Block<'a>| match b {
-        Block::Agent { id, agent, title, status, session, .. } if **status != ToolStatus::Pending => {
+        Block::Agent { id, agent, title, status, .. } if **status == ToolStatus::Pending => {
+            let run = Run { state: State::Running, steps: Vec::new(), taken: 0, ms: None, result: None, error: None };
+            Some(Call { key: id.to_string(), agent, title, child: None, run, pending: true, starting: true })
+        }
+        Block::Agent { id, agent, title, status, session, .. } => {
             let child = crate::subagents::child_of(s, parent, *session, title);
-            Some(Call { key: id.to_string(), agent, title, child, run: s.agent_run(child, status) })
+            let run = s.agent_run(child, status);
+            let starting = child.is_none() && run.state == State::Running;
+            Some(Call { key: id.to_string(), agent, title, child, run, pending: false, starting })
         }
         _ => None,
     };
     let calls: Vec<Call> = blocks[i..].iter().map_while(call).collect();
-    if calls.is_empty() {
-        return delegating(p);
-    }
     let mut card = col().key("agent-card").w_full().px(4.0).py(4.0).radius(10.0).fill(p.layer2);
     for c in &calls {
-        let line = live_row(p, c, 32.0, p.layer2).key("agent-line").px(8.0).radius(6.0).hover(p.hover);
+        let line = live_row(s, p, c, 32.0, p.layer2).key("agent-line").px(8.0).radius(6.0).hover(p.hover);
         card = card.child(row().key(format!("member-{}", c.key)).w_full().child(opens(parent, c, line)).transition(arrive()));
     }
     row().w_full().child(card)
@@ -56,23 +64,8 @@ pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i
 
 /// Whether `blocks[i]` is drawn inside the card of the call above it.
 pub fn skip(blocks: &[Block], i: usize) -> bool {
-    let agent = |b: &Block| matches!(b, Block::Agent { status, .. } if **status != ToolStatus::Pending);
+    let agent = |b: &Block| matches!(b, Block::Agent { .. });
     i > 0 && agent(&blocks[i]) && agent(&blocks[i - 1])
-}
-
-fn delegating(p: &Pal) -> El {
-    row().w_full().child(
-        row()
-            .key("delegating")
-            .h(36.0)
-            .px(12.0)
-            .gap(8.0)
-            .center_y()
-            .radius(8.0)
-            .fill(p.layer2)
-            .child(activity_ring(p))
-            .child(text("Delegating agent…").font(UI_MED).color(p.text)),
-    )
 }
 
 /// How a new line of words replaces the last: in from 8pt below, out 8pt up, both fading.
@@ -87,9 +80,10 @@ fn arrive() -> Transition {
 }
 
 /// The 16pt mark: a spinner, a ✓ or a ✕, each scaling and fading into the last one's place.
-fn mark(p: &Pal, state: State, on: rune::Color) -> El {
-    let (key, glyph) = match state {
-        State::Running => ("spin", activity_ring_on(p, on, 14.0)),
+/// The spinner wakes from its starting dots in place (`agent_start::spinner`).
+fn mark(s: &App, p: &Pal, c: &Call, on: rune::Color) -> El {
+    let (key, glyph) = match c.run.state {
+        State::Running => ("spin", crate::agent_start::spinner(s, p, on, c.starting)),
         State::Done => ("done", icon(&ic::CHECK_SMALL, 16.0).color(p.success)),
         State::Failed => ("failed", icon(&ic::CIRCLE_X, 16.0).color(p.danger)),
     };
@@ -117,9 +111,25 @@ fn time(p: &Pal, call: &str, ms: Option<i64>) -> Option<El> {
     Some(row().key("time").min_w(24.0).justify_end().motion(crate::odometer::SPRING).width_leads().child(t))
 }
 
-/// The words a task's title shows in, fading out where they're cut.
-fn title(p: &Pal, c: &Call, font: TextStyle) -> El {
-    text(c.title.to_owned()).key("title").font(font).color(p.text).truncate_fade().max_w(TITLE_W)
+/// The words a task's title shows in, fading out where they're cut. "Delegating agent…" holds
+/// its place until the call is written, then rolls up as the task rises in.
+fn title(s: &App, p: &Pal, c: &Call, font: TextStyle) -> El {
+    if c.pending {
+        return row().key("delegating").child(crate::agent_start::words(s, p, font)).transition(focus(0.5));
+    }
+    text(c.title.to_owned()).key("title").font(font).color(p.text).truncate_fade().max_w(TITLE_W).transition(focus(0.5))
+}
+
+/// How the row comes into focus when its agent starts: each part sharpens in place from a
+/// 2pt blur over `response` seconds, while "Delegating agent…" blurs away faster, so the
+/// words barely overlap and nothing travels.
+fn focus(response: f32) -> Transition {
+    Transition::blur(2.0).springs(SpringPair::new(Spring::new(response, 0.0), Spring::new(0.2, 0.0)))
+}
+
+/// What the row says beyond its task comes into focus a beat behind it.
+fn follow() -> Transition {
+    focus(0.7)
 }
 
 /// What the agent is doing now, or how it ended, in a slot `h` tall: each new line rolls in
@@ -152,19 +162,22 @@ fn opens(parent: &str, c: &Call, surface: El) -> El {
 
 /// One agent's live row, `h` tall: its mark, task, what it's doing now, type and time, and a
 /// chevron on hover when there's a session to open.
-fn live_row(p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
+fn live_row(s: &App, p: &Pal, c: &Call, h: f32, on: rune::Color) -> El {
     let r = &c.run;
-    row()
+    let line = row()
         .w_full()
         .h(h)
         .gap(8.0)
         .center_y()
         // The time widening ("9s" → "10s") eases, and what sits beside it slides over with it.
         .animate_layout()
-        .child(mark(p, r.state, on))
-        .child(title(p, c, UI_MED.lh(20.0)))
-        .child(now(p, r, UI.lh(20.0), h - 6.0))
-        .child(tag(p, c.agent))
-        .children(time(p, &c.key, r.ms))
+        .child(mark(s, p, c, on))
+        .child(title(s, p, c, UI_MED.lh(20.0)));
+    if c.pending {
+        return line;
+    }
+    line.child(now(p, r, UI.lh(20.0), h - 6.0).transition(follow()))
+        .child(tag(p, c.agent).transition(follow()))
+        .children(time(p, &c.key, r.ms).map(|t| t.transition(follow())))
         .children(c.child.map(|_| icon(&ic::CHEVRON_RIGHT, 16.0).key("open").color(p.icon_faint).group_opacity(0.0, 1.0)))
 }

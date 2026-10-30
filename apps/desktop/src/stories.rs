@@ -209,6 +209,7 @@ const ORDER: &[&str] = &[
     "Timeline/Move to background",
     "Timeline/Subagent",
     "Timeline/Subagent rows",
+    "Timeline/Subagent starting",
     "Timeline/Images",
     "Timeline/Jump to latest",
     "Timeline/Frosted surfaces",

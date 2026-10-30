@@ -9,6 +9,8 @@ static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
 mod add_menu;
 mod agent_rows;
 mod agent_rows_view;
+mod agent_start;
+mod agent_start_stories;
 mod agent_stories;
 mod arrivals;
 mod attachments;

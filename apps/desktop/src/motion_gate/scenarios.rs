@@ -412,6 +412,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "odometer-questions", circs: || vec![Circ::default()], run: super::odometers::questions },
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
+    Action { name: "agent-wakes", circs: || wide_and_narrow(Circ::default()), run: agent_wakes },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.
     Action { name: "dictate", circs: dictation_circs, run: |r| {
@@ -561,6 +562,21 @@ fn one_agent(r: &mut Run) {
     r.play(0.6);
     r.act("it finishes", |rt| rt.update(st::finish_oldest));
     r.play(1.0);
+}
+
+/// "Delegating agent…" wakes into a running row, once in each Starting look: the first call
+/// opens the card, the next two join it while being written and wake in place there.
+fn agent_wakes(r: &mut Run) {
+    use crate::agent_stories as st;
+    for look in 0..3 {
+        r.act("the look", move |rt| rt.update(move |s, _| s.knobs.set(&crate::agent_start::STARTING, look as f32)));
+        r.act("a call is written", |rt| rt.update(st::delegate));
+        r.play(1.0);
+        r.act("its agent starts", |rt| rt.update(st::spawn));
+        r.play(0.8);
+        r.act("it steps", |rt| rt.update(st::advance));
+        r.play(0.6);
+    }
 }
 
 fn dictation_circs() -> Vec<Circ> {

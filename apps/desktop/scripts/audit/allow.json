@@ -30,5 +30,11 @@
   {"trace": "send", "element": "/t-msg_zzzzreply", "kind": "pop-in",
    "reason": "a reply that thought first mounts its answer's row empty, at zero height, so the stream reveals into it; nothing paints until words arrive"},
   {"kind": "hitch",
-   "reason": "headless CPU spikes on a shared machine; the perf profile is the place to measure frame time"}
+   "reason": "headless CPU spikes on a shared machine; the perf profile is the place to measure frame time"},
+  {"element": "agent-line/open", "kind": "invisible-work", "reason": "a subagent row's open chevron shows only on hover; when a starting row wakes it mounts and settles hidden"},
+  {"element": "agent-card/member-call_story_agent_00", "kind": "invisible-work", "reason": "the first call opens its card by growing the timeline row; the row's fade runs under that clip for its first 90 ms"},
+  {"element": "activity-chip/ring/d", "kind": "invisible-work", "reason": "the activity chip's radar dots start their wall-clock cycle when it mounts, under its 50 ms fade-in"},
+  {"trace": "agent-wakes-ripple", "kind": "never-settles", "reason": "the turn keeps writing while its agent runs: Working's sheen and the row's spinner loop by design"},
+  {"trace": "agent-wakes-breathe", "kind": "never-settles", "reason": "the turn keeps writing while its agent runs: Working's sheen and the row's spinner loop by design"},
+  {"trace": "agent-wakes-shimmer", "kind": "never-settles", "reason": "the turn keeps writing while its agent runs: Working's sheen and the row's spinner loop by design"}
 ]

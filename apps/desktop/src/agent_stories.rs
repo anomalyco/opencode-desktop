@@ -87,13 +87,49 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     }
 }
 
-/// The open session calls another agent in the background: its card joins the timeline, its
-/// session starts running.
+/// The last answer in the open session, where its calls go.
+fn last_answer<'a>(s: &'a mut App, parent: &str) -> Option<&'a mut Assistant> {
+    let t = s.transcripts.get_mut(parent)?;
+    t.messages.iter_mut().rev().find_map(|m| match m {
+        Message::Assistant(a) => Some(a),
+        _ => None,
+    })
+}
+
+/// The open session starts writing a call to the next agent: "Delegating agent…" until
+/// [`spawn`] starts it.
+pub fn delegate(s: &mut App, tx: &mut Tx) {
+    let parent = sid(s);
+    let k = started(s).len();
+    let call = Part::Tool {
+        id: format!("call_story_agent_{k:02}"),
+        name: "subagent".into(),
+        status: ToolStatus::Pending,
+        title: String::new(),
+        input: json!({}),
+        files: Vec::new(),
+        metadata: json!({}),
+    };
+    if let Some(a) = last_answer(s, &parent) {
+        a.parts.push(call);
+    }
+    tx.wake_after(std::time::Duration::ZERO);
+}
+
+/// Whether a call [`delegate`] started is still being written.
+pub fn delegating(s: &mut App) -> bool {
+    let parent = sid(s);
+    last_answer(s, &parent).is_some_and(|a| a.parts.iter().any(|p| matches!(p, Part::Tool { status: ToolStatus::Pending, .. })))
+}
+
+/// The open session calls another agent in the background: its card joins the timeline (or the
+/// call [`delegate`] started is written), and its session starts running.
 pub fn spawn(s: &mut App, tx: &mut Tx) {
     let parent = sid(s);
     let k = started(s).len();
     let (agent, title, _) = AGENTS[k % AGENTS.len()];
     let id = child(k);
+    let call_id = format!("call_story_agent_{k:02}");
     let from = s.session(&parent).cloned().unwrap_or_default();
     s.sessions.push(SessionInfo {
         id: id.clone(),
@@ -107,7 +143,7 @@ pub fn spawn(s: &mut App, tx: &mut Tx) {
         ..Default::default()
     });
     let call = Part::Tool {
-        id: format!("call_story_agent_{k:02}"),
+        id: call_id.clone(),
         name: "subagent".into(),
         status: ToolStatus::Completed,
         title: title.into(),
@@ -115,8 +151,11 @@ pub fn spawn(s: &mut App, tx: &mut Tx) {
         files: Vec::new(),
         metadata: json!({ "sessionID": id, "status": "running" }),
     };
-    if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&parent).and_then(|t| t.messages.iter_mut().rev().find(|m| matches!(m, Message::Assistant(_)))) {
-        a.parts.push(call);
+    if let Some(a) = last_answer(s, &parent) {
+        match a.parts.iter_mut().find(|p| matches!(p, Part::Tool { id, .. } if *id == call_id)) {
+            Some(written) => *written = call,
+            None => a.parts.push(call),
+        }
     }
     emit(s, "session.execution.started", json!({ "sessionID": id }), tx);
 }
