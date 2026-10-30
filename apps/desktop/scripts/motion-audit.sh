@@ -43,8 +43,12 @@ while [[ $# -gt 0 ]]; do
 done
 cd "$ROOT"
 mkdir -p "$OUT"
-[[ $BUILD = 1 ]] && cargo build --release -p opencode-desktop --quiet
-BIN="${AUDIT_BIN:-${CARGO_TARGET_DIR:-target}/release/opencode-desktop}"
+# A debug build: the traces run on the virtual clock, so they match release, and the release
+# build's storybook plays no story (playground scenarios recorded an idle session).
+[[ $BUILD = 1 ]] && cargo build -p opencode-desktop --quiet
+# Cargo's own target dir: a worker's synced tree can carry a stale target/ from its seed clone.
+TARGET=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+BIN="${AUDIT_BIN:-$TARGET/debug/opencode-desktop}"
 
 # Resolve each scenario into a script, fixture and frame count under $OUT.
 PLAN=$(python3 - "$HERE/audit" "$ROOT/apps/desktop/assets/fixture.json" "$OUT" "${NAMES[@]+"${NAMES[@]}"}" <<'PY'

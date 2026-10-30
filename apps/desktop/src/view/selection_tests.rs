@@ -125,7 +125,7 @@ fn a_double_click_in_a_tool_row_selects_a_word_and_leaves_the_row_open() {
     click(&mut rt, first_line(&trigger, 0.1));
     assert_eq!(rt.state.expanded.len(), group + 1, "a click on the disclosure opens it");
     settle(&mut rt);
-    let steps = format!("{}/steps/", trigger.path.trim_end_matches("/trigger"));
+    let steps = format!("{}/steps-box/steps/", trigger.path.trim_end_matches("/trigger"));
     let tool = |rt: &Runtime<App>, name: &str| find(rt, |e| e.path.starts_with(&steps) && e.text.as_deref() == Some(name));
     let name = tool(&rt, "Read");
     let word = (name.rect[0] + name.rect[2] / 2.0, name.rect[1] + name.rect[3] / 2.0);

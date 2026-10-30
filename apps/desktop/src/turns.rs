@@ -195,10 +195,13 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
         .child(readable(p, text(title.to_owned()).font(UI).color(p.faint).truncate_fade()))
 }
 
-/// The folded row: its label and chevron, and when open, every step in order. Opening and
-/// closing is instant, as a thought's own disclosure is.
+/// The folded row: its label and chevron, and when open, every step in order. The row springs
+/// open and shut on the timeline's growth with its header held in place
+/// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
+/// the group scrolls past.
 pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
     let open = s.expanded.contains(key);
+    let shutting = !open && s.shutting(key);
     let l = label(steps, busy);
     let mut trigger = row()
         .key("trigger")
@@ -209,7 +212,12 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         .center_y()
         // A step joining or the label changing crossfades the words while the chevron slides over.
         .animate_layout()
-        .on_press_tx(crate::disclosure::toggle(key.to_owned()));
+        .on_press_tx(crate::disclosure::toggle_group(key.to_owned()));
+    if open {
+        // Steps scroll under it and soften into its fill rather than meeting a hard edge.
+        let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
+        trigger = trigger.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
+    }
     trigger = match l.count {
         Some(n) => trigger
             .child(text("Used").key("used").font(UI).color(p.muted))
@@ -219,8 +227,9 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
     };
     trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
     let mut c = col().w_full().child(trigger);
-    if open {
-        let mut list = col().key("steps").w_full().pl(4.0);
+    if open || shutting {
+        // The row's clip reveals the steps as it grows, so they don't fade in as well.
+        let mut list = col().key("steps").w_full().pl(4.0).transition(rune::Transition::none());
         for step in steps {
             list = list.child(match step {
                 Step::Thought { msg, index, body, secs } => {
@@ -236,7 +245,11 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
                 }
             });
         }
-        c = c.child(list);
+        // Shutting, the steps stay laid out below a row that's only the header, and the row's
+        // clip folds them away as its height springs down to it.
+        // The box keeps the steps' path the same either way, so they don't remount on a press.
+        let held = col().key("steps-box").w_full().transition(rune::Transition::none());
+        c = c.child(if open { held } else { held.h(0.0) }.child(list));
     }
     c
 }

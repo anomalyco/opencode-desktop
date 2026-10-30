@@ -214,7 +214,7 @@ impl RowSpec {
                     }
                 }
                 RowContent::Turn { start, end, block, live, pt }
-                    if self.key.starts_with("c-") && !s.expanded.contains(&self.key) =>
+                    if self.key.starts_with("c-") && !s.expanded.contains(&self.key) && !s.shutting(&self.key) =>
                 {
                     let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming);
                     return rune::memo(self.key.clone(), ver, || {
@@ -410,7 +410,8 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .shrink()
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
-        .clip_fade(0.0, 16.0, 0.0, 16.0)
+        // Its edges fade only while rows are under them, and never over a stuck group header.
+        .scroll_edge_fade(16.0)
         .child(stack)
 }
 
@@ -433,7 +434,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 steps.push(a);
             }
             Message::User { id, text: body, .. } => {
-                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 // The last prompt runs on into the pending steers under it.
                 let below = match t.messages[..shown].get(mi + 1) {
@@ -446,11 +447,11 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 }
             }
             Message::Note { id, .. } => {
-                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
             }
             Message::Compaction(c) => {
-                turn_rows(s, p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
                 let running = c.status == model::CompactionStatus::Running;
                 for piece in crate::compaction::pieces(s, &t.session, c) {
                     let streaming = running && piece == crate::compaction::Piece::Summary;
@@ -459,7 +460,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
             }
         }
     }
-    turn_rows(s, p, &mut out, &steps, start, shown, busy && revert.is_none());
+    turn_rows(p, &mut out, &steps, start, shown, busy && revert.is_none());
     // A compaction waiting to start sits under the running work, above the steers, as Desktop's.
     if revert.is_none() && let Some(id) = s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) {
         out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued, streaming: false });
@@ -515,7 +516,7 @@ pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 }
 
 /// `live`: these steps end the transcript and the last one is still running.
-pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
+pub(super) fn turn_rows(p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
     let skip: Vec<bool> = if blocks.iter().any(|b| matches!(b, Block::Agent { .. })) {
@@ -531,8 +532,9 @@ pub(super) fn turn_rows(s: &App, p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assi
         let content = RowContent::Turn { start, end, block: i, live, pt };
         match b {
             Block::Group { key, steps } => {
-                let busy = live && i + 1 == n;
-                out.push(RowSpec { streaming: busy && s.expanded.contains(&key), content, key });
+                // An open group's steps arrive whole: as a streaming row, opening one paced its
+                // height at text-reveal speeds (seconds for a long group) and shutting snapped.
+                out.push(RowSpec { streaming: false, content, key });
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st

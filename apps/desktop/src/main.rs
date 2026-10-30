@@ -92,6 +92,7 @@ mod subagents;
 mod switcher;
 mod tab_actions;
 mod tabs;
+mod tool_group_stories;
 mod turns;
 mod view;
 mod working;
@@ -149,6 +150,8 @@ pub struct App {
     pub nav: history::History,
     pub transcripts: HashMap<String, Transcript>,
     pub expanded: HashSet<String>,
+    /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
+    pub shutting: HashMap<String, f64>,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
     /// A tab being dragged to a new place in the sidebar.
@@ -621,6 +624,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         tx.wake_after(std::time::Duration::ZERO);
         changed = true;
     }
+    changed |= disclosure::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);

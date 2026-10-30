@@ -1,0 +1,8 @@
+{
+  "playground": "Timeline/Long tool group", "secs": 4.6,
+  "events": [
+    {"t": 0.6, "type": "move", "x": 1300, "y": 200, "expect": "smooth", "element": "c-call_fold_00/#0/trigger"},
+    {"t": 1.6, "type": "move", "x": 1300, "y": 210},
+    {"t": 2.8, "type": "move", "x": 1300, "y": 200, "expect": "smooth", "element": "c-call_fold_00/#0/trigger"}
+  ]
+}

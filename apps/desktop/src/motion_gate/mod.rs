@@ -55,11 +55,13 @@ pub struct Circ {
     pub unplayed: bool,
     /// The app zoomed in (⌘+), as a whole window scaled up.
     pub zoomed: bool,
+    /// The session ends with a turn that used 40 tools (`tool_group_stories::add_long_group`).
+    pub long_group: bool,
 }
 
 impl Default for Circ {
     fn default() -> Self {
-        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false }
+        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false }
     }
 }
 
@@ -81,6 +83,9 @@ impl Circ {
         }
         if self.zoomed {
             parts.push("zoomed");
+        }
+        if self.long_group {
+            parts.push("long-group");
         }
         parts.join("/")
     }
@@ -131,6 +136,9 @@ impl Run {
         }
         if !c.unplayed && c.length == Length::Long {
             app.finish_stream();
+        }
+        if c.long_group {
+            crate::tool_group_stories::add_long_group(&mut app, SID);
         }
         match c.dock {
             Dock::None => {}
@@ -242,6 +250,13 @@ impl Run {
     pub fn swipe_up(&mut self, dy: f32, secs: f64) {
         let v = self.timeline_rect();
         self.act("scroll up", |rt| rt.wheel(v[0] + v[2] / 2.0, v[1] + v[3] / 2.0, dy));
+        self.play(secs);
+    }
+
+    /// A recorded wheel scroll down the timeline, then `secs` of frames.
+    pub fn swipe_down(&mut self, dy: f32, secs: f64) {
+        let v = self.timeline_rect();
+        self.act("scroll down", |rt| rt.wheel(v[0] + v[2] / 2.0, v[1] + v[3] / 2.0, -dy));
         self.play(secs);
     }
 

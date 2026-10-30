@@ -23,11 +23,6 @@ const ALLOW: &[Allow] = &[
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("reversal", "time-call_story_agent", "agents", "the card's final time rolls its digit up as the pinned timeline slides down for the closing activity lane; against its row it travels one way (odometer::odometer_end)"),
     ("jump", "working/#0/label", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
-    ("jump", "c-msg_001a162cb6dbc013fixture00-0", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
-    ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
-    ("pop-out", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "tool-expand", "a tool group opens and closes instantly, as a thought's disclosure does (turns::group)"),
-    ("jump", "c-msg_001a162cb6dbc013fixture00-0", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
-    ("pop-in", "c-msg_001a162cb6dbc013fixture00-0/#0/steps", "send-during-reflow", "a tool group opens instantly (turns::group); the send that follows is what this cell checks"),
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
@@ -248,6 +243,49 @@ const ACTIONS: &[Action] = &[
         r.play(0.6);
         tap_trigger(r, Some(&group));
         r.play(0.6);
+    } },
+    // A 40-tool group near the end opens and shuts with its header held where it was pressed;
+    // a second press mid-motion springs back from there; scrolled into, its header sticks to
+    // the top, and a press there shuts it in place (t988).
+    Action { name: "tool-group-fold", circs: || {
+        let base = Circ { long_group: true, ..Circ::default() };
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
+    }, run: |r| {
+        let group = format!("/{}", crate::tool_group_stories::GROUP);
+        let path = trigger(r, None).filter(|t| t.0.contains(&group)).map(|t| t.0).expect("the long group's header");
+        let held = |r: &Run| trigger(r, Some(&path)).map(|t| t.2);
+        let near = |a: Option<f32>, b: Option<f32>| matches!((a, b), (Some(a), Some(b)) if (a - b).abs() < 0.5);
+        let at = held(r);
+        tap_trigger(r, Some(&path));
+        r.play(0.5);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "opening holds the header where it was pressed", held(r), at);
+        tap_trigger(r, Some(&path));
+        r.play(0.8);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "shutting holds the header where it was pressed", held(r), at);
+        tap_trigger(r, Some(&path));
+        r.play(0.08);
+        tap_trigger(r, Some(&path));
+        r.play(0.8);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "a press mid-motion springs back with the header held", held(r), at);
+        tap_trigger(r, Some(&path));
+        r.play(0.5);
+        // Scroll the header 200 pt past the timeline's top, into the open group.
+        let viewport = format!("scroll-{SID}");
+        let els = r.rt.elements();
+        let top_of = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key)).map_or(0.0, |e| e.rect[1]);
+        let dy = held(r).unwrap_or(0.0) - top_of(&viewport) + 200.0;
+        r.swipe_down(dy, 0.6);
+        let stuck = r.rt.elements().into_iter().find(|e| e.path == path).map(|e| e.stuck).unwrap_or(0.0);
+        assert!(stuck > 0.0, "scrolled into the open group, its header sticks to the top");
+        let top = held(r);
+        tap_trigger(r, Some(&path));
+        r.play(0.8);
+        // It stays where it stuck unless the rows under it run out first: then the timeline's
+        // end holds and the header settles down onto the rows above it.
+        let end = r.rt.elements().into_iter().find(|e| e.key.as_deref() == Some("turn-actions")).map(|e| e.rect[1] + e.rect[3]);
+        let floor = r.rt.elements().into_iter().find(|e| e.key.as_deref() == Some(viewport.as_str())).map(|e| e.rect[1] + e.rect[3]);
+        let at_end = matches!((end, floor), (Some(e), Some(f)) if e <= f + 0.5);
+        assert!(near(held(r), top) || (at_end && held(r) > top), "shutting from the stuck header leaves it where it stuck: {:?} vs {top:?}", held(r));
     } },
     // A long prompt lands folded; Read more opens it on the growth spring with its top held,
     // and Show less closes it again.
