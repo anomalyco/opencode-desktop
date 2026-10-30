@@ -17,7 +17,9 @@ impl App {
     pub(crate) fn add_pending(&mut self, p: Pending) {
         self.requests.insert((p.session().to_owned(), p.id().to_owned()));
         if !self.pending.iter().any(|x| x.id() == p.id()) {
+            let id = p.id().to_owned();
             self.pending.push(p);
+            self.auto_answer(&id);
         }
     }
 

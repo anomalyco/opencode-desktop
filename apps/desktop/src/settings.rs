@@ -44,6 +44,8 @@ pub struct Settings {
     pub terminal_placement: crate::panels::DockPlacement,
     /// Which events post a system notification (`notifications.rs`), with Desktop's defaults.
     pub notify: crate::notifications::Kinds,
+    /// Answer every permission request "once" as it arrives (Desktop's `permissions.autoApprove`).
+    pub auto_accept: bool,
 }
 
 impl Default for Settings {
@@ -55,6 +57,7 @@ impl Default for Settings {
             fold_user: true,
             terminal_placement: crate::panels::DockPlacement::Side,
             notify: Default::default(),
+            auto_accept: false,
         }
     }
 }
@@ -67,6 +70,7 @@ impl Settings {
             "foldUserMessages": self.fold_user,
             "terminalPlacement": self.terminal_placement.name(),
             "notifications": self.notify.to_json(),
+            "permissions": { "autoApprove": self.auto_accept },
         })
     }
 
@@ -78,6 +82,7 @@ impl Settings {
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(true),
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
+            auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -128,7 +133,7 @@ impl App {
         self.settings.open = false;
     }
 
-    fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
+    pub(crate) fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
         f(&mut self.settings);
         if self.persists() {
             save(&self.settings);
@@ -188,6 +193,8 @@ pub fn page(s: &App, p: &Pal) -> El {
             switch(p, "show-agent", s.settings.show_agent).on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent))),
         ("fold-user", "Fold long messages", "Fold your messages past 12 lines behind a Read more button",
             switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user))),
+        ("auto-accept", "Auto-accept permissions", "Permission requests will be automatically approved",
+            switch(p, "auto-accept-switch", s.settings.auto_accept).on_press(|s: &mut App| s.set_auto_accept(!s.settings.auto_accept))),
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
         ("appearance", "Appearance", "Follow the system, or always light or dark.", scheme_control(s, p)),
         ("zoom", "Interface zoom", "Scale the whole window. ⌘+ ⌘− ⌘0 do the same.", zoom_control(s, p)),
@@ -420,7 +427,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default() };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

@@ -129,6 +129,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w / s.zoom);
                     crate::queue::alternate_hint(p, room)
                 }).flatten()))
+                .children(crate::auto_accept::indicator(s, p))
                 .children(crate::dictation::toolbar(s, p))
                 .child(submit),
         )

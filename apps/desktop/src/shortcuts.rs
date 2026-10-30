@@ -21,6 +21,7 @@ pub enum Action {
     CloseTab,
     ReopenTab,
     Settings,
+    AutoAccept,
 }
 
 pub fn action(ev: &KeyEvent) -> Option<Action> {
@@ -36,6 +37,7 @@ pub fn action(ev: &KeyEvent) -> Option<Action> {
         Key::Command('=' | '+') => Some(Action::ZoomIn),
         Key::Command('-' | '_') => Some(Action::ZoomOut),
         Key::Command('0') if !m.shift => Some(Action::ZoomReset),
+        Key::Command(c) if c.eq_ignore_ascii_case(&'a') && m.shift => Some(Action::AutoAccept),
         Key::Command(',') if !m.shift => Some(Action::Settings),
         Key::Command('t') if m.shift => Some(Action::ReopenTab),
         Key::Command('t' | 'n') if !m.shift => Some(Action::NewSession),

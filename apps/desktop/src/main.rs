@@ -14,6 +14,8 @@ mod agent_start_stories;
 mod agent_stories;
 mod arrivals;
 mod attachments;
+mod auto_accept;
+mod auto_accept_story;
 mod background;
 mod background_stories;
 mod browser;
@@ -456,6 +458,7 @@ impl App {
             Action::OpenProject => self.open_project_dialog(tx),
             Action::SelectProject => self.toggle_project_switcher(tx),
             Action::Settings => self.toggle_settings(tx),
+            Action::AutoAccept => self.toggle_auto_accept(tx),
             Action::CloseTab => {
                 if let Some(id) = self.current_tab() {
                     self.close_tab(&id, tx);
