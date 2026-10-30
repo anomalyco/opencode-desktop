@@ -106,13 +106,6 @@ pub fn admitted(s: &mut App, ty: &str, data: &serde_json::Value, sid: &str) {
     }
 }
 
-/// A status line from the server: a failed ⌃B or hint move reads "Request failed", as
-/// Desktop's toast does. A steer's move never reports.
-pub fn status(e: String) -> String {
-    let moving = e.starts_with("POST /api/session/") && e.split(':').next().is_some_and(|p| p.trim_end().ends_with("/background"));
-    if moving { FAILED.to_owned() } else { e }
-}
-
 /// ⌃B, Desktop's `session.background` keybind, while the open session has blocking work. With
 /// none it passes on, so a text field's ⌃B still moves the caret back.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {

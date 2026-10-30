@@ -4,9 +4,14 @@
 //!
 //! - [`rewound`]: `"Rewound"` with an `"Undo"` button, auto-closing after [`DURATION`] s unless
 //!   hovered or dismissed.
+//! - [`say`]: a message that leaves after [`DURATION`] s.
 //! - [`fail`]: `"Request failed"` (or custom title) with the server's error message, staying until
-//!   Kit dismisses it (`×` or `Escape`).
+//!   Kit dismisses it (`×` or `Escape`); [`fail_retry`] adds its fix as a Retry button.
+//! - [`from_server`]: a line from the server's worker threads, as the toast Desktop shows for it.
+//!
+//! Each also sets `s.status`, which `--debug`'s status bar shows.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use rune::{Align, Color, El, Key, KeyEvent, Side, Spring, TextStyle, Transition, Tx, col, icon, row, spacer, text};
@@ -26,6 +31,8 @@ const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 #[derive(Clone, Debug)]
 pub enum ToastAction {
     UndoRewind(UndoRewind),
+    /// Retry: attach this file again (an upload that failed).
+    Attach(PathBuf),
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +68,68 @@ pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
         at: s.clock,
     });
     id
+}
+
+/// Shows a message that leaves after [`DURATION`] s.
+pub fn say(s: &mut App, title: impl Into<String>, description: impl Into<String>) {
+    fail(s, title, description);
+    if let Some(e) = s.toast.current.as_mut() {
+        e.persistent = false;
+    }
+}
+
+/// [`fail`] with a Retry button that runs `fix`.
+pub fn fail_retry(s: &mut App, title: impl Into<String>, description: impl Into<String>, fix: ToastAction) {
+    fail(s, title, description);
+    if let Some(e) = s.toast.current.as_mut() {
+        e.action = Some(fix);
+    }
+}
+
+/// A line from the server's worker threads (`Incoming::Status`) that revert, fork and stop
+/// didn't claim. A failed write shows Desktop's toast for it; a failed read or a dropped event
+/// stream stays in the debug bar, since the app retries those itself.
+pub fn from_server(s: &mut App, e: String) {
+    if let Some(path) = e.strip_prefix("Saved session to ") {
+        let line = format!("Saved session to {path}");
+        return say(s, "Session exported", line);
+    }
+    let Some((call, why)) = e.split_once(": ") else {
+        return fail(s, crate::background::FAILED, e);
+    };
+    let (method, path) = call.split_once(' ').unwrap_or(("", call));
+    if method == "GET" || call == "events" {
+        s.status = e;
+        return;
+    }
+    let why = plain(why);
+    fail(s, write_title(method, path), why);
+}
+
+/// Desktop's titles for a failed write (`prompt.toast.*`, `session.delete.failed.title`…).
+fn write_title(method: &str, path: &str) -> &'static str {
+    let path = path.split('?').next().unwrap_or(path);
+    let last = path.rsplit('/').next().unwrap_or("");
+    let session_only = path.strip_prefix("/api/session/").is_some_and(|rest| !rest.contains('/'));
+    match (method, last) {
+        ("POST", "prompt" | "agent" | "model") => "Failed to send prompt",
+        ("POST", "command") => "Failed to send command",
+        ("POST", "shell") => "Failed to send shell command",
+        ("POST", "session") => "Failed to create session",
+        ("PATCH", _) if session_only => "Failed to rename session",
+        ("DELETE", _) if session_only => "Failed to delete session",
+        // Desktop's ⌃B move, and anything else, says only this.
+        _ => crate::background::FAILED,
+    }
+}
+
+/// An error's words without the OS's code: "No such file or directory".
+pub fn plain(e: &str) -> String {
+    let e = e.trim();
+    match e.rfind(" (os error ") {
+        Some(i) if e.ends_with(')') => e[..i].to_owned(),
+        _ => e.to_owned(),
+    }
 }
 
 /// Shows a failure toast that waits until dismissed, and records the message on `s.status`.
@@ -147,13 +216,16 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         })
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
 
-    let action_btn = entry.action.as_ref().map(|action| match action {
-        ToastAction::UndoRewind(undo) => {
-            let undo = undo.clone();
-            row()
-                .key("toast-undo")
+    let action_btn = entry.action.as_ref().map(|action| {
+        let (key, label) = match action {
+            ToastAction::UndoRewind(_) => ("toast-undo", "Undo"),
+            ToastAction::Attach(_) => ("toast-retry", "Retry"),
+        };
+        let action = action.clone();
+        row()
+                .key(key)
                 .role("button")
-                .label("Undo")
+                .label(label)
                 .h(24.0)
                 .px(8.0)
                 .radius(5.0)
@@ -165,10 +237,15 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     dismiss(s);
-                    s.undo_rewind(undo.clone(), tx);
+                    match action.clone() {
+                        ToastAction::UndoRewind(undo) => s.undo_rewind(undo, tx),
+                        ToastAction::Attach(path) => {
+                            tx.instant();
+                            s.attach_path(&path);
+                        }
+                    }
                 })
-                .child(text("Undo").font(UI_MED).color(p.text))
-        }
+                .child(text(label).font(UI_MED).color(p.text))
     });
 
     let body = if let Some(desc) = &entry.description {

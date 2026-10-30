@@ -47,7 +47,7 @@ fn rewind_open(s: &mut App, tx: &mut Play<App>) {
 fn toast_undo(s: &mut App, tx: &mut Play<App>) {
     let undo = s.toast.current.as_ref().and_then(|e| match &e.action {
         Some(status_toast::ToastAction::UndoRewind(u)) => Some(u.clone()),
-        None => None,
+        _ => None,
     });
     if let Some(undo) = undo {
         status_toast::dismiss(s);

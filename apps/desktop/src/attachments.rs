@@ -53,8 +53,8 @@ pub struct Attach {
     pub paths: Vec<PathAttachment>,
     /// Uploads still copying to a remote server; sending waits for them.
     pub uploading: Vec<String>,
-    uploads_tx: Sender<Result<PathAttachment, String>>,
-    uploads: Receiver<Result<PathAttachment, String>>,
+    uploads_tx: Sender<Result<PathAttachment, Failed>>,
+    uploads: Receiver<Result<PathAttachment, Failed>>,
     /// A file drag over the page, which shows the drop overlay.
     pub drop: crate::dropzone::Dropzone,
     /// Prompts shown before the server's copy: (session, local id, text).
@@ -161,6 +161,13 @@ pub fn from_path(path: &Path) -> Result<Attachment, String> {
     Ok(Attachment { mime: mime.into(), name, bytes: bytes.into(), media: None })
 }
 
+/// An upload that didn't reach the server: the file, to try again.
+pub struct Failed {
+    name: String,
+    path: std::path::PathBuf,
+    error: String,
+}
+
 impl App {
     /// Attaches a file from disk: inline when the model reads it natively and it fits, else by
     /// path, uploading a copy first when the server is on another machine.
@@ -168,19 +175,19 @@ impl App {
         let name = name_of(path);
         let size = match std::fs::metadata(path) {
             Ok(m) if m.is_file() => m.len() as usize,
-            Ok(_) => return self.status = format!("{name} isn't a file"),
-            Err(e) => return self.status = format!("{name}: {e}"),
+            Ok(_) => return crate::status_toast::say(self, "Couldn't attach a file", format!("{name} is a folder. Only files can be attached.")),
+            Err(e) => return crate::status_toast::fail(self, "Couldn't attach a file", format!("{name}: {}", crate::status_toast::plain(&e.to_string()))),
         };
         if native_mime(path).is_some() && size <= MAX_BYTES {
             match from_path(path) {
                 Ok(a) => self.attach.add(a),
-                Err(e) => self.status = e,
+                Err(e) => crate::status_toast::fail(self, "Couldn't attach a file", crate::status_toast::plain(&e)),
             }
             return;
         }
         let mime = match head(path) {
             Ok(h) => mime_for(path, &h).to_owned(),
-            Err(e) => return self.status = e,
+            Err(e) => return crate::status_toast::fail(self, "Couldn't attach a file", crate::status_toast::plain(&e)),
         };
         let server = match &self.source {
             crate::Source::Live { server, .. } if !server.is_local() => server.clone(),
@@ -190,7 +197,10 @@ impl App {
         self.attach.uploading.push(name.clone());
         std::thread::spawn(move || {
             let copied = std::fs::read(&path).map_err(|e| format!("{name}: {e}")).and_then(|bytes| server.upload(&directory, &name, &bytes));
-            let _ = out.send(copied.map(|path| PathAttachment { name, mime, path }));
+            let _ = out.send(match copied {
+                Ok(at) => Ok(PathAttachment { name, mime, path: at }),
+                Err(error) => Err(Failed { name, path, error }),
+            });
             if let Some(w) = wake {
                 w();
             }
@@ -208,9 +218,12 @@ impl App {
                     }
                     self.attach.add_path(r);
                 }
-                Err(e) => {
-                    self.attach.uploading.pop();
-                    self.status = e;
+                Err(f) => {
+                    if let Some(i) = self.attach.uploading.iter().position(|n| *n == f.name) {
+                        self.attach.uploading.remove(i);
+                    }
+                    let line = crate::status_toast::plain(f.error.trim_start_matches("upload "));
+                    crate::status_toast::fail_retry(self, "Upload failed", line, crate::status_toast::ToastAction::Attach(f.path));
                 }
             }
             changed = true;
@@ -228,7 +241,7 @@ impl App {
                 s.composer.focused = true;
             }
             Ok(None) => {}
-            Err(e) => s.status = e.to_string(),
+            Err(e) => crate::status_toast::fail(s, "Couldn't open the file picker", e.to_string()),
         });
     }
 }

@@ -166,11 +166,3 @@ fn the_fixture_server_returns_the_blocking_call() {
     assert_eq!(status, Some(ToolStatus::Completed));
     assert!(shown(&rt, "background-hint").is_none(), "the hint goes with the blocking work");
 }
-
-#[test]
-fn a_failed_move_reads_request_failed() {
-    use crate::background::{FAILED, status};
-    assert_eq!(status("POST /api/session/ses_a/background: connection refused".into()), FAILED);
-    let other = "POST /api/session/ses_a/prompt: connection refused";
-    assert_eq!(status(other.into()), other);
-}

@@ -247,7 +247,7 @@ impl App {
     pub fn poll_open_in(&mut self) -> bool {
         let (changed, err) = self.open_in.poll();
         if let Some(e) = err {
-            self.status = format!("Couldn't open: {e}");
+            crate::status_toast::fail(self, "Couldn't open", crate::status_toast::plain(&e.to_string()));
         }
         changed
     }

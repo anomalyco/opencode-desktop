@@ -22,7 +22,7 @@ impl App {
             return;
         }
         if !self.attach.uploading.is_empty() {
-            self.status = "Waiting for attachments to upload…".into();
+            crate::status_toast::say(self, "Attachments are still uploading", "Send again once they finish.");
             return;
         }
         self.close_mentions();
@@ -92,7 +92,7 @@ impl App {
                 return;
             }
             _ => {
-                self.status = "Pick a session to send to".into();
+                crate::status_toast::say(self, "Open a session to send to", "");
                 return;
             }
         };
@@ -178,9 +178,9 @@ impl App {
             return true;
         }
         match &self.source {
-            Source::Live { allow_send: false, .. } => self.status = "Read-only: relaunch without --read-only to act".into(),
+            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, "Nothing was sent", "This window is read-only. Relaunch without --read-only to act."),
             Source::Live { writes: Some(tx), .. } => return tx.send(w).is_ok(),
-            _ => self.status = "Not connected to an OpenCode server".into(),
+            _ => crate::status_toast::fail(self, "Not connected to an OpenCode server", "Nothing was sent."),
         }
         false
     }

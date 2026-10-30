@@ -200,7 +200,7 @@ impl App {
     pub fn send_command(&mut self, mut prompt: Prompt, alternate: bool, tx: &mut Tx) {
         match self.route.clone() {
             Route::Session(_) if matches!(self.source, Source::Fixture) => {
-                self.status = "Commands need a live server".into();
+                crate::status_toast::say(self, "Commands need a server", "Connect to an OpenCode server to run them.");
                 return;
             }
             Route::Session(id) => {
@@ -227,7 +227,7 @@ impl App {
                 self.status = "Starting a session…".into();
             }
             _ => {
-                self.status = "Pick a session to send to".into();
+                crate::status_toast::say(self, "Open a session to send to", "");
                 return;
             }
         }
@@ -243,15 +243,15 @@ impl App {
             return;
         }
         let Route::Session(id) = self.route.clone() else {
-            self.status = "Shell commands run in a session; send a prompt first".into();
+            crate::status_toast::say(self, "Shell commands run in a session", "Send a prompt first to start one.");
             return;
         };
         if alternate && self.busy(&id) {
-            self.status = "Shell commands can't wait in the queue".into();
+            crate::status_toast::say(self, "Shell commands can't be queued", "Press Enter to run it now.");
             return;
         }
         if matches!(self.source, Source::Fixture) {
-            self.status = "Shell commands need a live server".into();
+            crate::status_toast::say(self, "Shell commands need a server", "Connect to an OpenCode server to run them.");
             return;
         }
         let w = Write::Shell { session: id, id: Some(opencode_kit::client::message_id()), command };

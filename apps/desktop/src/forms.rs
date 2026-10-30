@@ -84,7 +84,7 @@ impl App {
 
     pub fn submit_form(&mut self, id: &str) {
         let Some(answer) = self.form_answer(id) else {
-            self.status = "Answer the questions first".into();
+            crate::status_toast::say(self, "Answer the questions first", "");
             return;
         };
         let Some(p) = self.pending.iter().find(|p| p.id() == id) else { return };

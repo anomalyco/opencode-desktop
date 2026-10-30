@@ -118,6 +118,8 @@ mod shortcuts;
 mod side_stories;
 mod slash;
 mod status_toast;
+#[cfg(test)]
+mod status_toast_tests;
 mod stop;
 mod stop_stories;
 mod stories;
@@ -662,7 +664,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Status(e) => {
                         if !rewind::failed(s, &e) && !stop::failed(s, &e) {
-                            s.status = background::status(e);
+                            status_toast::from_server(s, e);
                         }
                     }
                     Incoming::Pending { session, items } => {

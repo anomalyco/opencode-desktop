@@ -137,7 +137,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             s.apply_first(first);
             connect(s, tx);
         }
-        Err(e) => s.status = e,
+        Err(e) => {
+            // Desktop's `error.serverSync.connectFailed`.
+            let url = match &s.source { crate::Source::Live { server, .. } => server.base.clone(), _ => String::new() };
+            crate::status_toast::fail(s, "Couldn't connect to the server", format!("Is there a server running at {url}?"));
+            s.status = e;
+        }
     }
     true
 }

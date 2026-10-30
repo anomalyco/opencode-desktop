@@ -469,7 +469,7 @@ impl super::App {
                 }
                 Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => {
                     if let Some(f) = &mut self.pages.fetching && f.id == key.id { f.failed = true; }
-                    self.status = error;
+                    crate::status_toast::fail(self, "Couldn't load this session", crate::status_toast::plain(error.split_once(": ").map_or(error.as_str(), |(_, why)| why)));
                     changed = true;
                 }
                 _ => {}

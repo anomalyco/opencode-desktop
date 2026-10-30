@@ -226,7 +226,7 @@ impl App {
                     s.composer.focused = true;
                 }
             }
-            Err(e) => s.status = e.to_string(),
+            Err(e) => crate::status_toast::fail(s, "Couldn't open the folder picker", e.to_string()),
         });
     }
 
