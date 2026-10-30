@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
-use crate::mentions::list::{Highlight, cycle};
+use crate::model_prefs::ModelPrefs;
+use crate::popover::{Highlight, Nav, cycle, nav};
 use crate::{App, Route};
 use opencode_kit::model::{ModelRef, capitalize};
 
@@ -33,13 +34,31 @@ pub struct Model {
     pub variants: Vec<String>,
     /// Left out of the list until a search finds it (Desktop's `visible`).
     pub hidden: bool,
+    /// OpenCode's free models (Desktop's `isFreeModel`).
+    pub free: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection { pub model: ModelRef, pub agent: String }
 
-#[derive(Clone)]
-pub struct Item { pub key: String, pub label: String, pub group: String }
+#[derive(Clone, Default)]
+pub struct Item {
+    pub key: String,
+    pub label: String,
+    pub group: String,
+    /// Faint after the label: a model's provider in Favorites and Recent.
+    pub note: String,
+    pub free: bool,
+}
+
+impl Item {
+    fn new(key: impl Into<String>, label: impl Into<String>) -> Item {
+        Item { key: key.into(), label: label.into(), ..Item::default() }
+    }
+}
+
+pub const FAVORITES: &str = "Favorites";
+pub const RECENT: &str = "Recent";
 
 #[derive(Default)]
 pub struct Pickers {
@@ -61,6 +80,7 @@ pub struct Pickers {
     /// The effort last picked for each model, which picking that model again brings back
     /// (Desktop's per-model `variant` preference).
     efforts: HashMap<String, String>,
+    pub prefs: ModelPrefs,
 }
 
 impl Pickers {
@@ -69,7 +89,7 @@ impl Pickers {
             let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
-                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false }
+                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false }
         }).collect();
         self.load_limits(&fixture["models"]);
         self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -86,7 +106,7 @@ impl Pickers {
         self.models = listed.iter().map(|v| {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
-            Model { hidden: !shown.contains(&key), key, id, group: provider.clone(), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
+            Model { hidden: !shown.contains(&key), free: is_free(v), key, id, group: provider.clone(), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);
@@ -119,13 +139,18 @@ impl Pickers {
     }
 }
 
+/// OpenCode's models that cost nothing (Desktop's `isFreeModel`): the untiered cost's input is 0.
+fn is_free(m: &Value) -> bool {
+    m["providerID"] == "opencode" && m["cost"].as_array().and_then(|c| c.iter().find(|c| c.get("tier").is_none()).or(c.first())).is_none_or(|c| c["input"].as_f64() == Some(0.0))
+}
+
 /// Desktop's default model list (`models.tsx` `visible`): each provider's newest model in a
 /// family released in the last six months, OpenCode's free models, and models with no release
 /// date. A search finds the rest.
 fn shown_models(models: &[&Value], now_ms: i64) -> HashSet<String> {
     const SIX_MONTHS: f64 = 6.0 * 30.436875 * 24.0 * 3600.0 * 1000.0;
     let key = |m: &Value| format!("{}:{}", m["providerID"].as_str().unwrap_or(""), m["id"].as_str().unwrap_or(""));
-    let free = |m: &Value| m["providerID"] == "opencode" && m["cost"].as_array().and_then(|c| c.iter().find(|c| c.get("tier").is_none()).or(c.first())).is_none_or(|c| c["input"].as_f64() == Some(0.0));
+    let free = |m: &Value| is_free(m);
     let mut out = HashSet::new();
     let mut newest: HashMap<String, (i64, String)> = HashMap::new();
     for m in models {
@@ -212,27 +237,54 @@ impl App {
     pub fn picker_items(&self) -> Vec<Item> {
         let selection = self.selection();
         match self.pickers.open {
-            Some(Kind::Model) => {
-                let q = self.pickers.search.text.to_lowercase();
-                let current = format!("{}:{}", selection.model.provider, selection.model.id);
-                self.pickers.models.iter()
-                    .filter(|m| if q.is_empty() { !m.hidden || m.key == current } else { format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q) })
-                    .map(|m| Item { key: m.key.clone(), label: m.name.clone(), group: m.group.clone() }).collect()
-            }
-            Some(Kind::Agent) => self.pickers.agents.iter().map(|a| Item { key: a.clone(), label: capitalize(a), group: String::new() }).collect(),
+            Some(Kind::Model) => self.model_items(&selection),
+            Some(Kind::Agent) => self.pickers.agents.iter().map(|a| Item::new(a.clone(), capitalize(a))).collect(),
             Some(Kind::Effort) => {
                 let variants = self.pickers.models.iter().find(|m| m.id == selection.model.id && m.provider == selection.model.provider);
-                std::iter::once(Item { key: "default".into(), label: "Default".into(), group: String::new() })
-                    .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item { key: v.clone(), label: capitalize(v), group: String::new() })).collect()
+                std::iter::once(Item::new("default", "Default"))
+                    .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item::new(v.clone(), capitalize(v)))).collect()
             }
             Some(Kind::Project) => self
                 .projects
                 .iter()
-                .map(|p| Item { key: p.id.clone(), label: p.name.clone(), group: String::new() })
-                .chain(std::iter::once(Item { key: ADD_PROJECT_KEY.into(), label: "Add project".into(), group: String::new() }))
+                .map(|p| Item::new(p.id.clone(), p.name.clone()))
+                .chain(std::iter::once(Item::new(ADD_PROJECT_KEY, "Add project")))
                 .collect(),
             None => vec![],
         }
+    }
+
+    /// The model list, as Desktop's: with no search, Favorites then Recent lead it (with their
+    /// provider after the name) and their models leave their provider's group.
+    fn model_items(&self, selection: &Selection) -> Vec<Item> {
+        let q = self.pickers.search.text.to_lowercase();
+        let current = format!("{}:{}", selection.model.provider, selection.model.id);
+        let item = |m: &Model, group: &str, note: bool| Item {
+            key: m.key.clone(), label: m.name.clone(), group: group.to_owned(),
+            note: if note { m.group.clone() } else { String::new() }, free: m.free,
+        };
+        if !q.is_empty() {
+            return self.pickers.models.iter()
+                .filter(|m| format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q))
+                .map(|m| item(m, &m.group, false)).collect();
+        }
+        let prefs = &self.pickers.prefs;
+        let find = |k: &String| self.pickers.models.iter().find(|m| &m.key == k);
+        let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
+        let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
+        let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
+        favorites.iter().map(|m| item(m, FAVORITES, true))
+            .chain(recent.iter().map(|m| item(m, RECENT, true)))
+            .chain(self.pickers.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.group, false)))
+            .collect()
+    }
+
+    /// Stars or unstars a model (⌘F on the highlighted row, or its star).
+    pub fn toggle_favorite(&mut self, key: &str) {
+        self.pickers.prefs.toggle_favorite(key);
+        // The row moves between groups; the highlight goes with it, and typing still searches.
+        self.pickers.activate(key.to_owned());
+        self.pickers.search.focused = self.pickers.open == Some(Kind::Model);
     }
 
     /// The project a new session would start in: the one whose folder holds the draft's.
@@ -305,6 +357,7 @@ impl App {
         match self.pickers.open {
             Some(Kind::Model) => {
                 let Some(m) = self.pickers.models.iter().find(|m| m.key == key) else { return };
+                self.pickers.prefs.picked(key);
                 if m.id != selected.model.id || m.provider != selected.model.provider {
                     let variant = self.pickers.efforts.get(key).filter(|v| m.variants.contains(v)).cloned().unwrap_or_default();
                     selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
@@ -339,27 +392,29 @@ impl App {
 
     fn picker_keys(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if self.pickers.open.is_some() {
-            match &ev.key {
-                Key::Escape => self.close_picker(true),
-                Key::Tab => {
+            match nav(ev) {
+                Some(Nav::Close) => self.close_picker(true),
+                Some(Nav::Leave) => {
                     let kind = self.pickers.open.filter(|k| *k != Kind::Project);
                     self.close_picker(kind.is_none());
                     self.pickers.toolbar_focus = kind;
                 }
-                Key::Up | Key::Down if !ev.mods.alt && !ev.mods.cmd => {
+                Some(Nav::Step(step)) => {
                     if self.pickers.search.preedit.is_some() { return false; }
                     let items = self.picker_items();
                     if !items.is_empty() {
                         let active = self.picker_active();
                         let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
-                        let step = if ev.key == Key::Down { 1 } else { -1 };
                         self.pickers.activate(items[cycle(items.len(), at, step)].key.clone());
                     }
                 }
-                Key::Enter => {
+                Some(Nav::Choose) => {
                     if self.pickers.search.preedit.is_none() && let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
                 }
-                _ => return self.pickers.open != Some(Kind::Model),
+                None if ev.is_command('f') && self.pickers.open == Some(Kind::Model) && !ev.mods.shift => {
+                    if let Some(key) = self.picker_active() { self.toggle_favorite(&key); }
+                }
+                None => return self.pickers.open != Some(Kind::Model),
             }
             return true;
         }

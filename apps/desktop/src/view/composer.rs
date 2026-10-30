@@ -148,87 +148,71 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
 }
 
 pub(super) fn picker(s: &App, p: &Pal) -> El {
+    use crate::pickers::ADD_PROJECT_KEY;
+    use crate::popover::{self as pop, LIST, MENU, Opt};
     let kind = s.pickers.open.unwrap();
+    let look = if kind == Kind::Model { LIST } else { MENU };
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
-    let mut menu = col().key(format!("picker-{}", kind.key())).role("menu").label(format!("Choose {}", kind.key()))
-        .anchored(kind.key(), Side::Top, Align::Start, 6.0)
-        .w(match kind { Kind::Model => 284.0, Kind::Project => 240.0, _ => 180.0 })
-        .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::none())
-        // Its height and rows follow the filter in the keystroke.
-        .motion(Spring::NONE)
-        // Empty space in the menu consumes pointer presses instead of dismissing it.
-        .on_press(|_: &mut App| {});
+    let mut menu = pop::surface(p, look, format!("picker-{}", kind.key()), format!("Choose {}", kind.key()))
+        .w(match kind { Kind::Model => 320.0, Kind::Project => 240.0, _ => 180.0 });
     if kind == Kind::Model {
-        menu = menu.child(row().key("picker-search-row").h(28.0).pl(10.0).pr(4.0).gap(8.0).center_y()
-            .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-            .child(text_input(&s.pickers.search, UI).key("picker-search").grow(1.0).shrink().h(28.0).animate_edit_layout()
-                .placeholder("Search models", p.faint).caret(p.text, p.selection)
-                .on_edit(|s: &mut App| &mut s.pickers.search)
-                .on_input_key(|s: &mut App, ev, tx| s.shortcut(ev, tx) || s.picker_key(ev, tx))))
-            .child(el().h(0.5).w_full().fill(p.border_muted));
+        let field = pop::search_field(p, "picker-search", &s.pickers.search, "Search models")
+            .on_edit(|s: &mut App| &mut s.pickers.search)
+            .on_input_key(|s: &mut App, ev, tx| s.picker_key(ev, tx) || s.shortcut(ev, tx));
+        menu = menu.child(pop::search_row(p, look, "picker-search-row", field));
     }
-    // Filtering is instant, like Desktop's list: rows come and go in the keystroke.
-    let appear = rune::Transition::none();
-    let mut list = col().key("picker-options").w_full();
+    let mut list = pop::List::new("picker-options", look);
     let mut footer: Option<El> = None;
     let mut group = "";
-    let mut height = 0.0_f32;
     for item in &items {
-        let is_add = kind == Kind::Project && item.key == crate::pickers::ADD_PROJECT_KEY;
+        let is_add = kind == Kind::Project && item.key == ADD_PROJECT_KEY;
         if !is_add && !item.group.is_empty() && item.group != group {
-            list = list.child(col().key(format!("group-{}", item.group)).h(24.0).transition(appear.clone())
-                .child(text(item.group.clone()).font(UI_SMALL).color(p.faint).h(24.0).px(10.0).pt(4.0)));
-            height += 24.0;
+            list.header(p, format!("group-{}", item.group), &item.group);
             group = &item.group;
         }
         let key = item.key.clone();
-        let hover_key = key.clone();
-        let mut option = row().key(format!("option-{key}")).role("menuitemradio").label(item.label.clone())
-            .h(28.0).w_full().px(10.0).gap(8.0).center_y().radius(4.0).transition(appear.clone())
-            .fill(if active.as_deref() == Some(&key) { p.hover } else { Color::TRANSPARENT })
-            .hover(p.hover).press(p.pressed)
-            // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-            .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-                if inside {
-                    tx.instant();
-                    s.pickers.activate(hover_key.clone());
-                }
-            })
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx));
+        let is_active = active.as_deref() == Some(key.as_str());
+        let mut o = Opt::new(format!("option-{key}"), item.label.clone()).active(is_active).checked(!is_add && item.key == selected);
         if is_add {
-            option = option.child(icon(&ic::PLUS, 16.0).color(p.icon_muted));
+            o = o.role("menuitem").lead(icon(&ic::PLUS, 16.0).color(p.icon_muted)).trailing(pop::hint(p, "⌘O"));
         } else if kind == Kind::Project {
-            option = option.child(crate::icons::badge(s, p, s.project(&item.key), &item.label));
+            o = o.lead(crate::icons::badge(s, p, s.project(&item.key), &item.label));
         }
-        option = option.child(text(item.label.clone()).font(UI).color(p.text).truncate_fade()).child(spacer());
+        if !item.note.is_empty() {
+            o = o.after(text(item.note.clone()).font(UI).color(p.faint).shrink().truncate_fade());
+        }
+        if item.free {
+            o = o.after(pop::badge(p, "Free"));
+        }
+        if kind == Kind::Model && is_active {
+            let star = key.clone();
+            o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
+        }
+        let hover_key = key.clone();
+        let row = pop::option(p, look, o, move |s: &mut App| s.pickers.activate(hover_key.clone()), move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx));
         if is_add {
-            option = option.child(text("⌘O").font(UI).color(p.faint));
-            footer = Some(option);
-            continue;
+            footer = Some(row);
+        } else {
+            list.row(row);
         }
-        if item.key == selected {
-            option = option.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon));
-        }
-        list = list.child(option);
-        height += 28.0;
     }
     if kind == Kind::Model && items.is_empty() {
-        list = list.child(col().key("picker-empty").h(48.0).transition(appear)
-            .child(text("No models found").font(UI).color(p.faint).h(48.0).px(10.0).pt(16.0)));
-        height = 48.0;
+        list.other(pop::empty(p, look, "picker-empty", "No models found"), pop::EMPTY_H);
     }
-    let mut body = menu.child(col().key("picker-scroll").w_full().h(height.min(200.0))
-        .scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list));
+    let listed = !list.is_empty();
+    let max_h = if kind == Kind::Model { 360.0 } else { 240.0 };
+    if listed {
+        menu = menu.child(list.build("picker-scroll", max_h));
+    }
     if let Some(add_row) = footer {
-        if height > 0.0 {
-            body = body.child(el().key("picker-add-divider").h(0.5).w_full().my(2.0).fill(p.border_muted));
+        if listed {
+            menu = menu.child(pop::divider(p, "picker-add-divider"));
         }
-        body = body.child(add_row);
+        menu = menu.child(col().key("picker-footer").w_full().padding(look.inset).child(add_row));
     }
-    body
+    pop::place(menu, kind.key(), Side::Top, Align::Start, 6.0)
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {

@@ -166,3 +166,47 @@ fn the_default_list_shows_each_familys_newest_and_search_finds_the_rest() {
     app.pickers.search = rune::TextEdit::new("claude a");
     assert_eq!(app.picker_items().len(), 1);
 }
+
+#[test]
+fn favorites_and_recent_lead_the_list_until_a_search() {
+    let mut rt = crate::fixture_runtime();
+    let groups = |rt: &Runtime<App>| rt.state.picker_items().into_iter().map(|i| (i.group, i.key, i.note)).collect::<Vec<_>>();
+    for model in ["openai:gpt-6-astra", "google:gemini-4-argon"] {
+        rt.update(|s, tx| {
+            s.open_picker(Kind::Model);
+            s.choose_picker_tx(model, tx);
+        });
+    }
+    rt.update(|s, _| s.open_picker(Kind::Model));
+    // ⌘F stars the highlighted row (the current model) and it moves to Favorites with its provider.
+    press(&mut rt, Key::Command('f'), false);
+    let list = groups(&rt);
+    assert_eq!(list[0], ("Favorites".into(), "google:gemini-4-argon".into(), "Google".into()));
+    assert_eq!(list[1], ("Recent".into(), "openai:gpt-6-astra".into(), "OpenAI".into()));
+    assert_eq!(list.iter().filter(|(_, k, _)| k == "google:gemini-4-argon").count(), 1, "a favourite leaves its provider's group");
+    assert_eq!(rt.state.picker_active().as_deref(), Some("google:gemini-4-argon"), "the highlight follows the row");
+    assert!(rt.find("group-Favorites").is_some() && rt.find("group-Recent").is_some());
+    // The star on the highlighted row unstars it.
+    let (x, y) = rt.find("star").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.pickers.open, Some(Kind::Model), "the star doesn't pick the row");
+    assert!(rt.state.pickers.prefs.favorites.is_empty());
+    assert_eq!(groups(&rt)[0].0, "Recent");
+    // A search lists every match in its own group.
+    press(&mut rt, Key::Text("g".into()), false);
+    assert!(groups(&rt).iter().all(|(g, _, note)| g != "Recent" && note.is_empty()));
+}
+
+#[test]
+fn recent_keeps_the_last_five_picks_once() {
+    let mut prefs = crate::model_prefs::ModelPrefs::default();
+    for k in ["a:1", "b:2", "a:1", "c:3", "d:4", "e:5", "f:6"] {
+        prefs.picked(k);
+    }
+    assert_eq!(prefs.recent, ["f:6", "e:5", "d:4", "c:3", "a:1"]);
+    prefs.toggle_favorite("x:1");
+    prefs.toggle_favorite("y:2");
+    assert_eq!(prefs.favorites, ["y:2", "x:1"]);
+}

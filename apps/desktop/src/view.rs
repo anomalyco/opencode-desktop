@@ -61,12 +61,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         None => shell(s, cx),
     };
     if s.pickers.open.is_some() {
-        inner = inner.child(el().key("picker-dismiss").absolute(0.0, 0.0).w_full().h_full()
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                // Nothing gets focus back, so the search field can unmount in this frame.
-                tx.instant();
-                s.close_picker(false);
-            }))
+        // Nothing gets focus back, so the search field can unmount in this frame.
+        inner = inner.child(crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false)))
             .child(picker(s, p));
     }
     if let Route::Session(id) = &s.route

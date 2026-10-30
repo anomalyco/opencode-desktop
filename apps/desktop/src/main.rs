@@ -58,6 +58,7 @@ mod knobs;
 mod launch;
 mod mention_stories;
 mod mentions;
+mod model_prefs;
 #[cfg(test)]
 mod motion_gate;
 mod motion_log;
@@ -74,6 +75,7 @@ pub mod panels;
 mod perf;
 mod picker_stories;
 mod pickers;
+mod popover;
 mod project_stories;
 mod project_switcher;
 mod projects;
@@ -401,6 +403,7 @@ impl App {
         self.settings = settings::load();
         self.load_open_in();
         self.prompts = prompt_history::PromptHistory::load();
+        self.pickers.prefs = model_prefs::ModelPrefs::load();
         self.restore_ui(&server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;

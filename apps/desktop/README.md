@@ -5,6 +5,17 @@
 - Log: `~/Library/Logs/opencode-rune-autobuild.log`. Stop it with `scripts/uninstall-autobuild.sh`.
 - Server: `--server URL`, else `OPENCODE_SERVER_URL`, else `http://127.0.0.1:4096`. A Mac that reaches another Mac's server through a tunnel sets `OPENCODE_SERVER_URL` for GUI apps with `launchctl setenv` (a login LaunchAgent), so opening the app directly finds it too.
 
+## Shared parts
+
+Use these; don't draw your own. When one lacks what you need, extend it in its module (and its story), never a local copy beside your feature.
+
+| Need | Use (`src/`) |
+|---|---|
+| A menu, picker or popover | `popover/`: `surface`, `place`, `scrim`, `search_row`, `List` (group headers), `option` (`Opt`), `nav` for the keys. Looks: `MENU` (actions, short choices) and `LIST` (long lists with search). |
+| A lit row (pointer or keys) | `popover::lit` (`p.row_active`) |
+| A group's title | `popover::group_header` |
+| A shortcut at a row's end | `popover::hint` (11 pt at 530, faint) |
+
 ## Hot editing
 
 - `scripts/hot.sh` opens a separate debug window on the live server (`:4096`) and patches saved edits to function bodies in `src/view.rs` and `src/palette.rs` into it in about 1.5 s, keeping state, tabs and scroll. App flags pass through (`--read-only`, `--server URL`).
