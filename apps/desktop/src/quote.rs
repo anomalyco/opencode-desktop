@@ -12,7 +12,6 @@ use rune::{Cx, El, Icon, SelectionChange, TextEdit, TextStyle, Transition, Tx, i
 use opencode_kit::model::Quote;
 
 use crate::palette::Pal;
-use crate::view::no_motion;
 use crate::{App, Route};
 
 /// A selection waits this long to settle before the button offers it.
@@ -326,8 +325,8 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .shadow(2.0, 4.0, p.shadow_far)
         .shadow(1.0, 2.0, p.shadow)
         // It comes, goes and moves at once.
-        .transition(Transition::opacity().springs(no_motion()))
-        .motion(no_motion().enter)
+        .transition(Transition::none())
+        .motion(rune::Spring::NONE)
         .opacity_motion(rune::Anim::INSTANT)
         // Pressing it leaves the selection, and the prompt's focus, where they are.
         .keeps_text_selection()

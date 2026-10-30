@@ -481,19 +481,23 @@ mod tests {
 
     #[test]
     fn filter_resizes_and_escape_closes_at_once() {
-        let mut rt = runtime();
-        tap(&mut rt, "model");
-        rt.frame(1.0 / 60.0);
-        let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
-        let menu = find(&rt, "picker-model").unwrap();
-        assert!((menu.opacity - 1.0).abs() < 1e-3, "opens without a fade");
-        for part in ["picker-search", "picker-options", "option-google:gemini-4-argon"] {
-            let e = find(&rt, part).unwrap();
-            assert!((e.opacity - 1.0).abs() < 1e-3, "{part} is there at once: {}", e.opacity);
+        for reduced in [false, true] {
+            let mut rt = runtime();
+            rt.state.reduced_motion = reduced;
+            rt.frame(1.0 / 60.0);
+            tap(&mut rt, "model");
+            rt.frame(1.0 / 60.0);
+            let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
+            let menu = find(&rt, "picker-model").unwrap();
+            assert!((menu.opacity - 1.0).abs() < 1e-3, "opens without a fade (reduced={reduced})");
+            for part in ["picker-search", "picker-options", "option-google:gemini-4-argon"] {
+                let e = find(&rt, part).unwrap();
+                assert!((e.opacity - 1.0).abs() < 1e-3, "{part} is there at once: {}", e.opacity);
+            }
+            key(&mut rt, Key::Escape);
+            rt.frame(1.0 / 60.0);
+            assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame (reduced={reduced})");
         }
-        key(&mut rt, Key::Escape);
-        rt.frame(1.0 / 60.0);
-        assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame");
     }
 
     #[test]

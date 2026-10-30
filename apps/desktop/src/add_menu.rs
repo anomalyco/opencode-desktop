@@ -294,7 +294,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         .fill(p.layer1)
         .border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow)
-        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
+        .transition(rune::Transition::none())
         .on_press(|_: &mut App| {});
     for item in Item::ALL {
         if item == Item::Commands {

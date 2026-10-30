@@ -20,7 +20,7 @@ use rune::{
 };
 
 use crate::palette::Pal;
-use crate::view::{BUBBLE, UI, UI_MED, markdown_tinted, no_motion, readable};
+use crate::view::{BUBBLE, UI, UI_MED, markdown_tinted, readable};
 use crate::{App, Route, Source};
 
 /// A new automatic compaction waits this long before it shows (Desktop's grace).
@@ -225,7 +225,7 @@ pub(crate) fn divider(p: &Pal, label: &str) -> El {
 
 /// The running tool row and the divider that ends it trade places at once.
 fn swap() -> Transition {
-    Transition::opacity().springs(no_motion())
+    Transition::none()
 }
 
 fn summary(c: &Compaction) -> &str {
@@ -305,7 +305,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         .gap(12.0)
         .center_y()
         .label(if running { "Compacting" } else { "Compacted" })
-        .transition(Transition::identity().springs(no_motion()))
+        .transition(Transition::none())
         .child(quiet_line(s, p, lit, start, false))
         .child(quiet_label(s, p, running, open, start))
         .child(quiet_line(s, p, lit, start, true));
@@ -327,7 +327,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
             .key("summary")
             .w_full()
             .pb(8.0)
-            .transition(Transition::identity().springs(no_motion()))
+            .transition(Transition::none())
             .child(markdown_tinted(p, body, fade, false, p.muted))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
         if s.compactions.opened.get(&c.id).is_some_and(|t| s.clock - t < 0.3) {
@@ -417,7 +417,7 @@ fn quiet_label(s: &App, p: &Pal, running: bool, open: bool, start: f64) -> El {
 
 /// Shows at once and fades out over about `secs` when removed.
 fn fade_out(secs: f32) -> Transition {
-    Transition { insertion: Effect::IDENTITY, removal: Effect::opacity(0.0), pop_layout: true, springs: SpringPair::new(Spring::new(0.001, 0.0), Spring::new(secs, 0.0)) }
+    Transition { insertion: Effect::IDENTITY, removal: Effect::opacity(0.0), pop_layout: true, springs: SpringPair::new(Spring::NONE, Spring::new(secs, 0.0)) }
 }
 
 /// The wait that puts a loop mounting `now` in step with cycles counted from `start`.

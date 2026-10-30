@@ -312,7 +312,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
             .shadow(8.0, 16.0, p.shadow_far)
             .shadow(4.0, 8.0, p.shadow)
             .clip_soft(0.0)
-            .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
+            .transition(rune::Transition::none())
             .on_press(|_: &mut App| {})
             .child(rows),
     )

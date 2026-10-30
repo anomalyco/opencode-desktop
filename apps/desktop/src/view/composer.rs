@@ -136,18 +136,16 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
 pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
     let mut button = ghost(p, kind.key(), label, true, color).label(format!("Choose {}", kind.key()))
-        .motion(no_motion().enter);
+        .motion(Spring::NONE);
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }
     button.on_press_tx(move |s: &mut App, tx: &mut Tx| { s.open_picker(kind); if s.pickers.open.is_some() { tx.instant(); } })
 }
 
-/// Overrides Rune's default 0.2 s fade: menus and palettes appear and go on the keypress or
-/// click. (`tx.instant()` would also skip it, but an instant unmount of a focused field drops
-/// the composer's restored focus.)
+/// Kept for `queue.rs` while its in-flight branch lands; prefer `Transition::none()` / `Spring::NONE`.
 pub fn no_motion() -> rune::SpringPair {
-    rune::SpringPair { enter: rune::Spring::new(0.001, 0.0), exit: rune::Spring::new(0.001, 0.0) }
+    rune::SpringPair::NONE
 }
 
 pub(super) fn picker(s: &App, p: &Pal) -> El {
@@ -159,9 +157,9 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         .anchored(kind.key(), if kind == Kind::Project { Side::Bottom } else { Side::Top }, Align::Start, 6.0)
         .w(match kind { Kind::Model => 284.0, Kind::Project => 240.0, _ => 180.0 })
         .padding(2.0).radius(6.0).fill(p.layer1).border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::opacity().springs(no_motion()))
+        .shadow(4.0, 12.0, p.shadow).transition(rune::Transition::none())
         // Its height and rows follow the filter in the keystroke.
-        .motion(no_motion().enter)
+        .motion(Spring::NONE)
         // Empty space in the menu consumes pointer presses instead of dismissing it.
         .on_press(|_: &mut App| {});
     if kind == Kind::Model {
@@ -174,7 +172,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             .child(el().h(0.5).w_full().fill(p.border_muted));
     }
     // Filtering is instant, like Desktop's list: rows come and go in the keystroke.
-    let appear = rune::Transition::opacity().springs(no_motion());
+    let appear = rune::Transition::none();
     let mut list = col().key("picker-options").w_full();
     let mut group = "";
     let mut height = 0.0_f32;

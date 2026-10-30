@@ -164,16 +164,24 @@ impl App {
     }
 }
 
-/// The Go menu's Back and Forward. Like the other menus they carry no key equivalent: Rune
-/// draws those on the wrong keys and the menu would then take them, so `on_key` handles ⌘[ and ⌘].
+/// The Go menu's Back and Forward (`keys_first`, so focused fields, modals and `on_key` see
+/// ⌘[ and ⌘] before the menu item).
 pub fn menu_items() -> Vec<MenuItem<App>> {
     vec![
         MenuItem::new("Back", |s: &mut App, tx: &mut Tx| {
             s.navigate(false, tx);
-        }).id("Go/Back").menu("Go"),
+        })
+        .id("Go/Back")
+        .menu("Go")
+        .key_equivalent("cmd+[".parse().unwrap())
+        .keys_first(),
         MenuItem::new("Forward", |s: &mut App, tx: &mut Tx| {
             s.navigate(true, tx);
-        }).id("Go/Forward").menu("Go"),
+        })
+        .id("Go/Forward")
+        .menu("Go")
+        .key_equivalent("cmd+]".parse().unwrap())
+        .keys_first(),
     ]
 }
 

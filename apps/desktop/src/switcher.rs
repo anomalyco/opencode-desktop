@@ -562,7 +562,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .shadow(8.0, 16.0, p.shadow_far)
         .shadow(4.0, 8.0, p.shadow)
         .clip_soft(0.0)
-        .transition(Transition::opacity().springs(crate::view::no_motion()))
+        .transition(Transition::none())
         .modal(true, |s: &mut App| s.close_switcher(true))
         .child(col().key("switcher-search").w_full().padding(6.0).child(search))
         .child(
@@ -577,8 +577,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(results),
         );
 
-    // No enter or exit motion (see `no_motion`).
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(crate::view::no_motion()));
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     [scrim, dialog.absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
 }
 

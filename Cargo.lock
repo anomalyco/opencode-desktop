@@ -2529,7 +2529,6 @@ dependencies = [
  "browser-pane",
  "hex-client",
  "image",
- "objc2 0.5.3",
  "opencode-kit",
  "png 0.18.1",
  "procwatch",

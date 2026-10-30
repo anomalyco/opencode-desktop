@@ -251,17 +251,7 @@ fn flag(name: &str) -> bool {
 /// A run that renders without a person at it (snapshots, trees, scripts, videos). It can read a
 /// live server but never sends to it or writes the saved tabs, zoom, session and drafts, so a
 /// test can't post or type as Kit.
-fn headless() -> bool {
-    static H: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *H.get_or_init(|| {
-        // Rune's own `Args::headless` at the pinned rev, plus `--script` (Desktop's own flag).
-        const ALWAYS: &[&str] = &["--snap", "--tree", "--script", "--video", "--strip", "--list-scenes", "--first-pixels", "--list-windows", "--desktop", "--snap-on-patch"];
-        const UNLESS_NATIVE: &[&str] = &["--trace", "--frames", "--duration", "--out"];
-        let args: Vec<String> = std::env::args().collect();
-        let has = |set: &[&str]| args.iter().any(|a| set.contains(&a.as_str()));
-        has(ALWAYS) || (!args.iter().any(|a| a == "--native") && has(UNLESS_NATIVE))
-    })
-}
+pub(crate) use rune::is_headless as headless;
 
 fn wall_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -665,21 +655,6 @@ fn setup(s: &mut App, waker: Waker) {
     launch::setup(s);
 }
 
-/// The Dock icon, set at launch so it shows for bare binaries and survives a reinstall
-/// that LaunchServices hasn't re-read.
-#[cfg(target_os = "macos")]
-fn dock_icon() {
-    use objc2::{class, msg_send, runtime::AnyObject};
-    static ICNS: &[u8] = include_bytes!("../assets/icon.icns");
-    unsafe {
-        let data: *mut AnyObject = msg_send![class!(NSData), dataWithBytes: ICNS.as_ptr().cast::<std::ffi::c_void>(), length: ICNS.len()];
-        let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
-        let image: *mut AnyObject = msg_send![image, initWithData: data];
-        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-        let _: () = msg_send![app, setApplicationIconImage: image];
-    }
-}
-
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     AppSpec {
@@ -714,8 +689,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 fn main() {
     rune_mac::launch();
     rune::prewarm_gpu();
-    #[cfg(target_os = "macos")]
-    dock_icon();
+    let _ = rune::set_app_icon(include_bytes!("../assets/icon.icns").as_slice());
     #[cfg(feature = "hot")]
     rune::run(spec(App::new));
     #[cfg(not(feature = "hot"))]

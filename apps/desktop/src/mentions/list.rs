@@ -222,7 +222,7 @@ pub fn popup(
         .border(0.5, p.ring)
         .shadow(4.0, 12.0, p.shadow)
         .clip_soft(0.0)
-        .transition(rune::Transition::opacity().springs(crate::view::no_motion()))
+        .transition(rune::Transition::none())
         .on_press(|_: &mut App| {})
         .child(body);
     crate::view::follow_zoom(popover, zoom, true)

@@ -22,7 +22,7 @@ use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI_SMALL, activity_ring_on, no_motion};
+use crate::view::{UI_SMALL, activity_ring_on};
 
 /// Who Hex says is recording.
 const SOURCE: &str = "OpenCode";
@@ -394,7 +394,7 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
     }
     let finishing = d.rec.as_ref().is_some_and(|r| r.stopping);
     // The mic and the stop swap at once on the press, as iOS's do.
-    let still = no_motion().enter;
+    let still = rune::Spring::NONE;
     let mut b = el()
         .key("mic")
         .role("button")

@@ -9,7 +9,6 @@ use crate::App;
 use crate::attachments::{CARD_SUBTITLE, CARD_TITLE, remove_button};
 use crate::palette::Pal;
 use crate::quote::{COMMENT, OUTLINE_QUOTE, Pending};
-use crate::view::no_motion;
 
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const META: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0).tracking(0.05);
@@ -199,8 +198,8 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             .border(0.5, p.ring)
             .shadow(2.0, 4.0, p.shadow_far)
             .shadow(1.0, 2.0, p.shadow)
-            .transition(Transition::opacity().springs(no_motion()))
-            .motion(no_motion().enter)
+            .transition(Transition::none())
+            .motion(rune::Spring::NONE)
             // Empty space in it takes the press instead of what's under it.
             .on_press(|_: &mut App| {})
             .child(field)
