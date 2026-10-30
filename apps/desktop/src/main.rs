@@ -66,6 +66,8 @@ mod mention_stories;
 mod mentions;
 mod model_prefs;
 #[cfg(test)]
+mod tool_group_shut_tests;
+#[cfg(test)]
 mod motion_gate;
 mod motion_log;
 mod notifications;
@@ -101,6 +103,7 @@ mod revert;
 mod rewind;
 mod rewind_stories;
 mod scenes;
+mod short_group;
 mod selection_stories;
 mod send;
 mod served;

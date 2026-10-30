@@ -216,7 +216,10 @@ impl RowSpec {
         if self.streaming {
             row
         } else if self.key.starts_with("c-") {
-            // A tool group folds on its own quick spring, however long it is.
+            // A tool group folds on its own quick spring, however long it is. Shutting, its steps
+            // hang below the header until they unmount, and Rune clips a row only while its height
+            // moves: a short group lands first, and its steps flashed over the rows below (t1107).
+            let row = if s.shutting(&self.key) { row.clip_soft(0.0) } else { row };
             row.fold_glide(crate::disclosure::fold(&s.knobs))
         } else {
             // Finished content opens in one quick glide, which a pinned timeline follows.

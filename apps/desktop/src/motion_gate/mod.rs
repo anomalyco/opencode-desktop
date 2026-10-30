@@ -61,11 +61,14 @@ pub struct Circ {
     pub zoomed: bool,
     /// The session ends with a turn that used 40 tools (`tool_group_stories::add_long_group`).
     pub long_group: bool,
+    /// The session ends with Kit's one-thought, one-shell group above five prompts
+    /// (`short_group::add_short_group`).
+    pub short_group: bool,
 }
 
 impl Default for Circ {
     fn default() -> Self {
-        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false }
+        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false, short_group: false }
     }
 }
 
@@ -90,6 +93,9 @@ impl Circ {
         }
         if self.long_group {
             parts.push("long-group");
+        }
+        if self.short_group {
+            parts.push("short-group");
         }
         parts.join("/")
     }
@@ -143,6 +149,9 @@ impl Run {
         }
         if c.long_group {
             crate::tool_group_stories::add_long_group(&mut app, SID);
+        }
+        if c.short_group {
+            crate::short_group::add_short_group(&mut app, SID);
         }
         match c.dock {
             Dock::None => {}

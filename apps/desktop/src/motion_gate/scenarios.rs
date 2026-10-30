@@ -296,6 +296,25 @@ const ACTIONS: &[Action] = &[
         tap_trigger(r, Some(&group));
         r.play(0.6);
     } },
+    // Kit's capture (t1107): a one-thought, one-shell group lands shut before its steps unmount,
+    // and they flashed over the prompts below it. Pressed open, shut, open, shut at his pace,
+    // no step shows below the row on any frame.
+    Action { name: "tool-group-shut-short", circs: || {
+        let base = Circ { short_group: true, ..Circ::default() };
+        vec![base, Circ { zoomed: true, ..base }]
+    }, run: |r| {
+        use crate::{short_group::GROUP, tool_group_shut_tests::overhang};
+        let els = r.rt.elements();
+        let path = els.iter().find(|e| e.key.as_deref() == Some("trigger") && e.path.ends_with(&format!("{GROUP}/#0/trigger"))).map(|e| e.path.clone()).expect("the short group's header");
+        for secs in [0.68, 0.43, 0.48, 0.9] {
+            tap_trigger(r, Some(&path));
+            for _ in 0..(secs / (1.0 / 60.0)) as usize {
+                r.play(1.0 / 60.0);
+                let over = overhang(&r.rt.elements(), GROUP);
+                assert!(r.rt.state.expanded.contains(GROUP) || over.is_empty(), "a shut group's steps show below its row: {over:?}");
+            }
+        }
+    } },
     // A 40-tool group near the end opens and shuts in about 0.2 s with its header held where it
     // was pressed; a second press mid-motion springs back from there; scrolled into, its header sticks to
     // the top, and a press there shuts it in place (t988).

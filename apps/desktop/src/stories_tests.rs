@@ -209,6 +209,7 @@ const APP_SCENES: &[&str] = &[
     "status",
     "tab-badges",
     "demo",
+    "short-group",
 ];
 
 const STORY_PATHS: &[&str] = &[
