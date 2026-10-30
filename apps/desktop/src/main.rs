@@ -135,6 +135,8 @@ mod tool_open;
 mod tool_open_stories;
 #[cfg(test)]
 mod tool_open_tests;
+mod turn_errors;
+mod turn_errors_stories;
 mod turns;
 mod view;
 mod working;
@@ -597,6 +599,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= appearance::poll(s);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
+    changed |= turn_errors::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     changed |= s.poll_open_in();

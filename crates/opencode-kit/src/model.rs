@@ -8,10 +8,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::Value;
 
 mod compaction;
+mod notice;
 #[cfg(test)]
 mod compaction_tests;
 
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
+pub use notice::{Notice, NoticeKind, Retry, StepError, is_notice_event};
 pub use crate::project::{LocationInfo, parse_location, parse_project, project_sandboxes, set_project_sandboxes};
 pub use crate::quote::{Quote, set_user_quotes, user_quotes};
 
@@ -348,6 +350,8 @@ pub enum Message {
     /// Shell commands and notices: shown as a quiet one-line row.
     Note { id: String, text: String },
     Compaction(Compaction),
+    /// A switched agent or model, a move, updated instructions, a restart.
+    Notice(Notice),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -358,6 +362,12 @@ pub struct Assistant {
     pub cost: f64,
     pub tokens: Tokens,
     pub error: Option<String>,
+    /// The error's details, beside its message in `error`.
+    pub failure: Option<StepError>,
+    /// The server is waiting to try this step again.
+    pub retry: Option<Retry>,
+    /// When it started, or 0 when unknown.
+    pub created: i64,
 }
 
 impl Message {
@@ -366,6 +376,7 @@ impl Message {
             Message::User { id, .. } | Message::Note { id, .. } => id,
             Message::Assistant(a) => &a.id,
             Message::Compaction(c) => &c.id,
+            Message::Notice(n) => &n.id,
         }
     }
 }
@@ -482,10 +493,13 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             cost: m["cost"].as_f64().unwrap_or(0.0),
             tokens: Tokens::parse(&m["tokens"]),
             error: m["error"]["message"].as_str().map(str::to_owned),
+            failure: StepError::parse(&m["error"]),
+            retry: Retry::parse(&m["retry"]),
+            created: i(&m["time"]["created"]),
         }),
         "shell" => Message::Note { id, text: format!("$ {}", s(&m["command"])) },
         "compaction" => Message::Compaction(Compaction::parse(m)),
-        _ => return None,
+        _ => return notice::parse(m),
     })
 }
 
@@ -670,8 +684,10 @@ impl Transcript {
 
     /// The assistant step still producing output, if any.
     pub fn busy(&self) -> bool {
-        matches!(self.messages.last(), Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
-            || matches!(self.messages.last(), Some(Message::User { .. }))
+        // A notice (a model switched with the prompt) doesn't end the turn it lands in.
+        let last = self.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)));
+        matches!(last, Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+            || matches!(last, Some(Message::User { .. }))
     }
 
     pub fn merge(&mut self, fresh: Vec<Message>) {
@@ -717,11 +733,26 @@ impl Transcript {
                     self.messages.push(Message::User { id, text });
                 }
             }
-            "session.step.started" => {
-                if self.assistant(&mid).is_none() {
-                    self.messages.push(Message::Assistant(Assistant { id: mid, ..Default::default() }));
+            "session.step.started" => match self.assistant(&mid) {
+                // A retried step starts again under its own id.
+                Some(a) => {
+                    a.retry = None;
+                    a.error = None;
+                    a.failure = None;
+                }
+                None => self.messages.push(Message::Assistant(Assistant { id: mid, created: now, ..Default::default() })),
+            },
+            "session.retry.scheduled" => {
+                let Some(a) = self.assistant(&mid) else { return false };
+                a.retry = Retry::parse(d);
+            }
+            "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
+                let Some(Message::Assistant(a)) = self.messages.iter_mut().rev().find(|m| matches!(m, Message::Assistant(_))) else { return false };
+                if a.retry.take().is_none() {
+                    return false;
                 }
             }
+            ty if notice::is_notice_event(ty) => return self.apply_notice(ty, d),
             "session.text.started" | "session.reasoning.started" => {
                 let Some(a) = self.assistant(&mid) else { return false };
                 let part = if ty == "session.text.started" {
@@ -844,8 +875,10 @@ impl Transcript {
                 if d["tokens"].is_object() {
                     a.tokens = Tokens::parse(&d["tokens"]);
                 }
+                a.retry = None;
                 if ty == "session.step.failed" {
                     a.error = Some(d["error"]["message"].as_str().unwrap_or("The step failed").to_owned());
+                    a.failure = StepError::parse(&d["error"]);
                 }
             }
             "session.compaction.started" | "session.compaction.delta" | "session.compaction.ended" | "session.compaction.failed" => {

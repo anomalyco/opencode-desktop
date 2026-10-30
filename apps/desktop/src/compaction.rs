@@ -215,10 +215,15 @@ pub(crate) fn queued(p: &Pal) -> El {
 /// Desktop's timeline separator in its `py-2`: a hairline from nothing to the strong border on
 /// each side of a faint label, which fades out where it's cut off.
 pub(crate) fn divider(p: &Pal, label: &str) -> El {
+    divider_of(p, text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade())
+}
+
+/// The divider around any `words`, such as a label with its value (a moved session's folder).
+pub(crate) fn divider_of(p: &Pal, words: El) -> El {
     let strong = p.q.border_strong;
     let clear = Color { a: 0.0, ..strong };
-    let line = |key: &'static str, angle: f32| el().key(key).h(1.0).grow(1.0).min_w(0.0).linear_gradient(angle, [(0.0, clear), (0.7, strong)]);
-    let words = text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade();
+    // The lines keep some length when long words (a moved session's folder) fill the row.
+    let line = |key: &'static str, angle: f32| el().key(key).h(1.0).grow(1.0).min_w(24.0).linear_gradient(angle, [(0.0, clear), (0.7, strong)]);
     let bar = row().key("separator").h(32.0).w_full().gap(12.0).center_y().child(line("start", FRAC_PI_2)).child(words).child(line("end", -FRAC_PI_2));
     col().w_full().pt(8.0).pb(8.0).child(bar)
 }

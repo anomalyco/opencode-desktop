@@ -14,6 +14,7 @@ knobs = ["rune-knobs/panel"]
 browser-pane = { path = "../../crates/browser-pane" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
+libc = "0.2"
 rune-mac.workspace = true
 opencode-kit = { path = "../../crates/opencode-kit" }
 project-icon = { path = "../../crates/project-icon" }

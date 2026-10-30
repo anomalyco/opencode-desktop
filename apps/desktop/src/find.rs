@@ -468,7 +468,7 @@ impl App {
                             record(&mut parts, format!("u-{id}"), (id.clone(), 0), &shown_text, true);
                         }
                     }
-                    Message::Note { .. } | Message::Compaction(_) => {
+                    Message::Note { .. } | Message::Compaction(_) | Message::Notice(_) => {
                         flush_steps(&std::mem::take(&mut steps), false, &mut parts, &mut record);
                     }
                 }

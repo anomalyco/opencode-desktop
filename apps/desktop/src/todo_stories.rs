@@ -85,7 +85,7 @@ pub fn set_plan(s: &mut App, input: serde_json::Value) {
     }
     match t.messages.iter_mut().rev().find_map(|m| if let Message::Assistant(a) = m { Some(a) } else { None }) {
         Some(a) => a.parts.push(call),
-        None => t.messages.push(Message::Assistant(Assistant { id: "msg_story_todos".into(), completed: None, parts: vec![call], cost: 0.0, tokens: Default::default(), error: None })),
+        None => t.messages.push(Message::Assistant(Assistant { id: "msg_story_todos".into(), completed: None, parts: vec![call], ..Default::default() })),
     }
 }
 

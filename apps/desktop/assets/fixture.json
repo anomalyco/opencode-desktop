@@ -550,6 +550,202 @@
    "location": {
     "directory": "/Users/demo/code/kiln"
    }
+  },
+  {
+   "id": "ses_fx0013aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792100000000,
+    "updated": 1792100060000
+   },
+   "title": "Bump the lockfile after the toolchain upgrade",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0014aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792096400000,
+    "updated": 1792096460000
+   },
+   "title": "Cache the toolchain download in CI",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0015aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792092800000,
+    "updated": 1792092860000
+   },
+   "title": "Split the release workflow into stages",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0016aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792089200000,
+    "updated": 1792089260000
+   },
+   "title": "Pin the linker version",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0017aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792085600000,
+    "updated": 1792085660000
+   },
+   "title": "Drop the old nightly target",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0018aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792082000000,
+    "updated": 1792082060000
+   },
+   "title": "Rerun the flaky kiln tests",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
+  },
+  {
+   "id": "ses_fx0019aaaaaaaaaaaaaaaaaa",
+   "projectID": "6b696c6e00000000",
+   "agent": "build",
+   "model": {
+    "id": "claude-opus-5-5",
+    "providerID": "anthropic",
+    "variant": "high"
+   },
+   "cost": 0.02,
+   "tokens": {
+    "input": 800,
+    "output": 120,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "time": {
+    "created": 1792078400000,
+    "updated": 1792078460000
+   },
+   "title": "Plan the toolchain rollout",
+   "location": {
+    "directory": "/Users/demo/code/kiln"
+   }
   }
  ],
  "messages": {
@@ -1268,6 +1464,294 @@
      }
     }
    }
+  ],
+  "ses_fx0013aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0013user0000fixture00",
+    "type": "user",
+    "text": "Bump the lockfile after the toolchain upgrade.",
+    "time": {
+     "created": 1792100000000
+    }
+   },
+   {
+    "id": "msg_0013reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792100002000,
+     "completed": 1792100003000
+    },
+    "error": {
+     "type": "provider.free-limit",
+     "message": "Free limit reached",
+     "retryAfterMs": 14400000
+    }
+   }
+  ],
+  "ses_fx0014aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0014user0000fixture00",
+    "type": "user",
+    "text": "Cache the toolchain download in CI.",
+    "time": {
+     "created": 1792096400000
+    }
+   },
+   {
+    "id": "msg_0014reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792096402000,
+     "completed": 1792096403000
+    },
+    "error": {
+     "type": "provider.go-limit",
+     "message": "Go limit reached",
+     "retryAfterMs": 259200000
+    }
+   }
+  ],
+  "ses_fx0015aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0015user0000fixture00",
+    "type": "user",
+    "text": "Split the release workflow into stages.",
+    "time": {
+     "created": 1792092800000
+    }
+   },
+   {
+    "id": "msg_0015reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792092802000,
+     "completed": 1792092803000
+    },
+    "error": {
+     "type": "provider.budget-limit",
+     "message": "Budget reached",
+     "response": {
+      "body": "{\"error\":{\"type\":\"budget_exceeded\",\"message\":\"Budget reached\",\"metadata\":{\"resetsAt\":\"2026-11-01T07:00:00.000Z\"}}}"
+     }
+    }
+   }
+  ],
+  "ses_fx0016aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0016user0000fixture00",
+    "type": "user",
+    "text": "Pin the linker version.",
+    "time": {
+     "created": 1792089200000
+    }
+   },
+   {
+    "id": "msg_0016reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792089202000,
+     "completed": 1792089203000
+    },
+    "error": {
+     "type": "provider.model-budget-limit",
+     "message": "Budget reached",
+     "response": {
+      "body": "{\"error\":{\"type\":\"budget_exceeded\",\"message\":\"Budget reached\",\"metadata\":{\"resetsAt\":\"2026-11-01T07:00:00.000Z\"}}}"
+     }
+    }
+   }
+  ],
+  "ses_fx0017aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0017user0000fixture00",
+    "type": "user",
+    "text": "Drop the old nightly target.",
+    "time": {
+     "created": 1792085600000
+    }
+   },
+   {
+    "id": "msg_0017reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792085602000,
+     "completed": 1792085603000
+    },
+    "error": {
+     "type": "provider",
+     "message": "Bad Request: The model `claude-opus-9` does not exist or you do not have access to it."
+    }
+   }
+  ],
+  "ses_fx0018aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0018user0000fixture00",
+    "type": "user",
+    "text": "Rerun the flaky kiln tests.",
+    "time": {
+     "created": 1792082000000
+    }
+   },
+   {
+    "id": "msg_0018reply000fixture00",
+    "type": "assistant",
+    "agent": "build",
+    "model": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [],
+    "time": {
+     "created": 1792082002000
+    },
+    "retry": {
+     "attempt": 2,
+     "at": 1792659408000,
+     "error": {
+      "type": "provider",
+      "message": "Rate limit exceeded: Too many requests, please slow down."
+     }
+    }
+   }
+  ],
+  "ses_fx0019aaaaaaaaaaaaaaaaaa": [
+   {
+    "id": "msg_0019a0000000fixture00",
+    "type": "agent-switched",
+    "agent": "plan",
+    "previous": "build",
+    "time": {
+     "created": 1792078396000
+    }
+   },
+   {
+    "id": "msg_0019a0000001fixture00",
+    "type": "model-switched",
+    "model": {
+     "id": "claude-sonnet-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "previous": {
+     "id": "claude-opus-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "time": {
+     "created": 1792078397000
+    }
+   },
+   {
+    "id": "msg_0019user0000fixture00",
+    "type": "user",
+    "text": "Plan the toolchain rollout.",
+    "time": {
+     "created": 1792078400000
+    }
+   },
+   {
+    "id": "msg_0019reply000fixture00",
+    "type": "assistant",
+    "agent": "plan",
+    "model": {
+     "id": "claude-sonnet-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Roll it out project by project, starting with the crates that have no native code."
+     }
+    ],
+    "time": {
+     "created": 1792078402000,
+     "completed": 1792078409000
+    }
+   },
+   {
+    "id": "msg_0019a0000002fixture00",
+    "type": "model-switched",
+    "model": {
+     "id": "claude-sonnet-5-5",
+     "providerID": "anthropic",
+     "variant": "max"
+    },
+    "previous": {
+     "id": "claude-sonnet-5-5",
+     "providerID": "anthropic",
+     "variant": "high"
+    },
+    "time": {
+     "created": 1792078420000
+    }
+   },
+   {
+    "id": "msg_0019a0000003fixture00",
+    "type": "location-switched",
+    "location": {
+     "directory": "/Users/demo/code/worktrees/kiln/toolchain-rollout"
+    },
+    "time": {
+     "created": 1792078421000
+    }
+   },
+   {
+    "id": "msg_0019a0000004fixture00",
+    "type": "system",
+    "text": "\u2026",
+    "description": "Instructions updated: AGENTS.md, crates/kiln-core/AGENTS.md",
+    "time": {
+     "created": 1792078422000
+    }
+   },
+   {
+    "id": "msg_0019a0000005fixture00",
+    "type": "synthetic",
+    "text": "",
+    "metadata": {
+     "notice": "restart"
+    },
+    "time": {
+     "created": 1792078423000
+    }
+   }
   ]
  },
  "open": "ses_fx0001aaaaaaaaaaaaaaaaaa",
@@ -1282,7 +1766,8 @@
   "ses_fx0005aaaaaaaaaaaaaaaaaa"
  ],
  "running": [
-  "ses_fx0006aaaaaaaaaaaaaaaaaa"
+  "ses_fx0006aaaaaaaaaaaaaaaaaa",
+  "ses_fx0018aaaaaaaaaaaaaaaaaa"
  ],
  "requests": [
   {

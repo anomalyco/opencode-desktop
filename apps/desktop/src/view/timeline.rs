@@ -193,6 +193,11 @@ pub(super) enum RowContent {
     /// under the same row key so delivery keeps it in place.
     Pending { id: String, tight: bool, above: bool, below: bool, fold: Fold },
     Note(usize),
+    /// A switched agent or model, a move, updated instructions (`turn_errors`).
+    Notice(usize),
+    /// The turn's last step's error, or its Retry row while the server waits to try it again.
+    Error { message: usize, pt: f32 },
+    Retry { message: usize, pt: f32 },
     Compaction { message: usize, piece: crate::compaction::Piece },
     /// A compaction the server admitted but hasn't started.
     CompactionQueued,
@@ -203,7 +208,6 @@ pub(super) enum RowContent {
     /// fetched and decoded, only when the row mounts.
     UserImages { id: String, pt: f32 },
     ToolImages { start: usize, end: usize, tool: String },
-    Built(Box<El>),
 }
 
 impl RowSpec {
@@ -308,6 +312,18 @@ impl RowSpec {
                 Message::Note { text: body, .. } => row().pt(16.0).child(readable(p, text(body.clone()).font(UI).color(p.faint))),
                 _ => unreachable!(),
             },
+            RowContent::Notice(i) => match &t.messages[*i] {
+                Message::Notice(n) => crate::turn_errors::notice(s, p, n),
+                _ => unreachable!(),
+            },
+            RowContent::Error { message, pt } => match &t.messages[*message] {
+                Message::Assistant(a) => crate::turn_errors::error(s, p, a).pt(*pt),
+                _ => unreachable!(),
+            },
+            RowContent::Retry { message, pt } => match &t.messages[*message] {
+                Message::Assistant(Assistant { retry: Some(r), .. }) => crate::turn_errors::retry(s, p, r).pt(*pt),
+                _ => col(),
+            },
             RowContent::Compaction { message, piece } => match &t.messages[*message] {
                 Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, fade),
                 _ => unreachable!(),
@@ -328,7 +344,6 @@ impl RowSpec {
                 });
                 files.and_then(|f| crate::attachments::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
             }
-            RowContent::Built(el) => (**el).clone(),
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
                     Part::Text { text: body } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
@@ -396,7 +411,7 @@ const END: f32 = 24.0;
 /// bottom edge.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
     let e = edge::FEATHER;
-    let specs = std::rc::Rc::new(t.map(|t| rows(s, p, t)).unwrap_or_default());
+    let specs = std::rc::Rc::new(t.map(|t| rows(s, t)).unwrap_or_default());
     let mut stack = col()
         .key("timeline")
         .w_full()
@@ -456,7 +471,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .child(stack)
 }
 
-pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
+pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
     let busy = t.busy() && !s.stops.has(&t.session);
     // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
@@ -480,7 +495,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 steps.push(a);
             }
             Message::User { id, text: body, .. } => {
-                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 // The last prompt runs on into the pending steers under it, unless Working
                 // stands between them.
@@ -494,11 +509,15 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
                 }
             }
             Message::Note { id, .. } => {
-                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
                 out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
             }
+            Message::Notice(n) => {
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
+                out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi), streaming: false });
+            }
             Message::Compaction(c) => {
-                turn_rows(p, &mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
                 let running = c.status == model::CompactionStatus::Running;
                 for piece in crate::compaction::pieces(s, &t.session, c) {
                     let streaming = running && piece == crate::compaction::Piece::Summary;
@@ -507,7 +526,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
             }
         }
     }
-    turn_rows(p, &mut out, &steps, start, shown, busy && revert.is_none());
+    turn_rows(&mut out, &steps, start, shown, busy && revert.is_none());
     if let Some(last) = last_assistant {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
@@ -537,7 +556,7 @@ pub(super) fn rows(s: &App, p: &Pal, t: &Transcript) -> Vec<RowSpec> {
 /// The keys of a transcript's rows, top to bottom.
 #[cfg(test)]
 pub(crate) fn row_keys(s: &App, t: &Transcript) -> Vec<String> {
-    rows(s, pal(true), t).into_iter().map(|r| r.key).collect()
+    rows(s, t).into_iter().map(|r| r.key).collect()
 }
 
 /// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
@@ -565,7 +584,7 @@ pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 }
 
 /// `live`: these steps end the transcript and the last one is still running.
-pub(super) fn turn_rows(p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
+pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
     let skip: Vec<bool> = if blocks.iter().any(|b| matches!(b, Block::Agent { .. })) {
@@ -603,13 +622,22 @@ pub(super) fn turn_rows(p: &Pal, out: &mut Vec<RowSpec>, steps: &[&Assistant], s
         }
         prev = Some(tool);
     }
-    // Like Desktop, only the turn's last step reports its error, 24 below the work above it.
-    if let Some(a) = steps.last()
-        && let Some(err) = &a.error
-    {
-        let pt = if prev.is_some() { 24.0 } else { 0.0 };
-        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Built(Box::new(row().pt(pt).child(readable(p, text(err.clone()).font(UI).color(p.danger).wrap().w_full())))), streaming: false });
+    // Like Desktop, only the turn's last step reports its error, 24 below the work above it,
+    // and only the running one its retry.
+    let Some(a) = steps.last() else { return };
+    let message = start + steps.len() - 1;
+    let pt = if prev.is_some() { 24.0 } else { 0.0 };
+    if live && a.retry.is_some() {
+        out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false });
+    } else if a.error.is_some() && !a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) {
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt }, streaming: false });
     }
+}
+
+/// An abort or interruption, which Desktop doesn't report as an error.
+fn interrupted(kind: &str) -> bool {
+    let k = kind.to_lowercase();
+    k.contains("abort") || k.contains("interrupt")
 }
 
 /// The header's session title. A root session's has Desktop's menu (a right-click, or the ⋯

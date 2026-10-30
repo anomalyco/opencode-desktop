@@ -560,8 +560,8 @@ impl Server {
                 continue;
             }
             let mut data = v["data"].clone();
-            // A compaction message takes its id from the event that started it.
-            if ty.starts_with("session.compaction.")
+            // A compaction message, and a notice's, takes its id from the event that started it.
+            if (ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty))
                 && let Some(id) = v["id"].as_str()
             {
                 data["eventID"] = id.into();
