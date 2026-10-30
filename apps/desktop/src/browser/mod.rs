@@ -358,6 +358,13 @@ impl App {
         self.sync_browser_address(true);
     }
 
+    pub fn start_browser_install(&mut self) {
+        if !self.browser.address.text.trim().is_empty() {
+            self.submit_browser_address();
+        }
+        self.browser.host.start_install();
+    }
+
     pub fn browser_scoped_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if !self.side_open() {
             return false;

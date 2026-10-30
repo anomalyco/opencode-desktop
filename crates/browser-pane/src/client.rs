@@ -48,6 +48,7 @@ pub struct BrowserHost {
     focused_tab: Option<u64>,
     surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
     status: Arc<Mutex<EngineStatus>>,
+    last_polled_status: EngineStatus,
     outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
     inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
@@ -81,6 +82,7 @@ impl BrowserHost {
             tabs: Vec::new(),
             focused_tab: None,
             surfaces: Arc::new(Mutex::new(HashMap::new())),
+            last_polled_status: initial_status.clone(),
             status: Arc::new(Mutex::new(initial_status)),
             outbox: Arc::new(Mutex::new(None)),
             inbox_tx,
@@ -162,8 +164,14 @@ impl BrowserHost {
             sent_resize: None,
         });
         self.focused_tab = Some(id);
+        self.last_polled_status = status.clone();
         *self.status.lock().unwrap() = status;
         id
+    }
+
+    pub fn set_mock_status(&mut self, status: EngineStatus) {
+        self.last_polled_status = status.clone();
+        *self.status.lock().unwrap() = status;
     }
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
@@ -243,7 +251,13 @@ impl BrowserHost {
             t.url = url.clone();
             t.loading = true;
         }
-        self.send(HostMsg::Navigate { tab_id, url });
+        if self.is_connected() {
+            self.send(HostMsg::Navigate { tab_id, url });
+        } else if let Some((_, pending_url)) = self.pending_opens.iter_mut().find(|(id, _)| *id == tab_id) {
+            *pending_url = url;
+        } else {
+            self.pending_opens.push((tab_id, url));
+        }
     }
 
     pub fn back(&self, tab_id: u64) {
@@ -317,9 +331,46 @@ impl BrowserHost {
         self.picked.drain(..)
     }
 
+    /// Starts (or retries) downloading and installing the browser engine off the main thread,
+    /// then spawns it and opens any queued tabs as soon as it is ready.
+    pub fn start_install(&mut self) {
+        if self.is_connected() {
+            return;
+        }
+        if matches!(
+            self.status(),
+            EngineStatus::Downloading { .. } | EngineStatus::Connecting
+        ) {
+            return;
+        }
+        let mach_service = self.ensure_mach_receiver();
+        let sock = self
+            .socket_override
+            .clone()
+            .unwrap_or_else(installer::socket_path);
+        if let Ok(stream) = UnixStream::connect(&sock) {
+            self.attach_stream(stream, mach_service);
+            return;
+        }
+        if let Some(bin) = installer::resolve_installed_executable() {
+            self.spawn_and_connect(bin, sock, mach_service);
+            return;
+        }
+        let status = self.status.clone();
+        let waker = self.waker.clone();
+        let outbox = self.outbox.clone();
+        let inbox_tx = self.inbox_tx.clone();
+        installer::start_download(
+            status.clone(),
+            waker.clone(),
+            Box::new(move |bin| {
+                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
+            }),
+        );
+    }
+
     pub fn retry_install(&mut self) {
-        *self.status.lock().unwrap() = EngineStatus::NotInstalled;
-        self.ensure_connected();
+        self.start_install();
     }
 
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
@@ -406,6 +457,13 @@ impl BrowserHost {
                         }
                     }
                 }
+            }
+        }
+        {
+            let guard = self.status.lock().unwrap();
+            if *guard != self.last_polled_status {
+                self.last_polled_status = guard.clone();
+                changed = true;
             }
         }
         changed
@@ -659,6 +717,21 @@ impl BrowserHost {
         true
     }
 
+    fn ensure_mach_receiver(&mut self) -> Option<String> {
+        #[cfg(target_os = "macos")]
+        {
+            if self.mach.is_none() {
+                let tag = NEXT_RECEIVER_TAG.fetch_add(1, Ordering::Relaxed);
+                self.mach = MachReceiver::start(self.surfaces.clone(), tag).ok();
+            }
+            self.mach.as_ref().map(|m| m.service_name.clone())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
+    }
+
     fn ensure_connected(&mut self) {
         if self.is_connected() {
             return;
@@ -668,16 +741,6 @@ impl BrowserHost {
             return;
         }
 
-        #[cfg(target_os = "macos")]
-        if self.mach.is_none() {
-            let tag = NEXT_RECEIVER_TAG.fetch_add(1, Ordering::Relaxed);
-            self.mach = MachReceiver::start(self.surfaces.clone(), tag).ok();
-        }
-        #[cfg(target_os = "macos")]
-        let mach_service = self.mach.as_ref().map(|m| m.service_name.clone());
-        #[cfg(not(target_os = "macos"))]
-        let mach_service: Option<String> = None;
-
         let sock = self
             .socket_override
             .clone()
@@ -685,28 +748,22 @@ impl BrowserHost {
 
         // 1. Reconnect to an already-running sidecar first (survives UI hot-reloads).
         if let Ok(stream) = UnixStream::connect(&sock) {
+            let mach_service = self.ensure_mach_receiver();
             self.attach_stream(stream, mach_service);
             return;
         }
 
         // 2. Spawn installed sidecar binary if present on disk.
         if let Some(bin) = installer::resolve_installed_executable() {
+            let mach_service = self.ensure_mach_receiver();
             self.spawn_and_connect(bin, sock, mach_service);
             return;
         }
 
-        // 3. Otherwise kick off on-demand background download and connect when ready.
-        let status = self.status.clone();
-        let waker = self.waker.clone();
-        let outbox = self.outbox.clone();
-        let inbox_tx = self.inbox_tx.clone();
-        installer::start_download(
-            status.clone(),
-            waker.clone(),
-            Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
-            }),
-        );
+        // 3. Otherwise stay in `NotInstalled` so the browser pane shows the one-click Download prompt.
+        if !matches!(cur_status, EngineStatus::Failed(_)) {
+            *self.status.lock().unwrap() = EngineStatus::NotInstalled;
+        }
     }
 
     fn spawn_and_connect(&mut self, bin: PathBuf, sock: PathBuf, mach_service: Option<String>) {

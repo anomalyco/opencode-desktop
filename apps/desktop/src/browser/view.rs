@@ -1,16 +1,18 @@
 //! Browser panel content rendered inside `SideRegion`: navigation/URL bar (`⌘L`), `@eN` picker
 //! toggle (`⇧⌘C`), zoom reset pill, first-use engine install progress, and `NativeSurface`.
 
-use browser_pane::EngineStatus;
+use browser_pane::{ENGINE_DOWNLOAD_MB, EngineStatus};
 use rune::{
-    Anim, Color, El, Icon, TextStyle, Tx, col, el, icon, row, spacer, text, text_input,
+    Anim, Color, Cursor, El, Icon, Spring, TextStyle, Tx, col, el, icon, row, spacer, text,
+    text_input,
 };
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
+use crate::odometer::odometer_end;
 use crate::palette::Pal;
 use crate::panels::PanelViewCtx;
-use crate::view::{UI, UI_MED, UI_SMALL};
+use crate::view::{UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
 const MONO_URL: TextStyle = TextStyle::new(12.0, 440.0).mono().lh(16.0);
@@ -186,69 +188,111 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
     let status = s.browser.host.status();
     match status {
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
-            let mb = downloaded_bytes as f64 / (1024.0 * 1024.0);
-            let label = match total_bytes {
-                Some(tot) if tot > 0 => format!(
-                    "Installing Browser Engine · {mb:.1} / {:.1} MB",
-                    tot as f64 / (1024.0 * 1024.0)
-                ),
-                _ => format!("Installing Browser Engine · {mb:.1} MB"),
+            let done_mb = (downloaded_bytes as f64 / 1_000_000.0).floor();
+            let tot_mb = total_bytes
+                .filter(|&t| t > 0)
+                .map(|t| (t as f64 / 1_000_000.0).round().max(1.0));
+            let odo_label = match tot_mb {
+                Some(tot) => format!("{done_mb:.0} / {tot:.0} MB"),
+                None => format!("{done_mb:.0} MB"),
             };
             let frac = total_bytes
                 .filter(|&t| t > 0)
-                .map_or(0.35, |t| (downloaded_bytes as f32 / t as f32).clamp(0.05, 1.0));
+                .map_or(0.25, |t| (downloaded_bytes as f32 / t as f32).clamp(0.03, 1.0));
+            let bar_w = 240.0;
             col()
                 .key("browser-installing")
                 .grow(1.0)
                 .w_full()
                 .center()
-                .padding(24.0)
+                .padding(28.0)
                 .gap(10.0)
-                .child(text(label).font(UI_MED).color(p.text).truncate_fade())
                 .child(
-                    el().w(220.0)
+                    row()
+                        .w(bar_w)
+                        .center_y()
+                        .child(
+                            text("Downloading browser…")
+                                .font(UI_SMALL)
+                                .color(p.muted)
+                                .grow(1.0)
+                                .shrink()
+                                .min_w(0.0)
+                                .truncate_fade(),
+                        )
+                        .child(odometer_end("browser-dl-mb", odo_label, done_mb, UI_MED, p.text)),
+                )
+                .child(
+                    el().key("browser-dl-track")
+                        .w(bar_w)
                         .h(5.0)
                         .radius(2.5)
+                        .clip_rounded(2.5)
                         .fill(p.layer3)
-                        .child(el().w(220.0 * frac).h(5.0).radius(2.5).fill(p.icon)),
-                )
-                .child(
-                    text("Downloaded once into Application Support and shared across updates.")
-                        .font(UI_SMALL)
-                        .color(p.faint)
-                        .truncate_fade(),
-                )
-        }
-        EngineStatus::NotInstalled | EngineStatus::Failed(_) => {
-            let detail = match status {
-                EngineStatus::Failed(msg) => msg,
-                _ => "Chromium 156 runs as an on-demand sidecar so OpenCode (Rune) stays 8 MB.".into(),
-            };
-            col()
-                .key("browser-empty")
-                .grow(1.0)
-                .w_full()
-                .center()
-                .padding(28.0)
-                .gap(12.0)
-                .child(icon(&ic::GLOBE, 22.0).color(p.muted))
-                .child(text("Browser engine not installed").font(UI_MED).color(p.text))
-                .child(text(detail).font(UI_SMALL).color(p.muted).truncate_fade())
-                .child(
-                    el().key("browser-install-btn")
-                        .role("button")
-                        .label("Install or connect browser engine")
-                        .h(30.0)
-                        .px(14.0)
-                        .radius(6.0)
-                        .center()
-                        .fill(p.pressed)
-                        .hover(p.hover)
-                        .hover_motion(INSTANT, INSTANT)
-                        .on_press(|s: &mut App| s.browser.host.retry_install())
-                        .child(text("Connect Engine").font(UI).color(p.text)),
+                        .child(
+                            el().key("browser-dl-fill")
+                                .w(bar_w * frac)
+                                .h(5.0)
+                                .radius(2.5)
+                                .fill(p.icon)
+                                .motion(Spring::new(0.25, 0.0)),
+                        ),
                 )
         }
+        EngineStatus::NotInstalled => col()
+            .key("browser-download-prompt")
+            .grow(1.0)
+            .w_full()
+            .center()
+            .padding(28.0)
+            .gap(14.0)
+            .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
+            .child(
+                text(format!("Browser needs a one-time download (~{ENGINE_DOWNLOAD_MB} MB)"))
+                    .font(UI_MED)
+                    .color(p.text)
+                    .truncate_fade(),
+            )
+            .child(
+                el().key("browser-download-btn")
+                    .role("button")
+                    .label("Download browser")
+                    .h(30.0)
+                    .px(14.0)
+                    .radius(6.0)
+                    .center()
+                    .cursor(Cursor::Pointer)
+                    .fill(p.q.submit)
+                    .border(0.5, p.q.submit_ring)
+                    .hover_motion(INSTANT, INSTANT)
+                    .on_press(|s: &mut App| s.start_browser_install())
+                    .child(text("Download").font(UI_MED).color(p.q.submit_text)),
+            ),
+        EngineStatus::Failed(msg) => col()
+            .key("browser-download-failed")
+            .grow(1.0)
+            .w_full()
+            .center()
+            .padding(28.0)
+            .gap(14.0)
+            .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
+            .child(text(msg).font(UI_SMALL).color(p.muted).truncate_fade())
+            .child(
+                el().key("browser-retry-btn")
+                    .role("button")
+                    .label("Retry browser download")
+                    .h(30.0)
+                    .px(14.0)
+                    .radius(6.0)
+                    .center()
+                    .cursor(Cursor::Pointer)
+                    .fill(p.q.neutral)
+                    .border(0.5, p.q.neutral_ring)
+                    .hover(p.hover)
+                    .hover_motion(INSTANT, INSTANT)
+                    .on_press(|s: &mut App| s.start_browser_install())
+                    .child(text("Retry").font(UI_MED).color(p.text)),
+            ),
         EngineStatus::Connecting | EngineStatus::Ready => {
             if let Some(id) = tab_id
                 && let Some(tab) = s.browser.host.tab(id)

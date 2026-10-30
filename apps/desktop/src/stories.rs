@@ -187,6 +187,7 @@ const ORDER: &[&str] = &[
     "Navigation/Back and forward",
     "Side panel/Side region",
     "Browser/Pane",
+    "Browser/Engine install",
     "Terminal/Pane",
     "Review/Changes",
     "Review/Inline diff",

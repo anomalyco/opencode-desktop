@@ -5641,227 +5641,31 @@
     },
     {
       "blur": 0.0,
+      "color": "#808080ff",
       "fill": "#00000000",
       "focusVisible": false,
       "focusable": false,
       "focused": false,
       "inert": false,
       "key": "time-call_subagent_60500",
-      "label": "20m 00s",
       "loopPhase": null,
       "opacity": 1.0,
       "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500",
       "rect": [
-        1026.9,
-        -392.42,
-        58.7,
-        19.84
+        1030.5,
+        -390.5,
+        51.5,
+        16.0
       ],
       "role": "text",
       "scale": 1.0,
       "target": [
-        1026.9,
-        975.08,
-        58.7,
-        19.84
+        1030.5,
+        977.0,
+        51.5,
+        16.0
       ],
       "text": "20m 00s"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.1",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.1",
-      "rect": [
-        1030.5,
-        -390.5,
-        7.77,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1030.5,
-        977.0,
-        7.77,
-        16.0
-      ],
-      "text": "2"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.2",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.2",
-      "rect": [
-        1038.27,
-        -390.5,
-        7.78,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1038.27,
-        977.0,
-        7.78,
-        16.0
-      ],
-      "text": "0"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.3",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.3",
-      "rect": [
-        1046.05,
-        -390.5,
-        10.57,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1046.05,
-        977.0,
-        10.57,
-        16.0
-      ],
-      "text": "m"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.4",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.4",
-      "rect": [
-        1056.63,
-        -390.5,
-        3.22,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1056.63,
-        977.0,
-        3.22,
-        16.0
-      ],
-      "text": " "
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.5",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.5",
-      "rect": [
-        1059.84,
-        -390.5,
-        7.77,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1059.84,
-        977.0,
-        7.77,
-        16.0
-      ],
-      "text": "0"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.6",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.6",
-      "rect": [
-        1067.62,
-        -390.5,
-        7.78,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1067.62,
-        977.0,
-        7.78,
-        16.0
-      ],
-      "text": "0"
-    },
-    {
-      "blur": 0.0,
-      "color": "#808080ff",
-      "fill": "#00000000",
-      "focusVisible": false,
-      "focusable": false,
-      "focused": false,
-      "inert": false,
-      "key": "time-call_subagent_60500.7",
-      "loopPhase": null,
-      "opacity": 1.0,
-      "path": "zoom/zoomed/window/panel/session/timeline-area/scroll-ses_fx0001aaaaaaaaaaaaaaaaaa/timeline/a-call_subagent_60500/#0/agent-card/member-call_subagent_60500/agent-line/time/time-call_subagent_60500/time-call_subagent_60500.7",
-      "rect": [
-        1075.4,
-        -390.5,
-        6.6,
-        16.0
-      ],
-      "role": "text",
-      "scale": 1.0,
-      "target": [
-        1075.4,
-        977.0,
-        6.6,
-        16.0
-      ],
-      "text": "s"
     },
     {
       "blur": 0.0,

@@ -241,3 +241,154 @@ fn live_sidecar_engine_smoke_when_installed() {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
+#[cfg(target_os = "macos")]
+fn serve_bytes_once(payload: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut req_buf = [0u8; 2048];
+        let _ = std::io::Read::read(&mut stream, &mut req_buf);
+        let header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        );
+        stream.write_all(header.as_bytes()).unwrap();
+        for chunk in payload.chunks(128 * 1024) {
+            stream.write_all(chunk).unwrap();
+            let _ = stream.flush();
+        }
+    });
+    (format!("http://127.0.0.1:{port}/OpenCode-Browser-Engine.zip"), handle)
+}
+
+#[cfg(target_os = "macos")]
+fn make_synthetic_engine_zip(work: &std::path::Path) -> (Vec<u8>, String) {
+    use sha2::{Digest, Sha256};
+
+    let bundle_dir = work.join("src").join(crate::installer::ENGINE_BUNDLE_NAME);
+    let macos_dir = bundle_dir.join("Contents/MacOS");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    // Make the payload > 600 KiB incompressible pseudo-random bytes so multi-chunk progress ticks fire.
+    let mut bin_bytes = b"#!/bin/sh\necho ok\n".to_vec();
+    let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+    for _ in 0..(650 * 1024) {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        bin_bytes.push((seed & 0xff) as u8);
+    }
+    let bin_path = macos_dir.join("opencode-browser-engine");
+    std::fs::write(&bin_path, &bin_bytes).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let zip_path = work.join("test-engine.zip");
+    let status = std::process::Command::new("/usr/bin/ditto")
+        .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
+        .arg(&bundle_dir)
+        .arg(&zip_path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let bytes = std::fs::read(&zip_path).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let sha = format!("{:x}", hasher.finalize());
+    (bytes, sha)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn sha256_mismatch_rejects_archive_and_preserves_existing_cache() {
+    use crate::installer::{
+        ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, EngineStatus, download_and_install_to,
+    };
+
+    assert!(ENGINE_DEFAULT_URL.is_some());
+    assert_eq!(ENGINE_DEFAULT_SHA256.unwrap().len(), 64);
+
+    let root = std::env::temp_dir().join(format!("bp-sha-bad-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let (zip_bytes, _real_sha) = make_synthetic_engine_zip(&root);
+    let dest = root.join("cache").join("156.0.14");
+    std::fs::create_dir_all(&dest).unwrap();
+    std::fs::write(dest.join("sentinel.txt"), b"keep-me").unwrap();
+
+    let (url, srv) = serve_bytes_once(zip_bytes);
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let wrong_sha = "0000000000000000000000000000000000000000000000000000000000000000";
+    let res = download_and_install_to(&url, Some(wrong_sha), &dest, &state, None);
+    srv.join().unwrap();
+
+    assert_eq!(res.unwrap_err(), "Download couldn't be verified. Try again.");
+    assert_eq!(
+        std::fs::read_to_string(dest.join("sentinel.txt")).unwrap(),
+        "keep-me",
+        "existing cache directory must stay intact on SHA mismatch"
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(root.join("cache"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(leftovers, vec!["156.0.14"], "staging directories must be cleaned up");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn valid_archive_verifies_sha256_reports_progress_and_swaps_atomically() {
+    use crate::installer::{EngineStatus, download_and_install_to};
+
+    let root = std::env::temp_dir().join(format!("bp-sha-ok-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    let (zip_bytes, real_sha) = make_synthetic_engine_zip(&root);
+    let total_len = zip_bytes.len() as u64;
+    let dest = root.join("cache").join("156.0.14");
+    std::fs::create_dir_all(&dest).unwrap();
+    std::fs::write(dest.join("stale.txt"), b"old").unwrap();
+
+    let (url, srv) = serve_bytes_once(zip_bytes);
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let wakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let wakes_cb = wakes.clone();
+    let waker: rune::Waker = Arc::new(move || {
+        wakes_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+
+    let installed_bin =
+        download_and_install_to(&url, Some(&real_sha), &dest, &state, Some(&waker)).unwrap();
+    srv.join().unwrap();
+
+    assert!(installed_bin.is_file(), "installed binary exists at {}", installed_bin.display());
+    assert!(!dest.join("stale.txt").exists(), "old cache contents atomically replaced");
+    assert!(
+        wakes.load(std::sync::atomic::Ordering::SeqCst) >= 3,
+        "waker fired for start, mid-stream progress, and completion"
+    );
+    assert_eq!(
+        *state.lock().unwrap(),
+        EngineStatus::Downloading {
+            downloaded_bytes: total_len,
+            total_bytes: Some(total_len),
+        }
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(root.join("cache"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(leftovers, vec!["156.0.14"], "no staging or backup leftovers remain");
+    let _ = std::fs::remove_dir_all(&root);
+}
+

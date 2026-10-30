@@ -18,6 +18,8 @@ mod transport;
 pub use address::resolve_address;
 pub use client::BrowserHost;
 pub use client::BrowserTab;
-pub use installer::EngineStatus;
+pub use installer::{
+    ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, EngineStatus,
+};
 pub use protocol::CursorKind;
 pub use protocol::PickedElement;

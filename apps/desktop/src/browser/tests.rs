@@ -368,3 +368,94 @@ fn captures_live_chromium_sidecar_split_still_when_requested() {
     rt.state.browser.host.shutdown_sidecar();
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+#[test]
+fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
+    let s = spec(|| {
+        let mut a = App::empty();
+        a.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut a);
+        a.finish_stream();
+        a.sidebar_open = false;
+        a
+    });
+    let size = (1600.0, 960.0);
+    let scale = 2.0f32;
+    let mut rt = rune::App::new(s)
+        .chrome(rune::Chrome {
+            full_size_content: true,
+            traffic_lights: Some((25.0, 25.0)),
+            drag_regions: true,
+        })
+        .headless_runtime(size, Env::new(true, scale));
+    rt.state.zoom = 1.6;
+    rt.frame(0.0);
+
+    // 1. Prompt state (`NotInstalled`)
+    rt.update(|app, tx| {
+        let id = app.browser.host.insert_mock_tab(
+            "http://localhost:3000/",
+            "Local Preview",
+            browser_pane::EngineStatus::NotInstalled,
+        );
+        app.register_existing_browser_tab(id);
+        tx.settle();
+        app.sync_browser_address_now();
+    });
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("browser-download-prompt").is_some());
+    assert!(rt.find("browser-download-btn").is_some());
+
+    let stills_dir = std::env::var("OPENCODE_DESKTOP_INSTALL_STILLS_DIR").ok();
+    let mut gpu_ctx = stills_dir.as_ref().map(|_| {
+        use rune::render::{Gpu, OFFSCREEN_FORMAT, Offscreen, Renderer};
+        let gpu = Gpu::headless();
+        let (wp, hp) = ((size.0 * scale) as u32, (size.1 * scale) as u32);
+        let renderer = Renderer::new(&gpu.device, OFFSCREEN_FORMAT);
+        let target = Offscreen::new(&gpu.device, wp, hp);
+        (gpu, renderer, target, wp, hp)
+    });
+    let mut maybe_snap = |rt: &mut Runtime<App>, name: &str| {
+        if let (Some(dir), Some((gpu, renderer, target, wp, hp))) =
+            (stills_dir.as_deref(), gpu_ctx.as_mut())
+        {
+            renderer.upload_images(&gpu.device, &gpu.queue, &mut rt.images);
+            renderer.prepare_surfaces(&gpu.device, &gpu.queue, &rt.surfaces, (*wp, *hp));
+            renderer.prepare(&gpu.device, &gpu.queue, &mut rt.text.atlas, &rt.instances, (*wp, *hp));
+            let mut enc = gpu.device.create_command_encoder(&Default::default());
+            renderer.draw(&mut enc, &target.view, rt.clear_color());
+            target.copy(&mut enc);
+            renderer.submit(&gpu.queue, enc);
+            let rgba = target.read(&gpu.device);
+            let out = std::path::Path::new(dir).join(name);
+            rune::render::write_png(&out, *wp, *hp, &rgba).unwrap();
+        }
+    };
+    maybe_snap(&mut rt, "browser-install-prompt-zoom-1.6.png");
+
+    // 2. Downloading progress state with rolling odometer (`Downloading`)
+    rt.update(|app, _| {
+        app.browser.host.set_mock_status(browser_pane::EngineStatus::Downloading {
+            downloaded_bytes: 58_400_000,
+            total_bytes: Some(128_352_035),
+        });
+    });
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("browser-installing").is_some());
+    assert!(rt.find("browser-dl-mb").is_some());
+    assert!(rt.find("browser-dl-fill").is_some());
+    maybe_snap(&mut rt, "browser-install-progress-zoom-1.6.png");
+
+    // 3. Failure state (`Failed`) with plain message + Retry
+    rt.update(|app, _| {
+        app.browser.host.set_mock_status(browser_pane::EngineStatus::Failed(
+            "Couldn't download the browser. Check your connection and try again.".into(),
+        ));
+    });
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("browser-download-failed").is_some());
+    assert!(rt.find("browser-retry-btn").is_some());
+    maybe_snap(&mut rt, "browser-install-failed-zoom-1.6.png");
+}

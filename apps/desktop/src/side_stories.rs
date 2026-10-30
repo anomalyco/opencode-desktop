@@ -19,7 +19,34 @@ pub const BROWSER_VARIANTS: &[(&str, usize)] = &[
     ("Active tab", 0),
     ("Multiple tabs", 1),
     ("Element picker", 2),
-    ("Installing engine", 3),
+];
+
+pub const INSTALL_VARIANTS: &[(&str, usize)] = &[
+    ("Download prompt", 0),
+    ("Downloading", 1),
+    ("Download failed", 2),
+];
+
+pub const INSTALL_KEYS: &[Trigger] = &[
+    replay(setup_install),
+    Trigger {
+        key: 'p',
+        label: "Step download +19 MB",
+        run: |s, play| {
+            play.animated();
+            let total = 128_352_035u64;
+            let next = match s.browser.host.status() {
+                EngineStatus::Downloading { downloaded_bytes, .. } => {
+                    (downloaded_bytes + 19_000_000).min(total)
+                }
+                _ => 19_000_000,
+            };
+            s.browser.host.set_mock_status(EngineStatus::Downloading {
+                downloaded_bytes: next,
+                total_bytes: Some(total),
+            });
+        },
+    },
 ];
 
 pub const REGION_KEYS: &[Trigger] = &[
@@ -151,7 +178,7 @@ pub fn init_browser(s: &mut App) {
             );
             s.register_existing_browser_tab(id2);
         }
-        2 => {
+        _ => {
             let id = s.browser.host.insert_mock_tab(
                 "http://localhost:5173/settings",
                 "Settings App",
@@ -160,23 +187,39 @@ pub fn init_browser(s: &mut App) {
             s.register_existing_browser_tab(id);
             s.browser.host.toggle_inspect(id);
         }
-        _ => {
-            let id = s.browser.host.insert_mock_tab(
-                "http://localhost:3000/",
-                "New tab",
-                EngineStatus::Downloading {
-                    downloaded_bytes: 54 * 1024 * 1024,
-                    total_bytes: Some(124 * 1024 * 1024),
-                },
-            );
-            s.register_existing_browser_tab(id);
-        }
     }
     s.sync_browser_address_now();
 }
 
 pub fn setup_browser(s: &mut App, _play: &mut Play<'_, App>) {
     init_browser(s);
+}
+
+pub fn init_install(s: &mut App) {
+    crate::open_scene(s);
+    s.finish_stream();
+    s.side = Default::default();
+    s.browser = Default::default();
+    let status = match s.variant {
+        0 => EngineStatus::NotInstalled,
+        1 => EngineStatus::Downloading {
+            downloaded_bytes: 58_400_000,
+            total_bytes: Some(128_352_035),
+        },
+        _ => EngineStatus::Failed(
+            "Couldn't download the browser. Check your connection and try again.".into(),
+        ),
+    };
+    let id = s
+        .browser
+        .host
+        .insert_mock_tab("http://localhost:3000/", "Local Preview", status);
+    s.register_existing_browser_tab(id);
+    s.sync_browser_address_now();
+}
+
+pub fn setup_install(s: &mut App, _play: &mut Play<'_, App>) {
+    init_install(s);
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
@@ -203,5 +246,15 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
         knobs: &[],
         keys: BROWSER_KEYS,
         variants: BROWSER_VARIANTS,
+    },
+    Story {
+        path: "Browser/Engine install",
+        scene: |s| {
+            init_install(s);
+            stage(s, view_card);
+        },
+        knobs: &[],
+        keys: INSTALL_KEYS,
+        variants: INSTALL_VARIANTS,
     },
 ]);
