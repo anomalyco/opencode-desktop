@@ -15,7 +15,7 @@ pub mod protocol;
 mod tests;
 mod transport;
 
-pub use address::resolve_address;
+pub use address::{bare_url, host_of, resolve_address};
 pub use client::BrowserHost;
 pub use client::BrowserTab;
 pub use installer::{

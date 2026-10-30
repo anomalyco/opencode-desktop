@@ -8,7 +8,7 @@ pub mod view;
 
 use std::collections::HashMap;
 
-use browser_pane::{BrowserHost, EngineStatus};
+use browser_pane::{BrowserHost, EngineStatus, bare_url, host_of};
 use rune::{Ime, Key, KeyEvent, TextEdit, Tx, Waker};
 use rune_theme_opencode::icons as ic;
 
@@ -87,15 +87,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             );
             continue;
         };
-        let label = if tab.title.is_empty() || tab.title == "New tab" {
-            if tab.url == "about:blank" || tab.url.is_empty() {
-                "New tab".into()
-            } else {
-                bare_url(&tab.url)
-            }
-        } else {
-            tab.title.clone()
-        };
+        let label = tab.label();
         out.push(
             PanelTabDesc::new(id.to_string(), label)
                 .icon(&ic::GLOBE)
@@ -177,16 +169,6 @@ fn ime_panel(s: &mut App, ime: &Ime) -> bool {
     s.browser_ime(ime)
 }
 
-fn bare_url(url: &str) -> String {
-    url.trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/')
-        .to_owned()
-}
-
-fn host_of(url: &str) -> String {
-    bare_url(url).split('/').next().unwrap_or(url).to_owned()
-}
 
 /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow.
 pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
