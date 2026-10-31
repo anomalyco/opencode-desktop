@@ -3302,6 +3302,13 @@ version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"
 
 [[package]]
+name = "rune-parts"
+version = "0.0.0"
+dependencies = [
+ "rune",
+]
+
+[[package]]
 name = "rune-perf"
 version = "0.1.0"
 source = "git+https://github.com/anomalyco/rune?rev=664b69ed1e76806f9e3b3fa79c8594e3b154700b#664b69ed1e76806f9e3b3fa79c8594e3b154700b"

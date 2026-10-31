@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/desktop", "apps/note-web", "apps/sketch", "crates/browser-pane", "crates/hex-client", "crates/opencode-kit", "crates/project-icon", "crates/rune-rolling", "crates/seer-domain", "crates/seer-ffi", "crates/seer-sync", "crates/seer-worker", "crates/terminal"]
+members = ["apps/desktop", "apps/note-web", "apps/sketch", "crates/browser-pane", "crates/hex-client", "crates/opencode-kit", "crates/project-icon", "crates/rune-parts", "crates/rune-rolling", "crates/seer-domain", "crates/seer-ffi", "crates/seer-sync", "crates/seer-worker", "crates/terminal"]
 exclude = ["apps/browser-engine"]
 
 [workspace.package]
