@@ -41,12 +41,11 @@ pub struct Fold {
 /// content column so wide window resizes don't invalidate row memos), and for an opened prompt
 /// whether its top is scrolled above the timeline.
 pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
-    let zoom = s.zoom.max(1e-3);
     let any_open = s.settings.fold_user && s.expanded.iter().any(|k| k.starts_with("user-expanded:"));
     let viewport = s
         .settings
         .fold_user
-        .then(|| rune::memo::layout_with(&format!("scroll-{session}"), move |r| (r[2] / zoom).min(CONTENT_W + 48.0)))
+        .then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[2].min(CONTENT_W + 48.0)))
         .flatten()
         .unwrap_or(CONTENT_W + 48.0);
     VIEWPORT_W.set(viewport);

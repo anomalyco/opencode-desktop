@@ -72,7 +72,7 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
         let env_scale = cx.env().scale;
         let col_h = if col_open || s.side.mounted {
             cx.layout_size("side-column")
-                .map_or(720.0 / s.zoom, |[_, h]| h / s.zoom)
+                .map_or(720.0 / s.zoom, |[_, h]| h)
         } else {
             720.0 / s.zoom
         };

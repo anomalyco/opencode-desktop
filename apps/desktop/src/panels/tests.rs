@@ -277,3 +277,32 @@ fn per_session_persistence_roundtrips_and_isolates_sessions() {
     assert!(restored.resized);
     assert!(restored.sessions.get(&s1).is_some_and(|st| st.open));
 }
+
+#[test]
+fn at_zoom_the_docks_cap_at_six_tenths_of_the_shell() {
+    let mut rt = test_runtime();
+    rt.state.side.extra_panels.push(PanelRegistration::dock("terminal", mock_dock_list, mock_dock_render).order(20));
+    // The 820-point window's shell is 512.5 tall at zoom 1.6, so 290 is under both docks' caps.
+    rt.update(|s, tx| {
+        tx.instant();
+        s.zoom = 1.6;
+        s.side.dock_height = 290.0;
+        s.settings.terminal_placement = DockPlacement::Bottom;
+    });
+    rt.key(KeyEvent { key: Key::Command('j'), mods: Mods { cmd: true, logo: true, ..Default::default() } });
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    let (bottom, _) = rt.presented("dock-bottom-panel").expect("the bottom dock");
+    assert!((bottom[3] / 1.6 - 290.0).abs() < 1.0, "the bottom dock keeps its height: {bottom:?}");
+    rt.update(|s, tx| {
+        tx.instant();
+        s.settings.terminal_placement = DockPlacement::Side;
+        s.open_new_browser_tab("http://localhost:5173/");
+    });
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    let (side, _) = rt.presented("dock-panel").expect("the dock under the side tabs");
+    assert!((side[3] / 1.6 - 290.0).abs() < 1.0, "the side dock keeps its height: {side:?}");
+}

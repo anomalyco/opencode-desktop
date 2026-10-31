@@ -139,7 +139,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     };
     let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft | Route::Home)) || s.attach.drop.over;
     let panel_sz = if need_panel_sz {
-        cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w / s.zoom, h / s.zoom))
+        cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
         (0.0, 0.0)
     };

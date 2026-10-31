@@ -900,7 +900,12 @@ impl App {
     }
 
     pub(crate) fn into_runtime(self) -> rune::Runtime<Self> {
-        let mut rt = rune::Runtime::new(self, view::app, (1280.0, 820.0), rune::Env::new(true, 1.0));
+        self.into_runtime_sized((1280.0, 820.0))
+    }
+
+    /// [`Self::into_runtime`] in a `size` window.
+    pub(crate) fn into_runtime_sized(self, size: (f32, f32)) -> rune::Runtime<Self> {
+        let mut rt = rune::Runtime::new(self, view::app, size, rune::Env::new(true, 1.0));
         rt.set_srgb_blend(true);
         rt.poll = Some(poll);
         rt.on_key = Some(on_key);

@@ -703,3 +703,38 @@ fn resizing_a_wide_window_skips_rebuilding_the_view() {
     rt.frame(1.0 / 60.0);
     assert_eq!(super::ROW_BUILDS.get(), 0, "wide resize re-solves layout without running view");
 }
+
+/// The fixture's session at zoom 1.6 in a window whose shell is `w` by `h` points.
+fn zoomed(w: f32, h: f32, f: impl FnOnce(&mut App)) -> Runtime<App> {
+    let mut app = App::fixture_session();
+    app.zoom = 1.6;
+    app.reduced_motion = true;
+    f(&mut app);
+    let mut rt = app.into_runtime_sized((w * 1.6, h * 1.6));
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt
+}
+
+#[test]
+fn at_zoom_the_queue_hint_measures_its_room_in_the_shells_points() {
+    let rt = zoomed(778.0, 820.0, |s| {
+        let crate::Route::Session(id) = s.route.clone() else { unreachable!() };
+        s.running.insert(id);
+        s.composer = TextEdit::new("next");
+    });
+    let room = rt.presented("room").expect("the composer's spare room").0[2] / 1.6;
+    let caps: f32 = ["⌘", "⏎"].iter().map(|k| (rune::text::measure(k, &[], super::UI, None).0 + 6.0).max(16.0)).sum();
+    let need = caps + 22.0 + rune::text::measure("Queue", &[], super::UI_MED, None).0 + 6.0;
+    assert!(room >= need && room < need * 1.6, "room {room} fits the word, but not 1.6 times it ({need})");
+    let word = rt.elements().into_iter().any(|e| !e.exiting && e.path.contains("alternate-delivery") && e.text.as_deref() == Some("Queue"));
+    assert!(word, "Queue shows in {room} points of room");
+}
+
+#[test]
+fn at_zoom_home_goes_wide_by_the_shells_width() {
+    // 1200 points of shell leave the home panel over its 860-point wide layout.
+    let rt = zoomed(1200.0, 800.0, |s| s.route = crate::Route::Home);
+    assert!(rt.presented("home-grid").is_some(), "home lays out wide");
+}

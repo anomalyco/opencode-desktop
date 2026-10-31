@@ -98,3 +98,26 @@ fn short_prompts_and_the_setting_off_never_fold() {
     let rt = runtime(true);
     assert_eq!(rt.elements().iter().filter(|e| !e.exiting && e.key.as_deref() == Some("fold-toggle")).count(), 1, "only the long prompt folds");
 }
+
+#[test]
+fn at_zoom_a_prompt_that_fits_the_shells_timeline_doesnt_fold() {
+    // A shell 1100 points wide at zoom 1.6: the timeline is wider than the content column.
+    let mut app = App::fixture_session();
+    app.settings.fold_user = true;
+    app.zoom = 1.6;
+    let mut rt = app.into_runtime_sized((1100.0 * 1.6, 800.0 * 1.6));
+    rt.frame(1.0 / 60.0);
+    let wide = fold::text_width(crate::view::CONTENT_W + 48.0, false);
+    let shrunk = fold::text_width((1100.0 - 276.0) / 1.6, false);
+    let words = (1..400).map(|n| "word ".repeat(n * 5)).take_while(|t| fold::lines(t, wide) <= OVER).last().unwrap();
+    assert!(fold::lines(&words, shrunk) > OVER, "folds at the window's width over the zoom");
+    rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new(&words);
+        s.submit(false, tx);
+    });
+    for _ in 0..240 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rect(&rt, &format!("u-{}", sent(&rt))).is_some());
+    assert!(rect(&rt, "fold-toggle").is_none(), "{} lines at {wide}", fold::lines(&words, wide));
+}

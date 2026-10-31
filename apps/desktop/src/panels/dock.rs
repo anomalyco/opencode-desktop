@@ -19,7 +19,7 @@ pub fn bottom_reserve_height(s: &App, cx: &mut Cx<App>) -> f32 {
         return 0.0;
     }
     if s.dock_bottom_open() && s.resolve_dock_entry().is_some() {
-        let win_h = cx.layout_size("window").map_or(820.0, |[_, h]| h / s.zoom);
+        let win_h = cx.layout_size("window").map_or(820.0 / s.zoom, |[_, h]| h);
         let max_h = (win_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
         return s.side.dock_height.clamp(DOCK_MIN_H, max_h) + 8.0;
     }
@@ -149,7 +149,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         let env_scale = cx.env().scale;
         let [win_w, win_h] = cx
             .layout_size("window")
-            .map_or([1280.0, 820.0], |[w, h]| [w / s.zoom, h / s.zoom]);
+            .unwrap_or([1280.0 / s.zoom, 820.0 / s.zoom]);
         let left_w = if s.sidebar_open { s.sidebar_w } else { 0.0 };
         let max_h = (win_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
         let h = s.side.dock_height.clamp(DOCK_MIN_H, max_h);
