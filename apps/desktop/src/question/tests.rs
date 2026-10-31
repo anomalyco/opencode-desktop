@@ -351,3 +351,24 @@ fn question_dock_presets_morph_smoothly() {
         }
     }
 }
+
+#[test]
+fn enter_in_an_empty_answer_field_does_nothing() {
+    let (mut rt, writes) = asked(true);
+    press(&mut rt, txt("4"));
+    press(&mut rt, ev(Key::Enter));
+    assert_eq!(rt.state.question.tab, 0, "empty field on a middle question");
+    press(&mut rt, txt(" "));
+    press(&mut rt, ev(Key::Enter));
+    assert_eq!(rt.state.question.tab, 0, "spaces only");
+    press(&mut rt, txt("x"));
+    press(&mut rt, ev(Key::Enter));
+    assert_eq!(rt.state.question.tab, 1, "a character lets it move on");
+
+    settle(&mut rt);
+    press(&mut rt, txt("4"));
+    press(&mut rt, ev(Key::Enter));
+    assert_eq!(rt.state.question.tab, 1, "empty field on the last question");
+    assert!(rt.state.question_shown());
+    assert!(writes.unwrap().try_recv().is_err(), "nothing sent");
+}

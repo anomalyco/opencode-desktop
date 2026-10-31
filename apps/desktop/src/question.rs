@@ -461,7 +461,9 @@ impl App {
                 true
             }
             Key::Enter if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
-                self.next(&f, tx);
+                if self.answered(&f, tab) {
+                    self.next(&f, tx);
+                }
                 true
             }
             _ => self.question_key(ev, tx) || self.shortcut(ev, tx),
