@@ -581,7 +581,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "3 pt sink from three Rune springs on delivery, still 3.2 pt on Rune 96cff9e8; RUNE fixing"]
     fn a_steer_keeps_its_identity_when_delivered() {
         let mut rt = settled_busy_app();
         let first = type_and_submit(&mut rt, "Use tabs, not spaces, everywhere in the parser module please", false);
@@ -596,15 +595,19 @@ mod tests {
         leaves_composer(&rt, &drawn[1]);
 
         // The server takes the first: it stays the same element, at full size, and slides up
-        // over Working into the transcript (`trace` checks the one smooth path).
+        // over Working into the transcript (`trace` checks the one smooth path). In the timeline
+        // it rises by Working's lane. Working also splits the run, as Desktop's sent and pending
+        // prompts never join: the first gains its copy line and the second its turn gap, and the
+        // pinned timeline rises by that too.
         let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
-        let before = text_rect(&rt, &a).unwrap().0;
+        let in_timeline = |rt: &Runtime<App>| text_rect(rt, &a).unwrap().0[1] - element(rt, "timeline").rect[1];
+        let before = in_timeline(&rt);
         rt.update(|s, _| {
             s.apply_event("session.inbox.delivered", &serde_json::json!({"sessionID": sid, "inboxID": first}));
         });
-        let drawn = trace(&mut rt, &[a.clone(), b], 90);
-        let rise = before[1] - drawn[0].last().unwrap()[1];
-        assert!((rise - crate::working::LANE).abs() < 0.5, "rises by Working's lane: {rise} pt");
+        trace(&mut rt, &[a.clone(), b], 90);
+        let rise = before - in_timeline(&rt);
+        assert!((rise - crate::working::LANE).abs() < 0.5, "rises by Working's lane in the timeline: {rise} pt");
     }
 
     #[test]
