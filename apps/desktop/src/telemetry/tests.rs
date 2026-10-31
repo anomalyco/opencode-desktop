@@ -129,11 +129,37 @@ fn a_restored_session_already_painted_from_disk_ends_when_its_server_page_is_sho
     let _launch = LAUNCH.lock().unwrap_or_else(|e| e.into_inner());
     let (_, spans) = capture(|| {
         open_restored("ses_a", 12);
-        committed("ses_a", false);
+        // Launch draws the disk copy before it commits the restored route.
         drawn(Some(("ses_a", 12)), (Instant::now(), Some(1.0), None));
+        committed("ses_a", false);
         assert!(OPEN.with(|o| o.borrow().as_ref().unwrap().root.is_some()), "its disk copy doesn't end it");
         // The server page matches the disk copy, so no frame redraws it.
         page("ses_a", false, &Read { source: "server", fetch: Some((Instant::now(), Instant::now())), ..Default::default() }, (Instant::now(), Instant::now()));
     });
     assert_eq!(attr(named(&spans, "session.open"), "outcome")["stringValue"], "cached");
+}
+
+#[test]
+fn an_open_never_painted_ends_after_follow_instead_of_at_the_next_open() {
+    let (_, spans) = capture(|| {
+        open_begin("ses_a", false);
+        OPEN.with(|o| { let mut o = o.borrow_mut(); let open = o.as_mut().unwrap(); open.started -= FOLLOW; open.root.as_mut().unwrap().start -= FOLLOW; });
+        drawn(Some(("ses_b", 3)), (Instant::now(), Some(1.0), None));
+        assert!(OPEN.with(|o| o.borrow().is_none()));
+    });
+    let root = named(&spans, "session.open");
+    assert_eq!(attr(root, "outcome")["stringValue"], "unpainted");
+}
+
+#[test]
+fn an_open_replaced_after_follow_ends_at_follow_not_at_the_click() {
+    let (_, spans) = capture(|| {
+        open_begin("ses_a", false);
+        OPEN.with(|o| { let mut o = o.borrow_mut(); let open = o.as_mut().unwrap(); open.started -= FOLLOW * 100; open.root.as_mut().unwrap().start -= FOLLOW * 100; });
+        open_begin("ses_b", false);
+    });
+    let root = spans.iter().find(|s| s["name"] == "session.open").unwrap();
+    assert_eq!(attr(root, "outcome")["stringValue"], "unpainted");
+    let (start, end) = (root["startTimeUnixNano"].as_str().unwrap().parse::<u128>().unwrap(), root["endTimeUnixNano"].as_str().unwrap().parse::<u128>().unwrap());
+    assert!((end - start).abs_diff(FOLLOW.as_nanos()) < 1_000_000, "{}", end - start);
 }

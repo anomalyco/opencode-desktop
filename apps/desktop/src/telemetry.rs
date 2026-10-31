@@ -52,8 +52,6 @@ impl Span {
         self
     }
 
-    pub fn end(self) { self.end_at(Instant::now()) }
-
     pub fn end_at(self, end: Instant) {
         if !on() { return; }
         let attrs: Vec<Value> = self.attrs.into_iter().map(|(k, v)| json!({"key": k, "value": any(v)})).collect();
@@ -209,7 +207,10 @@ struct Open {
 pub fn open_begin(id: &str, held: bool) {
     if !on() { return; }
     OPEN.with(|o| {
-        if let Some(root) = o.borrow_mut().take().and_then(|old| old.root) { root.attr("outcome", "replaced").end(); }
+        if let Some(old) = o.borrow_mut().take() && let Some(root) = old.root {
+            let late = old.started.elapsed() >= FOLLOW;
+            root.attr("outcome", if late { "unpainted" } else { "replaced" }).end_at(if late { old.started + FOLLOW } else { Instant::now() });
+        }
         let root = Span::root("session.open").attr("session.id", id).attr("held", held);
         *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: root.start, root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false, painted: false });
     });
@@ -218,7 +219,12 @@ pub fn open_begin(id: &str, held: bool) {
 fn with_open<R>(id: &str, f: impl FnOnce(&mut Open) -> R) -> Option<R> {
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
-        let open = o.as_mut().filter(|x| x.id == id && x.started.elapsed() < FOLLOW)?;
+        if o.as_ref().is_some_and(|x| x.started.elapsed() >= FOLLOW) {
+            // Never painted within FOLLOW: it ends there rather than waiting for the next open.
+            if let Some(open) = o.take() && let Some(root) = open.root { root.attr("outcome", "unpainted").end_at(open.started + FOLLOW); }
+            return None;
+        }
+        let open = o.as_mut().filter(|x| x.id == id)?;
         Some(f(open))
     })
 }
@@ -315,7 +321,8 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
         };
         if let Some(root) = open.root.take() {
             if rows == 0 || open.committed.is_none() || (open.restored && !open.live) {
-                open.painted |= rows > 0 && open.committed.is_some();
+                // A restored session's disk copy is up from the first frames, before its commit.
+                open.painted |= open.restored && rows > 0;
                 open.root = Some(root);
                 return false;
             }
