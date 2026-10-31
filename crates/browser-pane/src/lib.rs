@@ -12,6 +12,7 @@ mod surface;
 pub mod installer;
 #[cfg(target_os = "macos")]
 pub mod mach_pipe;
+pub mod profile;
 pub mod protocol;
 #[cfg(test)]
 mod tests;
@@ -23,5 +24,6 @@ pub use client::BrowserTab;
 pub use installer::{
     ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, EngineStatus,
 };
+pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::PickedElement;

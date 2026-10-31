@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use crate::address::resolve_address;
 use crate::installer::{self, EngineStatus};
+use crate::profile;
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
 use crate::site_zoom::{SiteZoom, site_of};
@@ -53,6 +54,7 @@ pub struct BrowserHost {
     waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     socket_override: Option<PathBuf>,
+    profile_dir: Option<PathBuf>,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
@@ -92,6 +94,7 @@ impl BrowserHost {
             waker: None,
             shell_shortcut: None,
             socket_override: None,
+            profile_dir: None,
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
@@ -114,6 +117,12 @@ impl BrowserHost {
     /// reuses its warm connections; the engine still quits on its own after a minute with no tabs.
     pub fn set_keep_engine(&mut self, keep: bool) {
         self.keep_engine = keep;
+    }
+
+    /// Keeps the engine's cookies and sign-ins in `dir` instead of this app's own profile
+    /// (`OPENCODE_BROWSER_PROFILE` in the environment still wins). Takes effect at the next spawn.
+    pub fn set_profile_dir(&mut self, dir: PathBuf) {
+        self.profile_dir = Some(dir);
     }
 
     /// Marks a mock tab loading or done (stories and tests).
@@ -386,11 +395,12 @@ impl BrowserHost {
         let waker = self.waker.clone();
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
+        let profile = profile::for_spawn(self.profile_dir.as_deref());
         installer::start_download(
             status.clone(),
             waker.clone(),
             Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
             }),
         );
     }
@@ -684,10 +694,11 @@ impl BrowserHost {
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
         let waker = self.waker.clone();
+        let profile = profile::for_spawn(self.profile_dir.as_deref());
         std::thread::Builder::new()
             .name("opencode-browser-connect".into())
             .spawn(move || {
-                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
             })
             .ok();
     }

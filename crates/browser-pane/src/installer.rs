@@ -114,9 +114,13 @@ pub fn socket_path() -> PathBuf {
 /// The engine serves one app at a time: the last to connect takes every frame and tab update,
 /// and every app numbers its tabs from 1. So each app (by executable path) runs its own engine.
 pub fn socket_name_for(exe: &Path, uid: u32) -> String {
+    format!("browser-{uid}-{}.sock", exe_tag(exe))
+}
+
+/// Eight hex digits of the executable path's hash, pairing an app's socket with its profile.
+pub(crate) fn exe_tag(exe: &Path) -> String {
     let digest = Sha256::digest(exe.as_os_str().as_encoded_bytes());
-    let tag: String = digest[..4].iter().map(|b| format!("{b:02x}")).collect();
-    format!("browser-{uid}-{tag}.sock")
+    digest[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {

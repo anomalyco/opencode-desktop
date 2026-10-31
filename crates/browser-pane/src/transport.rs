@@ -11,11 +11,21 @@ use std::time::Duration;
 use rune::{Key, KeyEvent, Mods, Waker};
 
 use crate::installer::EngineStatus;
+use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
 
+/// The engine at `bin`, serving `sock` and keeping its sign-ins in `profile`.
+pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.arg("--socket").arg(sock).env(profile::PROFILE_ENV, profile);
+    cmd
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_and_attach_bg(
     bin: PathBuf,
     sock: PathBuf,
+    profile: PathBuf,
     mach_service: Option<String>,
     status: Arc<Mutex<EngineStatus>>,
     outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
@@ -23,7 +33,10 @@ pub(crate) fn spawn_and_attach_bg(
     waker: Option<Waker>,
 ) {
     let _ = std::fs::remove_file(&sock);
-    if let Err(e) = Command::new(&bin).arg("--socket").arg(&sock).spawn() {
+    // This app has no engine running (its socket didn't answer), so a held profile is an
+    // engine on its way out, most likely the shared one from before per-app engines.
+    profile::wait_until_free(&profile, profile::UNLOCK_WAIT);
+    if let Err(e) = engine_command(&bin, &sock, &profile).spawn() {
         *status.lock().unwrap() =
             EngineStatus::Failed(format!("failed to start {}: {e}", bin.display()));
         if let Some(w) = waker {
