@@ -50,9 +50,9 @@ pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
         .flatten()
         .unwrap_or(CONTENT_W + 48.0);
     VIEWPORT_W.set(viewport);
-    let top = any_open.then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
+    let top = any_open.then(|| rune::memo::window_layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
     move |id| {
-        let past = top.is_some_and(|top| s.expanded.contains(&key(id)) && rune::memo::layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));
+        let past = top.is_some_and(|top| s.expanded.contains(&key(id)) && rune::memo::window_layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));
         Fold { viewport, past }
     }
 }

@@ -266,7 +266,7 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let offer = s.quote.offer.as_ref()?;
     let z = s.zoom.max(1e-3);
     // Window points to the zoomed shell's: it's scaled about the window's centre.
-    let view = cx.layout(&format!("scroll-{}", offer.session))?.map(|v| v / z);
+    let view = cx.window_layout(&format!("scroll-{}", offer.session))?.map(|v| v / z);
     let (b_top, b_bottom, b_left, b_right) = (view[1], view[1] + view[3], view[0], view[0] + view[2]);
     let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(|r| r.map(|v| v / z)).collect();
     // Its own size, from the last layout. Unmeasured, it lays out unseen in the same pass the
