@@ -527,6 +527,12 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "todo-pill", circs: || wide_and_narrow(Circ::default()), run: super::todos::todo_pill },
+    // Kit's capture (t1129): thirty subagents and a plan run while a tool group in the last turn
+    // opens and shuts; nothing in the timeline shows under a pill.
+    Action { name: "working-under-pills", circs: || {
+        let base = Circ { short_group: true, ..Circ::default() };
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, narrow: true, ..base }]
+    }, run: super::pills::working_clear },
     Action { name: "agents", circs: || wide_and_narrow(Circ::default()), run: agents },
     // Run times tick at once (`subagents::run_time`); counts roll like an odometer (`odometer.rs`).
     Action { name: "run-time-9s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 9) },

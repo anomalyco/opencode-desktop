@@ -8,7 +8,7 @@ use crate::App;
 fn lazy_timeline_keeps_visible_rows_and_builds_only_the_window() {
     fn scene(s: &App, _: &mut rune::Cx<App>) -> rune::El {
         let crate::Route::Session(id) = &s.route else { unreachable!() };
-        rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), id, s.transcripts.get(id), 0.0))
+        rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), id, s.transcripts.get(id)))
     }
     fn visible(rt: &Runtime<App>) -> Vec<(String, Option<String>, [f32; 4])> {
         rt.elements().into_iter().filter(|e| e.visible[3] > 0.0 && !e.exiting)
@@ -87,7 +87,7 @@ fn only_mounted_image_rows_fetch_their_media() {
     use opencode_kit::model::{self, Assistant, Attachment, Message, Part, ToolStatus, Transcript};
     use std::sync::{Arc, Mutex};
     fn scene(s: &App, _: &mut rune::Cx<App>) -> rune::El {
-        rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), "lazy-media", s.transcripts.get("lazy-media"), 0.0))
+        rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), "lazy-media", s.transcripts.get("lazy-media")))
     }
     let image = |c: char, name: &str| Attachment { mime: "image/png".into(), name: name.into(), media: Some(c.to_string().repeat(64)), ..Default::default() };
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));

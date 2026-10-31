@@ -88,8 +88,9 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .child(icon(&ARROW_DOWN, 16.0).color(p.text))
 }
 
-/// The timeline `scroll` with the button and the `pills` (the subagent capsule, the todo pill)
-/// floating over its bottom edge, so the transcript runs under them and they ride up as the docks under it grow. At the
+/// The timeline `scroll` with the button floating over its bottom edge and the `pills` (the
+/// subagent capsule, the todo pill) on their own row under it, so nothing in the transcript slides
+/// under a pill (t1129); they ride up as the docks under it grow. At the
 /// right (the ⌘⇧K Composer default) the button ends where the composer ends, on the capsule's
 /// row; centred, it's Desktop's.
 pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
@@ -107,6 +108,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
     if !shown {
         button = button.inert();
     }
+    let room = if pills.is_empty() { 0.0 } else { CAPSULE_LANE };
     let lane = row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).center_y().children(pills).child(spacer());
     let (lane, centred) = if s.knobs.get(&crate::knobs::JUMP_PLACE) as usize == 1 {
         (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
@@ -118,7 +120,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         .grow(1.0)
         .shrink()
         .w_full()
-        .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
+        .child(scroll.mb(room).on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(24.0).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
@@ -203,10 +205,9 @@ mod tests {
         assert!((b.rect[1] - chip[1]).abs() < 0.5 && (b.rect[3] - chip[3]).abs() < 0.5, "one row: {:?} and chip {chip:?}", b.rect);
         assert!((b.rect[1] - at[1]).abs() < 0.5, "it doesn't climb over the capsule: {:?} was {at:?}", b.rect);
         assert!((chip[0] - rect(&rt, "composer")[0]).abs() < 0.5);
-        // The transcript runs on under the capsule, so its fade ends at the composer's top edge.
+        // The transcript ends on the capsule's top edge, so nothing in it runs under the capsule (t1129).
         let v = viewport(&rt);
-        assert!(((v[1] + v[3]) - rect(&rt, "composer")[1]).abs() < 0.5, "{v:?} vs composer");
-        assert!(chip[1] > v[1] && chip[1] + chip[3] < v[1] + v[3], "the capsule floats over it: {chip:?} in {v:?}");
+        assert!(((v[1] + v[3]) - chip[1]).abs() < 0.5, "{v:?} vs chip {chip:?}");
         rt.update(|s, _| { s.running.remove("sub"); });
         rest(&mut rt);
 
@@ -264,7 +265,7 @@ mod tests {
         assert_eq!(button(&rt).opacity, 0.0);
     }
 
-    /// On the capsule's row it floats over the timeline's bottom edge, and takes the press.
+    /// On the capsule's row, under the timeline's bottom edge, it takes the press.
     #[test]
     fn beside_the_capsule_it_still_presses() {
         let mut app = crate::perf::fixture();
@@ -281,7 +282,7 @@ mod tests {
         rest(&mut rt);
         let b = button(&rt);
         let chip = rect(&rt, "activity-chip");
-        assert!((b.rect[1] - chip[1]).abs() < 0.5 && b.rect[1] + b.rect[3] < v[1] + v[3], "over the timeline's edge: {:?} vs {v:?}", b.rect);
+        assert!((b.rect[1] - chip[1]).abs() < 0.5 && b.rect[1] >= v[1] + v[3] - 0.5, "under the timeline's edge: {:?} vs {v:?}", b.rect);
         let (bx, by) = (b.rect[0] + 14.0, b.rect[1] + 14.0);
         rt.pointer_move(bx, by);
         rt.pointer_down(bx, by);

@@ -24,13 +24,9 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let info = s.session(id);
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
-    // The subagent capsule floats over the timeline's bottom edge beside the jump button, so
-    // the transcript runs under both and fades out right at the composer's top edge.
     let pills = if child { Vec::new() } else { pills(s, p, id) };
-    // Its chip sits one gap under the last row, as Desktop's pills sit 8 under Working.
-    let lane = if pills.is_empty() { 0.0 } else { crate::jump::CAPSULE_LANE + crate::jump::GAP - END };
     let mut page = page
-        .child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), pills))
+        .child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills))
         .child(requests(s, p, id));
     // A subagent takes no prompts: its status line stands where the composer would.
     page = if child { page.child(crate::subagents::bar(s, p, id)) } else { page.child(composer_dock(s, p)) };
@@ -42,8 +38,14 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
 fn pills(s: &App, p: &Pal, id: &str) -> Vec<El> {
     let capsule = crate::subagents::capsule(s, p, id);
     let gap = if capsule.is_some() { crate::jump::GAP } else { 0.0 };
-    capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).collect()
+    // The timeline's edge rises over their row first, so a pill fades in only once nothing is
+    // under it, and goes at once so the edge can come back down (t1129).
+    let enter = |pill: El| pill.transition(rune::Transition::asymmetric(rune::Transition::opacity(), rune::Transition::none())).enter_delay(PILL_WAIT);
+    capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).map(enter).collect()
 }
+
+/// How long the timeline's edge takes to clear the pills' row (the page's spring).
+const PILL_WAIT: f32 = 0.3;
 
 /// The storybook's stages (`stories.rs`): the open session's timeline and what sits under it,
 /// its header, and its composer with the subagent capsule over it.
@@ -410,9 +412,7 @@ pub(crate) fn timeline_row_builds() -> usize {
 /// The timeline's padding under its last row.
 const END: f32 = 24.0;
 
-/// `lane` is the room under the last row, beyond `END`, for what floats over the timeline's
-/// bottom edge.
-pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
+pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
     let e = edge::FEATHER;
     let specs = std::rc::Rc::new(t.map(|t| rows(s, t)).unwrap_or_default());
     let mut stack = col()
@@ -432,21 +432,17 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
     #[cfg(not(test))]
     let eager = false;
     // Eager construction is the benchmark and regression-test reference.
-    // The lane is the stack's last row, so it opens and closes on the growth spring and the
-    // pinned rows ride it rather than jump.
-    let room = move || el().key("lane-room").w_full().h(lane);
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())))
-            .child(room());
+            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())));
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
         let p = *p;
         let n = specs.len();
-        stack = stack.virtual_rows(n + 1, 80.0,
-            move |_: &App, i| keys.get(i).map_or("lane-room".into(), |r| r.key.clone().into()),
-            move |s: &App, i| if i == n { room() } else { specs[i].build(s, &p, &s.transcripts[&id], e.word_fade) });
+        stack = stack.virtual_rows(n, 80.0,
+            move |_: &App, i| keys[i].key.clone().into(),
+            move |s: &App, i| specs[i].build(s, &p, &s.transcripts[&id], e.word_fade));
     }
     if t.is_none() {
         stack = stack.child(

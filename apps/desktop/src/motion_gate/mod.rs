@@ -11,6 +11,7 @@ mod flights;
 mod history;
 mod odometers;
 mod panels;
+mod pills;
 mod rewind;
 mod scenarios;
 mod todos;

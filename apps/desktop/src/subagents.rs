@@ -366,6 +366,12 @@ mod tests {
         rt.elements().into_iter().any(|e| !e.exiting && e.path.contains(path) && e.key.as_deref() == Some(key))
     }
 
+    fn settle(rt: &mut Runtime<App>) {
+        for _ in 0..60 {
+            rt.frame(1.0 / 120.0);
+        }
+    }
+
     fn press(rt: &mut Runtime<App>, key: &str) {
         // Hits come from the last paint: one more frame so what just appeared takes presses.
         rt.frame(1.0 / 120.0);
@@ -423,7 +429,8 @@ mod tests {
         rt.update(|s, _| {
             s.running.insert(REVIEW.into());
         });
-        rt.frame(1.0 / 120.0);
+        // The capsule fades in once the timeline's edge has risen over its row.
+        settle(&mut rt);
         assert_eq!(
             rt.state.running_subagents(MAIN),
             // Dated from the call to it (its part's time), not the child's creation.
@@ -444,6 +451,7 @@ mod tests {
         rt.update(|s, _| {
             s.running.insert(REVIEW.into());
         });
+        settle(&mut rt);
         press(&mut rt, "activity-chip");
         assert!(has(&rt, "", "activity-panel"));
         rt.update(|s, _| {
