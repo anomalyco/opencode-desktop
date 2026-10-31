@@ -328,3 +328,28 @@ fn fork_dialog_and_rewound_toast_stay_inside_viewport_and_clear_composer_at_zoom
     assert!(dlg[0] >= 16.0 && dlg[1] >= 16.0 && dlg[0] + dlg[2] <= 1280.0 - 16.0 && dlg[1] + dlg[3] <= 820.0 - 16.0, "fork-dialog inside window at 1.6x: {dlg:?}");
 }
 
+
+/// A glide that carries the hovered prompt away from a parked pointer lets its ⋯ and Rewind go:
+/// the hover drops while it moves and the actions fade, never held lit at the old place.
+#[test]
+fn a_glide_that_carries_the_hovered_prompt_away_lets_its_actions_go() {
+    let mut h = harness();
+    let id = h.rt.state.visible_user_ids(&h.sid).pop().expect("a prompt");
+    let more = format!("more-{id}");
+    let (x, y) = h.rt.find(&more).expect("⋯ on screen");
+    h.rt.pointer_move(x, y);
+    for _ in 0..10 {
+        h.rt.frame(1.0 / 60.0);
+    }
+    let actions = |rt: &Runtime<App>| {
+        rt.elements().into_iter().filter(|e| !e.exiting && (e.key.as_deref() == Some(more.as_str()) || e.key.as_deref() == Some("user-actions") && e.path.contains(&format!("u-{id}")))).map(|e| (e.hover, e.opacity)).collect::<Vec<_>>()
+    };
+    assert!(actions(&h.rt).iter().any(|&(hover, _)| hover > 0.5), "the pointer lights ⋯: {:?}", actions(&h.rt));
+    let scroll = format!("scroll-{}", h.sid);
+    h.rt.update(move |_, tx| tx.scroll_to_bottom(scroll.clone()));
+    for _ in 0..40 {
+        h.rt.frame(1.0 / 60.0);
+    }
+    let after = actions(&h.rt);
+    assert!(!after.is_empty() && after.iter().all(|&(hover, opacity)| hover < 0.01 && opacity < 0.01), "{after:?}");
+}

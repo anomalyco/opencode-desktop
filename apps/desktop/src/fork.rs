@@ -417,3 +417,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .raise();
     [scrim, modal]
 }
+
+#[cfg(test)]
+#[path = "fork_tests.rs"]
+mod tests;
