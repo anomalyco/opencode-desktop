@@ -59,6 +59,9 @@ pub struct BrowserHost {
     cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
     site_zoom: SiteZoom,
+    keep_engine: bool,
+    /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
+    pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(target_os = "macos")]
     mach: Option<MachReceiver>,
 }
@@ -95,6 +98,8 @@ impl BrowserHost {
             cdp_responses: HashMap::new(),
             picked: VecDeque::new(),
             site_zoom: SiteZoom::default(),
+            keep_engine: false,
+            last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(target_os = "macos")]
             mach: None,
         }
@@ -103,6 +108,19 @@ impl BrowserHost {
     /// Remembers each site's page zoom in `file` (JSON) and opens its pages at it again.
     pub fn remember_site_zoom(&mut self, file: PathBuf) {
         self.site_zoom = SiteZoom::load(file);
+    }
+
+    /// Leaves the engine running when the last tab closes, so the next page skips its start and
+    /// reuses its warm connections; the engine still quits on its own after a minute with no tabs.
+    pub fn set_keep_engine(&mut self, keep: bool) {
+        self.keep_engine = keep;
+    }
+
+    /// Marks a mock tab loading or done (stories and tests).
+    pub fn set_mock_loading(&mut self, id: u64, loading: bool) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.loading = loading;
+        }
     }
 
     pub fn set_shell_shortcut(&mut self, check: fn(&KeyEvent) -> bool) {
@@ -187,6 +205,8 @@ impl BrowserHost {
             surface.set_waker(w.clone());
         }
         self.surfaces.lock().unwrap().insert(id, surface.clone());
+        let ((width_pt, height_pt), scale) = self.last_viewport;
+        let connected = self.is_connected();
         self.tabs.push(BrowserTab {
             id,
             url: url.clone(),
@@ -198,21 +218,14 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             inspecting: false,
             surface,
-            viewport_pt: (800.0, 600.0),
-            scale: 2.0,
-            sent_resize: None,
+            viewport_pt: (width_pt, height_pt),
+            scale,
+            sent_resize: connected.then_some((width_pt, height_pt, scale)),
         });
         self.focused_tab = Some(id);
 
-        if self.is_connected() {
-            self.send(HostMsg::OpenTab {
-                tab_id: id,
-                url,
-                width_pt: 800.0,
-                height_pt: 600.0,
-                scale: 2.0,
-                focused: true,
-            });
+        if connected {
+            self.send(HostMsg::OpenTab { tab_id: id, url, width_pt, height_pt, scale, focused: true });
         } else {
             self.pending_opens.push((id, url));
             self.ensure_connected();
@@ -244,7 +257,7 @@ impl BrowserHost {
                     self.send(HostMsg::FocusTab { tab_id: next_id });
                 }
             }
-            if self.tabs.is_empty() {
+            if self.tabs.is_empty() && !self.keep_engine {
                 self.shutdown_sidecar();
             }
         }

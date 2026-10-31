@@ -35,6 +35,7 @@ impl BrowserHost {
                 let height_pt = (h * z).max(1.0);
                 let sc = scale.max(1.0);
                 let host = access(s);
+                host.last_viewport = ((width_pt, height_pt), scale.max(1.0));
                 let connected = host.is_connected();
                 let mut should_send = false;
                 if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
