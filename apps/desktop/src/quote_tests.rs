@@ -261,3 +261,45 @@ fn the_comment_editor_follows_the_text_size() {
     let editor = find(&rt, |e| e.key.as_deref() == Some("quote-comment"));
     assert!((editor.scale - 1.6).abs() < 1e-3, "scales with zoom: {}", editor.scale);
 }
+
+/// Scrolls the timeline up until `start`'s text begins `below` points under its top.
+fn scroll_to(rt: &mut Runtime<App>, start: &str, below: f32) {
+    let view = shown(rt, &format!("scroll-{SESSION}")).unwrap();
+    for _ in 0..400 {
+        if text(rt, start).rect[1] >= view.rect[1] + below {
+            return;
+        }
+        rt.wheel(view.rect[0] + view.rect[2] / 2.0, view.rect[1] + view.rect[3] / 2.0, 6.0);
+        rt.frame(1.0 / 120.0);
+    }
+    panic!("{start:?} never came {below} under the timeline's top");
+}
+
+#[test]
+fn at_any_zoom_the_button_clears_the_selection_above_it_or_below_it_at_the_top() {
+    for (zoom, below) in [(1.0, 200.0), (1.25, 200.0), (1.6, 200.0), (2.0, 200.0), (1.6, 4.0), (2.0, 4.0)] {
+        let mut rt = quoting("");
+        rt.update(|s, tx| {
+            s.zoom = zoom;
+            tx.instant();
+        });
+        settle(&mut rt);
+        scroll_to(&mut rt, "Treat silence as failure", below);
+        settle(&mut rt);
+        let para = text(&rt, "Treat silence as failure");
+        let line = [para.rect[1], para.rect[1] + 22.0 * zoom];
+        let (from, to) = (first_line(&para, 0.0), first_line(&para, 0.4));
+        drag(&mut rt, from, to);
+        wait(&mut rt);
+        let bar = shown(&rt, "quote-toolbar").unwrap_or_else(|| panic!("the button at zoom {zoom}"));
+        let (top, bottom) = (bar.rect[1], bar.rect[1] + bar.rect[3]);
+        let gap = 8.0 * zoom;
+        if below > 100.0 {
+            assert!((line[0] - gap - bottom).abs() < 1.5, "zoom {zoom}: {gap} above the line {line:?}: {:?}", bar.rect);
+        } else {
+            assert!((top - line[1] - gap).abs() < 1.5, "zoom {zoom}: {gap} below the line {line:?} at the top: {:?}", bar.rect);
+        }
+        let mid = (from.0 + to.0) / 2.0;
+        assert!((bar.rect[0] + bar.rect[2] / 2.0 - mid).abs() < 4.0 * zoom, "zoom {zoom}: centred on the selection: {:?}, {mid}", bar.rect);
+    }
+}

@@ -264,14 +264,16 @@ pub fn add(s: &mut App, comment: bool, tx: &mut Tx) {
 /// under it, whichever fits in the timeline's viewport, centred on its visible lines.
 pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let offer = s.quote.offer.as_ref()?;
-    let z = s.zoom.max(1e-3);
-    // Window points to the zoomed shell's: it's scaled about the window's centre.
-    let view = cx.window_layout(&format!("scroll-{}", offer.session))?.map(|v| v / z);
+    // Rune reads rects in layout points, before the zoomed shell's `El::scale`, and the shell
+    // sits centred in the window-sized root: take off its corner to get the shell's points.
+    let [ox, oy] = cx.layout_with("zoomed", |r| [r[0], r[1]]).unwrap_or([0.0, 0.0]);
+    let shell = |r: [f32; 4]| [r[0] - ox, r[1] - oy, r[2], r[3]];
+    let view = shell(cx.window_layout(&format!("scroll-{}", offer.session))?);
     let (b_top, b_bottom, b_left, b_right) = (view[1], view[1] + view[3], view[0], view[0] + view[2]);
-    let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(|r| r.map(|v| v / z)).collect();
+    let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(shell).collect();
     // Its own size, from the last layout. Unmeasured, it lays out unseen in the same pass the
     // selection's boxes first arrive in, so the next pass has both.
-    let size = cx.layout_size("quote-toolbar").map(|[w, h]| (w / z, h / z));
+    let size = cx.layout_size("quote-toolbar").map(|[w, h]| (w, h));
     let unseen = || size.is_none().then(|| bar(p, offer.truncated).absolute(0.0, 0.0).opacity(0.0));
     let (Some(&first), Some(&last)) = (rects.first(), rects.last()) else { return unseen() };
     let (top, bottom) = (first[1], last[1] + last[3]);
