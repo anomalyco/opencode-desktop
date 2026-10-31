@@ -67,7 +67,7 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges) = s.bubble_badges(p, id, body);
     let highlights = if pending.is_none() { s.find.text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
-    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges).text_highlights(highlights));
+    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights));
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),

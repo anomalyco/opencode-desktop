@@ -277,7 +277,7 @@ pub(crate) fn compact(n: u64) -> String {
 /// Desktop's error card: the danger accent down its left edge and the message in body text.
 fn error_card(p: &Pal, message: &str) -> El {
     let accent = el().key("accent").pin(Some(0.0), Some(8.0), None, Some(8.0)).w(2.0).radius(2.0).fill(p.danger);
-    let body = readable(p, text(message.to_owned()).font(BUBBLE).color(p.text).wrap().w_full());
+    let body = readable(p, text(message.to_owned()).font(BUBBLE).color(p.text).wrap_anywhere().w_full());
     row().key("error-card").w_full().pt(10.0).pb(10.0).pl(10.0).pr(12.0).child(accent).child(body)
 }
 
