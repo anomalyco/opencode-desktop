@@ -17,6 +17,7 @@ hex-client = { path = "../../crates/hex-client" }
 libc = "0.2"
 rune-mac.workspace = true
 opencode-kit = { path = "../../crates/opencode-kit" }
+otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
 rune-knobs.workspace = true
