@@ -30,6 +30,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside close at once, as the capsule's list does (todos::panel)"),
     ("text-swap", "todo-pill/todo-now", "", "the pill names the next todo at once, as Desktop's pill does (todos::pill)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
+    ("reversal", "now/", "agent-steered", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("text-swap", "time-call_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
     ("text-swap", "-time-ses_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
     ("jump", "time-call_", "run-time-", "a run time that gains a digit (9s → 10s, 59s → 1m 00s) widens at once, as Desktop's plain text does (subagents::run_time)"),
@@ -546,6 +547,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     Action { name: "agent-wakes", circs: || wide_and_narrow(Circ::default()), run: agent_wakes },
+    Action { name: "agent-steered", circs: || wide_and_narrow(Circ::default()), run: super::steered::steered },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.
     Action { name: "dictate", circs: dictation_circs, run: |r| {

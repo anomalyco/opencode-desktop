@@ -15,6 +15,7 @@ mod panels;
 mod pills;
 mod rewind;
 mod scenarios;
+mod steered;
 mod todos;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
