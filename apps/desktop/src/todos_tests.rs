@@ -216,28 +216,42 @@ fn a_finished_todo_closes_its_ring_and_draws_its_strike() {
         rt.frame(DT);
     }
     let find = |rt: &Runtime<App>, k: usize, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && e.path.contains(&format!("/todo-{k}/")));
-    let turn = |rt: &Runtime<App>| rt.presented_pose("todo-2/todo-glyph/disc/sweep").expect("the todo just done sweeps its fill round").rotation();
-    assert!(find(&rt, 0, "sweep").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
+    assert!(find(&rt, 0, "disc").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
     rt.update(|s, _| crate::todo_stories::set_step(s, 3));
-    for _ in 0..4 {
-        rt.frame(DT);
-    }
-    assert!(turn(&rt) < -0.5, "from behind the half it had: {}", turn(&rt));
-    let disc = find(&rt, 2, "disc").unwrap();
-    assert!(disc.scale < 0.95, "and springs out: scale {}", disc.scale);
+    rt.frame(DT);
+    rt.frame(DT);
+    let ring = find(&rt, 2, "shape").unwrap().rect;
+    let disc = find(&rt, 2, "disc").expect("the todo just done fills its ring").rect;
+    assert_eq!(disc, ring, "the fill is drawn about the ring's centre, never moved or scaled");
     let strike = find(&rt, 2, "strike").expect("and draws its strike");
     assert!(strike.rect[2] < 1.0, "the strike waits for the fill: {:?}", strike.rect);
-    let mut most = 0.0_f32;
     for _ in 0..120 {
         rt.frame(DT);
-        most = most.max(find(&rt, 2, "disc").unwrap().scale);
     }
-    assert!(most > 1.02, "the fill springs past full: {most}");
-    assert!(turn(&rt).abs() < 1e-3, "the ring closes");
-    assert!((find(&rt, 2, "disc").unwrap().scale - 1.0).abs() < 1e-3, "and settles");
+    assert!(find(&rt, 2, "disc").is_none(), "settled, it's done's glyph");
     let words = find(&rt, 2, "text").unwrap();
     let strike = find(&rt, 2, "strike").unwrap();
     assert!(strike.rect[0] <= words.rect[0] && strike.rect[0] + strike.rect[2] >= words.rect[0] + words.rect[2], "the strike crosses its words: {:?} over {:?}", strike.rect, words.rect);
+}
+
+#[test]
+fn the_fill_sweeps_round_then_springs_past_full_and_settles() {
+    let fill = Fill::new(Status::InProgress, "Map old keys", 300.0, 10.0, 0.4, 0.4);
+    let mut last = 0.0;
+    let mut widest = 0.0_f32;
+    let mut t = 10.0;
+    while let Some((swept, r)) = fill.at(t) {
+        assert!(r >= DISC_R * 0.97, "the fill never shrinks much below the half it was: {r}");
+        assert!(swept >= last, "the sweep only goes forward: {swept} after {last}");
+        (last, widest) = (swept, widest.max(r));
+        t += 1.0 / 60.0;
+    }
+    assert!(last > 0.999, "the ring closes: {last}");
+    assert!(widest > DISC_R * 1.08 && widest < 6.0, "the fill springs past full, inside its ring: {widest}");
+    assert!(t - 10.0 < 1.0, "and settles within a second: {}", t - 10.0);
+    let half = disc(Status::InProgress, 0.0, DISC_R, rune::Color::WHITE);
+    let full = disc(Status::InProgress, 1.0, DISC_R, rune::Color::WHITE);
+    assert!(!half.is_empty() && !full.is_empty());
 }
 
 #[test]
