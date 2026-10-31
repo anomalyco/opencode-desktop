@@ -15,6 +15,7 @@
 
 pub mod motion;
 pub mod nav;
+mod slide;
 mod story;
 
 use rune::{Align, Color, El, Icon, ScrollSpec, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
@@ -204,14 +205,17 @@ pub struct Opt {
     pub lead: Option<El>,
     pub after: Vec<El>,
     pub trailing: Vec<El>,
+    /// In a [`List`]: its sliding highlight lights the row, not the row's own fill.
+    pub slides: bool,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![] }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false }
     }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
     pub fn active(mut self, on: bool) -> Opt { self.active = on; self }
+    pub fn slides(mut self) -> Opt { self.slides = true; self }
     pub fn checked(mut self, on: bool) -> Opt { self.checked = on; self }
     pub fn lead(mut self, e: El) -> Opt { self.lead = Some(e); self }
     pub fn after(mut self, e: El) -> Opt { self.after.push(e); self }
@@ -233,7 +237,7 @@ pub fn option(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut App) + 'static, p
         .gap(look.gap)
         .center_y()
         .radius(look.row_radius)
-        .fill(lit(p, o.active))
+        .fill(lit(p, o.active && !o.slides))
         .press(p.pressed)
         // Not `on_hover`: its commit would animate the highlight's fill from row to row.
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
@@ -277,26 +281,28 @@ pub fn group_header(p: &Pal, look: Look, key: impl Into<String>, label: &str, to
 /// has. It counts its own height as rows go in.
 pub struct List {
     look: Look,
-    el: El,
+    key: String,
+    rows: Vec<El>,
     h: f32,
-    n: usize,
+    /// Where the lit row starts, for the sliding highlight.
+    lit: Option<f32>,
+    under: Option<El>,
 }
 
 impl List {
     pub fn new(key: &str, look: Look) -> List {
-        List { look, el: col().key(key.to_owned()).w_full().padding(look.inset).gap(look.row_gap), h: 2.0 * look.inset, n: 0 }
+        List { look, key: key.to_owned(), rows: Vec::new(), h: 2.0 * look.inset, lit: None, under: None }
     }
 
     fn push(&mut self, e: El, h: f32) {
-        self.el = std::mem::replace(&mut self.el, el()).child(e);
-        self.h += h + if self.n > 0 { self.look.row_gap } else { 0.0 };
-        self.n += 1;
+        self.h += h + if self.rows.is_empty() { 0.0 } else { self.look.row_gap };
+        self.rows.push(e);
     }
 
     /// A group's title, 16 pt below the search row's hairline, or 16 pt plus the row gap below
     /// the group above (Desktop's list).
     pub fn header(&mut self, p: &Pal, key: impl Into<String>, label: &str) {
-        let top = if self.n == 0 { 16.0 - self.look.inset } else { 16.0 };
+        let top = if self.rows.is_empty() { 16.0 - self.look.inset } else { 16.0 };
         let e = group_header(p, self.look, key, label, top);
         self.push(e, top + HEADER_H);
     }
@@ -306,20 +312,36 @@ impl List {
         self.push(e, h);
     }
 
+    /// An option row made with [`Opt::slides`]; when `lit`, the highlight goes under it.
+    pub fn option(&mut self, e: El, lit: bool) {
+        if lit {
+            let gap = if self.rows.is_empty() { 0.0 } else { self.look.row_gap };
+            self.lit = Some(self.h - self.look.inset + gap);
+        }
+        self.row(e);
+    }
+
+    /// Puts the highlight under the lit row, sliding there from the last one lit under the
+    /// same `query`.
+    pub fn slide(&mut self, k: &Knobs, p: &Pal, query: &str) {
+        self.under = self.lit.map(|y| slide::highlight(k, p, self.look, y, query));
+    }
+
     /// Anything else (an empty state), `h` tall.
     pub fn other(&mut self, e: El, h: f32) {
         self.push(e, h);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.n == 0
+        self.rows.is_empty()
     }
 
     /// The scroll keyed `key`, at most `max_h` tall.
     pub fn build(self, key: &str, max_h: f32) -> El {
+        let list = col().key(self.key).w_full().padding(self.look.inset).gap(self.look.row_gap).children(self.under).children(self.rows);
         col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(8.0)
-            .child(self.el)
+            .child(list)
     }
 }
 
@@ -332,4 +354,4 @@ pub fn empty(p: &Pal, look: Look, key: &str, label: &str) -> El {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

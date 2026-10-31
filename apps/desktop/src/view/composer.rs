@@ -189,6 +189,9 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         let key = item.key.clone();
         let is_active = active.as_deref() == Some(key.as_str());
         let mut o = Opt::new(format!("option-{key}"), item.label.clone()).active(is_active).checked(!is_add && item.key == selected);
+        if !is_add {
+            o = o.slides();
+        }
         if is_add {
             o = o.role("menuitem").lead(icon(&ic::PLUS, 16.0).color(p.icon_muted)).trailing(pop::hint(p, "⌘O"));
         } else if kind == Kind::Project {
@@ -213,12 +216,13 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         if is_add {
             footer = Some(row);
         } else {
-            list.row(row);
+            list.option(row, is_active);
         }
     }
     if kind == Kind::Model && items.is_empty() {
         list.other(pop::empty(p, look, "picker-empty", "No models found"), pop::EMPTY_H);
     }
+    list.slide(&s.knobs, p, &s.pickers.search.text);
     let listed = !list.is_empty();
     let max_h = if kind == Kind::Model { 360.0 } else { 240.0 };
     if listed {

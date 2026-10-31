@@ -70,7 +70,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
     {
-        inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full()
+        inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.activity_open = false;
@@ -80,7 +80,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::todos::panel(s, p, id)
     {
-        inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full()
+        inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.todo_open = false;

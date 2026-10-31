@@ -27,6 +27,7 @@ mod commands;
 mod commands_stories;
 mod compaction;
 mod compaction_stories;
+mod copied;
 mod demo;
 mod demo_script;
 mod diagnostics;
@@ -64,6 +65,7 @@ mod knobs;
 mod launch;
 mod mention_stories;
 mod mentions;
+mod menu_stories;
 mod model_prefs;
 #[cfg(test)]
 mod tool_group_shut_tests;
@@ -204,6 +206,8 @@ pub struct App {
     pub expanded: HashSet<String>,
     /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
     pub shutting: HashMap<String, f64>,
+    /// The copy button showing its tick (`copied.rs`).
+    pub copied: copied::Copied,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
     /// A tab being dragged to a new place in the sidebar.
@@ -263,6 +267,7 @@ pub struct App {
     pub activity_open: bool,
     /// The plan's list over the todo pill is open (`todos.rs`).
     pub todo_open: bool,
+    pub todo_ticks: todos::Ticks,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
     pub agent_rows: agent_rows::Live,
     pub demo: demo::Demo,
@@ -757,6 +762,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= disclosure::poll(s, now, tx);
+    changed |= copied::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s);
     changed |= s.poll_home_search(tx);

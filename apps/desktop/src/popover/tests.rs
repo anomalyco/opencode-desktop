@@ -4,6 +4,32 @@ use super::*;
 use crate::fixture_runtime as runtime;
 use crate::pickers::Kind;
 
+/// The popover keyed `key`, just opened: it starts smaller and faint, everything in it shows
+/// as much as it does all the way (nothing fades in on its own after it), and it lands whole
+/// within 0.2 s.
+pub(crate) fn grows_whole(rt: &mut Runtime<App>, key: &str) {
+    let host = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("no {key}"));
+    let first = host(rt);
+    assert!(first.scale < 0.99 && first.opacity < 0.9, "{key} grows in: scale {} opacity {}", first.scale, first.opacity);
+    let inside = format!("{}/", first.path);
+    let mut frames = Vec::new();
+    for _ in 0..24 {
+        let h = host(rt).opacity;
+        // A spinner's dots pulse on their own loop.
+        frames.push((h, rt.elements().into_iter().filter(|e| !e.exiting && e.loop_phase.is_none() && e.path.starts_with(&inside)).map(|e| (e.path, e.opacity)).collect::<Vec<_>>()));
+        rt.frame(1.0 / 120.0);
+    }
+    let last = host(rt);
+    assert!(last.scale > 0.999 && last.opacity > 0.999, "{key} lands whole: scale {} opacity {}", last.scale, last.opacity);
+    let settled: std::collections::HashMap<String, f32> = rt.elements().into_iter().filter(|e| e.path.starts_with(&inside)).map(|e| (e.path, e.opacity)).collect();
+    for (f, (h, els)) in frames.iter().enumerate() {
+        for (path, o) in els {
+            let full = settled.get(path).copied().unwrap_or(1.0);
+            assert!(*o >= full * h - 0.03, "frame {f}: {path} fades in on its own ({o} while {key} is at {h})");
+        }
+    }
+}
+
 fn rect(rt: &Runtime<App>, key: &str) -> [f32; 4] {
     rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("no {key}")).target
 }
@@ -56,10 +82,12 @@ fn surface_el(rt: &Runtime<App>) -> Option<rune::ElementInfo> {
 }
 
 #[test]
-fn popovers_open_and_close_at_once_by_default() {
+fn popovers_grow_in_and_close_at_once_by_default() {
     let k = rune_knobs::Knobs::default();
-    assert!(!motion::opens(&k) && !motion::closes(&k));
-    assert_eq!(motion::transition(&k, Side::Top, Align::Start), Transition::none());
+    assert!(motion::opens(&k) && !motion::closes(&k));
+    let t = motion::transition(&k, Side::Top, Align::Start);
+    assert!(t.insertion.scale < 1.0 && t.insertion.opacity == 0.0, "it grows in");
+    assert_eq!(t.removal, Transition::identity().removal, "it goes at once");
 }
 
 #[test]
@@ -105,4 +133,47 @@ fn a_fade_plays_in_and_a_shrink_plays_out() {
         rt.frame(1.0 / 60.0);
     }
     assert!(surface_el(&rt).is_none());
+}
+
+/// The lit row's fill slides to the row the pointer moves onto, and lands there; a filter puts
+/// it in place at once (t1150).
+#[test]
+fn the_highlight_slides_between_rows() {
+    let mut rt = runtime();
+    rt.frame(1.0 / 60.0);
+    rt.update(|s, tx| {
+        s.open_picker(Kind::Model);
+        s.pickers.search.focused = false;
+        motion::opening(&s.knobs, tx);
+    });
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    let fill = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("lit-fill")).map(|e| e.rect[1]).expect("a lit row");
+    let options: Vec<_> = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-"))).map(|e| e.rect).collect();
+    let (a, b) = (options[0], options[3]);
+    rt.pointer_move(a[0] + 40.0, a[1] + a[3] / 2.0);
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!((fill(&rt) - a[1]).abs() < 0.5, "under the first row: {} vs {}", fill(&rt), a[1]);
+    rt.pointer_move(b[0] + 40.0, b[1] + b[3] / 2.0);
+    rt.frame(1.0 / 60.0);
+    rt.frame(1.0 / 60.0);
+    let mid = fill(&rt);
+    assert!(mid > a[1] + 1.0 && mid < b[1] - 1.0, "sliding: {mid} between {} and {}", a[1], b[1]);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!((fill(&rt) - b[1]).abs() < 0.5, "lands on the fourth row: {} vs {}", fill(&rt), b[1]);
+    rt.update(|s, tx| {
+        tx.instant();
+        s.pickers.search = TextEdit::new("o");
+        s.pickers.search.focused = false;
+    });
+    rt.frame(1.0 / 60.0);
+    let lit = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-")) && e.fill.a > 0.0);
+    assert!(lit.is_none(), "rows keep no fill of their own");
+    let first = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-"))).unwrap().rect;
+    assert!((fill(&rt) - first[1]).abs() < 0.5, "a filter lights its first row at once: {} vs {}", fill(&rt), first[1]);
 }

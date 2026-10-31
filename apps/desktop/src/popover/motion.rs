@@ -1,12 +1,12 @@
 //! How every popover opens and closes: the ⌘⇧K Popover knobs. [`super::place`] gives the surface
 //! its entrance and exit from them, and the commits that open and close a popover go through
-//! [`opening`] and [`closing`]. The defaults are today's: whole in the frame it opens, gone in
-//! the frame it closes.
+//! [`opening`] and [`closing`]. By default a popover grows out of the control that opened it
+//! in 0.12 s and is gone in the frame it closes (Kit, t1150).
 
 use rune::{Align, Side, Spring, SpringPair, Transition, Tx, Vec2};
 use rune_knobs::{Group, Knob, Knobs, Preset};
 
-pub const OPEN: Knob = Knob::choice("Popover open", &["Instant", "Fade", "Grow from trigger", "Slide from trigger"], 0)
+pub const OPEN: Knob = Knob::choice("Popover open", &["Instant", "Fade", "Grow from trigger", "Slide from trigger"], 2)
     .label("Open")
     .about("How a popover appears")
     .hints(&["Whole in the frame it opens", "Fades in where it sits", "Grows out of its trigger, fading in", "Slides out from its trigger, fading in"]);
@@ -14,16 +14,19 @@ pub const CLOSE: Knob = Knob::choice("Popover close", &["Instant", "Fade", "Shri
     .label("Close")
     .about("How a popover goes away")
     .hints(&["Gone in the frame it closes", "Fades out where it sits", "Shrinks toward its trigger, fading out"]);
-pub const DURATION: Knob = Knob::new("Popover duration", 0.05, 0.5, 0.18).step(0.01).label("Duration").about("Seconds to open; closing takes 80%");
+pub const DURATION: Knob = Knob::new("Popover duration", 0.05, 0.5, 0.12).step(0.01).label("Duration").about("Seconds to open; closing takes 80%");
 pub const BOUNCE: Knob = Knob::new("Popover bounce", 0.0, 0.4, 0.0).step(0.01).label("Bounce").about("Spring bounce as it opens and closes");
 pub const SCALE: Knob = Knob::new("Popover scale", 0.9, 1.0, 0.96).step(0.01).label("Grow from").about("Starting scale for Grow and Shrink");
 pub const DISTANCE: Knob = Knob::new("Popover distance", 0.0, 16.0, 6.0).step(1.0).label("Slide distance").about("Points a slide travels from its trigger");
 
-pub const GROUP: Group = Group::new("Popover", "popover", &[OPEN, CLOSE, DURATION, BOUNCE, SCALE, DISTANCE])
-    .default_label("Instant")
+pub const SLIDE: Knob = Knob::new("Highlight slide", 0.0, 0.3, 0.1).step(0.01).label("Highlight slide").about("Seconds the lit row's fill takes to move");
+
+pub const GROUP: Group = Group::new("Popover", "popover", &[OPEN, CLOSE, DURATION, BOUNCE, SCALE, DISTANCE, SLIDE])
+    .default_label("Grow")
     .presets(&[
+        Preset { name: "Instant", values: &[("Popover open", 0.0), ("Popover close", 0.0)] },
         Preset { name: "Fade", values: &[("Popover open", 1.0), ("Popover close", 1.0), ("Popover duration", 0.15)] },
-        Preset { name: "Grow", values: &[("Popover open", 2.0), ("Popover close", 2.0), ("Popover duration", 0.2)] },
+        Preset { name: "Grow and shrink", values: &[("Popover open", 2.0), ("Popover close", 2.0), ("Popover duration", 0.2)] },
         Preset { name: "Slide", values: &[("Popover open", 3.0), ("Popover close", 1.0), ("Popover duration", 0.2)] },
     ]);
 
@@ -40,17 +43,28 @@ pub fn closes(k: &Knobs) -> bool {
 }
 
 /// A commit that opens a popover lands in the keystroke, unless it has an entrance to play (an
-/// instant commit mounts it whole).
+/// instant commit mounts it whole). Colours still change at once: the trigger's pressed fill
+/// doesn't fade in beside it.
 pub fn opening(k: &Knobs, tx: &mut Tx) {
-    if !opens(k) {
+    if opens(k) {
+        tx.color_motion(Spring::NONE);
+    } else {
         tx.instant();
     }
+}
+
+/// A trigger's press: opens or closes its popover with [`opening`] or [`closing`], as `toggle`
+/// leaves it (true when open).
+pub fn toggled(k: &Knobs, tx: &mut Tx, open: bool) {
+    if open { opening(k, tx) } else { closing(k, tx) }
 }
 
 /// A commit that closes a popover lands in the keystroke, unless it has an exit to play (an
 /// instant commit unmounts it at once).
 pub fn closing(k: &Knobs, tx: &mut Tx) {
-    if !closes(k) {
+    if closes(k) {
+        tx.color_motion(Spring::NONE);
+    } else {
         tx.instant();
     }
 }

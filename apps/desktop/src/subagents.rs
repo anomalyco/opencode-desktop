@@ -220,9 +220,9 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     let label = format!("{n} subagent{}", if n == 1 { "" } else { "s" });
     let chip = chip(s, p, "activity-chip", label.clone(), s.activity_open)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
             s.activity_open = !s.activity_open;
             s.todo_open = false;
+            crate::popover::motion::toggled(&s.knobs, tx, s.activity_open);
         })
         .child(activity_ring_sized(p, 16.0))
         .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
@@ -319,6 +319,8 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .scroll(rune::ScrollSpec { stick_bottom: false })
         .scroll_edge_fade(12.0)
         .scroll_margin(PANEL_PAD)
+        // What it holds comes in with the list, not on fades of its own.
+        .instant_changes()
         .child(list);
     let panel = col()
         .key("activity-panel")
@@ -333,7 +335,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .shadow(8.0, 16.0, p.shadow_far)
         .shadow(4.0, 8.0, p.shadow)
         .clip_soft(0.0)
-        .transition(rune::Transition::none())
+        .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
         .on_press(|_: &mut App| {})
         .child(rows);
     Some(panel)
@@ -441,6 +443,20 @@ mod tests {
         press(&mut rt, &format!("sub-{REVIEW}"));
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
         assert!(!rt.state.activity_open);
+    }
+
+    /// The list grows out of its capsule, all it holds with it, and goes at once (t1150).
+    #[test]
+    fn the_list_grows_from_its_capsule() {
+        let mut rt = rt();
+        rt.update(|s, _| {
+            s.running.insert(REVIEW.into());
+        });
+        settle(&mut rt);
+        press(&mut rt, "activity-chip");
+        crate::popover::tests::grows_whole(&mut rt, "activity-panel");
+        press(&mut rt, "activity-chip");
+        assert!(!has(&rt, "", "activity-panel"), "it goes at once");
     }
 
     /// A list left open when the last subagent ends doesn't open again by itself when the next

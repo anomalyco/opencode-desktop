@@ -95,9 +95,8 @@ fn the_pill_names_the_todo_in_hand_and_opens_the_list() {
 
     tap(&mut rt, "todo-pill");
     assert!(rt.state.todo_open);
-    assert!(has(&rt, "todo-panel"), "at once, no fade in");
+    crate::popover::tests::grows_whole(&mut rt, "todo-panel");
     let panel = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("todo-panel")).unwrap();
-    assert!(panel.opacity > 0.99);
     assert!((0..6).all(|k| has(&rt, &format!("todo-{k}"))));
     // Above the pill, start edges aligned.
     assert!(panel.rect[1] + panel.rect[3] <= pill.rect[1]);
@@ -203,4 +202,29 @@ fn the_list_closes_when_the_pill_goes() {
     rt.frame(DT);
     assert!(has(&rt, "todo-pill"));
     assert!(!has(&rt, "todo-panel") && !has(&rt, "todo-dismiss"), "only a press opens the list");
+}
+
+/// A todo that finishes while the list shows grows its tick in; one already done when the list
+/// opens shows it whole (t1150).
+#[test]
+fn a_finished_todo_grows_its_tick() {
+    let mut rt = plan();
+    rt.poll = Some(crate::poll);
+    rt.update(|s, _| crate::todo_stories::set_step(s, 2));
+    tap(&mut rt, "todo-pill");
+    for _ in 0..60 {
+        rt.frame(DT);
+    }
+    let tick = |rt: &Runtime<App>, k: usize| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("tick") && e.path.contains(&format!("/todo-{k}/"))).map(|e| (e.opacity, e.scale));
+    assert!(tick(&rt, 0).is_none(), "done before the list opened: drawn whole, in one glyph");
+    rt.update(|s, _| crate::todo_stories::set_step(s, 3));
+    rt.frame(DT);
+    rt.frame(DT);
+    let (o, sc) = tick(&rt, 2).expect("the todo just done grows a tick");
+    assert!(o < 0.6 && sc < 0.6, "growing: opacity {o} scale {sc}");
+    for _ in 0..60 {
+        rt.frame(DT);
+    }
+    let (o, sc) = tick(&rt, 2).unwrap();
+    assert!(o > 0.999 && sc > 0.999, "whole: opacity {o} scale {sc}");
 }

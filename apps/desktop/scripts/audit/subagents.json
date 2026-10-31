@@ -3,7 +3,7 @@
   "fixture": {"running": ["ses_fx0006aaaaaaaaaaaaaaaaaa", "ses_fx0002aaaaaaaaaaaaaaaaaa"]},
   "events": [
     {"t": 0.3, "type": "move", "key": "activity-chip", "expect": "instant"},
-    {"t": 0.5, "type": "tap", "key": "activity-chip", "expect": "instant"},
+    {"t": 0.5, "type": "tap", "key": "activity-chip"},
     {"t": 0.9, "type": "move", "key": "sub-ses_fx0002aaaaaaaaaaaaaaaaaa", "expect": "instant"},
     {"t": 1.2, "type": "tap", "key": "activity-chip", "expect": "instant"},
     {"t": 1.5, "type": "scroll", "x": 700, "y": 300, "dy": 650, "dur": 0.25},

@@ -184,7 +184,7 @@ fn registered_lists_keep_their_order() {
     let paths: Vec<_> = stories().iter().map(|s| s.path).collect();
     assert_eq!(paths, STORY_PATHS);
     let groups: Vec<_> = crate::knobs::groups().iter().map(|g| g.name).collect();
-    assert_eq!(groups, ["Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal", "Popover"]);
+    assert_eq!(groups, ["Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal", "Copy", "Popover", "Todo pill"]);
     let scenes: Vec<_> = super::scenes().iter().map(|s| s.0).collect();
     let all: Vec<_> = APP_SCENES.iter().chain(STORY_PATHS).copied().collect();
     assert_eq!(scenes, all);
@@ -228,6 +228,7 @@ const STORY_PATHS: &[&str] = &[
     "Sidebar/Rename and menus",
     "Home/Session search",
     "Components/Odometer",
+    "Components/Toast",
     "Header/Session header",
     "Header/Ticking",
     "Timeline/Arrival glow",
@@ -254,6 +255,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Jump to latest",
     "Timeline/Frosted surfaces",
     "Timeline/Turn actions",
+    "Timeline/Copy tick",
     "Timeline/Errors",
     "Timeline/Retry",
     "Timeline/Notices",
@@ -271,6 +273,7 @@ const STORY_PATHS: &[&str] = &[
     "Settings/Appearance",
     "Composer/Auto-accept",
     "Composer/Commands",
+    "Popover/Menus",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",

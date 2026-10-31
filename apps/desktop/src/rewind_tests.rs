@@ -253,6 +253,7 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
 
     // Open the ⋯ menu on the message and verify Fork from here + Copy message are present.
     tap_in(&mut h.rt, &format!("u-{target_id}/"), &format!("more-{target_id}"));
+    crate::popover::tests::grows_whole(&mut h.rt, "message-menu");
     assert!(shows_text(&h.rt, "Fork from here") && shows_text(&h.rt, "Copy message"));
     tap_in(&mut h.rt, "message-menu", "message-fork");
 

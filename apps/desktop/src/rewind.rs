@@ -520,8 +520,8 @@ pub fn user_actions(s: &App, p: &Pal, id: &str, _body: &str) -> (El, f32) {
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
             s.toggle_message_menu(&sid, &mid);
+            crate::popover::motion::toggled(&s.knobs, tx, s.rewind.menu.is_some());
         })
         .child(icon(&ic::OUTLINE_DOTS, 14.0).color(p.icon_muted));
     if menu_open {
@@ -604,8 +604,10 @@ pub fn menu_view(s: &App, p: &Pal) -> Option<El> {
         .fill(p.layer1)
         .border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow)
-        .transition(Transition::none())
+        .transition(crate::popover::motion::transition(&s.knobs, Side::Bottom, Align::End))
         .motion(Spring::NONE)
+        // What it holds comes in with it, not on fades of its own.
+        .instant_changes()
         .on_press(|_: &mut App| {});
 
     if let Some(stamp) = sent_label(mid) {

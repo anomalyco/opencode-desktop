@@ -280,8 +280,8 @@ pub fn trigger(s: &App, p: &Pal) -> El {
     }
     if !disabled {
         b = b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
             if s.add.open { s.close_add_menu() } else { s.open_add_menu() }
+            crate::popover::motion::toggled(&s.knobs, tx, s.add.open);
         });
     }
     b
@@ -303,7 +303,9 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         .fill(p.layer1)
         .border(0.5, p.border_muted)
         .shadow(4.0, 12.0, p.shadow)
-        .transition(rune::Transition::none())
+        .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
+        // What it holds comes in with it, not on fades of its own.
+        .instant_changes()
         .on_press(|_: &mut App| {});
     for item in Item::ALL {
         if item == Item::Commands {
@@ -338,6 +340,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
     }
     Some(
         el().key("add-dismiss")
+            .transition(rune::Transition::none())
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
@@ -368,8 +371,8 @@ mod tests {
     fn the_menu_opens_over_plus_and_context_types_an_at() {
         let mut rt = runtime();
         tap(&mut rt, "add");
+        crate::popover::tests::grows_whole(&mut rt, "add-menu");
         let menu = shown(&rt, "add-menu").expect("the menu opens");
-        assert!((menu.opacity - 1.0).abs() < 1e-3, "no fade");
         let plus = shown(&rt, "add").unwrap();
         assert!((menu.target[1] + menu.target[3] + 6.0 - plus.target[1]).abs() < 0.1, "6 points above the +");
         assert!((menu.target[0] - plus.target[0]).abs() < 0.1, "starts at its left edge");

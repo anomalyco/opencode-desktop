@@ -14,7 +14,7 @@
   },
   "events": [
     {"t": 0.3, "type": "move", "key": "more-msg_001a162cb67e0003fk000000", "expect": "instant"},
-    {"t": 0.5, "type": "tap", "key": "more-msg_001a162cb67e0003fk000000", "expect": "instant"},
+    {"t": 0.5, "type": "tap", "key": "more-msg_001a162cb67e0003fk000000"},
     {"t": 0.8, "type": "tap", "key": "message-fork", "expect": "instant"}
   ]
 }

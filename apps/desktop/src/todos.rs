@@ -3,7 +3,11 @@
 //! the whole plan. The `todowrite` tool keeps no server state, so the plan is the input of the
 //! session's latest finished call before any staged revert. The timeline hides those calls.
 
-use rune::{El, Icon, TextStyle, Tx, col, el, icon, row, text};
+use std::collections::HashMap;
+use std::time::Duration;
+
+use rune::{El, Icon, TextStyle, Tween, Tx, col, el, icon, row, text};
+use rune_knobs::{Group, Knob};
 use serde_json::Value;
 
 use opencode_kit::model::{Message, Part, ToolStatus, Transcript};
@@ -91,10 +95,41 @@ impl App {
     }
 }
 
-/// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132).
+pub const TICK: Knob = Knob::new("Todo tick", 0.0, 0.5, 0.2).step(0.01).label("Tick draws in").about("Seconds a finished todo's tick takes to grow");
+
+pub const GROUP: Group = Group::new("Todo pill", "todos", &[TICK]).under("Composer");
+
+rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
+
+/// The open session's plan as last seen, and the ticks of todos that finished while it showed,
+/// each growing in on its own track (t1150).
+#[derive(Default)]
+pub struct Ticks {
+    session: String,
+    seen: Vec<(String, Status)>,
+    growing: HashMap<usize, Tween<f32>>,
+}
+
+/// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132), and
+/// starts a tick for each todo that has just finished.
 pub fn sync(s: &mut App) -> bool {
     let crate::Route::Session(id) = &s.route else { return false };
-    if !s.todo_open || current(&s.shown_todos(id)).is_some() {
+    let todos = s.shown_todos(id);
+    let secs = s.knobs.get(&TICK);
+    let ticks = &mut s.todo_ticks;
+    if ticks.session != *id {
+        *ticks = Ticks { session: id.clone(), ..Ticks::default() };
+    } else if !s.reduced_motion && secs > 0.0 {
+        for (k, t) in todos.iter().enumerate() {
+            let was = ticks.seen.get(k).filter(|(c, _)| *c == t.content).map(|(_, st)| *st);
+            if t.status == Status::Completed && was.is_some_and(|st| st != Status::Completed) {
+                ticks.growing.insert(k, Tween::linear(0.0, 1.0, Duration::from_secs_f32(secs)));
+            }
+        }
+    }
+    ticks.seen = todos.iter().map(|t| (t.content.clone(), t.status)).collect();
+    ticks.growing.retain(|k, _| todos.get(*k).is_some_and(|t| t.status == Status::Completed));
+    if !s.todo_open || current(&todos).is_some() {
         return false;
     }
     s.todo_open = false;
@@ -121,14 +156,14 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
         .shrink()
         .min_w(0.0)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
             s.todo_open = !s.todo_open;
             s.activity_open = false;
+            crate::popover::motion::toggled(&s.knobs, tx, s.todo_open);
             if s.todo_open {
                 reveal_current(s, &sid, tx);
             }
         })
-        .child(glyph(p, now.status))
+        .child(glyph(p, now.status, None))
         .child(text(now.content.clone()).key("todo-now").font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
     if more > 0 {
         chip = chip.child(
@@ -172,7 +207,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .px(6.0)
                 .py(4.0)
                 .gap(8.0)
-                .child(el().h(ROW.line_height).center().child(glyph(p, t.status)))
+                .child(el().h(ROW.line_height).center().child(glyph(p, t.status, s.todo_ticks.growing.get(&k))))
                 .child(words),
         );
     }
@@ -183,6 +218,8 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .scroll(rune::ScrollSpec { stick_bottom: false })
         .scroll_edge_fade(12.0)
         .scroll_margin(PAD)
+        // What it holds comes in with the list, not on fades of its own.
+        .instant_changes()
         .child(list);
     Some(
         col()
@@ -197,7 +234,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
             .shadow(8.0, 16.0, p.shadow_far)
             .shadow(4.0, 8.0, p.shadow)
             .clip_soft(0.0)
-            .transition(rune::Transition::none())
+            .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
             .on_press(|_: &mut App| {})
             .child(rows),
     )
@@ -212,16 +249,27 @@ pub fn reveal_current(s: &App, id: &str, tx: &mut Tx) {
 
 /// Desktop's 16 pt status glyph: a ring, half filled in progress, ticked when done, struck
 /// through when cancelled. In progress is the warning colour; done is a step brighter than
-/// pending and cancelled.
-fn glyph(p: &Pal, status: Status) -> El {
+/// pending and cancelled. A todo that has just finished grows its tick in on `growing`, from
+/// the half circle it had, as its ring fills to done's colour.
+fn glyph(p: &Pal, status: Status, growing: Option<&Tween<f32>>) -> El {
     let (shape, color) = match status {
         Status::Pending => (&PENDING, p.icon_faint),
         Status::InProgress => (&IN_PROGRESS, p.warning),
         Status::Completed => (&COMPLETED, p.icon_muted),
         Status::Cancelled => (&CANCELLED, p.icon_faint),
     };
-    icon(shape, 16.0).key("todo-glyph").color(color)
+    // The shape changes in place; only the growing tick mounts.
+    let shape = if growing.is_some() { &PENDING } else { shape };
+    el().key("todo-glyph").size(16.0, 16.0)
+        .child(icon(shape, 16.0).key("shape").color(color))
+        .children(growing.map(|t| icon(&TICK_MARK, 16.0).key("tick").color(color).absolute(0.0, 0.0).live_scale(t).live_opacity(t)))
 }
+
+static TICK_MARK: Icon = Icon {
+    name: "todo-tick",
+    view: 16.0,
+    body: r#"<path d="M5 8 7.5 11 11 5.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
 
 const RING: &str = r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/>"#;
 

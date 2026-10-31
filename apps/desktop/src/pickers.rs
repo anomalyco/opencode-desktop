@@ -604,12 +604,9 @@ mod tests {
             tap(&mut rt, "model");
             rt.frame(1.0 / 60.0);
             let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
+            // Under Reduce Motion the grow is only its fade.
             let menu = find(&rt, "picker-model").unwrap();
-            assert!((menu.opacity - 1.0).abs() < 1e-3, "opens without a fade (reduced={reduced})");
-            for part in ["picker-search", "picker-options", "option-google:gemini-4-argon"] {
-                let e = find(&rt, part).unwrap();
-                assert!((e.opacity - 1.0).abs() < 1e-3, "{part} is there at once: {}", e.opacity);
-            }
+            assert!(menu.opacity < 1.0 && (menu.scale < 1.0) != reduced, "it grows from the trigger (reduced={reduced}): {}", menu.scale);
             key(&mut rt, Key::Escape);
             rt.frame(1.0 / 60.0);
             assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame (reduced={reduced})");

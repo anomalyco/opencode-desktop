@@ -1,5 +1,5 @@
 //! The storybook's Popover › Open and close: the model list (or the agent menu) opening over the
-//! composer, with the Popover knobs beside it (or set to their Grow preset). O opens, C closes, T toggles three times quickly
+//! composer, with the Popover knobs beside it (or set to their Grow and shrink preset). O opens, C closes, T toggles three times quickly
 //! (open, close, open, 80 ms apart) to catch an interrupted entrance, R replays.
 
 use rune::Play;
@@ -16,8 +16,8 @@ const KEYS: &[Trigger] = &[
     Trigger { key: 't', label: "Toggle quickly", run: quick },
 ];
 
-/// The third sets the knobs to the Grow preset, to see one that moves.
-const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Agent menu", 1), ("Grow preset", 2)];
+/// The third sets the knobs to the Grow and shrink preset, to see a close that moves too.
+const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Agent menu", 1), ("Grow and shrink", 2)];
 
 const KNOBS: &[Group] = &[super::motion::GROUP];
 
@@ -44,7 +44,7 @@ fn start(s: &mut App, tx: &mut Play<App>) {
     s.settings.show_agent = true;
     s.close_picker(false);
     if s.variant == 2 {
-        s.knobs.apply(&super::motion::GROUP, "Grow");
+        s.knobs.apply(&super::motion::GROUP, "Grow and shrink");
     }
     tx.instant();
     tx.after(0.4, toggle);

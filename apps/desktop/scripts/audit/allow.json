@@ -1,4 +1,8 @@
 [
+  {"element": "-dismiss", "kind": ["pop-in", "pop-out"],
+   "reason": "a menu's dismiss layer is clear and catches the click outside; it comes and goes at once while its menu grows"},
+  {"trace": "popover-motion", "element": "knobs-card/", "kind": "jump",
+   "reason": "the Grow and shrink variant sets its knobs as it opens; their sliders show the new values at once"},
   {"trace": "close-tab", "element": "tabs-scroll/tabs", "kind": ["jump", "sibling-jump", "pop-out"],
    "reason": "closing a tab lands at once, its neighbours close the gap in the same frame (docs/kit-design.md: changes are immediate)"},
   {"trace": "cmdk-results", "element": "window/panel/home", "kind": "pop-out",

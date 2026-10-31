@@ -125,11 +125,12 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
+    let copy_key = format!("copy-{}", message.id());
     let mut button = row().key("copy").role("button").label("Copy response")
         .size(28.0, 28.0).pb(12.0).center().radius(4.0).hover(p.hover).press(p.pressed)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
-        .child(icon(&ic::OUTLINE_COPY, 16.0).color(p.muted));
+        .child(crate::copied::glyph(s, &copy_key, 16.0, p.muted));
     if !busy && has_text {
         let session = session.to_owned();
         let id = message.id().to_owned();
@@ -139,6 +140,7 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
                     Part::Text { text } => Some(text.as_str()),
                     _ => None,
                 }).collect::<Vec<_>>().join("\n\n"));
+                s.mark_copied(copy_key.clone(), tx);
             }
         });
     }

@@ -1,6 +1,6 @@
 //! The storybook's Todo pill story (Composer › Todo pill): the agent works through a six-step
 //! plan, the pill naming the todo in hand and its list open over the composer. O opens and
-//! closes the list, N moves the plan on a step, T runs two at once, S starts thirty subagents
+//! closes the list, N moves the plan on a step (its tick grows in), T runs two at once, S starts thirty subagents
 //! beside it, F finishes the plan (the pill goes), R replays.
 
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus};
@@ -90,5 +90,5 @@ pub fn set_plan(s: &mut App, input: serde_json::Value) {
 }
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
-    crate::stories::Story::session("Composer/Todo pill", KEYS),
+    crate::stories::Story::session("Composer/Todo pill", KEYS).knobs(&[crate::todos::GROUP, crate::popover::motion::GROUP]),
 ]);
