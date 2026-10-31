@@ -127,3 +127,4 @@ fn tones_read_their_word() {
     assert_eq!(Tone::of("on"), Tone::Done);
     assert_eq!(Tone::of("one"), Tone::Quiet);
 }
+

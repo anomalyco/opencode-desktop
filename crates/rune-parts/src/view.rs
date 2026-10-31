@@ -1,7 +1,7 @@
 //! Outlines drawn as Rune elements. Each app passes its colours ([`PartsTheme`]) and how it draws
 //! rich words and glyphs ([`PartsResolver`]); nothing here knows about Seer or OpenCode.
 
-use rune::{Color, El, TextStyle, col, el, row, spacer, text};
+use rune::{Color, El, Icon, TextStyle, col, el, icon, row, spacer, text};
 
 use crate::catalog::Tone;
 use crate::outline::Node;
@@ -48,6 +48,16 @@ pub enum Glyph {
     Voice,
 }
 
+macro_rules! stroke {
+    ($name:literal, $($d:literal),+) => {
+        Icon { name: $name, view: 24.0, body: concat!($("<path d=\"", $d, "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"),+) }
+    };
+}
+
+static ARROW: Icon = stroke!("rune-parts-arrow", "M5 12h14", "m12 5 7 7-7 7");
+static ARROW_DOWN: Icon = stroke!("rune-parts-arrow-down", "M12 5v14", "m19 12-7 7-7-7");
+static VOICE: Icon = stroke!("rune-parts-voice", "M12 19v3", "M19 10v2a7 7 0 0 1-14 0v-2", "M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z");
+
 /// What a surface draws its own way: words with chips in them, glyphs, and who "you" are.
 pub trait PartsResolver {
     /// Words that may hold Markdown, PR and card references.
@@ -55,13 +65,14 @@ pub trait PartsResolver {
         text(src.to_owned()).font(font).color(color).wrap()
     }
 
+    /// Vector strokes in the text colour; override only to use a surface's own icon set.
     fn glyph(&self, g: Glyph, size: f32, color: Color) -> El {
-        let s = match g {
-            Glyph::Arrow => "→",
-            Glyph::ArrowDown => "↓",
-            Glyph::Voice => "◉",
+        let i = match g {
+            Glyph::Arrow => &ARROW,
+            Glyph::ArrowDown => &ARROW_DOWN,
+            Glyph::Voice => &VOICE,
         };
-        text(s).font(TextStyle::new(size, 500.0).lh(size + 4.0)).color(color)
+        icon(i, size).color(color)
     }
 
     /// Chat lines from you draw on the right, in your bubble.
@@ -70,7 +81,7 @@ pub trait PartsResolver {
     }
 }
 
-/// Plain words and text glyphs, for tests and surfaces without chips.
+/// Plain words and the default glyphs, for tests and surfaces without chips.
 pub struct Plain;
 impl PartsResolver for Plain {}
 
@@ -143,9 +154,16 @@ impl Ctx<'_> {
                     v = v.child(row().h(21.0).center_y().child(mark(c)));
                 }
                 v = v.child(col().grow(1.0).shrink().min_w(0.0).child(self.r.inline(&n.part.text, BODY, t.text)));
-                row().key(key).w_full().gap(12.0).items_start().px(PAD).py(6.0).radius(8.0).fill(t.text.alpha(0.04))
-                    .child(text(p.key.clone()).font(BODY).color(t.muted).w((width * 0.22).clamp(64.0, 120.0)).shrink().truncate())
-                    .child(v)
+                if !p.detail.is_empty() {
+                    v = v.child(text(p.detail.clone()).font(QUIET).color(t.faint).pt(2.0).shrink().min_w(0.0).truncate());
+                }
+                let label = text(p.key.clone()).font(BODY).color(t.muted);
+                let r = row().key(key).w_full().px(PAD).py(6.0).radius(8.0).fill(t.text.alpha(0.04));
+                // Narrow, the label sits over its value rather than truncating beside it.
+                if width < NARROW {
+                    return r.child(col().grow(1.0).shrink().min_w(0.0).gap(2.0).child(label.font(QUIET).wrap()).child(v));
+                }
+                r.gap(12.0).items_start().child(label.w((width * 0.22).clamp(64.0, 120.0)).shrink().truncate()).child(v)
             }
             "say" => self.say(n, width),
             "tools" => text(format!("Used {}", p.text)).key(key).font(QUIET).color(t.faint).wrap(),

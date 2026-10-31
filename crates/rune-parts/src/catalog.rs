@@ -45,7 +45,7 @@ pub static CATALOG: &[PartSpec] = &[
     PartSpec { name: "title", syntax: "title Words", about: "a short heading inside a frame", kids: L, example: "box\n  title Microphone" },
     PartSpec { name: "text", syntax: "text Words", about: "a sentence; Markdown, PRs and cards draw as chips", kids: L, example: "box\n  text The closed laptop's mic drops out of the list." },
     PartSpec { name: "item", syntax: "item [{tone}] Label [· detail]", about: "a row with a status mark and a quiet detail", kids: L, example: "box\n  item {done} Studio Display mic · in use\n  item {risk} MacBook Pro mic · lid closed" },
-    PartSpec { name: "kv", syntax: "kv Label: [{tone}] value", about: "a label and its value, ruled like facts", kids: L, example: "box\n  kv Status: {proposal} Nothing built\n  kv Owner: t1108" },
+    PartSpec { name: "kv", syntax: "kv Label: [{tone}] value [· detail]", about: "a label and its value, ruled like facts", kids: L, example: "box\n  kv Status: {proposal} Nothing built · yet\n  kv Owner: t1108" },
     PartSpec { name: "say", syntax: "say Who [{how}]: words", about: "a chat line: you on the right, others left", kids: Kids::Only(&["tools"]), example: "screen Desktop\n  say Kit {voice}: filter Seer to Hex\n  say build {claude-opus-5-5}: Filtered. t1096 waits on a pick.\n    tools wisp, seer" },
     PartSpec { name: "tools", syntax: "tools a, b", about: "the tools the chat line above used", kids: L, example: "screen\n  say build: Done.\n    tools wisp, seer" },
     PartSpec { name: "from", syntax: "from Name", about: "who a phone thread is from, as its header", kids: L, example: "phone\n  from WRAITH" },
