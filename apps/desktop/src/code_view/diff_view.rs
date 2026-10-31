@@ -512,9 +512,12 @@ impl<S: 'static> Inner<S> {
             .pl(CODE_PAD.0)
             .pr(CODE_PAD.1)
             .child(t)
-            .on_hover_change(move |s: &mut S, inside, _| {
-                if inside {
-                    get_mut(s).set_copy_side(side);
+            .on_hover_change(move |s: &mut S, inside, tx| {
+                let st = get_mut(s);
+                if inside && st.copy_side() != side {
+                    st.set_copy_side(side);
+                } else {
+                    tx.live_only();
                 }
             });
         if c.no_newline {

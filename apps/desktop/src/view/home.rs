@@ -446,6 +446,9 @@ fn session_row_inner(
         .hover(p.hover)
         .press(p.pressed)
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+            if !inside || s.search.text.trim().is_empty() {
+                tx.live_only();
+            }
             if inside {
                 s.prefetch_session(&hover_id);
                 if !s.search.text.trim().is_empty() {

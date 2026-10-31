@@ -175,7 +175,10 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
         .pb(after)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .on_hover_change(move |s: &mut App, inside, _: &mut Tx| if inside { s.prefetch_session(&hover_id); })
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+            tx.live_only();
+            if inside { s.prefetch_session(&hover_id); }
+        })
         .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev))
         // Desktop's tab title: a double click renames it in place.
         .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
