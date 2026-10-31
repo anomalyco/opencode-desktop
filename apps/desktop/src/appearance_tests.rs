@@ -153,32 +153,42 @@ fn switch(rt: &mut Runtime<App>, set: impl FnOnce(&mut App, &mut Tx)) -> usize {
     crate::view::timeline_row_builds()
 }
 
-// Only the mono slot switches here: `rune::text::measure` follows the process's families, and
-// tests on other threads measure sans text. These take turns, since `font_epoch` is shared.
-static FONTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Scopes `rune::text::measure` on this thread to the launch families, so a switch here moves
+/// only this test's measuring and the font tests run in parallel with every other test.
+fn own_families() -> rune::text::FamiliesGuard {
+    rune::text::with_families(UI_FONTS[0].family, CODE_FONTS[0].family)
+}
 
 #[test]
-fn picking_the_code_font_again_rebuilds_nothing_and_a_new_one_lays_out_again() {
-    let _turn = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+fn picking_a_font_again_rebuilds_nothing_and_a_new_one_lays_out_again() {
+    let _g = own_families();
     let mut rt = launched(App::fixture_session(), 1.0);
     assert_eq!(rt.font_families(), (UI_FONTS[0].family, CODE_FONTS[0].family));
     // Any update builds the few rows that aren't memoized (the open session's last turn).
     let live = switch(&mut rt, |_, _| {});
     let epoch = rune::text::font_epoch();
-    assert_eq!(switch(&mut rt, |s, tx| s.set_code_font(0, tx)), live, "the same font rebuilds no more than any update");
+    assert_eq!(switch(&mut rt, |s, tx| s.set_code_font(0, tx)), live, "the same code font rebuilds no more than any update");
+    assert_eq!(switch(&mut rt, |s, tx| s.set_ui_font(0, tx)), live, "nor the same UI font");
     assert_eq!(rune::text::font_epoch(), epoch, "and changes no measured size");
     let built = switch(&mut rt, |s, tx| s.set_code_font(1, tx));
     assert_eq!(rt.font_families(), ("Inter", "CommitMono, IBM Plex Mono"));
-    assert!(built > live, "a new font builds the memoized rows again: {built} vs {live}");
-    assert_eq!(rt.state.settings.code_font, 1);
-    assert_eq!(crate::settings::Settings::from_json(&rt.state.settings.to_json()).code_font, 1, "saved by name");
+    assert!(built > live, "a new code font builds the memoized rows again: {built} vs {live}");
+    let epoch = rune::text::font_epoch();
+    let built = switch(&mut rt, |s, tx| s.set_ui_font(1, tx));
+    assert_eq!(rt.font_families(), ("System Font, Inter", "CommitMono, IBM Plex Mono"));
+    assert!(built > live, "a new UI font builds the memoized rows again: {built} vs {live}");
+    assert_ne!(rune::text::font_epoch(), epoch, "and measures in it");
+    assert_eq!((rt.state.settings.ui_font, rt.state.settings.code_font), (1, 1));
+    let saved = crate::settings::Settings::from_json(&rt.state.settings.to_json());
+    assert_eq!((saved.ui_font, saved.code_font), (1, 1), "saved by name");
     switch(&mut rt, |s, tx| s.set_code_font(0, tx));
-    assert_eq!(rt.font_families().1, "IBM Plex Mono");
+    switch(&mut rt, |s, tx| s.set_ui_font(0, tx));
+    assert_eq!(rt.font_families(), (UI_FONTS[0].family, CODE_FONTS[0].family));
 }
 
 #[test]
 fn a_font_switch_drops_the_terminals_cached_cell_sizes() {
-    let _turn = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = own_families();
     let mut rt = launched(App::fixture_session(), 1.0);
     let style = rune::TextStyle::new(13.0, 400.0).mono();
     let first = crate::terminal::grid::cell_metrics(99, style);
@@ -188,7 +198,9 @@ fn a_font_switch_drops_the_terminals_cached_cell_sizes() {
     switch(&mut rt, |s, tx| s.set_code_font(2, tx));
     crate::terminal::grid::cell_metrics(99, style);
     assert_eq!(crate::terminal::grid::cached_metrics(), cached + 1, "the switch measures again");
-    switch(&mut rt, |s, tx| s.set_code_font(0, tx));
+    switch(&mut rt, |s, tx| s.set_ui_font(1, tx));
+    crate::terminal::grid::cell_metrics(99, style);
+    assert_eq!(crate::terminal::grid::cached_metrics(), cached + 2, "so does a UI font switch");
 }
 
 #[test]
