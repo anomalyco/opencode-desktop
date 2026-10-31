@@ -746,6 +746,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= stop::poll(s, now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
+    changed |= subagents::sync(s) | todos::sync(s);
     if s.question_shown() != asked {
         s.morph(tx);
     }

@@ -229,6 +229,17 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     Some(chip)
 }
 
+/// Closes the list once its capsule goes, as Desktop's menu does, so the next subagent to start
+/// doesn't bring it back open over the timeline: only a press opens it (t1132).
+pub fn sync(s: &mut App) -> bool {
+    let Route::Session(id) = &s.route else { return false };
+    if !s.activity_open || !s.running_subagents(id).is_empty() {
+        return false;
+    }
+    s.activity_open = false;
+    true
+}
+
 /// The capsule every pill over the composer shares (`[data-composer-pill]`), pressed while its
 /// list is `open`.
 pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
@@ -423,6 +434,29 @@ mod tests {
         press(&mut rt, &format!("sub-{REVIEW}"));
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
         assert!(!rt.state.activity_open);
+    }
+
+    /// A list left open when the last subagent ends doesn't open again by itself when the next
+    /// one starts (t1132).
+    #[test]
+    fn the_list_closes_when_nothing_runs() {
+        let mut rt = rt();
+        rt.update(|s, _| {
+            s.running.insert(REVIEW.into());
+        });
+        press(&mut rt, "activity-chip");
+        assert!(has(&rt, "", "activity-panel"));
+        rt.update(|s, _| {
+            s.running.remove(REVIEW);
+        });
+        rt.frame(1.0 / 120.0);
+        assert!(!has(&rt, "", "activity-chip") && !rt.state.activity_open);
+        rt.update(|s, _| {
+            s.running.insert(REVIEW.into());
+        });
+        rt.frame(1.0 / 120.0);
+        assert!(has(&rt, "", "activity-chip"));
+        assert!(!has(&rt, "", "activity-panel") && !has(&rt, "", "activity-dismiss"), "only a press opens the list");
     }
 
     #[test]

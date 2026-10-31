@@ -183,3 +183,24 @@ fn opening_another_session_closes_the_list() {
     rt.update(|s, tx| s.open(crate::fixture_ids::MAIN, tx));
     assert!(!rt.state.todo_open);
 }
+
+/// A list left open when the plan finishes doesn't open again by itself with the next plan (t1132).
+#[test]
+fn the_list_closes_when_the_pill_goes() {
+    let mut rt = plan();
+    tap(&mut rt, "todo-pill");
+    assert!(has(&rt, "todo-panel"));
+    let id = match &rt.state.route { Route::Session(id) => id.clone(), _ => unreachable!() };
+    let stop = id.clone();
+    rt.update(move |s, _| {
+        s.running.remove(&stop);
+    });
+    rt.frame(DT);
+    assert!(!has(&rt, "todo-pill") && !rt.state.todo_open);
+    rt.update(move |s, _| {
+        s.running.insert(id);
+    });
+    rt.frame(DT);
+    assert!(has(&rt, "todo-pill"));
+    assert!(!has(&rt, "todo-panel") && !has(&rt, "todo-dismiss"), "only a press opens the list");
+}

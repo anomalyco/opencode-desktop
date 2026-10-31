@@ -91,6 +91,16 @@ impl App {
     }
 }
 
+/// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132).
+pub fn sync(s: &mut App) -> bool {
+    let crate::Route::Session(id) = &s.route else { return false };
+    if !s.todo_open || current(&s.shown_todos(id)).is_some() {
+        return false;
+    }
+    s.todo_open = false;
+    true
+}
+
 /// "2 of 5 todos done", the pill's and list's name for screen readers.
 fn label(todos: &[Todo]) -> String {
     let done = todos.iter().filter(|t| t.status == Status::Completed).count();
