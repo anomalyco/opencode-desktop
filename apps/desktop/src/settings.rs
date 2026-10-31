@@ -282,8 +282,8 @@ fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divi
                 .grow(1.0)
                 .shrink()
                 .gap(8.0)
-                .child(text(title.to_owned()).font(UI_MED).color(p.text))
-                .child(text(description.to_owned()).font(BODY).color(p.muted)),
+                .child(text(title.to_owned()).font(UI_MED).color(p.text).wrap())
+                .child(text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap()),
         )
         .child(control);
     col().key(format!("setting-{key}-block")).w_full().child(r).children(divider.then(|| el().w_full().h(0.5).fill(p.border)))

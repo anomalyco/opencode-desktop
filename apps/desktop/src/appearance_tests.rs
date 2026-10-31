@@ -209,3 +209,17 @@ fn the_font_rows_sit_after_theme_and_pick_by_name() {
     let s = crate::settings::Settings { ui_font: 1, code_font: 2, ..Default::default() };
     assert_eq!(families(&s), ("System Font, Inter", "ui-monospace, IBM Plex Mono"));
 }
+
+#[test]
+fn a_long_description_wraps_before_its_control_in_a_narrow_window() {
+    let mut app = App::fixture_session();
+    app.open_settings();
+    let mut rt = Runtime::new(app, crate::view::app, (900.0, 2000.0), rune::Env::new(true, 1.0));
+    rt.poll = Some(crate::poll);
+    frames(&mut rt, 2);
+    let rect = |key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect).unwrap_or_else(|| panic!("{key}"));
+    let (about, control) = (rect("setting-appearance-about"), rect("scheme"));
+    assert!(about[0] + about[2] <= control[0], "the description's box ends at {} but the control starts at {}", about[0] + about[2], control[0]);
+    // Unwrapped, it is one 20 pt line painting past its box; wrapped, two lines inside it.
+    assert!(about[3] > 21.0, "the description wraps inside its box: {about:?}");
+}
