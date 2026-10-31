@@ -831,10 +831,12 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     }
 }
 
-/// The app as it runs: its history, its storybook (⌘⇧D) and its window chrome.
+/// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native
+/// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     find::install(history::install(
         rune::App::new(spec)
+            .gpu_backend(rune::GpuBackend::Metal)
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
             .chrome(rune::Chrome {
