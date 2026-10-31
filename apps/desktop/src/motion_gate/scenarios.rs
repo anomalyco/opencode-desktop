@@ -50,6 +50,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "header/find-bar", "", "the Find bar closes at once on Esc or close (find::bar)"),
     ("jump", "header/crumbs", "find/", "crumbs make room for the Find bar in the frame ⌘F opens it (view::header)"),
     ("jump", "crumbs/", "find/", "the header title shortens at once when the Find bar takes its header slot (view::header)"),
+    ("jump", "title/title-", "find/", "the header title's words shorten with it (title_change::title)"),
     ("pop-in", "find-bar/find-count", "", "the match count appears at once with the first typed character (find::bar)"),
     ("pop-out", "find-bar/find-count", "", "the match count clears at once when the query clears (find::bar)"),
     ("jump", "find-bar/", "find/", "the Find field and count resize at once as typed characters change the match count (find::bar)"),

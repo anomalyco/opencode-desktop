@@ -75,6 +75,7 @@ mod motion_log;
 mod notifications;
 mod odometer;
 mod odometer_stories;
+mod title_change;
 mod open_in;
 #[cfg(test)]
 mod open_replay;

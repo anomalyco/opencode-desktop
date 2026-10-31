@@ -165,6 +165,7 @@ const ORDER: &[&str] = &[
     "Components/Toast",
     "Header/Session header",
     "Header/Ticking",
+    "Header/Title change",
     "Timeline/Arrival glow",
     "Timeline/Send",
     "Timeline/Long prompt",

@@ -658,7 +658,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
-                .child(text(title_of(info)).font(UI_MED).color(p.text).truncate_fade());
+                .child(crate::title_change::title(&s.knobs, &format!("title-{}", info.id), title_of(info), UI_MED, p.text));
             if marked {
                 t = t.fill(p.hover);
             }

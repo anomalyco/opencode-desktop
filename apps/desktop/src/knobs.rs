@@ -115,7 +115,7 @@ rune_register::register!(GROUP_LIST: Group = [
 ]);
 
 /// The panel's order, which module paths don't give. A group not named here goes after these.
-const ORDER: &[&str] = &["Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal"];
+const ORDER: &[&str] = &["Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal", "Header"];
 
 /// The knob groups the panel shows, in order. Each is registered from the module it tunes.
 pub fn groups() -> &'static [Group] {
