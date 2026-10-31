@@ -229,5 +229,5 @@ pub fn opened(s: &mut App, id: &str) {
 
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
     crate::commands::Cmd::new("project.new", "New project…", |s, tx| s.new_project(tx))
-        .describe("A new session in a folder, marked as a project"),
+        .describe("Pick a folder, start a project in it"),
 ]);
