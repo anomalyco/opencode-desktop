@@ -393,7 +393,12 @@ impl App {
         match intent(ev, zone, count(field)) {
             Intent::None => return false,
             Intent::Dismiss => self.dismiss(&f, tx),
-            Intent::Advance => self.next(&f, tx),
+            // Next and Submit are lit only on an answered question; → skips one.
+            Intent::Advance => {
+                if self.answered(&f, tab) {
+                    self.next(&f, tx)
+                }
+            }
             // ⌘[ on the first question isn't the dock's: it goes back through the history.
             Intent::Question(-1) if tab == 0 && matches!(ev.key, Key::Command(_)) => return false,
             Intent::Question(step) => {
@@ -509,7 +514,7 @@ enum Variant {
 }
 
 /// `button-v2` at size large.
-fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>) -> El {
+fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>, live: bool) -> El {
     let (fill, fg) = match variant {
         Variant::Ghost => (Color::TRANSPARENT, p.muted),
         Variant::Neutral => (p.q.neutral, p.text),
@@ -525,11 +530,10 @@ fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>)
         .center_y()
         .radius(6.0)
         .fill(fill)
-        .hover(p.hover)
-        .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .child(text(label.to_owned()).font(BUTTON).color(fg))
         .children(hint.map(|h| text(h.to_owned()).key("hint").font(BUTTON).color(fg).opacity(0.6)));
+    b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(0.4) };
     match variant {
         Variant::Ghost => {}
         Variant::Neutral => b = b.border(0.5, p.q.neutral_ring).shadow(1.0, 1.5, p.q.neutral_shadow),
@@ -698,7 +702,7 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(face_transition(s))
-        .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None, true).on_press_tx(|s: &mut App, tx: &mut Tx| {
             if let Some(f) = s.asking() { s.dismiss(&f, tx) }
         }))
         .child(spacer())
@@ -707,16 +711,17 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", "Back", Variant::Neutral, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    button(p, "q-back", "Back", Variant::Neutral, None, true).on_press_tx(|s: &mut App, tx: &mut Tx| {
                         let Some(f) = s.asking() else { return };
                         let (tab, _) = s.place(&f);
                         s.jump(&f, tab.saturating_sub(1), tx);
                     })
                 }))
-                .child(
-                    button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some("⌘⏎"))
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| if let Some(f) = s.asking() { s.next(&f, tx) }),
-                ),
+                .child({
+                    let ready = s.answered(&f, tab);
+                    let b = button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some("⌘⏎"), ready);
+                    if ready { b.on_press_tx(|s: &mut App, tx: &mut Tx| if let Some(f) = s.asking() { s.next(&f, tx) }) } else { b }
+                }),
         );
     Some(vec![body, footer])
 }

@@ -172,9 +172,67 @@ fn a_typed_answer_goes_in_the_reply() {
     press(&mut rt, txt("!"));
     press(&mut rt, ev(Key::Enter));
     assert_eq!(rt.state.question.tab, 1);
+    press(&mut rt, txt("1"));
     press(&mut rt, cmd(Key::Enter));
     let Ok(Write::Form { answer, .. }) = writes.unwrap().try_recv() else { panic!("no reply") };
-    assert_eq!(answer, json!({ "q0": "Both!" }));
+    assert_eq!(answer, json!({ "q0": "Both!", "q1": ["Reset after success"] }));
+}
+
+fn click(rt: &mut Runtime<App>, key: &str) {
+    let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key}"));
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    settle(rt);
+}
+
+fn next_opacity(rt: &Runtime<App>) -> f32 {
+    rt.elements().into_iter().find(|e| e.key.as_deref() == Some("q-next") && !e.exiting).map(|e| e.opacity).expect("q-next")
+}
+
+#[test]
+fn next_is_dim_and_inert_until_the_question_is_answered() {
+    let (mut rt, writes) = asked(true);
+    assert!(next_opacity(&rt) < 0.5, "dimmed with no answer");
+    click(&mut rt, "q-next");
+    assert_eq!(rt.state.question.tab, 0, "a click does nothing");
+    press(&mut rt, cmd(Key::Enter));
+    assert_eq!(rt.state.question.tab, 0, "⌘↵ does nothing");
+
+    press(&mut rt, txt("1"));
+    settle(&mut rt);
+    assert_eq!(next_opacity(&rt), 1.0, "lit at once on a pick");
+    click(&mut rt, "q-next");
+    assert_eq!(rt.state.question.tab, 1);
+
+    settle(&mut rt);
+    assert!(next_opacity(&rt) < 0.5, "the next question starts dim");
+    press(&mut rt, ev(Key::Left));
+    press(&mut rt, ev(Key::Right));
+    assert_eq!(rt.state.question.tab, 1);
+    assert!(writes.unwrap().try_recv().is_err());
+}
+
+#[test]
+fn typing_lights_next_and_clearing_dims_it() {
+    let (mut rt, _) = asked(true);
+    press(&mut rt, txt("4"));
+    settle(&mut rt);
+    assert!(next_opacity(&rt) < 0.5, "an empty field is no answer");
+    press(&mut rt, txt(" "));
+    assert!(next_opacity(&rt) < 0.5, "spaces are no answer");
+    press(&mut rt, txt("x"));
+    assert_eq!(next_opacity(&rt), 1.0, "lit on the first word character");
+    press(&mut rt, ev(Key::Backspace));
+    press(&mut rt, ev(Key::Backspace));
+    assert!(next_opacity(&rt) < 0.5, "dim again once cleared");
+}
+
+#[test]
+fn right_arrow_still_skips_an_unanswered_question() {
+    let (mut rt, _) = asked(true);
+    press(&mut rt, ev(Key::Right));
+    assert_eq!(rt.state.question.tab, 1);
 }
 
 #[test]
