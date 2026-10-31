@@ -144,7 +144,7 @@ impl Ctx<'_> {
                 }
                 v = v.child(col().grow(1.0).shrink().min_w(0.0).child(self.r.inline(&n.part.text, BODY, t.text)));
                 row().key(key).w_full().gap(12.0).items_start().px(PAD).py(6.0).radius(8.0).fill(t.text.alpha(0.04))
-                    .child(text(p.key.clone()).font(BODY).color(t.muted).w((width * 0.32).clamp(80.0, 180.0)).shrink().truncate())
+                    .child(text(p.key.clone()).font(BODY).color(t.muted).w((width * 0.22).clamp(64.0, 120.0)).shrink().truncate())
                     .child(v)
             }
             "say" => self.say(n, width),
@@ -164,7 +164,7 @@ impl Ctx<'_> {
             }
             "button" => {
                 let primary = p.tone.as_deref().is_some_and(|w| Tone::of(w) == Tone::Accent);
-                row().key(key).h(26.0).px(12.0).radius(13.0).center_y()
+                row().key(key).self_start().h(26.0).px(12.0).radius(13.0).center_y()
                     .fill(if primary { t.accent } else { t.text.alpha(0.08) })
                     .child(text(p.text.clone()).font(WHO).color(if primary { t.bg } else { t.text }))
             }
@@ -188,8 +188,11 @@ impl Ctx<'_> {
         let arrows = n.kids.len() as f32 - panes;
         let each = (width - arrows * 16.0 - gap * (n.kids.len().max(1) - 1) as f32) / panes;
         row().key(n.key()).w_full().gap(gap).items_start().children(n.kids.iter().map(|k| {
-            let el = self.node(k, each);
-            if k.part.name == "arrow" { el.self_center() } else { el.grow(1.0).shrink().min_w(0.0) }
+            match k.part.name.as_str() {
+                "arrow" => self.node(k, width).self_center(),
+                "phone" => self.node(k, each),
+                _ => self.node(k, each).grow(1.0).shrink().min_w(0.0),
+            }
         }))
     }
 

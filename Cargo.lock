@@ -3533,6 +3533,7 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-knobs",
+ "rune-parts",
  "rune-register",
  "rune-theme-opencode",
  "serde",
@@ -3565,6 +3566,7 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-mac",
+ "rune-parts",
  "rune-perf",
  "rune-rolling",
  "rune-theme-opencode",
@@ -3584,6 +3586,7 @@ name = "seer-sync"
 version = "0.0.0"
 dependencies = [
  "imagesize",
+ "rune-parts",
  "seer-domain",
  "serde",
  "serde_json",
