@@ -90,6 +90,7 @@ mod perf;
 mod picker_stories;
 mod pickers;
 mod popover;
+mod project_inbox;
 mod project_stories;
 mod project_switcher;
 mod projects;
@@ -260,6 +261,8 @@ pub struct App {
     pub switcher: switcher::Switcher,
     pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
+    /// Sessions marked as projects, whose tasks fill the sidebar's inbox (`project_inbox`).
+    pub project_inbox: project_inbox::State,
     pub settings: settings::Settings,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
@@ -688,6 +691,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Reconnected => {
                         tx.instant();
+                        project_inbox::reconnected(s);
                         s.resync();
                     }
                     Incoming::Active(ids) => {
@@ -753,6 +757,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= stop::poll(s, now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
+    changed |= project_inbox::sync(s);
     changed |= subagents::sync(s) | todos::sync(s, now, tx);
     if s.question_shown() != asked {
         s.morph(tx);

@@ -8,10 +8,11 @@ use serde_json::Value;
 use crate::App;
 
 impl App {
-    /// The open requests in a session's family (a subagent's question shows on its root).
+    /// The open requests in a session's family (a subagent's question shows on its root, or on
+    /// its task when it's under a project).
     pub fn pending_for(&self, id: &str) -> Vec<&Pending> {
-        let root = self.root_of(id);
-        self.pending.iter().filter(|p| self.root_of(p.session()) == root).collect()
+        let scope = self.scope_of(id);
+        self.pending.iter().filter(|p| self.scope_of(p.session()) == scope).collect()
     }
 
     pub(crate) fn add_pending(&mut self, p: Pending) {

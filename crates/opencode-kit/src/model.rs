@@ -148,9 +148,20 @@ pub struct SessionInfo {
     pub outcome: Option<String>,
     /// The message a staged revert rewinds to (`revert.messageID`): it and everything after it is hidden.
     pub revert: Option<String>,
+    /// When it was archived (`time.archived`).
+    pub archived: Option<i64>,
+    /// The session's `metadata`, which the server copies onto every child it starts.
+    pub metadata: Value,
 }
 
 impl SessionInfo {
+    /// `metadata.seerProject`: the project session this one is, or was started under, and when
+    /// it was marked.
+    pub fn seer_project(&self) -> Option<(&str, i64)> {
+        let m = &self.metadata["seerProject"];
+        Some((m["id"].as_str()?, m["since"].as_i64()?))
+    }
+
     pub fn unread(&self) -> bool {
         self.idle.is_some_and(|i| self.viewed.is_none_or(|v| i > v))
     }
@@ -410,6 +421,8 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         created: i(&p["time"]["created"]),
         outcome: p["outcome"].as_str().map(str::to_owned),
         revert: p["revert"]["messageID"].as_str().map(str::to_owned),
+        archived: p["time"]["archived"].as_i64(),
+        metadata: p["metadata"].clone(),
     }
 }
 

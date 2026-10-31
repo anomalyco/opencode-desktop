@@ -283,5 +283,6 @@ const STORY_PATHS: &[&str] = &[
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",
     "Popover/Open and close",
+    "Sidebar/Projects inbox",
     "Timeline/Open tool step",
 ];
