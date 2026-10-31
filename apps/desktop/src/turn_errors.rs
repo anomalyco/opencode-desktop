@@ -304,11 +304,11 @@ pub(crate) fn notice(s: &App, p: &Pal, n: &Notice) -> El {
             line(vec![faint_med("label", "Agent changed".into()), faint("data", data)])
         }
         NoticeKind::Instructions { sources } => {
-            let mut kids = vec![text("Instructions updated").key("label").font(UI_MED).color(p.faint)];
+            let mut kids = vec![faint_med("label", "Instructions updated".into())];
             if !sources.is_empty() {
                 kids.push(faint("sources", sources.join(", ")));
             }
-            row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).py(4.0).children(kids)
+            line(kids)
         }
         NoticeKind::Restart => line(vec![faint_med("label", "Continuing after restart".into())]),
         NoticeKind::Text(t) => line(vec![faint_med("label", t.clone())]),
