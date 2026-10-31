@@ -207,7 +207,7 @@ fn the_list_closes_when_the_pill_goes() {
 /// A todo that finishes while the list shows grows its tick in; one already done when the list
 /// opens shows it whole (t1150).
 #[test]
-fn a_finished_todo_grows_its_tick() {
+fn a_finished_todo_fills_its_circle_and_draws_its_strike() {
     let mut rt = plan();
     rt.poll = Some(crate::poll);
     rt.update(|s, _| crate::todo_stories::set_step(s, 2));
@@ -215,16 +215,30 @@ fn a_finished_todo_grows_its_tick() {
     for _ in 0..60 {
         rt.frame(DT);
     }
-    let tick = |rt: &Runtime<App>, k: usize| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("tick") && e.path.contains(&format!("/todo-{k}/"))).map(|e| (e.opacity, e.scale));
-    assert!(tick(&rt, 0).is_none(), "done before the list opened: drawn whole, in one glyph");
+    let find = |rt: &Runtime<App>, k: usize, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && e.path.contains(&format!("/todo-{k}/")));
+    assert!(find(&rt, 0, "disc").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
     rt.update(|s, _| crate::todo_stories::set_step(s, 3));
     rt.frame(DT);
     rt.frame(DT);
-    let (o, sc) = tick(&rt, 2).expect("the todo just done grows a tick");
-    assert!(o < 0.6 && sc < 0.6, "growing: opacity {o} scale {sc}");
-    for _ in 0..60 {
+    let disc = find(&rt, 2, "disc").expect("the todo just done grows its disc");
+    assert!(disc.scale < 0.6, "growing: scale {}", disc.scale);
+    let strike = find(&rt, 2, "strike").expect("and draws its strike");
+    assert!(strike.rect[2] < 1.0, "the strike waits for the fill: {:?}", strike.rect);
+    for _ in 0..120 {
         rt.frame(DT);
     }
-    let (o, sc) = tick(&rt, 2).unwrap();
-    assert!(o > 0.999 && sc > 0.999, "whole: opacity {o} scale {sc}");
+    assert!(find(&rt, 2, "disc").unwrap().scale > 0.999, "the circle fills");
+    let words = find(&rt, 2, "text").unwrap();
+    let strike = find(&rt, 2, "strike").unwrap();
+    assert!(strike.rect[0] <= words.rect[0] && strike.rect[0] + strike.rect[2] >= words.rect[0] + words.rect[2], "the strike crosses its words: {:?} over {:?}", strike.rect, words.rect);
+}
+
+#[test]
+fn a_wrapped_strike_stops_at_each_line_s_last_word() {
+    let words = "Map old keys to new ones in a migration step, keeping unknown keys as warnings instead of errors";
+    let ranges: Vec<_> = super::strikes(words, 365.0, None).into_iter().map(|(a, b, _)| &words[a..b]).collect();
+    assert_eq!(ranges.len(), 2, "{ranges:?}");
+    assert!(ranges.iter().all(|r| r.trim() == *r), "no line's strike runs into a space: {ranges:?}");
+    assert_eq!(ranges.join(" "), words);
+    assert_eq!(super::strikes("Note it", 300.0, None), vec![(0, 7, None)]);
 }

@@ -95,35 +95,60 @@ impl App {
     }
 }
 
-pub const TICK: Knob = Knob::new("Todo tick", 0.0, 0.5, 0.2).step(0.01).label("Tick draws in").about("Seconds a finished todo's tick takes to grow");
+pub const FILL: Knob = Knob::new("Todo fill", 0.0, 0.5, 0.2).step(0.01).label("Circle fills in").about("Seconds a finished todo's circle takes to fill");
 
-pub const GROUP: Group = Group::new("Todo pill", "todos", &[TICK]).under("Composer");
+pub const GROUP: Group = Group::new("Todo pill", "todos", &[FILL]).under("Composer");
 
 rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
 
-/// The open session's plan as last seen, and the ticks of todos that finished while it showed,
-/// each growing in on its own track (t1150).
+/// The open session's plan as last seen, and the todos that finished while it showed, each
+/// filling its circle and striking its words on tracks of its own (t1150).
 #[derive(Default)]
 pub struct Ticks {
     session: String,
     seen: Vec<(String, Status)>,
-    growing: HashMap<usize, Tween<f32>>,
+    growing: HashMap<usize, Fill>,
+}
+
+/// A todo finishing: its inner disc grows from the glyph it had over `FILL`, and from halfway
+/// through, a clip over its struck words opens left to right at the same pace.
+struct Fill {
+    from: Status,
+    disc: Tween<f32>,
+    strike: Tween<[f32; 4]>,
+}
+
+impl Fill {
+    fn new(from: Status, content: &str, wrap: f32, secs: f32) -> Self {
+        let (w, _) = rune::text::measure(content, &[], ROW, Some(wrap));
+        let w = w.max(1.0);
+        // The clip runs on past the words to the widest a row can be, so a list that widens
+        // later never cuts a finished strike; it opens at zero halfway through the fill.
+        let (from_w, to_w) = (-w / 2.0, WIDEST);
+        let strike = Duration::from_secs_f32(secs * (to_w - from_w) / w);
+        Fill {
+            from,
+            disc: Tween::linear(0.0, 1.0, Duration::from_secs_f32(secs)),
+            strike: Tween::linear([0.0, 0.0, from_w, TALLEST], [0.0, 0.0, to_w, TALLEST], strike),
+        }
+    }
 }
 
 /// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132), and
-/// starts a tick for each todo that has just finished.
+/// starts a fill for each todo that has just finished.
 pub fn sync(s: &mut App) -> bool {
     let crate::Route::Session(id) = &s.route else { return false };
     let todos = s.shown_todos(id);
-    let secs = s.knobs.get(&TICK);
+    let secs = s.knobs.get(&FILL);
     let ticks = &mut s.todo_ticks;
     if ticks.session != *id {
         *ticks = Ticks { session: id.clone(), ..Ticks::default() };
     } else if !s.reduced_motion && secs > 0.0 {
+        let wrap = words_width(&todos);
         for (k, t) in todos.iter().enumerate() {
             let was = ticks.seen.get(k).filter(|(c, _)| *c == t.content).map(|(_, st)| *st);
-            if t.status == Status::Completed && was.is_some_and(|st| st != Status::Completed) {
-                ticks.growing.insert(k, Tween::linear(0.0, 1.0, Duration::from_secs_f32(secs)));
+            if let Some(was) = was.filter(|st| *st != Status::Completed && t.status == Status::Completed) {
+                ticks.growing.insert(k, Fill::new(was, &t.content, wrap, secs));
             }
         }
     }
@@ -134,6 +159,19 @@ pub fn sync(s: &mut App) -> bool {
     }
     s.todo_open = false;
     true
+}
+
+/// The list's width for these todos: its widest todo's words on one line, from 240 to 400.
+fn panel_width(todos: &[Todo]) -> f32 {
+    let widest = todos.iter().map(|t| rune::text::measure(&t.content, &[], ROW, None).0).fold(0.0, f32::max);
+    // Panel inset 4 + hairline 0.5, row inset 6, glyph 16 and its gap 8.
+    let natural = 2.0 * (PAD + 0.5 + 6.0) + 16.0 + 8.0 + widest;
+    natural.clamp(240.0, 400.0).ceil()
+}
+
+/// The width a row's words wrap to.
+fn words_width(todos: &[Todo]) -> f32 {
+    panel_width(todos) - 2.0 * (PAD + 0.5 + 6.0) - 16.0 - 8.0
 }
 
 /// "2 of 5 todos done", the pill's and list's name for screen readers.
@@ -186,9 +224,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     if todos.is_empty() {
         return None;
     }
-    let widest = todos.iter().map(|t| rune::text::measure(&t.content, &[], ROW, None).0).fold(0.0, f32::max);
-    // Panel inset 4 + hairline 0.5, row inset 6, glyph 16 and its gap 8.
-    let natural = 2.0 * (PAD + 0.5 + 6.0) + 16.0 + 8.0 + widest;
+    let wrap = words_width(&todos);
     let mut list = col().key("todo-list").w_full().padding(PAD);
     for (k, t) in todos.iter().enumerate() {
         let color = match t.status {
@@ -196,10 +232,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
             Status::Pending => p.muted,
             Status::Completed | Status::Cancelled => p.faint,
         };
-        let mut words = text(t.content.clone()).key("text").font(ROW).color(color).wrap().grow(1.0).shrink().min_w(0.0);
-        if t.finished() {
-            words = words.strike(0, t.content.len(), None);
-        }
+        let fill = s.todo_ticks.growing.get(&k);
         list = list.child(
             row()
                 .key(format!("todo-{k}"))
@@ -207,8 +240,8 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .px(6.0)
                 .py(4.0)
                 .gap(8.0)
-                .child(el().h(ROW.line_height).center().child(glyph(p, t.status, s.todo_ticks.growing.get(&k))))
-                .child(words),
+                .child(el().h(ROW.line_height).center().child(glyph(p, t.status, fill)))
+                .child(words(t, color, wrap, fill)),
         );
     }
     let rows = col()
@@ -227,7 +260,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
             .role("dialog")
             .label(label(&todos))
             .above("todo-pill", 8.0)
-            .w(natural.clamp(240.0, 400.0).ceil())
+            .w(panel_width(&todos))
             .radius(10.0)
             .fill(p.layer1)
             .border(0.5, p.ring)
@@ -247,29 +280,70 @@ pub fn reveal_current(s: &App, id: &str, tx: &mut Tx) {
     }
 }
 
-/// Desktop's 16 pt status glyph: a ring, half filled in progress, ticked when done, struck
+/// A row's words, struck through once finished. A todo finishing draws its strike: the same
+/// words, struck with clear glyphs, over its own, in a clip that opens left to right.
+fn words(t: &Todo, color: rune::Color, wrap: f32, fill: Option<&Fill>) -> El {
+    let words = || text(t.content.clone()).font(ROW).wrap().w_full();
+    let own = words().key("text").color(color);
+    let own = if t.finished() && fill.is_none() { own.strikes(strikes(&t.content, wrap, None)) } else { own };
+    el().key("words").grow(1.0).shrink().min_w(0.0).child(own).children(fill.map(|fill| {
+        el().key("strike").absolute(0.0, 0.0).w_full().h_full().clip_soft(0.0).live_rect(&fill.strike)
+            .child(words().color(rune::Color::TRANSPARENT).strikes(strikes(&t.content, wrap, Some(color))))
+    }))
+}
+
+/// One strike per line the words wrap to at `wrap`, each from its line's first word to its
+/// last: a strike across the whole text would run on through the space each line ends at.
+fn strikes(words: &str, wrap: f32, color: Option<rune::Color>) -> Vec<(usize, usize, Option<rune::Color>)> {
+    if rune::text::measure(words, &[], ROW, None).0 <= wrap {
+        return vec![(0, words.len(), color)];
+    }
+    let lines = |end: usize| (rune::text::measure(&words[..end], &[], ROW, Some(wrap)).1 / ROW.line_height).round();
+    let mut out = Vec::new();
+    let (mut start, mut end, mut line) = (None::<usize>, 0, 1.0);
+    for (at, word) in words.split_inclusive(char::is_whitespace).scan(0, |at, w| {
+        let here = *at;
+        *at += w.len();
+        Some((here, w.trim_end()))
+    }) {
+        if word.is_empty() {
+            continue;
+        }
+        let n = lines(at + word.len());
+        if n > line {
+            out.extend(start.map(|s| (s, end, color)));
+            (start, line) = (None, n);
+        }
+        start.get_or_insert(at);
+        end = at + word.len();
+    }
+    out.extend(start.map(|s| (s, end, color)));
+    out
+}
+
+/// Desktop's 16 pt status glyph: a ring, half filled in progress, filled when done, struck
 /// through when cancelled. In progress is the warning colour; done is a step brighter than
-/// pending and cancelled. A todo that has just finished grows its tick in on `growing`, from
-/// the half circle it had, as its ring fills to done's colour.
-fn glyph(p: &Pal, status: Status, growing: Option<&Tween<f32>>) -> El {
+/// pending and cancelled. A todo finishing keeps the glyph it had, in done's colour, as its
+/// disc grows out from the centre over it.
+fn glyph(p: &Pal, status: Status, fill: Option<&Fill>) -> El {
     let (shape, color) = match status {
         Status::Pending => (&PENDING, p.icon_faint),
         Status::InProgress => (&IN_PROGRESS, p.warning),
         Status::Completed => (&COMPLETED, p.icon_muted),
         Status::Cancelled => (&CANCELLED, p.icon_faint),
     };
-    // The shape changes in place; only the growing tick mounts.
-    let shape = if growing.is_some() { &PENDING } else { shape };
+    // The shape changes in place; only the growing disc mounts.
+    let shape = match fill.map(|f| f.from) {
+        Some(Status::InProgress) => &IN_PROGRESS,
+        Some(_) => &PENDING,
+        None => shape,
+    };
     el().key("todo-glyph").size(16.0, 16.0)
         .child(icon(shape, 16.0).key("shape").color(color))
-        .children(growing.map(|t| icon(&TICK_MARK, 16.0).key("tick").color(color).absolute(0.0, 0.0).live_scale(t).live_opacity(t)))
+        .children(fill.map(|f| icon(&DISC, 16.0).key("disc").color(color).absolute(0.0, 0.0).live_scale(&f.disc)))
 }
 
-static TICK_MARK: Icon = Icon {
-    name: "todo-tick",
-    view: 16.0,
-    body: r#"<path d="M5 8 7.5 11 11 5.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>"#,
-};
+static DISC: Icon = Icon { name: "todo-disc", view: 16.0, body: r#"<circle cx="8" cy="8" r="4" fill="currentColor"/>"# };
 
 const RING: &str = r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/>"#;
 
@@ -282,7 +356,7 @@ static IN_PROGRESS: Icon = Icon {
 static COMPLETED: Icon = Icon {
     name: "todo-completed",
     view: 16.0,
-    body: r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/><path d="M5 8 7.5 11 11 5.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>"#,
+    body: r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/><circle cx="8" cy="8" r="4" fill="currentColor"/>"#,
 };
 static CANCELLED: Icon = Icon {
     name: "todo-cancelled",
@@ -295,6 +369,9 @@ const PILL_TEXT_MAX: f32 = 260.0;
 const PAD: f32 = 4.0;
 /// Desktop's `max-h-[232px]`.
 const MAX_H: f32 = 232.0;
+/// The widest a row's words can be, and taller than any wraps: the drawing strike's clip.
+const WIDEST: f32 = 400.0;
+const TALLEST: f32 = 2000.0;
 /// A list row's words: 13 pt on the base line height.
 const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 const BADGE: TextStyle = TextStyle::new(11.0, 500.0).lh(16.0);
