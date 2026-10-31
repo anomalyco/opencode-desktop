@@ -109,7 +109,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         button = button.inert();
     }
     let room = if pills.is_empty() { 0.0 } else { CAPSULE_LANE };
-    let lane = row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).center_y().children(pills).child(spacer());
+    let lane = row().key("activity-lane").w_full().max_w(crate::view::DOCK_W).center_y().children(pills).child(spacer());
     let (lane, centred) = if s.knobs.get(&crate::knobs::JUMP_PLACE) as usize == 1 {
         (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
     } else {
@@ -121,7 +121,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         .shrink()
         .w_full()
         .child(scroll.mb(room).on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id)))
-        .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(24.0).center().child(lane))
+        .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(crate::view::DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
         .children(s.pages.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(12.0), Some(0.0), None).center()

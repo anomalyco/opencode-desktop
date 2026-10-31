@@ -64,8 +64,8 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let pills = pills(s, p, id);
     col().key("session")
         .w_full()
-        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(24.0).pb(8.0)
-            .child(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).children(pills))))
+        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(crate::view::DOCK_SIDE).pb(8.0)
+            .child(row().key("activity-lane").w_full().max_w(crate::view::DOCK_W).children(pills))))
         .child(composer_dock(s, p))
 }
 

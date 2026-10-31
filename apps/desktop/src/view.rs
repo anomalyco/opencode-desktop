@@ -46,6 +46,11 @@ const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 /// `--container-session`: 744 including 24 px padding on each side.
 pub(crate) const CONTENT_W: f32 = 696.0;
 
+/// Desktop's dock: the composer and all that stacks with it sit 12 pt off the chat's sides and
+/// bottom, so at full width they stand 12 pt wider than the reply text on each side.
+pub(crate) const DOCK_SIDE: f32 = 12.0;
+pub(crate) const DOCK_W: f32 = CONTENT_W + 2.0 * DOCK_SIDE;
+
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
 /// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The
 /// outer, unscaled element is always mounted (it reports the window's size and keeps every

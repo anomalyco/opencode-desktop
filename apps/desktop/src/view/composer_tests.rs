@@ -86,3 +86,38 @@ fn a_short_prompt_keeps_its_height() {
     assert!(short < super::COMPOSER_MAX_H, "an empty composer sits under the cap: {short}");
     assert_eq!(short, 16.0 + 40.0 + 8.0, "the editor's padding around a two-line field");
 }
+
+/// Gaps and width in layout points: the zoomed shell scales every rect, so differences between rects divide by zoom.
+fn dock_gaps(width: f32, zoom: f32) -> (f32, f32, f32, f32) {
+    let mut app = App::fixture_session();
+    app.zoom = zoom;
+    let mut rt = rune::Runtime::new(app, super::app, (width, 760.0), rune::Env::new(true, 1.0));
+    rt.frame(0.0);
+    settle(&mut rt);
+    let (dock, composer) = (el(&rt, "dock").rect, el(&rt, "composer").rect);
+    let side = composer[0] - dock[0];
+    let right = dock[0] + dock[2] - (composer[0] + composer[2]);
+    let bottom = dock[1] + dock[3] - (composer[1] + composer[3]);
+    let z = zoom;
+    (side / z, right / z, bottom / z, composer[2] / z)
+}
+
+#[test]
+fn the_composer_sits_as_far_from_the_side_as_from_the_bottom() {
+    for zoom in [1.0, 1.6] {
+        let (left, right, bottom, _) = dock_gaps(560.0 * zoom, zoom);
+        eprintln!("narrow zoom {zoom}: left {left} right {right} bottom {bottom}");
+        assert!((left - bottom).abs() < 0.5 && (right - bottom).abs() < 0.5, "zoom {zoom}: sides {left}/{right}, bottom {bottom}");
+        assert!((bottom - super::DOCK_SIDE).abs() < 0.5, "zoom {zoom}: bottom {bottom}");
+    }
+}
+
+#[test]
+fn at_full_width_the_composer_stands_twelve_wider_than_the_reply_text() {
+    for zoom in [1.0, 1.6] {
+        let (left, right, bottom, w) = dock_gaps(1400.0 * zoom, zoom);
+        eprintln!("wide zoom {zoom}: left {left} right {right} bottom {bottom} w {w}");
+        assert!((w - (super::CONTENT_W + 24.0)).abs() < 0.5, "zoom {zoom}: composer {w}");
+        assert!((left - right).abs() < 0.5, "zoom {zoom}: centred");
+    }
+}
