@@ -18,7 +18,8 @@ pub mod nav;
 mod slide;
 mod story;
 
-use rune::{Align, Color, El, Icon, ScrollSpec, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Align, Color, El, ScrollSpec, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune_kit::glyphs;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
@@ -155,18 +156,6 @@ pub fn badge(p: &Pal, label: &str) -> El {
         .child(text(label.to_owned()).font(BADGE).color(p.muted))
 }
 
-static STAR: Icon = Icon {
-    name: "star",
-    view: 16.0,
-    body: r#"<path d="M8 2.6L9.59 6.42L13.71 6.75L10.57 9.43L11.53 13.45L8 11.3L4.47 13.45L5.43 9.43L2.29 6.75L6.41 6.42Z" stroke="currentColor" stroke-linejoin="round"/>"#,
-};
-
-static STAR_FILLED: Icon = Icon {
-    name: "star-filled",
-    view: 16.0,
-    body: r#"<path d="M8 2.6L9.59 6.42L13.71 6.75L10.57 9.43L11.53 13.45L8 11.3L4.47 13.45L5.43 9.43L2.29 6.75L6.41 6.42Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round"/>"#,
-};
-
 /// A row's star at its end: filled when `on`. A press toggles it and leaves the row unpicked.
 pub fn star(p: &Pal, on: bool, toggle: impl Fn(&mut App) + 'static) -> El {
     row().key("star").role("button").label(if on { "Unfavorite" } else { "Favorite" })
@@ -176,7 +165,7 @@ pub fn star(p: &Pal, on: bool, toggle: impl Fn(&mut App) + 'static) -> El {
             tx.instant();
             toggle(s);
         })
-        .child(icon(if on { &STAR_FILLED } else { &STAR }, 14.0).color(if on { p.icon } else { p.icon_muted }))
+        .child(icon(if on { &glyphs::STAR_FILLED } else { &glyphs::STAR }, 14.0).color(if on { p.icon } else { p.icon_muted }))
 }
 
 /// Muted words and a chevron at a row's end: the lit model's effort, which ← → change.
