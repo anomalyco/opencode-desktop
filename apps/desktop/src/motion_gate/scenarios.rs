@@ -27,6 +27,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-in", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside open at once, as the capsule's list does (todos::panel)"),
     ("pop-out", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside close at once, as the capsule's list does (todos::panel)"),
+    ("overshoot", "disc/#1/sweep", "todo-pill", "a finished todo's fill springs out past full as its ring closes; Kit asked for the spring (t1150). Its turning half's upright box grows and shrinks with the turn (todos::disc)"),
     ("text-swap", "todo-pill/todo-now", "", "the pill names the next todo at once, as Desktop's pill does (todos::pill)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("text-swap", "time-call_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),

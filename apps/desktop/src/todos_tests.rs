@@ -207,7 +207,7 @@ fn the_list_closes_when_the_pill_goes() {
 /// A todo that finishes while the list shows grows its tick in; one already done when the list
 /// opens shows it whole (t1150).
 #[test]
-fn a_finished_todo_fills_its_circle_and_draws_its_strike() {
+fn a_finished_todo_closes_its_ring_and_draws_its_strike() {
     let mut rt = plan();
     rt.poll = Some(crate::poll);
     rt.update(|s, _| crate::todo_stories::set_step(s, 2));
@@ -216,18 +216,25 @@ fn a_finished_todo_fills_its_circle_and_draws_its_strike() {
         rt.frame(DT);
     }
     let find = |rt: &Runtime<App>, k: usize, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && e.path.contains(&format!("/todo-{k}/")));
-    assert!(find(&rt, 0, "disc").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
+    let turn = |rt: &Runtime<App>| rt.presented_pose("todo-2/todo-glyph/disc/sweep").expect("the todo just done sweeps its fill round").rotation();
+    assert!(find(&rt, 0, "sweep").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
     rt.update(|s, _| crate::todo_stories::set_step(s, 3));
-    rt.frame(DT);
-    rt.frame(DT);
-    let disc = find(&rt, 2, "disc").expect("the todo just done grows its disc");
-    assert!(disc.scale < 0.6, "growing: scale {}", disc.scale);
-    let strike = find(&rt, 2, "strike").expect("and draws its strike");
-    assert!(strike.rect[2] < 1.0, "the strike waits for the fill: {:?}", strike.rect);
-    for _ in 0..120 {
+    for _ in 0..4 {
         rt.frame(DT);
     }
-    assert!(find(&rt, 2, "disc").unwrap().scale > 0.999, "the circle fills");
+    assert!(turn(&rt) < -0.5, "from behind the half it had: {}", turn(&rt));
+    let disc = find(&rt, 2, "disc").unwrap();
+    assert!(disc.scale < 0.95, "and springs out: scale {}", disc.scale);
+    let strike = find(&rt, 2, "strike").expect("and draws its strike");
+    assert!(strike.rect[2] < 1.0, "the strike waits for the fill: {:?}", strike.rect);
+    let mut most = 0.0_f32;
+    for _ in 0..120 {
+        rt.frame(DT);
+        most = most.max(find(&rt, 2, "disc").unwrap().scale);
+    }
+    assert!(most > 1.02, "the fill springs past full: {most}");
+    assert!(turn(&rt).abs() < 1e-3, "the ring closes");
+    assert!((find(&rt, 2, "disc").unwrap().scale - 1.0).abs() < 1e-3, "and settles");
     let words = find(&rt, 2, "text").unwrap();
     let strike = find(&rt, 2, "strike").unwrap();
     assert!(strike.rect[0] <= words.rect[0] && strike.rect[0] + strike.rect[2] >= words.rect[0] + words.rect[2], "the strike crosses its words: {:?} over {:?}", strike.rect, words.rect);
