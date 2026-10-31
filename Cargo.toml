@@ -56,3 +56,28 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 incremental = false
+
+[workspace.lints.rust]
+# abattoir-lints begin
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+# abattoir-lints end
+# shared: forbid; 173 sites left (t1003)
+unsafe_code = "warn"
+
+[workspace.lints.clippy]
+# abattoir-lints begin
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+dbg_macro = "deny"
+disallowed_types = "deny"
+expect_used = "warn"
+todo = "warn"
+unwrap_used = "warn"
+# abattoir-lints end
+# shared: deny; 264 sites left (t1003)
+let_underscore_must_use = "warn"
+# shared: deny; 128 sites left (t1003)
+disallowed_methods = "warn"
+# shared: deny; 139 sites left (t1003)
+undocumented_unsafe_blocks = "warn"

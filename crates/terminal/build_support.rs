@@ -132,6 +132,7 @@ impl CacheLock {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
+            // SAFETY: the descriptor is owned by `file`, which is open for the whole call.
             let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
             if rc != 0 {
                 return Err(format!(
@@ -150,6 +151,7 @@ impl Drop for CacheLock {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
+            // SAFETY: the descriptor is owned by `self.file`, which is open for the whole call.
             unsafe {
                 let _ = libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
             }

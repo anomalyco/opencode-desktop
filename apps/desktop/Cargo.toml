@@ -31,3 +31,6 @@ terminal = { path = "../../crates/terminal" }
 [dev-dependencies]
 png = "0.18"
 rune = { workspace = true, features = ["frame-profile"] }
+
+[lints]
+workspace = true

@@ -9,3 +9,6 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 opencode-kit = { path = "../opencode-kit" }
 rune.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true
