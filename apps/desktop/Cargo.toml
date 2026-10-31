@@ -22,7 +22,7 @@ procwatch.workspace = true
 rune-knobs.workspace = true
 rune-perf.workspace = true
 rune-register.workspace = true
-rune = { workspace = true, features = ["native-file-dialog"] }
+rune = { workspace = true, features = ["native-file-dialog", "metal-backend"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
