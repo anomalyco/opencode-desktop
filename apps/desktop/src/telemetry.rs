@@ -201,6 +201,8 @@ struct Open {
     /// Restored at launch: its disk copy may be up from frame 0, so it ends on a server page.
     restored: bool,
     live: bool,
+    /// A restored session's disk copy was on screen: a server page that redraws nothing ends it.
+    painted: bool,
 }
 
 /// A click on session `id` (UI thread). `held`: the opening gate keeps the old page up.
@@ -209,7 +211,7 @@ pub fn open_begin(id: &str, held: bool) {
     OPEN.with(|o| {
         if let Some(root) = o.borrow_mut().take().and_then(|old| old.root) { root.attr("outcome", "replaced").end(); }
         let root = Span::root("session.open").attr("session.id", id).attr("held", held);
-        *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: root.start, root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false });
+        *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx: root.ctx(), started: root.start, root: Some(root), committed: None, history: false, pages: 0, restored: false, live: false, painted: false });
     });
 }
 
@@ -239,7 +241,7 @@ pub fn open_restored(id: &str, cached: usize) {
     let root = Span::root("session.open").at(start).attr("session.id", id).attr("restored", true).attr("cached_rows", cached as i64);
     let ctx = root.ctx();
     for (path, a, b) in LAUNCH_READS.lock().unwrap().drain(..) { record(ctx, "launch.read", (a, b), vec![("path", path.into())]); }
-    OPEN.with(|o| *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx, started: start, root: Some(root), committed: None, history: false, pages: 0, restored: true, live: false }));
+    OPEN.with(|o| *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx, started: start, root: Some(root), committed: None, history: false, pages: 0, restored: true, live: false, painted: false }));
 }
 
 /// A page for `id` reached the app; `shown` is the UI thread's time merging it.
@@ -256,6 +258,9 @@ pub fn page(id: &str, history: bool, read: &Read, shown: (Instant, Instant)) {
         } else {
             open.pages += 1;
             open.live |= read.source == "server";
+            if open.live && open.painted && let Some(root) = open.root.take() {
+                root.attr("outcome", "cached").end_at(shown.1);
+            }
             open.ctx
         };
         let n = |v: usize| Value::from(v as i64);
@@ -310,6 +315,7 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
         };
         if let Some(root) = open.root.take() {
             if rows == 0 || open.committed.is_none() || (open.restored && !open.live) {
+                open.painted |= rows > 0 && open.committed.is_some();
                 open.root = Some(root);
                 return false;
             }

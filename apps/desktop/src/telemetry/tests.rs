@@ -101,20 +101,39 @@ fn spans_carry_no_message_text() {
     assert!(!serde_json::to_string(&spans).unwrap().contains("Prompt"));
 }
 
+/// Launch reads are process-wide; restored-session tests take turns with them.
+static LAUNCH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn a_restored_session_is_timed_from_launch_through_its_first_reads_to_a_server_page() {
+    let _launch = LAUNCH.lock().unwrap_or_else(|e| e.into_inner());
+    let server = || Read { source: "server", fetch: Some((Instant::now(), Instant::now())), ..Default::default() };
     let (_, spans) = capture(|| {
         launched();
         launch_read("/api/project", Instant::now());
-        open_restored("ses_a", 12);
+        open_restored("ses_a", 0);
         committed("ses_a", false);
-        drawn(Some(("ses_a", 12)), (Instant::now(), Some(1.0), None));
-        assert!(OPEN.with(|o| o.borrow().as_ref().unwrap().root.is_some()), "its disk copy doesn't end it");
-        page("ses_a", false, &Read { source: "server", fetch: Some((Instant::now(), Instant::now())), ..Default::default() }, (Instant::now(), Instant::now()));
+        drawn(Some(("ses_a", 0)), (Instant::now(), Some(1.0), None));
+        page("ses_a", false, &server(), (Instant::now(), Instant::now()));
         drawn(Some(("ses_a", 12)), (Instant::now(), Some(1.0), None));
     });
     let root = named(&spans, "session.open");
     assert_eq!(attr(root, "restored")["boolValue"], true);
+    assert_eq!(attr(root, "outcome")["stringValue"], "painted");
     assert_eq!(attr(named(&spans, "launch.read"), "path")["stringValue"], "/api/project");
     for name in ["launch.read", "launch", "fetch", "first_paint"] { assert_eq!(named(&spans, name)["parentSpanId"], root["spanId"], "{name}"); }
+}
+
+#[test]
+fn a_restored_session_already_painted_from_disk_ends_when_its_server_page_is_shown() {
+    let _launch = LAUNCH.lock().unwrap_or_else(|e| e.into_inner());
+    let (_, spans) = capture(|| {
+        open_restored("ses_a", 12);
+        committed("ses_a", false);
+        drawn(Some(("ses_a", 12)), (Instant::now(), Some(1.0), None));
+        assert!(OPEN.with(|o| o.borrow().as_ref().unwrap().root.is_some()), "its disk copy doesn't end it");
+        // The server page matches the disk copy, so no frame redraws it.
+        page("ses_a", false, &Read { source: "server", fetch: Some((Instant::now(), Instant::now())), ..Default::default() }, (Instant::now(), Instant::now()));
+    });
+    assert_eq!(attr(named(&spans, "session.open"), "outcome")["stringValue"], "cached");
 }
