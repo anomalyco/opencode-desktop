@@ -20,6 +20,7 @@ opencode-kit = { path = "../../crates/opencode-kit" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
 rune-knobs.workspace = true
+rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 rune-perf.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["native-file-dialog"] }

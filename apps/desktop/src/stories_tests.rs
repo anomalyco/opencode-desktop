@@ -209,6 +209,8 @@ const APP_SCENES: &[&str] = &[
     "status",
     "tab-badges",
     "demo",
+    "genui",
+    "genui-stream",
     "short-group",
 ];
 
@@ -236,6 +238,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Send",
     "Timeline/Long prompt",
     "Timeline/Streaming text",
+    "Timeline/Generative UI",
     "Timeline/Tool rows",
     "Timeline/Long tool group",
     "Timeline/Selection",

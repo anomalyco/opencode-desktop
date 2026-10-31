@@ -163,6 +163,10 @@ pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: b
 }
 
 pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
+    // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
+    if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find.row_hits(row_key)) {
+        return el;
+    }
     markdown_with_highlights(p, src, fade, streaming, p.text, s.find.markdown_highlights(p, row_key))
 }
 
@@ -172,6 +176,11 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
 }
 
 fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
+    markdown_styled(p, src, fade, streaming, markdown_style(p, color), highlights)
+}
+
+/// The timeline's Markdown look, its body text in `color`.
+pub(crate) fn markdown_style(p: &Pal, color: Color) -> MarkdownStyle {
     let style = MarkdownStyle::from_kit(crate::palette::kit(p))
         .text(color)
         .muted(p.muted)
@@ -186,10 +195,13 @@ fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, colo
         .heading_font(3, H3)
         .code_block_font(CODE)
         .selection(p.selection);
-    let style = match p.code {
+    match p.code {
         Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
         None => style,
-    };
+    }
+}
+
+pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src: &str, fade: f32, streaming: bool, style: MarkdownStyle, highlights: Vec<H>) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)

@@ -11,7 +11,6 @@ use std::ops::Range;
 
 use opencode_kit::model::{Assistant, Message, Part, Transcript};
 use rune::{Color, El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
-use rune_kit::markdown::{self, Case};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
@@ -93,37 +92,41 @@ impl Find {
     /// Highlights for a user bubble (`text(shown)`).
     pub fn text_highlights(&self, p: &Pal, row_key: &str) -> Vec<TextHighlight> {
         let Some(row) = self.rows.get(row_key).filter(|_| self.open) else { return Vec::new() };
-        let bg = hit_bg(p);
         row.ranges
             .iter()
             .enumerate()
-            .filter_map(|(i, rs)| {
-                let r = rs.first()?.clone();
-                Some(if row.active == Some(i) {
-                    TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
-                } else {
-                    TextHighlight::new(r, bg).key(format!("find-hit-{i}"))
-                })
-            })
+            .filter_map(|(i, rs)| Some(text_mark(p, rs.first()?.clone(), i, row.active == Some(i))))
             .collect()
     }
 
     /// Highlights for an assistant `Markdown` block (`Part::Text`).
     pub fn markdown_highlights<'a>(&'a self, p: &Pal, row_key: &str) -> Vec<(&'a [Range<usize>], rune_kit::Highlight)> {
         let Some(row) = self.rows.get(row_key).filter(|_| self.open) else { return Vec::new() };
-        let bg = hit_bg(p);
-        row.ranges
-            .iter()
-            .enumerate()
-            .map(|(i, rs)| {
-                let hl = if row.active == Some(i) {
-                    rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
-                } else {
-                    rune_kit::Highlight::new().bg(bg).key(format!("find-hit-{i}"))
-                };
-                (rs.as_slice(), hl)
-            })
-            .collect()
+        row.ranges.iter().enumerate().map(|(i, rs)| (rs.as_slice(), markdown_mark(p, i, row.active == Some(i)))).collect()
+    }
+
+    /// A row's matches (source byte ranges of its text) and which of them is active, for a
+    /// view that paints them itself (`genui`).
+    pub fn row_hits(&self, row_key: &str) -> Option<(&[Vec<Range<usize>>], Option<usize>)> {
+        self.rows.get(row_key).filter(|_| self.open).map(|r| (r.ranges.as_slice(), r.active))
+    }
+}
+
+/// Match `i` of a row in plain text, as `text_highlights` paints it.
+pub(crate) fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
+    if active {
+        TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
+    } else {
+        TextHighlight::new(r, hit_bg(p)).key(format!("find-hit-{i}"))
+    }
+}
+
+/// Match `i` of a row in Markdown, as `markdown_highlights` paints it.
+pub(crate) fn markdown_mark(p: &Pal, i: usize, active: bool) -> rune_kit::Highlight {
+    if active {
+        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
+    } else {
+        rune_kit::Highlight::new().bg(hit_bg(p)).key(format!("find-hit-{i}"))
     }
 }
 
@@ -423,7 +426,7 @@ impl App {
                 let computed: Vec<Vec<Range<usize>>> = if plain {
                     find_plain(body, &q).into_iter().map(|r| vec![r]).collect()
                 } else {
-                    markdown::find(body, &q, Case::Insensitive)
+                    crate::genui::find(body, &q)
                 };
                 parts.insert(cache_key, CachedPart { len, head_tail: sig, ranges: computed.clone() });
                 computed

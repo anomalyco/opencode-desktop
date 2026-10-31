@@ -170,6 +170,7 @@ const ORDER: &[&str] = &[
     "Timeline/Send",
     "Timeline/Long prompt",
     "Timeline/Streaming text",
+    "Timeline/Generative UI",
     "Timeline/Tool rows",
     "Timeline/Long tool group",
     "Timeline/Selection",

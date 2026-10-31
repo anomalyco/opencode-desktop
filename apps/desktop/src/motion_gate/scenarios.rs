@@ -76,6 +76,7 @@ const ALLOW: &[Allow] = &[
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("jerk", "L1/L4", "stream-outline/", "a `row`'s arrow centres on the row, whose height steps a line at a time as its panes' words rewrap while they spring narrower for a pane that streamed in beside them (rune_parts::view, genui::reply)"),
 ];
 
 struct Action {
@@ -284,6 +285,7 @@ const ACTIONS: &[Action] = &[
         r.start_stream();
         r.play_out(1.0);
     } },
+    Action { name: "stream-outline", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_outline },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {
         // The narrow window's pinned tail can hold no tool group: scroll one into view.
         for _ in 0..4 {
