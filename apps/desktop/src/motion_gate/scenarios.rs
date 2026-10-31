@@ -79,6 +79,7 @@ const ALLOW: &[Allow] = &[
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("jerk", "L1/L4", "stream-outline/", "a `row`'s arrow centres on the row, whose height steps a line at a time as its panes' words rewrap while they spring narrower for a pane that streamed in beside them (rune_parts::view, genui::reply)"),
+    ("jump", "L1/L4", "stream-outline/", "a `row`'s panes take the width their words want (rune_parts::view::flow, t1197), so a pane whose words stream in squeezes its neighbour, which rewraps a line at once and moves the arrow on the row's middle"),
 ];
 
 struct Action {

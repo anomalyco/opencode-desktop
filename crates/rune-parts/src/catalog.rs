@@ -38,7 +38,7 @@ const L: Kids = Kids::None;
 pub static CATALOG: &[PartSpec] = &[
     PartSpec { name: "row", syntax: "row", about: "kids side by side; stacks on a narrow screen", kids: C, example: "row\n  box Before\n    text One grammar per fence\n  arrow\n  box After\n    text One outline" },
     PartSpec { name: "col", syntax: "col", about: "kids stacked, as one column of a row", kids: C, example: "row\n  col\n    title Left\n    text Stacked under it\n  col\n    title Right\n    text Also stacked" },
-    PartSpec { name: "box", syntax: "box [Title]", about: "a quiet frame, its title in small capitals", kids: C, example: "box Status\n  item {done} Parser · landed\n  item {working} Views · on a branch" },
+    PartSpec { name: "box", syntax: "box [Title]", about: "a quiet filled frame, its title a faint label", kids: C, example: "box Status\n  item {done} Parser · landed\n  item {working} Views · on a branch" },
     PartSpec { name: "screen", syntax: "screen [Title]", about: "a desktop window around its kids", kids: C, example: "screen Hex settings\n  title Microphone\n  toggle {on} Skip a closed laptop's mic" },
     PartSpec { name: "phone", syntax: "phone [Title]", about: "an iPhone-shaped frame around its kids", kids: C, example: "phone iPhone\n  from WRAITH\n  say Kit {voice}: filter Seer to Hex\n  field Message" },
     PartSpec { name: "arrow", syntax: "arrow", about: "points from the kid before to the next", kids: L, example: "row\n  box Agent\n  arrow\n  box Seer" },
