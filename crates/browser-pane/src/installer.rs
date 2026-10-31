@@ -107,7 +107,16 @@ pub fn socket_path() -> PathBuf {
     #[cfg(not(target_os = "macos"))]
     let dir = PathBuf::from(home).join(".cache/opencode");
     let _ = create_private_dir(&dir);
-    dir.join(format!("browser-{uid}.sock"))
+    let exe = std::env::current_exe().unwrap_or_default();
+    dir.join(socket_name_for(&exe, uid))
+}
+
+/// The engine serves one app at a time: the last to connect takes every frame and tab update,
+/// and every app numbers its tabs from 1. So each app (by executable path) runs its own engine.
+pub fn socket_name_for(exe: &Path, uid: u32) -> String {
+    let digest = Sha256::digest(exe.as_os_str().as_encoded_bytes());
+    let tag: String = digest[..4].iter().map(|b| format!("{b:02x}")).collect();
+    format!("browser-{uid}-{tag}.sock")
 }
 
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {

@@ -462,6 +462,15 @@ impl App {
 
     pub fn poll_browser(&mut self, tx: &mut Tx) -> bool {
         let mut changed = self.browser.host.poll();
+        // The engine paints only its focused tab, so the page on screen must be that tab (after a
+        // session switch, say, which shows another session's page without selecting it).
+        if self.side_open()
+            && let Some(id) = self.active_browser_tab_id()
+            && self.browser.host.focused_tab_id() != Some(id)
+        {
+            self.browser.host.focus_tab(id);
+            changed = true;
+        }
         if self.sync_browser_address(false) {
             changed = true;
         }

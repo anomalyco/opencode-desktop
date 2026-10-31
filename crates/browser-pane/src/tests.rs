@@ -12,6 +12,18 @@ use crate::client::BrowserHost;
 use crate::protocol::{CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot};
 
 #[test]
+fn each_app_gets_its_own_engine_socket() {
+    use crate::installer::socket_name_for;
+    let seer = std::path::Path::new("/Users/a/Applications/Seer.app/Contents/MacOS/seer");
+    let desktop = std::path::Path::new("/Users/a/Applications/OpenCode (Rune).app/Contents/MacOS/opencode-desktop");
+    // The engine takes one app at a time: a second app on its socket takes its frames and tabs.
+    assert_ne!(socket_name_for(seer, 501), socket_name_for(desktop, 501));
+    // The same app finds its engine again after a relaunch or hot reload.
+    assert_eq!(socket_name_for(seer, 501), socket_name_for(seer, 501));
+    assert!(socket_name_for(desktop, 501).starts_with("browser-501-"));
+}
+
+#[test]
 fn resolves_addresses_like_desktop() {
     assert_eq!(resolve_address(""), "about:blank");
     assert_eq!(resolve_address(":3000"), "http://localhost:3000");

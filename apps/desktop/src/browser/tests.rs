@@ -109,6 +109,157 @@ fn cmd_t_in_the_browser_pane_opens_a_browser_tab_and_elsewhere_the_chooser() {
 }
 
 #[test]
+fn scroll_and_click_on_the_side_panel_page_reach_the_engine_at_zoom_1_6() {
+    use browser_pane::protocol::{HostMsg, PointerBtn};
+    use rune::WheelEvent;
+
+    let mut rt = test_runtime();
+    rt.update(|s, _| s.zoom = 1.6);
+    let tab = rt.state.open_new_browser_tab("https://example.com/");
+    if !rt.state.side_open() {
+        rt.update(|s, tx| s.toggle_side_region(tx));
+    }
+    for _ in 0..40 {
+        rt.frame(1.0 / 60.0);
+    }
+    let sent = rt.state.browser.host.capture_sent();
+    let ([sx, sy, sw, sh], _) = rt.presented("browser-surface").expect("page surface drawn");
+    // A point a quarter of the way into the page, in window points.
+    let (x, y) = (sx + sw * 0.25, sy + sh * 0.25);
+
+    rt.wheel_event(WheelEvent::new(0.0, -40.0).at(x, y).precise(true));
+    rt.frame(1.0 / 60.0);
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+
+    let msgs: Vec<HostMsg> = sent.try_iter().collect();
+    let near = |a: f32, b: f32| (a - b).abs() < 1.0;
+    let (px, py) = (sw * 0.25, sh * 0.25);
+    assert!(
+        msgs.iter().any(|m| matches!(m, HostMsg::Wheel { tab_id, x, y, dy, .. }
+            if *tab_id == tab && near(*x, px) && near(*y, py) && *dy < 0.0)),
+        "the scroll reaches the page at ({px}, {py}): {msgs:?}"
+    );
+    for up in [false, true] {
+        assert!(
+            msgs.iter().any(|m| matches!(m, HostMsg::MouseButton { tab_id, x, y, button: PointerBtn::Primary, up: u, .. }
+                if *tab_id == tab && *u == up && near(*x, px) && near(*y, py))),
+            "the click's {} reaches the page at ({px}, {py}): {msgs:?}",
+            if up { "release" } else { "press" }
+        );
+    }
+}
+
+#[test]
+fn a_page_shown_again_after_another_session_opened_one_is_shown_in_the_engine() {
+    use browser_pane::protocol::HostMsg;
+
+    let mut rt = test_runtime();
+    let sent = rt.state.browser.host.capture_sent();
+    let s1 = rt.state.active_session_id().unwrap().to_owned();
+    let s2 = rt.state.tabs.iter().map(|t| t.id.clone()).find(|id| id != &s1).unwrap();
+    let first = rt.state.open_new_browser_tab("https://example.com/");
+    rt.update(|s, tx| s.open(&s2, tx));
+    rt.frame(1.0 / 60.0);
+    // The engine paints one tab at a time: opening this one hides the first.
+    let second = rt.state.open_new_browser_tab("https://example.org/");
+    assert_ne!(first, second);
+    rt.update(|s, tx| s.open(&s1, tx));
+    for _ in 0..40 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(rt.state.active_browser_tab_id(), Some(first));
+    assert!(rt.find("browser-surface").is_some(), "first page drawn");
+
+    let msgs: Vec<HostMsg> = sent.try_iter().collect();
+    let shown = msgs.iter().rev().find_map(|m| match m {
+        HostMsg::FocusTab { tab_id } => Some(*tab_id),
+        HostMsg::OpenTab { tab_id, focused: true, .. } => Some(*tab_id),
+        _ => None,
+    });
+    assert_eq!(shown, Some(first), "the page on screen is the one the engine paints: {msgs:?}");
+}
+
+#[test]
+fn cmd_r_in_the_side_panel_page_reloads_it() {
+    use browser_pane::protocol::HostMsg;
+
+    let mut rt = test_runtime();
+    rt.update(|s, _| s.zoom = 1.6);
+    let tab = rt.state.open_new_browser_tab("https://example.com/");
+    if !rt.state.side_open() {
+        rt.update(|s, tx| s.toggle_side_region(tx));
+    }
+    for _ in 0..40 {
+        rt.frame(1.0 / 60.0);
+    }
+    let sent = rt.state.browser.host.capture_sent();
+    let ([sx, sy, sw, sh], _) = rt.presented("browser-surface").expect("page surface drawn");
+    let (x, y) = (sx + sw * 0.5, sy + sh * 0.5);
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.key(KeyEvent {
+        key: Key::Command('r'),
+        mods: Mods { cmd: true, logo: true, ..Default::default() },
+    });
+    rt.frame(1.0 / 60.0);
+
+    let msgs: Vec<HostMsg> = sent.try_iter().collect();
+    let reloads = msgs.iter().filter(|m| matches!(m, HostMsg::Reload { tab_id } if *tab_id == tab)).count();
+    assert_eq!(reloads, 1, "⌘R after clicking the page reloads it once: {msgs:?}");
+}
+
+#[test]
+fn after_dragging_the_divider_at_zoom_1_6_the_page_is_sized_to_its_surface_below_the_toolbar() {
+    use browser_pane::protocol::HostMsg;
+
+    let mut rt = test_runtime();
+    // Wide enough at 1.6 for the panel to grow (the session keeps its minimum width).
+    rt.set_viewport((2000.0, 1100.0), 2.0);
+    rt.update(|s, _| s.zoom = 1.6);
+    let tab = rt.state.open_new_browser_tab("https://example.com/");
+    if !rt.state.side_open() {
+        rt.update(|s, tx| s.toggle_side_region(tx));
+    }
+    for _ in 0..40 {
+        rt.frame(1.0 / 60.0);
+    }
+    let sent = rt.state.browser.host.capture_sent();
+    let ([rx, ry, rw, rh], _) = rt.presented("side-resize").expect("divider drawn");
+    let (x, y) = (rx + rw * 0.5, ry + rh * 0.5);
+    let before = rt.presented("browser-surface").expect("page drawn").0;
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    for i in 1..=12 {
+        rt.pointer_move(x - 10.0 * i as f32, y);
+        rt.frame(1.0 / 60.0);
+    }
+    rt.pointer_up(x - 120.0, y);
+    for _ in 0..40 {
+        rt.frame(1.0 / 60.0);
+    }
+    let ([_, sy, sw, sh], _) = rt.presented("browser-surface").expect("page drawn");
+    assert!((sw - before[2]).abs() > 20.0, "the drag resized the page: {before:?} -> {sw}");
+    let (bar, _) = rt.presented("browser-navbar").expect("toolbar drawn");
+    assert!(sy >= bar[1] + bar[3] - 0.5, "the page starts below the toolbar: page y {sy}, toolbar {bar:?}");
+
+    let msgs: Vec<HostMsg> = sent.try_iter().collect();
+    let last = msgs.iter().rev().find_map(|m| match m {
+        HostMsg::Resize { tab_id, width_pt, height_pt, .. } if *tab_id == tab => Some((*width_pt, *height_pt)),
+        _ => None,
+    });
+    let (w, h) = last.unwrap_or_else(|| panic!("the drag resized the page in the engine: {msgs:?}"));
+    assert!((w - sw).abs() < 1.0 && (h - sh).abs() < 1.0, "the engine draws the page at its surface's size {sw}x{sh}, got {w}x{h}");
+}
+
+#[test]
 fn multi_tab_close_hides_region_when_last_tab_closes() {
     let mut rt = test_runtime();
     let t1 = rt.state.open_new_browser_tab("http://localhost:3000/");

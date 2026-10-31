@@ -192,6 +192,13 @@ impl BrowserHost {
         id
     }
 
+    /// Sends every message to the returned receiver instead of an engine (tests).
+    pub fn capture_sent(&mut self) -> Receiver<HostMsg> {
+        let (tx, rx) = mpsc::channel();
+        *self.outbox.lock().unwrap() = Some(tx);
+        rx
+    }
+
     pub fn set_mock_status(&mut self, status: EngineStatus) {
         self.last_polled_status = status.clone();
         *self.status.lock().unwrap() = status;
