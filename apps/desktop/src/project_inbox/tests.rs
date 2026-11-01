@@ -1,7 +1,7 @@
 use opencode_kit::client::Write;
 use rune::Tx;
 
-use super::Kind;
+use super::{Kind, Said, TaskInfo};
 use super::stories::seed;
 use crate::fixture_ids::{MAIN, SIXTH};
 use crate::session_menu::{self, Spot, Target};
@@ -24,12 +24,56 @@ fn done(s: &App, id: &str) -> bool {
 #[test]
 fn tasks_waiting_on_you_and_done_ones_fill_the_inbox() {
     let s = world();
-    assert_eq!(ids(&s, Kind::Needs), ["ses_ib01", "ses_ib05"], "a helper's question shows on its task");
-    assert_eq!(ids(&s, Kind::Done), ["ses_ib02", "ses_ib09", "ses_ib06"]);
+    assert_eq!(ids(&s, Kind::Needs), ["ses_ib01", "ses_ib05", "ses_ib13"], "a helper's question shows on its task, and a blocked task");
+    assert_eq!(ids(&s, Kind::Done), ["ses_ib11", "ses_ib02", "ses_ib12", "ses_ib09", "ses_ib06"]);
     assert_eq!(s.lead_of("ses_ib03"), Some("ses_ib01"), "a task's subagent is its helper");
     assert_eq!(s.project_of_task("ses_ib03"), Some(MAIN));
     assert_eq!(s.project_of_task(MAIN), None, "a project is never its own task");
-    assert_eq!((s.project_working(MAIN), s.project_working(SIXTH)), (1, 2), "working tasks only count");
+    assert_eq!((s.project_working(MAIN), s.project_working(SIXTH)), (3, 2), "working tasks only count, and one waiting on its background work");
+}
+
+#[test]
+fn a_task_with_its_own_session_says_where_it_stands() {
+    let s = world();
+    let said = |id: &str| s.inbox_rows().iter().find(|r| r.info.id == id).map(|r| r.said);
+    assert_eq!(said("ses_ib11"), Some(Said::Done));
+    assert_eq!(said("ses_ib12"), Some(Said::Stopped));
+    assert_eq!(said("ses_ib13"), Some(Said::Blocked));
+    assert_eq!(said("ses_ib02"), Some(Said::Nothing));
+    assert_eq!(said("ses_ib10"), None, "waiting on its background work: working");
+    assert_eq!(s.lead_of("ses_ib15"), Some("ses_ib14"), "a helper inherits the tag but folds into its task");
+    assert_eq!(s.project_of_task("ses_ib15"), Some(MAIN));
+    assert!(s.is_task_session("ses_ib14") && !s.is_task_session("ses_ib15") && !s.is_task_session("ses_ib01"));
+}
+
+#[test]
+fn a_reply_to_a_task_puts_it_back_to_working() {
+    let mut s = world();
+    let mut meta = s.session("ses_ib11").unwrap().metadata.clone();
+    meta["seerTask"]["state"] = "working".into();
+    s.apply_event("session.metadata.updated", &serde_json::json!({ "sessionID": "ses_ib11", "metadata": meta }));
+    assert!(!done(&s, "ses_ib11"));
+    assert_eq!(s.project_working(MAIN), 4);
+}
+
+#[test]
+fn opening_a_task_session_gives_it_the_composer_but_no_tab() {
+    let mut s = world();
+    let _writes = s.fake_writes();
+    let tabs: Vec<String> = s.tabs.iter().map(|t| t.id.clone()).collect();
+    s.open("ses_ib11", &mut Tx::default());
+    assert_eq!(s.route, Route::Session("ses_ib11".into()));
+    assert_eq!(s.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>(), tabs, "⌘1–9 stay put");
+    assert!(s.composer.focused, "it's top-level, so you can reply");
+    assert!(done(&s, "ses_ib11"), "the open one stays until E");
+}
+
+#[test]
+fn task_sessions_stay_out_of_tabs_the_switcher_and_home() {
+    let s = world();
+    assert!(!s.recent_tabs().iter().any(|t| t.id.starts_with("ses_ib1")));
+    assert!(!s.home_sessions(None).iter().any(|x| x.is_seer_task()));
+    assert!(!s.switcher_entries().iter().any(|e| e.key == "session:ses_ib11"));
 }
 
 #[test]
@@ -48,7 +92,7 @@ fn only_what_was_started_after_the_mark_is_a_task() {
     for id in [MAIN, SIXTH] {
         s.sessions.iter_mut().find(|i| i.id == id).unwrap().metadata["seerProject"]["since"] = now.into();
     }
-    assert!(s.inbox_rows().is_empty());
+    assert!(s.inbox_rows().iter().all(|r| r.info.is_seer_task()), "a task with its own session needs no mark time");
 }
 
 #[test]
@@ -136,7 +180,7 @@ fn new_project_marks_the_session_it_opens() {
 fn the_sidebar_lists_projects_instead_of_their_tabs() {
     let mut rt = world().into_runtime();
     rt.frame(0.0);
-    for want in ["h-Needs you · 2", "h-Done · 3", "h-Projects", &format!("ip-{MAIN}"), &format!("ip-{SIXTH}"), "ib-ses_ib01", "ib-ses_ib09"] {
+    for want in ["h-Needs you · 3", "h-Done · 5", "glyph-Done", "glyph-Stopped", "h-Projects", &format!("ip-{MAIN}"), &format!("ip-{SIXTH}"), "ib-ses_ib01", "ib-ses_ib09"] {
         assert!(rt.find(want).is_some(), "{want}");
     }
     assert!(rt.find("ib-ses_ib04").is_none(), "a working task has no row");

@@ -1,9 +1,10 @@
 use super::*;
+use crate::project_inbox::TaskInfo;
 
 impl App {
     /// A fresh profile's tabs: the most recent root sessions.
     pub(crate) fn recent_tabs(&self) -> Vec<Tab> {
-        let mut roots: Vec<&SessionInfo> = self.sessions.iter().filter(|s| s.parent.is_none()).collect();
+        let mut roots: Vec<&SessionInfo> = self.sessions.iter().filter(|s| s.parent.is_none() && !s.is_seer_task()).collect();
         roots.sort_by_key(|s| std::cmp::Reverse(s.updated));
         roots.iter().take(8).map(|s| Tab { id: s.id.clone(), title: s.title.clone(), directory: s.directory.clone() }).collect()
     }

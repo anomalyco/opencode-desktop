@@ -45,7 +45,8 @@ impl App {
         for s in self.sessions.iter_mut().filter(|s| s.id == scope || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
-        if !self.tabs.iter().any(|t| t.id == root) {
+        // A task opens from the inbox, so it takes no tab and ⌘1–9 stay put.
+        if !self.tabs.iter().any(|t| t.id == root) && !self.is_task_session(&root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
             self.tabs.push(Tab { id: root.clone(), title, directory });
             self.save_tabs();
