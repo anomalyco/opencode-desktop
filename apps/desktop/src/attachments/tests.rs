@@ -251,6 +251,19 @@ fn stub(bytes: Option<Vec<u8>>) -> (Fetch, Arc<Mutex<Vec<String>>>) {
     (fetch, calls)
 }
 
+/// [`stub`] whose fetch holds its answer until the sender sends, so a test sees `Loading` for
+/// as long as it needs, however fast the fetch thread runs.
+fn gated(bytes: Option<Vec<u8>>) -> (Fetch, Arc<Mutex<Vec<String>>>, std::sync::mpsc::Sender<()>) {
+    let (fetch, calls) = stub(bytes);
+    let (open, gate) = std::sync::mpsc::channel();
+    let gate = Mutex::new(gate);
+    let held: Fetch = Arc::new(move |hash: &str| {
+        let _ = gate.lock().unwrap().recv();
+        fetch(hash)
+    });
+    (held, calls, open)
+}
+
 fn settle(a: &Attach, f: &Attachment) -> Fetched {
     for _ in 0..500 {
         match a.fetched(f) {
@@ -263,13 +276,14 @@ fn settle(a: &Attach, f: &Attachment) -> Fetched {
 
 #[test]
 fn a_ref_fetches_once_by_hash_and_decodes() {
-    let (fetch, calls) = stub(Some(png(6, 4)));
+    let (fetch, calls, land) = gated(Some(png(6, 4)));
     let mut a = Attach::default();
     a.set_fetch(fetch);
     let hash = "c".repeat(64);
     let (first, again) = (media(&hash, "shot.png"), media(&hash, "same.png"));
     assert!(a.image(&first).is_none(), "nothing until the bytes land");
     assert_eq!(a.fetched(&first), Some(Fetched::Loading));
+    land.send(()).unwrap();
     assert!(matches!(settle(&a, &first), Fetched::Ready(_)));
     assert_eq!(a.image(&first).unwrap().wait().unwrap(), [6, 4]);
     // The pixels are the cache's now; the same hash elsewhere is a hit.
