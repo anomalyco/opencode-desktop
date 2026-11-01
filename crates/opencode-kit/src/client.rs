@@ -39,6 +39,9 @@ pub enum Incoming {
     Messages { session: String, messages: Vec<Message> },
     Event { ty: String, data: Value },
     Status(String),
+    /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`) that failed, with the
+    /// id the prompt was sent under and the raw error.
+    SendFailed { session: String, id: String, error: String },
     /// A session's open permission requests and forms.
     Pending { session: String, items: Vec<Pending> },
     /// A session this app just created (its first prompt is already sent).
@@ -628,6 +631,12 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
             .name("opencode-write".into())
             .spawn(move || {
                 for w in write_rx {
+                    let prompt_id = match &w {
+                        Write::Send { session, prompt } | Write::SendMovingHome { session, prompt } | Write::SendFromRevert { session, prompt } => {
+                            prompt.id.clone().map(|id| (session.clone(), id))
+                        }
+                        _ => None,
+                    };
                     let result = match w {
                         Write::Prompt { session, text } => server.send_prompt(&session, &text),
                         Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
@@ -682,10 +691,14 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
                         }),
                     };
-                    if let Err(e) = result
-                        && inbox_tx.send(Incoming::Status(e)).is_err()
-                    {
-                        return;
+                    if let Err(e) = result {
+                        let told = match prompt_id {
+                            Some((session, id)) => inbox_tx.send(Incoming::SendFailed { session, id, error: e }),
+                            None => inbox_tx.send(Incoming::Status(e)),
+                        };
+                        if told.is_err() {
+                            return;
+                        }
                     }
                     wake();
                 }

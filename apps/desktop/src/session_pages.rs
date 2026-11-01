@@ -457,6 +457,11 @@ impl super::App {
         self.opening.as_ref().is_some_and(|o| o.id == id && o.loading)
     }
 
+    /// Reads `id`'s latest page from the server again, ahead of anything speculative.
+    pub(crate) fn read_latest(&self, id: &str) {
+        if let Some(pool) = &self.pages.pool { pool.request(self.page_key(id), true); }
+    }
+
     pub(crate) fn page_key(&self, id: &str) -> Key {
         let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id)).map_or(0, |s| s.updated);
         Key { id: id.to_owned(), updated }
@@ -554,6 +559,11 @@ impl super::App {
         let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
         let mut changed = false;
         for result in results {
+            if let Ok(page) = &result && !page.cached && !page.history && self.unsent.unsure() {
+                self.judge_sends_by_page(&page.key.id, &page.messages);
+                self.check_sends();
+                changed = true;
+            }
             match result {
                 Ok(page) if self.route == super::Route::Session(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {

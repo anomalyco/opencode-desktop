@@ -10,6 +10,14 @@ pub fn is_transient(raw: &str) -> bool {
         .any(|k| e.contains(k))
 }
 
+/// Whether a failed write certainly never reached the server: a refusal (4xx) or no connection.
+/// A timeout, a dropped connection or a 5xx may have arrived, so those are not.
+pub fn failed_for_sure(raw: &str) -> bool {
+    let e = raw.to_lowercase();
+    let client_error = e.find("http status: 4").is_some();
+    client_error || ["refused", "connection failed", "failed to lookup", "dns", "no route to host", "network is unreachable"].iter().any(|k| e.contains(k))
+}
+
 /// `raw` (with or without its `GET /path: ` prefix) in words a person can read; an error with
 /// no known mapping comes back unchanged.
 pub fn plain_error(raw: &str) -> String {
@@ -39,6 +47,14 @@ mod tests {
         assert_eq!(plain_error("io: Connection refused (os error 61)"), "OpenCode isn't running");
         assert_eq!(plain_error("events: stream ended"), "OpenCode dropped the connection");
         assert_eq!(plain_error("http status: 404"), "http status: 404");
+    }
+
+    #[test]
+    fn only_a_refusal_or_no_connection_is_a_sure_failure() {
+        assert!(failed_for_sure("POST /x: http status: 422"));
+        assert!(failed_for_sure("POST /x: io: Connection refused (os error 61)"));
+        assert!(!failed_for_sure("POST /x: timeout: global"));
+        assert!(!failed_for_sure("POST /x: http status: 500"));
     }
 
     #[test]

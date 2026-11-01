@@ -37,7 +37,7 @@ impl Entry {
         Entry { text: edit.text.clone(), pills: edit.pills().map(|(r, id)| (r, id.to_owned())).collect() }
     }
 
-    fn put(&self, edit: &mut TextEdit, caret: usize) {
+    pub(crate) fn put(&self, edit: &mut TextEdit, caret: usize) {
         edit.replace_text(self.text.clone());
         edit.set_marks(self.pills.iter().map(|(r, id)| MarkRange::new(r.clone(), Mark::Pill(id.clone()))).collect());
         edit.set_caret(caret);

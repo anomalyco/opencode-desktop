@@ -99,6 +99,7 @@ impl App {
         let local = match &self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
+                let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let w = if staged {
                     Write::SendFromRevert { session: id.clone(), prompt }
@@ -112,6 +113,7 @@ impl App {
                     self.commit_staged_revert(&id);
                 }
                 self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
+                self.unsent.note(sent);
                 local
             }
             Source::Fixture => {
