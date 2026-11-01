@@ -1,5 +1,5 @@
 //! The provider rail (p169, Kit's pick): Desktop's provider marks down the
-//! model list's left side, as T3 Chat's picker has (Favorites first, then each provider). A
+//! model list's left side, as T3 Chat's picker has (Recent and Favorites first, then each provider). A
 //! press jumps the list to that provider's heading and lights its first model; the headings stay.
 //! The lit row's provider is lit on the rail.
 
@@ -13,6 +13,16 @@ use crate::popover::{self as pop, Look};
 
 /// The rail's width: a 28 pt button and the list's inset each side.
 pub const W: f32 = 28.0 + 2.0 * pop::LIST.inset;
+
+/// Where the list starts: the rail and the hairline after it.
+pub const LEAD: f32 = W + 0.5;
+
+/// Recent's mark: a clock (Desktop's catalog has none; its rotate arrow read as "reset", p169).
+static CLOCK: Icon = Icon {
+    name: "clock",
+    view: 16.0,
+    body: r#"<circle cx="8" cy="8" r="5.75" stroke="currentColor"/><path d="M8 4.75V8L10.25 9.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
 
 /// One provider on the rail: its heading's name, where the heading starts in the list, and the
 /// first model under it.
@@ -30,7 +40,7 @@ pub fn mark(group: &str, key: &str) -> &'static Icon {
         return &rune_kit::glyphs::STAR_FILLED;
     }
     if group == RECENT {
-        return &provider_icons::RECENT;
+        return &CLOCK;
     }
     let id = key.split(':').next().unwrap_or("");
     let bare = id.strip_prefix("console-").unwrap_or(id);

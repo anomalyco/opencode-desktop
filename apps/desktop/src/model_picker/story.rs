@@ -1,6 +1,8 @@
 //! The storybook's `Pickers/Model picker`: a list with several providers, one model under three
-//! of them, at the list's spacing. Its Efforts variant opens the lit model's efforts beside it.
-//! The provider rail runs down its left. R replays; O opens or closes the efforts.
+//! of them, at the list's spacing, as Kit had it (p169): three recent models, none of them the
+//! one the session is on, which leads the list anyway. Its Efforts variant opens the lit model's
+//! efforts beside it. The provider rail runs down its left. R replays; O opens or closes the
+//! efforts.
 
 use rune::Play;
 
@@ -39,6 +41,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.open_picker(Kind::Model);
     s.pickers.stage_effort(CURRENT, "xhigh");
     s.choose_picker(CURRENT);
+    s.pickers.prefs.recent = ["console-openai-test:gpt-6.1-terra", "openai:gpt-6-astra", "xai:grok-5"].map(str::to_owned).to_vec();
     s.composer.focused = false;
     s.open_picker(Kind::Model);
     if s.variant == 1 {

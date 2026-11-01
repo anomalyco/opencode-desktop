@@ -6,8 +6,7 @@
 //! inset plus a row's corners, so the highlight sits concentric in it. Two looks set the
 //! metrics, both Desktop's: [`MENU`] (`menu-v2`, a short list of actions or choices; 6 pt
 //! corners) and [`LIST`] (the model dialog's `search-list`, a long list with a search field;
-//! 12 pt). In each, the search icon, the query, the group headers and the row labels share one
-//! left edge.
+//! 12 pt). In each, the query, the group headers and the row labels share one left edge.
 //!
 //! The rules here are meant to outlive the module (audit 2026-10-30): the lit row, by pointer
 //! or keys, is `p.row_active` ([`lit`]); a group's title is [`group_header`]; a shortcut at a
@@ -44,25 +43,24 @@ pub struct Look {
     pub pad_r: f32,
     /// Between a row's slots.
     pub gap: f32,
-    /// Rows start with a 16 pt slot for the check (or an icon), so labels line up with the query.
-    pub lead: bool,
     /// Above a group's title, below the group before it.
     pub head: f32,
 }
 
 /// Desktop's `menu-v2`: a 2 pt inset, 6 pt corners, 28 pt rows with 4 pt corners, 12 pt before
 /// the label and the check at the end.
-pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, lead: false, head: 16.0 };
+pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, head: 16.0 };
 
 /// Desktop's model dialog (`select-dialog.css`), tighter (p169: "too much spacing"): a 6 pt
-/// inset, 12 pt corners, 24 pt rows 4 pt apart with 6 pt corners, and the check in a 16 pt slot
-/// before the label. A group's title takes one row's pitch, 8 pt above it.
-pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 24.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, lead: true, head: 8.0 };
+/// inset, 12 pt corners, 24 pt rows 4 pt apart with 6 pt corners, and the check at the end, as
+/// Desktop's rows have it ("way too much padding on the left" with a check slot before the
+/// label). A group's title takes one row's pitch, 8 pt above it.
+pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 24.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, head: 8.0 };
 
 /// The search row's height: the field keeps Desktop's 28 pt.
 pub const SEARCH_H: f32 = 28.0;
 
-/// The lead slot: a 16 pt check or icon.
+/// A row's 16 pt check or icon.
 pub const SLOT: f32 = 16.0;
 
 /// A group's title: Desktop's list header, 12 pt on 18, faint.
@@ -74,7 +72,7 @@ const BADGE: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0);
 impl Look {
     /// From a row's highlight edge to its label.
     pub fn label_x(&self) -> f32 {
-        self.pad_l + if self.lead { SLOT + self.gap } else { 0.0 }
+        self.pad_l
     }
 
     /// The surface's corners: concentric with a row's highlight.
@@ -142,12 +140,14 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
         .caret(p.text, p.selection)
 }
 
-/// The search row and the hairline under it, across the whole surface: the glass sits in the
-/// rows' lead slot, so the query starts where their labels do. Use it with [`LIST`].
-pub fn search_row(p: &Pal, look: Look, key: &str, field: El) -> El {
+/// The search row and the hairline under it, across the whole surface, over a list that starts
+/// `lead` points in (a rail of icons down its left): the glass is centred over the lead and the
+/// query starts where the rows' labels do. Use it with [`LIST`].
+pub fn search_row(p: &Pal, look: Look, key: &str, lead: f32, field: El) -> El {
     col().key(key.to_owned()).w_full().pt(look.inset).gap(look.inset)
-        .child(row().key("search").h(SEARCH_H).w_full().pl(look.inset + look.pad_l).pr(look.inset).gap(look.gap).center_y()
-            .child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted))
+        .child(row().key("search").h(SEARCH_H).w_full().pr(look.inset).center_y()
+            .child(row().key("search-glass").w(lead).h_full().center().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
+            .child(el().w(look.inset + look.label_x()))
             .child(field))
         .child(divider(p, "search-divider"))
 }
@@ -190,9 +190,9 @@ pub fn hint(p: &Pal, keys: &str) -> El {
     text(keys.to_owned()).key("hint").font(HINT).color(p.faint)
 }
 
-/// One option row. Its parts go in order: lead (the check slot, or an icon), label, what follows
-/// the label (a faint provider, badges), then the trailing end (a button, a shortcut, the check
-/// when the look has no lead slot).
+/// One option row. Its parts go in order: lead (an icon), label, what follows the label (a faint
+/// provider, badges), the check when it's the current choice, then the trailing end (a button, a
+/// shortcut).
 pub struct Opt {
     pub key: String,
     pub label: String,
@@ -224,7 +224,7 @@ impl Opt {
 /// An option row: the highlight follows the pointer at once (`hover`) and a press picks it.
 pub fn option(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut App) + 'static, pick: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     let slides = o.slides;
-    let mut r = row()
+    let r = row()
         .key(o.key)
         .role(o.role)
         // Rows come and go with a filter in the keystroke, as Desktop's list does.
@@ -248,25 +248,13 @@ pub fn option(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut App) + 'static, p
             }
         })
         .on_press_tx(pick);
-    let check = || icon(&ic::CHECK_SMALL, SLOT).key("check").color(p.icon);
-    if look.lead {
-        let slot = row().key("lead").size(SLOT, SLOT).center();
-        r = r.child(match (o.checked, o.lead) {
-            (true, _) => slot.child(check()),
-            (false, Some(l)) => slot.child(l),
-            (false, None) => slot,
-        });
-    } else if let Some(l) = o.lead {
-        r = r.child(l);
-    }
     let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
         .child(text(o.label).font(UI).color(p.text).shrink().truncate_fade())
         .children(o.after);
-    r = r.child(words).children(o.trailing);
-    if o.checked && !look.lead {
-        r = r.child(check());
-    }
-    r
+    r.children(o.lead)
+        .child(words)
+        .children(o.checked.then(|| icon(&ic::CHECK_SMALL, SLOT).key("check").color(p.icon)))
+        .children(o.trailing)
 }
 
 /// A group header's height below the room above it.

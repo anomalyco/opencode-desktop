@@ -51,12 +51,15 @@ fn search_headers_and_labels_share_one_edge() {
     let query = rect(&rt, "picker-search")[0] - menu[0];
     let header = left_of_text(&rt, "group-Anthropic") - menu[0];
     let label = left_of_text(&rt, "option-anthropic:claude-opus-5-5") - menu[0];
-    assert!((query - LIST.inset - LIST.label_x()).abs() < 0.5, "query at {query}");
-    // The model list's rail sits under the glass, so its headers and labels start one rail
-    // width and its hairline after the query (p169); the glass is over the rail's marks.
-    let rail = crate::model_picker::rail::W + 0.5;
-    assert!((header - query - rail).abs() < 0.5, "header at {header}, query at {query}");
-    assert!((label - query - rail).abs() < 0.5, "label at {label}, query at {query}");
+    // The rail runs down the list's left, under the glass; the query, the headers and the
+    // labels start a row's inset past it (p169: no check slot before the label).
+    let lead = crate::model_picker::rail::LEAD;
+    assert!((query - lead - LIST.inset - LIST.label_x()).abs() < 0.5, "query at {query}");
+    assert!((header - query).abs() < 0.5, "header at {header}, query at {query}");
+    assert!((label - query).abs() < 0.5, "label at {label}, query at {query}");
+    let glass = rect(&rt, "search-glass");
+    let mark = rect(&rt, "picker-rail");
+    assert!((glass[0] + glass[2] / 2.0 - mark[0] - mark[2] / 2.0).abs() < 0.5, "the glass is over the rail");
     // The query is one line tall, on the glass's centre line.
     let field = rect(&rt, "picker-search");
     let glass = rect(&rt, "picker-search-row")[1] + LIST.inset + SEARCH_H / 2.0;
@@ -64,7 +67,7 @@ fn search_headers_and_labels_share_one_edge() {
     assert!((field[1] + field[3] / 2.0 - glass).abs() < 0.5, "field {field:?}, glass centre {glass}");
     // The highlight stays 6 pt inside the rail's edge.
     let row = rect(&rt, "option-anthropic:claude-opus-5-5");
-    assert!((row[0] - menu[0] - rail - LIST.inset).abs() < 0.5);
+    assert!((row[0] - menu[0] - lead - LIST.inset).abs() < 0.5);
 }
 
 #[test]

@@ -1,8 +1,10 @@
 //! The lit model's efforts, beside its row in the model list (Desktop's flyout in
 //! `select-dialog.tsx`): resting on the row opens it ([`super::hover`]), as does a press on
-//! the row's "Xhigh ›", and picking one picks the model with that effort. It appears at once.
+//! the row's "Xhigh ›", and picking one picks the model with that effort. It appears at once,
+//! like a submenu: just past the list's edge, beside the "Xhigh ›" at the row's end, with the
+//! checked effort level with the row.
 
-use rune::{Align, El, Side, Tx, col};
+use rune::{Align, El, Side, Transition, Tx, col, el};
 
 use crate::App;
 use crate::palette::Pal;
@@ -44,14 +46,30 @@ impl App {
     }
 }
 
-/// The flyout, when one is open: Default and each effort, the one the model would run with
-/// checked.
-pub fn view(s: &App, p: &Pal) -> Option<El> {
+/// The open flyout's model, its efforts with Default first, and the one it would run with.
+fn efforts<'a>(s: &'a App) -> Option<(&'a Flyout, Vec<String>, String)> {
     let f = s.pickers.flyout.as_ref().filter(|_| s.pickers.open == Some(Kind::Model))?;
     let model = s.pickers.models.iter().find(|m| m.key == f.model)?;
     let now = s.model_effort(&f.model)?;
+    Some((f, std::iter::once(String::new()).chain(model.variants.iter().cloned()).collect(), now))
+}
+
+/// What the flyout hangs from, inside the model row `key` while its efforts are open: a line
+/// across the row, raised so the flyout's checked effort lands level with the row. The window
+/// still keeps the flyout inside it.
+pub fn anchor(s: &App, key: &str) -> Option<El> {
+    let (_, all, now) = efforts(s).filter(|(f, ..)| f.model == key)?;
+    let at = all.iter().position(|e| *e == now).unwrap_or(0) as f32;
+    let up = MENU.inset + at * MENU.row_h + (MENU.row_h - pop::LIST.row_h) / 2.0;
+    Some(el().key("effort-anchor").pin(Some(0.0), Some(-up), Some(0.0), None).h(0.0).transition(Transition::none()))
+}
+
+/// The flyout, when one is open: Default and each effort, the one the model would run with
+/// checked.
+pub fn view(s: &App, p: &Pal) -> Option<El> {
+    let (f, all, now) = efforts(s)?;
     let mut list = col().key("effort-options").w_full().padding(MENU.inset);
-    for effort in std::iter::once(String::new()).chain(model.variants.iter().cloned()) {
+    for effort in all {
         let label = if effort.is_empty() { "Default".to_owned() } else { capitalize(&effort) };
         let id = if effort.is_empty() { "default".to_owned() } else { effort.clone() };
         let o = Opt::new(format!("effort-{id}"), label).checked(effort == now).active(f.lit.as_deref() == Some(id.as_str()));
@@ -62,6 +80,6 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         list = list.child(row);
     }
     let menu = super::hover::flyout(pop::surface(p, MENU, "effort-flyout", "Choose effort").w(160.0).child(list));
-    // Beside the row, clear of the list's edge.
-    Some(menu.anchored_fit(format!("option-{}", f.model), Side::Right, Align::Start, pop::LIST.inset + 6.0))
+    // 2 pt past the list's edge.
+    Some(menu.anchored_fit("effort-anchor", Side::Right, Align::Start, pop::LIST.inset + 2.0))
 }
