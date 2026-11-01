@@ -149,7 +149,7 @@ fn long_open(s: &mut App, tx: &mut Play<App>) {
     tx.after(3.8, |s, tx| scroll_in(s, tx));
 }
 
-const LONG_KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Fold", "stage", &[crate::disclosure::FOLD_SPEED])];
+const LONG_KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Fold", "stage", &[crate::disclosure::FOLD_SPEED, crate::disclosure::FOLD_FEATHER])];
 
 /// Scrolls the open summary's end to the middle of the timeline, under its stuck divider.
 fn scroll_in(s: &mut App, tx: &mut Tx) {

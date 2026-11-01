@@ -9,7 +9,11 @@ use crate::App;
 /// 150-200 ms, ease out, no bounce. However long the group, only what shows of it moves.
 pub const FOLD_SPEED: Knob = Knob::new("Fold speed", 0.08, 0.5, 0.18).step(0.01).about("Seconds a tool group takes to fold");
 
-rune_register::register!(crate::knobs::GROUP_LIST: Group = [Group::new("Tool groups", "tool-groups", &[FOLD_SPEED]).under("Timeline")]);
+/// How deep a fold's bottom edge feathers while it moves, opening and shutting: soft enough
+/// that lines dissolve into the rows below rather than being cut, crisp again once it lands.
+pub const FOLD_FEATHER: Knob = Knob::new("Fold edge", 0.0, 64.0, 24.0).step(1.0).about("Points the moving edge fades over");
+
+rune_register::register!(crate::knobs::GROUP_LIST: Group = [Group::new("Tool groups", "tool-groups", &[FOLD_SPEED, FOLD_FEATHER]).under("Timeline")]);
 
 /// The tool group row's own spring (`El::fold_glide`).
 pub fn fold(k: &Knobs) -> Spring {
