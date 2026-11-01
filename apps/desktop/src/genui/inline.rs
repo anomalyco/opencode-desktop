@@ -75,6 +75,7 @@ pub(super) type Mark = (usize, Vec<Range<usize>>, bool);
 struct Resolver<'a> {
     p: &'a Pal,
     fade: f32,
+    width: f32,
     /// Each drawn piece of words by where its `String` lives: `(ptr, len, offset in the reply)`.
     spans: Vec<(*const u8, usize, usize)>,
     marks: Vec<Mark>,
@@ -100,7 +101,7 @@ impl PartsResolver for Resolver<'_> {
         let marks = self.marks_for(src);
         if rich(src) {
             let marks: Vec<_> = marks.into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-            return col().w_full().child(markdown_styled(p, src, self.fade, false, markdown_style(p, color).body_font(font), marks));
+            return col().w_full().child(markdown_styled(p, src, self.fade, false, markdown_style(p, color, self.width).body_font(font), marks));
         }
         let hl = marks.into_iter().filter_map(|(i, m, on)| Some(text_mark(p, m.first()?.clone(), i, on)));
         readable(p, text(src.to_owned()).font(font).color(color).wrap().reveal(self.fade).text_highlights(hl))
@@ -110,7 +111,7 @@ impl PartsResolver for Resolver<'_> {
 /// The outline `nodes` (from `src`, its first line at `src_at`) `width` points wide.
 pub(super) fn outline(p: &Pal, src: &str, src_at: usize, nodes: &[Node], width: f32, fade: f32, marks: Vec<Mark>) -> El {
     let spans = located(src, src_at, nodes).into_iter().map(|(n, at)| (n.part.text.as_ptr(), n.part.text.len(), at)).collect();
-    let r = Resolver { p, fade, spans, marks };
+    let r = Resolver { p, fade, width, spans, marks };
     let plain = rune_parts::to_plain(nodes);
     col().w_full().selection_group(false)
         .selection_copy(move |sel| sel.texts().iter().all(|t| t.is_whole()).then(|| plain.clone()))

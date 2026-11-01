@@ -159,7 +159,7 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
 
 #[cfg(test)]
 pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
-    markdown_tinted(p, src, fade, streaming, p.text)
+    markdown_tinted(p, src, fade, streaming, p.text, super::CONTENT_W)
 }
 
 pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
@@ -167,20 +167,21 @@ pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: 
     if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find.row_hits(row_key)) {
         return el;
     }
-    markdown_with_highlights(p, src, fade, streaming, p.text, s.find.markdown_highlights(p, row_key))
+    markdown_with_highlights(p, src, fade, streaming, p.text, crate::genui::width(s), s.find.markdown_highlights(p, row_key))
 }
 
-/// `markdown_view` with its body text in `color`.
-pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color) -> El {
-    markdown_with_highlights(p, src, fade, streaming, color, Vec::new())
+/// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
+pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
+    markdown_with_highlights(p, src, fade, streaming, color, width, Vec::new())
 }
 
-fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
-    markdown_styled(p, src, fade, streaming, markdown_style(p, color), highlights)
+fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
+    markdown_styled(p, src, fade, streaming, markdown_style(p, color, width), highlights)
 }
 
-/// The timeline's Markdown look, its body text in `color`.
-pub(crate) fn markdown_style(p: &Pal, color: Color) -> MarkdownStyle {
+/// The timeline's Markdown look, its body text in `color`, its diagrams at most `width` points
+/// wide (the column they sit in: wider ones lay out top-down or draw smaller).
+pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
     let style = MarkdownStyle::from_kit(crate::palette::kit(p))
         .text(color)
         .muted(p.muted)
@@ -194,7 +195,8 @@ pub(crate) fn markdown_style(p: &Pal, color: Color) -> MarkdownStyle {
         .heading_font(2, H2)
         .heading_font(3, H3)
         .code_block_font(CODE)
-        .selection(p.selection);
+        .selection(p.selection)
+        .diagram_max_width(width);
     match p.code {
         Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
         None => style,

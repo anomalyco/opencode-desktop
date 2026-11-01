@@ -144,7 +144,7 @@ pub(crate) fn reply(s: &App, p: &Pal, src: &str, fade: f32, streaming: bool, hit
         let (el, (top, bottom)) = match seg {
             Seg::Md(r) => {
                 let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, crate::find::markdown_mark(p, i, on))).collect();
-                let el = markdown_styled(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text), marks);
+                let el = markdown_styled(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks);
                 // The first run is the root and keeps its blocks' keys from before any fence.
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))
@@ -197,7 +197,7 @@ fn md_edges(src: &str) -> (f32, f32) {
 
 /// The width an outline lays out in: the timeline's content column, narrower in a narrow window.
 /// Layout rects are in the zoomed shell's points already.
-fn width(s: &App) -> f32 {
+pub(crate) fn width(s: &App) -> f32 {
     let Route::Session(id) = &s.route else { return CONTENT_W };
     rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - 48.0).clamp(0.0, CONTENT_W)).unwrap_or(CONTENT_W)
 }

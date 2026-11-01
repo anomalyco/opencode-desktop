@@ -192,7 +192,7 @@ pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) ->
     match piece {
         Piece::Quiet => quiet_view(s, p, c, fade),
         Piece::Start => divider(p, "Session compaction started"),
-        Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text)),
+        Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text, crate::genui::width(s))),
         Piece::End if running => {
             let since = s.compactions.seen.get(&c.id).map_or(s.clock, |x| x.at);
             let title = crate::working::shimmer(s, p, "Compacting", UI_MED, since);
@@ -330,7 +330,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
             .w_full()
             .pb(8.0)
             .transition(Transition::none())
-            .child(markdown_tinted(p, body, fade, false, p.muted))
+            .child(markdown_tinted(p, body, fade, false, p.muted, crate::genui::width(s)))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
         if s.compactions.opened.get(&c.id).is_some_and(|t| s.clock - t < 0.3) {
             summary = summary.looping(LoopSpec::sequence(Sequence::new(&OPEN)));
