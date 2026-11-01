@@ -185,7 +185,7 @@ pub fn sync(s: &mut App) -> bool {
 pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) -> El {
     let running = c.status == CompactionStatus::Running;
     match piece {
-        Piece::Quiet => quiet_view(s, p, c, fade),
+        Piece::Quiet => quiet_view(s, p, c),
         Piece::Start => divider(p, "Session compaction started"),
         Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text, crate::genui::width(s))),
         Piece::End if running => {
@@ -279,7 +279,7 @@ fn error_card(p: &Pal, message: &str) -> El {
 // ---------------------------------------------------------------------------------------------
 // The quiet divider
 
-fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
+fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
     let running = c.status == CompactionStatus::Running;
     let seen = s.compactions.seen.get(&c.id).copied();
     let enter = seen.and_then(|x| x.enter);
@@ -313,21 +313,23 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| press(s, tx, &id));
     }
     let mut bar = col().key("bar").w_full().pt(8.0).pb(8.0).child(divider);
-    if open {
+    if open || shutting {
         // While open it sticks to the timeline's top until the summary scrolls past, so it shuts
         // from anywhere in it; the summary softens into its fill as a tool group's steps do.
+        // Shutting from there, the summary slides away under it, never over it.
         let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
         bar = bar.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
     }
     let mut out = col().w_full().child(bar);
     if open || shutting {
-        // The row's clip reveals the summary as it folds open, so it doesn't fade in as well.
+        // The summary is finished text: the row's edge reveals it as it folds open, with no
+        // word-by-word fade on top.
         let summary = col()
             .key("summary")
             .w_full()
             .pb(8.0)
             .transition(Transition::none())
-            .child(markdown_tinted(p, body, fade, false, p.muted, crate::genui::width(s)))
+            .child(markdown_tinted(p, body, 0.0, false, p.muted, crate::genui::width(s)))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
         // Shutting, the summary stays laid out below a row that's only the divider, and the
         // row's clip folds it away; the box keeps its path, so a press doesn't remount it.

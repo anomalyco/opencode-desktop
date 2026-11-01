@@ -213,8 +213,9 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         // A step joining or the label changing crossfades the words while the chevron slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle_group(key.to_owned()));
-    if open {
-        // Steps scroll under it and soften into its fill rather than meeting a hard edge.
+    if open || shutting {
+        // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
+        // shutting from there they slide away under it.
         let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
         trigger = trigger.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
     }
