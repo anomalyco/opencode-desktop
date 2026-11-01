@@ -5,6 +5,5 @@ apps/desktop/src/agent_* 5
 apps/desktop/src/code_view/diff_* 3
 apps/desktop/src/open_* 3
 apps/desktop/src/question_* 2
-apps/desktop/src/quote_* 2
 apps/desktop/src/session_* 5
 apps/desktop/src/tool_* 3

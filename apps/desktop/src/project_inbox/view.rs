@@ -1,4 +1,4 @@
-//! The inbox above the sidebar's tabs: Needs you, Ready, then Projects, as one list the arrows
+//! The inbox above the sidebar's tabs: Needs you, Done, then Projects, as one list the arrows
 //! rove; ⏎ opens the row, E archives a task.
 
 use rune::{Anim, El, Key, Tx, col, el, row, spacer, text};
@@ -22,7 +22,7 @@ pub fn section(s: &App, p: &Pal) -> Option<El> {
     };
     let rows = s.inbox_rows();
     let mut list = col().key("inbox").role("list").focus_group().w_full().gap(4.0).pb(16.0);
-    for (kind, label) in [(Kind::Needs, "Needs you"), (Kind::Ready, "Ready")] {
+    for (kind, label) in [(Kind::Needs, "Needs you"), (Kind::Done, "Done")] {
         let of: Vec<_> = rows.iter().filter(|r| r.kind == kind).collect();
         if of.is_empty() {
             continue;

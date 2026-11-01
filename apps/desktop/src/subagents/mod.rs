@@ -1,19 +1,22 @@
 //! Subagents as Desktop shows them: the running-work capsule above the composer
-//! (`app/src/session/composer/activity-chips.tsx`) and the status line that takes the
-//! composer's place inside a child session (`subagent-bar.tsx`). The call's card in the
-//! parent's timeline is `agent_rows_view.rs`.
+//! (`app/src/session/composer/activity-chips.tsx`). A subagent's own page answers it
+//! (`reply.rs`). The call's card in the parent's timeline is `agent_rows_view.rs`.
 //!
 //! A subagent runs while its child session, or any session below it, runs. A background call's
 //! tool part finishes at once, so the call's own status only counts until it names its child.
 
-use rune::{El, Tx, col, el, icon, row, spacer, text};
+pub mod reply;
+mod stories;
+#[cfg(test)]
+mod reply_tests;
+
+use rune::{El, Tx, col, row, text};
 
 use opencode_kit::model::{self, Message, Part};
-use rune_theme_opencode::icons as ic;
 
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::view::{INSTANT, UI, UI_MED, UI_SMALL, activity_ring, activity_ring_sized};
+use crate::view::{INSTANT, UI, UI_MED, activity_ring_sized};
 use crate::{App, Route};
 
 /// One running subagent of a session, for the capsule's list.
@@ -126,86 +129,6 @@ pub fn child_of<'a>(s: &'a App, parent: &str, named: Option<&'a str>, descriptio
             .max_by_key(|x| x.created)
             .map(|x| x.id.as_str())
     })
-}
-
-/// Inside a subagent's session, in the composer's place: how the run is going, the agent and
-/// model, and the way back (Esc too).
-pub fn bar(s: &App, p: &Pal, id: &str) -> El {
-    let info = s.session(id);
-    let running = s.subtree_running(id);
-    let outcome = info.and_then(|i| i.outcome.as_deref());
-    let (glyph, status) = if running {
-        (None, Some("Running"))
-    } else {
-        match outcome {
-            Some("succeeded") => (Some(&ic::CHECK_SMALL), Some("Done")),
-            Some("failed") => (Some(&ic::CIRCLE_X), Some("Failed")),
-            Some("interrupted") => (Some(&ic::XMARK_SMALL), Some("Interrupted")),
-            _ => (None, None),
-        }
-    };
-    // "Running · 12s · General · Claude Opus": the status and its run time, then
-    // the rest, which truncates.
-    let mut head: Option<(&str, Option<i64>)> = None;
-    if let (Some(st), Some(i)) = (status, info) {
-        let end = if running { s.run_clock() } else { i.idle.unwrap_or(i.updated) };
-        head = Some((st, (i.created > 0).then(|| end - i.created)));
-    }
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(a) = info.map(|i| i.agent.as_str()).filter(|a| !a.is_empty()) {
-        parts.push(model::capitalize(a));
-    }
-    if let Some(m) = info.map(|i| &i.model).filter(|m| !m.id.is_empty()) {
-        let name = s.pickers.model_name(m);
-        let variant = if m.variant.is_empty() || m.variant == "default" { String::new() } else { format!(" {}", model::capitalize(&m.variant)) };
-        parts.push(format!("{name}{variant}"));
-    }
-    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::DOCK_W).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
-    if status.is_some() {
-        let mark = el().key("status-icon").size(16.0, 16.0).center();
-        line = line.child(match glyph {
-            Some(g) => mark.child(icon(g, 16.0).color(p.icon_faint)),
-            None => mark.child(activity_ring(p)),
-        });
-    }
-    let mut summary = row().key("summary").shrink().min_w(0.0).center_y();
-    let dot = |first: bool| if first { "" } else { " · " };
-    if let Some((st, ms)) = head {
-        summary = summary.child(text(st.to_owned()).key("status").font(UI_SMALL).color(p.faint));
-        if let Some(ms) = ms {
-            summary = summary
-                .child(text(" · ").key("dot").font(UI_SMALL).color(p.faint))
-                .child(run_time(format!("bar-time-{id}"), ms, UI_SMALL, p.faint));
-        }
-    }
-    if !parts.is_empty() {
-        let rest = format!("{}{}", dot(head.is_none()), parts.join(" · "));
-        summary = summary.child(text(rest).key("rest").font(UI_SMALL).color(p.faint).truncate_fade());
-    }
-    line = line
-        .child(summary)
-        .child(spacer())
-        .child(
-            row()
-                .key("back")
-                .role("button")
-                .label("Main session")
-                .h(24.0)
-                .px(6.0)
-                .gap(6.0)
-                .center_y()
-                .radius(6.0)
-                .hover(p.hover)
-                .press(p.pressed)
-                .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.open_parent(tx);
-                })
-                .child(text("Main session").font(UI_SMALL).color(p.faint))
-                .child(row().key("esc").h(16.0).px(4.0).center().radius(4.0).fill(p.layer2).child(text("esc").font(UI_SMALL).color(p.faint))),
-        );
-    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(crate::view::DOCK_SIDE).child(line)
 }
 
 /// "2 subagents" over the composer while anything below the session runs; it opens a list.
@@ -415,10 +338,10 @@ mod tests {
 
         press(&mut rt, "agent-line");
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
-        // Still the parent's tab, and the composer gives way to the subagent's status line.
+        // Still the parent's tab, and the composer has the subagent's status line under it.
         assert!(!rt.state.tabs.iter().any(|t| t.id == REVIEW));
         assert!(has(&rt, "", "subagent-bar"));
-        assert!(!has(&rt, "", "prompt"));
+        assert!(has(&rt, "", "prompt"));
 
         press(&mut rt, "back");
         assert_eq!(rt.state.route, Route::Session(MAIN.into()));

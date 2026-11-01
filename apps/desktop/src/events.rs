@@ -108,6 +108,7 @@ impl App {
         crate::notifications::event(self, ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.apply_inbox(ty, data, &sid);
+            crate::subagents::reply::event(self, ty, data, &sid);
             crate::background::admitted(self, ty, data, &sid);
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {

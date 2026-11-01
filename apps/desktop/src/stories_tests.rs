@@ -213,7 +213,9 @@ const APP_SCENES: &[&str] = &[
     "long-summary",
     "genui",
     "genui-stream",
+    "project-inbox",
     "short-group",
+    "subagent",
 ];
 
 const STORY_PATHS: &[&str] = &[
@@ -288,5 +290,6 @@ const STORY_PATHS: &[&str] = &[
     "Popover/Open and close",
     "Sidebar/Projects inbox",
     "Settings/Page",
+    "Composer/Subagent reply",
     "Timeline/Open tool step",
 ];

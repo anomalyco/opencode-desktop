@@ -88,6 +88,9 @@ pub enum Write {
     Create { directory: String, text: String },
     /// `Prompt` with its client id and files.
     Send { session: String, prompt: Prompt },
+    /// `Send` that moves a session whose folder is gone to its project's main checkout first
+    /// (`Server::send_moving_home`).
+    SendMovingHome { session: String, prompt: Prompt },
     /// `Create` with a full first prompt.
     Start { directory: String, prompt: Prompt },
     /// Withdraws an undelivered prompt (`DELETE /api/session/:id/inbox/:item`).
@@ -637,6 +640,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Ok(())
                         }),
                         Write::Send { session, prompt } => server.send(&session, &prompt).map(|_| ()),
+                        Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
                         Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
                             server.send(&info.id, &prompt)?;
                             // The reply to the create came before the switches.

@@ -111,7 +111,7 @@ impl App {
     }
 
     /// Swaps the composer's text when the route moves to another draft.
-    fn show_draft(&mut self) {
+    pub(crate) fn show_draft(&mut self) {
         let key = draft_key(&self.route);
         if key == self.restore.shown {
             return;

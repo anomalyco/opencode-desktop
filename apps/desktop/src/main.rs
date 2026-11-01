@@ -103,7 +103,9 @@ mod question_row;
 mod question_stories;
 mod queue;
 mod quote;
+#[path = "quote/cards.rs"]
 mod quote_cards;
+#[path = "quote/stories.rs"]
 mod quote_stories;
 mod restore;
 mod review;
@@ -273,6 +275,8 @@ pub struct App {
     pub restore: restore::Restore,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
+    /// Replies to subagents still on their way, to take back if the send fails.
+    pub subagent_replies: subagents::reply::Sent,
     /// The plan's list over the todo pill is open (`todos.rs`).
     pub todo_open: bool,
     pub todo_ticks: todos::Ticks,
@@ -567,8 +571,12 @@ impl App {
         self.projects.iter().find(|p| p.id == id)
     }
 
-    /// Whether anything in the open session's family is running.
+    /// Whether anything in the open session's family is running. A subagent's page counts only
+    /// its own run and those below it, so a reply to a finished one sends while its parent works.
     pub fn busy(&self, id: &str) -> bool {
+        if self.session(id).is_some_and(|i| i.parent.is_some()) {
+            return self.subtree_running(id);
+        }
         let root = self.root_of(id);
         self.running.iter().any(|s| self.root_of(s) == root)
     }
@@ -686,6 +694,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Status(e) => {
                         if !rewind::failed(s, &e) && !stop::failed(s, &e) {
+                            subagents::reply::failed(s, &e);
                             status_toast::from_server(s, e);
                         }
                     }

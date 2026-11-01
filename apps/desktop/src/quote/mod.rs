@@ -335,5 +335,5 @@ fn bar(p: &Pal, truncated: bool) -> El {
 }
 
 #[cfg(test)]
-#[path = "quote_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

@@ -28,8 +28,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let mut page = page
         .child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills))
         .child(requests(s, p, id));
-    // A subagent takes no prompts: its status line stands where the composer would.
-    page = if child { page.child(crate::subagents::bar(s, p, id)) } else { page.child(composer_dock(s, p)) };
+    page = page.child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
 }

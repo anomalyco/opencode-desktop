@@ -53,7 +53,8 @@ impl App {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
-        if !self.inbox_write(Write::Send { session: session.to_owned(), prompt }) {
+        let write = self.send_write(session, prompt);
+        if !self.inbox_write(write) {
             return;
         }
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));

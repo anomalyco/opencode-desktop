@@ -17,15 +17,15 @@ fn ids(s: &App, kind: Kind) -> Vec<String> {
     s.inbox_rows().iter().filter(|r| r.kind == kind).map(|r| r.info.id.clone()).collect()
 }
 
-fn ready(s: &App, id: &str) -> bool {
-    ids(s, Kind::Ready).iter().any(|r| r == id)
+fn done(s: &App, id: &str) -> bool {
+    ids(s, Kind::Done).iter().any(|r| r == id)
 }
 
 #[test]
-fn tasks_waiting_on_you_and_ready_to_read_fill_the_inbox() {
+fn tasks_waiting_on_you_and_done_ones_fill_the_inbox() {
     let s = world();
     assert_eq!(ids(&s, Kind::Needs), ["ses_ib01", "ses_ib05"], "a helper's question shows on its task");
-    assert_eq!(ids(&s, Kind::Ready), ["ses_ib02", "ses_ib09", "ses_ib06"]);
+    assert_eq!(ids(&s, Kind::Done), ["ses_ib02", "ses_ib09", "ses_ib06"]);
     assert_eq!(s.lead_of("ses_ib03"), Some("ses_ib01"), "a task's subagent is its helper");
     assert_eq!(s.project_of_task("ses_ib03"), Some(MAIN));
     assert_eq!(s.project_of_task(MAIN), None, "a project is never its own task");
@@ -58,9 +58,9 @@ fn opening_a_task_reads_it_on_the_server_and_it_leaves_once_moved_on_from() {
     let mut tx = Tx::default();
     s.open("ses_ib06", &mut tx);
     assert!(matches!(writes.try_recv(), Ok(Write::View { session, .. }) if session == "ses_ib06"));
-    assert!(ready(&s, "ses_ib06"), "the open one stays");
+    assert!(done(&s, "ses_ib06"), "the open one stays");
     s.open(MAIN, &mut tx);
-    assert!(!ready(&s, "ses_ib06"));
+    assert!(!done(&s, "ses_ib06"));
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn a_task_finishing_under_its_open_project_stays_unread() {
     s.route = Route::Session(MAIN.into());
     s.apply_event("session.execution.succeeded", &serde_json::json!({ "sessionID": "ses_ib07" }));
     assert!(s.session("ses_ib07").unwrap().unread());
-    assert!(ready(&s, "ses_ib07"));
+    assert!(done(&s, "ses_ib07"));
 }
 
 #[test]
@@ -78,10 +78,10 @@ fn e_reads_a_task_until_it_goes_idle_again() {
     let writes = s.fake_writes();
     s.mark_task_read("ses_ib09", &mut Tx::default());
     assert!(matches!(writes.try_recv(), Ok(Write::View { session, .. }) if session == "ses_ib09"));
-    assert!(!ready(&s, "ses_ib09"));
+    assert!(!done(&s, "ses_ib09"));
     s.now_ms += 1000;
     s.apply_event("session.execution.succeeded", &serde_json::json!({ "sessionID": "ses_ib09" }));
-    assert!(ready(&s, "ses_ib09"), "it came back by itself");
+    assert!(done(&s, "ses_ib09"), "it came back by itself");
 }
 
 #[test]
@@ -92,9 +92,9 @@ fn close_archives_a_task_and_another_client_can_bring_it_back() {
     assert!(session_menu::lines(&s, &t).iter().any(|l| matches!(l, session_menu::Line::Item(i) if i.title == "Close")));
     session_menu::run(&mut s, &t, "close-task", &mut Tx::default());
     assert!(matches!(writes.try_recv(), Ok(Write::Archive(id)) if id == "ses_ib09"));
-    assert!(!ready(&s, "ses_ib09"));
+    assert!(!done(&s, "ses_ib09"));
     s.apply_event("session.unarchived", &serde_json::json!({ "sessionID": "ses_ib09" }));
-    assert!(ready(&s, "ses_ib09"));
+    assert!(done(&s, "ses_ib09"));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn new_project_marks_the_session_it_opens() {
 fn the_sidebar_lists_projects_instead_of_their_tabs() {
     let mut rt = world().into_runtime();
     rt.frame(0.0);
-    for want in ["h-Needs you · 2", "h-Ready · 3", "h-Projects", &format!("ip-{MAIN}"), &format!("ip-{SIXTH}"), "ib-ses_ib01", "ib-ses_ib09"] {
+    for want in ["h-Needs you · 2", "h-Done · 3", "h-Projects", &format!("ip-{MAIN}"), &format!("ip-{SIXTH}"), "ib-ses_ib01", "ib-ses_ib09"] {
         assert!(rt.find(want).is_some(), "{want}");
     }
     assert!(rt.find("ib-ses_ib04").is_none(), "a working task has no row");
@@ -170,4 +170,28 @@ fn a_project_or_task_row_leaves_settings_for_it() {
         assert!(!rt.state.settings.open, "{row}");
         assert_eq!(rt.state.route, Route::Session(id.into()));
     }
+}
+
+#[test]
+fn a_done_task_answered_leaves_done_while_it_works_and_comes_back() {
+    let mut s = world();
+    let _writes = s.fake_writes();
+    let mut tx = Tx::default();
+    // Answered from its page, and still there when it finishes.
+    s.open("ses_ib06", &mut tx);
+    s.now_ms += 1000;
+    s.apply_event("session.execution.started", &serde_json::json!({ "sessionID": "ses_ib06" }));
+    assert!(!done(&s, "ses_ib06"), "working, it isn't done");
+    s.now_ms += 1000;
+    s.apply_event("session.execution.succeeded", &serde_json::json!({ "sessionID": "ses_ib06" }));
+    assert!(done(&s, "ses_ib06"), "finished, it's back");
+    // Answered, then left for another project.
+    s.open("ses_ib09", &mut tx);
+    s.now_ms += 1000;
+    s.apply_event("session.execution.started", &serde_json::json!({ "sessionID": "ses_ib09" }));
+    s.open(SIXTH, &mut tx);
+    assert!(!done(&s, "ses_ib09"));
+    s.now_ms += 1000;
+    s.apply_event("session.execution.succeeded", &serde_json::json!({ "sessionID": "ses_ib09" }));
+    assert!(done(&s, "ses_ib09"));
 }

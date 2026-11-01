@@ -54,7 +54,9 @@ impl App {
     pub fn stop(&mut self) {
         let Route::Session(id) = self.route.clone() else { return };
         let root = self.root_of(&id).to_owned();
-        let running: Vec<String> = self.running.iter().filter(|s| self.root_of(s) == root).cloned().collect();
+        // On a subagent's page, Stop stops that subagent and its own helpers.
+        let child = self.session(&id).is_some_and(|i| i.parent.is_some());
+        let running: Vec<String> = self.running.iter().filter(|s| if child { self.descends(s, &id) } else { self.root_of(s) == root }).cloned().collect();
         // The fixture and the storybook answer as a server would, a little later.
         let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
         for sid in running {

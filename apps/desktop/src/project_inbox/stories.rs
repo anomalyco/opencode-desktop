@@ -1,5 +1,5 @@
 //! Sidebar › Projects inbox: two project sessions, lumen's and harbor's, with tasks waiting on
-//! you (one through its helper's question), tasks ready to read and tasks still working.
+//! you (one through its helper's question), tasks done and unread and tasks still working.
 
 use opencode_kit::model::SessionInfo;
 use rune::{El, Play, Tx, row};
@@ -13,7 +13,7 @@ const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'a', label: "A task asks", run: |s, tx| ask(s, tx) },
     Trigger { key: 'f', label: "A working task finishes", run: |s, tx| finish(s, tx) },
-    Trigger { key: 'x', label: "Mark the first ready task read", run: |s, tx| read(s, tx) },
+    Trigger { key: 'x', label: "Mark the first done task read", run: |s, tx| read(s, tx) },
 ];
 
 fn task(s: &mut App, id: &str, parent: &str, title: &str, idle_min: Option<i64>) {
@@ -83,7 +83,7 @@ fn finish(s: &mut App, tx: &mut Tx) {
 }
 
 fn read(s: &mut App, tx: &mut Tx) {
-    let first = s.inbox_rows().iter().find(|r| r.kind == super::Kind::Ready).map(|r| r.info.id.clone());
+    let first = s.inbox_rows().iter().find(|r| r.kind == super::Kind::Done).map(|r| r.info.id.clone());
     if let Some(id) = first {
         s.mark_task_read(&id, tx);
     }
@@ -99,3 +99,5 @@ rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
         crate::stories::stage(s, story_view)
     }, knobs: &[], keys: KEYS, variants: &[] },
 ]);
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("project-inbox", seed)]);

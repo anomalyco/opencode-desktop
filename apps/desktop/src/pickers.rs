@@ -216,6 +216,13 @@ impl App {
     /// with. An agent switch can move the model, so the model goes with it, as Desktop sends it.
     /// A new session takes what the toolbar shows, so it starts as it says.
     pub fn picked_choice(&self) -> (Option<String>, Option<ModelRef>) {
+        // A reply to a subagent always names its agent and model, so it carries on as itself.
+        if let Some(info) = self.subagent_page() {
+            let picked = self.pickers.selections.get(&info.id);
+            let agent = picked.map(|p| p.agent.clone()).unwrap_or_else(|| info.agent.clone());
+            let model = picked.map(|p| p.model.clone()).unwrap_or_else(|| info.model.clone());
+            return (Some(agent).filter(|a| !a.is_empty()), Some(model).filter(|m| !m.id.is_empty()));
+        }
         let draft = !matches!(self.route, Route::Session(_));
         let picked = match self.pickers.selections.get(self.selection_key()) {
             Some(p) => p.clone(),

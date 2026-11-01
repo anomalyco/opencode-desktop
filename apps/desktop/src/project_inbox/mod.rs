@@ -1,6 +1,6 @@
 //! Projects you talk to (t1191): any session can be marked a project. The subagents it starts
 //! after the mark are its tasks, and they feed an inbox above the sidebar's tabs: Needs you (an
-//! open question or permission anywhere in the task), Ready (went idle and not read since), then
+//! open question or permission anywhere in the task), Done (went idle and not read since), then
 //! a line per project with how many of its tasks are working. A task's own subagents are its
 //! helpers: they fold into its row. E marks a task read; right-click › Close archives it.
 //!
@@ -30,14 +30,14 @@ pub struct State {
     asked: HashSet<String>,
     /// The next session "New project" creates becomes a project.
     pub mark_next: bool,
-    /// The task opened from Ready: it stays in the list while it's open, until E.
+    /// The task opened from Done: it stays in the list while it's open, until E.
     kept: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
     Needs,
-    Ready,
+    Done,
 }
 
 /// One task in the inbox, under the project session it belongs to.
@@ -85,7 +85,7 @@ impl App {
         self.requests.iter().any(|(s, _)| self.lead_of(s) == Some(lead))
     }
 
-    /// Needs you first, then Ready, newest first in each.
+    /// Needs you first, then Done, newest first in each.
     pub fn inbox_rows(&self) -> Vec<Row<'_>> {
         if self.project_marks().is_empty() {
             return vec![];
@@ -100,7 +100,7 @@ impl App {
                 let kind = if self.task_asks(&info.id) {
                     Kind::Needs
                 } else if !self.running.contains(&info.id) && (info.unread() || kept(&info.id)) {
-                    Kind::Ready
+                    Kind::Done
                 } else {
                     return None;
                 };
@@ -130,7 +130,7 @@ impl App {
         }
     }
 
-    /// E: the task is read. It comes back to Ready by itself once it goes idle again.
+    /// E: the task is read. It comes back to Done by itself once it goes idle again.
     pub fn mark_task_read(&mut self, id: &str, tx: &mut Tx) {
         tx.instant();
         if self.project_inbox.kept.as_deref() == Some(id) {

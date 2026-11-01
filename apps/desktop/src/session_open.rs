@@ -32,8 +32,9 @@ impl App {
         self.route = Route::Session(id.to_owned());
         self.sync_route_draft(&prev_route, id);
         let root = self.root_of(id).to_owned();
-        // As in Desktop, you can type straight away. A subagent's session has no composer, and
-        // a story's keys stay with the storybook.
+        // As in Desktop, you can type straight away. A subagent's page waits for a click into
+        // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's
+        // keys stay with the storybook.
         if root == id && self.stage.is_none() && !self.question_shown() {
             self.composer.focused = true;
         }

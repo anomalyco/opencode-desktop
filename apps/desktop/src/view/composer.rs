@@ -22,11 +22,13 @@ pub(super) fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color
 }
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let queue = match &s.route {
-        Route::Session(id) => Some(crate::queue::panel(s, p, id, s.busy(id))),
-        _ => None,
+    let (queue, status) = match &s.route {
+        Route::Session(id) => (Some(crate::queue::panel(s, p, id, s.busy(id))), crate::subagents::reply::status_line(s, p, id)),
+        _ => (None, None),
     };
-    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(crate::view::DOCK_SIDE).children(queue).child(composer(s, p))
+    // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
+    let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
+    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(pb).children(queue).child(composer(s, p)).children(status)
 }
 
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
@@ -108,7 +110,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .pill_style(crate::mentions::badge::pill_style(p))
                     .on_input_change(|s: &mut App, tx| { crate::quote::typed(s, tx); s.mentions_changed(tx); s.slash_changed(tx) })
                     .on_input_key(|s: &mut App, ev, tx| {
-                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) || crate::stop::key(s, ev, tx) {
+                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) || crate::subagents::reply::esc(s, ev, tx) || crate::stop::key(s, ev, tx) {
                             return true;
                         }
                         if ev.key == Key::Escape && !s.route_busy() && crate::status_toast::key(s, ev, tx) {
@@ -133,7 +135,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 .gap(4.0)
                 .center_y()
                 .child(crate::add_menu::trigger(s, p))
-                .children(s.settings.show_agent.then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
+                .children((s.settings.show_agent || s.subagent_page().is_some()).then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
                 .child(picker_trigger(s, p, Kind::Model, &s.pickers.model_name(&model), p.muted))
                 // "Default" is the absence of a choice, so it reads fainter than a picked effort.
                 .children(s.has_effort().then(|| {
