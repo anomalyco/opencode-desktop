@@ -278,6 +278,7 @@ const STORY_PATHS: &[&str] = &[
     "Review/Inline diff",
     "Files/Pane",
     "Files/Quick open (⌘P)",
+    "Files/Markdown file",
     "Projects/Open project",
     "Projects/Project switcher",
     "Settings/Appearance",

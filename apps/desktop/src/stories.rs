@@ -206,6 +206,7 @@ const ORDER: &[&str] = &[
     "Review/Inline diff",
     "Files/Pane",
     "Files/Quick open (⌘P)",
+    "Files/Markdown file",
     "Projects/Open project",
     "Projects/Project switcher",
 ];

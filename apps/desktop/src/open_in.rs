@@ -184,6 +184,11 @@ impl OpenIn {
         self.busy
     }
 
+    /// Opens absolute `path` in its default app.
+    pub fn open_default(&mut self, path: String) {
+        self.launch("", path, false);
+    }
+
     fn launch(&mut self, app: &str, path: String, reveal: bool) {
         if self.busy {
             return;

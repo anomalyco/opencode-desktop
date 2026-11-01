@@ -207,11 +207,7 @@ pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
-        .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| {
-            if s.live() || cfg!(test) {
-                let _ = tx.open_url(url);
-            }
-        })
+        .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| s.open_reply_link(url, tx))
         .build(crate::palette::kit(p)).selection_group(false)
 }
 

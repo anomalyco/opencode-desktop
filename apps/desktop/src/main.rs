@@ -466,6 +466,9 @@ impl App {
         }
         self.settings = settings::load();
         self.load_open_in();
+        if self.persists() {
+            self.files.wrap = files::markdown::WrapPrefs::load();
+        }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::ModelPrefs::load();
         self.restore_ui(&server.base);
