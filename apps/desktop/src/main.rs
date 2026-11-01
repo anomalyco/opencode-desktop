@@ -38,6 +38,7 @@ mod dictation;
 mod dictation_tests;
 mod disclosure;
 mod disk;
+mod effort_flyout;
 mod dropzone;
 mod events;
 mod files;

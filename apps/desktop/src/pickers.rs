@@ -83,7 +83,20 @@ pub struct Pickers {
     /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
     /// (Desktop's staged variant). Opening the list clears them.
     staged: HashMap<String, String>,
+    /// The lit model's efforts, open beside its row.
+    pub flyout: Option<crate::effort_flyout::Flyout>,
     pub prefs: ModelPrefs,
+}
+
+/// `items` with each group's rows together, groups in the order they first appear: the server
+/// needn't list a provider's models side by side, and a group gets one heading.
+fn grouped(mut items: Vec<Item>) -> Vec<Item> {
+    let mut order: Vec<String> = Vec::new();
+    for i in &items {
+        if !order.contains(&i.group) { order.push(i.group.clone()); }
+    }
+    items.sort_by_key(|i| order.iter().position(|g| *g == i.group));
+    items
 }
 
 impl Pickers {
@@ -133,8 +146,15 @@ impl Pickers {
         }
     }
 
+    /// Lights the row `key`; another row's efforts close.
     pub fn activate(&mut self, key: String) {
+        if self.flyout.as_ref().is_some_and(|f| f.model != key) { self.flyout = None; }
         self.active.set(key, self.search.text.clone());
+    }
+
+    /// Picking the model `key` now runs it with `effort` ("" for its default).
+    pub fn stage_effort(&mut self, key: &str, effort: &str) {
+        self.staged.insert(key.to_owned(), effort.to_owned());
     }
 
     pub fn model_name(&self, m: &ModelRef) -> String {
@@ -267,19 +287,19 @@ impl App {
             note: if note { m.group.clone() } else { String::new() }, free: m.free,
         };
         if !q.is_empty() {
-            return self.pickers.models.iter()
+            return grouped(self.pickers.models.iter()
                 .filter(|m| format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q))
-                .map(|m| item(m, &m.group, false)).collect();
+                .map(|m| item(m, &m.group, false)).collect());
         }
         let prefs = &self.pickers.prefs;
         let find = |k: &String| self.pickers.models.iter().find(|m| &m.key == k);
         let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
         let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
         let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-        favorites.iter().map(|m| item(m, FAVORITES, true))
+        grouped(favorites.iter().map(|m| item(m, FAVORITES, true))
             .chain(recent.iter().map(|m| item(m, RECENT, true)))
             .chain(self.pickers.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.group, false)))
-            .collect()
+            .collect())
     }
 
     /// Stars or unstars a model (⌘F on the highlighted row, or its star).
@@ -303,7 +323,7 @@ impl App {
         let options: Vec<String> = std::iter::once(String::new()).chain(m.variants.iter().cloned()).collect();
         let at = options.iter().position(|v| *v == now);
         let next = options[cycle(options.len(), at, step)].clone();
-        self.pickers.staged.insert(key.to_owned(), next);
+        self.pickers.stage_effort(key, &next);
         true
     }
 
@@ -347,6 +367,7 @@ impl App {
         self.pickers.search = TextEdit::new("");
         self.pickers.search.focused = kind == Kind::Model;
         self.pickers.staged.clear();
+        self.pickers.flyout = None;
         let current = self.picker_current(kind);
         self.pickers.active.set(current, String::new());
         self.composer.focused = false;
@@ -355,6 +376,7 @@ impl App {
 
     pub fn close_picker(&mut self, restore: bool) {
         self.pickers.open = None;
+        self.pickers.flyout = None;
         self.pickers.search.focused = false;
         self.pickers.search.preedit = None;
         self.pickers.search.break_history_group();
@@ -429,6 +451,7 @@ impl App {
     fn picker_keys(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if self.pickers.open.is_some() {
             match nav(ev) {
+                Some(Nav::Close) if self.pickers.flyout.is_some() => self.pickers.flyout = None,
                 Some(Nav::Close) => self.close_picker(true),
                 Some(Nav::Leave) => {
                     let kind = self.pickers.open.filter(|k| *k != Kind::Project);
@@ -455,6 +478,7 @@ impl App {
                     && self.pickers.open == Some(Kind::Model) && self.pickers.search.text.is_empty() => {
                     let Some(key) = self.picker_active() else { return false };
                     if !self.step_effort(&key, if ev.key == Key::Right { 1 } else { -1 }) { return false; }
+                    self.pickers.flyout = None;
                 }
                 None => return self.pickers.open != Some(Kind::Model),
             }

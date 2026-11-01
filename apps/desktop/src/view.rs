@@ -70,7 +70,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if s.pickers.open.is_some() {
         // Nothing gets focus back, so the search field can unmount in this frame.
         inner = inner.child(crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false)))
-            .child(picker(s, p));
+            .child(picker(s, p))
+            .children(crate::effort_flyout::view(s, p));
     }
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)

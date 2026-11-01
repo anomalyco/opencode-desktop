@@ -237,3 +237,51 @@ fn left_and_right_choose_the_lit_models_effort() {
     assert_eq!(format!("{}:{}", s.model.provider, s.model.id), next);
     assert_eq!(s.model.variant, staged, "picking the row runs it with its staged effort");
 }
+
+fn tap(rt: &mut Runtime<App>, target: &str) {
+    let (x, y) = rt.find(target).unwrap_or_else(|| panic!("{target} is on screen"));
+    rt.pointer_move(x, y);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    for _ in 0..10 {
+        rt.frame(1.0 / 60.0);
+    }
+}
+
+/// A press on the lit row's "High ›" opens its efforts beside it, and picking one picks the model
+/// with that effort (p169).
+#[test]
+fn the_effort_chevron_opens_the_models_efforts() {
+    let (mut rt, _) = live();
+    press(&mut rt, Key::Command('\''), false);
+    let lit = rt.state.picker_active().unwrap();
+    tap(&mut rt, "trailing-note");
+    assert!(rt.find("effort-flyout").is_some(), "the efforts open");
+    assert!(rt.find("effort-default").is_some() && rt.find("effort-high").is_some());
+    press(&mut rt, Key::Escape, false);
+    assert!(rt.find("effort-flyout").is_none() && rt.state.pickers.open.is_some(), "Esc closes the efforts, not the list");
+
+    tap(&mut rt, "trailing-note");
+    tap(&mut rt, "effort-default");
+    assert!(rt.state.pickers.open.is_none(), "picking an effort picks the model");
+    let s = rt.state.selection();
+    assert_eq!(format!("{}:{}", s.model.provider, s.model.id), lit);
+    assert_eq!(s.model.variant, "", "with the effort picked");
+}
+
+/// A provider whose models the server lists apart still gets one heading, its models under it.
+#[test]
+fn each_provider_gets_one_heading() {
+    let mut rt = crate::fixture_runtime();
+    let model = |id: &str, provider: &str| serde_json::json!({"id": id, "providerID": provider, "name": id});
+    let models = serde_json::json!([model("a", "openai"), model("b", "xai"), model("c", "openai")]);
+    rt.update(|s, _| {
+        s.pickers.load_live(&models, &serde_json::json!([]));
+        s.pickers.prefs = Default::default();
+        s.open_picker(Kind::Model);
+    });
+    rt.frame(1.0 / 60.0);
+    let keys: Vec<_> = rt.state.picker_items().into_iter().map(|i| i.key).collect();
+    assert_eq!(keys, ["openai:a", "openai:c", "xai:b"]);
+}

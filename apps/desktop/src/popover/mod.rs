@@ -179,9 +179,12 @@ pub fn star(p: &Pal, on: bool, toggle: impl Fn(&mut App) + 'static) -> El {
         .child(icon(if on { &STAR_FILLED } else { &STAR }, 14.0).color(if on { p.icon } else { p.icon_muted }))
 }
 
-/// Muted words and a chevron at a row's end: the lit model's effort, which ← → change.
-pub fn trailing_note(p: &Pal, label: &str) -> El {
-    row().key("trailing-note").shrink().min_w(0.0).max_w(136.0).gap(2.0).center_y()
+/// Muted words and a chevron at a row's end: the lit model's effort, which ← → change and a
+/// press opens (`open`).
+pub fn trailing_note(p: &Pal, label: &str, open: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    row().key("trailing-note").role("button").label("Choose effort").help("Choose effort  ← →")
+        .shrink().min_w(0.0).max_w(136.0).h(20.0).pl(4.0).gap(2.0).center_y().radius(4.0)
+        .hover(p.hover).press(p.pressed).on_press_tx(open)
         .child(text(label.to_owned()).font(UI).color(p.muted).shrink().min_w(0.0).truncate_fade())
         .child(icon(&ic::CHEVRON_RIGHT, SLOT).color(p.icon_muted))
 }
@@ -224,6 +227,7 @@ impl Opt {
 
 /// An option row: the highlight follows the pointer at once (`hover`) and a press picks it.
 pub fn option(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut App) + 'static, pick: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    let slides = o.slides;
     let mut r = row()
         .key(o.key)
         .role(o.role)
@@ -243,6 +247,7 @@ pub fn option(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut App) + 'static, p
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
                 tx.instant();
+                if slides { slide::jump(); }
                 hover(s);
             }
         })

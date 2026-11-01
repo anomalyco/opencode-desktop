@@ -206,7 +206,11 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         if kind == Kind::Model && is_active {
             if let Some(effort) = s.model_effort(&key) {
                 let label = if effort.is_empty() { "Default".to_owned() } else { model::capitalize(&effort) };
-                o = o.trailing(pop::trailing_note(p, &label).help("Effort: ← →"));
+                let open = key.clone();
+                o = o.trailing(pop::trailing_note(p, &label, move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.toggle_effort_flyout(&open);
+                }));
             }
             let star = key.clone();
             o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
