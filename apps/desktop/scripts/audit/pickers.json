@@ -1,5 +1,5 @@
 {
-  "scene": "session", "secs": 6.6,
+  "scene": "session", "secs": 7.2,
   "events": [
     {"t": 0.1, "type": "key", "name": ",", "cmd": true, "expect": "instant"},
     {"t": 0.3, "type": "tap", "key": "show-agent"},
@@ -10,14 +10,18 @@
     {"t": 1.7, "type": "move", "key": "option-openai:gpt-6-astra", "expect": "instant"},
     {"t": 1.9, "type": "type", "text": "gem", "every": 0.1, "expect": "instant"},
     {"t": 2.5, "type": "key", "name": "Escape", "expect": "instant"},
-    {"t": 2.9, "type": "tap", "key": "toolbar/agent"},
-    {"t": 3.3, "type": "key", "name": "Down", "expect": "instant"},
-    {"t": 3.5, "type": "key", "name": "Down", "expect": "instant"},
-    {"t": 3.7, "type": "key", "name": "Escape", "expect": "instant"},
-    {"t": 4.1, "type": "tap", "key": "toolbar/effort", "expect": "instant"},
-    {"t": 4.5, "type": "key", "name": "Up", "expect": "instant"},
-    {"t": 4.7, "type": "key", "name": "Enter", "expect": "instant"},
-    {"t": 5.2, "type": "tap", "key": "toolbar/model"},
-    {"t": 5.6, "type": "tap", "x": 640, "y": 200, "expect": "instant"}
+    {"t": 2.9, "type": "tap", "key": "toolbar/effort", "expect": "instant"},
+    {"t": 3.3, "type": "key", "name": "Up", "expect": "instant"},
+    {"t": 3.5, "type": "key", "name": "Enter", "expect": "instant"},
+    {"t": 3.9, "type": "tap", "key": "toolbar/model"},
+    {"t": 4.2, "type": "move", "key": "option-anthropic:claude-opus-5-5", "expect": "instant"},
+    {"t": 4.5, "type": "move", "key": "effort-low", "expect": "instant"},
+    {"t": 4.7, "type": "tap", "key": "effort-medium", "expect": "instant"},
+    {"t": 5.1, "type": "tap", "key": "toolbar/agent"},
+    {"t": 5.5, "type": "key", "name": "Down", "expect": "instant"},
+    {"t": 5.7, "type": "key", "name": "Down", "expect": "instant"},
+    {"t": 5.9, "type": "key", "name": "Escape", "expect": "instant"},
+    {"t": 6.3, "type": "tap", "key": "toolbar/model"},
+    {"t": 6.7, "type": "tap", "x": 640, "y": 200, "expect": "instant"}
   ]
 }
