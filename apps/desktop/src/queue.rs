@@ -53,10 +53,12 @@ impl App {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
+        let sent = crate::send_failed::Sent::new(session, &id, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), true);
         let write = self.send_write(session, prompt);
         if !self.inbox_write(write) {
             return;
         }
+        self.unsent.note(sent);
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));
         model::set_user_quotes(&id, self.quote.take());
         self.inboxes.entry(session.to_owned()).or_default().upsert(item);
@@ -121,6 +123,10 @@ impl App {
         if let Some(t) = self.transcripts.get(sid) {
             inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
         }
+        if ty == "session.inbox.listed" && self.unsent.unsure() {
+            let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
+            self.judge_sends_by_inbox(sid, &ids);
+        }
         match change {
             InboxChange::None => false,
             InboxChange::Changed => true,
@@ -162,7 +168,7 @@ pub fn pending_label(item: &InboxItem) -> String {
 /// A pending steer's Move to queue and Delete, where a prompt's copy button goes (see
 /// `view::user_bubble`): beside the bubble while hovered inside a run (`beside`), or on the
 /// line under the run's last steer, marked Pending.
-pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
+pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool, sending: bool) -> El {
     let (sq, iq) = (session.to_owned(), id.to_owned());
     let (sd, id) = (session.to_owned(), id.to_owned());
     let buttons = row()
@@ -181,7 +187,7 @@ pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
         .h(20.0)
         .gap(8.0)
         .center_y()
-        .child(row().gap(4.0).center_y().child(icon(&STEER, 14.0).color(p.icon_faint)).child(text("Pending").font(UI_SMALL).color(p.faint)))
+        .child(row().gap(4.0).center_y().child(icon(&STEER, 14.0).color(p.icon_faint)).child(text(if sending { "Sending…" } else { "Pending" }).font(UI_SMALL).color(p.faint)))
         .child(buttons)
 }
 

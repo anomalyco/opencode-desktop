@@ -9,6 +9,7 @@ use opencode_kit::{client::Server, model::{self, Message}};
 use rune::Waker;
 use serde_json::{Value, json};
 
+const STILL_TRYING: &str = "OpenCode isn't answering. Still trying.";
 pub const LATEST: usize = 12;
 const ENTRIES: usize = 12;
 const DISK_BYTES: u64 = 32 << 20;
@@ -35,7 +36,14 @@ pub struct State {
     /// The session whose timeline stands near its top, told by its scroll viewport.
     near_top: std::rc::Rc<std::cell::RefCell<String>>,
     wake: Option<Waker>,
+    /// The calm "still trying" toast's id while it is up, and whether this silence showed one.
+    waiting: Option<u64>,
+    told: bool,
+    stall_after: Option<Duration>,
 }
+
+/// How long the server may stay silent before the app says so.
+const STALL_AFTER: Duration = Duration::from_secs(30);
 
 /// The older page being read.
 struct Fetching { id: String, at: Instant, slow: bool, failed: bool }
@@ -76,6 +84,11 @@ impl State {
     /// Whether a page before `id`'s oldest loaded message is still to read.
     pub fn more_above(&self, id: &str) -> bool {
         self.older.get(id).is_some_and(Option::is_some)
+    }
+
+    #[cfg(test)]
+    pub fn stall_after(&mut self, after: Duration) {
+        self.stall_after = Some(after);
     }
 
     #[cfg(test)]
@@ -126,6 +139,8 @@ struct Queue {
     active: HashSet<(Key, Option<String>)>,
     ready: VecDeque<Arc<Page>>,
     failed: HashMap<Key, Instant>,
+    /// When the open lane's reads began failing to get an answer; cleared by one that does.
+    stalled: Option<Instant>,
     stopped: bool,
 }
 
@@ -170,6 +185,16 @@ impl Pages {
                 .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
         }
         Self { shared, results, wake: Some(wake) }
+    }
+
+    /// How long the open lane has gone without an answer from the server, if it has.
+    pub fn stalled_for(&self) -> Option<Duration> {
+        self.shared.0.lock().unwrap().stalled.map(|at| at.elapsed())
+    }
+
+    /// Starts the silence over, as when the event stream comes back.
+    pub fn forgive(&self) {
+        self.shared.0.lock().unwrap().stalled = None;
     }
 
     /// Memory is ready before the worker wakes the app, so a click racing that wake can paint.
@@ -265,9 +290,24 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, super::switcher::encode(cursor)),
             None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
         };
-        let start = Instant::now();
+        let mut start = Instant::now();
         crate::telemetry::take_read();
-        match fetch(&path) {
+        let mut answer = fetch(&path);
+        // A server that is frozen or restarting gets asked again, quietly, while the open
+        // session stays as it is; the app speaks up only if the silence lasts (`State::stalled`).
+        for attempt in 0.. {
+            let Err(error) = &answer else { break };
+            if !foreground || !opencode_kit::plain_error::is_transient(error) { break; }
+            eprintln!("opencode-rune: session read failed, retrying: {error}");
+            q.0.lock().unwrap().stalled.get_or_insert_with(Instant::now);
+            wake();
+            if !pause(&q, backoff(attempt)) { return; }
+            start = Instant::now();
+            crate::telemetry::take_read();
+            answer = fetch(&path);
+        }
+        if answer.is_ok() { q.0.lock().unwrap().stalled = None; }
+        match answer {
             Ok(value) => {
                 let end = Instant::now();
                 let mut read = crate::telemetry::Read { source: "server", fetch: Some((start, end)), ..Default::default() };
@@ -285,6 +325,22 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
         }
         q.0.lock().unwrap().active.remove(&(job.key, job.cursor));
     }
+}
+
+/// 2 s, 4 s, then 8 s between reads (tens of milliseconds under test).
+fn backoff(attempt: u32) -> Duration {
+    let unit = if cfg!(test) { Duration::from_millis(10) } else { Duration::from_secs(1) };
+    unit * (2u32 << attempt.min(2))
+}
+
+/// Sleeps `total`; false if the pool stopped meanwhile.
+fn pause(q: &Shared, total: Duration) -> bool {
+    let until = Instant::now() + total;
+    while Instant::now() < until {
+        if q.0.lock().unwrap().stopped { return false; }
+        std::thread::sleep(Duration::from_millis(10).min(until - Instant::now()));
+    }
+    !q.0.lock().unwrap().stopped
 }
 
 fn disk_dir(server: &str) -> Option<PathBuf> {
@@ -401,6 +457,11 @@ impl super::App {
         self.opening.as_ref().is_some_and(|o| o.id == id && o.loading)
     }
 
+    /// Reads `id`'s latest page from the server again, ahead of anything speculative.
+    pub(crate) fn read_latest(&self, id: &str) {
+        if let Some(pool) = &self.pages.pool { pool.request(self.page_key(id), true); }
+    }
+
     pub(crate) fn page_key(&self, id: &str) -> Key {
         let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id)).map_or(0, |s| s.updated);
         Key { id: id.to_owned(), updated }
@@ -498,6 +559,11 @@ impl super::App {
         let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
         let mut changed = false;
         for result in results {
+            if let Ok(page) = &result && !page.cached && !page.history && self.unsent.unsure() {
+                self.judge_sends_by_page(&page.key.id, &page.messages);
+                self.check_sends();
+                changed = true;
+            }
             match result {
                 Ok(page) if self.route == super::Route::Session(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
@@ -507,6 +573,8 @@ impl super::App {
                 }
                 Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => {
                     if let Some(f) = &mut self.pages.fetching && f.id == key.id { f.failed = true; }
+                    // A busy server is waited out; only silence that lasts is told (below).
+                    if opencode_kit::plain_error::is_transient(&error) { eprintln!("opencode-rune: session read failed: {error}"); continue; }
                     crate::status_toast::fail(self, "Couldn't load this session", crate::status_toast::plain(error.split_once(": ").map_or(error.as_str(), |(_, why)| why)));
                     changed = true;
                 }
@@ -514,11 +582,39 @@ impl super::App {
             }
         }
         changed |= self.poll_open(tx);
+        changed |= self.tell_stall();
         if self.pages.history.as_ref().is_some_and(|(at, _, _)| *at <= Instant::now()) {
             let (_, key, cursor) = self.pages.history.take().unwrap();
             if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages.pool { pages.history(key, cursor, 80 - LATEST); }
         }
         changed | self.load_older(tx)
+    }
+
+    /// Says once, calmly, that the server has stayed silent, and takes it back when it answers.
+    fn tell_stall(&mut self) -> bool {
+        let silent = self.pages.pool.as_ref().and_then(Pages::stalled_for);
+        let after = self.pages.stall_after.unwrap_or(STALL_AFTER);
+        match (silent, self.pages.waiting) {
+            (Some(for_how_long), None) if for_how_long >= after && !self.pages.told => {
+                self.pages.told = true;
+                self.pages.waiting = Some(crate::status_toast::waiting(self, STILL_TRYING));
+                true
+            }
+            (None, waiting) => {
+                self.pages.told = false;
+                let Some(id) = waiting else { return false };
+                self.pages.waiting = None;
+                crate::status_toast::dismiss_id(self, id);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The event stream is back: the silence is over, whatever the open session's read says.
+    pub(crate) fn stream_back(&mut self) {
+        if let Some(pool) = &self.pages.pool { pool.forgive(); }
+        self.tell_stall();
     }
 
     /// Reads the page before the open session's oldest message once its timeline nears the

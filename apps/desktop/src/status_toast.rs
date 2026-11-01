@@ -126,10 +126,18 @@ fn write_title(method: &str, path: &str) -> &'static str {
 /// An error's words without the OS's code: "No such file or directory".
 pub fn plain(e: &str) -> String {
     let e = e.trim();
-    match e.rfind(" (os error ") {
-        Some(i) if e.ends_with(')') => e[..i].to_owned(),
-        _ => e.to_owned(),
-    }
+    let e = match e.rfind(" (os error ") {
+        Some(i) if e.ends_with(')') => &e[..i],
+        _ => e,
+    };
+    opencode_kit::plain_error::plain_error(e)
+}
+
+/// The calm line for a server that has stayed silent: it stays until [`dismiss_id`] clears it
+/// (the read that answers) and is not a failure. Returns its id.
+pub fn waiting(s: &mut App, title: &str) -> u64 {
+    fail(s, title, "");
+    s.toast.current.as_ref().map_or(0, |e| e.id)
 }
 
 /// Shows a failure toast that waits until dismissed, and records the message on `s.status`.

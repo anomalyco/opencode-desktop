@@ -69,7 +69,7 @@ fn server_lines_become_desktops_toasts_and_reads_stay_in_the_debug_bar() {
     let mut rt = crate::fixture_runtime();
     let cases = [
         ("POST /api/session/ses_a/prompt: http status: 500", Some(("Failed to send prompt", "http status: 500"))),
-        ("POST /api/session/ses_a/background: Connection refused (os error 61)", Some(("Request failed", "Connection refused"))),
+        ("POST /api/session/ses_a/background: Connection refused (os error 61)", Some(("Request failed", "OpenCode isn't running"))),
         ("DELETE /api/session/ses_a: http status: 404", Some(("Failed to delete session", "http status: 404"))),
         ("PATCH /api/session/ses_a: http status: 404", Some(("Failed to rename session", "http status: 404"))),
         ("POST /api/session: http status: 500", Some(("Failed to create session", "http status: 500"))),
@@ -84,7 +84,8 @@ fn server_lines_become_desktops_toasts_and_reads_stay_in_the_debug_bar() {
         });
         let got = rt.state.toast.current.as_ref().map(|e| (e.title.clone(), e.description.clone().unwrap_or_default()));
         assert_eq!(got, want.map(|(t, l)| (t.to_owned(), l.to_owned())), "{line}");
-        assert!(rt.state.status.contains(line.split(": ").last().unwrap_or(line).trim_end_matches(" (os error 61)")), "{line}: the debug bar keeps it");
+        let kept = want.map_or_else(|| line.split(": ").last().unwrap_or(line).trim_end_matches(" (os error 61)"), |(_, why)| why);
+        assert!(rt.state.status.contains(kept), "{line}: the debug bar keeps it");
     }
 }
 
@@ -92,4 +93,10 @@ fn server_lines_become_desktops_toasts_and_reads_stay_in_the_debug_bar() {
 fn errors_read_without_the_os_code() {
     assert_eq!(plain("No such file or directory (os error 2)"), "No such file or directory");
     assert_eq!(plain("http status: 500"), "http status: 500");
+}
+
+#[test]
+fn a_library_error_is_said_in_plain_words() {
+    assert_eq!(plain("timeout: global"), "OpenCode didn't answer in time");
+    assert_eq!(plain("io: Connection refused (os error 61)"), "OpenCode isn't running");
 }

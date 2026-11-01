@@ -41,8 +41,14 @@ pub(in crate::view) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
     let Place { tight, above, below, fold } = place;
     let (actions, pin_x) = match pending {
-        Some(session) => (crate::queue::pending_actions(p, session, id, below), -50.0),
-        None => crate::rewind::user_actions(s, p, id, body),
+        Some(session) => (crate::queue::pending_actions(p, session, id, below, s.unsent.sending(id)), -50.0),
+        None => {
+            let (actions, pin_x) = crate::rewind::user_actions(s, p, id, body);
+            // A prompt that timed out may or may not have arrived: its copy and rewind wait.
+            if s.unsent.sending(id) {
+                (row().key("sending").h(20.0).center_y().child(text("Sending…").font(crate::view::UI_SMALL).color(p.faint)), pin_x)
+            } else { (actions, pin_x) }
+        }
     };
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
     let mut bubble = col()

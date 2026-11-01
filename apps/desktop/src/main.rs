@@ -128,6 +128,9 @@ mod session_menu_tests;
 mod session_menu_view;
 #[cfg(test)]
 mod session_older_tests;
+#[cfg(test)]
+mod session_stall_tests;
+mod send_failed;
 mod session_open;
 mod session_pages;
 mod settings;
@@ -306,6 +309,8 @@ pub struct App {
     pub rewind: rewind::RewindState,
     pub fork: fork::ForkState,
     pub toast: status_toast::StatusToast,
+    /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
+    pub unsent: send_failed::Log,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
     base_ms: i64,
@@ -705,6 +710,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                             status_toast::from_server(s, e);
                         }
                     }
+                    Incoming::SendFailed { id, error, .. } => {
+                        if !s.send_failed(&id, &error) {
+                            status_toast::from_server(s, error);
+                        }
+                    }
                     Incoming::Pending { session, items } => {
                         s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
                         for p in items {
@@ -714,6 +724,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     Incoming::Reconnected => {
                         tx.instant();
                         project_inbox::reconnected(s);
+                        s.stream_back();
+                        s.check_sends();
                         s.resync();
                     }
                     Incoming::Active(ids) => {
