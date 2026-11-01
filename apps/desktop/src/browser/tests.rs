@@ -154,8 +154,10 @@ fn border_runs_all_the_way_around_over_opaque_native_surface() {
         "Local Preview",
         browser_pane::EngineStatus::Ready,
     );
-    let mut red = Vec::with_capacity(4 * 4 * 4);
-    for _ in 0..16 {
+    // The frame draws one texel per device pixel, so it covers the whole window to fill the page.
+    let (fw, fh) = (2560u32, 1640u32);
+    let mut red = Vec::with_capacity((fw * fh * 4) as usize);
+    for _ in 0..fw * fh {
         red.extend_from_slice(&[0, 0, 255, 255]); // BGRA -> pure red
     }
     rt.state
@@ -166,8 +168,8 @@ fn border_runs_all_the_way_around_over_opaque_native_surface() {
         .surface
         .push_bytes(
             ByteFrame {
-                width: 4,
-                height: 4,
+                width: fw,
+                height: fh,
                 format: Format::Bgra,
                 color: ColorInfo::default(),
                 planes: [red, Vec::new()],
@@ -228,6 +230,151 @@ fn border_runs_all_the_way_around_over_opaque_native_surface() {
         outer_corner[0] < 40,
         "bottom-left rounded corner leaked unclipped NativeSurface: {outer_corner:?}"
     );
+}
+
+/// A red frame with a green 20-texel square 40 texels in from its top-left corner.
+fn marked_frame((w, h): (u32, u32)) -> rune::native_surface::ByteFrame {
+    use rune::native_surface::{ByteFrame, ColorInfo, Format};
+    let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let mark = (40..60).contains(&x) && (40..60).contains(&y);
+            bgra.extend_from_slice(if mark { &[0, 255, 0, 255] } else { &[0, 0, 255, 255] });
+        }
+    }
+    ByteFrame { width: w, height: h, format: Format::Bgra, color: ColorInfo::default(), planes: [bgra, Vec::new()] }
+}
+
+/// Where a `marked_frame` drew on the page at device rect `page`, measured from the page's
+/// top-left corner: the green mark's first column and row, and how far the red reaches across
+/// and down.
+fn landed(rgba: &[u8], wp: u32, page: [u32; 4]) -> ([u32; 2], [u32; 2]) {
+    let [x0, y0, w, h] = page;
+    let px = |x: u32, y: u32| {
+        let i = ((y * wp + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2]]
+    };
+    let red = |[r, g, b]: [u8; 3]| r > 200 && g < 60 && b < 60;
+    let green = |[r, g, b]: [u8; 3]| g > 200 && r < 60 && b < 60;
+    let mark_x = (x0..x0 + w).find(|&x| green(px(x, y0 + 50))).expect("mark's row has the mark");
+    let mark_y = (y0..y0 + h).find(|&y| green(px(x0 + 50, y))).expect("mark's column has the mark");
+    let reach_x = (x0..x0 + w).rfind(|&x| red(px(x, y0 + 100))).expect("red across");
+    let reach_y = (y0..y0 + h).rfind(|&y| red(px(x0 + 100, y))).expect("red down");
+    ([mark_x - x0, mark_y - y0], [reach_x + 1 - x0, reach_y + 1 - y0])
+}
+
+#[test]
+fn a_resized_panel_holds_the_last_frame_at_its_top_left_until_one_at_the_new_size_lands() {
+    for zoom in [1.0, 1.6] {
+        holds_the_last_frame_at(zoom);
+    }
+}
+
+fn holds_the_last_frame_at(zoom: f32) {
+    use rune::render::{Gpu, OFFSCREEN_FORMAT, Offscreen, Renderer};
+
+    let (scale, size) = (2.0f32, (2000.0f32, 1200.0f32));
+    let s = spec(App::fixture_session);
+    let mut app = (s.init)();
+    app.zoom = zoom;
+    app.sidebar_open = false;
+    let mut rt = Runtime::new(app, s.view, size, Env::new(true, scale));
+    rt.poll = s.poll;
+    rt.on_key = s.on_key;
+    rt.frame(0.0);
+    let tab_id = rt.state.browser.host.insert_mock_tab(
+        "http://localhost:3000/",
+        "Local Preview",
+        browser_pane::EngineStatus::Ready,
+    );
+    let resize = |rt: &mut Runtime<App>, width: f32| {
+        rt.update(|s, tx| {
+            s.side.width = width;
+            s.side.resized = true;
+            tx.settle();
+        });
+        rt.frame(1.0 / 60.0);
+        rt.frame(1.0 / 60.0);
+    };
+    rt.update(|s, tx| {
+        s.register_existing_browser_tab(tab_id);
+        tx.settle();
+    });
+    resize(&mut rt, 480.0);
+
+    let gpu = Gpu::headless();
+    let (wp, hp) = ((size.0 * scale) as u32, (size.1 * scale) as u32);
+    let mut renderer = Renderer::new(&gpu.device, OFFSCREEN_FORMAT);
+    let target = Offscreen::new(&gpu.device, wp, hp);
+    let mut shoot = |rt: &mut Runtime<App>| {
+        renderer.upload_images(&gpu.device, &gpu.queue, &mut rt.images);
+        renderer.prepare_surfaces(&gpu.device, &gpu.queue, &rt.surfaces, (wp, hp));
+        renderer.prepare(&gpu.device, &gpu.queue, &mut rt.text.atlas, &rt.instances, (wp, hp));
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
+        renderer.draw(&mut enc, &target.view, rt.clear_color());
+        target.copy(&mut enc);
+        renderer.submit(&gpu.queue, enc);
+        target.read(&gpu.device)
+    };
+    // The page in device pixels, and the frame size the engine is asked for: the same, give or
+    // take the engine's whole-point view rect.
+    let page = |rt: &Runtime<App>| {
+        let ([x, y, w, h], _) = rt.presented("browser-surface").expect("page laid out");
+        let d = [x, y, w, h].map(|v| (v * scale).round() as u32);
+        let f = rt.state.browser.host.tab(tab_id).unwrap().frame_px();
+        assert!(
+            f.0.abs_diff(d[2]) <= 1 && f.1.abs_diff(d[3]) <= 1,
+            "zoom {zoom}: frames of {f:?} px for a page of {:?} device px",
+            [d[2], d[3]]
+        );
+        (d, f)
+    };
+    let near = |a: [u32; 2], b: [u32; 2], tol: u32| a[0].abs_diff(b[0]) <= tol && a[1].abs_diff(b[1]) <= tol;
+    let push = |rt: &mut Runtime<App>, f: (u32, u32), id: u64| {
+        rt.state.browser.host.tab(tab_id).unwrap().surface.push_bytes(marked_frame(f), id).unwrap();
+        rt.frame(1.0 / 60.0);
+    };
+
+    // The mock's 640×360 first frame covers only its own pixels; below it is the page's fill.
+    let (d, f) = page(&rt);
+    assert!(d[3] > 420, "zoom {zoom}: page {d:?} is tall enough to show the fill under 360 px");
+    let rgba = shoot(&mut rt);
+    let fill_at = |rgba: &[u8], x: u32, y: u32| {
+        let i = ((y * wp + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2]]
+    };
+    let fill = fill_at(&rgba, d[0] + 100, d[1] + 400);
+
+    // A frame at this size fills the page from its corner.
+    push(&mut rt, f, 10);
+    let (mark, reach) = landed(&shoot(&mut rt), wp, d);
+    assert!(near(mark, [40, 40], 1), "zoom {zoom}: mark at {mark:?}");
+    assert!(near(reach, [d[2].min(f.0), d[3].min(f.1)], 2), "zoom {zoom}: reach {reach:?} on {d:?}");
+
+    // Wider, with no new frame: the frame keeps its corner and size, and the fill shows beside it.
+    resize(&mut rt, 600.0);
+    let (wide, _) = page(&rt);
+    assert!(wide[2] > f.0 + 40, "zoom {zoom}: page {wide:?} grew past the {f:?} frame");
+    let rgba = shoot(&mut rt);
+    let (mark, reach) = landed(&rgba, wp, wide);
+    assert!(near(mark, [40, 40], 1), "zoom {zoom}: wider mark at {mark:?}");
+    assert!(near(reach, [f.0, wide[3].min(f.1)], 2), "zoom {zoom}: wider reach {reach:?}, frame {f:?}");
+    let gap = fill_at(&rgba, wide[0] + f.0 + 20, wide[1] + 100);
+    assert!(gap.iter().zip(fill).all(|(a, b)| a.abs_diff(b) <= 2), "zoom {zoom}: gap {gap:?}, page fill {fill:?}");
+
+    // Narrower, with no new frame: the right edge is cropped, nothing scales or moves.
+    resize(&mut rt, 360.0);
+    let (narrow, f2) = page(&rt);
+    assert!(narrow[2] + 40 < f.0, "zoom {zoom}: page {narrow:?} shrank under the {f:?} frame");
+    let (mark, reach) = landed(&shoot(&mut rt), wp, narrow);
+    assert!(near(mark, [40, 40], 1), "zoom {zoom}: narrower mark at {mark:?}");
+    assert!(near(reach, [narrow[2], narrow[3].min(f.1)], 2), "zoom {zoom}: narrower reach {reach:?}");
+
+    // The frame at the new size fills the page.
+    push(&mut rt, f2, 11);
+    let (mark, reach) = landed(&shoot(&mut rt), wp, narrow);
+    assert!(near(mark, [40, 40], 1), "zoom {zoom}: new frame's mark at {mark:?}");
+    assert!(near(reach, [narrow[2], narrow[3]], 2), "zoom {zoom}: new frame reaches {reach:?} on {narrow:?}");
 }
 
 #[test]

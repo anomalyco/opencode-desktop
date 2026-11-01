@@ -1,6 +1,6 @@
 //! The one-line Rune element that shows a tab's frames and forwards its input.
 
-use rune::{Drag, El, KeyEvent, Phase, PointerButton, PointerEvent, SurfaceFit, WheelEvent, el};
+use rune::{Align, Drag, El, KeyEvent, Phase, PointerButton, PointerEvent, SurfaceFit, WheelEvent, el};
 
 use crate::client::BrowserHost;
 use crate::protocol::{HostMsg, PointerBtn, pack_mods};
@@ -8,7 +8,9 @@ use crate::protocol::{HostMsg, PointerBtn, pack_mods};
 impl BrowserHost {
     /// The page's surface element. `scale` is the window's backing scale and `view_zoom` how many
     /// window points one layout point of this element covers (the app's own zoom). The page gets
-    /// a viewport in window points, so it renders at its own zoom, not the app's.
+    /// a viewport in window points, so it renders at its own zoom, not the app's. Frames draw
+    /// one texel per device pixel from the top-left corner, so while the element resizes the
+    /// last frame holds still, with the parent's fill in any gap, until one at the new size lands.
     pub fn surface_el<S: 'static>(
         &self,
         key: impl Into<String>,
@@ -30,6 +32,8 @@ impl BrowserHost {
             .cursor(tab.cursor.to_rune())
             .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward])
             .native_surface(&tab.surface, SurfaceFit::Fill)
+            .surface_anchor(Align::Start, Align::Start)
+            .surface_unscaled(true)
             .on_layout(move |s: &mut S, [_x, _y, w, h]| {
                 let width_pt = (w * z).max(1.0);
                 let height_pt = (h * z).max(1.0);

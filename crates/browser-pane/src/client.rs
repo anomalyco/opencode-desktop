@@ -41,6 +41,15 @@ pub struct BrowserTab {
     pub(crate) sent_resize: Option<(f32, f32, f32)>,
 }
 
+impl BrowserTab {
+    /// The pixel size the engine renders this tab's frames at: its viewport in whole points (the
+    /// engine's view rect) times its scale.
+    pub fn frame_px(&self) -> (u32, u32) {
+        let px = |pt: f32| (pt.round().max(1.0) * self.scale).ceil() as u32;
+        (px(self.viewport_pt.0), px(self.viewport_pt.1))
+    }
+}
+
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
