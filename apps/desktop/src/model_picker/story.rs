@@ -1,6 +1,6 @@
 //! The storybook's `Pickers/Model picker`: a list with several providers, one model under three
 //! of them, at the list's spacing. Its Efforts variant opens the lit model's efforts beside it.
-//! R replays; O opens or closes the efforts.
+//! The provider rail runs down its left. R replays; O opens or closes the efforts.
 
 use rune::Play;
 

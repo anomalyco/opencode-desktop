@@ -173,7 +173,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let selected = s.picker_current(kind);
     let items = s.picker_items();
     let mut menu = pop::surface(p, look, format!("picker-{}", kind.key()), format!("Choose {}", kind.key()))
-        .w(match kind { Kind::Model => 480.0, Kind::Project => 240.0, _ => 180.0 });
+        .w(match kind { Kind::Model => 480.0 + crate::model_picker::rail::W, Kind::Project => 240.0, _ => 180.0 });
     if kind == Kind::Model {
         let field = pop::search_field(p, "picker-search", &s.pickers.search, "Search models")
             .on_edit(|s: &mut App| &mut s.pickers.search)
@@ -183,14 +183,18 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let mut list = pop::List::new("picker-options", look);
     let mut footer: Option<El> = None;
     let mut group = "";
+    let mut stops: Vec<crate::model_picker::rail::Stop> = Vec::new();
+    let mut lit_group = None;
     for item in &items {
         let is_add = kind == Kind::Project && item.key == ADD_PROJECT_KEY;
         if !is_add && !item.group.is_empty() && item.group != group {
+            stops.push(crate::model_picker::rail::Stop { group: item.group.clone(), y: list.next_y(), first: item.key.clone() });
             list.header(p, format!("group-{}", item.group), &item.group);
             group = &item.group;
         }
         let key = item.key.clone();
         let is_active = active.as_deref() == Some(key.as_str());
+        if is_active { lit_group = Some(item.group.as_str()); }
         let mut o = Opt::new(format!("option-{key}"), item.label.clone()).active(is_active).checked(!is_add && item.key == selected);
         if !is_add {
             o = o.slides();
@@ -239,8 +243,14 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let listed = !list.is_empty();
     let max_h = if kind == Kind::Model { 360.0 } else { 240.0 };
     if listed {
+        let h = list.height().min(max_h);
         let scroll = list.build("picker-scroll", max_h);
-        menu = menu.child(if kind == Kind::Model { hover::scroll(scroll) } else { scroll });
+        menu = menu.child(match kind {
+            Kind::Model => row().key("picker-body").w_full().h(h).shrink().min_h(0.0)
+                .child(crate::model_picker::rail::view(p, look, &stops, lit_group))
+                .child(hover::scroll(scroll.h_full())),
+            _ => scroll,
+        });
     }
     if let Some(add_row) = footer {
         if listed {

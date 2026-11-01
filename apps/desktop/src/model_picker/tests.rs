@@ -175,3 +175,29 @@ fn a_keyboard_scroll_closes_the_flyout_and_keeps_the_keys_row() {
     assert_eq!(lit(&rt), keyed, "rows scrolled under the still pointer leave the keys' highlight");
 }
 
+
+/// The provider rail (p169): a press on a provider's mark
+/// scrolls its heading to the top and lights its first model, and the rail lights it too.
+#[test]
+fn the_rail_jumps_to_a_provider() {
+    let mut rt = runtime(1.0);
+    let mut marks: Vec<_> = rt.elements().into_iter()
+        .filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("rail-") && k != "rail-divider"))
+        .collect();
+    marks.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]));
+    assert_eq!(marks.len(), 10, "a mark per provider");
+    // A provider mid-list: the last ones can't scroll their heading past the list's end.
+    let last = &marks[4];
+    let group = last.key.as_deref().unwrap().strip_prefix("rail-").unwrap().to_owned();
+    let [x, y] = [last.rect[0] + last.rect[2] / 2.0, last.rect[1] + last.rect[3] / 2.0];
+    rt.pointer_move(x, y);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    play(&mut rt, 0.2);
+    let (view, head) = (rect(&rt, "picker-scroll"), rect(&rt, &format!("group-{group}")));
+    assert!((head[1] - view[1]).abs() < 1.0, "its heading is at the top: {head:?} in {view:?}");
+    let first = visible(&rt).into_iter().find(|(_, r)| r[1] >= head[1] + head[3] - 0.5).expect("a model under it");
+    assert_eq!(lit(&rt), first.0, "its first model is lit");
+    let mark = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(format!("rail-{group}").as_str())).unwrap();
+    assert!(mark.fill.a > 0.0, "the rail lights the lit row's provider");
+}

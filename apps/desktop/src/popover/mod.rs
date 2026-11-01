@@ -168,7 +168,7 @@ static STAR: Icon = Icon {
     body: r#"<path d="M8 2.6L9.59 6.42L13.71 6.75L10.57 9.43L11.53 13.45L8 11.3L4.47 13.45L5.43 9.43L2.29 6.75L6.41 6.42Z" stroke="currentColor" stroke-linejoin="round"/>"#,
 };
 
-static STAR_FILLED: Icon = Icon {
+pub static STAR_FILLED: Icon = Icon {
     name: "star-filled",
     view: 16.0,
     body: r#"<path d="M8 2.6L9.59 6.42L13.71 6.75L10.57 9.43L11.53 13.45L8 11.3L4.47 13.45L5.43 9.43L2.29 6.75L6.41 6.42Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round"/>"#,
@@ -342,6 +342,16 @@ impl List {
     /// Anything else (an empty state), `h` tall.
     pub fn other(&mut self, e: El, h: f32) {
         self.push(e, h);
+    }
+
+    /// How far down the scroll goes to put the next row at its top.
+    pub fn next_y(&self) -> f32 {
+        if self.rows.is_empty() { 0.0 } else { self.h - self.look.inset + self.look.row_gap }
+    }
+
+    /// Its height with every row in, before the scroll caps it.
+    pub fn height(&self) -> f32 {
+        self.h
     }
 
     pub fn is_empty(&self) -> bool {
