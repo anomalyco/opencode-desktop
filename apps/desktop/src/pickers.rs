@@ -84,7 +84,7 @@ pub struct Pickers {
     /// (Desktop's staged variant). Opening the list clears them.
     staged: HashMap<String, String>,
     /// The lit model's efforts, open beside its row.
-    pub flyout: Option<crate::effort_flyout::Flyout>,
+    pub flyout: Option<effort_flyout::Flyout>,
     pub prefs: ModelPrefs,
 }
 
@@ -655,6 +655,8 @@ mod tests {
         assert!((row.opacity - 1.0).abs() < 1e-3 && (row.rect[1] - row.target[1]).abs() < 0.1, "a row that matches again lands in place");
     }
 }
+
+pub(crate) mod effort_flyout;
 
 #[cfg(test)]
 #[path = "pickers_tests.rs"]

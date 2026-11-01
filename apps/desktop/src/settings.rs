@@ -415,6 +415,8 @@ pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
         .child(step("zoom-in", "+", 1))
 }
 
+mod stories;
+
 #[cfg(test)]
 mod tests {
     use super::*;
