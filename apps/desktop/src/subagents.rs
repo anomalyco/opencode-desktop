@@ -160,7 +160,7 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
         let variant = if m.variant.is_empty() || m.variant == "default" { String::new() } else { format!(" {}", model::capitalize(&m.variant)) };
         parts.push(format!("{name}{variant}"));
     }
-    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::CONTENT_W).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
+    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::DOCK_W).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
     if status.is_some() {
         let mark = el().key("status-icon").size(16.0, 16.0).center();
         line = line.child(match glyph {
@@ -205,7 +205,7 @@ pub fn bar(s: &App, p: &Pal, id: &str) -> El {
                 .child(text("Main session").font(UI_SMALL).color(p.faint))
                 .child(row().key("esc").h(16.0).px(4.0).center().radius(4.0).fill(p.layer2).child(text("esc").font(UI_SMALL).color(p.faint))),
         );
-    col().key("dock").w_full().center().px(24.0).pb(10.0).child(line)
+    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(crate::view::DOCK_SIDE).child(line)
 }
 
 /// "2 subagents" over the composer while anything below the session runs; it opens a list.

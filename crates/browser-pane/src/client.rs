@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use crate::address::resolve_address;
 use crate::installer::{self, EngineStatus};
+use crate::profile;
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
 use crate::site_zoom::{SiteZoom, site_of};
@@ -62,12 +63,16 @@ pub struct BrowserHost {
     waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     socket_override: Option<PathBuf>,
+    profile_dir: Option<PathBuf>,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
     cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
     site_zoom: SiteZoom,
+    keep_engine: bool,
+    /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
+    pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(target_os = "macos")]
     mach: Option<MachReceiver>,
 }
@@ -98,12 +103,15 @@ impl BrowserHost {
             waker: None,
             shell_shortcut: None,
             socket_override: None,
+            profile_dir: None,
             next_tab_id: 1,
             next_req_id: 1,
             pending_opens: Vec::new(),
             cdp_responses: HashMap::new(),
             picked: VecDeque::new(),
             site_zoom: SiteZoom::default(),
+            keep_engine: false,
+            last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(target_os = "macos")]
             mach: None,
         }
@@ -114,6 +122,25 @@ impl BrowserHost {
         self.site_zoom = SiteZoom::load(file);
     }
 
+    /// Leaves the engine running when the last tab closes, so the next page skips its start and
+    /// reuses its warm connections; the engine still quits on its own after a minute with no tabs.
+    pub fn set_keep_engine(&mut self, keep: bool) {
+        self.keep_engine = keep;
+    }
+
+    /// Keeps the engine's cookies and sign-ins in `dir` instead of this app's own profile
+    /// (`OPENCODE_BROWSER_PROFILE` in the environment still wins). Takes effect at the next spawn.
+    pub fn set_profile_dir(&mut self, dir: PathBuf) {
+        self.profile_dir = Some(dir);
+    }
+
+    /// Marks a mock tab loading or done (stories and tests).
+    pub fn set_mock_loading(&mut self, id: u64, loading: bool) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.loading = loading;
+        }
+    }
+
     pub fn set_shell_shortcut(&mut self, check: fn(&KeyEvent) -> bool) {
         self.shell_shortcut = Some(check);
     }
@@ -122,6 +149,14 @@ impl BrowserHost {
         let mut h = Self::new();
         h.socket_override = Some(socket);
         h
+    }
+
+    pub fn has_socket_override(&self) -> bool {
+        self.socket_override.is_some()
+    }
+
+    pub fn has_live_sidecar(&self) -> bool {
+        self.is_connected()
     }
 
     pub fn set_waker(&mut self, waker: Waker) {
@@ -183,6 +218,13 @@ impl BrowserHost {
         id
     }
 
+    /// Sends every message to the returned receiver instead of an engine (tests).
+    pub fn capture_sent(&mut self) -> Receiver<HostMsg> {
+        let (tx, rx) = mpsc::channel();
+        *self.outbox.lock().unwrap() = Some(tx);
+        rx
+    }
+
     pub fn set_mock_status(&mut self, status: EngineStatus) {
         self.last_polled_status = status.clone();
         *self.status.lock().unwrap() = status;
@@ -196,6 +238,8 @@ impl BrowserHost {
             surface.set_waker(w.clone());
         }
         self.surfaces.lock().unwrap().insert(id, surface.clone());
+        let ((width_pt, height_pt), scale) = self.last_viewport;
+        let connected = self.is_connected();
         self.tabs.push(BrowserTab {
             id,
             url: url.clone(),
@@ -207,21 +251,14 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             inspecting: false,
             surface,
-            viewport_pt: (800.0, 600.0),
-            scale: 2.0,
-            sent_resize: None,
+            viewport_pt: (width_pt, height_pt),
+            scale,
+            sent_resize: connected.then_some((width_pt, height_pt, scale)),
         });
         self.focused_tab = Some(id);
 
-        if self.is_connected() {
-            self.send(HostMsg::OpenTab {
-                tab_id: id,
-                url,
-                width_pt: 800.0,
-                height_pt: 600.0,
-                scale: 2.0,
-                focused: true,
-            });
+        if connected {
+            self.send(HostMsg::OpenTab { tab_id: id, url, width_pt, height_pt, scale, focused: true });
         } else {
             self.pending_opens.push((id, url));
             self.ensure_connected();
@@ -253,7 +290,7 @@ impl BrowserHost {
                     self.send(HostMsg::FocusTab { tab_id: next_id });
                 }
             }
-            if self.tabs.is_empty() {
+            if self.tabs.is_empty() && !self.keep_engine {
                 self.shutdown_sidecar();
             }
         }
@@ -375,11 +412,12 @@ impl BrowserHost {
         let waker = self.waker.clone();
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
+        let profile = profile::for_spawn(self.profile_dir.as_deref());
         installer::start_download(
             status.clone(),
             waker.clone(),
             Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
             }),
         );
     }
@@ -673,10 +711,11 @@ impl BrowserHost {
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
         let waker = self.waker.clone();
+        let profile = profile::for_spawn(self.profile_dir.as_deref());
         std::thread::Builder::new()
             .name("opencode-browser-connect".into())
             .spawn(move || {
-                spawn_and_attach_bg(bin, sock, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
             })
             .ok();
     }

@@ -209,6 +209,9 @@ const APP_SCENES: &[&str] = &[
     "status",
     "tab-badges",
     "demo",
+    "long-summary",
+    "genui",
+    "genui-stream",
     "short-group",
 ];
 
@@ -236,6 +239,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Send",
     "Timeline/Long prompt",
     "Timeline/Streaming text",
+    "Timeline/Generative UI",
     "Timeline/Tool rows",
     "Timeline/Long tool group",
     "Timeline/Selection",
@@ -251,6 +255,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Move to background",
     "Timeline/Subagent",
     "Timeline/Subagent rows",
+    "Timeline/Steered subagent",
     "Timeline/Subagent starting",
     "Timeline/Images",
     "Timeline/Jump to latest",
@@ -274,10 +279,12 @@ const STORY_PATHS: &[&str] = &[
     "Settings/Appearance",
     "Composer/Auto-accept",
     "Composer/Commands",
+    "Timeline/Compacted summary",
     "Popover/Menus",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",
     "Popover/Open and close",
+    "Sidebar/Projects inbox",
     "Timeline/Open tool step",
 ];

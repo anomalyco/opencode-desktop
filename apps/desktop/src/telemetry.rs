@@ -8,107 +8,18 @@
 //! (`hold`), the frame that paints it (`first_paint`, `layout`), and after it the older page
 //! (`history`) and image decodes (`images.decode`).
 use std::cell::RefCell;
-use std::hash::{BuildHasher, Hasher};
-use std::sync::{OnceLock, atomic::{AtomicU64, Ordering}, mpsc::{Sender, channel}};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use otlp_lite::{Ctx, Span, ms, record};
+use serde_json::Value;
 
-/// Motel's OTLP/HTTP receiver.
-const ADDR: &str = "127.0.0.1:27686";
-const PATH: &str = "/v1/traces";
 /// After this, a late older page or decode no longer joins the open's trace.
 const FOLLOW: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Ctx { trace: u128, span: u64 }
-
-pub struct Span {
-    ctx: Ctx,
-    parent: Option<u64>,
-    name: &'static str,
-    start: Instant,
-    attrs: Vec<(&'static str, Value)>,
-}
-
-impl Span {
-    pub fn root(name: &'static str) -> Self {
-        Self { ctx: Ctx { trace: (u128::from(id()) << 64) | u128::from(id()), span: id() }, parent: None, name, start: Instant::now(), attrs: vec![] }
-    }
-
-    pub fn child(parent: Ctx, name: &'static str) -> Self {
-        Self { ctx: Ctx { trace: parent.trace, span: id() }, parent: Some(parent.span), name, start: Instant::now(), attrs: vec![] }
-    }
-
-    pub fn ctx(&self) -> Ctx { self.ctx }
-
-    pub fn at(mut self, start: Instant) -> Self {
-        self.start = start;
-        self
-    }
-
-    pub fn attr(mut self, key: &'static str, value: impl Into<Value>) -> Self {
-        self.attrs.push((key, value.into()));
-        self
-    }
-
-    pub fn end_at(self, end: Instant) {
-        if !on() { return; }
-        let attrs: Vec<Value> = self.attrs.into_iter().map(|(k, v)| json!({"key": k, "value": any(v)})).collect();
-        let mut span = json!({
-            "traceId": format!("{:032x}", self.ctx.trace), "spanId": format!("{:016x}", self.ctx.span),
-            "name": self.name, "kind": 1,
-            "startTimeUnixNano": unix_nanos(self.start).to_string(), "endTimeUnixNano": unix_nanos(end.max(self.start)).to_string(),
-            "attributes": attrs,
-        });
-        if let Some(p) = self.parent { span["parentSpanId"] = format!("{p:016x}").into(); }
-        #[cfg(test)]
-        if CAPTURE.with(|c| c.borrow_mut().as_mut().map(|c| c.push(span.clone())).is_some()) { return; }
-        if let Some(out) = exporter() { let _ = out.send(span); }
-    }
-}
-
-/// A finished interval as a child of `parent`.
-pub fn record(parent: Ctx, name: &'static str, (start, end): (Instant, Instant), attrs: Vec<(&'static str, Value)>) {
-    let mut s = Span::child(parent, name).at(start);
-    s.attrs = attrs;
-    s.end_at(end);
-}
-
-fn any(v: Value) -> Value {
-    match v {
-        Value::Bool(b) => json!({"boolValue": b}),
-        Value::Number(n) if n.is_i64() || n.is_u64() => json!({"intValue": n.to_string()}),
-        Value::Number(n) => json!({"doubleValue": n.as_f64()}),
-        Value::String(s) => json!({"stringValue": s}),
-        other => json!({"stringValue": other.to_string()}),
-    }
-}
-
-fn id() -> u64 {
-    static N: AtomicU64 = AtomicU64::new(0);
-    static SEED: OnceLock<std::collections::hash_map::RandomState> = OnceLock::new();
-    let mut h = SEED.get_or_init(Default::default).build_hasher();
-    h.write_u64(N.fetch_add(1, Ordering::Relaxed));
-    h.finish().max(1)
-}
-
-fn unix_nanos(t: Instant) -> u128 {
-    static ANCHOR: OnceLock<(Instant, u128)> = OnceLock::new();
-    let (at, unix) = *ANCHOR.get_or_init(|| (Instant::now(), SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos())));
-    if t >= at { unix + (t - at).as_nanos() } else { unix.saturating_sub((at - t).as_nanos()) }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Spans this thread ends, instead of sending them (`tests::capture`).
-    static CAPTURE: RefCell<Option<Vec<Value>>> = const { RefCell::new(None) };
-}
-
 fn on() -> bool {
-    #[cfg(test)]
-    if CAPTURE.with(|c| c.borrow().is_some()) { return true; }
-    exporter().is_some()
+    otlp_lite::start("opencode-rune", env!("CARGO_PKG_VERSION"), enabled().then(|| otlp_lite::endpoint("1")).flatten());
+    otlp_lite::on()
 }
 
 pub fn enabled() -> bool {
@@ -116,42 +27,6 @@ pub fn enabled() -> bool {
         Ok("0") => false,
         Ok("1") => true,
         _ => !cfg!(test),
-    }
-}
-
-fn exporter() -> Option<&'static Sender<Value>> {
-    static OUT: OnceLock<Option<Sender<Value>>> = OnceLock::new();
-    OUT.get_or_init(|| {
-        if !enabled() { return None; }
-        let (send, spans) = channel::<Value>();
-        std::thread::Builder::new().name("otel-export".into()).spawn(move || {
-            while let Ok(first) = spans.recv() {
-                // A short wait gathers an open's spans into one request.
-                std::thread::sleep(Duration::from_millis(200));
-                let batch: Vec<Value> = std::iter::once(first).chain(spans.try_iter()).collect();
-                let body = json!({"resourceSpans": [{
-                    "resource": {"attributes": [
-                        {"key": "service.name", "value": {"stringValue": "opencode-rune"}},
-                        {"key": "service.version", "value": {"stringValue": env!("CARGO_PKG_VERSION")}},
-                    ]},
-                    "scopeSpans": [{"scope": {"name": "opencode-rune"}, "spans": batch}],
-                }]});
-                post(&body.to_string());
-            }
-        }).ok()?;
-        Some(send)
-    }).as_ref()
-}
-
-/// One HTTP/1.1 POST to Motel on loopback; a refused or slow connection drops the batch.
-fn post(body: &str) {
-    use std::io::{Read as _, Write as _};
-    let Ok(mut s) = std::net::TcpStream::connect_timeout(&ADDR.parse().unwrap(), Duration::from_millis(250)) else { return };
-    let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
-    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
-    let head = format!("POST {PATH} HTTP/1.1\r\nHost: {ADDR}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
-    if s.write_all(head.as_bytes()).and_then(|_| s.write_all(body.as_bytes())).is_ok() {
-        let _ = s.read(&mut [0; 256]);
     }
 }
 
@@ -341,8 +216,6 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
 
 /// The last `encoded` frame, for `drawn`.
 pub fn last_frame() -> Option<(Instant, Option<f64>, Option<f64>)> { FRAME.with(|x| x.borrow_mut().take()) }
-
-pub fn ms(d: Duration) -> f64 { (d.as_secs_f64() * 1e6).round() / 1e3 }
 
 #[cfg(test)]
 mod tests;

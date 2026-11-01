@@ -121,3 +121,49 @@ fn at_zoom_a_prompt_that_fits_the_shells_timeline_doesnt_fold() {
     assert!(rect(&rt, &format!("u-{}", sent(&rt))).is_some());
     assert!(rect(&rt, "fold-toggle").is_none(), "{} lines at {wide}", fold::lines(&words, wide));
 }
+
+fn link_runtime(viewport: (f32, f32)) -> Runtime<App> {
+    let mut app = App::fixture_session();
+    app.zoom = 1.6;
+    let mut rt = app.into_runtime();
+    rt.set_viewport(viewport, 1.6);
+    rt.frame(1.0 / 60.0);
+    rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new(crate::fold_stories::LINK);
+        s.submit(false, tx);
+    });
+    for _ in 0..240 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt
+}
+
+#[test]
+fn a_long_link_breaks_inside_its_bubble() {
+    // Rects are in window points, 1.6 times the text's own points at this zoom.
+    for viewport in [(1280.0, 820.0), (900.0, 820.0), (700.0, 820.0)] {
+        let rt = link_runtime(viewport);
+        let words = rect(&rt, &format!("text-{}", sent(&rt))).expect("the link's words");
+        let (wide, _) = rune::text::measure(crate::fold_stories::LINK, &[], BUBBLE, None);
+        let lines = (words[3] / 1.6 / BUBBLE.line_px()).round();
+        let least = (wide / (words[2] / 1.6)).ceil();
+        assert!(lines >= least, "{viewport:?}: {lines} lines can't hold a {wide} pt link in {} pt", words[2] / 1.6);
+    }
+}
+
+#[test]
+fn ordinary_words_still_break_at_spaces() {
+    let mut rt = App::fixture_session().into_runtime();
+    rt.frame(1.0 / 60.0);
+    let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega";
+    rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new(text);
+        s.submit(false, tx);
+    });
+    for _ in 0..240 {
+        rt.frame(1.0 / 60.0);
+    }
+    let words = rect(&rt, &format!("text-{}", sent(&rt))).unwrap();
+    let (_, h) = rune::text::measure(text, &[], BUBBLE, Some(words[2]));
+    assert_eq!(words[3], h, "laid out as the space-only measure says");
+}

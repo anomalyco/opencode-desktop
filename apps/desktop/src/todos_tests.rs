@@ -207,7 +207,7 @@ fn the_list_closes_when_the_pill_goes() {
 /// A todo that finishes while the list shows grows its tick in; one already done when the list
 /// opens shows it whole (t1150).
 #[test]
-fn a_finished_todo_fills_its_circle_and_draws_its_strike() {
+fn a_finished_todo_closes_its_ring_and_draws_its_strike() {
     let mut rt = plan();
     rt.poll = Some(crate::poll);
     rt.update(|s, _| crate::todo_stories::set_step(s, 2));
@@ -220,17 +220,38 @@ fn a_finished_todo_fills_its_circle_and_draws_its_strike() {
     rt.update(|s, _| crate::todo_stories::set_step(s, 3));
     rt.frame(DT);
     rt.frame(DT);
-    let disc = find(&rt, 2, "disc").expect("the todo just done grows its disc");
-    assert!(disc.scale < 0.6, "growing: scale {}", disc.scale);
+    let ring = find(&rt, 2, "shape").unwrap().rect;
+    let disc = find(&rt, 2, "disc").expect("the todo just done fills its ring").rect;
+    assert_eq!(disc, ring, "the fill is drawn about the ring's centre, never moved or scaled");
     let strike = find(&rt, 2, "strike").expect("and draws its strike");
     assert!(strike.rect[2] < 1.0, "the strike waits for the fill: {:?}", strike.rect);
     for _ in 0..120 {
         rt.frame(DT);
     }
-    assert!(find(&rt, 2, "disc").unwrap().scale > 0.999, "the circle fills");
+    assert!(find(&rt, 2, "disc").is_none(), "settled, it's done's glyph");
     let words = find(&rt, 2, "text").unwrap();
     let strike = find(&rt, 2, "strike").unwrap();
     assert!(strike.rect[0] <= words.rect[0] && strike.rect[0] + strike.rect[2] >= words.rect[0] + words.rect[2], "the strike crosses its words: {:?} over {:?}", strike.rect, words.rect);
+}
+
+#[test]
+fn the_fill_sweeps_round_then_springs_past_full_and_settles() {
+    let fill = Fill::new(Status::InProgress, "Map old keys", 300.0, 10.0, 0.4, 0.4);
+    let mut last = 0.0;
+    let mut widest = 0.0_f32;
+    let mut t = 10.0;
+    while let Some((swept, r)) = fill.at(t) {
+        assert!(r >= DISC_R * 0.97, "the fill never shrinks much below the half it was: {r}");
+        assert!(swept >= last, "the sweep only goes forward: {swept} after {last}");
+        (last, widest) = (swept, widest.max(r));
+        t += 1.0 / 60.0;
+    }
+    assert!(last > 0.999, "the ring closes: {last}");
+    assert!(widest > DISC_R * 1.08 && widest < 6.0, "the fill springs past full, inside its ring: {widest}");
+    assert!(t - 10.0 < 1.0, "and settles within a second: {}", t - 10.0);
+    let half = disc(Status::InProgress, 0.0, DISC_R, rune::Color::WHITE);
+    let full = disc(Status::InProgress, 1.0, DISC_R, rune::Color::WHITE);
+    assert!(!half.is_empty() && !full.is_empty());
 }
 
 #[test]

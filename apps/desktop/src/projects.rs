@@ -253,6 +253,7 @@ impl App {
             self.transcripts.entry(sid.clone()).or_insert_with(|| Transcript { session: sid.clone(), messages: vec![] });
             self.sessions.insert(0, ses);
             self.sort_projects();
+            crate::project_inbox::created(self, &sid, tx);
             self.open_now(&sid, tx);
         }
     }
@@ -300,6 +301,7 @@ impl App {
                 None => self.sessions.insert(0, info),
             }
             self.sort_projects();
+            crate::project_inbox::created(self, &sid, tx);
             self.open_now(&sid, tx);
         } else {
             self.sort_projects();
@@ -351,6 +353,7 @@ impl App {
             created: self.now_ms,
             outcome: None,
             revert: None,
+            ..Default::default()
         }
     }
 }

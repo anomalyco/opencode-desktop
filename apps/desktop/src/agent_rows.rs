@@ -6,24 +6,43 @@ use std::collections::HashMap;
 use rune::Tx;
 use serde_json::Value;
 
-use opencode_kit::model::{Message, Part, ToolStatus};
+use opencode_kit::model::{Assistant, Message, Part, ToolStatus};
 
 use crate::{App, Route};
 
-/// Steps a row keeps, newest last.
+/// Steps a row shows, newest last.
 const KEEP: usize = 3;
+/// Steps a session's log keeps, so a steered call's newest card still finds its own.
+const LOG: usize = 64;
+/// Ends a subagent's log keeps.
+const ENDS: usize = 16;
 
 /// What the event stream says about subagents beyond running or not.
 #[derive(Default)]
 pub struct Live {
-    /// Each session's latest steps, newest last, and how many it has taken.
-    steps: HashMap<String, (Vec<String>, usize)>,
+    /// Each session's latest steps, kept across its runs so each call's card finds its own.
+    steps: HashMap<String, Log>,
+    /// When each subagent's latest run started while we watched; unlike `started`, kept after it ends.
+    began: HashMap<String, i64>,
     /// Subagents that ended while we watched: whether they failed, when, and the error.
     ended: HashMap<String, (bool, i64, Option<String>)>,
+    /// When each subagent's runs ended while we watched, and whether they failed, oldest first.
+    ends: HashMap<String, Vec<(i64, bool)>>,
     /// When each subagent's current run started, for runs that started while we watched.
     pub(crate) started: HashMap<String, i64>,
+    /// When each subagent call began, by its tool part, for calls made while we watched.
+    called: HashMap<String, i64>,
     /// The last poll's clock, to tell when a second has passed.
     polled: i64,
+}
+
+/// One session's latest steps and when each came, newest last, and the steps it let go of.
+#[derive(Default)]
+struct Log {
+    list: Vec<(i64, String)>,
+    dropped: usize,
+    /// When the newest step it let go of came.
+    dropped_at: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,6 +50,8 @@ pub enum State {
     Running,
     Done,
     Failed,
+    /// A later call to the same agent took over while this one's work was under way.
+    Steered,
 }
 
 /// One call's run, as its row draws it.
@@ -55,6 +76,7 @@ impl Run {
             State::Running => self.steps.last().cloned().unwrap_or_else(|| "Starting".to_owned()),
             State::Done => self.result.clone().unwrap_or_else(|| "Done".to_owned()),
             State::Failed => self.error.clone().unwrap_or_else(|| "Failed".to_owned()),
+            State::Steered => "Steered".to_owned(),
         }
     }
 }
@@ -85,6 +107,12 @@ fn first_line(text: &str) -> Option<String> {
 impl App {
     /// Keeps [`Live`] up to date from one event; true when what it shows changed.
     pub fn note_agent(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        if ty == "session.tool.called"
+            && matches!(data["name"].as_str(), Some("subagent" | "task"))
+            && let Some(id) = data["id"].as_str()
+        {
+            self.agent_rows.called.entry(id.to_owned()).or_insert(self.now_ms);
+        }
         if sid.is_empty() || self.session(sid).is_none_or(|i| i.parent.is_none()) {
             return false;
         }
@@ -93,53 +121,92 @@ impl App {
             "session.reasoning.started" => "Thinking".to_owned(),
             "session.execution.started" => {
                 self.agent_rows.started.insert(sid.to_owned(), self.now_ms);
+                self.agent_rows.began.insert(sid.to_owned(), self.now_ms);
                 let had = self.agent_rows.ended.remove(sid).is_some();
-                return self.agent_rows.steps.remove(sid).is_some() || had;
+                return self.agent_rows.steps.contains_key(sid) || had;
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 self.agent_rows.started.remove(sid);
+                let failed = ty != "session.execution.succeeded";
                 let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
-                self.agent_rows.ended.insert(sid.to_owned(), (ty != "session.execution.succeeded", self.now_ms, error));
+                self.agent_rows.ended.insert(sid.to_owned(), (failed, self.now_ms, error));
+                let ends = self.agent_rows.ends.entry(sid.to_owned()).or_default();
+                ends.push((self.now_ms, failed));
+                if ends.len() > ENDS {
+                    ends.remove(0);
+                }
                 return true;
             }
             _ => return false,
         };
-        let (list, taken) = self.agent_rows.steps.entry(sid.to_owned()).or_default();
-        if list.last() == Some(&step) {
+        let began = self.agent_rows.began.get(sid).copied().unwrap_or(i64::MIN);
+        let log = self.agent_rows.steps.entry(sid.to_owned()).or_default();
+        // The same step again, in the same run.
+        if log.list.last().is_some_and(|l| l.1 == step && l.0 >= began) {
             return false;
         }
-        list.push(step);
-        *taken += 1;
-        if list.len() > KEEP {
-            list.remove(0);
+        log.list.push((self.now_ms, step));
+        if log.list.len() > LOG {
+            let (at, _) = log.list.remove(0);
+            log.dropped += 1;
+            log.dropped_at = at;
         }
         true
     }
 
-    /// How the call (in `status`) that started `child` is going.
-    pub fn agent_run(&self, child: Option<&str>, status: &ToolStatus) -> Run {
+    /// How call `call` in `parent`, which started `child` or sent it more work, is going: only
+    /// its own share of the child's work when other calls name the same child (`calls.rs`).
+    pub fn agent_run(&self, parent: &str, call: &str, child: Option<&str>, status: &ToolStatus) -> Run {
+        let window = child.and_then(|c| self.window(parent, call, c));
+        if let (Some(c), Some(w)) = (child, &window)
+            && let Some(next) = &w.next
+        {
+            return self.earlier_run(c, w, next, status);
+        }
+        let from = window.and_then(|w| w.from);
         let info = child.and_then(|c| self.session(c));
         let running = *status == ToolStatus::Running || child.is_some_and(|c| self.subtree_running(c));
         let ended = child.and_then(|c| self.agent_rows.ended.get(c)).filter(|_| !running);
+        // A call to an agent that had finished, before its new run starts.
+        let waking = ended.is_some_and(|e| from.is_some_and(|f| e.1 < f));
+        let (running, ended) = (running || waking, ended.filter(|_| !waking));
         let failed = *status == ToolStatus::Error || ended.is_some_and(|e| e.0) || info.and_then(|i| i.outcome.as_deref()) == Some("failed");
         let state = if running { State::Running } else if failed { State::Failed } else { State::Done };
-        let (steps, taken) = match child.and_then(|c| self.agent_rows.steps.get(c)) {
-            Some((l, n)) => (l.clone(), n.saturating_sub(l.len())),
-            None => (child.and_then(|c| self.last_tool(c)).into_iter().collect(), 0),
+        // Its steps start with its own call or the child's latest run, whichever came later.
+        let began = child.and_then(|c| self.agent_rows.began.get(c).copied());
+        let since = from.max(began);
+        let (steps, taken) = match child.and_then(|c| self.steps_in(c, since, None)).filter(|s| !s.0.is_empty()) {
+            Some(s) => s,
+            None => (child.and_then(|c| self.last_tool(c, from)).into_iter().collect(), 0),
         };
         let ms = info.filter(|i| i.created > 0).map(|i| {
+            let start = i.created.max(from.unwrap_or(0));
             if running {
-                return self.run_clock() - self.run_started(&i.id, None);
+                return self.run_clock() - self.run_started(&i.id, None).max(start);
             }
             let end = match ended {
                 Some(e) => e.1,
                 None => i.idle.unwrap_or(i.updated).max(i.created),
             };
-            end - i.created
+            end - start
         });
-        let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c))).flatten();
+        let result = (state == State::Done).then(|| child.and_then(|c| self.answer(c, from, None))).flatten();
         let error = (state == State::Failed).then(|| ended.and_then(|e| e.2.as_deref()).and_then(first_line)).flatten();
         Run { state, steps, taken, ms, result, error }
+    }
+
+    /// `child`'s latest steps between `from` and `to` (either open), newest last, and how many
+    /// came before them; None when we saw none.
+    fn steps_in(&self, child: &str, from: Option<i64>, to: Option<i64>) -> Option<(Vec<String>, usize)> {
+        let log = self.agent_rows.steps.get(child)?;
+        let mine: Vec<&String> = log.list.iter().filter(|s| from.is_none_or(|f| s.0 >= f) && to.is_none_or(|t| s.0 < t)).map(|s| &s.1).collect();
+        // Steps the log let go of came before every step it kept: count them when the window
+        // reaches back past the newest of them.
+        let dropped = if log.dropped > 0 && from.is_none_or(|f| f <= log.dropped_at) { log.dropped } else { 0 };
+        let count = mine.len() + if mine.is_empty() { 0 } else { dropped };
+        let shown: Vec<String> = mine[mine.len().saturating_sub(KEEP)..].iter().map(|s| (*s).clone()).collect();
+        let n = shown.len();
+        Some((shown, count - n))
     }
 
     /// When `child`'s current run started, as Desktop dates it (`session/requests/background.ts`):
@@ -154,23 +221,33 @@ impl App {
         created.max(idle).max(call.unwrap_or(0)).max(seen)
     }
 
-    fn last_tool(&self, child: &str) -> Option<String> {
-        self.transcripts.get(child)?.messages.iter().rev().find_map(|m| match m {
-            Message::Assistant(a) => a.parts.iter().rev().find_map(|p| match p {
+    /// The child's last tool call since `from`.
+    fn last_tool(&self, child: &str, from: Option<i64>) -> Option<String> {
+        self.steps_of(child, from, None).find_map(|a| {
+            a.parts.iter().rev().find_map(|p| match p {
                 Part::Tool { name, input, .. } => Some(step_of(name, input)),
                 _ => None,
-            }),
-            _ => None,
+            })
         })
     }
 
-    /// The first line of the child's last answer.
-    fn answer(&self, child: &str) -> Option<String> {
-        self.transcripts.get(child)?.messages.iter().rev().find_map(|m| match m {
-            Message::Assistant(a) => a.parts.iter().rev().find_map(|p| match p {
+    /// The first line of the child's last answer between `from` and `to`.
+    fn answer(&self, child: &str, from: Option<i64>, to: Option<i64>) -> Option<String> {
+        self.steps_of(child, from, to).find_map(|a| {
+            a.parts.iter().rev().find_map(|p| match p {
                 Part::Text { text } => first_line(text),
                 _ => None,
-            }),
+            })
+        })
+    }
+
+    /// The child's steps that began between `from` and `to`, newest first: all of them when
+    /// both are open.
+    fn steps_of(&self, child: &str, from: Option<i64>, to: Option<i64>) -> impl Iterator<Item = &Assistant> {
+        let open = from.is_none() && to.is_none();
+        let messages = self.transcripts.get(child).map_or(&[][..], |t| &t.messages[..]);
+        messages.iter().rev().filter_map(move |m| match m {
+            Message::Assistant(a) if open || (a.created > 0 && from.is_none_or(|f| a.created >= f) && to.is_none_or(|t| a.created < t)) => Some(a),
             _ => None,
         })
     }
@@ -206,6 +283,14 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     tx.wake_after(std::time::Duration::from_millis(((second + 1) * 1000 - now) as u64));
     second != last.div_euclid(1000)
 }
+
+#[path = "agent_rows/calls.rs"]
+mod calls;
+#[path = "agent_rows/steered_stories.rs"]
+pub(crate) mod steered_stories;
+#[cfg(test)]
+#[path = "agent_rows/steered_tests.rs"]
+mod steered_tests;
 
 #[cfg(test)]
 #[path = "agent_rows_tests.rs"]

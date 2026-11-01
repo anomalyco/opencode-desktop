@@ -67,7 +67,7 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges) = s.bubble_badges(p, id, body);
     let highlights = if pending.is_none() { s.find.text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
-    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap().pills(badges).text_highlights(highlights));
+    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights));
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),
@@ -108,7 +108,7 @@ pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open:
             // "Thinking" crossfades to "Thought for Ns" while the chevron slides over.
             .animate_layout()
             // Opening and closing is instant; only the streaming label change animates.
-            .on_press_tx(crate::disclosure::toggle(key.to_owned()))
+            .on_press_tx(crate::disclosure::toggle(key.to_owned(), format!("{key}/trigger")))
             .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted))
             .child(text(label).key(if secs.is_some() { "thought" } else { "thinking" }).font(UI).color(p.muted))
             .child(icon(chevron(open), 14.0).color(p.icon_faint)),
@@ -159,19 +159,29 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
 
 #[cfg(test)]
 pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
-    markdown_tinted(p, src, fade, streaming, p.text)
+    markdown_tinted(p, src, fade, streaming, p.text, super::CONTENT_W)
 }
 
 pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
-    markdown_with_highlights(p, src, fade, streaming, p.text, s.find.markdown_highlights(p, row_key))
+    // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
+    if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find.row_hits(row_key)) {
+        return el;
+    }
+    markdown_with_highlights(p, src, fade, streaming, p.text, crate::genui::width(s), s.find.markdown_highlights(p, row_key))
 }
 
-/// `markdown_view` with its body text in `color`.
-pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color) -> El {
-    markdown_with_highlights(p, src, fade, streaming, color, Vec::new())
+/// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
+pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
+    markdown_with_highlights(p, src, fade, streaming, color, width, Vec::new())
 }
 
-fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
+fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
+    markdown_styled(p, src, fade, streaming, markdown_style(p, color, width), highlights)
+}
+
+/// The timeline's Markdown look, its body text in `color`, its diagrams at most `width` points
+/// wide (the column they sit in: wider ones lay out top-down or draw smaller).
+pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
     let style = MarkdownStyle::from_kit(crate::palette::kit(p))
         .text(color)
         .muted(p.muted)
@@ -185,11 +195,15 @@ fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, colo
         .heading_font(2, H2)
         .heading_font(3, H3)
         .code_block_font(CODE)
-        .selection(p.selection);
-    let style = match p.code {
+        .selection(p.selection)
+        .diagram_max_width(width);
+    match p.code {
         Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
         None => style,
-    };
+    }
+}
+
+pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src: &str, fade: f32, streaming: bool, style: MarkdownStyle, highlights: Vec<H>) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)

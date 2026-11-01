@@ -7,6 +7,21 @@ use crate::client::{Prompt, Server};
 use crate::model::{self, Delivery, SessionInfo};
 
 impl Server {
+    /// Marks `session` read up to `idle` (`POST /api/session/:id/view`, Desktop's `session.view`).
+    pub fn view(&self, session: &str, idle: i64) -> Result<(), String> {
+        self.write("POST", &format!("/api/session/{session}/view"), Some(serde_json::json!({ "idle": idle }))).map(|_| ())
+    }
+
+    /// Replaces `session`'s metadata (`PATCH /api/session/:id` with `{ metadata }`).
+    pub fn set_metadata(&self, session: &str, metadata: Value) -> Result<(), String> {
+        self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "metadata": metadata }))).map(|_| ())
+    }
+
+    /// Archives `session` (`PATCH /api/session/:id` with `{ archived: true }`, Desktop's `session.update`).
+    pub fn archive(&self, session: &str) -> Result<(), String> {
+        self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "archived": true }))).map(|_| ())
+    }
+
     /// Waits for `session`'s active run to settle (`POST /api/experimental/session/:id/wait`).
     pub fn wait(&self, session: &str) -> Result<(), String> {
         self.write("POST", &format!("/api/experimental/session/{session}/wait"), None).map(|_| ())
@@ -114,12 +129,20 @@ mod tests {
         let h = std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
             s.set_read_timeout(Some(Duration::from_secs(5))).ok();
-            let mut buf = [0u8; 4096];
-            let n = s.read(&mut buf).unwrap_or(0);
+            // Reads until the whole body is in: the head and body can come in separate reads.
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !String::from_utf8_lossy(&buf).ends_with('}') {
+                let n = s.read(&mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
             let body = r#"{"data":{"id":"ses_fork_1","projectID":"proj_1","title":"Fix reconnect (fork #1)","agent":"build","location":{"directory":"/Users/demo/code/repo"},"time":{"created":99,"updated":99}}}"#;
             let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}", body.len());
             let _ = s.write_all(head.as_bytes());
-            String::from_utf8_lossy(&buf[..n]).into_owned()
+            String::from_utf8_lossy(&buf).into_owned()
         });
         let forked = Server { base, auth: None, media_refs: false }.fork_session("ses_a", Some("msg_2")).unwrap();
         let req = h.join().unwrap();
@@ -128,5 +151,34 @@ mod tests {
         assert_eq!(forked.id, "ses_fork_1");
         assert_eq!(forked.title, "Fix reconnect (fork #1)");
         assert_eq!(forked.directory, "/Users/demo/code/repo");
+    }
+
+    #[test]
+    fn archive_patches_the_session() {
+        let (base, h) = crate::client::mock_once();
+        Server::new(&base).archive("ses_a").unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("PATCH /api/session/ses_a HTTP/1.1"), "{req}");
+        assert_eq!(body_of(&req), serde_json::json!({ "archived": true }));
+    }
+
+    #[test]
+    fn view_and_metadata_go_to_the_session() {
+        let (base, h) = crate::client::mock_once();
+        Server::new(&base).view("ses_a", 5).unwrap();
+        let req = h.join().unwrap();
+        assert!(req.starts_with("POST /api/session/ses_a/view HTTP/1.1"), "{req}");
+        assert_eq!(body_of(&req), serde_json::json!({ "idle": 5 }));
+        let (base, h) = crate::client::mock_once();
+        Server::new(&base).set_metadata("ses_a", serde_json::json!({ "seerProject": null })).unwrap();
+        assert_eq!(body_of(&h.join().unwrap()), serde_json::json!({ "metadata": { "seerProject": null } }));
+    }
+
+    #[test]
+    fn a_session_reads_when_it_was_archived() {
+        let info = model::parse_session(&serde_json::json!({ "id": "ses_a", "time": { "archived": 7 } }));
+        assert_eq!(info.archived, Some(7));
+        let info = model::parse_session(&serde_json::json!({ "id": "ses_a", "metadata": { "seerProject": { "id": "ses_p", "since": 3 } } }));
+        assert_eq!(info.seer_project(), Some(("ses_p", 3)));
     }
 }

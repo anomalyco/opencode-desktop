@@ -13,7 +13,15 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'o', label: "Read more / Show less", run: |s, tx| flip(s, tx) },
     Trigger { key: 's', label: "Send another", run: |s, tx| send(s, tx) },
 ];
-pub const VARIANTS: &[(&str, usize)] = &[("Folded", 0), ("Expanded", 1), ("Fold off", 2), ("Steer", 3), ("Queued", 4)];
+pub const VARIANTS: &[(&str, usize)] = &[("Folded", 0), ("Expanded", 1), ("Fold off", 2), ("Steer", 3), ("Queued", 4), ("Long link", 5)];
+
+/// A prompt that is only a Slack link: its second line is one long word, which breaks inside itself.
+pub const LINK: &str = "https://anoma-ly.slack.com/archives/D0AF31JMF0A/p1793485494761169?thread_ts=1793300250.459359&channel=D0AF31JMF0A&message_ts=1793485494.761169";
+
+/// What the story sends: the long call notes, or just the link in the Long link variant.
+fn prompt(s: &App) -> &'static str {
+    if s.variant == 5 { LINK } else { LONG }
+}
 
 /// A long prompt: a call's notes pasted whole, 26 lines.
 pub const LONG: &str = "Notes from the call about the reconnect work, pasted as they came:
@@ -46,8 +54,8 @@ That's everything from the call; start with the backoff and the tests.";
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.settings.fold_user = s.variant != 2;
-    s.composer = TextEdit::new(LONG);
-    if s.variant >= 3 {
+    s.composer = TextEdit::new(prompt(s));
+    if s.variant == 3 || s.variant == 4 {
         // While a run works the prompt waits: as a Pending steer, or in the queue.
         s.running.insert(sid(s));
     }
@@ -58,7 +66,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn send(s: &mut App, tx: &mut Tx) {
-    s.composer = TextEdit::new(LONG);
+    s.composer = TextEdit::new(prompt(s));
     s.submit(s.variant == 4, tx);
 }
 

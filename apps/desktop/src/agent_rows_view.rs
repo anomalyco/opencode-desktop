@@ -2,10 +2,11 @@
 //! a live row each (`agent_rows.rs` has what each row knows).
 //!
 //! A new step rises in from below as the old one rises out, the time ticks at once each second
-//! (`agent_rows::poll`), the mark crossfades and scales between spinner, ✓ and ✕, cut-off words fade
-//! out at the edge, and agents that join the card rise into place at the bottom (nothing above them
-//! moves). Hover and click are instant. A call still being written, or whose agent hasn't
-//! started, wakes in place when it does (`agent_start.rs`).
+//! (`agent_rows::poll`), the mark crossfades and scales between spinner, ✓, ✕ and the dash of a
+//! call a later one steered (`agent_rows/calls.rs`), cut-off words fade out at the edge, and
+//! agents that join the card rise into place at the bottom (nothing above them moves). Hover and
+//! click are instant. A call still being written, or whose agent hasn't started, wakes in place
+//! when it does (`agent_start.rs`).
 
 use rune::{El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
 
@@ -46,7 +47,7 @@ pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i
         }
         Block::Agent { id, agent, title, status, session, .. } => {
             let child = crate::subagents::child_of(s, parent, *session, title);
-            let run = s.agent_run(child, status);
+            let run = s.agent_run(parent, id, child, status);
             let starting = child.is_none() && run.state == State::Running;
             Some(Call { key: id.to_string(), agent, title, child, run, pending: false, starting })
         }
@@ -78,13 +79,14 @@ fn arrive() -> Transition {
     Transition::offset(0.0, 6.0).combined(Transition::opacity()).springs(SpringPair::new(Spring::new(0.4, 0.0), Spring::new(0.3, 0.0)))
 }
 
-/// The 16pt mark: a spinner, a ✓ or a ✕, each scaling and fading into the last one's place.
-/// The spinner wakes from its starting dots in place (`agent_start::spinner`).
+/// The 16pt mark: a spinner, a ✓, a ✕ or a steered call's dash, each scaling and fading into the
+/// last one's place. The spinner wakes from its starting dots in place (`agent_start::spinner`).
 fn mark(p: &Pal, c: &Call) -> El {
     let (key, glyph) = match c.run.state {
         State::Running => ("spin", crate::agent_start::spinner(p, c.starting)),
         State::Done => ("done", icon(&ic::CHECK_SMALL, 16.0).color(p.success)),
         State::Failed => ("failed", icon(&ic::CIRCLE_X, 16.0).color(p.danger)),
+        State::Steered => ("steered", icon(&ic::DASH, 16.0).color(p.icon_faint)),
     };
     let swap = Transition::scale(0.6).allow_small_scale().springs(SpringPair::new(Spring::new(0.32, 0.0), Spring::new(0.22, 0.0)));
     el().key("mark").size(16.0, 16.0).child(el().key(key).absolute(0.0, 0.0).size(16.0, 16.0).center().child(glyph).transition(swap))
@@ -139,6 +141,7 @@ fn now(p: &Pal, r: &Run, font: TextStyle, h: f32) -> El {
         State::Running => (format!("step-{}", r.taken + r.steps.len()), p.faint),
         State::Done => ("result".to_owned(), p.faint),
         State::Failed => ("error".to_owned(), p.danger),
+        State::Steered => ("steered".to_owned(), p.faint),
     };
     let line = text(r.line()).key(key).font(font).color(color).truncate_fade().transition(roll());
     row().key("now").h(h).grow(1.0).shrink().min_w(0.0).center_y().clip_fade(0.0, 5.0, 0.0, 5.0).child(line)

@@ -35,8 +35,11 @@ impl App {
         if root == id && self.stage.is_none() && !self.question_shown() {
             self.composer.focused = true;
         }
-        if let Some(s) = self.sessions.iter_mut().find(|s| s.id == root) {
-            // Viewing it reads it (locally: this build never writes to the server).
+        // Viewing it reads it, and its tab (or task): locally, except a project's task, which
+        // the server reads too.
+        crate::project_inbox::opened(self, id);
+        let scope = self.scope_of(id).to_owned();
+        for s in self.sessions.iter_mut().filter(|s| s.id == scope || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
         if !self.tabs.iter().any(|t| t.id == root) {

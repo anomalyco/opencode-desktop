@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use rune::{El, Icon, TextStyle, Tween, Tx, col, el, icon, row, text};
+use rune::{El, Icon, Shape, TextStyle, Tween, Tx, canvas, col, el, icon, row, text};
 use rune_knobs::{Group, Knob};
 use serde_json::Value;
 
@@ -95,9 +95,10 @@ impl App {
     }
 }
 
-pub const FILL: Knob = Knob::new("Todo fill", 0.0, 0.5, 0.2).step(0.01).label("Circle fills in").about("Seconds a finished todo's circle takes to fill");
+pub const CLOSE: Knob = Knob::new("Todo ring", 0.0, 0.8, 0.4).step(0.01).label("Ring closes in").about("Seconds a finished todo's fill takes to close");
+pub const BOUNCE: Knob = Knob::new("Todo bounce", 0.0, 0.7, 0.4).step(0.01).label("Ring bounce").about("How far the fill springs past full");
 
-pub const GROUP: Group = Group::new("Todo pill", "todos", &[FILL]).under("Composer");
+pub const GROUP: Group = Group::new("Todo pill", "todos", &[CLOSE, BOUNCE]).under("Composer");
 
 rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
 
@@ -108,18 +109,24 @@ pub struct Ticks {
     session: String,
     seen: Vec<(String, Status)>,
     growing: HashMap<usize, Fill>,
+    /// The app's clock as of the last poll, which a filling todo is drawn at.
+    now: f64,
 }
 
-/// A todo finishing: its inner disc grows from the glyph it had over `FILL`, and from halfway
-/// through, a clip over its struck words opens left to right at the same pace.
+/// A todo finishing: its fill sweeps clockwise from the top, from the half it had round to a
+/// full disc, then springs out past full and back, all about its centre and drawn afresh each
+/// frame from `at`, the app's clock. From halfway through, a clip over its struck
+/// words opens left to right at the same pace.
 struct Fill {
     from: Status,
-    disc: Tween<f32>,
+    start: f64,
+    secs: f32,
+    bounce: f32,
     strike: Tween<[f32; 4]>,
 }
 
 impl Fill {
-    fn new(from: Status, content: &str, wrap: f32, secs: f32) -> Self {
+    fn new(from: Status, content: &str, wrap: f32, now: f64, secs: f32, bounce: f32) -> Self {
         let (w, _) = rune::text::measure(content, &[], ROW, Some(wrap));
         let w = w.max(1.0);
         // The clip runs on past the words to the widest a row can be, so a list that widens
@@ -128,34 +135,62 @@ impl Fill {
         let strike = Duration::from_secs_f32(secs * (to_w - from_w) / w);
         Fill {
             from,
-            disc: Tween::linear(0.0, 1.0, Duration::from_secs_f32(secs)),
+            start: now,
+            secs,
+            bounce,
             strike: Tween::linear([0.0, 0.0, from_w, TALLEST], [0.0, 0.0, to_w, TALLEST], strike),
         }
     }
+
+    /// How far round the fill has swept (0 to 1) and its radius, `at` on the app's clock;
+    /// `None` once it has settled. The sweep eases out over `SWEEP_SHARE` of `secs`; as it
+    /// closes, the full disc is kicked outward and springs back to size, so it never shrinks
+    /// below the half it started as.
+    fn at(&self, at: f64) -> Option<(f32, f32)> {
+        let t = (at - self.start).max(0.0) as f32;
+        let close = self.secs * SWEEP_SHARE;
+        if t < close {
+            let u = 1.0 - t / close;
+            return Some((1.0 - u * u, DISC_R));
+        }
+        let pop = rune::Spring::new(self.secs, self.bounce);
+        let t = t - close;
+        if t > pop.settling_duration_from(1.0, KICK, 1.0, 0.002) {
+            return None;
+        }
+        Some((1.0, DISC_R * pop.sample(1.0, KICK, 1.0, t).0))
+    }
 }
 
-/// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132), and
-/// starts a fill for each todo that has just finished.
-pub fn sync(s: &mut App) -> bool {
+/// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132),
+/// starts a fill for each todo that has just finished, and draws each frame of those filling.
+pub fn sync(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let crate::Route::Session(id) = &s.route else { return false };
     let todos = s.shown_todos(id);
-    let secs = s.knobs.get(&FILL);
+    let (secs, bounce) = (s.knobs.get(&CLOSE), s.knobs.get(&BOUNCE));
     let ticks = &mut s.todo_ticks;
+    let was_filling = ticks.growing.values().any(|f| f.at(ticks.now).is_some());
+    ticks.now = now;
     if ticks.session != *id {
-        *ticks = Ticks { session: id.clone(), ..Ticks::default() };
+        *ticks = Ticks { session: id.clone(), now, ..Ticks::default() };
     } else if !s.reduced_motion && secs > 0.0 {
         let wrap = words_width(&todos);
         for (k, t) in todos.iter().enumerate() {
             let was = ticks.seen.get(k).filter(|(c, _)| *c == t.content).map(|(_, st)| *st);
             if let Some(was) = was.filter(|st| *st != Status::Completed && t.status == Status::Completed) {
-                ticks.growing.insert(k, Fill::new(was, &t.content, wrap, secs));
+                ticks.growing.insert(k, Fill::new(was, &t.content, wrap, now, secs, bounce));
             }
         }
     }
     ticks.seen = todos.iter().map(|t| (t.content.clone(), t.status)).collect();
     ticks.growing.retain(|k, _| todos.get(*k).is_some_and(|t| t.status == Status::Completed));
+    let filling = ticks.growing.values().any(|f| f.at(now).is_some());
+    if filling {
+        tx.wake_after(Duration::ZERO);
+    }
+    let changed = filling || was_filling;
     if !s.todo_open || current(&todos).is_some() {
-        return false;
+        return changed;
     }
     s.todo_open = false;
     true
@@ -201,7 +236,7 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
                 reveal_current(s, &sid, tx);
             }
         })
-        .child(glyph(p, now.status, None))
+        .child(glyph(p, now.status, 0.0, None))
         .child(text(now.content.clone()).key("todo-now").font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
     if more > 0 {
         chip = chip.child(
@@ -225,7 +260,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         return None;
     }
     let wrap = words_width(&todos);
-    let mut list = col().key("todo-list").w_full().padding(PAD);
+    let mut list = col().key("todo-list").transition(rune::Transition::none()).w_full().padding(PAD);
     for (k, t) in todos.iter().enumerate() {
         let color = match t.status {
             Status::InProgress => p.text,
@@ -236,23 +271,27 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         list = list.child(
             row()
                 .key(format!("todo-{k}"))
+                .transition(rune::Transition::none())
                 .w_full()
                 .px(6.0)
                 .py(4.0)
                 .gap(8.0)
-                .child(el().h(ROW.line_height).center().child(glyph(p, t.status, fill)))
+                .child(el().h(ROW.line_height).center().transition(rune::Transition::none()).child(glyph(p, t.status, s.todo_ticks.now, fill)))
                 .child(words(t, color, wrap, fill)),
         );
     }
     let rows = col()
         .key("todo-scroll")
+        .transition(rune::Transition::none())
         .w_full()
         .max_h(MAX_H)
         .scroll(rune::ScrollSpec { stick_bottom: false })
         .scroll_edge_fade(12.0)
         .scroll_margin(PAD)
-        // What it holds comes in with the list, not on fades of its own.
-        .instant_changes()
+        // What it holds comes in with the list, not on fades of its own, and changes at once;
+        // only a finishing todo's fill springs, on its own curves. An `instant_changes` here
+        // would land those too, so each piece around the fill says so itself.
+        .motion(rune::Spring::NONE)
         .child(list);
     Some(
         col()
@@ -286,8 +325,8 @@ fn words(t: &Todo, color: rune::Color, wrap: f32, fill: Option<&Fill>) -> El {
     let words = || text(t.content.clone()).font(ROW).wrap().w_full();
     let own = words().key("text").color(color);
     let own = if t.finished() && fill.is_none() { own.strikes(strikes(&t.content, wrap, None)) } else { own };
-    el().key("words").grow(1.0).shrink().min_w(0.0).child(own).children(fill.map(|fill| {
-        el().key("strike").absolute(0.0, 0.0).w_full().h_full().clip_soft(0.0).live_rect(&fill.strike)
+    el().key("words").grow(1.0).shrink().min_w(0.0).transition(rune::Transition::none()).instant_changes().child(own).children(fill.map(|fill| {
+        el().key("strike").transition(rune::Transition::none()).absolute(0.0, 0.0).w_full().h_full().clip_soft(0.0).live_rect(&fill.strike)
             .child(words().color(rune::Color::TRANSPARENT).strikes(strikes(&t.content, wrap, Some(color))))
     }))
 }
@@ -323,27 +362,49 @@ fn strikes(words: &str, wrap: f32, color: Option<rune::Color>) -> Vec<(usize, us
 
 /// Desktop's 16 pt status glyph: a ring, half filled in progress, filled when done, struck
 /// through when cancelled. In progress is the warning colour; done is a step brighter than
-/// pending and cancelled. A todo finishing keeps the glyph it had, in done's colour, as its
-/// disc grows out from the centre over it.
-fn glyph(p: &Pal, status: Status, fill: Option<&Fill>) -> El {
+/// pending and cancelled. A todo finishing shows its ring in done's colour around its fill as
+/// it is now (`Fill::at`).
+fn glyph(p: &Pal, status: Status, now: f64, fill: Option<&Fill>) -> El {
     let (shape, color) = match status {
         Status::Pending => (&PENDING, p.icon_faint),
         Status::InProgress => (&IN_PROGRESS, p.warning),
         Status::Completed => (&COMPLETED, p.icon_muted),
         Status::Cancelled => (&CANCELLED, p.icon_faint),
     };
-    // The shape changes in place; only the growing disc mounts.
-    let shape = match fill.map(|f| f.from) {
-        Some(Status::InProgress) => &IN_PROGRESS,
-        Some(_) => &PENDING,
-        None => shape,
-    };
-    el().key("todo-glyph").size(16.0, 16.0)
-        .child(icon(shape, 16.0).key("shape").color(color))
-        .children(fill.map(|f| icon(&DISC, 16.0).key("disc").color(color).absolute(0.0, 0.0).live_scale(&f.disc)))
+    let filling = fill.and_then(|f| f.at(now).map(|(swept, r)| (f.from, swept, r)));
+    // The shape changes in place; only the filling disc mounts.
+    let shape = if filling.is_some() { &PENDING } else { shape };
+    el().key("todo-glyph").size(16.0, 16.0).transition(rune::Transition::none())
+        .child(icon(shape, 16.0).key("shape").color(color).transition(rune::Transition::none()).instant_changes())
+        .children(filling.map(|(from, swept, r)| {
+            canvas(disc(from, swept, r, color)).key("disc").absolute(0.0, 0.0).size(16.0, 16.0).transition(rune::Transition::none())
+        }))
 }
 
-static DISC: Icon = Icon { name: "todo-disc", view: 16.0, body: r#"<circle cx="8" cy="8" r="4" fill="currentColor"/>"# };
+/// A finishing todo's fill, `r` points about the glyph's centre: the half it had (the left,
+/// from the bottom round to the top, when it was in progress) and from the top, clockwise,
+/// `swept` of the rest.
+fn disc(from: Status, swept: f32, r: f32, color: rune::Color) -> Shape {
+    use std::f32::consts::{FRAC_PI_2, PI, TAU};
+    let (start, rest) = if from == Status::InProgress { (FRAC_PI_2, PI) } else { (-FRAC_PI_2, TAU) };
+    let end = -FRAC_PI_2 + rest * swept + if from == Status::InProgress { TAU } else { 0.0 };
+    // Within a few degrees of closing it draws closed, so no hairline shows at the seam.
+    let closed = end - start > TAU - 0.12;
+    let end = if closed { start + TAU } else { end };
+    let steps = ((end - start) / TAU * 64.0).ceil().max(1.0) as usize;
+    let at = |a: f32| [8.0 + r * a.cos(), 8.0 + r * a.sin()];
+    let mut points: Vec<[f32; 2]> = (0..=steps).map(|i| at(start + (end - start) * i as f32 / steps as f32)).collect();
+    if !closed {
+        points.push([8.0, 8.0]);
+    }
+    Shape::new().fill(points, color)
+}
+
+/// The done fill's radius, and how fast (in radii a second) a closed fill is kicked outward.
+const DISC_R: f32 = 4.0;
+const KICK: f32 = 3.5;
+/// The sweep's share of `CLOSE`.
+const SWEEP_SHARE: f32 = 0.6;
 
 const RING: &str = r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/>"#;
 

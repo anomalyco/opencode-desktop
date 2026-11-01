@@ -26,7 +26,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         Route::Session(id) => Some(crate::queue::panel(s, p, id, s.busy(id))),
         _ => None,
     };
-    col().key("dock").w_full().center().px(24.0).pb(12.0).children(queue).child(composer(s, p))
+    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(crate::view::DOCK_SIDE).children(queue).child(composer(s, p))
 }
 
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
@@ -77,7 +77,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
     let composer = col()
         .key("composer")
         .w_full()
-        .max_w(CONTENT_W)
+        .max_w(crate::view::DOCK_W)
         .min_h(96.0)
         .corners(if crate::queue::docked(s) { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
         .fill(composer_fill(p))

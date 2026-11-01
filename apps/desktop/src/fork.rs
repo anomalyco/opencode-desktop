@@ -116,6 +116,7 @@ impl App {
                 created: now,
                 outcome: None,
                 revert: None,
+                ..Default::default()
             },
             None => SessionInfo {
                 id: forked_id.clone(),

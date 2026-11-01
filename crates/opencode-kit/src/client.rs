@@ -64,6 +64,9 @@ pub enum Request {
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     Pending(String),
+    /// A project's newest unarchived sessions, subagents included (`/api/session?project=`),
+    /// replied as `Incoming::Sessions`.
+    ProjectSessions(String),
     /// A session's undelivered prompts. The reply is `Incoming::Event` with type
     /// `session.inbox.listed` and data `{sessionID, items}` (see [`model::Inbox::apply`]).
     Inbox(String),
@@ -97,6 +100,12 @@ pub enum Write {
     Rename { session: String, title: String },
     /// Deletes a session and its subagents (`DELETE /api/session/:id`).
     Delete(String),
+    /// Archives a session (`PATCH /api/session/:id` with `{ archived: true }`).
+    Archive(String),
+    /// Marks a session read up to its `idle` (`POST /api/session/:id/view`).
+    View { session: String, idle: i64 },
+    /// Replaces a session's `metadata` (`PATCH /api/session/:id`).
+    Metadata { session: String, metadata: Value },
     /// Saves a session as JSON in the downloads folder, as Desktop's Export does.
     Export(String),
     /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
@@ -645,6 +654,9 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         Write::Shell { session, id, command } => server.shell(&session, id.as_deref(), &command),
                         Write::Rename { session, title } => server.rename_session(&session, &title),
                         Write::Delete(session) => server.delete_session(&session),
+                        Write::Archive(session) => server.archive(&session),
+                        Write::View { session, idle } => server.view(&session, idle),
+                        Write::Metadata { session, metadata } => server.set_metadata(&session, metadata),
                         Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {
                             let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
                         }),
@@ -700,6 +712,12 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             Ok(list) => send(Incoming::Sessions(list)),
                             Err(e) => send(Incoming::Status(e)),
                         },
+                        Request::ProjectSessions(project) => {
+                            match server.get(&format!("/api/session?project={}&archived=false&limit=200", encode_component(&project))) {
+                                Ok(v) => send(Incoming::Sessions(model::parse_sessions(&v))),
+                                Err(e) => send(Incoming::Status(e)),
+                            }
+                        }
                         Request::Projects => match server.projects() {
                             Ok(list) => send(Incoming::Projects(list)),
                             Err(e) => send(Incoming::Status(e)),

@@ -64,8 +64,8 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let pills = pills(s, p, id);
     col().key("session")
         .w_full()
-        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(24.0).pb(8.0)
-            .child(row().key("activity-lane").w_full().max_w(crate::view::CONTENT_W).children(pills))))
+        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(crate::view::DOCK_SIDE).pb(8.0)
+            .child(row().key("activity-lane").w_full().max_w(crate::view::DOCK_W).children(pills))))
         .child(composer_dock(s, p))
 }
 
@@ -241,7 +241,9 @@ impl RowSpec {
                     if let Message::Assistant(a) = &t.messages[*message]
                         && let Some(Part::Text { text: body }) = a.parts.get(*part)
                     {
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver);
+                        // Only a reply with a diagram in it follows the column's width.
+                        let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw);
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);

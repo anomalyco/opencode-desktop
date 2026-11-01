@@ -192,7 +192,7 @@ pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) ->
     match piece {
         Piece::Quiet => quiet_view(s, p, c, fade),
         Piece::Start => divider(p, "Session compaction started"),
-        Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text)),
+        Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text, crate::genui::width(s))),
         Piece::End if running => {
             let since = s.compactions.seen.get(&c.id).map_or(s.clock, |x| x.at);
             let title = crate::working::shimmer(s, p, "Compacting", UI_MED, since);
@@ -277,7 +277,7 @@ pub(crate) fn compact(n: u64) -> String {
 /// Desktop's error card: the danger accent down its left edge and the message in body text.
 fn error_card(p: &Pal, message: &str) -> El {
     let accent = el().key("accent").pin(Some(0.0), Some(8.0), None, Some(8.0)).w(2.0).radius(2.0).fill(p.danger);
-    let body = readable(p, text(message.to_owned()).font(BUBBLE).color(p.text).wrap().w_full());
+    let body = readable(p, text(message.to_owned()).font(BUBBLE).color(p.text).wrap_anywhere().w_full());
     row().key("error-card").w_full().pt(10.0).pb(10.0).pl(10.0).pr(12.0).child(accent).child(body)
 }
 
@@ -314,21 +314,23 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
     }
     if expandable {
         let id = c.id.clone();
-        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            if s.toggle_expanded(&key) {
-                s.compactions.opened.insert(id.clone(), s.clock);
-            }
-        });
+        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| press(s, tx, &id));
     }
-    let mut out = col().w_full().child(col().w_full().pt(8.0).pb(8.0).child(divider));
+    let mut bar = col().key("bar").w_full().pt(8.0).pb(8.0).child(divider);
+    if open {
+        // While open it sticks to the timeline's top until the summary scrolls past, so it shuts
+        // from anywhere in it; the summary softens into its fill as a tool group's steps do.
+        let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
+        bar = bar.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
+    }
+    let mut out = col().w_full().child(bar);
     if open {
         let mut summary = col()
             .key("summary")
             .w_full()
             .pb(8.0)
             .transition(Transition::none())
-            .child(markdown_tinted(p, body, fade, false, p.muted))
+            .child(markdown_tinted(p, body, fade, false, p.muted, crate::genui::width(s)))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
         if s.compactions.opened.get(&c.id).is_some_and(|t| s.clock - t < 0.3) {
             summary = summary.looping(LoopSpec::sequence(Sequence::new(&OPEN)));
@@ -336,6 +338,22 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         out = out.child(summary);
     }
     out
+}
+
+/// Opens or shuts quiet compaction `id`'s summary at once. The divider holds where it was
+/// pressed, at the timeline's end too, so the summary pushes what's below it down; pressed while
+/// stuck to the top, it stays there as the summary goes (`disclosure::toggle_group`).
+pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
+    tx.instant();
+    let row = Piece::Quiet.key(id);
+    if s.toggle_expanded(&format!("compaction-{id}")) {
+        s.compactions.opened.insert(id.to_owned(), s.clock);
+        // Opening, the row's top holds: the divider turns sticky in the same commit, and a stuck
+        // divider's drawn place can't say how far the timeline's end ran on.
+        tx.keep_on_screen(row);
+    } else {
+        tx.keep_on_screen(format!("{row}/bar"));
+    }
 }
 
 /// A hairline that brightens when the compaction ends, with a light that gathers toward the label
@@ -394,14 +412,16 @@ fn quiet_label(s: &App, p: &Pal, running: bool, open: bool, start: f64) -> El {
             .offset_motion(anim)
             .blur_motion(anim)
     };
-    let done = text(ed).key("done").font(UI).color(if open { p.muted } else { p.faint }).group_color(p.muted);
+    // The stem and its ending light up as one word, on hover and while open.
+    let lit = |t: El| t.font(UI).color(if open { p.muted } else { p.faint }).group_color(p.muted);
+    let done = lit(text(ed).key("done"));
     let ending = el()
         .key("ending")
         .w(ending_w)
         .h(16.0)
         .child(morph(text(ing).key("running").font(UI).color(p.faint), running, -shift, out.into()))
         .child(morph(done, !running, shift, into.into()));
-    let mut label = row().key("label").child(text(stem).key("stem").font(UI).color(p.faint)).child(ending);
+    let mut label = row().key("label").child(lit(text(stem).key("stem"))).child(ending);
     if running && !calm {
         let glint = row()
             .key("glint")

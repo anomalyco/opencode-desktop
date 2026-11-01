@@ -102,6 +102,7 @@ impl App {
 
     /// When the window closes: the newest draft goes out, and every write waits to land.
     pub fn save_on_close(&mut self) {
+        self.close_rune_mcp();
         if self.persists() {
             self.poll_restore();
             self.queue_terminal_save();

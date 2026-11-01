@@ -5,8 +5,9 @@
 //!
 //! | Where | Items |
 //! | --- | --- |
-//! | Sidebar tab | Rename, Close tab, —, Delete session… |
-//! | Home row, session header | Rename, Export…, —, Delete… |
+//! | Sidebar tab | Rename, Close tab, Make project, —, Delete session… |
+//! | Home row, session header | Rename, Export…, Make project, —, Delete… |
+//! | Inbox task / project line | Close (archive) / Stop being a project, —, Delete… |
 //!
 //! Rename edits the title where it stands: ⏎ saves, Esc cancels, a click elsewhere saves (the
 //! Home row cancels, as Desktop's does). Double-clicking a tab and clicking a root session's
@@ -24,6 +25,8 @@ pub enum Spot {
     Tab,
     Row,
     Header,
+    /// A line in the sidebar's projects inbox (`project_inbox`).
+    Inbox,
 }
 
 /// What a menu is about.
@@ -75,15 +78,20 @@ fn item(id: &'static str, title: &'static str, enabled: bool) -> Line {
 /// load; a subagent's header has no menu.
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
     let known = s.session(&t.id);
+    let project = item("project", if s.is_project(&t.id) { "Stop being a project" } else { "Make project" }, known.is_some());
     match t.spot {
         Spot::Tab => vec![
             item("rename", "Rename", known.is_some()),
             item("close", "Close tab", true),
+            project,
             Line::Sep,
             item("delete", "Delete session…", known.is_some()),
         ],
+        Spot::Inbox if known.is_none() => vec![],
+        Spot::Inbox if s.lead_of(&t.id) == Some(t.id.as_str()) => vec![item("close-task", "Close", true), Line::Sep, item("delete", "Delete…", true)],
+        Spot::Inbox => vec![project, Line::Sep, item("delete", "Delete…", true)],
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
-        Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), Line::Sep, item("delete", "Delete…", true)],
+        Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), project, Line::Sep, item("delete", "Delete…", true)],
     }
 }
 
@@ -130,6 +138,8 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
             s.write(Write::Export(t.id.clone()));
         }
         "delete" => s.menus.confirm = Some(t.id.clone()),
+        "project" => s.toggle_project(&t.id, tx),
+        "close-task" => s.close_task(&t.id, tx),
         _ => {}
     }
 }

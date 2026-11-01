@@ -12,6 +12,85 @@ use crate::client::BrowserHost;
 use crate::protocol::{CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot};
 
 #[test]
+fn each_app_gets_its_own_engine_socket() {
+    use crate::installer::socket_name_for;
+    let seer = std::path::Path::new("/Users/a/Applications/Seer.app/Contents/MacOS/seer");
+    let desktop = std::path::Path::new("/Users/a/Applications/OpenCode (Rune).app/Contents/MacOS/opencode-desktop");
+    // The engine takes one app at a time: a second app on its socket takes its frames and tabs.
+    assert_ne!(socket_name_for(seer, 501), socket_name_for(desktop, 501));
+    // The same app finds its engine again after a relaunch or hot reload.
+    assert_eq!(socket_name_for(seer, 501), socket_name_for(seer, 501));
+    assert!(socket_name_for(desktop, 501).starts_with("browser-501-"));
+}
+
+#[test]
+fn each_app_keeps_its_own_profile_paired_with_its_socket() {
+    use crate::installer::socket_name_for;
+    use crate::profile::profile_dir_for;
+    let root = std::path::Path::new("/Users/a/Library/Application Support/co.anomaly.opencode");
+    let seer = std::path::Path::new("/Users/a/Applications/Seer.app/Contents/MacOS/seer");
+    let desktop = std::path::Path::new("/Users/a/Applications/OpenCode (Rune).app/Contents/MacOS/opencode-desktop");
+    let tag_of = |exe| socket_name_for(exe, 501).trim_start_matches("browser-501-").trim_end_matches(".sock").to_owned();
+    for exe in [seer, desktop] {
+        assert_eq!(profile_dir_for(root, exe), root.join(format!("browser-profile-{}", tag_of(exe))));
+    }
+    assert_eq!(profile_dir_for(root, seer), profile_dir_for(root, seer));
+    assert_ne!(profile_dir_for(root, seer), profile_dir_for(root, desktop));
+}
+
+#[test]
+fn the_profile_defaults_per_app_and_the_environment_wins() {
+    use crate::profile::{profile_dir_for, resolve, shared_profile_dir};
+    let exe = std::path::Path::new("/Users/a/Applications/Seer Dev.app/Contents/MacOS/seer");
+    let own = resolve(None, None, exe);
+    assert_eq!(own, profile_dir_for(own.parent().unwrap(), exe));
+    assert_eq!(own.parent(), shared_profile_dir().parent(), "sits next to the shared profile");
+    let shared = shared_profile_dir();
+    assert!(shared.ends_with("co.anomaly.opencode/browser-profile") || shared.ends_with("opencode/browser-profile"));
+    assert_eq!(resolve(None, Some(&shared), exe), shared);
+    let env = std::ffi::OsString::from("/tmp/scratch-profile");
+    assert_eq!(resolve(Some(env.clone()), Some(&shared), exe), std::path::PathBuf::from(&env));
+    assert_eq!(resolve(Some(env.clone()), None, exe), std::path::PathBuf::from(&env));
+    assert_eq!(resolve(Some("".into()), None, exe), own, "an empty variable doesn't count");
+}
+
+#[test]
+fn the_engine_is_spawned_with_its_profile() {
+    use crate::transport::engine_command;
+    let cmd = engine_command("/x/engine".as_ref(), "/x/e.sock".as_ref(), "/x/browser-profile-0a1b2c3d".as_ref());
+    let envs: Vec<_> = cmd.get_envs().collect();
+    assert_eq!(
+        envs,
+        vec![(std::ffi::OsStr::new("OPENCODE_BROWSER_PROFILE"), Some(std::ffi::OsStr::new("/x/browser-profile-0a1b2c3d")))]
+    );
+    let args: Vec<_> = cmd.get_args().collect();
+    assert_eq!(args, ["--socket", "/x/e.sock"]);
+}
+
+#[test]
+fn a_spawn_waits_for_an_engine_on_its_way_out_to_free_the_profile() {
+    use crate::profile::{is_free, wait_until_free};
+    use std::os::fd::AsRawFd;
+    let dir = std::env::temp_dir().join(format!("browser-pane-profile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(is_free(&dir), "no profile yet");
+    std::fs::create_dir_all(&dir).unwrap();
+    let held = std::fs::File::create(dir.join("engine.lock")).unwrap();
+    assert_eq!(unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    assert!(!is_free(&dir));
+    assert!(!wait_until_free(&dir, Duration::from_millis(150)));
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        drop(held);
+    });
+    let start = Instant::now();
+    assert!(wait_until_free(&dir, Duration::from_secs(5)));
+    assert!(start.elapsed() >= Duration::from_millis(150));
+    releaser.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn resolves_addresses_like_desktop() {
     assert_eq!(resolve_address(""), "about:blank");
     assert_eq!(resolve_address(":3000"), "http://localhost:3000");

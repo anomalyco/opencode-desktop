@@ -11,6 +11,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("jump", "cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "Kit wants the Compacted summary to open and shut at once, with no height animation (p162): the row takes its new height in one frame while its divider holds; shut from the stuck divider near the end, the timeline can't stay scrolled past its end, so the divider lands back at its place there, still on screen (compaction::press)"),
+    ("loop-jump", "cmp-msg_zzlongcompaction-quiet/#0/summary", "compaction-open-at-bottom/", "the summary's one-shot 0.2 s fade in (compaction OPEN) steps its phase only while it plays, so the gate reads its resting frames as the usual step"),
+    ("pop-in", "timeline/", "compaction-open-at-bottom/", "shutting the summary at once (p162) brings the rows under it back on screen in that frame (compaction::press)"),
     ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("pop-out", "timeline/", "tool-group-fold/pinned/long/wide/zoomed/", "known, also on main (hidden there by the gate's loop heuristic): opening unpins the timeline and the virtual list windows again by the open group's full height, unmounting the rows under it two frames before the fold covers them (rune virtual_list::select)"),
@@ -26,9 +29,11 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-out", "window/activity-dismiss", "capsule-open-long", "an invisible layer under the open list that closes it on a click outside (view::app)"),
     ("pop-in", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside open at once, as the capsule's list does (todos::panel)"),
+    ("pop-in", "todo-glyph/disc", "todo-pill", "a finishing todo's fill mounts drawing exactly the half its glyph already showed, then sweeps round (todos::disc)"),
     ("pop-out", "window/todo-", "todo-pill", "the plan's list and the layer that closes it on a click outside close at once, as the capsule's list does (todos::panel)"),
     ("text-swap", "todo-pill/todo-now", "", "the pill names the next todo at once, as Desktop's pill does (todos::pill)"),
     ("reversal", "now/", "agents", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
+    ("reversal", "now/", "agent-steered", "a subagent's result or error rolls up into its row as the pinned timeline slides down for the closing activity lane; against its row it travels one way"),
     ("text-swap", "time-call_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
     ("text-swap", "-time-ses_", "", "a run time changes at once each second, as Desktop's do; a digit rolling every second smears it (subagents::run_time)"),
     ("jump", "time-call_", "run-time-", "a run time that gains a digit (9s → 10s, 59s → 1m 00s) widens at once, as Desktop's plain text does (subagents::run_time)"),
@@ -76,6 +81,8 @@ const ALLOW: &[Allow] = &[
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("jerk", "L1/L4", "stream-outline/", "a `row`'s arrow centres on the row, whose height steps a line at a time as its panes' words rewrap while they spring narrower for a pane that streamed in beside them (rune_parts::view, genui::reply)"),
+    ("jump", "L1/L4", "stream-outline/", "a `row`'s panes take the width their words want (rune_parts::view::flow, t1197), so a pane whose words stream in squeezes its neighbour, which rewraps a line at once and moves the arrow on the row's middle"),
 ];
 
 struct Action {
@@ -284,6 +291,7 @@ const ACTIONS: &[Action] = &[
         r.start_stream();
         r.play_out(1.0);
     } },
+    Action { name: "stream-outline", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_outline },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {
         // The narrow window's pinned tail can hold no tool group: scroll one into view.
         for _ in 0..4 {
@@ -503,6 +511,12 @@ const ACTIONS: &[Action] = &[
     Action { name: "compaction-quiet", circs: || places(Circ::default()), run: |r| compaction(r, true, 1.6) },
     // A quiet one that ends inside its grace fades in once, as Compacted.
     Action { name: "compaction-quiet-grace", circs: || wide_and_narrow(Circ::default()), run: |r| compaction(r, true, 0.2) },
+    // Opened at the timeline's end, the Compacted divider holds and its summary pushes the end
+    // down; scrolled into, it sticks, and shuts from there in place (p162).
+    Action { name: "compaction-open-at-bottom", circs: || {
+        let base = Circ { long_summary: true, ..Circ::default() };
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
+    }, run: super::compaction_fold::open_at_bottom },
     Action { name: "switch-tab", circs: || wide_and_narrow(Circ::default()), run: |r| {
         let other = r.rt.state.tabs.iter().map(|t| t.id.clone()).find(|t| t != SID).expect("another tab");
         r.act("open another tab", |rt| rt.update(move |s, tx| s.open(&other, tx)));
@@ -543,6 +557,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     Action { name: "agent-wakes", circs: || wide_and_narrow(Circ::default()), run: agent_wakes },
+    Action { name: "agent-steered", circs: || wide_and_narrow(Circ::default()), run: super::steered::steered },
     // Dictation on the fake Hex: the toolbar's recording row comes and goes on the key, the
     // meter follows the voice, and the words land in the composer, which grows to hold them.
     Action { name: "dictate", circs: dictation_circs, run: |r| {

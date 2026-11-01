@@ -27,6 +27,8 @@ mod commands;
 mod commands_stories;
 mod compaction;
 mod compaction_stories;
+#[cfg(test)]
+mod compaction_fold_tests;
 mod copied;
 mod demo;
 mod demo_script;
@@ -49,6 +51,7 @@ mod fold_stories;
 #[cfg(test)]
 mod fold_tests;
 mod fork;
+mod genui;
 mod forms;
 mod frosted_stories;
 mod history;
@@ -89,6 +92,7 @@ mod perf;
 mod picker_stories;
 mod pickers;
 mod popover;
+mod project_inbox;
 mod project_stories;
 mod project_switcher;
 mod projects;
@@ -107,6 +111,7 @@ mod review;
 mod revert;
 mod rewind;
 mod rewind_stories;
+mod rune_mcp;
 mod scenes;
 mod short_group;
 mod selection_stories;
@@ -259,6 +264,8 @@ pub struct App {
     pub switcher: switcher::Switcher,
     pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
+    /// Sessions marked as projects, whose tasks fill the sidebar's inbox (`project_inbox`).
+    pub project_inbox: project_inbox::State,
     pub settings: settings::Settings,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
@@ -312,6 +319,7 @@ pub struct App {
     /// What a tool step last opened in the side region (`tool_open`).
     pub tool_open: Option<tool_open::Opened>,
     pub terminal: terminal::TerminalPane,
+    pub rune_mcp: rune_mcp::WindowMcp,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
@@ -687,6 +695,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Reconnected => {
                         tx.instant();
+                        project_inbox::reconnected(s);
                         s.resync();
                     }
                     Incoming::Active(ids) => {
@@ -752,7 +761,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= stop::poll(s, now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
-    changed |= subagents::sync(s) | todos::sync(s);
+    changed |= project_inbox::sync(s);
+    changed |= subagents::sync(s) | todos::sync(s, now, tx);
     if s.question_shown() != asked {
         s.morph(tx);
     }
@@ -773,6 +783,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.poll_panels(tx);
+    changed |= rune_mcp::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
@@ -803,7 +814,8 @@ fn setup(s: &mut App, waker: Waker) {
     s.files.set_waker(waker.clone());
     s.open_in.set_waker(waker.clone());
     s.icons.set_sync(headless());
-    s.setup_browser(waker);
+    s.setup_browser(waker.clone());
+    s.setup_rune_mcp(waker);
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
@@ -848,6 +860,9 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    if genui::skill::maybe_cli() {
+        return;
+    }
     telemetry::launched();
     rune_mac::launch();
     rune::prewarm_gpu();

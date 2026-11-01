@@ -1,13 +1,15 @@
 use super::*;
 use crate::{App, Route, session_pages::Pages, view};
 use rune::{Env, Runtime};
+use serde_json::json;
 use std::sync::Arc;
 
 fn capture<R>(f: impl FnOnce() -> R) -> (R, Vec<Value>) {
-    CAPTURE.with(|c| *c.borrow_mut() = Some(vec![]));
-    let r = f();
-    OPEN.with(|o| *o.borrow_mut() = None);
-    (r, CAPTURE.with(|c| c.borrow_mut().take().unwrap()))
+    otlp_lite::capture(|| {
+        let r = f();
+        OPEN.with(|o| *o.borrow_mut() = None);
+        r
+    })
 }
 
 fn named<'a>(spans: &'a [Value], name: &str) -> &'a Value {

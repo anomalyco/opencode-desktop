@@ -53,6 +53,10 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
     let mut list = col().key("tabs").w_full().pb(16.0);
     for (i, t) in s.tabs.iter().enumerate() {
+        // A project and its tasks are in the inbox above.
+        if s.is_project(&t.id) || s.project_of_task(&t.id).is_some() {
+            continue;
+        }
         list = list.child(tab_row(s, p, t, i, current == Some(t.id.as_str()), s.tabs.len()));
     }
 
@@ -110,6 +114,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .shrink()
             .scroll(ScrollSpec { stick_bottom: false })
             .clip_fade(0.0, 0.0, 0.0, 16.0)
+            .children(crate::project_inbox::section(s, p))
             .child(list),
     );
 

@@ -16,7 +16,7 @@ pub(in crate::view) fn small_button(p: &Pal, key: String, label: &str, primary: 
 }
 
 pub(in crate::view) fn requests(s: &App, p: &Pal, id: &str) -> El {
-    let mut dock = col().key("requests").w_full().center().px(24.0).gap(8.0);
+    let mut dock = col().key("requests").w_full().center().px(crate::view::DOCK_SIDE).gap(8.0);
     // Questions take the composer's place (`question.rs`).
     // With auto-accept on the cards stay hidden, as in Desktop.
     for r in s.pending_for(id).into_iter().filter(|r| matches!(r, Pending::Permission { .. }) && !s.settings.auto_accept) {
@@ -30,7 +30,7 @@ pub(in crate::view) fn request_card(p: &Pal, r: &Pending) -> El {
     let card = col()
         .key(format!("request-{rid}"))
         .w_full()
-        .max_w(CONTENT_W)
+        .max_w(crate::view::DOCK_W)
         .padding(14.0)
         .gap(10.0)
         .radius(12.0)
