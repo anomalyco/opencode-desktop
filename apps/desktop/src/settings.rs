@@ -251,8 +251,16 @@ pub fn page(s: &App, p: &Pal) -> El {
         )
 }
 
-/// Desktop's `settings-back`: the way out, at the top of the page. It does what Esc does.
+/// Desktop's `settings-back`: the way out, at the top of the page. It does what Esc does. The
+/// chevron's ink, not its box, sits on the column's left edge, so the hover fill hangs out past
+/// it by the padding and the icon's empty left side.
 fn back_button(p: &Pal) -> El {
+    const PAD: f32 = 6.0;
+    /// The arrow's ink starts 4.8 pt into its box; 0.7 less lets for the "S" of "Settings" and
+    /// "G" of "General" starting a little inside their own boxes.
+    // The chevron's ink starts 4.8 pt into its box; 0.7 less, because the title's "S" and
+    // "G" start a little inside their own boxes (measured on a render).
+    const ICON_GAP_LEFT: f32 = 4.1;
     row()
         .w_full()
         .child(
@@ -261,18 +269,20 @@ fn back_button(p: &Pal) -> El {
                 .role("button")
                 .label("Back to app")
                 .h(28.0)
-                .px(6.0)
-                .gap(6.0)
+                .ml(-(PAD + ICON_GAP_LEFT))
+                .px(PAD)
+                .gap(3.0)
                 .center_y()
                 .radius(4.0)
+                .hover_group()
                 .hover(p.layer3)
                 .press(p.layer3)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.close_settings();
                 })
-                .child(icon(&crate::review::view::ARROW_LEFT, 16.0).color(p.icon_muted))
-                .child(text("Back to app").font(UI).color(p.muted)),
+                .child(icon(&crate::review::view::ARROW_LEFT, 16.0).color(p.icon_muted).group_color(p.text))
+                .child(text("Back to app").font(UI).color(p.muted).group_color(p.text)),
         )
 }
 
