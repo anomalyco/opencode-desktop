@@ -68,3 +68,18 @@ fn a_session_in_the_sidebar_leaves_settings_for_it() {
     assert!(!rt.state.settings.open);
     assert_eq!(rt.state.route, Route::Session(THIRD.into()));
 }
+
+#[test]
+fn no_sidebar_row_reads_as_selected_in_settings_and_it_comes_back() {
+    let selected = |rt: &Runtime<App>| rt.elements().into_iter().filter(|e| e.item_selected && !e.exiting).count();
+    let mut rt = fixture_runtime();
+    assert!(matches!(rt.state.route, Route::Session(_)));
+    let route = rt.state.route.clone();
+    assert!(selected(&rt) > 0, "the open session is highlighted");
+    let mut rt = in_settings(rt);
+    assert_eq!(selected(&rt), 0, "nothing is highlighted in Settings");
+    assert_eq!(rt.state.route, route, "Settings still returns to the same session");
+    tap(&mut rt, "settings-back");
+    assert!(selected(&rt) > 0, "the highlight is back");
+    assert_eq!(rt.state.route, route);
+}

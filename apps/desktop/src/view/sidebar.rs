@@ -47,7 +47,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let current = match &s.route {
-        Route::Session(id) => Some(s.root_of(id)),
+        Route::Session(id) if !s.settings.open => Some(s.root_of(id)),
         _ => None,
     };
     // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
@@ -93,7 +93,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .key("actions")
             .w_full()
             .gap(4.0)
-            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
+            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home && !s.settings.open).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
             .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "⇧⌘F", false).on_press_tx(

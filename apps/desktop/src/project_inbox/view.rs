@@ -17,7 +17,7 @@ pub fn section(s: &App, p: &Pal) -> Option<El> {
         return None;
     }
     let open = match &s.route {
-        Route::Session(id) => Some(id.as_str()),
+        Route::Session(id) if !s.settings.open => Some(id.as_str()),
         _ => None,
     };
     let rows = s.inbox_rows();
