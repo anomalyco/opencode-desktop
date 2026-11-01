@@ -31,8 +31,6 @@
    "reason": "the long summary folds as a tool group does (p162, El::fold_glide), and a press mid-glide springs it back from where it is"},
   {"trace": "window-resize", "element": "timeline/", "kind": "dog-leg",
    "reason": "a live resize widens the reading column to its CONTENT_W cap and only then centres it, while the pinned bottom follows the window's height, so rows near the end follow the bottom first and move across only once the column stops growing (view::timeline)"},
-  {"trace": "compacted-summary", "element": "timeline/", "kind": "appear-then-jump",
-   "reason": "known Rune bug: as the long summary opens, the prompt under it mounts 12 pt below its place and lands there the next frame (virtual_list::select windows the rows by the summary's full height)"},
   {"trace": "compacted-summary", "element": "timeline/", "kind": "reversal",
    "reason": "a press mid-glide springs the summary back from where it is (p162), and the prompt and reply under it, which stay mounted through the fold since Rune 05dd288a, ride it out and back"},
   {"trace": "compaction", "element": "(frame)", "kind": "idle-frames",
