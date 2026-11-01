@@ -97,7 +97,10 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
                 |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
             .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "⇧⌘F", false).on_press_tx(
-                |s: &mut App, tx: &mut Tx| s.open_session_search(tx),
+                |s: &mut App, tx: &mut Tx| {
+                    s.close_settings();
+                    s.open_session_search(tx)
+                },
             ))
             .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.new_session(tx),
@@ -355,7 +358,7 @@ pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
 }
 
 /// Room the session header keeps for the collapsed toggle.
-pub(super) fn collapsed_slot(s: &App) -> El {
+pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
     el().key("toggle-space").w(if s.sidebar_open { 0.0 } else { COLLAPSED_SLOT - 4.0 }).h(28.0).motion(SIDEBAR_SPRING)
 }

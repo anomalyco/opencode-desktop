@@ -203,6 +203,7 @@ const APP_SCENES: &[&str] = &[
     "queue-question-morph",
     "draft",
     "settings",
+    "settings-sidebar-closed",
     "question",
     "question-morph",
     "sidebar-closed",

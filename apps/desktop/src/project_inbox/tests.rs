@@ -160,3 +160,14 @@ fn e_on_a_row_marks_its_task_read() {
     assert_eq!(sent, ["ses_ib06"], "opening read it; E only lets it go");
     assert!(rt.find("ib-ses_ib06").is_none());
 }
+
+#[test]
+fn a_project_or_task_row_leaves_settings_for_it() {
+    for (row, id) in [(format!("ip-{MAIN}"), MAIN), ("ib-ses_ib02".to_owned(), "ses_ib02")] {
+        let mut rt = crate::settings::leave_tests::in_settings(world().into_runtime());
+        crate::settings::leave_tests::tap(&mut rt, &row);
+        for _ in 0..30 { rt.frame(1.0 / 60.0); }
+        assert!(!rt.state.settings.open, "{row}");
+        assert_eq!(rt.state.route, Route::Session(id.into()));
+    }
+}

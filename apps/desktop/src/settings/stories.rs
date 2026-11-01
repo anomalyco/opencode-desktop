@@ -19,3 +19,13 @@ fn view(s: &App, p: &Pal) -> El {
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story { path: "Settings/Page", scene: |s| crate::stories::stage(s, view), knobs: &[], keys: KEYS, variants: &[] },
 ]);
+
+// Settings with the sidebar hidden: the back button sits right after the sidebar toggle.
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("settings-sidebar-closed", |s| {
+        crate::open_scene(s);
+        s.finish_stream();
+        s.sidebar_open = false;
+        s.open_settings();
+    }),
+]);

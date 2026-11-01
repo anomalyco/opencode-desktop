@@ -221,7 +221,7 @@ pub fn page(s: &App, p: &Pal) -> El {
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
     ]);
     let section = |title: &'static str, list: El| col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list);
-    col()
+    let body = col()
         .key("settings")
         .role("region")
         .label("Settings")
@@ -235,55 +235,45 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .w_full()
                 .max_w(720.0)
                 .px(40.0)
-                .pt(48.0)
                 .pb(48.0)
                 .gap(32.0)
-                .child(
-                    col()
-                        .w_full()
-                        .gap(28.0)
-                        .child(back_button(p))
-                        .child(text("Settings").font(TITLE).color(p.text)),
-                )
+                .child(text("Settings").font(TITLE).color(p.text))
                 .child(section("General", general))
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
-        )
+        );
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body)
 }
 
-/// Desktop's `settings-back`: the way out, at the top of the page. It does what Esc does. The
-/// chevron's ink, not its box, sits on the column's left edge, so the hover fill hangs out past
-/// it by the padding and the icon's empty left side.
-fn back_button(p: &Pal) -> El {
-    const PAD: f32 = 6.0;
-    /// The arrow's ink starts 4.8 pt into its box; 0.7 less lets for the "S" of "Settings" and
-    /// "G" of "General" starting a little inside their own boxes.
-    // The chevron's ink starts 4.8 pt into its box; 0.7 less, because the title's "S" and
-    // "G" start a little inside their own boxes (measured on a render).
-    const ICON_GAP_LEFT: f32 = 4.1;
+/// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,
+/// at the panel's top-left, past the collapsed sidebar toggle. It does what Esc does.
+fn header(s: &App, p: &Pal) -> El {
     row()
+        .key("settings-header")
         .w_full()
-        .child(
-            row()
-                .key("settings-back")
-                .role("button")
-                .label("Back to app")
-                .h(28.0)
-                .ml(-(PAD + ICON_GAP_LEFT))
-                .px(PAD)
-                .gap(3.0)
-                .center_y()
-                .radius(4.0)
-                .hover_group()
-                .hover(p.layer3)
-                .press(p.layer3)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.close_settings();
-                })
-                .child(icon(&crate::review::view::ARROW_LEFT, 16.0).color(p.icon_muted).group_color(p.text))
-                .child(text("Back to app").font(UI).color(p.muted).group_color(p.text)),
-        )
+        .h(48.0)
+        .pl(14.0)
+        .center_y()
+        .window_drag()
+        .child(crate::view::collapsed_slot(s))
+        .child(back_button(p))
+}
+
+fn back_button(p: &Pal) -> El {
+    el().key("settings-back")
+        .role("button")
+        .label("Back to app")
+        .help("Back to app Esc")
+        .size(28.0, 28.0)
+        .radius(6.0)
+        .center()
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.close_settings();
+        })
+        .child(icon(&crate::review::view::ARROW_LEFT, 20.0).color(p.icon_muted))
 }
 
 /// Desktop's three notification switches, with its titles and descriptions.
@@ -416,6 +406,8 @@ pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
 }
 
 mod stories;
+#[cfg(test)]
+pub(crate) mod leave_tests;
 
 #[cfg(test)]
 mod tests {

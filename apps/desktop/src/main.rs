@@ -363,6 +363,7 @@ impl App {
 
     /// Back to Home, dropping a session that was still opening.
     pub(crate) fn go_home(&mut self, tx: &mut Tx) {
+        self.close_settings();
         self.opening = None;
         self.route = Route::Home;
         tx.settle();
@@ -577,6 +578,7 @@ impl App {
     }
 
     pub fn new_session(&mut self, tx: &mut Tx) {
+        self.close_settings();
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;

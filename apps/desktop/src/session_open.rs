@@ -1,8 +1,10 @@
 use super::*;
 
 impl App {
-    /// Opens a session: lands at the bottom on the first frame with nothing animating in.
+    /// Opens a session: lands at the bottom on the first frame with nothing animating in. It
+    /// leaves Settings, as any page the sidebar opens does.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
+        self.close_settings();
         self.cancel_open(tx);
         let held = self.pages.has_pool() && self.route != Route::Session(id.to_owned());
         if self.route != Route::Session(id.to_owned()) { crate::telemetry::open_begin(id, held); }
