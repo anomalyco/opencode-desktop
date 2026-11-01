@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks folder shape for tracked sources, with the same rules as Abattoir's `ops code-shape`:
+# Checks folder shape for tracked sources.
 #   prefix family  x.rs or x/ plus 2+ x_*.rs siblings, or 3+ x_*.rs alone: error, "move into x/"
 #   folder breadth > 40 non-test source files in one folder: warn; > 60: error
 # Files directly in examples/, benches/ and bin/ are skipped (each is its own program). Test files
