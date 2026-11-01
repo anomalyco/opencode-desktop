@@ -54,6 +54,7 @@ mod fork;
 mod genui;
 mod forms;
 mod frosted_stories;
+mod composer_grow_stories;
 mod history;
 mod history_story;
 #[cfg(test)]

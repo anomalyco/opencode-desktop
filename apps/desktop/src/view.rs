@@ -230,6 +230,8 @@ fn home_dir() -> String {
 }
 
 #[cfg(test)]
+mod composer_height_tests;
+#[cfg(test)]
 mod composer_tests;
 #[cfg(test)]
 mod diagram_width_tests;

@@ -148,6 +148,7 @@ register!(STORY_LIST: Story = [
 /// in the group. A story not named here goes after these, by module path.
 const ORDER: &[&str] = &[
     "Composer/Composer",
+    "Composer/Grows a line",
     "Composer/Queue dock",
     "Composer/Dictation",
     "Composer/History",

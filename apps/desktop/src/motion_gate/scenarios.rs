@@ -562,6 +562,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "run-time-59s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 59) },
     Action { name: "odometer-usage", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: super::odometers::usage },
     Action { name: "odometer-questions", circs: || vec![Circ::default()], run: super::odometers::questions },
+    Action { name: "composer-grow", circs: || vec![Circ::default(), Circ { narrow: true, zoomed: true, ..Circ::default() }], run: super::composer_grow::grow },
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     Action { name: "agent-wakes", circs: || wide_and_narrow(Circ::default()), run: agent_wakes },

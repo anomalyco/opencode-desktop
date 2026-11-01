@@ -220,6 +220,7 @@ const APP_SCENES: &[&str] = &[
 
 const STORY_PATHS: &[&str] = &[
     "Composer/Composer",
+    "Composer/Grows a line",
     "Composer/Queue dock",
     "Composer/Dictation",
     "Composer/History",
