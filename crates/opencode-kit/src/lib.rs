@@ -6,6 +6,7 @@ pub mod client_mcp;
 pub mod mention;
 pub mod model;
 pub mod pairing;
+pub mod plain_error;
 pub mod project;
 pub mod prompt;
 pub mod pty;

@@ -128,6 +128,8 @@ mod session_menu_tests;
 mod session_menu_view;
 #[cfg(test)]
 mod session_older_tests;
+#[cfg(test)]
+mod session_stall_tests;
 mod session_open;
 mod session_pages;
 mod settings;
@@ -714,6 +716,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     Incoming::Reconnected => {
                         tx.instant();
                         project_inbox::reconnected(s);
+                        s.stream_back();
                         s.resync();
                     }
                     Incoming::Active(ids) => {
