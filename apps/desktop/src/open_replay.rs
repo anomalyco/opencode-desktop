@@ -12,7 +12,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, mpsc::channel};
 use std::time::{Duration, Instant};
 
-const ID: &str = "ses_abattoirreplay";
+const ID: &str = "ses_replay";
 
 fn env_ms(name: &str) -> Duration { Duration::from_millis(std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(0)) }
 
