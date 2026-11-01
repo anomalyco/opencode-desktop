@@ -75,7 +75,7 @@ fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El 
         trigger = trigger.child(text(subtitle).key("subtitle").font(UI).color(p.muted));
     }
     if answers.is_some() {
-        trigger = trigger.on_press_tx(toggle(closed)).child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
+        trigger = trigger.on_press_tx(toggle(closed, format!("{key}/trigger"))).child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
     }
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if let (true, Some(answers)) = (open, answers) {
@@ -105,7 +105,7 @@ fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
         .h(28.0)
         .gap(8.0)
         .center_y()
-        .on_press_tx(toggle(open_key))
+        .on_press_tx(toggle(open_key, format!("{key}/trigger")))
         .child(icon(&ic::WARNING, 16.0).color(p.danger))
         .child(text("Questions").key("title").font(UI_MED).color(p.text));
     if !open {

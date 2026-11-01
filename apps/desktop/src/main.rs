@@ -27,6 +27,8 @@ mod commands;
 mod commands_stories;
 mod compaction;
 mod compaction_stories;
+#[cfg(test)]
+mod compaction_fold_tests;
 mod copied;
 mod demo;
 mod demo_script;

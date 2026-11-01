@@ -39,10 +39,13 @@ impl App {
 }
 
 /// A press handler that flips `key` at once: a disclosure opens and closes as a thought's does.
-pub fn toggle(key: String) -> impl Fn(&mut App, &mut Tx) + 'static {
+/// `hold`, the pressed trigger, stays where it shows, at the timeline's end too, so what opens
+/// pushes the rows below it down rather than growing up past the pointer.
+pub fn toggle(key: String, hold: String) -> impl Fn(&mut App, &mut Tx) + 'static {
     move |s: &mut App, tx: &mut Tx| {
         tx.instant();
         s.toggle_expanded(&key);
+        tx.keep_on_screen(hold.clone());
     }
 }
 

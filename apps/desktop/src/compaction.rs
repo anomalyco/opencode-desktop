@@ -314,14 +314,16 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
     }
     if expandable {
         let id = c.id.clone();
-        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            if s.toggle_expanded(&key) {
-                s.compactions.opened.insert(id.clone(), s.clock);
-            }
-        });
+        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| press(s, tx, &id));
     }
-    let mut out = col().w_full().child(col().w_full().pt(8.0).pb(8.0).child(divider));
+    let mut bar = col().key("bar").w_full().pt(8.0).pb(8.0).child(divider);
+    if open {
+        // While open it sticks to the timeline's top until the summary scrolls past, so it shuts
+        // from anywhere in it; the summary softens into its fill as a tool group's steps do.
+        let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
+        bar = bar.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
+    }
+    let mut out = col().w_full().child(bar);
     if open {
         let mut summary = col()
             .key("summary")
@@ -336,6 +338,22 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         out = out.child(summary);
     }
     out
+}
+
+/// Opens or shuts quiet compaction `id`'s summary at once. The divider holds where it was
+/// pressed, at the timeline's end too, so the summary pushes what's below it down; pressed while
+/// stuck to the top, it stays there as the summary goes (`disclosure::toggle_group`).
+pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
+    tx.instant();
+    let row = Piece::Quiet.key(id);
+    if s.toggle_expanded(&format!("compaction-{id}")) {
+        s.compactions.opened.insert(id.to_owned(), s.clock);
+        // Opening, the row's top holds: the divider turns sticky in the same commit, and a stuck
+        // divider's drawn place can't say how far the timeline's end ran on.
+        tx.keep_on_screen(row);
+    } else {
+        tx.keep_on_screen(format!("{row}/bar"));
+    }
 }
 
 /// A hairline that brightens when the compaction ends, with a light that gathers toward the label
@@ -394,14 +412,16 @@ fn quiet_label(s: &App, p: &Pal, running: bool, open: bool, start: f64) -> El {
             .offset_motion(anim)
             .blur_motion(anim)
     };
-    let done = text(ed).key("done").font(UI).color(if open { p.muted } else { p.faint }).group_color(p.muted);
+    // The stem and its ending light up as one word, on hover and while open.
+    let lit = |t: El| t.font(UI).color(if open { p.muted } else { p.faint }).group_color(p.muted);
+    let done = lit(text(ed).key("done"));
     let ending = el()
         .key("ending")
         .w(ending_w)
         .h(16.0)
         .child(morph(text(ing).key("running").font(UI).color(p.faint), running, -shift, out.into()))
         .child(morph(done, !running, shift, into.into()));
-    let mut label = row().key("label").child(text(stem).key("stem").font(UI).color(p.faint)).child(ending);
+    let mut label = row().key("label").child(lit(text(stem).key("stem"))).child(ending);
     if running && !calm {
         let glint = row()
             .key("glint")

@@ -3,7 +3,7 @@
 //! and with background compaction on, quiet running, done and opened. R replays, E ends the
 //! running one, F fails it, and G starts a quiet one that ends inside its grace.
 
-use opencode_kit::model::{CompactionStatus, Message};
+use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
 use rune::{Play, Tx};
 use serde_json::json;
 
@@ -100,6 +100,71 @@ fn story(s: &App) -> Option<&opencode_kit::model::Compaction> {
     })
 }
 
+// ---------------------------------------------------------------------------------------------
+// Timeline › Compacted summary: Kit's capture (p162). A quiet compaction with a summary several
+// screens long sits near the end of a timeline that's at its bottom. O opens or shuts it with
+// the divider held where it is, S scrolls into the open summary so the divider sticks to the
+// top, and R replays open, scroll, then shut from the stuck divider.
+
+pub const LONG_KEYS: &[Trigger] = &[
+    replay(long_open),
+    Trigger { key: 'o', label: "Open or shut the summary", run: |s, tx| crate::compaction::press(s, tx, LONG) },
+    Trigger { key: 's', label: "Scroll into the summary", run: |s, tx| scroll_in(s, tx) },
+];
+
+pub const LONG: &str = "msg_zzlongcompaction";
+
+/// Ends session `session` with an automatic compaction whose summary runs several screens, then
+/// a prompt and its short answer, with background compaction on so it shows quiet.
+pub fn add_long_summary(s: &mut App, session: &str) {
+    s.compactions.fallback = true;
+    let Some(t) = s.transcripts.get_mut(session) else { return };
+    let tokens = Tokens { input: 181_000, output: 4_300, ..Default::default() };
+    let c = Compaction { id: LONG.into(), status: CompactionStatus::Completed, summary: long_summary(), tokens: Some(tokens), ..Default::default() };
+    t.messages.push(Message::Compaction(c));
+    t.messages.push(Message::User { id: "msg_zzlongafter0".into(), text: "Open this in my Seer sidebar.".into() });
+    let answer = vec![Part::Text { text: "Opened it in your Seer sidebar.".into() }];
+    t.messages.push(Message::Assistant(Assistant { id: "msg_zzlongafter1".into(), completed: Some(1), parts: answer, ..Default::default() }));
+}
+
+fn long_summary() -> String {
+    let mut out = String::from("## Objective\n- Keep reconnects alive through a laptop sleeping mid-stream, and land the watchdog without a flaky test.\n");
+    for (head, n) in [("Requirements", 8), ("Done so far", 10), ("Blocked", 4), ("Next Move", 8)] {
+        out.push_str(&format!("\n## {head}\n"));
+        for i in 1..=n {
+            out.push_str(&format!("- {head} {i}: the backoff resets after a healthy minute, caps at 30 s, and logs each retry with its attempt number.\n"));
+        }
+    }
+    out
+}
+
+fn long_open(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    let id = sid(s);
+    add_long_summary(s, &id);
+    tx.after(0.6, |s, tx| crate::compaction::press(s, tx, LONG));
+    tx.after(1.6, |s, tx| scroll_in(s, tx));
+    tx.after(2.8, |s, tx| crate::compaction::press(s, tx, LONG));
+}
+
+/// Scrolls the open summary's end to the middle of the timeline, under its stuck divider.
+fn scroll_in(s: &mut App, tx: &mut Tx) {
+    if s.expanded.contains(&format!("compaction-{LONG}")) {
+        tx.scroll_key_to(format!("{}/summary/usage", crate::compaction::Piece::Quiet.key(LONG)), 320.0);
+    }
+}
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("long-summary", |s| {
+        crate::open_scene(s);
+        s.finish_stream();
+        if let crate::Route::Session(id) = s.route.clone() {
+            add_long_summary(s, &id);
+        }
+    }),
+]);
+
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story::session("Timeline/Compaction", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
+    crate::stories::Story::session("Timeline/Compacted summary", LONG_KEYS).knobs(crate::stories::ROW_KNOBS),
 ]);

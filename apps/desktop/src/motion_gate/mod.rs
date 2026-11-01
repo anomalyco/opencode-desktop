@@ -7,6 +7,7 @@
 //! `scenarios.rs` lists the matrix and its allowlist; Rune's `rune::motion_gate` checks and
 //! reports it (`MOTION_GATE=<filter>` narrows it, `MOTION_GATE_OUT` names the report).
 
+mod compaction_fold;
 mod flights;
 mod genui;
 mod history;
@@ -67,11 +68,14 @@ pub struct Circ {
     /// The session ends with Kit's one-thought, one-shell group above five prompts
     /// (`short_group::add_short_group`).
     pub short_group: bool,
+    /// The session ends with a quiet compaction whose summary runs several screens
+    /// (`compaction_stories::add_long_summary`).
+    pub long_summary: bool,
 }
 
 impl Default for Circ {
     fn default() -> Self {
-        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false, short_group: false }
+        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false, short_group: false, long_summary: false }
     }
 }
 
@@ -99,6 +103,9 @@ impl Circ {
         }
         if self.short_group {
             parts.push("short-group");
+        }
+        if self.long_summary {
+            parts.push("long-summary");
         }
         parts.join("/")
     }
@@ -155,6 +162,9 @@ impl Run {
         }
         if c.short_group {
             crate::short_group::add_short_group(&mut app, SID);
+        }
+        if c.long_summary {
+            crate::compaction_stories::add_long_summary(&mut app, SID);
         }
         match c.dock {
             Dock::None => {}

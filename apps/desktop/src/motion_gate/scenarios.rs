@@ -11,6 +11,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("jump", "cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "Kit wants the Compacted summary to open and shut at once, with no height animation (p162): the row takes its new height in one frame while its divider holds; shut from the stuck divider near the end, the timeline can't stay scrolled past its end, so the divider lands back at its place there, still on screen (compaction::press)"),
+    ("loop-jump", "cmp-msg_zzlongcompaction-quiet/#0/summary", "compaction-open-at-bottom/", "the summary's one-shot 0.2 s fade in (compaction OPEN) steps its phase only while it plays, so the gate reads its resting frames as the usual step"),
+    ("pop-in", "timeline/", "compaction-open-at-bottom/", "shutting the summary at once (p162) brings the rows under it back on screen in that frame (compaction::press)"),
     ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("pop-out", "timeline/", "tool-group-fold/pinned/long/wide/zoomed/", "known, also on main (hidden there by the gate's loop heuristic): opening unpins the timeline and the virtual list windows again by the open group's full height, unmounting the rows under it two frames before the fold covers them (rune virtual_list::select)"),
@@ -508,6 +511,12 @@ const ACTIONS: &[Action] = &[
     Action { name: "compaction-quiet", circs: || places(Circ::default()), run: |r| compaction(r, true, 1.6) },
     // A quiet one that ends inside its grace fades in once, as Compacted.
     Action { name: "compaction-quiet-grace", circs: || wide_and_narrow(Circ::default()), run: |r| compaction(r, true, 0.2) },
+    // Opened at the timeline's end, the Compacted divider holds and its summary pushes the end
+    // down; scrolled into, it sticks, and shuts from there in place (p162).
+    Action { name: "compaction-open-at-bottom", circs: || {
+        let base = Circ { long_summary: true, ..Circ::default() };
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
+    }, run: super::compaction_fold::open_at_bottom },
     Action { name: "switch-tab", circs: || wide_and_narrow(Circ::default()), run: |r| {
         let other = r.rt.state.tabs.iter().map(|t| t.id.clone()).find(|t| t != SID).expect("another tab");
         r.act("open another tab", |rt| rt.update(move |s, tx| s.open(&other, tx)));
