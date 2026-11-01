@@ -57,5 +57,7 @@
   {"trace": "demo", "element": "time-call_demo", "kind": "dog-leg", "reason": "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"},
   {"trace": "demo", "element": "session/dock/composer/question", "kind": "invisible-work", "reason": "the question dock's options and footer start their entrance clipped while the dock grows open over the composer (question::dock)"},
   {"trace": "genui", "element": "ui-", "kind": "invisible-work", "reason": "a streamed outline line mounts as its timeline row grows to take it, so its fade-in runs under the row's growth clip for its first ~100 ms, as a new prose line does"},
-  {"trace": "genui-mixed", "element": "ui-", "kind": "invisible-work", "reason": "a streamed outline line mounts as its timeline row grows to take it, so its fade-in runs under the row's growth clip for its first ~100 ms, as a new prose line does"}
+  {"trace": "genui-mixed", "element": "ui-", "kind": "invisible-work", "reason": "a streamed outline line mounts as its timeline row grows to take it, so its fade-in runs under the row's growth clip for its first ~100 ms, as a new prose line does"},
+  {"trace": "genui-mixed", "element": "diagram/fit/", "kind": "invisible-work", "reason": "a streamed diagram mounts just below the pinned timeline's edge, so its fade-in starts out of sight for its first ~100 ms while the timeline brings it up, as a streamed outline line does"},
+  {"trace": "genui-mixed", "element": "b2/card", "kind": "invisible-work", "reason": "a streamed diagram's card mounts just below the pinned timeline's edge, so its fade-in starts out of sight for its first ~100 ms while the timeline brings it up, as a streamed outline line does"}
 ]

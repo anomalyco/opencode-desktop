@@ -12,6 +12,7 @@ use crate::App;
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
     ("jump", "cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "Kit wants the Compacted summary to open and shut at once, with no height animation (p162): the row takes its new height in one frame while its divider holds; shut from the stuck divider near the end, the timeline can't stay scrolled past its end, so the divider lands back at its place there, still on screen (compaction::press)"),
+    ("pop-out", "cmp-msg_zzlongcompaction-quiet/#0/summary", "compaction-open-at-bottom/", "Kit wants the Compacted summary to shut at once (p162): the press on the stuck divider unmounts it in that frame (compaction::press)"),
     ("pop-in", "timeline/", "compaction-open-at-bottom/", "shutting the summary at once (p162) brings the rows under it back on screen in that frame (compaction::press)"),
     ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
@@ -19,6 +20,8 @@ const ALLOW: &[Allow] = &[
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
     ("text-swap", "working/#0/label", "", "new words take the Working label's place at once, as a new status does (working::finish_pass)"),
+    ("text-swap", "sheen/lit/", "working-relabel", "the shimmer's lit copy of the Working label takes the label's new words at once, as the label does (working::finish_pass)"),
+    ("jump", "sheen/lit/", "working-relabel", "the shimmer's lit copy of the Working label widens with the label's new words at once, as the label does (working::finish_pass)"),
     ("text-swap", "crumbs/", "switch-tab", "the header names the tab that opened at once, as the page under it changes at once"),
     ("load-motion", "scroll/rows", "tool-steps/", "Changes opening at a step's change measures the rows above it over the first two frames, so the list grows upward out of sight; every row on screen holds still (code_view::DiffViewer)"),
     ("text-swap", "files-crumb/", "tool-steps/", "a tool step opens its file's tab at once, and Esc puts the tab before back at once; the header names it as the page under it changes (tool_open)"),
@@ -78,6 +81,11 @@ const ALLOW: &[Allow] = &[
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("jump", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
+    ("jerk", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
+    ("jump", "th/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
+    ("jump", "r0/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
+    ("jump", "r1/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("jerk", "L1/L4", "stream-outline/", "a `row`'s arrow centres on the row, whose height steps a line at a time as its panes' words rewrap while they spring narrower for a pane that streamed in beside them (rune_parts::view, genui::reply)"),
     ("jump", "L1/L4", "stream-outline/", "a `row`'s panes take the width their words want (rune_parts::view::flow, t1197), so a pane whose words stream in squeezes its neighbour, which rewraps a line at once and moves the arrow on the row's middle"),
