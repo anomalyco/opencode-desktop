@@ -222,7 +222,7 @@ impl RowSpec {
             // hangs below the header until it unmounts, and Rune clips a row only while its height
             // moves: a short group lands first, and its steps flashed over the rows below (t1107).
             let row = if s.shutting(&self.key) { row.clip_soft(0.0) } else { row };
-            row.fold_glide(crate::disclosure::fold(&s.knobs))
+            row.fold_glide(crate::disclosure::fold(&s.knobs)).fold_feather(s.knobs.get(&crate::disclosure::FOLD_FEATHER))
         } else {
             // Finished content opens in one quick glide, which a pinned timeline follows.
             row.arrives_whole()
