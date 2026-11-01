@@ -25,7 +25,7 @@ In OpenCode (Rune), a ```` ```ui ```` code fence in a chat reply renders as nati
 | --- | --- | --- |
 | `row` | any part | kids side by side; stacks on a narrow screen |
 | `col` | any part | kids stacked, as one column of a row |
-| `box [Title]` | any part | a quiet frame, its title in small capitals |
+| `box [Title]` | any part | a quiet filled frame, its title a faint label |
 | `screen [Title]` | any part | a desktop window around its kids |
 | `phone [Title]` | any part | an iPhone-shaped frame around its kids |
 | `arrow` | none | points from the kid before to the next |
@@ -67,7 +67,7 @@ row
     text Also stacked
 ```
 
-### `box [Title]` — a quiet frame, its title in small capitals
+### `box [Title]` — a quiet filled frame, its title a faint label
 
 ```ui
 box Status
