@@ -81,6 +81,7 @@ const ALLOW: &[Allow] = &[
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("jump", "t-msg_zzzzzdemo01005-0/#0/#0/b1", "demo/pinned/long/", "the summary's table widens at once as each row lands: a streaming table sizes its columns to each finished row (rune_kit markdown tables)"),
     ("jump", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jerk", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "th/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
