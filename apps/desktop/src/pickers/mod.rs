@@ -286,8 +286,10 @@ impl App {
         }
     }
 
-    /// The model list, as Desktop's: with no search, Favorites then Recent lead it (with their
-    /// provider after the name) and their models leave their provider's group.
+    /// The model list, as Desktop's: with no search, Recent then Favorites lead it (with their
+    /// provider after the name) and their models leave their provider's group. The model the
+    /// session is on heads Recent whether or not it was picked lately (p169: "I don't even know
+    /// what I am"), and shows nowhere else.
     fn model_items(&self, selection: &Selection) -> Vec<Item> {
         let q = self.pickers.search.text.to_lowercase();
         let current = format!("{}:{}", selection.model.provider, selection.model.id);
@@ -302,11 +304,13 @@ impl App {
         }
         let prefs = &self.pickers.prefs;
         let find = |k: &String| self.pickers.models.iter().find(|m| &m.key == k);
-        let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
-        let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
+        let favorites: Vec<&Model> = prefs.favorites.iter().filter(|k| **k != current).filter_map(find).collect();
+        let recent: Vec<&Model> = std::iter::once(&current)
+            .chain(prefs.recent.iter().filter(|k| **k != current && !prefs.is_favorite(k)))
+            .filter_map(find).collect();
         let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-        grouped(favorites.iter().map(|m| item(m, FAVORITES, true))
-            .chain(recent.iter().map(|m| item(m, RECENT, true)))
+        grouped(recent.iter().map(|m| item(m, RECENT, true))
+            .chain(favorites.iter().map(|m| item(m, FAVORITES, true)))
             .chain(self.pickers.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.group, false)))
             .collect())
     }

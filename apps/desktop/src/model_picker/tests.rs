@@ -201,3 +201,44 @@ fn the_rail_jumps_to_a_provider() {
     let mark = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(format!("rail-{group}").as_str())).unwrap();
     assert!(mark.fill.a > 0.0, "the rail lights the lit row's provider");
 }
+
+/// The model the session is on leads the list, checked and lit, even when it isn't one of the
+/// recent picks (p169: "I don't even know what I am"), and shows nowhere else.
+#[test]
+fn the_current_model_leads_the_list() {
+    let mut rt = runtime(1.0);
+    rt.update(|s, _| {
+        s.choose_picker("opencode:sonnet");
+        s.pickers.prefs.recent = vec!["xai:m-xai".into(), "groq:m-groq".into()];
+        s.open_picker(Kind::Model);
+    });
+    play(&mut rt, 0.2);
+    let current = rt.state.picker_current(Kind::Model);
+    assert_eq!(current, "opencode:sonnet");
+    let rows = visible(&rt);
+    let keys: Vec<&str> = rows.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys[..3], [current.as_str(), "xai:m-xai", "groq:m-groq"]);
+    assert_eq!(keys.iter().filter(|k| **k == current).count(), 1);
+    assert_eq!(lit(&rt), current);
+    let check = rect(&rt, "check");
+    let first = rows[0].1;
+    assert!(check[1] >= first[1] && check[1] + check[3] <= first[1] + first[3], "its check is on its row");
+    assert!(rt.find("group-Recent").is_some());
+}
+
+/// The efforts open like a submenu: just past the list's edge, a few points from the row's
+/// "Xhigh ›", with the checked effort level with the row.
+#[test]
+fn the_flyout_opens_beside_its_trigger_level_with_the_row() {
+    for zoom in [1.0, 1.6] {
+        let mut rt = runtime(zoom);
+        let rows = visible(&rt);
+        rt.update(|s, _| s.pickers.stage_effort(&rows[1].0, "xhigh"));
+        open_on(&mut rt, &rows[1]);
+        let (fly, trigger, list) = (rect(&rt, "effort-flyout"), rect(&rt, "trailing-note"), rect(&rt, "picker-model"));
+        assert!(fly[0] > list[0] + list[2] && fly[0] - (list[0] + list[2]) < 3.0 * zoom, "zoom {zoom}: just past the list's edge: {fly:?} by {list:?}");
+        assert!(fly[0] - (trigger[0] + trigger[2]) < 12.0 * zoom, "zoom {zoom}: beside the trigger: {fly:?} by {trigger:?}");
+        let (row, xhigh) = (rows[1].1, rect(&rt, "effort-xhigh"));
+        assert!(((xhigh[1] + xhigh[3] / 2.0) - (row[1] + row[3] / 2.0)).abs() < 0.5, "zoom {zoom}: the checked effort is level with the row: {xhigh:?} by {row:?}");
+    }
+}

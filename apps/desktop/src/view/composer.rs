@@ -178,7 +178,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         let field = pop::search_field(p, "picker-search", &s.pickers.search, "Search models")
             .on_edit(|s: &mut App| &mut s.pickers.search)
             .on_input_key(|s: &mut App, ev, tx| s.picker_key(ev, tx) || s.shortcut(ev, tx));
-        menu = menu.child(pop::search_row(p, look, "picker-search-row", field));
+        menu = menu.child(pop::search_row(p, look, "picker-search-row", crate::model_picker::rail::LEAD, field));
     }
     let mut list = pop::List::new("picker-options", look);
     let mut footer: Option<El> = None;
@@ -211,6 +211,9 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             o = o.after(pop::badge(p, "Free"));
         }
         if kind == Kind::Model && is_active {
+            let star = key.clone();
+            o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
+            // Last, so its efforts open right beside it.
             if let Some(effort) = s.model_effort(&key) {
                 let label = if effort.is_empty() { "Default".to_owned() } else { model::capitalize(&effort) };
                 let open = key.clone();
@@ -219,8 +222,6 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
                     s.press_effort_chevron(&open);
                 }));
             }
-            let star = key.clone();
-            o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
         }
         let hover_key = key.clone();
         let row = pop::option(p, look, o, move |s: &mut App| {
@@ -229,7 +230,7 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
             let key = key.clone();
             move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx)
         });
-        let row = if kind == Kind::Model { hover::row(row, &key) } else { row };
+        let row = if kind == Kind::Model { hover::row(row, &key).children(crate::model_picker::flyout::anchor(s, &key)) } else { row };
         if is_add {
             footer = Some(row);
         } else {

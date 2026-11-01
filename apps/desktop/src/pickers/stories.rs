@@ -1,6 +1,6 @@
 //! The storybook's Pickers story (Composer › Pickers): the open session's agent, model and
 //! effort in the toolbar. Its variants open the model list or show a pick the next prompt will
-//! switch the session to, or Favorites and Recent leading it. M opens and closes the list, E cycles the effort (⇧⌘D), A the agent
+//! switch the session to, or Recent (the current model first) and Favorites leading it. M opens and closes the list, E cycles the effort (⇧⌘D), A the agent
 //! (⌘.), F stars the lit model (⌘F), R replays.
 
 use rune::Play;
@@ -19,7 +19,7 @@ pub const KEYS: &[Trigger] = &[
     } },
 ];
 
-pub const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Picked", 1), ("Favorites and Recent", 2)];
+pub const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Picked", 1), ("Recent and Favorites", 2)];
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
