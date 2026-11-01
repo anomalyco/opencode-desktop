@@ -21,9 +21,9 @@ rune-register = { git = "https://github.com/anomalyco/rune", rev = "664b69ed1e76
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 # Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.
-wraith-core = { git = "https://github.com/anomalyco/wraith", rev = "3cf16e67dd6e49707ab62f380963210eda7baae9" }
-wraith-local = { git = "https://github.com/anomalyco/wraith", rev = "3cf16e67dd6e49707ab62f380963210eda7baae9" }
-wraith-do = { git = "https://github.com/anomalyco/wraith", rev = "3cf16e67dd6e49707ab62f380963210eda7baae9", default-features = false }
+wraith-core = { git = "https://github.com/anomalyco/wraith", rev = "d40fbe8fc490312b8151cdc6f8f8cc3cddecdd6c" }
+wraith-local = { git = "https://github.com/anomalyco/wraith", rev = "d40fbe8fc490312b8151cdc6f8f8cc3cddecdd6c" }
+wraith-do = { git = "https://github.com/anomalyco/wraith", rev = "d40fbe8fc490312b8151cdc6f8f8cc3cddecdd6c", default-features = false }
 seer-domain = { path = "crates/seer-domain" }
 
 [profile.dev.package."*"]
