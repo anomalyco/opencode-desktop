@@ -30,7 +30,7 @@
   {"trace": "compacted-summary", "element": "timeline/cmp-msg_zzlongcompaction-quiet", "kind": "reversal",
    "reason": "the long summary folds as a tool group does (p162, El::fold_glide), and a press mid-glide springs it back from where it is"},
   {"trace": "compacted-summary", "element": "timeline/cmp-msg_zzlongcompaction-quiet", "kind": "jump",
-   "reason": "the story's replay stands in for Kit scrolling into the open summary (its S key, compaction_stories::scroll_in): Tx::scroll_key_to lands it at once, with no input on the frame because the replay scripts it"},
+   "reason": "story replay stands in for a keypress"},
   {"trace": "window-resize", "element": "timeline/", "kind": "dog-leg",
    "reason": "a live resize widens the reading column to its CONTENT_W cap and only then centres it, while the pinned bottom follows the window's height, so rows near the end follow the bottom first and move across only once the column stops growing (view::timeline)"},
   {"trace": "compacted-summary", "element": "timeline/", "kind": "appear-then-jump",

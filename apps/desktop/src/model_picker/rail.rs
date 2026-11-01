@@ -4,8 +4,8 @@
 //! The lit row's provider is lit on the rail.
 
 use rune::{El, Icon, ScrollSpec, Transition, Tx, col, el, icon, row};
+use rune_theme_opencode::provider_icons;
 
-use super::provider_icons;
 use crate::App;
 use crate::palette::Pal;
 use crate::pickers::{FAVORITES, RECENT};
