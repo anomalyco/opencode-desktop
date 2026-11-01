@@ -50,6 +50,12 @@ pub fn mark(group: &str, key: &str) -> &'static Icon {
         .unwrap_or(provider_icons::FALLBACK)
 }
 
+/// How big a group's mark draws: 16 pt, but Favorites' star at the size Desktop's own star had
+/// (rune-kit's runs 12.36 of its 16, Desktop's 11.42).
+fn size(group: &str) -> f32 {
+    if group == FAVORITES { 16.0 * 11.42 / 12.36 } else { 16.0 }
+}
+
 /// The rail, as tall as the list beside it, `lit` being the lit row's group.
 pub fn view(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str>) -> El {
     let mut rail = col().key("picker-rail").w(W).h_full().padding(look.inset).gap(look.row_gap).items_center()
@@ -76,5 +82,5 @@ fn button(p: &Pal, look: Look, stop: &Stop, lit: bool) -> El {
             s.pickers.activate(first.clone());
             tx.scroll_to_y("picker-scroll", y);
         })
-        .child(icon(mark(&stop.group, &stop.first), 16.0).color(p.icon_muted).transition(Transition::none()))
+        .child(icon(mark(&stop.group, &stop.first), size(&stop.group)).color(p.icon_muted).transition(Transition::none()))
 }
