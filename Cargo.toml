@@ -8,16 +8,16 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "5f6d53ddae78956bec5a2999469ad5c1b6eccc70" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "85a3d4c1a2bc0e18d70c64c6d160105f379fdba3" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 # Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.

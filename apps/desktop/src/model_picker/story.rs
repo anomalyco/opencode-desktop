@@ -1,8 +1,8 @@
 //! The storybook's `Pickers/Model picker`: a list with several providers, one model under three
 //! of them, at the list's spacing, as Kit had it (p169): three recent models, none of them the
 //! one the session is on, which leads the list anyway. Its Efforts variant opens the lit model's
-//! efforts beside it. The provider rail runs down its left. R replays; O opens or closes the
-//! efforts.
+//! efforts beside it; its Favorite variant stars one model, so Favorites leads the rail. The
+//! provider rail runs down its left. R replays; O opens or closes the efforts.
 
 use rune::Play;
 
@@ -19,7 +19,7 @@ const KEYS: &[Trigger] = &[
     } },
 ];
 
-const VARIANTS: &[(&str, usize)] = &[("List", 0), ("Efforts", 1)];
+const VARIANTS: &[(&str, usize)] = &[("List", 0), ("Efforts", 1), ("Favorite", 2)];
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
@@ -42,6 +42,9 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.pickers.stage_effort(CURRENT, "xhigh");
     s.choose_picker(CURRENT);
     s.pickers.prefs.recent = ["console-openai-test:gpt-6.1-terra", "openai:gpt-6-astra", "xai:grok-5"].map(str::to_owned).to_vec();
+    if s.variant == 2 {
+        s.pickers.prefs.favorites = vec!["openai:gpt-6-astra".to_owned()];
+    }
     s.composer.focused = false;
     s.open_picker(Kind::Model);
     if s.variant == 1 {
