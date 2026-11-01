@@ -33,6 +33,7 @@ terminal = { path = "../../crates/terminal" }
 [dev-dependencies]
 png = "0.18"
 rune = { workspace = true, features = ["frame-profile"] }
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

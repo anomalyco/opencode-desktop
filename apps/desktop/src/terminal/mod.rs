@@ -267,6 +267,25 @@ impl App {
         }
     }
 
+    pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let ws_key = self.terminal_workspace_key_for_session(sid);
+        if new_tab {
+            self.ensure_terminal_workspace_hydrated(&ws_key);
+            self.new_terminal_in(&ws_key);
+        } else {
+            self.ensure_workspace_ready(&ws_key);
+        }
+        self.side.mounted = true;
+        self.side.dock_mounted = true;
+        if self.active_session_id() == Some(sid) {
+            self.side.dock_last_solo = !self.side_open();
+        }
+        self.session_side_mut(sid).dock_open = true;
+        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+        self.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())
+    }
+
     pub fn focus_terminal_surface(&mut self) {
         self.composer.focused = false;
         self.side.focused = false;

@@ -511,15 +511,31 @@ impl App {
         tx: &mut Tx,
     ) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        self.open_workspace_file_for_session(&sid, path, preview, lines, true, tx);
+    }
+
+    pub fn open_workspace_file_for_session(
+        &mut self,
+        sid: &str,
+        path: &str,
+        preview: bool,
+        lines: Option<(u32, u32)>,
+        steal_focus: bool,
+        tx: &mut Tx,
+    ) {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
         tx.instant();
-        self.ensure_file_loaded(&sid, path);
+        self.ensure_file_loaded(sid, path);
         let tab_key = file_tab_key(path);
         // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
-        if let Some(st) = self.side.sessions.get_mut(&sid) {
+        if let Some(st) = self.side.sessions.get_mut(sid) {
             st.tab_state.tabs.all.retain(|k| k != OPEN_TAB_KEY);
         }
-        self.open_side_tab(&tab_key, Some(SessionPane::Side), preview, false, tx);
-        let ws = self.files.sessions.entry(sid.clone()).or_default();
+        self.open_side_tab_for_session(sid, &tab_key, Some(SessionPane::Side), preview, false);
+        if !steal_focus {
+            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+        }
+        let ws = self.files.sessions.entry(sid.to_owned()).or_default();
         ws.push_recent(path);
         // Ensure parent folders in the tree are expanded so the active file highlights in context.
         let parts: Vec<&str> = path.split('/').collect();

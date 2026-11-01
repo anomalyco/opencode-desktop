@@ -142,6 +142,14 @@ impl BrowserHost {
         h
     }
 
+    pub fn has_socket_override(&self) -> bool {
+        self.socket_override.is_some()
+    }
+
+    pub fn has_live_sidecar(&self) -> bool {
+        self.is_connected()
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         for tab in &self.tabs {
             tab.surface.set_waker(waker.clone());

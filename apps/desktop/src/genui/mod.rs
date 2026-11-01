@@ -15,6 +15,7 @@
 
 pub(crate) mod demo;
 mod inline;
+pub(crate) mod skill;
 #[cfg(test)]
 mod tests;
 

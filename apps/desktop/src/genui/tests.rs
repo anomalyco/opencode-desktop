@@ -288,3 +288,26 @@ fn a_drag_from_prose_into_an_outline_copies_both_as_drawn() {
     assert!(both.starts_with("It flashes because") && both.contains("Waiting for a second failure fixes it:"), "{both}");
     assert!(both.contains("Reconnecting") && both.ends_with("Drops under 1 s stay quiet"), "{both}");
 }
+
+#[test]
+fn ui_skill_matches_checked_in_file_and_validates_all_catalog_examples() {
+    let rendered = super::skill::render();
+    let checked_in = include_str!("../../../../skills/rune-ui/SKILL.md");
+    assert_eq!(
+        rendered, checked_in,
+        "skills/rune-ui/SKILL.md is out of date; regenerate with `cargo run -p opencode-desktop -- --ui-skill > skills/rune-ui/SKILL.md`"
+    );
+
+    for part in rune_parts::CATALOG {
+        assert!(rendered.contains(part.about), "missing about for {}", part.name);
+        assert!(rendered.contains(part.example), "missing example for {}", part.name);
+    }
+
+    let issues = rune_parts::check(&rendered, &rune_parts::BudgetProfile::CHAT);
+    assert!(issues.is_empty(), "SKILL.md examples must pass BudgetProfile::CHAT: {issues:?}");
+
+    assert!(super::skill::check_input("box Status\n  item {done} Ready").is_empty());
+    let bad = super::skill::check_input("```ui\nbuton Ship\n```\n");
+    assert_eq!(bad.len(), 1);
+    assert!(bad[0].msg.contains("did you mean `button`?"), "{bad:?}");
+}

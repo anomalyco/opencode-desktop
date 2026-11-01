@@ -1,7 +1,6 @@
 //! Built-in Chromium 156 Browser panel registered on `crate::panels::PANELS`, with `:port` URL
-//! resolution, `@eN` visual element picker into `s.composer`, and local agent HTTP API.
+//! resolution and `@eN` visual element picker into `s.composer`.
 
-pub mod agent_api;
 #[cfg(test)]
 mod tests;
 pub mod view;
@@ -21,8 +20,9 @@ use crate::panels::{
 pub struct BrowserPane {
     pub address: TextEdit,
     pub host: BrowserHost,
-    pub api: Option<agent_api::AgentServer>,
     pub session_tabs: HashMap<String, Vec<u64>>,
+    pub ref_nodes: HashMap<(u64, String), i64>,
+    pub next_ref: u64,
     last_synced_url: String,
     last_synced_tab: Option<u64>,
 }
@@ -32,8 +32,9 @@ impl Default for BrowserPane {
         Self {
             address: TextEdit::new(""),
             host: BrowserHost::new(),
-            api: None,
             session_tabs: HashMap::new(),
+            ref_nodes: HashMap::new(),
+            next_ref: 1,
             last_synced_url: String::new(),
             last_synced_tab: None,
         }
@@ -103,9 +104,7 @@ fn on_close_tab(s: &mut App, session_id: &str, tab_id: &str, _tx: &mut Tx) {
         if let Some(vec) = s.browser.session_tabs.get_mut(session_id) {
             vec.retain(|&x| x != id);
         }
-        if let Some(api) = &mut s.browser.api {
-            api.drop_tab_refs(id);
-        }
+        s.browser.ref_nodes.retain(|(tid, _), _| *tid != id);
         s.browser.host.close_tab(id);
         s.sync_browser_address(true);
     }
@@ -208,26 +207,28 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
 
 impl App {
     pub fn setup_browser(&mut self, waker: Waker) {
-        self.browser.host.set_waker(waker.clone());
+        self.browser.host.set_waker(waker);
         self.browser.host.set_shell_shortcut(claims_app_shortcut);
         if self.persists()
             && let Some(dir) = crate::restore::data_dir()
         {
             self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
         }
-        if self.live() && !crate::headless() && !cfg!(test) {
-            self.browser.api = agent_api::AgentServer::start(waker);
-        }
     }
 
-    fn use_mock_browser(&self) -> bool {
+    pub(crate) fn use_mock_browser(&self) -> bool {
         (crate::headless() || cfg!(test) || self.stage.is_some())
-            && std::env::var("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Ok("1")
+            && !self.browser.host.has_socket_override()
+            && std::env::var_os("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Some(std::ffi::OsStr::new("1"))
     }
 
     /// Zero-allocation lookup of the active browser tab ID in the routed session.
     pub fn active_browser_tab_id(&self) -> Option<u64> {
-        let sid = self.active_session_id()?;
+        self.active_browser_tab_for_session(self.active_session_id()?)
+    }
+
+    /// Active browser tab ID in `sid`'s side panel, if a browser tab is currently active there.
+    pub fn active_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
         let st = self.side.sessions.get(sid)?;
         let act = st.tab_state.tabs.active.as_deref()?;
         let (plugin, tid) = split_panel_key(act)?;
@@ -244,6 +245,22 @@ impl App {
             return None;
         }
         tid.parse::<u64>().ok()
+    }
+
+    /// Best default browser tab for `sid`: its active browser tab, else its most recent live tab,
+    /// else the host's focused tab.
+    pub fn default_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
+        self.active_browser_tab_for_session(sid)
+            .or_else(|| {
+                self.browser
+                    .session_tabs
+                    .get(sid)?
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&id| self.browser.host.tab(id).is_some())
+            })
+            .or_else(|| self.browser.host.focused_tab_id())
     }
 
     /// The pane of the active browser tab when focus is in it: its page or the address bar.
@@ -278,6 +295,18 @@ impl App {
     }
 
     pub fn open_new_browser_tab_in(&mut self, url: &str, target_pane: Option<SessionPane>) -> u64 {
+        let sid = self.active_session_id().map(str::to_owned);
+        self.open_new_browser_tab_for_session(sid.as_deref(), url, target_pane, true)
+    }
+
+    pub fn open_new_browser_tab_for_session(
+        &mut self,
+        sid: Option<&str>,
+        url: &str,
+        target_pane: Option<SessionPane>,
+        steal_focus: bool,
+    ) -> u64 {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
         let id = if self.use_mock_browser() {
             let resolved = browser_pane::resolve_address(url);
             let title = if resolved == "about:blank" { "New tab" } else { &resolved };
@@ -285,10 +314,13 @@ impl App {
         } else {
             self.browser.host.open_tab(url)
         };
-        if let Some(sid) = self.active_session_id().map(str::to_owned) {
-            self.browser.session_tabs.entry(sid.clone()).or_default().push(id);
+        if let Some(sid) = sid {
+            self.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
             let key = panel_key("browser", &id.to_string());
-            self.open_side_tab_for_session(&sid, &key, target_pane, false, false);
+            self.open_side_tab_for_session(sid, &key, target_pane, false, false);
+        }
+        if !steal_focus {
+            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
         }
         self.sync_browser_address(true);
         id
@@ -296,13 +328,51 @@ impl App {
 
     pub fn register_existing_browser_tab(&mut self, id: u64) {
         if let Some(sid) = self.active_session_id().map(str::to_owned) {
-            let vec = self.browser.session_tabs.entry(sid.clone()).or_default();
-            if !vec.contains(&id) {
-                vec.push(id);
-            }
-            let key = panel_key("browser", &id.to_string());
-            self.open_side_tab_for_session(&sid, &key, None, false, false);
+            self.register_existing_browser_tab_for_session(&sid, id, true);
+        } else {
+            self.sync_browser_address(true);
         }
+    }
+
+    pub fn register_existing_browser_tab_for_session(&mut self, sid: &str, id: u64, steal_focus: bool) {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let vec = self.browser.session_tabs.entry(sid.to_owned()).or_default();
+        if !vec.contains(&id) {
+            vec.push(id);
+        }
+        let key = panel_key("browser", &id.to_string());
+        self.open_side_tab_for_session(sid, &key, None, false, false);
+        if !steal_focus {
+            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+        }
+        self.sync_browser_address(true);
+    }
+
+    pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let key = panel_key("browser", &id.to_string());
+        if self.active_session_id() == Some(sid) {
+            self.close_side_tab(&key, tx);
+        } else {
+            for vec in self.browser.session_tabs.values_mut() {
+                vec.retain(|&x| x != id);
+            }
+            self.browser.ref_nodes.retain(|(tid, _), _| *tid != id);
+            let st = self.session_side_mut(sid);
+            st.tab_state = crate::panels::tabs::close_session_tab(&st.tab_state, &key);
+            if st.tab_state.tabs.all.is_empty() {
+                st.open = false;
+            }
+            self.browser.host.close_tab(id);
+        }
+        for vec in self.browser.session_tabs.values_mut() {
+            vec.retain(|&x| x != id);
+        }
+        self.browser.ref_nodes.retain(|(tid, _), _| *tid != id);
+        if self.browser.host.tab(id).is_some() {
+            self.browser.host.close_tab(id);
+        }
+        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
         self.sync_browser_address(true);
     }
 
@@ -486,9 +556,6 @@ impl App {
             self.side.focused = false;
             self.browser.address.focused = false;
             tx.instant();
-            changed = true;
-        }
-        if agent_api::poll(self) {
             changed = true;
         }
         changed

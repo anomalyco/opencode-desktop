@@ -2,6 +2,7 @@
 //! sessions and transcripts they describe (`model`).
 
 pub mod client;
+pub mod client_mcp;
 pub mod mention;
 pub mod model;
 pub mod pairing;

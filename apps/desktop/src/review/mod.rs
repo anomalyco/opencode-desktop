@@ -615,4 +615,53 @@ impl App {
     pub fn route_supports_review(&self) -> bool {
         matches!(self.route, Route::Session(_))
     }
+
+    pub fn open_review_for_session(
+        &mut self,
+        sid: &str,
+        mode: Option<ChangeMode>,
+        view: Option<DiffMode>,
+        path: Option<&str>,
+        line: Option<u32>,
+        tx: &mut Tx,
+    ) {
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        tx.instant();
+        if let Some(v) = view {
+            self.set_review_diff_mode(v);
+        }
+        if let Some(m) = mode {
+            let sr = self.review.sessions.entry(sid.to_owned()).or_default();
+            if sr.mode != m {
+                sr.mode = m;
+                sr.loaded_revision = None;
+                sr.ready = false;
+                self.review.asked = None;
+            }
+        }
+        self.side.mounted = true;
+        {
+            let st = self.session_side_mut(sid);
+            st.open = true;
+            st.tab_state.tabs.active = Some(REVIEW_KEY.to_owned());
+            st.tab_state.tabs.selected.insert(SessionPane::Side, REVIEW_KEY.to_owned());
+        }
+        self.side.adding.retain(|n| !(n.session_id == sid && n.pane == SessionPane::Side));
+        self.ensure_session_review(sid);
+        if let Some(p) = path {
+            let anchor = line.map(|n| crate::tool_open::Anchor {
+                side: rune_kit::diff::Side::New,
+                text: String::new(),
+                near: Some(n.max(1)),
+            });
+            if self.review.sessions.get(sid).is_some_and(|sr| !sr.ready) {
+                if let Some(sr) = self.review.sessions.get_mut(sid) {
+                    sr.pending_focus = Some((p.to_owned(), anchor));
+                }
+            } else {
+                self.focus_review_change(sid, p, anchor.as_ref(), tx);
+            }
+        }
+        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+    }
 }

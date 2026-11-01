@@ -2536,6 +2536,7 @@ dependencies = [
  "rune-theme-opencode",
  "serde_json",
  "terminal",
+ "tungstenite",
 ]
 
 [[package]]
@@ -2544,6 +2545,7 @@ version = "0.0.1"
 dependencies = [
  "rune",
  "serde_json",
+ "tungstenite",
  "ureq",
 ]
 
