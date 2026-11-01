@@ -4,14 +4,14 @@ fn el(path: &str, parent: Option<usize>, rect: [f32; 4]) -> ElementInfo {
     stub_el(path, parent, rect, None)
 }
 
-/// A timeline: a viewport, its content offset by `y`, and three rows riding it.
+/// A timeline: a viewport, its content offset by `y`, and three rows riding it, in view at the top.
 fn timeline(y: f32) -> Vec<ElementInfo> {
     let mut els = vec![el("root/scroll", None, [0.0, 0.0, 800.0, 600.0])];
     let mut content = el("root/scroll/content", Some(0), [0.0, y, 800.0, 2000.0]);
     content.visible = [0.0, 0.0, 800.0, 600.0];
     els.push(content);
     for i in 0..3 {
-        els.push(el(&format!("root/scroll/content/row-{i}"), Some(1), [0.0, y + 100.0 * i as f32 + 600.0, 800.0, 80.0]));
+        els.push(el(&format!("root/scroll/content/row-{i}"), Some(1), [0.0, y + 100.0 * i as f32 + 300.0, 800.0, 80.0]));
     }
     els
 }
