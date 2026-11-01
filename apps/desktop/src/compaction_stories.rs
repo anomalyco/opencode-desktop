@@ -4,7 +4,7 @@
 //! running one, F fails it, and G starts a quiet one that ends inside its grace.
 
 use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
-use rune::{Play, Tx};
+use rune::{Key, Play, Tx};
 use serde_json::json;
 
 use crate::App;
@@ -103,9 +103,10 @@ fn story(s: &App) -> Option<&opencode_kit::model::Compaction> {
 // ---------------------------------------------------------------------------------------------
 // Timeline › Compacted summary: Kit's capture (p162). A quiet compaction with a summary several
 // screens long sits near the end of a timeline that's at its bottom. O folds it open or shut on
-// the tool group's spring with the divider held where it is, S scrolls into the open summary so
-// the divider sticks to the top, and R replays: open and shut at the end, open and shut again
-// mid-glide so it springs back, then open, scroll, and shut from the stuck divider.
+// the tool group's spring with the divider held where it is, S presses Page Down to scroll into
+// the open summary so the divider sticks to the top, and R replays: open and shut at the end,
+// open and shut again mid-glide so it springs back, then open, page down, and shut from the stuck
+// divider.
 
 pub const LONG_KEYS: &[Trigger] = &[
     replay(long_open),
@@ -151,11 +152,9 @@ fn long_open(s: &mut App, tx: &mut Play<App>) {
 
 const LONG_KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Fold", "stage", &[crate::disclosure::FOLD_SPEED, crate::disclosure::FOLD_FEATHER])];
 
-/// Scrolls the open summary's end to the middle of the timeline, under its stuck divider.
-fn scroll_in(s: &mut App, tx: &mut Tx) {
-    if s.expanded.contains(&crate::compaction::Piece::Quiet.key(LONG)) {
-        tx.scroll_key_to(format!("{}/summary-box/summary/usage", crate::compaction::Piece::Quiet.key(LONG)), 320.0);
-    }
+/// Pages the timeline down into the open summary, under its stuck divider, as Kit's Page Down does.
+fn scroll_in(_: &mut App, play: &mut Play<App>) {
+    play.press(Key::PageDown);
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [

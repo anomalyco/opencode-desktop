@@ -29,8 +29,6 @@
    "reason": "the lightbox snap is another agent's fix; closing unmounts the viewer at full opacity"},
   {"trace": "compacted-summary", "element": "timeline/cmp-msg_zzlongcompaction-quiet", "kind": "reversal",
    "reason": "the long summary folds as a tool group does (p162, El::fold_glide), and a press mid-glide springs it back from where it is"},
-  {"trace": "compacted-summary", "element": "timeline/cmp-msg_zzlongcompaction-quiet", "kind": "jump",
-   "reason": "story replay stands in for a keypress"},
   {"trace": "window-resize", "element": "timeline/", "kind": "dog-leg",
    "reason": "a live resize widens the reading column to its CONTENT_W cap and only then centres it, while the pinned bottom follows the window's height, so rows near the end follow the bottom first and move across only once the column stops growing (view::timeline)"},
   {"trace": "compacted-summary", "element": "timeline/", "kind": "appear-then-jump",
