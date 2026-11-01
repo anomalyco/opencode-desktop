@@ -1,6 +1,6 @@
 //! The lit model's efforts, beside its row in the model list (Desktop's flyout in
-//! `select-dialog.tsx`): a press on the row's "Xhigh ›" opens it, and picking one picks the
-//! model with that effort.
+//! `select-dialog.tsx`): resting on the row opens it ([`super::hover`]), as does a press on
+//! the row's "Xhigh ›", and picking one picks the model with that effort. It appears at once.
 
 use rune::{Align, El, Side, Tx, col};
 
@@ -18,12 +18,22 @@ pub struct Flyout {
 }
 
 impl App {
+    /// A press on the row's "Xhigh ›": its efforts open beside it, or stay open when the
+    /// pointer's rest already opened them.
+    pub fn press_effort_chevron(&mut self, key: &str) {
+        self.pickers.activate(key.to_owned());
+        self.pickers.hover.cancel_wait();
+        if self.model_effort(key).is_some() { self.open_effort_flyout(key); }
+        self.pickers.search.focused = true;
+    }
+
     /// Opens the model `key`'s efforts beside its row, or closes them when they're open.
     pub fn toggle_effort_flyout(&mut self, key: &str) {
-        let open = self.pickers.flyout.as_ref().is_some_and(|f| f.model == key);
-        self.pickers.flyout = (!open && self.model_effort(key).is_some()).then(|| Flyout { model: key.to_owned(), lit: None });
-        self.pickers.activate(key.to_owned());
-        self.pickers.search.focused = true;
+        if self.pickers.flyout.as_ref().is_some_and(|f| f.model == key) {
+            self.pickers.flyout = None;
+        } else {
+            self.press_effort_chevron(key);
+        }
     }
 
     /// Picks the model `key` with `effort` ("" for its default).
@@ -51,7 +61,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         }, move |s: &mut App, tx: &mut Tx| s.choose_effort(&key, &effort, tx));
         list = list.child(row);
     }
-    let menu = pop::surface(p, MENU, "effort-flyout", "Choose effort").w(160.0).child(list);
+    let menu = super::hover::flyout(pop::surface(p, MENU, "effort-flyout", "Choose effort").w(160.0).child(list));
     // Beside the row, clear of the list's edge.
     Some(menu.anchored_fit(format!("option-{}", f.model), Side::Right, Align::Start, pop::LIST.inset + 6.0))
 }

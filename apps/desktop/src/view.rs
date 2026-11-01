@@ -69,9 +69,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     };
     if s.pickers.open.is_some() {
         // Nothing gets focus back, so the search field can unmount in this frame.
-        inner = inner.child(crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false)))
+        let scrim = crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false));
+        inner = inner.child(crate::model_picker::hover::watch(scrim))
             .child(picker(s, p))
-            .children(crate::pickers::effort_flyout::view(s, p));
+            .children(crate::model_picker::flyout::view(s, p));
     }
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)

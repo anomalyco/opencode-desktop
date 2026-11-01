@@ -224,6 +224,7 @@ const STORY_PATHS: &[&str] = &[
     "Composer/Dictation",
     "Composer/History",
     "Composer/Pickers",
+    "Pickers/Model picker",
     "Composer/Mentions",
     "Composer/Subagents capsule, 30 running",
     "Composer/Todo pill",

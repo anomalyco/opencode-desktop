@@ -69,6 +69,7 @@ mod launch;
 mod mention_stories;
 mod mentions;
 mod menu_stories;
+mod model_picker;
 mod model_prefs;
 #[cfg(test)]
 mod tool_group_shut_tests;
@@ -89,7 +90,6 @@ mod palette;
 pub mod panels;
 #[cfg(test)]
 mod perf;
-mod picker_stories;
 mod pickers;
 mod popover;
 mod project_inbox;
@@ -785,6 +785,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
+    changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s);
     changed |= s.poll_home_search(tx);

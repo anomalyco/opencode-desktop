@@ -27,6 +27,7 @@ use crate::palette::Pal;
 use crate::view::UI;
 
 pub use nav::{Highlight, Nav, cycle, nav, nav_step};
+pub use slide::jump as jump_highlight;
 
 /// A popover's metrics.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,15 +45,21 @@ pub struct Look {
     pub gap: f32,
     /// Rows start with a 16 pt slot for the check (or an icon), so labels line up with the query.
     pub lead: bool,
+    /// Above a group's title, below the group before it.
+    pub head: f32,
 }
 
 /// Desktop's `menu-v2`: a 2 pt inset, 6 pt corners, 28 pt rows with 4 pt corners, 12 pt before
 /// the label and the check at the end.
-pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, lead: false };
+pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, lead: false, head: 16.0 };
 
-/// Desktop's model dialog (`select-dialog.css`): a 6 pt inset, 12 pt corners, 28 pt rows 4 pt
-/// apart with 6 pt corners, and the check in a 16 pt slot before the label.
-pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 28.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, lead: true };
+/// Desktop's model dialog (`select-dialog.css`), tighter (p169: "too much spacing"): a 6 pt
+/// inset, 12 pt corners, 24 pt rows 4 pt apart with 6 pt corners, and the check in a 16 pt slot
+/// before the label. A group's title takes one row's pitch, 8 pt above it.
+pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 24.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, lead: true, head: 8.0 };
+
+/// The search row's height: the field keeps Desktop's 28 pt.
+pub const SEARCH_H: f32 = 28.0;
 
 /// The lead slot: a 16 pt check or icon.
 pub const SLOT: f32 = 16.0;
@@ -138,7 +145,7 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
 /// rows' lead slot, so the query starts where their labels do. Use it with [`LIST`].
 pub fn search_row(p: &Pal, look: Look, key: &str, field: El) -> El {
     col().key(key.to_owned()).w_full().pt(look.inset).gap(look.inset)
-        .child(row().key("search").h(look.row_h).w_full().pl(look.inset + look.pad_l).pr(look.inset).gap(look.gap).center_y()
+        .child(row().key("search").h(SEARCH_H).w_full().pl(look.inset + look.pad_l).pr(look.inset).gap(look.gap).center_y()
             .child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted))
             .child(field))
         .child(divider(p, "search-divider"))
@@ -304,10 +311,10 @@ impl List {
         self.rows.push(e);
     }
 
-    /// A group's title, 16 pt below the search row's hairline, or 16 pt plus the row gap below
-    /// the group above (Desktop's list).
+    /// A group's title, the look's `head` below the search row's hairline, or that plus the row
+    /// gap below the group above.
     pub fn header(&mut self, p: &Pal, key: impl Into<String>, label: &str) {
-        let top = if self.rows.is_empty() { 16.0 - self.look.inset } else { 16.0 };
+        let top = if self.rows.is_empty() { (self.look.head - self.look.inset).max(0.0) } else { self.look.head };
         let e = group_header(p, self.look, key, label, top);
         self.push(e, top + HEADER_H);
     }

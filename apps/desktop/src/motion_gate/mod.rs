@@ -11,6 +11,7 @@ mod compaction_fold;
 mod flights;
 mod genui;
 mod history;
+mod model_picker;
 mod odometers;
 mod panels;
 mod pills;

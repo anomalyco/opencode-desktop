@@ -165,6 +165,7 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
 
 pub(super) fn picker(s: &App, p: &Pal) -> El {
     use crate::pickers::ADD_PROJECT_KEY;
+    use crate::model_picker::hover;
     use crate::popover::{self as pop, LIST, MENU, Opt};
     let kind = s.pickers.open.unwrap();
     let look = if kind == Kind::Model { LIST } else { MENU };
@@ -211,14 +212,20 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
                 let open = key.clone();
                 o = o.trailing(pop::trailing_note(p, &label, move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
-                    s.toggle_effort_flyout(&open);
+                    s.press_effort_chevron(&open);
                 }));
             }
             let star = key.clone();
             o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
         }
         let hover_key = key.clone();
-        let row = pop::option(p, look, o, move |s: &mut App| s.pickers.activate(hover_key.clone()), move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx));
+        let row = pop::option(p, look, o, move |s: &mut App| {
+            if kind == Kind::Model { s.model_row_entered(&hover_key); } else { s.pickers.activate(hover_key.clone()); }
+        }, {
+            let key = key.clone();
+            move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx)
+        });
+        let row = if kind == Kind::Model { hover::row(row, &key) } else { row };
         if is_add {
             footer = Some(row);
         } else {
@@ -232,7 +239,8 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let listed = !list.is_empty();
     let max_h = if kind == Kind::Model { 360.0 } else { 240.0 };
     if listed {
-        menu = menu.child(list.build("picker-scroll", max_h));
+        let scroll = list.build("picker-scroll", max_h);
+        menu = menu.child(if kind == Kind::Model { hover::scroll(scroll) } else { scroll });
     }
     if let Some(add_row) = footer {
         if listed {

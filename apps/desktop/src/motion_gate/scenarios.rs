@@ -77,6 +77,14 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "fork-", "", "the Fork from message dialog and its scrim open and close at once (fork::view)"),
     ("jerk", "editor-scroll/editor-pad", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("offset-jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
+    ("jump", "picker-options/lit-", "model-efforts", "the pointer lights its row in the frame it gets there, as Desktop's list does; only the arrow keys slide the fill (popover::slide, p169)"),
+    ("jump", "option-", "model-efforts", "the lit row shows its effort and star at once, so its words give them the room in that frame, as Desktop's row does (view::composer::picker)"),
+    ("pop-in", "option-", "model-efforts", "the lit row's effort and star show at once with its highlight, as Desktop's row does (view::composer::picker)"),
+    ("pop-out", "option-", "model-efforts", "the row the pointer leaves drops its effort and star at once with its highlight (view::composer::picker)"),
+    ("pop-in", "window/effort-flyout", "model-efforts", "a model's efforts open beside its row at once, as Desktop's flyout does (model_picker::flyout, p169)"),
+    ("pop-out", "window/effort-flyout", "model-efforts", "the efforts close at once, as Desktop's flyout does (model_picker::hover)"),
+    ("jump", "window/effort-flyout", "model-efforts", "once one flyout has opened, the next row's efforts take its place at once, as Desktop's do (model_picker::hover)"),
+    ("pop-out", "window/picker-model", "model-efforts", "Esc closes the list in its frame, as every popover closes by default (popover::motion CLOSE, t1150)"),
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
@@ -659,6 +667,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "files", circs: || vec![Circ::default()], run: super::panels::files },
     Action { name: "tool-steps", circs: || vec![Circ::default()], run: super::panels::tool_steps },
     Action { name: "terminal-dock", circs: || vec![Circ::default()], run: super::panels::terminal_dock },
+    Action { name: "model-efforts", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: super::model_picker::run },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();
         cmd.cmd = true;

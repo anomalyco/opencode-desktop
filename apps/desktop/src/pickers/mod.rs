@@ -84,7 +84,9 @@ pub struct Pickers {
     /// (Desktop's staged variant). Opening the list clears them.
     staged: HashMap<String, String>,
     /// The lit model's efforts, open beside its row.
-    pub flyout: Option<effort_flyout::Flyout>,
+    pub flyout: Option<crate::model_picker::flyout::Flyout>,
+    /// When the flyout opens on hover.
+    pub hover: crate::model_picker::hover::Hover,
     pub prefs: ModelPrefs,
 }
 
@@ -375,6 +377,7 @@ impl App {
         self.pickers.search.focused = kind == Kind::Model;
         self.pickers.staged.clear();
         self.pickers.flyout = None;
+        self.pickers.hover = crate::model_picker::hover::Hover::fresh();
         let current = self.picker_current(kind);
         self.pickers.active.set(current, String::new());
         self.composer.focused = false;
@@ -471,7 +474,10 @@ impl App {
                     if !items.is_empty() {
                         let active = self.picker_active();
                         let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
-                        self.pickers.activate(items[cycle(items.len(), at, step)].key.clone());
+                        let key = items[cycle(items.len(), at, step)].key.clone();
+                        self.model_list_keyed();
+                        tx.scroll_into_view_in("picker-scroll", format!("option-{key}"));
+                        self.pickers.activate(key);
                     }
                 }
                 Some(Nav::Choose) => {
@@ -663,8 +669,7 @@ mod tests {
     }
 }
 
-pub(crate) mod effort_flyout;
-
 #[cfg(test)]
-#[path = "pickers_tests.rs"]
 mod live_tests;
+
+mod stories;
