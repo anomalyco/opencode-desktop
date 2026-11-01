@@ -303,3 +303,65 @@ fn at_any_zoom_the_button_clears_the_selection_above_it_or_below_it_at_the_top()
         assert!((bar.rect[0] + bar.rect[2] / 2.0 - mid).abs() < 4.0 * zoom, "zoom {zoom}: centred on the selection: {:?}, {mid}", bar.rect);
     }
 }
+
+/// Debug builds check a `Tx::live_only` selection change a quarter second after the last
+/// commit and warn when the view built something else, so every step waits that long.
+#[test]
+fn selecting_dragging_back_and_clearing_builds_nothing_stale() {
+    let mut rt = quoting("");
+    let para = text(&rt, "Treat silence as failure");
+    let (from, to) = (first_line(&para, 0.0), first_line(&para, 0.6));
+    let clean = |rt: &Runtime<App>, what: &str| assert!(rt.live_only_warnings().is_empty(), "{what}: {:#?}", rt.live_only_warnings());
+    let at = |k: i32| (from.0 + (to.0 - from.0) * k as f32 / 6.0, to.1);
+    // A drag out and back to where it began, with no button up.
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in (1..=6).chain((0..6).rev()) {
+        rt.frame(0.3);
+        rt.pointer_move(at(k).0, at(k).1);
+        rt.frame(1.0 / 120.0);
+        clean(&rt, &format!("dragging to {k}/6"));
+    }
+    rt.pointer_up(from.0, from.1);
+    rt.frame(0.3);
+    clean(&rt, "released with nothing selected");
+    // A selection that settles into the button, then a drag over it and a click elsewhere.
+    drag(&mut rt, from, to);
+    wait(&mut rt);
+    assert!(shown(&rt, "quote-toolbar").is_some());
+    rt.frame(0.3);
+    rt.pointer_move(at(1).0, at(1).1);
+    rt.pointer_down(at(1).0, at(1).1);
+    for k in 2..=4 {
+        rt.frame(0.3);
+        rt.pointer_move(at(k).0, at(k).1);
+        rt.frame(1.0 / 120.0);
+        clean(&rt, &format!("re-dragging to {k}/6"));
+    }
+    rt.pointer_up(at(4).0, at(4).1);
+    wait(&mut rt);
+    let other = text(&rt, "The event stream drops");
+    rt.frame(0.3);
+    click(&mut rt, (other.rect[0] + other.rect[2] - 2.0, other.rect[1] + 8.0));
+    wait(&mut rt);
+    assert_eq!(rt.selected_text(), None);
+    clean(&rt, "a click elsewhere");
+    // A selection Escape dismissed, then cleared.
+    drag(&mut rt, from, to);
+    wait(&mut rt);
+    escape(&mut rt);
+    rt.frame(0.3);
+    click(&mut rt, (other.rect[0] + other.rect[2] - 2.0, other.rect[1] + 8.0));
+    wait(&mut rt);
+    clean(&rt, "clearing a dismissed selection");
+    // A selection in the composer (no button), then cleared by a click in the timeline.
+    rt.update(|s, _| s.composer = rune::TextEdit::new("half a thought about the reconnect loop"));
+    settle(&mut rt);
+    let prompt = find(&rt, |e| e.key.as_deref() == Some("prompt"));
+    drag(&mut rt, first_line(&prompt, 0.0), first_line(&prompt, 0.6));
+    wait(&mut rt);
+    rt.frame(0.3);
+    click(&mut rt, (other.rect[0] + other.rect[2] - 2.0, other.rect[1] + 8.0));
+    wait(&mut rt);
+    clean(&rt, "clearing a composer selection");
+}

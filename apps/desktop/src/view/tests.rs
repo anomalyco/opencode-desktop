@@ -738,3 +738,53 @@ fn at_zoom_home_goes_wide_by_the_shells_width() {
     let rt = zoomed(1200.0, 800.0, |s| s.route = crate::Route::Home);
     assert!(rt.presented("home-grid").is_some(), "home lays out wide");
 }
+
+/// Moves the pointer over each element in turn, waiting long enough between moves that debug
+/// builds check every `Tx::live_only` hover, then off the rows, and asserts nothing was stale.
+fn hover_each(rt: &mut Runtime<App>, what: &str, rects: &[[f32; 4]], off: (f32, f32)) {
+    assert!(rects.len() > 2, "{what}: {} rows", rects.len());
+    let mid = |r: &[f32; 4]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    let mut moves: Vec<Vec<(f32, f32)>> = rects.iter().map(|r| vec![mid(r)]).collect();
+    // Leaving one row and entering the next in the same frame, then off them all.
+    moves.push(vec![mid(&rects[0]), mid(&rects[2]), mid(&rects[1])]);
+    moves.push(vec![off]);
+    for (i, step) in moves.iter().enumerate() {
+        rt.frame(0.3);
+        for &(x, y) in step { rt.pointer_move(x, y); }
+        for _ in 0..3 { rt.frame(1.0 / 60.0); }
+        assert!(rt.live_only_warnings().is_empty(), "{what}, step {i} {step:?}: {:#?}", rt.live_only_warnings());
+    }
+    rt.frame(0.3);
+    rt.pointer_leave();
+    for _ in 0..3 { rt.frame(1.0 / 60.0); }
+    assert!(rt.live_only_warnings().is_empty(), "{what}, leaving the window: {:#?}", rt.live_only_warnings());
+}
+
+fn rects(rt: &Runtime<App>, prefix: &str) -> Vec<[f32; 4]> {
+    rt.elements().into_iter()
+        .filter(|e| !e.exiting && e.visible[3] > 0.0 && e.key.as_deref().is_some_and(|k| k.starts_with(prefix)))
+        .map(|e| e.rect)
+        .collect()
+}
+
+#[test]
+fn hovering_sidebar_tabs_builds_nothing_stale() {
+    let mut rt = sidebar();
+    let tabs = rects(&rt, "t-");
+    hover_each(&mut rt, "tabs", &tabs, (1000.0, 40.0));
+}
+
+#[test]
+fn hovering_home_rows_with_and_without_a_search_builds_nothing_stale() {
+    let mut app = App::empty();
+    app.load_fixture(crate::FIXTURE);
+    app.route = crate::Route::Home;
+    let mut rt = app.into_runtime();
+    for _ in 0..90 { rt.frame(1.0 / 60.0); }
+    let rows = rects(&rt, "r-");
+    hover_each(&mut rt, "home rows", &rows, (1270.0, 810.0));
+    rt.update(|s, tx| { s.search = TextEdit::new("e"); tx.instant(); });
+    for _ in 0..30 { rt.frame(1.0 / 60.0); }
+    let rows = rects(&rt, "r-");
+    hover_each(&mut rt, "home rows while searching", &rows, (1270.0, 810.0));
+}
