@@ -29,8 +29,6 @@ const GRACE: f64 = 0.4;
 const CYCLE: f32 = 3.2;
 /// The quiet divider's fade in.
 static ENTER: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.32).easing(Easing::EASE_OUT)];
-/// The quiet summary's fade in.
-static OPEN: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.2).easing(Easing::EASE_OUT)];
 
 static ARCHIVE: Icon = Icon {
     name: "archive",
@@ -46,8 +44,6 @@ pub struct Compactions {
     pub fallback: bool,
     /// When each compaction in the open session first showed, and how it enters.
     seen: HashMap<String, Seen>,
-    /// When each quiet summary opened, on the app clock.
-    opened: HashMap<String, f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -162,7 +158,6 @@ pub fn sync(s: &mut App) -> bool {
     let list: Vec<&Compaction> = t.into_iter().flat_map(|t| &t.messages).filter_map(|m| if let Message::Compaction(c) = m { Some(c) } else { None }).collect();
     let before = compactions.seen.len();
     compactions.seen.retain(|id, _| list.iter().any(|c| &c.id == id));
-    compactions.opened.retain(|id, _| list.iter().any(|c| &c.id == id));
     let mut changed = compactions.seen.len() != before;
     for c in list {
         let running = c.status == CompactionStatus::Running;
@@ -294,8 +289,9 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
     let start = at + delay;
     let body = summary(c);
     let expandable = !running && !body.is_empty();
-    let key = format!("compaction-{}", c.id);
+    let key = Piece::Quiet.key(&c.id);
     let open = expandable && s.expanded.contains(&key);
+    let shutting = expandable && !open && s.shutting(&key);
     let lit = running && !s.reduced_motion;
     let mut divider = row()
         // A new key restarts the fade in, with everything inside at rest as Compacted.
@@ -324,30 +320,30 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, fade: f32) -> El {
         bar = bar.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
     }
     let mut out = col().w_full().child(bar);
-    if open {
-        let mut summary = col()
+    if open || shutting {
+        // The row's clip reveals the summary as it folds open, so it doesn't fade in as well.
+        let summary = col()
             .key("summary")
             .w_full()
             .pb(8.0)
             .transition(Transition::none())
             .child(markdown_tinted(p, body, fade, false, p.muted, crate::genui::width(s)))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
-        if s.compactions.opened.get(&c.id).is_some_and(|t| s.clock - t < 0.3) {
-            summary = summary.looping(LoopSpec::sequence(Sequence::new(&OPEN)));
-        }
-        out = out.child(summary);
+        // Shutting, the summary stays laid out below a row that's only the divider, and the
+        // row's clip folds it away; the box keeps its path, so a press doesn't remount it.
+        let held = col().key("summary-box").w_full().transition(Transition::none());
+        out = out.child(if open { held } else { held.h(0.0) }.child(summary));
     }
     out
 }
 
-/// Opens or shuts quiet compaction `id`'s summary at once. The divider holds where it was
-/// pressed, at the timeline's end too, so the summary pushes what's below it down; pressed while
-/// stuck to the top, it stays there as the summary goes (`disclosure::toggle_group`).
+/// Opens or shuts quiet compaction `id`'s summary, folding on the tool group's spring (the
+/// row's `fold_glide`). The divider holds where it was pressed, at the timeline's end too, so
+/// the summary pushes what's below it down; pressed while stuck to the top, it stays there as
+/// the summary folds away.
 pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
-    tx.instant();
     let row = Piece::Quiet.key(id);
-    if s.toggle_expanded(&format!("compaction-{id}")) {
-        s.compactions.opened.insert(id.to_owned(), s.clock);
+    if crate::disclosure::flip_fold(s, &row) {
         // Opening, the row's top holds: the divider turns sticky in the same commit, and a stuck
         // divider's drawn place can't say how far the timeline's end ran on.
         tx.keep_on_screen(row);
