@@ -286,5 +286,6 @@ const STORY_PATHS: &[&str] = &[
     "Session opening/Slow · 150 ms fallback",
     "Popover/Open and close",
     "Sidebar/Projects inbox",
+    "Settings/Page",
     "Timeline/Open tool step",
 ];

@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, row, spacer, text};
+use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, spacer, text};
 use serde_json::{Value, json};
 
 use crate::palette::Pal;
@@ -238,10 +238,41 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .pt(48.0)
                 .pb(48.0)
                 .gap(32.0)
-                .child(text("Settings").font(TITLE).color(p.text))
+                .child(
+                    col()
+                        .w_full()
+                        .gap(28.0)
+                        .child(back_button(p))
+                        .child(text("Settings").font(TITLE).color(p.text)),
+                )
                 .child(section("General", general))
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
+        )
+}
+
+/// Desktop's `settings-back`: the way out, at the top of the page. It does what Esc does.
+fn back_button(p: &Pal) -> El {
+    row()
+        .w_full()
+        .child(
+            row()
+                .key("settings-back")
+                .role("button")
+                .label("Back to app")
+                .h(28.0)
+                .px(6.0)
+                .gap(6.0)
+                .center_y()
+                .radius(4.0)
+                .hover(p.layer3)
+                .press(p.layer3)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.close_settings();
+                })
+                .child(icon(&crate::review::view::ARROW_LEFT, 16.0).color(p.icon_muted))
+                .child(text("Back to app").font(UI).color(p.muted)),
         )
 }
 
@@ -442,6 +473,17 @@ mod tests {
         key(&mut rt, Key::Escape, false);
         assert!(!rt.state.settings.open);
         assert!(has_agent(&rt));
+    }
+
+    #[test]
+    fn back_to_app_closes_settings() {
+        let mut rt = runtime();
+        key(&mut rt, Key::Command(','), true);
+        assert!(rt.state.settings.open);
+        assert!(rt.elements().iter().any(|e| e.label.as_deref() == Some("Back to app")));
+        tap(&mut rt, "settings-back");
+        assert!(!rt.state.settings.open);
+        assert!(rt.find("settings").is_none());
     }
 
     #[test]

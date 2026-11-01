@@ -127,6 +127,7 @@ mod session_older_tests;
 mod session_open;
 mod session_pages;
 mod settings;
+mod settings_stories;
 mod shortcuts;
 mod side_stories;
 mod slash;

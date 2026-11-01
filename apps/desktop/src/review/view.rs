@@ -26,7 +26,7 @@ const LIST_ROW_H: f32 = 28.0;
 
 const MONO_COUNT: TextStyle = TextStyle::new(11.0, 450.0).mono().lh(15.0).features("'tnum' 1");
 
-static ARROW_LEFT: Icon = Icon {
+pub(crate) static ARROW_LEFT: Icon = Icon {
     name: "review-arrow-left",
     view: 16.0,
     body: r#"<path d="M9.75 3.75L5.5 8L9.75 12.25" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
