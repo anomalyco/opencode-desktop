@@ -12,11 +12,9 @@ use crate::App;
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
     ("jump", "cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "Kit wants the Compacted summary to open and shut at once, with no height animation (p162): the row takes its new height in one frame while its divider holds; shut from the stuck divider near the end, the timeline can't stay scrolled past its end, so the divider lands back at its place there, still on screen (compaction::press)"),
-    ("loop-jump", "cmp-msg_zzlongcompaction-quiet/#0/summary", "compaction-open-at-bottom/", "the summary's one-shot 0.2 s fade in (compaction OPEN) steps its phase only while it plays, so the gate reads its resting frames as the usual step"),
     ("pop-in", "timeline/", "compaction-open-at-bottom/", "shutting the summary at once (p162) brings the rows under it back on screen in that frame (compaction::press)"),
     ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
-    ("pop-out", "timeline/", "tool-group-fold/pinned/long/wide/zoomed/", "known, also on main (hidden there by the gate's loop heuristic): opening unpins the timeline and the virtual list windows again by the open group's full height, unmounting the rows under it two frames before the fold covers them (rune virtual_list::select)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
