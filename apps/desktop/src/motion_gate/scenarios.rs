@@ -66,7 +66,6 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("pop-in", "message-menu", "", "a prompt's More actions menu and its backdrop open and close at once (rewind::menu_view)"),
     ("pop-out", "message-menu", "", "a prompt's More actions menu and its backdrop open and close at once (rewind::menu_view)"),
-    ("reversal", "timeline/c-msg_zzzzreply", "rewind/pinned/long/wide/zoomed", "known Rune bug since 842323ea, reported to RUNE: zoomed, the gate judges the row against its scroll at 1/1.6 of the offset; on screen and against the content the restored reply's rows travel one way"),
     ("jerk", "editor-pad/prompt", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
     ("jump", "picker-options/lit-", "model-efforts", "the pointer lights its row in the frame it gets there, as Desktop's list does; only the arrow keys slide the fill (popover::slide, p169)"),

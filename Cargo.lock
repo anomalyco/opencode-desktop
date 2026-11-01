@@ -2901,7 +2901,7 @@ dependencies = [
 [[package]]
 name = "procwatch"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "libc",
 ]
@@ -3184,7 +3184,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "arboard",
  "blake3",
@@ -3225,6 +3225,7 @@ dependencies = [
  "rfd",
  "rune-motion",
  "rune-staging",
+ "rustc-demangle",
  "rustc-hash 2.1.3",
  "serde",
  "serde_json",
@@ -3257,7 +3258,7 @@ dependencies = [
 [[package]]
 name = "rune-fx"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "bytemuck",
  "rune-motion",
@@ -3268,7 +3269,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -3280,7 +3281,7 @@ dependencies = [
 [[package]]
 name = "rune-knobs"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "rune",
 ]
@@ -3288,7 +3289,7 @@ dependencies = [
 [[package]]
 name = "rune-mac"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "block2 0.5.1",
  "objc2 0.5.3",
@@ -3297,7 +3298,7 @@ dependencies = [
 [[package]]
 name = "rune-mermaid"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "rune",
 ]
@@ -3305,7 +3306,7 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 
 [[package]]
 name = "rune-parts"
@@ -3317,7 +3318,7 @@ dependencies = [
 [[package]]
 name = "rune-perf"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "procwatch",
  "serde_json",
@@ -3326,7 +3327,7 @@ dependencies = [
 [[package]]
 name = "rune-register"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "linkme",
 ]
@@ -3341,7 +3342,7 @@ dependencies = [
 [[package]]
 name = "rune-staging"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "wgpu",
 ]
@@ -3349,7 +3350,7 @@ dependencies = [
 [[package]]
 name = "rune-theme-opencode"
 version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=9f8d1ff096b3fee3f9f9904a09862571ad60bb91#9f8d1ff096b3fee3f9f9904a09862571ad60bb91"
+source = "git+https://github.com/anomalyco/rune?rev=90b295a752d1883870f44c5a399453657f28d183#90b295a752d1883870f44c5a399453657f28d183"
 dependencies = [
  "rune",
  "rune-kit",
@@ -3370,6 +3371,12 @@ dependencies = [
  "smallvec",
  "sqlite-wasm-rs",
 ]
+
+[[package]]
+name = "rustc-demangle"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"
 
 [[package]]
 name = "rustc-hash"
