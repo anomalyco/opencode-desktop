@@ -333,6 +333,16 @@ impl List {
         self.push(e, h);
     }
 
+    /// How far down the scroll goes to put the next row at its top.
+    pub fn next_y(&self) -> f32 {
+        if self.rows.is_empty() { 0.0 } else { self.h - self.look.inset + self.look.row_gap }
+    }
+
+    /// Its height with every row in, before the scroll caps it.
+    pub fn height(&self) -> f32 {
+        self.h
+    }
+
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
