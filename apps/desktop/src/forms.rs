@@ -16,6 +16,10 @@ impl App {
     }
 
     pub(crate) fn add_pending(&mut self, p: Pending) {
+        // A reply on its way: a re-read before the server has it doesn't bring it back.
+        if self.permission_sent.0.contains_key(p.id()) {
+            return;
+        }
         self.requests.insert((p.session().to_owned(), p.id().to_owned()));
         if !self.pending.iter().any(|x| x.id() == p.id()) {
             let id = p.id().to_owned();
@@ -28,18 +32,7 @@ impl App {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);
         self.question.forget(id);
-    }
-
-    pub fn reply_permission(&mut self, id: &str, decision: &str) {
-        let Some(p) = self.pending.iter().find(|p| p.id() == id) else { return };
-        let w = Write::Permission {
-            session: p.session().to_owned(),
-            request: id.to_owned(),
-            decision: decision.to_owned(),
-        };
-        if self.write(w) {
-            self.forget(id);
-        }
+        self.permission_sent.0.remove(id);
     }
 
     pub fn typed_mut(&mut self, form: &str, key: &str) -> &mut TextEdit {

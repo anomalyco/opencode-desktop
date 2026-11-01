@@ -32,7 +32,8 @@ impl App {
         opening
     }
 
-    /// Whether tool group `key` is springing shut, its steps still laid out under the clip.
+    /// Whether fold `key` (a tool group, a Compacted summary) is springing shut, what it showed
+    /// still laid out under the clip.
     pub fn shutting(&self, key: &str) -> bool {
         self.shutting.get(key).is_some_and(|at| self.clock - at < shut_secs(&self.knobs))
     }
@@ -49,17 +50,25 @@ pub fn toggle(key: String, hold: String) -> impl Fn(&mut App, &mut Tx) + 'static
     }
 }
 
+/// Flips fold `key`, a timeline row that folds on its own spring (`RowSpec::wrap`); true when it
+/// is now open. Shutting, it keeps what it shows mounted until `poll` drops it, so the row's
+/// clip folds it away, and a press mid-motion springs back from there.
+pub fn flip_fold(s: &mut App, key: &str) -> bool {
+    let open = s.toggle_expanded(key);
+    if open {
+        s.shutting.remove(key);
+    } else {
+        s.shutting.insert(key.to_owned(), s.clock);
+    }
+    open
+}
+
 /// Opens or shuts tool group `key` (`turns::group`). Its header holds where it shows, stuck at
 /// the timeline's top or not, while the row folds open or shut under it on its own spring: the timeline
-/// scrolls to keep it there rather than following its end. The steps stay mounted while it
-/// shuts, so the row's clip folds them away, and a press mid-motion springs back from there.
+/// scrolls to keep it there rather than following its end.
 pub fn toggle_group(key: String) -> impl Fn(&mut App, &mut Tx) + 'static {
     move |s: &mut App, tx: &mut Tx| {
-        if s.toggle_expanded(&key) {
-            s.shutting.remove(&key);
-        } else {
-            s.shutting.insert(key.clone(), s.clock);
-        }
+        flip_fold(s, &key);
         tx.keep_on_screen(format!("{key}/trigger"));
     }
 }

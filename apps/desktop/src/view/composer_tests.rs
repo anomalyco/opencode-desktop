@@ -84,7 +84,7 @@ fn a_short_prompt_keeps_its_height() {
     let rt = session();
     let short = el(&rt, "editor").rect[3];
     assert!(short < super::COMPOSER_MAX_H, "an empty composer sits under the cap: {short}");
-    assert_eq!(short, 16.0 + 40.0 + 8.0, "the editor's padding around a two-line field");
+    assert_eq!(short, 16.0 + 20.0 + 8.0, "the editor's padding around one line");
 }
 
 /// Gaps and width in layout points: the zoomed shell scales every rect, so differences between rects divide by zoom.

@@ -182,6 +182,11 @@ impl App {
         self.asking().is_some()
     }
 
+    /// The form the question dock shows.
+    pub fn question_id(&self) -> Option<String> {
+        self.asking().map(|f| f.id)
+    }
+
     /// The question and highlighted answer for `form`, as the dock left them or fresh.
     fn place(&self, f: &Form) -> (usize, usize) {
         if self.question.form == f.id {
@@ -348,12 +353,13 @@ impl App {
         }
     }
 
-    /// The dock opened or closed: the surface springs to its new face, the timeline pinned
-    /// above it rides its top edge, and the composer gets the keyboard back.
+    /// A dock (a question or a permission) opened or closed: the surface springs to its new
+    /// face, the timeline pinned above it rides its top edge, and the composer gets the keyboard
+    /// back (a subagent's page leaves it with the page, as on opening).
     pub fn morph(&mut self, tx: &mut Tx) {
         tx.motion_curve(knobs::morph(self));
         tx.follow_edge();
-        if !self.question_shown() {
+        if !self.dock_shown() && self.subagent_page().is_none() {
             self.composer.focused = true;
         }
     }
@@ -509,14 +515,14 @@ fn arrival(s: &App, step: i32) -> Transition {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Variant {
+pub(crate) enum Variant {
     Ghost,
     Neutral,
     Submit,
 }
 
 /// `button-v2` at size large.
-fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>, live: bool) -> El {
+pub(crate) fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>, live: bool) -> El {
     let (fill, fg) = match variant {
         Variant::Ghost => (Color::TRANSPARENT, p.muted),
         Variant::Neutral => (p.q.neutral, p.text),

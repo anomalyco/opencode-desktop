@@ -44,7 +44,7 @@ fn viewport(rt: &Runtime<App>) -> [f32; 4] {
 }
 
 fn open(rt: &Runtime<App>) -> bool {
-    rt.state.expanded.contains(&format!("compaction-{LONG}"))
+    rt.state.expanded.contains(&Piece::Quiet.key(LONG))
 }
 
 fn at_bottom(rt: &Runtime<App>) -> bool {
@@ -112,6 +112,57 @@ fn a_thought_opened_at_the_bottom_holds_its_trigger() {
     assert!(rt.state.expanded.iter().any(|k| k.starts_with("r-msg_zzthought1-")), "the press opens the thought");
     let after = trigger(&rt).rect[1];
     assert!((after - b.rect[1]).abs() < 1.0, "the thought's trigger stays under the pointer: {} -> {after}", b.rect[1]);
+}
+
+/// The summary's row height as drawn.
+fn row_h(rt: &Runtime<App>) -> f32 {
+    let row = Piece::Quiet.key(LONG);
+    rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(row.as_str())).map(|e| e.rect[3]).expect("the Compacted row")
+}
+
+/// Kit's p162 follow-up, "it doesn't animate open": at the timeline's end the row folds open on
+/// the tool group's spring over several frames with the divider held, and a press mid-glide
+/// springs it back shut from where it is.
+#[test]
+fn the_summary_folds_open_over_frames_and_springs_back_mid_glide() {
+    let mut rt = runtime();
+    let (y, shut) = (bar(&rt).rect[1], row_h(&rt));
+    let tap = |rt: &mut Runtime<App>| {
+        let b = bar(rt);
+        let (x, y) = (b.rect[0] + b.rect[2] / 2.0, b.visible[1] + b.visible[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+    };
+    tap(&mut rt);
+    let mut opening = vec![shut];
+    for _ in 0..5 {
+        rt.frame(DT);
+        opening.push(row_h(&rt));
+        let at = bar(&rt).rect[1];
+        assert!((at - y).abs() < 1.0, "the divider holds while it folds open: {y} -> {at}");
+    }
+    let grew = opening.windows(2).filter(|w| w[1] > w[0] + 0.5).count();
+    let last = *opening.last().unwrap();
+    let biggest = opening.windows(2).map(|w| w[1] - w[0]).fold(0.0, f32::max);
+    assert!(grew >= 4 && biggest < 0.6 * (last - shut), "the row grows over several frames, not in one: {opening:?}");
+    tap(&mut rt);
+    let mut shutting = vec![last];
+    for _ in 0..4 {
+        rt.frame(DT);
+        shutting.push(row_h(&rt));
+    }
+    let summary = rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref() == Some("summary") && e.path.contains(&Piece::Quiet.key(LONG)));
+    assert!(rt.state.shutting(&Piece::Quiet.key(LONG)) && summary, "pressed mid-glide, it shuts with the summary still mounted");
+    // It keeps its velocity, so it may run on a frame before it turns.
+    let peak = shutting.iter().copied().fold(0.0, f32::max);
+    let n = shutting.len();
+    assert!(shutting[n - 1] < shutting[n - 2] && shutting[n - 2] < shutting[n - 3] && shutting[n - 1] < peak - 1.0, "pressed mid-glide, it springs back shut: {shutting:?}");
+    settle(&mut rt);
+    let at = bar(&rt).rect[1];
+    assert!((row_h(&rt) - shut).abs() < 0.5, "and lands shut: {} vs {shut}", row_h(&rt));
+    assert!((at - y).abs() < 1.0, "with the divider where it was pressed: {y} -> {at}");
+    assert!(!rt.state.shutting(&Piece::Quiet.key(LONG)), "the summary unmounts once it's shut");
 }
 
 #[test]

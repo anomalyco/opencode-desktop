@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, row, spacer, text};
+use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, spacer, text};
 use serde_json::{Value, json};
 
 use crate::palette::Pal;
@@ -221,7 +221,7 @@ pub fn page(s: &App, p: &Pal) -> El {
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
     ]);
     let section = |title: &'static str, list: El| col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list);
-    col()
+    let body = col()
         .key("settings")
         .role("region")
         .label("Settings")
@@ -235,14 +235,45 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .w_full()
                 .max_w(720.0)
                 .px(40.0)
-                .pt(48.0)
                 .pb(48.0)
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
                 .child(section("General", general))
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
-        )
+        );
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body)
+}
+
+/// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,
+/// at the panel's top-left, past the collapsed sidebar toggle. It does what Esc does.
+fn header(s: &App, p: &Pal) -> El {
+    row()
+        .key("settings-header")
+        .w_full()
+        .h(48.0)
+        .pl(14.0)
+        .center_y()
+        .window_drag()
+        .child(crate::view::collapsed_slot(s))
+        .child(back_button(p))
+}
+
+fn back_button(p: &Pal) -> El {
+    el().key("settings-back")
+        .role("button")
+        .label("Back to app")
+        .help("Back to app Esc")
+        .size(28.0, 28.0)
+        .radius(6.0)
+        .center()
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.close_settings();
+        })
+        .child(icon(&crate::review::view::ARROW_LEFT, 20.0).color(p.icon_muted))
 }
 
 /// Desktop's three notification switches, with its titles and descriptions.
@@ -374,6 +405,10 @@ pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
         .child(step("zoom-in", "+", 1))
 }
 
+mod stories;
+#[cfg(test)]
+pub(crate) mod leave_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,6 +477,17 @@ mod tests {
         key(&mut rt, Key::Escape, false);
         assert!(!rt.state.settings.open);
         assert!(has_agent(&rt));
+    }
+
+    #[test]
+    fn back_to_app_closes_settings() {
+        let mut rt = runtime();
+        key(&mut rt, Key::Command(','), true);
+        assert!(rt.state.settings.open);
+        assert!(rt.elements().iter().any(|e| e.label.as_deref() == Some("Back to app")));
+        tap(&mut rt, "settings-back");
+        assert!(!rt.state.settings.open);
+        assert!(rt.find("settings").is_none());
     }
 
     #[test]

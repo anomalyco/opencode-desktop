@@ -22,11 +22,13 @@ pub(super) fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color
 }
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let queue = match &s.route {
-        Route::Session(id) => Some(crate::queue::panel(s, p, id, s.busy(id))),
-        _ => None,
+    let (queue, status) = match &s.route {
+        Route::Session(id) => (Some(crate::queue::panel(s, p, id, s.busy(id))), crate::subagents::reply::status_line(s, p, id)),
+        _ => (None, None),
     };
-    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(crate::view::DOCK_SIDE).children(queue).child(composer(s, p))
+    // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
+    let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
+    col().key("dock").w_full().center().px(crate::view::DOCK_SIDE).pb(pb).children(queue).child(composer(s, p)).children(status)
 }
 
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
@@ -78,14 +80,14 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .key("composer")
         .w_full()
         .max_w(crate::view::DOCK_W)
-        .min_h(96.0)
+        .min_h(88.0)
         .corners(if crate::queue::docked(s) { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
         .fill(composer_fill(p))
         .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
-        // The question dock's face springs in and out under this edge.
+        // A dock's face (a question, a permission) springs in and out under this edge.
         .clip_soft(0.0);
-    match crate::question::face(s, p) {
+    match crate::question::face(s, p).or_else(|| crate::permission::face(s, p)) {
         Some(face) => composer.children(face),
         None => composer.children(crate::attachments::chips(s, p))
         .child(
@@ -100,7 +102,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .key("prompt")
                     .color(p.text)
                     .w_full()
-                    .min_h(40.0)
+                    .min_h(20.0)
                     .animate_edit_layout()
                     .placeholder(if s.add.shell { "Enter shell command…" } else { "Ask anything, / for commands, @ for context…" }, p.faint)
                     .caret(p.text, p.selection)
@@ -108,7 +110,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .pill_style(crate::mentions::badge::pill_style(p))
                     .on_input_change(|s: &mut App, tx| { crate::quote::typed(s, tx); s.mentions_changed(tx); s.slash_changed(tx) })
                     .on_input_key(|s: &mut App, ev, tx| {
-                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) || crate::stop::key(s, ev, tx) {
+                        if crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || s.mention_key(ev, tx) || s.add_key(ev, tx) || crate::subagents::reply::esc(s, ev, tx) || crate::stop::key(s, ev, tx) {
                             return true;
                         }
                         if ev.key == Key::Escape && !s.route_busy() && crate::status_toast::key(s, ev, tx) {
@@ -133,7 +135,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                 .gap(4.0)
                 .center_y()
                 .child(crate::add_menu::trigger(s, p))
-                .children(s.settings.show_agent.then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
+                .children((s.settings.show_agent || s.subagent_page().is_some()).then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
                 .child(picker_trigger(s, p, Kind::Model, &s.pickers.model_name(&model), p.muted))
                 // "Default" is the absence of a choice, so it reads fainter than a picked effort.
                 .children(s.has_effort().then(|| {
@@ -163,6 +165,7 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
 
 pub(super) fn picker(s: &App, p: &Pal) -> El {
     use crate::pickers::ADD_PROJECT_KEY;
+    use crate::model_picker::hover;
     use crate::popover::{self as pop, LIST, MENU, Opt};
     let kind = s.pickers.open.unwrap();
     let look = if kind == Kind::Model { LIST } else { MENU };
@@ -206,13 +209,23 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
         if kind == Kind::Model && is_active {
             if let Some(effort) = s.model_effort(&key) {
                 let label = if effort.is_empty() { "Default".to_owned() } else { model::capitalize(&effort) };
-                o = o.trailing(pop::trailing_note(p, &label).help("Effort: ← →"));
+                let open = key.clone();
+                o = o.trailing(pop::trailing_note(p, &label, move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.press_effort_chevron(&open);
+                }));
             }
             let star = key.clone();
             o = o.trailing(pop::star(p, s.pickers.prefs.is_favorite(&key), move |s: &mut App| s.toggle_favorite(&star)));
         }
         let hover_key = key.clone();
-        let row = pop::option(p, look, o, move |s: &mut App| s.pickers.activate(hover_key.clone()), move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx));
+        let row = pop::option(p, look, o, move |s: &mut App| {
+            if kind == Kind::Model { s.model_row_entered(&hover_key); } else { s.pickers.activate(hover_key.clone()); }
+        }, {
+            let key = key.clone();
+            move |s: &mut App, tx: &mut Tx| s.choose_picker_tx(&key, tx)
+        });
+        let row = if kind == Kind::Model { hover::row(row, &key) } else { row };
         if is_add {
             footer = Some(row);
         } else {
@@ -226,7 +239,8 @@ pub(super) fn picker(s: &App, p: &Pal) -> El {
     let listed = !list.is_empty();
     let max_h = if kind == Kind::Model { 360.0 } else { 240.0 };
     if listed {
-        menu = menu.child(list.build("picker-scroll", max_h));
+        let scroll = list.build("picker-scroll", max_h);
+        menu = menu.child(if kind == Kind::Model { hover::scroll(scroll) } else { scroll });
     }
     if let Some(add_row) = footer {
         if listed {

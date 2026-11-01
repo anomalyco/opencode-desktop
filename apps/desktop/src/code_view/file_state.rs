@@ -154,6 +154,11 @@ impl CodeDocState {
         &self.path
     }
 
+    /// The whole file.
+    pub fn text(&self) -> &str {
+        self.source.text()
+    }
+
     pub fn line_count(&self) -> usize {
         self.source.len() as usize
     }

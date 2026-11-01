@@ -11,7 +11,7 @@ use rune::{
 use rune_kit::{Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, Pending, SessionInfo, Transcript};
+use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::odometer::odometer_end;
@@ -69,8 +69,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     };
     if s.pickers.open.is_some() {
         // Nothing gets focus back, so the search field can unmount in this frame.
-        inner = inner.child(crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false)))
-            .child(picker(s, p));
+        let scrim = crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false));
+        inner = inner.child(crate::model_picker::hover::watch(scrim))
+            .child(picker(s, p))
+            .children(crate::model_picker::flyout::view(s, p));
     }
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
@@ -227,6 +229,8 @@ fn home_dir() -> String {
     H.get_or_init(|| std::env::var("HOME").unwrap_or_else(|_| "\u{0}".into())).clone()
 }
 
+#[cfg(test)]
+mod composer_height_tests;
 #[cfg(test)]
 mod composer_tests;
 #[cfg(test)]

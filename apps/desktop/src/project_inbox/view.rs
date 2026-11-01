@@ -1,9 +1,10 @@
-//! The inbox above the sidebar's tabs: Needs you, Ready, then Projects, as one list the arrows
+//! The inbox above the sidebar's tabs: Needs you, Done, then Projects, as one list the arrows
 //! rove; ⏎ opens the row, E archives a task.
 
-use rune::{Anim, El, Key, Tx, col, el, row, spacer, text};
+use rune::{Anim, El, Key, Tx, col, el, icon, row, spacer, text};
+use rune_theme_opencode::icons as ic;
 
-use super::Kind;
+use super::{Kind, Row, Said};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, activity_ring, title_of};
 use crate::{App, Route};
@@ -17,19 +18,19 @@ pub fn section(s: &App, p: &Pal) -> Option<El> {
         return None;
     }
     let open = match &s.route {
-        Route::Session(id) => Some(id.as_str()),
+        Route::Session(id) if !s.settings.open => Some(id.as_str()),
         _ => None,
     };
     let rows = s.inbox_rows();
     let mut list = col().key("inbox").role("list").focus_group().w_full().gap(4.0).pb(16.0);
-    for (kind, label) in [(Kind::Needs, "Needs you"), (Kind::Ready, "Ready")] {
+    for (kind, label) in [(Kind::Needs, "Needs you"), (Kind::Done, "Done")] {
         let of: Vec<_> = rows.iter().filter(|r| r.kind == kind).collect();
         if of.is_empty() {
             continue;
         }
         list = list.child(head(p, &format!("{label} · {}", of.len())));
         for r in of {
-            list = list.child(task_row(s, p, r.info, kind, r.project, open == Some(r.info.id.as_str())));
+            list = list.child(task_row(s, p, r, open == Some(r.info.id.as_str())));
         }
     }
     list = list.child(head(p, "Projects"));
@@ -64,16 +65,26 @@ fn line(key: String, label: String, p: &Pal, active: bool) -> El {
     if active { r.fill(p.pressed) } else { r }
 }
 
-fn glyph(p: &Pal, kind: Kind) -> El {
-    let dot = el().size(7.0, 7.0).radius(3.5).fill(if kind == Kind::Needs { p.warning } else { p.bg_accent });
-    el().key("glyph").size(16.0, 16.0).center().child(dot)
+/// A dot for asks and results, a tick for done, a hollow ring for a task that stopped unsaid.
+fn glyph(p: &Pal, kind: Kind, said: Said) -> El {
+    let mark = match said {
+        Said::Done => icon(&ic::CHECK_SMALL, 16.0).color(p.bg_accent),
+        Said::Stopped => el().size(7.0, 7.0).radius(3.5).border(1.0, p.faint),
+        _ => el().size(7.0, 7.0).radius(3.5).fill(if kind == Kind::Needs { p.warning } else { p.bg_accent }),
+    };
+    el().key(format!("glyph-{said:?}")).size(16.0, 16.0).center().child(mark)
 }
 
-fn task_row(s: &App, p: &Pal, info: &opencode_kit::model::SessionInfo, kind: Kind, project: &str, active: bool) -> El {
+fn task_row(s: &App, p: &Pal, r: &Row, active: bool) -> El {
+    let (info, kind) = (r.info, r.kind);
     let title = title_of(info);
     let (open_id, key_id) = (info.id.clone(), info.id.clone());
-    let project_name = s.session(project).map(title_of).unwrap_or_default();
-    let age = opencode_kit::model::ago(s.now_ms, info.idle.unwrap_or(info.updated).max(info.updated)).trim_end_matches(" ago").to_owned();
+    let project_name = s.session(r.project).map(title_of).unwrap_or_default();
+    let age = match r.said {
+        Said::Stopped => "Stopped".to_owned(),
+        Said::Blocked => "Blocked".to_owned(),
+        _ => opencode_kit::model::ago(s.now_ms, info.idle.unwrap_or(info.updated).max(info.updated)).trim_end_matches(" ago").to_owned(),
+    };
     line(format!("ib-{}", info.id), title.clone(), p, active)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open_id, tx))
         .on_key(move |s: &mut App, ev, tx: &mut Tx| match &ev.key {
@@ -83,7 +94,7 @@ fn task_row(s: &App, p: &Pal, info: &opencode_kit::model::SessionInfo, kind: Kin
             }
             _ => false,
         })
-        .child(glyph(p, kind))
+        .child(glyph(p, kind, r.said))
         .child(text(title).font(UI_MED).color(if active { p.text } else { p.muted }).shrink().min_w(0.0).truncate_fade())
         .child(text(project_name).font(UI).color(p.faint).max_w(64.0).truncate_fade())
         .child(spacer())

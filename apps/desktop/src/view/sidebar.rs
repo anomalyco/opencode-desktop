@@ -47,7 +47,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let current = match &s.route {
-        Route::Session(id) => Some(s.root_of(id)),
+        Route::Session(id) if !s.settings.open => Some(s.root_of(id)),
         _ => None,
     };
     // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
@@ -93,11 +93,14 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .key("actions")
             .w_full()
             .gap(4.0)
-            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home).on_press_tx(
+            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home && !s.settings.open).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
             .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "⇧⌘F", false).on_press_tx(
-                |s: &mut App, tx: &mut Tx| s.open_session_search(tx),
+                |s: &mut App, tx: &mut Tx| {
+                    s.close_settings();
+                    s.open_session_search(tx)
+                },
             ))
             .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.new_session(tx),
@@ -358,7 +361,7 @@ pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
 }
 
 /// Room the session header keeps for the collapsed toggle.
-pub(super) fn collapsed_slot(s: &App) -> El {
+pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
     el().key("toggle-space").w(if s.sidebar_open { 0.0 } else { COLLAPSED_SLOT - 4.0 }).h(28.0).motion(SIDEBAR_SPRING)
 }

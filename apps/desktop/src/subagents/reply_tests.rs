@@ -1,0 +1,157 @@
+//! Answering a subagent from its own page.
+use std::sync::mpsc::{Receiver, Sender, channel};
+
+use opencode_kit::client::{Incoming, Prompt, Write};
+use opencode_kit::model::Message;
+use rune::{Key, KeyEvent, Mods, Runtime};
+
+use super::stories::open_child;
+use crate::fixture_ids::{CHILD, MAIN};
+use crate::{App, Route};
+
+const DT: f64 = 1.0 / 60.0;
+
+struct Live {
+    rt: Runtime<App>,
+    writes: Receiver<Write>,
+    server: Sender<Incoming>,
+}
+
+/// The fixture's finished reviewer open on a live source whose writes land in a channel.
+fn live() -> Live {
+    let mut app = App::fixture_session();
+    open_child(&mut app);
+    let writes = app.fake_writes();
+    let (server, inbox) = channel();
+    app.inbox = Some(inbox);
+    let mut rt = app.into_runtime();
+    rt.frame(0.0);
+    Live { rt, writes, server }
+}
+
+fn send(l: &mut Live, text: &str) -> (String, Prompt) {
+    l.rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new(text);
+        s.send(tx);
+    });
+    l.rt.frame(DT);
+    l.writes.try_iter().find_map(|w| match w {
+        Write::SendMovingHome { session, prompt } => Some((session, prompt)),
+        _ => None,
+    }).expect("no reply sent")
+}
+
+fn echoed(l: &Live, text: &str) -> bool {
+    l.rt.state.transcripts.get(CHILD).is_some_and(|t| t.messages.iter().any(|m| matches!(m, Message::User { text: t, .. } if t == text)))
+}
+
+fn tap(l: &mut Live, key: &str) {
+    let r = l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("no {key}")).rect;
+    let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    l.rt.pointer_move(x, y);
+    l.rt.pointer_down(x, y);
+    l.rt.pointer_up(x, y);
+    l.rt.frame(DT);
+}
+
+fn esc(l: &mut Live) {
+    l.rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+    l.rt.frame(DT);
+}
+
+#[test]
+fn a_reply_goes_to_the_subagent_as_its_own_agent_and_model() {
+    let mut l = live();
+    let info = l.rt.state.session(CHILD).unwrap().clone();
+    let (session, prompt) = send(&mut l, "also check the timeout path");
+    assert_eq!(session, CHILD);
+    assert_eq!(prompt.agent.as_deref(), Some(info.agent.as_str()));
+    assert_eq!(prompt.model.as_ref().map(|m| m.id.as_str()), Some(info.model.id.as_str()));
+    assert!(echoed(&l, "also check the timeout path"), "it shows on the press");
+    assert_eq!(l.rt.state.route, Route::Session(CHILD.into()), "and the page stays put");
+}
+
+#[test]
+fn the_pickers_show_the_subagents_choice_not_the_main_sessions() {
+    let l = live();
+    let info = l.rt.state.session(CHILD).unwrap();
+    let picked = l.rt.state.selection();
+    assert_eq!((picked.agent.as_str(), picked.model.id.as_str()), (info.agent.as_str(), info.model.id.as_str()));
+}
+
+#[test]
+fn a_reply_that_fails_comes_back_to_the_composer_with_a_toast() {
+    let mut l = live();
+    send(&mut l, "try again");
+    let e = format!("POST /api/session/{CHILD}/prompt: http status: 500");
+    l.server.send(Incoming::Status(e)).unwrap();
+    l.rt.frame(DT);
+    assert!(!echoed(&l, "try again"), "the reply leaves the timeline");
+    assert_eq!(l.rt.state.composer.text, "try again");
+    assert!(!l.rt.state.status.is_empty(), "and a toast says so");
+}
+
+#[test]
+fn a_reply_the_server_took_stays_when_a_later_write_fails() {
+    let mut l = live();
+    let (_, prompt) = send(&mut l, "noted");
+    let id = prompt.id.unwrap();
+    l.rt.update(|s, _| {
+        s.apply_event("session.inbox.enqueued", &serde_json::json!({ "sessionID": CHILD, "inboxID": id }));
+    });
+    l.server.send(Incoming::Status(format!("POST /api/session/{CHILD}/prompt: http status: 500"))).unwrap();
+    l.rt.frame(DT);
+    assert!(l.rt.state.subagent_replies.0.is_empty());
+    assert!(l.rt.state.composer.text.is_empty());
+}
+
+#[test]
+fn esc_goes_back_only_from_an_empty_composer() {
+    let mut l = live();
+    tap(&mut l, "prompt");
+    assert!(l.rt.state.composer.focused);
+    l.rt.update(|s, _| s.composer.replace_text("half a thought"));
+    esc(&mut l);
+    assert_eq!(l.rt.state.route, Route::Session(CHILD.into()), "typed text keeps the page");
+    l.rt.update(|s, _| s.composer.replace_text(""));
+    esc(&mut l);
+    assert_eq!(l.rt.state.route, Route::Session(MAIN.into()));
+}
+
+#[test]
+fn drafts_stay_with_their_own_session() {
+    let mut l = live();
+    l.rt.update(|s, _| s.show_draft());
+    l.rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new("for the reviewer");
+        s.open(MAIN, tx);
+        s.show_draft();
+    });
+    l.rt.frame(DT);
+    assert_eq!(l.rt.state.composer.text, "", "the reviewer's draft stays on its page");
+    l.rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new("for the main session");
+        s.open(CHILD, tx);
+        s.show_draft();
+    });
+    l.rt.frame(DT);
+    assert_eq!(l.rt.state.composer.text, "for the reviewer");
+    l.rt.update(|s, tx| {
+        s.open(MAIN, tx);
+        s.show_draft();
+    });
+    l.rt.frame(DT);
+    assert_eq!(l.rt.state.composer.text, "for the main session");
+}
+
+#[test]
+fn a_main_session_prompt_sends_as_before() {
+    let mut l = live();
+    l.rt.update(|s, tx| s.open(MAIN, tx));
+    l.rt.frame(DT);
+    l.rt.update(|s, tx| {
+        s.composer = rune::TextEdit::new("hi");
+        s.send(tx);
+    });
+    assert!(l.writes.try_iter().any(|w| matches!(w, Write::Send { session, .. } if session == MAIN)));
+}

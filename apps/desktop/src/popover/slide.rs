@@ -1,9 +1,10 @@
-//! The lit row's highlight in a list: one fill under the rows that slides to the row the
-//! pointer or the arrow keys light, rather than jumping (Kit, t1150: "If it has the highlight
-//! around it, it should animate width of movement"). It rides a live offset, so it moves even
-//! inside a surface whose other changes land at once. A new filter puts it in place at once.
+//! The lit row's highlight in a list: one fill under the rows that slides to the row the arrow
+//! keys light, rather than jumping (Kit, t1150: "If it has the highlight around it, it should
+//! animate width of movement"). It rides a live offset, so it moves even inside a surface whose
+//! other changes land at once. The pointer and a new filter put it in place at once: a hover
+//! that trails the pointer lights the wrong row (p169).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use rune::{El, Live, Spring, el};
 use rune_knobs::Knobs;
@@ -17,6 +18,13 @@ thread_local! {
     static AT: Live<[f32; 2]> = Live::new([0.0, 0.0]);
     /// The filter the highlight last showed under, and how many it has had.
     static SHOWN: RefCell<(String, u64)> = const { RefCell::new((String::new(), 0)) };
+    /// The next build lights a row the pointer moved onto.
+    static JUMP: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The pointer lit a row: the next build puts the highlight under it at once.
+pub fn jump() {
+    JUMP.set(true);
 }
 
 /// The highlight under a list's rows, at `y` in it, for the list filtered by `query`. A new
@@ -31,7 +39,7 @@ pub fn highlight(k: &Knobs, p: &Pal, look: Look, y: f32, query: &str) -> El {
     });
     AT.with(|at| at.set([0.0, y]));
     let secs = k.get(&SLIDE);
-    let spring = if secs <= 0.0 { Spring::NONE } else { Spring::new(secs, 0.0) };
+    let spring = if secs <= 0.0 || JUMP.take() { Spring::NONE } else { Spring::new(secs, 0.0) };
     AT.with(|at| {
         el().key(format!("lit-{generation}"))
             .absolute(0.0, 0.0)

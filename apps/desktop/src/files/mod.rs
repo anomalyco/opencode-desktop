@@ -2,11 +2,19 @@
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
 pub mod data;
+pub mod links;
+#[cfg(test)]
+mod links_tests;
+pub mod markdown;
+mod markdown_stories;
+#[cfg(test)]
+mod markdown_tests;
 pub mod palette;
 mod stories;
 #[cfg(test)]
 mod tests;
 pub mod view;
+mod viewer;
 
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
@@ -42,7 +50,17 @@ pub struct SessionFiles {
     pub search_found: Vec<String>,
     pub search_asked: Option<String>,
     pub pending_jump: HashMap<String, (u32, u32)>,
+    /// Files a link asked for, opened once they load.
+    pub link_opens: HashMap<String, LinkOpen>,
+    pub md: HashMap<String, markdown::MdView>,
     pub ready: bool,
+}
+
+/// Where a link asked to land in the file it opens.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LinkOpen {
+    pub lines: Option<(u32, u32)>,
+    pub heading: Option<String>,
 }
 
 impl Default for SessionFiles {
@@ -59,6 +77,8 @@ impl Default for SessionFiles {
             search_found: Vec::new(),
             search_asked: None,
             pending_jump: HashMap::new(),
+            link_opens: HashMap::new(),
+            md: HashMap::new(),
             ready: false,
         }
     }
@@ -88,6 +108,7 @@ pub struct FilesPane {
     pub filter: TextEdit,
     pub palette: palette::FilePalette,
     pub dirty: bool,
+    pub wrap: markdown::WrapPrefs,
     dir_fetch: Latest<(String, String, Vec<(String, bool)>)>,
     content_fetch: Latest<(String, String, FilePayload)>,
     find_fetch: Latest<(String, String, Vec<String>)>,
@@ -105,6 +126,7 @@ impl Default for FilesPane {
             filter: TextEdit::new(""),
             palette: palette::FilePalette::default(),
             dirty: false,
+            wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
             content_fetch: Latest::default(),
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
@@ -234,11 +256,9 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     }
     if let Some((session_id, path, payload)) = s.files.content_fetch.take() {
         tx.instant();
+        let wrap = s.files.wrap;
         let ws = s.files.sessions.entry(session_id.clone()).or_default();
-        let doc = ws
-            .docs
-            .entry(path.clone())
-            .or_insert_with(|| CodeDocState::loading(&path));
+        let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
         match payload {
             FilePayload::Text(text) => doc.set_text(&text),
             FilePayload::Binary(sz) => doc.set_binary(sz),
@@ -247,6 +267,9 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         if let Some((start, end)) = ws.pending_jump.remove(&path) {
             let scroll_key = format!("file-code-{session_id}-{path}-scroll");
             doc.scroll_to_lines(&scroll_key, start, end, tx);
+        }
+        if let Some(link) = ws.link_opens.remove(&path) {
+            s.finish_file_link(&session_id, &path, link, tx);
         }
         changed = true;
     }
@@ -271,9 +294,9 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         && let Some(ws) = s.files.sessions.get_mut(&sid)
         && let Some(doc) = ws.docs.get_mut(&path)
         && doc.find_open
-        && doc.sync_find_query()
     {
-        changed = true;
+        changed |= doc.sync_find_query();
+        changed |= s.sync_rendered_find(&sid, &path);
     }
     changed
 }
@@ -346,6 +369,19 @@ fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(path) = active_path {
         let scroll_key = format!("file-code-{sid}-{path}-scroll");
         if let Some(ws) = s.files.sessions.get_mut(&sid)
+            && markdown::shows_rendered(ws, &path)
+            && let Some(doc) = ws.docs.get(&path)
+        {
+            // The rendered text keeps its own selection and matches.
+            if doc.find_open && doc.find_input.focused && ev.key == Key::Enter {
+                s.file_find_step(&sid, &path, !ev.mods.shift, tx);
+                return true;
+            }
+            if ev.is_command('c') {
+                return false;
+            }
+        }
+        if let Some(ws) = s.files.sessions.get_mut(&sid)
             && let Some(doc) = ws.docs.get_mut(&path)
         {
             return doc.handle_key(&scroll_key, ev, tx);
@@ -382,6 +418,7 @@ impl App {
         match &self.source {
             Source::Fixture => {
                 let (files, contents) = load_fixture_workspace(&self.fixture);
+                let wrap = self.files.wrap;
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 ws.known_files = files;
                 ws.expanded_dirs.insert("src".into());
@@ -389,7 +426,7 @@ impl App {
                 for (path, text) in contents {
                     ws.docs
                         .entry(path.clone())
-                        .or_insert_with(|| CodeDocState::new(&path, &text));
+                        .or_insert_with(|| wrap.doc(&path, &text));
                 }
                 ws.ready = true;
                 ws.rebuild_tree();
@@ -460,9 +497,10 @@ impl App {
         match &self.source {
             Source::Fixture => {
                 let (_, contents) = load_fixture_workspace(&self.fixture);
+                let wrap = self.files.wrap;
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 ws.known_files.insert(path.to_owned());
-                let mut doc = CodeDocState::loading(path);
+                let mut doc = wrap.doc(path, "");
                 if let Some(txt) = contents.get(path) {
                     doc.set_text(txt);
                 } else {
@@ -472,9 +510,9 @@ impl App {
                 ws.rebuild_tree();
             }
             Source::Live { server, .. } => {
+                let wrap = self.files.wrap;
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
-                ws.docs
-                    .insert(path.to_owned(), CodeDocState::loading(path));
+                ws.docs.insert(path.to_owned(), wrap.doc(path, ""));
                 let directory = self
                     .session(session_id)
                     .map(|s| s.directory.clone())

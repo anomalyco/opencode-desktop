@@ -11,9 +11,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
-    ("jump", "cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "Kit wants the Compacted summary to open and shut at once, with no height animation (p162): the row takes its new height in one frame while its divider holds; shut from the stuck divider near the end, the timeline can't stay scrolled past its end, so the divider lands back at its place there, still on screen (compaction::press)"),
-    ("pop-out", "cmp-msg_zzlongcompaction-quiet/#0/summary", "compaction-open-at-bottom/", "Kit wants the Compacted summary to shut at once (p162): the press on the stuck divider unmounts it in that frame (compaction::press)"),
-    ("pop-in", "timeline/", "compaction-open-at-bottom/", "shutting the summary at once (p162) brings the rows under it back on screen in that frame (compaction::press)"),
+    ("jump", "timeline/cmp-msg_zzlongcompaction-quiet", "compaction-open-at-bottom/", "the Compacted summary folds as a tool group does (p162): opening, it glides until its bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide)"),
+    ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
+    ("pop-out", "timeline/", "compaction-open-at-bottom/", "known Rune bug, as in tool-group-fold: virtual_list::select windows the rows by the open summary's full height rather than its drawn glide, so the prompt and reply under it unmount on the fold's second frame, before it covers them"),
     ("jump", "timeline/c-call_fold_", "tool-group-fold/", "opening, the fold glides until the group's bottom meets the timeline's, then the rest of it lands at once out of sight (El::fold_glide, t1012)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
@@ -78,6 +78,14 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "fork-", "", "the Fork from message dialog and its scrim open and close at once (fork::view)"),
     ("jerk", "editor-scroll/editor-pad", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("offset-jump", "timeline/t-", "fold/scrolled-up/", "read further up, a send cuts the timeline to its end (App::land)"),
+    ("jump", "picker-options/lit-", "model-efforts", "the pointer lights its row in the frame it gets there, as Desktop's list does; only the arrow keys slide the fill (popover::slide, p169)"),
+    ("jump", "option-", "model-efforts", "the lit row shows its effort and star at once, so its words give them the room in that frame, as Desktop's row does (view::composer::picker)"),
+    ("pop-in", "option-", "model-efforts", "the lit row's effort and star show at once with its highlight, as Desktop's row does (view::composer::picker)"),
+    ("pop-out", "option-", "model-efforts", "the row the pointer leaves drops its effort and star at once with its highlight (view::composer::picker)"),
+    ("pop-in", "window/effort-flyout", "model-efforts", "a model's efforts open beside its row at once, as Desktop's flyout does (model_picker::flyout, p169)"),
+    ("pop-out", "window/effort-flyout", "model-efforts", "the efforts close at once, as Desktop's flyout does (model_picker::hover)"),
+    ("jump", "window/effort-flyout", "model-efforts", "once one flyout has opened, the next row's efforts take its place at once, as Desktop's do (model_picker::hover)"),
+    ("pop-out", "window/picker-model", "model-efforts", "Esc closes the list in its frame, as every popover closes by default (popover::motion CLOSE, t1150)"),
     ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("text-swap", "crumbs/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
@@ -549,6 +557,12 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "todo-pill", circs: || wide_and_narrow(Circ::default()), run: super::todos::todo_pill },
+    // A permission takes the composer's place, the next one swaps in, and the composer comes back.
+    Action { name: "permission", circs: || {
+        let mut v = wide_and_narrow(Circ::default());
+        v.push(Circ { dock: Dock::Pending, ..Circ::default() });
+        v
+    }, run: super::permission::permission },
     // Kit's capture (t1129): thirty subagents and a plan run while a tool group in the last turn
     // opens and shuts; nothing in the timeline shows under a pill.
     Action { name: "working-under-pills", circs: || {
@@ -561,6 +575,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "run-time-59s", circs: || wide_and_narrow(Circ::default()), run: |r| super::odometers::time(r, 59) },
     Action { name: "odometer-usage", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: super::odometers::usage },
     Action { name: "odometer-questions", circs: || vec![Circ::default()], run: super::odometers::questions },
+    Action { name: "composer-grow", circs: || vec![Circ::default(), Circ { narrow: true, zoomed: true, ..Circ::default() }], run: super::composer_grow::grow },
     Action { name: "odometer-queue", circs: || vec![Circ::default()], run: super::odometers::queue },
     Action { name: "agents-one", circs: || wide_and_narrow(Circ::default()), run: one_agent },
     Action { name: "agent-wakes", circs: || wide_and_narrow(Circ::default()), run: agent_wakes },
@@ -666,6 +681,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "files", circs: || vec![Circ::default()], run: super::panels::files },
     Action { name: "tool-steps", circs: || vec![Circ::default()], run: super::panels::tool_steps },
     Action { name: "terminal-dock", circs: || vec![Circ::default()], run: super::panels::terminal_dock },
+    Action { name: "model-efforts", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: super::model_picker::run },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();
         cmd.cmd = true;

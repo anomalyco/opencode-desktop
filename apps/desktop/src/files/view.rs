@@ -1,10 +1,11 @@
-//! UI for the Files panel (`SessionFileBrowserTab` + shared [`CodeViewer`]).
+//! UI for the Files panel (`SessionFileBrowserTab`): the file tree beside the open file
+//! ([`super::viewer`]).
 
 use std::borrow::Cow;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Icon, Phase, ScrollSpec, TextEdit, TextStyle, Tx,
-    col, el, icon, row, text, text_input,
+    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, TextEdit, TextStyle, Tx, col,
+    el, icon, row, text, text_input,
 };
 use rune_kit::diff::FileStatus;
 use rune_kit::file_icon;
@@ -15,7 +16,6 @@ use super::{
     FILES_SIDEBAR_DEFAULT_W, FILES_SIDEBAR_MAX_W, FILES_SIDEBAR_MIN_W, SessionFiles,
 };
 use crate::App;
-use crate::code_view::CodeViewer;
 use crate::palette::Pal;
 use crate::panels::PanelViewCtx;
 use crate::view::{UI_MED, UI_SMALL};
@@ -24,12 +24,6 @@ const INSTANT: Anim = Anim::INSTANT;
 const TREE_ROW_H: f32 = 26.0;
 const LIST_ROW_H: f32 = 28.0;
 const MONO_TINY: TextStyle = TextStyle::new(11.0, 450.0).mono().lh(15.0).features("'tnum' 1");
-
-static WRAP_ICON: Icon = Icon {
-    name: "files-wrap-lines",
-    view: 16.0,
-    body: r#"<path d="M2.5 4.5H13.5M2.5 8.5H11C12.38 8.5 13.5 9.62 13.5 11C13.5 12.38 12.38 13.5 11 13.5H8.5M10 11.75L8.25 13.5L10 15.25M2.5 12.5H6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
-};
 
 pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     if !ctx.visible && !s.side.mounted && s.stage.is_none() {
@@ -79,7 +73,7 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
             ))
             .child(sidebar_resize_handle(s, p, sb_w, max_sb_w));
     }
-    body_row = body_row.child(files_main(
+    body_row = body_row.child(super::viewer::files_main(
         s,
         p,
         &sid,
@@ -478,299 +472,4 @@ fn sidebar_resize_handle(s: &App, p: &Pal, cur_w: f32, max_w: f32) -> El {
             }
         })
         .child(el().w(0.5).h_full().fill(if dragging { p.border } else { p.border_muted }))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn files_main(
-    s: &App,
-    p: &Pal,
-    session_id: &str,
-    proj_title: &str,
-    ws: &SessionFiles,
-    active_path: Option<&str>,
-    placeholder: bool,
-    sidebar_open: bool,
-) -> El {
-    if placeholder || active_path.is_none() {
-        return col()
-            .key("files-placeholder")
-            .grow(1.0)
-            .min_w(0.0)
-            .h_full()
-            .center()
-            .gap(8.0)
-            .padding(24.0)
-            .child(icon(&ic::FILE_TREE, 24.0).color(p.icon_faint))
-            .child(text("Open file").font(UI_MED).color(p.text))
-            .child(text("Select a file to open or press ⌘P").font(UI_SMALL).color(p.muted));
-    }
-
-    let path = active_path.unwrap();
-    let doc = ws.docs.get(path);
-    let wrap_on = doc.is_some_and(|d| d.wrap());
-    let find_on = doc.is_some_and(|d| d.find_open);
-    let sel_badge = doc.and_then(|d| d.selection()).map(|sel| {
-        let (a, b) = sel.ordered();
-        if a == b { format!("L{a}") } else { format!("L{a}–{b}") }
-    });
-
-    let (dir_part, base_name) = match path.rsplit_once('/') {
-        Some((d, b)) => (Some(format!("{d}/")), b),
-        None => (None, path),
-    };
-    let mut crumb = row().key("files-crumb").grow(1.0).shrink().min_w(0.0).gap(3.0).center_y();
-    if !sidebar_open && dir_part.is_none() {
-        crumb = crumb.child(text(format!("{proj_title}/")).font(UI_SMALL).color(p.faint).shrink().min_w(0.0).truncate_fade());
-    }
-    if let Some(d) = dir_part {
-        crumb = crumb.child(text(d).font(UI_SMALL).color(p.muted).shrink().min_w(0.0).truncate_fade());
-    }
-    crumb = crumb.child(
-        text(base_name.to_owned())
-            .font(UI_MED)
-            .color(p.text)
-            .shrink()
-            .min_w(0.0)
-            .truncate_fade(),
-    );
-    if let Some(lbl) = sel_badge {
-        crumb = crumb.child(
-            el().px(5.0)
-                .py(1.0)
-                .radius(4.0)
-                .fill(p.layer1)
-                .child(text(lbl).font(MONO_TINY).color(p.muted)),
-        );
-    }
-
-    let sid_find = session_id.to_owned();
-    let path_find = path.to_owned();
-    let sid_wrap = session_id.to_owned();
-    let path_wrap = path.to_owned();
-    let path_copy = path.to_owned();
-
-    let toolbar = row()
-        .key("files-toolbar")
-        .w_full()
-        .h(38.0)
-        .px(8.0)
-        .gap(6.0)
-        .center_y()
-        .fill(p.bg_base)
-        .child(
-            el().key("files-tree-toggle")
-                .size(26.0, 26.0)
-                .radius(6.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .fill(if sidebar_open { p.row_active } else { Color::TRANSPARENT })
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Toggle file tree")
-                .help("Toggle file tree ⌘\\")
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.files.sidebar_open = !s.files.sidebar_open;
-                })
-                .child(icon(&ic::FILE_TREE, 14.0).color(if sidebar_open { p.icon } else { p.icon_muted })),
-        )
-        .child(crumb)
-        .child(
-            el().key("files-find-btn")
-                .size(25.0, 25.0)
-                .radius(5.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .fill(if find_on { p.row_active } else { Color::TRANSPARENT })
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Find in file")
-                .help("Find in file ⌘F")
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    if let Some(w) = s.files.sessions.get_mut(&sid_find)
-                        && let Some(d) = w.docs.get_mut(&path_find)
-                    {
-                        d.find_open = !d.find_open;
-                        d.find_input.focused = d.find_open;
-                    }
-                })
-                .child(icon(&ic::MAGNIFYING_GLASS, 13.0).color(if find_on { p.icon } else { p.icon_muted })),
-        )
-        .child(
-            el().key("files-wrap-btn")
-                .size(25.0, 25.0)
-                .radius(5.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .fill(if wrap_on { p.row_active } else { Color::TRANSPARENT })
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Wrap lines")
-                .help("Wrap lines")
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    if let Some(w) = s.files.sessions.get_mut(&sid_wrap)
-                        && let Some(d) = w.docs.get_mut(&path_wrap)
-                    {
-                        d.set_wrap(!d.wrap());
-                    }
-                })
-                .child(icon(&WRAP_ICON, 13.0).color(if wrap_on { p.icon } else { p.icon_muted })),
-        )
-        .child(
-            el().key("files-copy-path")
-                .size(25.0, 25.0)
-                .radius(5.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Copy path")
-                .help("Copy path")
-                .on_press_tx(move |_s: &mut App, tx: &mut Tx| {
-                    tx.copy(path_copy.clone());
-                })
-                .child(icon(&ic::COPY, 13.0).color(p.icon_muted)),
-        )
-        .children(crate::open_in::button(s, p, "files-open-in", path));
-
-    let mut out = col()
-        .key("files-main")
-        .grow(1.0)
-        .min_w(0.0)
-        .h_full()
-        .child(toolbar)
-        .child(el().w_full().h(0.5).fill(p.border_muted));
-
-    if let Some(d) = doc
-        && d.find_open
-    {
-        out = out
-            .child(file_find_bar(p, session_id, path, d))
-            .child(el().w_full().h(0.5).fill(p.border_muted));
-    }
-
-    let sid_get = session_id.to_owned();
-    let path_get = path.to_owned();
-    let sid_mut = session_id.to_owned();
-    let path_mut = path.to_owned();
-    let viewer = CodeViewer::new(
-        format!("file-code-{session_id}-{path}"),
-        move |s: &App| {
-            s.files
-                .sessions
-                .get(&sid_get)
-                .and_then(|w| w.docs.get(&path_get))
-                .unwrap_or(&s.files.empty_doc)
-        },
-        move |s: &mut App| {
-            let has = s
-                .files
-                .sessions
-                .get(&sid_mut)
-                .is_some_and(|w| w.docs.contains_key(&path_mut));
-            if has {
-                s.files
-                    .sessions
-                    .get_mut(&sid_mut)
-                    .unwrap()
-                    .docs
-                    .get_mut(&path_mut)
-                    .unwrap()
-            } else {
-                &mut s.files.empty_doc
-            }
-        },
-    )
-    .build(s, p);
-
-    out.child(viewer)
-}
-
-fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::CodeDocState) -> El {
-    let total = doc.match_count();
-    let cur = if total == 0 { 0 } else { doc.active_match_index() + 1 };
-    let sid_edit = session_id.to_owned();
-    let path_edit = path.to_owned();
-    let sid_sub = session_id.to_owned();
-    let path_sub = path.to_owned();
-    let sid_close = session_id.to_owned();
-    let path_close = path.to_owned();
-
-    row()
-        .key("files-find-bar")
-        .w_full()
-        .h(32.0)
-        .px(10.0)
-        .gap(8.0)
-        .center_y()
-        .fill(p.layer1)
-        .child(icon(&ic::MAGNIFYING_GLASS, 12.0).color(p.faint))
-        .child(
-            text_input(&doc.find_input, UI_SMALL)
-                .key("files-find-input")
-                .placeholder("Find in file…", p.faint)
-                .color(p.text)
-                .grow(1.0)
-                .shrink()
-                .on_edit(move |s: &mut App| {
-                    let has = s
-                        .files
-                        .sessions
-                        .get(&sid_edit)
-                        .is_some_and(|w| w.docs.contains_key(&path_edit));
-                    if has {
-                        &mut s
-                            .files
-                            .sessions
-                            .get_mut(&sid_edit)
-                            .unwrap()
-                            .docs
-                            .get_mut(&path_edit)
-                            .unwrap()
-                            .find_input
-                    } else {
-                        &mut s.files.empty_doc.find_input
-                    }
-                })
-                .on_submit(move |s: &mut App, tx: &mut Tx| {
-                    let scroll_key = format!("file-code-{sid_sub}-{path_sub}-scroll");
-                    if let Some(w) = s.files.sessions.get_mut(&sid_sub)
-                        && let Some(d) = w.docs.get_mut(&path_sub)
-                    {
-                        d.sync_find_query();
-                        d.step_match(&scroll_key, true, tx);
-                    }
-                }),
-        )
-        .children((!doc.find_input.text.is_empty()).then(|| {
-            text(format!("{cur}/{total}")).font(MONO_TINY).color(p.muted)
-        }))
-        .child(
-            el().key("files-find-close")
-                .size(20.0, 20.0)
-                .radius(4.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Close find")
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    if let Some(w) = s.files.sessions.get_mut(&sid_close)
-                        && let Some(d) = w.docs.get_mut(&path_close)
-                    {
-                        d.find_open = false;
-                        d.find_input = TextEdit::new("");
-                        d.sync_find_query();
-                    }
-                })
-                .child(icon(&ic::XMARK_SMALL, 11.0).color(p.icon_muted)),
-        )
 }

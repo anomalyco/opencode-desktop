@@ -54,6 +54,7 @@ mod fork;
 mod genui;
 mod forms;
 mod frosted_stories;
+mod composer_grow_stories;
 mod history;
 mod history_story;
 #[cfg(test)]
@@ -69,6 +70,7 @@ mod launch;
 mod mention_stories;
 mod mentions;
 mod menu_stories;
+mod model_picker;
 mod model_prefs;
 #[cfg(test)]
 mod tool_group_shut_tests;
@@ -89,7 +91,7 @@ mod palette;
 pub mod panels;
 #[cfg(test)]
 mod perf;
-mod picker_stories;
+mod permission;
 mod pickers;
 mod popover;
 mod project_inbox;
@@ -103,7 +105,9 @@ mod question_row;
 mod question_stories;
 mod queue;
 mod quote;
+#[path = "quote/cards.rs"]
 mod quote_cards;
+#[path = "quote/stories.rs"]
 mod quote_stories;
 mod restore;
 mod review;
@@ -273,6 +277,10 @@ pub struct App {
     pub restore: restore::Restore,
     /// The running-subagents list above the composer is open.
     pub activity_open: bool,
+    /// Replies to subagents still on their way, to take back if the send fails.
+    pub subagent_replies: subagents::reply::Sent,
+    /// Permission replies still on their way, to bring back if the server refuses one.
+    pub permission_sent: permission::Sent,
     /// The plan's list over the todo pill is open (`todos.rs`).
     pub todo_open: bool,
     pub todo_ticks: todos::Ticks,
@@ -363,6 +371,7 @@ impl App {
 
     /// Back to Home, dropping a session that was still opening.
     pub(crate) fn go_home(&mut self, tx: &mut Tx) {
+        self.close_settings();
         self.opening = None;
         self.route = Route::Home;
         tx.settle();
@@ -461,6 +470,9 @@ impl App {
         }
         self.settings = settings::load();
         self.load_open_in();
+        if self.persists() {
+            self.files.wrap = files::markdown::WrapPrefs::load();
+        }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::ModelPrefs::load();
         self.restore_ui(&server.base);
@@ -566,8 +578,12 @@ impl App {
         self.projects.iter().find(|p| p.id == id)
     }
 
-    /// Whether anything in the open session's family is running.
+    /// Whether anything in the open session's family is running. A subagent's page counts only
+    /// its own run and those below it, so a reply to a finished one sends while its parent works.
     pub fn busy(&self, id: &str) -> bool {
+        if self.session(id).is_some_and(|i| i.parent.is_some()) {
+            return self.subtree_running(id);
+        }
         let root = self.root_of(id);
         self.running.iter().any(|s| self.root_of(s) == root)
     }
@@ -577,6 +593,7 @@ impl App {
     }
 
     pub fn new_session(&mut self, tx: &mut Tx) {
+        self.close_settings();
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
@@ -626,7 +643,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_pages(tx);
     changed |= s.poll_open_in();
     let mut arrivals = None;
-    let asked = s.question_shown();
+    let asked = s.dock_face();
     if let Some(inbox) = s.inbox.take() {
         if let Ok(first_in) = inbox.try_recv() {
             arrivals = Some(arrivals::Arrivals::before(s));
@@ -683,7 +700,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         continue;
                     }
                     Incoming::Status(e) => {
-                        if !rewind::failed(s, &e) && !stop::failed(s, &e) {
+                        if !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
+                            subagents::reply::failed(s, &e);
                             status_toast::from_server(s, e);
                         }
                     }
@@ -763,7 +781,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= compaction::sync(s);
     changed |= project_inbox::sync(s);
     changed |= subagents::sync(s) | todos::sync(s, now, tx);
-    if s.question_shown() != asked {
+    if s.dock_face() != asked {
         s.morph(tx);
     }
     let glow = knobs::glow_secs(&s.knobs);
@@ -774,6 +792,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
+    changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s);
     changed |= s.poll_home_search(tx);

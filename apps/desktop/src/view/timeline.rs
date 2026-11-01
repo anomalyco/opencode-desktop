@@ -4,11 +4,9 @@ use crate::session_menu::{Spot, Target};
 
 mod draft;
 mod parts;
-mod requests;
 
 pub(crate) use draft::*;
 pub(crate) use parts::*;
-pub(in crate::view) use requests::*;
 
 // ---------------------------------------------------------------------------------------------
 // Session
@@ -25,11 +23,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
     let pills = if child { Vec::new() } else { pills(s, p, id) };
-    let mut page = page
-        .child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills))
-        .child(requests(s, p, id));
-    // A subagent takes no prompts: its status line stands where the composer would.
-    page = if child { page.child(crate::subagents::bar(s, p, id)) } else { page.child(composer_dock(s, p)) };
+    let mut page = page.child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills)).child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
 }
@@ -213,13 +207,19 @@ pub(super) enum RowContent {
 }
 
 impl RowSpec {
+    /// A row that folds open and shut under its header, keyed in `App::expanded` by its row key:
+    /// a tool group, or the quiet Compacted divider's summary.
+    fn folds(&self) -> bool {
+        self.key.starts_with("c-") || matches!(self.content, RowContent::Compaction { piece: crate::compaction::Piece::Quiet, .. })
+    }
+
     fn wrap(&self, s: &App, el: El) -> El {
         let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
         if self.streaming {
             row
-        } else if self.key.starts_with("c-") {
-            // A tool group folds on its own quick spring, however long it is. Shutting, its steps
-            // hang below the header until they unmount, and Rune clips a row only while its height
+        } else if self.folds() {
+            // A fold glides on its own quick spring, however long it is. Shutting, what it showed
+            // hangs below the header until it unmounts, and Rune clips a row only while its height
             // moves: a short group lands first, and its steps flashed over the rows below (t1107).
             let row = if s.shutting(&self.key) { row.clip_soft(0.0) } else { row };
             row.fold_glide(crate::disclosure::fold(&s.knobs))

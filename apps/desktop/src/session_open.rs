@@ -1,8 +1,10 @@
 use super::*;
 
 impl App {
-    /// Opens a session: lands at the bottom on the first frame with nothing animating in.
+    /// Opens a session: lands at the bottom on the first frame with nothing animating in. It
+    /// leaves Settings, as any page the sidebar opens does.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
+        self.close_settings();
         self.cancel_open(tx);
         let held = self.pages.has_pool() && self.route != Route::Session(id.to_owned());
         if self.route != Route::Session(id.to_owned()) { crate::telemetry::open_begin(id, held); }
@@ -30,9 +32,10 @@ impl App {
         self.route = Route::Session(id.to_owned());
         self.sync_route_draft(&prev_route, id);
         let root = self.root_of(id).to_owned();
-        // As in Desktop, you can type straight away. A subagent's session has no composer, and
-        // a story's keys stay with the storybook.
-        if root == id && self.stage.is_none() && !self.question_shown() {
+        // As in Desktop, you can type straight away. A subagent's page waits for a click into
+        // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's
+        // keys stay with the storybook.
+        if root == id && self.stage.is_none() && !self.dock_shown() {
             self.composer.focused = true;
         }
         // Viewing it reads it, and its tab (or task): locally, except a project's task, which
@@ -42,7 +45,8 @@ impl App {
         for s in self.sessions.iter_mut().filter(|s| s.id == scope || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
-        if !self.tabs.iter().any(|t| t.id == root) {
+        // A task opens from the inbox, so it takes no tab and ⌘1–9 stay put.
+        if !self.tabs.iter().any(|t| t.id == root) && !self.is_task_session(&root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
             self.tabs.push(Tab { id: root.clone(), title, directory });
             self.save_tabs();

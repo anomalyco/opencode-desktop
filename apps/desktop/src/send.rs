@@ -103,7 +103,7 @@ impl App {
                 let w = if staged {
                     Write::SendFromRevert { session: id.clone(), prompt }
                 } else {
-                    Write::Send { session: id.clone(), prompt }
+                    self.send_write(&id, prompt)
                 };
                 if !self.write(w) {
                     return;

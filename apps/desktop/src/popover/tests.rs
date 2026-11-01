@@ -56,7 +56,7 @@ fn search_headers_and_labels_share_one_edge() {
     assert!((label - query).abs() < 0.5, "label at {label}, query at {query}");
     // The query is one line tall, on the glass's centre line.
     let field = rect(&rt, "picker-search");
-    let glass = rect(&rt, "picker-search-row")[1] + LIST.inset + LIST.row_h / 2.0;
+    let glass = rect(&rt, "picker-search-row")[1] + LIST.inset + SEARCH_H / 2.0;
     assert!((field[3] - UI.line_height).abs() < 0.5, "field {} tall", field[3]);
     assert!((field[1] + field[3] / 2.0 - glass).abs() < 0.5, "field {field:?}, glass centre {glass}");
     // The highlight stays 6 pt inside the surface.
@@ -135,29 +135,78 @@ fn a_fade_plays_in_and_a_shrink_plays_out() {
     assert!(surface_el(&rt).is_none());
 }
 
-/// The lit row's fill slides to the row the pointer moves onto, and lands there; a filter puts
-/// it in place at once (t1150).
-#[test]
-fn the_highlight_slides_between_rows() {
-    let mut rt = runtime();
+fn fill(rt: &Runtime<App>) -> f32 {
+    rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("lit-fill")).map(|e| e.rect[1]).expect("a lit row")
+}
+
+fn options(rt: &Runtime<App>) -> Vec<[f32; 4]> {
+    rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-"))).map(|e| e.rect).collect()
+}
+
+fn open_model_picker(rt: &mut Runtime<App>) {
     rt.frame(1.0 / 60.0);
     rt.update(|s, tx| {
         s.open_picker(Kind::Model);
-        s.pickers.search.focused = false;
         motion::opening(&s.knobs, tx);
     });
     for _ in 0..60 {
         rt.frame(1.0 / 60.0);
     }
-    let fill = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("lit-fill")).map(|e| e.rect[1]).expect("a lit row");
-    let options: Vec<_> = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-"))).map(|e| e.rect).collect();
-    let (a, b) = (options[0], options[3]);
-    rt.pointer_move(a[0] + 40.0, a[1] + a[3] / 2.0);
-    for _ in 0..60 {
-        rt.frame(1.0 / 60.0);
+}
+
+/// The list Kit saw (p169): one model under several providers, a heading over each.
+fn crowded(app: &mut App) {
+    let model = |id: &str, provider: &str, name: &str| serde_json::json!({"id": id, "providerID": provider, "name": name, "variants": [{"id": "high"}, {"id": "xhigh"}]});
+    let mut models = vec![model("claude-opus-5-5", "opencode", "Claude Opus 5.5")];
+    for p in ["github-copilot", "openai", "console-openai-test"] {
+        models.push(model("gpt-6.1-terra", p, "GPT-6.1 Terra"));
     }
+    for p in ["console-moonshot-ai", "zai", "xai", "mistral", "groq", "deepseek"] {
+        models.push(model(&format!("m-{p}"), p, &format!("Model {p}")));
+    }
+    let agents = serde_json::json!([{"id": "build", "model": {"id": "claude-opus-5-5", "providerID": "opencode", "variant": "xhigh"}}]);
+    app.pickers.load_live(&serde_json::Value::Array(models), &agents);
+    app.pickers.prefs = Default::default();
+}
+
+/// The pointer lights the row under it in the frame it gets there, at Kit's zoom and with the
+/// list scrolled: a highlight that slid after the pointer sat a group or two above it (p169).
+#[test]
+fn the_pointer_lights_its_row_at_once() {
+    for zoom in [1.0, 1.6] {
+        let mut app = App::fixture_session();
+        app.zoom = zoom;
+        crowded(&mut app);
+        let mut rt = app.into_runtime();
+        rt.set_viewport((1400.0, 1000.0), 2.0);
+        open_model_picker(&mut rt);
+        let view = rect(&rt, "picker-scroll");
+        let before = options(&rt)[0][1];
+        rt.wheel(view[0] + view[2] / 2.0, view[1] + view[3] / 2.0, -120.0 * zoom);
+        for _ in 0..60 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert!(options(&rt)[0][1] < before - 10.0, "zoom {zoom}: the list scrolled");
+        let shown: Vec<_> = options(&rt).into_iter().filter(|r| r[1] >= view[1] && r[1] + r[3] <= view[1] + view[3]).collect();
+        assert!(shown.len() >= 3, "zoom {zoom}: rows in view {shown:?}");
+        for row in [shown[shown.len() - 1], shown[0], shown[1]] {
+            rt.pointer_move(row[0] + 40.0, row[1] + row[3] / 2.0);
+            rt.frame(1.0 / 60.0);
+            assert!((fill(&rt) - row[1]).abs() < 0.5, "zoom {zoom}: lit at {} under the pointer's row at {}", fill(&rt), row[1]);
+        }
+    }
+}
+
+/// The arrow keys slide the lit row's fill to the next row, and it lands there; a filter puts it
+/// in place at once (t1150).
+#[test]
+fn arrow_keys_slide_the_highlight() {
+    let mut rt = runtime();
+    open_model_picker(&mut rt);
+    let rows = options(&rt);
+    let (a, b) = (rows[0], rows[1]);
     assert!((fill(&rt) - a[1]).abs() < 0.5, "under the first row: {} vs {}", fill(&rt), a[1]);
-    rt.pointer_move(b[0] + 40.0, b[1] + b[3] / 2.0);
+    rt.key(KeyEvent { key: Key::Down, mods: Mods::default() });
     rt.frame(1.0 / 60.0);
     rt.frame(1.0 / 60.0);
     let mid = fill(&rt);
@@ -165,7 +214,7 @@ fn the_highlight_slides_between_rows() {
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    assert!((fill(&rt) - b[1]).abs() < 0.5, "lands on the fourth row: {} vs {}", fill(&rt), b[1]);
+    assert!((fill(&rt) - b[1]).abs() < 0.5, "lands on the second row: {} vs {}", fill(&rt), b[1]);
     rt.update(|s, tx| {
         tx.instant();
         s.pickers.search = TextEdit::new("o");
@@ -174,6 +223,6 @@ fn the_highlight_slides_between_rows() {
     rt.frame(1.0 / 60.0);
     let lit = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-")) && e.fill.a > 0.0);
     assert!(lit.is_none(), "rows keep no fill of their own");
-    let first = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-"))).unwrap().rect;
+    let first = options(&rt)[0];
     assert!((fill(&rt) - first[1]).abs() < 0.5, "a filter lights its first row at once: {} vs {}", fill(&rt), first[1]);
 }
