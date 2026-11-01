@@ -35,7 +35,7 @@ impl App {
         // As in Desktop, you can type straight away. A subagent's page waits for a click into
         // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's
         // keys stay with the storybook.
-        if root == id && self.stage.is_none() && !self.question_shown() {
+        if root == id && self.stage.is_none() && !self.dock_shown() {
             self.composer.focused = true;
         }
         // Viewing it reads it, and its tab (or task): locally, except a project's task, which

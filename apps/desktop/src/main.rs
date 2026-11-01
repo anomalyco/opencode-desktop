@@ -91,6 +91,7 @@ mod palette;
 pub mod panels;
 #[cfg(test)]
 mod perf;
+mod permission;
 mod pickers;
 mod popover;
 mod project_inbox;
@@ -278,6 +279,8 @@ pub struct App {
     pub activity_open: bool,
     /// Replies to subagents still on their way, to take back if the send fails.
     pub subagent_replies: subagents::reply::Sent,
+    /// Permission replies still on their way, to bring back if the server refuses one.
+    pub permission_sent: permission::Sent,
     /// The plan's list over the todo pill is open (`todos.rs`).
     pub todo_open: bool,
     pub todo_ticks: todos::Ticks,
@@ -640,7 +643,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_pages(tx);
     changed |= s.poll_open_in();
     let mut arrivals = None;
-    let asked = s.question_shown();
+    let asked = s.dock_face();
     if let Some(inbox) = s.inbox.take() {
         if let Ok(first_in) = inbox.try_recv() {
             arrivals = Some(arrivals::Arrivals::before(s));
@@ -697,7 +700,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         continue;
                     }
                     Incoming::Status(e) => {
-                        if !rewind::failed(s, &e) && !stop::failed(s, &e) {
+                        if !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
                             subagents::reply::failed(s, &e);
                             status_toast::from_server(s, e);
                         }
@@ -778,7 +781,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= compaction::sync(s);
     changed |= project_inbox::sync(s);
     changed |= subagents::sync(s) | todos::sync(s, now, tx);
-    if s.question_shown() != asked {
+    if s.dock_face() != asked {
         s.morph(tx);
     }
     let glow = knobs::glow_secs(&s.knobs);

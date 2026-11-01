@@ -11,7 +11,7 @@ use rune::{
 use rune_kit::{Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, Pending, SessionInfo, Transcript};
+use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::odometer::odometer_end;

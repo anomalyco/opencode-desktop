@@ -15,6 +15,7 @@ mod composer_grow;
 mod model_picker;
 mod odometers;
 mod panels;
+mod permission;
 mod pills;
 mod rewind;
 mod scenarios;

@@ -550,6 +550,12 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "todo-pill", circs: || wide_and_narrow(Circ::default()), run: super::todos::todo_pill },
+    // A permission takes the composer's place, the next one swaps in, and the composer comes back.
+    Action { name: "permission", circs: || {
+        let mut v = wide_and_narrow(Circ::default());
+        v.push(Circ { dock: Dock::Pending, ..Circ::default() });
+        v
+    }, run: super::permission::permission },
     // Kit's capture (t1129): thirty subagents and a plan run while a tool group in the last turn
     // opens and shuts; nothing in the timeline shows under a pill.
     Action { name: "working-under-pills", circs: || {

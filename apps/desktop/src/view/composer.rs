@@ -85,9 +85,9 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .fill(composer_fill(p))
         .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
-        // The question dock's face springs in and out under this edge.
+        // A dock's face (a question, a permission) springs in and out under this edge.
         .clip_soft(0.0);
-    match crate::question::face(s, p) {
+    match crate::question::face(s, p).or_else(|| crate::permission::face(s, p)) {
         Some(face) => composer.children(face),
         None => composer.children(crate::attachments::chips(s, p))
         .child(

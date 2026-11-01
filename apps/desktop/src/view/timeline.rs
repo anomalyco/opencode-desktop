@@ -4,11 +4,9 @@ use crate::session_menu::{Spot, Target};
 
 mod draft;
 mod parts;
-mod requests;
 
 pub(crate) use draft::*;
 pub(crate) use parts::*;
-pub(in crate::view) use requests::*;
 
 // ---------------------------------------------------------------------------------------------
 // Session
@@ -25,10 +23,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
     let pills = if child { Vec::new() } else { pills(s, p, id) };
-    let mut page = page
-        .child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills))
-        .child(requests(s, p, id));
-    page = page.child(composer_dock(s, p));
+    let mut page = page.child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills)).child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
 }
