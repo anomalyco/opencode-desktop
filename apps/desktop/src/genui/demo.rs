@@ -95,7 +95,7 @@ pub fn add_mixed(app: &mut App, id: &str) {
 
 /// Streams `text` as reply `reply` into the open session, a few words at a time, `step` seconds
 /// apart, as a model's deltas arrive.
-fn stream(s: &mut App, reply: &str, text: &str, step: f64) {
+pub(crate) fn stream(s: &mut App, reply: &str, text: &str, step: f64) {
     let id = sid(s);
     s.running.insert(id.clone());
     let now = s.clock;
@@ -149,7 +149,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     }
 }
 
-fn finish(s: &mut App, _: &mut Play<App>) {
+pub(crate) fn finish(s: &mut App, _: &mut Play<App>) {
     while let Some((_, ty, data)) = s.playback.pop_front() {
         s.apply_event(&ty, &data);
     }

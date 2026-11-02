@@ -14,6 +14,7 @@
 //! whole outline copies it as plain indented lines (`rune_parts::to_plain`).
 
 pub(crate) mod demo;
+pub(crate) mod diagrams;
 mod inline;
 pub(crate) mod skill;
 #[cfg(test)]

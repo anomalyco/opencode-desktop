@@ -295,6 +295,7 @@ const ACTIONS: &[Action] = &[
         r.play_out(1.0);
     } },
     Action { name: "stream-outline", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_outline },
+    Action { name: "stream-diagram", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_diagram },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {
         // The narrow window's pinned tail can hold no tool group: scroll one into view.
         for _ in 0..4 {
