@@ -276,7 +276,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
             .padding(28.0)
             .gap(14.0)
             .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
-            .child(text(msg).font(UI_SMALL).color(p.muted).truncate_fade())
+            .child(text(msg).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
             .child(
                 el().key("browser-retry-btn")
                     .role("button")

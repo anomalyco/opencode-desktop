@@ -11,7 +11,7 @@ rune.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"
-ureq.workspace = true
+ureq = { workspace = true, features = ["rustls"] }
 
 [lints]
 workspace = true

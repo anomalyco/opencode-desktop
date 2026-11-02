@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use rune::Waker;
 use sha2::{Digest, Sha256};
 
+use crate::github_download::{self, ERR_DOWNLOAD, GithubAuth};
+
 pub const ENGINE_VERSION: &str = "156.0.14.1";
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 pub const ENGINE_BIN_REL: &str = "Contents/MacOS/opencode-browser-engine";
@@ -180,17 +182,28 @@ pub fn start_download(
         .ok();
 }
 
-const ERR_DOWNLOAD: &str = "Couldn't download the browser. Check your connection and try again.";
 const ERR_VERIFY: &str = "Download couldn't be verified. Try again.";
 const ERR_INSTALL: &str = "Couldn't install the browser. Check available disk space and try again.";
 
 /// Downloads `url`, checks `expected_sha256`, extracts the bundle, and swaps `dest_root` atomically.
+/// A private GitHub release is fetched with the user's GitHub login.
 pub fn download_and_install_to(
     url: &str,
     expected_sha256: Option<&str>,
     dest_root: &Path,
     state: &Arc<Mutex<EngineStatus>>,
     waker: Option<&Waker>,
+) -> Result<PathBuf, String> {
+    download_and_install_with(url, expected_sha256, dest_root, state, waker, &GithubAuth::user())
+}
+
+pub(crate) fn download_and_install_with(
+    url: &str,
+    expected_sha256: Option<&str>,
+    dest_root: &Path,
+    state: &Arc<Mutex<EngineStatus>>,
+    waker: Option<&Waker>,
+    github: &GithubAuth,
 ) -> Result<PathBuf, String> {
     let parent = dest_root
         .parent()
@@ -211,11 +224,11 @@ pub fn download_and_install_to(
     let ext = if clean_url.ends_with(".tar.zst") { "tar.zst" } else { "zip" };
     let archive_path = staging.join(format!("engine.{ext}"));
 
-    let mut resp = match ureq::get(url).call() {
+    let mut resp = match github_download::open(url, github) {
         Ok(r) => r,
-        Err(_) => {
+        Err(err) => {
             let _ = std::fs::remove_dir_all(&staging);
-            return Err(ERR_DOWNLOAD.into());
+            return Err(err);
         }
     };
     let total_bytes = resp

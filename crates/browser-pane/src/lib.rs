@@ -7,6 +7,7 @@
 
 pub mod address;
 mod client;
+mod github_download;
 mod site_zoom;
 mod surface;
 pub mod installer;
@@ -24,6 +25,7 @@ pub use client::BrowserTab;
 pub use installer::{
     ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, EngineStatus,
 };
+pub use github_download::{ERR_DOWNLOAD, ERR_SIGN_IN, err_no_access};
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::PickedElement;

@@ -600,3 +600,224 @@ fn live_engine_keeps_cookies_across_relaunch() {
     quit(host);
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+#[derive(Clone, Debug)]
+struct SeenRequest {
+    path: String,
+    auth: Option<String>,
+    accept: Option<String>,
+}
+
+struct MockHttp {
+    base: String,
+    seen: Arc<Mutex<Vec<SeenRequest>>>,
+}
+
+/// A local HTTP server answering every request with `route(base, request)`: (status, extra headers, body).
+fn mock_http(
+    route: impl Fn(&str, &SeenRequest) -> (u16, String, Vec<u8>) + Send + 'static,
+) -> MockHttp {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (base_srv, seen_srv) = (base.clone(), seen.clone());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+            let mut req = SeenRequest { path, auth: None, accept: None };
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                    break;
+                }
+                let (name, value) = line.split_once(':').unwrap_or((&line, ""));
+                let value = Some(value.trim().to_owned());
+                match name.trim().to_ascii_lowercase().as_str() {
+                    "authorization" => req.auth = value,
+                    "accept" => req.accept = value,
+                    _ => {}
+                }
+            }
+            let (status, headers, body) = route(&base_srv, &req);
+            seen_srv.lock().unwrap().push(req);
+            let mut stream = stream;
+            let head = format!(
+                "HTTP/1.1 {status} X\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+    });
+    MockHttp { base, seen }
+}
+
+const PUBLIC_PATH: &str = "/anomalyco/seer/releases/download/browser-engine-1/engine.zip";
+
+/// A private release: the public URL 404s, the API lists the asset, and the asset redirects to `storage`.
+fn private_github(storage: String) -> MockHttp {
+    mock_http(move |base, req| match req.path.as_str() {
+        "/repos/anomalyco/seer/releases/tags/browser-engine-1" => {
+            let assets = json!({ "assets": [
+                { "name": "SHA256SUMS", "url": format!("{base}/assets/1") },
+                { "name": "engine.zip", "url": format!("{base}/assets/2") },
+            ]});
+            (200, String::new(), assets.to_string().into_bytes())
+        }
+        "/assets/2" => (302, format!("Location: {storage}/signed?sig=abc\r\n"), Vec::new()),
+        _ => (404, String::new(), b"Not Found".to_vec()),
+    })
+}
+
+fn github_auth(api: &MockHttp, token: Option<&str>) -> crate::github_download::GithubAuth {
+    let token = token.map(str::to_owned);
+    crate::github_download::GithubAuth { api_base: api.base.clone(), token: Box::new(move || token.clone()) }
+}
+
+fn install_scratch(name: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!("bp-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    root
+}
+
+#[test]
+fn release_asset_comes_from_the_default_url() {
+    use crate::github_download::ReleaseAsset;
+    let asset = ReleaseAsset::parse(crate::installer::ENGINE_DEFAULT_URL.unwrap()).unwrap();
+    assert_eq!((asset.owner.as_str(), asset.repo.as_str()), ("anomalyco", "seer"));
+    assert_eq!(asset.tag, format!("browser-engine-{}", crate::installer::ENGINE_VERSION));
+    assert!(asset.file.ends_with("-macos-arm64.zip"));
+    assert_eq!(ReleaseAsset::parse("https://example.com/engine.zip"), None);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn public_release_downloads_without_a_github_login() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("public");
+    let (zip, sha) = make_synthetic_engine_zip(&root);
+    let github = mock_http(move |_, _| (200, String::new(), zip.clone()));
+    let auth = crate::github_download::GithubAuth {
+        api_base: github.base.clone(),
+        token: Box::new(|| panic!("a public download never asks for a GitHub login")),
+    };
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("{}{PUBLIC_PATH}", github.base);
+    let bin = download_and_install_with(&url, Some(&sha), &root.join("cache/1"), &state, None, &auth);
+    assert!(bin.unwrap().is_file());
+    let seen = github.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].auth, None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn private_release_downloads_with_the_github_login_and_keeps_it_off_the_storage_host() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("private");
+    let (zip, sha) = make_synthetic_engine_zip(&root);
+    let storage = mock_http(move |_, _| (200, String::new(), zip.clone()));
+    let github = private_github(storage.base.clone());
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("{}{PUBLIC_PATH}", github.base);
+    let auth = github_auth(&github, Some("t0k"));
+    let bin = download_and_install_with(&url, Some(&sha), &root.join("cache/1"), &state, None, &auth);
+    assert!(bin.unwrap().is_file());
+
+    let seen = github.seen.lock().unwrap().clone();
+    let paths: Vec<_> = seen.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(paths, [PUBLIC_PATH, "/repos/anomalyco/seer/releases/tags/browser-engine-1", "/assets/2"]);
+    assert_eq!(seen[0].auth, None, "the public URL is tried without a login");
+    assert_eq!(seen[1].auth.as_deref(), Some("Bearer t0k"));
+    assert_eq!(seen[2].auth.as_deref(), Some("Bearer t0k"));
+    assert_eq!(seen[2].accept.as_deref(), Some("application/octet-stream"));
+    let stored = storage.seen.lock().unwrap().clone();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].path, "/signed?sig=abc");
+    assert_eq!(stored[0].auth, None, "the token never reaches the storage host");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn private_release_without_a_github_login_asks_to_sign_in() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("no-login");
+    let github = private_github("http://127.0.0.1:9".into());
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("{}{PUBLIC_PATH}", github.base);
+    let err = download_and_install_with(&url, None, &root.join("cache/1"), &state, None, &github_auth(&github, None))
+        .unwrap_err();
+    assert_eq!(err, "Sign in to GitHub to download the browser.\nRun gh auth login in Terminal, then retry.");
+    assert_eq!(github.seen.lock().unwrap().len(), 1, "no API call without a login");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn private_release_the_login_cant_see_says_so() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("no-access");
+    let github = mock_http(|_, _| (404, String::new(), Vec::new()));
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("{}{PUBLIC_PATH}", github.base);
+    let auth = github_auth(&github, Some("t0k"));
+    let err = download_and_install_with(&url, None, &root.join("cache/1"), &state, None, &auth).unwrap_err();
+    assert_eq!(
+        err,
+        "Your GitHub account can't see the browser download.\nAsk for access to anomalyco/seer."
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn private_release_with_a_bad_sha_is_rejected() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("private-bad-sha");
+    let (zip, _) = make_synthetic_engine_zip(&root);
+    let storage = mock_http(move |_, _| (200, String::new(), zip.clone()));
+    let github = private_github(storage.base.clone());
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("{}{PUBLIC_PATH}", github.base);
+    let dest = root.join("cache/1");
+    let auth = github_auth(&github, Some("t0k"));
+    let err = download_and_install_with(&url, Some(&"0".repeat(64)), &dest, &state, None, &auth).unwrap_err();
+    assert_eq!(err, "Download couldn't be verified. Try again.");
+    assert!(!dest.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn unreachable_server_is_a_connection_error() {
+    use crate::installer::{EngineStatus, download_and_install_with};
+    let root = install_scratch("offline");
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let auth = crate::github_download::GithubAuth {
+        api_base: format!("http://127.0.0.1:{port}"),
+        token: Box::new(|| Some("t0k".into())),
+    };
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let url = format!("http://127.0.0.1:{port}{PUBLIC_PATH}");
+    let err = download_and_install_with(&url, None, &root.join("cache/1"), &state, None, &auth).unwrap_err();
+    assert_eq!(err, "Couldn't download the browser. Check your connection and try again.");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Downloads the real release into a scratch folder. Run with `OPENCODE_BROWSER_ENGINE_LIVE_DOWNLOAD=1`.
+#[test]
+fn live_release_downloads_and_verifies() {
+    if std::env::var("OPENCODE_BROWSER_ENGINE_LIVE_DOWNLOAD").as_deref() != Ok("1") {
+        return;
+    }
+    use crate::installer::{EngineStatus, download_and_install_to, resolve_download_source};
+    let root = install_scratch("live");
+    let (url, sha) = resolve_download_source().unwrap();
+    let state = Arc::new(Mutex::new(EngineStatus::NotInstalled));
+    let res = download_and_install_to(&url, sha.as_deref(), &root.join("cache/1"), &state, None);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(res.is_ok(), "{res:?}");
+}

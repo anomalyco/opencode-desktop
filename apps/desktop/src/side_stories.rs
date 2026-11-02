@@ -25,6 +25,7 @@ pub const INSTALL_VARIANTS: &[(&str, usize)] = &[
     ("Download prompt", 0),
     ("Downloading", 1),
     ("Download failed", 2),
+    ("No GitHub login", 3),
 ];
 
 pub const INSTALL_KEYS: &[Trigger] = &[
@@ -206,9 +207,8 @@ pub fn init_install(s: &mut App) {
             downloaded_bytes: 58_400_000,
             total_bytes: Some(128_352_035),
         },
-        _ => EngineStatus::Failed(
-            "Couldn't download the browser. Check your connection and try again.".into(),
-        ),
+        2 => EngineStatus::Failed(browser_pane::ERR_DOWNLOAD.into()),
+        _ => EngineStatus::Failed(browser_pane::ERR_SIGN_IN.into()),
     };
     let id = s
         .browser
