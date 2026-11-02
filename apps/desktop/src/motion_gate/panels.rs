@@ -10,20 +10,20 @@ pub fn side_region(r: &mut Run) {
             s.open_new_browser_tab("https://github.com/anomalyco/rune");
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.15);
     r.act("close side region", |rt| Run::tap(rt, "side-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.6);
     r.act("reopen side region", |rt| Run::tap(rt, "side-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.6);
     r.act("switch tab", |rt| {
         rt.update(|s, tx| {
             let _ = s.select_adjacent_side_tab(-1, tx);
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.type_prompt();
     r.enter(false);
@@ -37,25 +37,25 @@ pub fn review(r: &mut Run) {
             tx.settle();
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.15);
     r.act("next file", |rt| Run::tap(rt, "review-next-file"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("toggle file tree", |rt| Run::tap(rt, "review-tree-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("split diff", |rt| Run::tap(rt, "review-style-split"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("unified diff", |rt| Run::tap(rt, "review-style-unified"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("close review", |rt| Run::tap(rt, "side-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.6);
     r.act("reopen review", |rt| Run::tap(rt, "side-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play_out(0.8);
 }
 pub fn files(r: &mut Run) {
@@ -65,15 +65,15 @@ pub fn files(r: &mut Run) {
             tx.settle();
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.15);
     r.act("toggle file tree", |rt| Run::tap(rt, "files-tree-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("open ⌘P", |rt| {
         rt.update(|s, tx| s.open_file_palette(tx));
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("close ⌘P", |rt| {
         rt.update(|s, tx| {
@@ -81,10 +81,10 @@ pub fn files(r: &mut Run) {
             s.close_file_palette(true);
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("close side region", |rt| Run::tap(rt, "side-toggle"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play_out(0.8);
 }
 
@@ -99,28 +99,28 @@ pub fn tool_steps(r: &mut Run) {
             tx.scroll_key_to("tool-call_edit_50000", 300.0);
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     // The scroll lands a couple of frames on; the page is loaded once it has.
     r.play(0.1);
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("open edit step", |rt| Run::tap(rt, "tool-call_edit_50000"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("same click shuts it", |rt| Run::tap(rt, "tool-call_edit_50000"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("open Files tab", |rt| rt.update(|s, tx| s.open_workspace_file("src/net/backoff.ts", false, None, tx)));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("open edit step over it", |rt| Run::tap(rt, "tool-call_edit_50000"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("switch to read step", |rt| rt.update(|s, tx| s.press_tool_step("call_read_28000", tx)));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.3);
     r.act("Esc back to Files", |rt| rt.key(rune::KeyEvent { key: rune::Key::Escape, mods: rune::Mods::default() }));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play_out(0.6);
 }
 
@@ -136,7 +136,7 @@ pub fn terminal_dock(r: &mut Run) {
             tx.settle();
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.15);
     r.act("new terminal ⌃⌥T", |rt| {
         rt.key(KeyEvent {
@@ -144,18 +144,18 @@ pub fn terminal_dock(r: &mut Run) {
             mods: Mods { ctrl: true, alt: true, ..Mods::default() },
         });
     });
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("switch terminal tab", |rt| Run::tap(rt, "ttab-term_1"));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("close terminal tab ⌘W", |rt| rt.key(cmd('w')));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.2);
     r.act("close terminal ⌘J", |rt| rt.key(cmd('j')));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play(0.6);
     r.act("reopen terminal ⌘J", |rt| rt.key(cmd('j')));
-    r.rec.loads.push(r.rec.frames - 1);
+    r.loaded();
     r.play_out(0.8);
 }

@@ -3,7 +3,9 @@
 //!
 //! A [`Run`] builds the real app from the fixture in one [`Circ`]umstance, settles it, then
 //! records every frame while a scenario drives it through real input (clicks, keys, wheel) and
-//! server events (through the fixture's playback, as a live stream would arrive).
+//! server events (through the fixture's playback, as a live stream would arrive). Each frame
+//! samples the element tree, what each element paints and the composited window, so a colour
+//! or border that snaps, flashes or changes twice is a finding too.
 //! `scenarios.rs` lists the matrix and its allowlist; Rune's `rune::motion_gate` checks and
 //! reports it (`MOTION_GATE=<filter>` narrows it, `MOTION_GATE_OUT` names the report).
 
@@ -27,7 +29,7 @@ use rune::{Env, Key, KeyEvent, Mods, Runtime};
 use serde_json::{Value, json};
 
 use crate::App;
-use rune::motion_gate::Recording;
+use rune::motion_gate::Sampler;
 
 pub const DT: f64 = 1.0 / 120.0;
 pub const SID: &str = crate::fixture_ids::MAIN;
@@ -143,7 +145,8 @@ fn fixture(c: &Circ) -> String {
 
 pub struct Run {
     pub rt: Runtime<App>,
-    pub rec: Recording,
+    /// Records `rt`'s frames: `gate.rec` is the recording the gate checks.
+    pub gate: Sampler,
     pub circ: Circ,
 }
 
@@ -189,8 +192,9 @@ impl Run {
         let mut rt = Runtime::new(app, crate::view::app, size, Env::new(true, 1.0));
         rt.poll = Some(crate::poll);
         rt.on_key = Some(crate::on_key);
+        let gate = sampler(&mut rt);
         rt.frame(0.0);
-        let mut run = Run { rt, rec: recording(size), circ: c };
+        let mut run = Run { rt, gate, circ: c };
         run.idle(1.0);
         if c.scrolled {
             run.scroll_up(320.0);
@@ -209,13 +213,24 @@ impl Run {
 
     fn step(&mut self) {
         let queued = self.rt.state.playback.len();
+        self.gate.before(&mut self.rt);
         let awake = self.rt.frame(DT);
-        self.rec.awake.push(awake);
         if self.rt.state.playback.len() < queued {
             let what = self.rt.state.playback.len();
-            self.rec.input(format!("event ({what} left)"));
+            self.gate.input(&format!("event ({what} left)"));
         }
-        self.rec.sample(&self.rt.elements());
+        self.gate.frame(&mut self.rt, awake);
+    }
+
+    /// Starts the recording over: the next frame is the settled start.
+    pub fn restart(&mut self) {
+        self.gate = sampler(&mut self.rt);
+    }
+
+    /// The frame just recorded loaded content that must arrive still (`load-motion`).
+    pub fn loaded(&mut self) {
+        let rec = &mut self.gate.rec;
+        rec.loads.push(rec.frames - 1);
     }
 
     /// Records `secs` of frames.
@@ -237,7 +252,7 @@ impl Run {
 
     /// An input on the next frame: `f` runs, then the frame it lands on is recorded.
     pub fn act(&mut self, what: &str, f: impl FnOnce(&mut Runtime<App>)) {
-        self.rec.input(what);
+        self.gate.input(what);
         f(&mut self.rt);
         self.step();
     }
@@ -245,7 +260,7 @@ impl Run {
     /// Marks the cell's motion as over from the next frame: frames asked for well after it
     /// are `wakes-after-end`.
     pub fn quiet(&mut self) {
-        self.rec.quiet_from = Some(self.rec.frames);
+        self.gate.rec.quiet_from = Some(self.gate.rec.frames);
     }
 
     /// A server event, arriving through playback as a live one would, after the playing turn's
@@ -328,12 +343,12 @@ impl Run {
 
 }
 
-/// A recording on the gate's clock. Live numbers roll here (`odometer.rs`), so one that snaps
-/// in place is a `text-swap`.
-pub fn recording(size: (f32, f32)) -> Recording {
-    let mut rec = Recording::new(size, 1.0 / DT);
-    rec.counts_roll = true;
-    rec
+/// A recorder for `rt` on the gate's clock. Live numbers roll here (`odometer.rs`), so one that
+/// snaps in place is a `text-swap`.
+pub fn sampler(rt: &mut Runtime<App>) -> Sampler {
+    let mut gate = Sampler::new(rt, 1.0 / DT);
+    gate.rec.counts_roll = true;
+    gate
 }
 
 fn png() -> Vec<u8> {

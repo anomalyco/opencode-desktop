@@ -405,6 +405,7 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .radius(6.0)
         .center()
         .motion(still)
+        .motion_intent(rune::MotionIntent::CUT)
         .preserve_focus_on_press(true);
     b = match &d.rec {
         None => b.label("Dictate with Hex").help("Dictate with Hex ⇧⌘M").child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),

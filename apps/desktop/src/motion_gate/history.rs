@@ -29,7 +29,7 @@ pub fn older(r: &mut Run) {
     }
     assert!(top(r), "at the top");
     // Frame 0 is the settled top the first action changes.
-    r.rec = super::recording(r.circ.size());
+    r.restart();
     r.play(0.1);
     r.swipe_up(600.0, 0.05);
     r.act("older page lands while scrolling", |rt| rt.update(|s, tx| s.show_page(&older_page("a"), tx)));

@@ -41,8 +41,6 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
     ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
-    ("pop-in", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
-    ("pop-out", "mic/", "dictate", "the mic, the stop and its spinner swap at once on the press or the words landing, as the iOS composer's do (dictation::toolbar)"),
     ("pop-in", "timeline/t-msg_0older", "older-history/", "at the very top, a page that lands above shows its last row in the gap over the first, as Desktop's does; nothing on screen moves (session_pages::load_older)"),
     ("pop-in", "timeline/u-", "scrolled-up", "read further up, a send flies nowhere: the timeline cuts to its end and the message is there (App::land)"),
     ("jump", "timeline/t-", "send-from-up/", "read further up, a send cuts the timeline to its end (App::land)"),
@@ -88,7 +86,6 @@ const ALLOW: &[Allow] = &[
     ("jump", "r0/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r1/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
-    ("jump", "L1/L4", "stream-outline/", "a `row`'s panes take the width their words want (rune_parts::view::flow, t1197), so a pane whose words stream in squeezes its neighbour, which rewraps a line at once and moves the arrow on the row's middle"),
 ];
 
 struct Action {
@@ -536,10 +533,10 @@ const ACTIONS: &[Action] = &[
     Action { name: "switch-tab", circs: || wide_and_narrow(Circ::default()), run: |r| {
         let other = r.rt.state.tabs.iter().map(|t| t.id.clone()).find(|t| t != SID).expect("another tab");
         r.act("open another tab", |rt| rt.update(move |s, tx| s.open(&other, tx)));
-        r.rec.loads.push(r.rec.frames - 1);
+        r.loaded();
         r.play(1.0);
         r.act("open this tab", |rt| rt.update(|s, tx| s.open(SID, tx)));
-        r.rec.loads.push(r.rec.frames - 1);
+        r.loaded();
         r.play(1.0);
     } },
     // Thirty subagents: the capsule's list opens over the composer, scrolls inside its menu and
@@ -813,9 +810,10 @@ fn open_runs() -> Vec<(String, Run)> {
             let mut rt = Runtime::new(app, crate::view::app, size, Env::new(true, 1.0));
             rt.poll = Some(crate::poll);
             rt.on_key = Some(crate::on_key);
+            let gate = super::sampler(&mut rt);
             rt.frame(0.0);
             let circ = Circ { narrow, ..Circ::default() };
-            let mut run = Run { rt, rec: super::recording(size), circ };
+            let mut run = Run { rt, gate, circ };
             run.idle(0.5);
             run.step();
             v.push((format!("open-session/{name}/{}", if narrow { "narrow" } else { "wide" }), run));
@@ -835,7 +833,7 @@ fn open(r: &mut Run) {
         }
         let now = state(&r.rt.state);
         if now != seen {
-            r.rec.loads.push(r.rec.frames - 1);
+            r.loaded();
             seen = now;
         }
     }
@@ -878,7 +876,7 @@ fn cells() -> Vec<(String, Job)> {
             jobs.push((format!("{}/{}", a.name, c.name()), Box::new(move || {
                 let mut r = Run::new(c);
                 run(&mut r);
-                r.rec
+                r.gate.rec
             })));
         }
     }
@@ -887,7 +885,7 @@ fn cells() -> Vec<(String, Job)> {
         jobs.push((format!("open-session/{name}/{}", if narrow { "narrow" } else { "wide" }), Box::new(move || {
             let (_, mut r) = open_runs().swap_remove(i);
             open(&mut r);
-            r.rec
+            r.gate.rec
         })));
     }
     jobs

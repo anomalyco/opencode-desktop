@@ -214,7 +214,7 @@ fn frame(r: &Run, id: &str) -> Option<Frame> {
     let k = r.rt.state.zoom;
     let t = face.target;
     let at = |axis: usize| row.rect[axis] + (t[axis] - row.target[axis]) * k;
-    Some(Frame { k: r.rec.frames, rect: face.rect, target: [at(0), at(1), t[2] * k, t[3] * k], words })
+    Some(Frame { k: r.gate.rec.frames, rect: face.rect, target: [at(0), at(1), t[2] * k, t[3] * k], words })
 }
 
 fn measure(case: Case) -> Measured {
@@ -247,7 +247,7 @@ fn measure(case: Case) -> Measured {
     } else {
         r.enter(false);
     }
-    let sent_at = r.rec.frames - 1;
+    let sent_at = r.gate.rec.frames - 1;
     let mut frames = Vec::new();
     for _ in 0..(2.0 / super::DT) as usize {
         if id.is_none() {

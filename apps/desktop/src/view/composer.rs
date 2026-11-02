@@ -69,6 +69,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         // The fill changes at once; Stop's square and Send's arrow change places (stop::glyph_swap).
         .motion(rune::Spring::NONE)
+        .motion_intent(rune::MotionIntent::CUT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| if stop { crate::stop::press(s, tx) } else { s.send(tx) })
         .child(if stop {
             el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text)
