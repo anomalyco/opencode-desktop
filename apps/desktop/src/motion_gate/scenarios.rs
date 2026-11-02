@@ -873,7 +873,7 @@ fn cells() -> Vec<(String, Job)> {
     for a in ACTIONS {
         for c in (a.circs)() {
             let run = a.run;
-            jobs.push((format!("{}/{}", a.name, c.name()), Box::new(move || {
+            jobs.push((format!("{}/{}", a.name, c.name()), super::job(move || {
                 let mut r = Run::new(c);
                 run(&mut r);
                 r.gate.rec
@@ -882,7 +882,7 @@ fn cells() -> Vec<(String, Job)> {
     }
     for i in 0..6 {
         let (name, narrow) = (["cold", "prefetched", "slow"][i / 2], i % 2 == 1);
-        jobs.push((format!("open-session/{name}/{}", if narrow { "narrow" } else { "wide" }), Box::new(move || {
+        jobs.push((format!("open-session/{name}/{}", if narrow { "narrow" } else { "wide" }), super::job(move || {
             let (_, mut r) = open_runs().swap_remove(i);
             open(&mut r);
             r.gate.rec

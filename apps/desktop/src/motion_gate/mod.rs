@@ -25,6 +25,9 @@ mod steered;
 mod stream_pace;
 mod todos;
 
+#[cfg(test)]
+mod tests;
+
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
 use serde_json::{Value, json};
 
@@ -349,6 +352,17 @@ pub fn sampler(rt: &mut Runtime<App>) -> Sampler {
     let mut gate = Sampler::new(rt, 1.0 / DT);
     gate.rec.counts_roll = true;
     gate
+}
+
+/// Hold the recorder's font measurements on its worker thread for the whole cell. Other
+/// tests start runtimes with different fonts; without a scope those change `text::measure`
+/// process-wide, so a table can size its columns in a font its runtime never draws.
+fn job(record: impl FnOnce() -> rune::motion_gate::Recording + Send + 'static) -> rune::motion_gate::Job {
+    Box::new(move || {
+        // Runtime::new installs its own default fonts inside this scope, before any frames.
+        let _fonts = rune::text::with_families("Inter", "Inter");
+        record()
+    })
 }
 
 fn png() -> Vec<u8> {
