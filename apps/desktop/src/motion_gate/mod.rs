@@ -20,6 +20,7 @@ mod pills;
 mod rewind;
 mod scenarios;
 mod steered;
+mod stream_pace;
 mod todos;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};

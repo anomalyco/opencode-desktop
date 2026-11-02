@@ -11,6 +11,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("stop-start", "", "steer-live/", "a steer lands as separate events a few frames apart (its echo, the running reply's tool row, the next step and its tool), each a row arriving that the timeline glides to in turn; no text is streaming then (p191)"),
+    ("stop-start", "", "compaction/pinned/", "a compaction's start, its one summary delta and its end each move the narrow timeline once, three arrivals rather than a stream climbing (p191)"),
+    ("stop-start", "turn-actions/", "demo/", "the demo's turn arrives in steps a few hundred ms apart and the Working row rides each one (p191)"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
@@ -126,6 +129,11 @@ fn sends(base: Circ, docks: &[Dock]) -> Vec<Circ> {
 
 fn streaming() -> Circ {
     Circ { unplayed: true, ..Circ::default() }
+}
+
+/// Pinned to the end of the long session, wide and narrow.
+fn pinned() -> Vec<Circ> {
+    vec![Circ::default(), Circ { narrow: true, ..Circ::default() }]
 }
 
 fn wide_and_narrow(base: Circ) -> Vec<Circ> {
@@ -294,6 +302,10 @@ const ACTIONS: &[Action] = &[
         r.start_stream();
         r.play_out(1.0);
     } },
+    Action { name: "stream-pace-slow", circs: pinned, run: super::stream_pace::slow },
+    Action { name: "stream-pace-medium", circs: pinned, run: super::stream_pace::medium },
+    Action { name: "stream-pace-fast", circs: pinned, run: super::stream_pace::fast },
+    Action { name: "stream-pace-bursty", circs: pinned, run: super::stream_pace::bursty },
     Action { name: "stream-outline", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_outline },
     Action { name: "stream-diagram", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_diagram },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {

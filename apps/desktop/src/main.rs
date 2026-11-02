@@ -143,6 +143,8 @@ mod status_toast_tests;
 mod stop;
 mod stop_stories;
 mod stories;
+#[path = "stream/pace.rs"]
+mod stream_pace;
 mod subagents;
 mod switcher;
 mod tab_actions;
