@@ -31,7 +31,7 @@ pub(super) fn opens(s: &App, thumb: El, held: El, id: String, f: &Attachment, im
         return held;
     }
     let name = f.name.clone();
-    thumb.matched(id.clone()).motion(flight(s)).on_press(move |s: &mut App| {
+    thumb.matched(id.clone()).token_motion(flight(s)).on_press(move |s: &mut App| {
         s.attach.viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
     })
 }
@@ -68,7 +68,7 @@ pub fn viewer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .role("dialog")
         .label(v.name.clone())
         .matched(v.id.clone())
-        .motion(flight(s))
+        .token_motion(flight(s))
         .size(w, h)
         .radius(6.0)
         .pixels_fit(v.image.pixels(), SurfaceFit::Fill)

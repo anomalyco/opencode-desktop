@@ -153,7 +153,7 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.stops.has(session));
-    el().w_full().h(crate::working::LANE).motion(crate::knobs::actions_tail(&s.knobs))
+    el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(&s.knobs))
         .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(0.0, crate::working::LANE - 28.0))
         .children(interrupted.then(|| crate::stop::interrupted(p, has_text)))
