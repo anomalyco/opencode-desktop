@@ -368,10 +368,13 @@ fn glyph(p: &Pal, status: Status, now: f64, fill: Option<&Fill>) -> El {
     let (shape, color) = match status {
         Status::Pending => (&PENDING, p.icon_faint),
         Status::InProgress => (&IN_PROGRESS, p.warning),
-        Status::Completed => (&COMPLETED, p.icon_muted),
+        Status::Completed => (&PENDING, p.icon_muted),
         Status::Cancelled => (&CANCELLED, p.icon_faint),
     };
+    // A done todo's fill is always the disc, settled or not, so finishing never swaps it for
+    // an icon rasterised a hair differently.
     let filling = fill.and_then(|f| f.at(now).map(|(swept, r)| (f.from, swept, r)));
+    let filling = filling.or((status == Status::Completed).then_some((Status::Completed, 1.0, DISC_R)));
     // The shape changes in place; only the filling disc mounts.
     let shape = if filling.is_some() { &PENDING } else { shape };
     el().key("todo-glyph").size(16.0, 16.0).transition(rune::Transition::none())
@@ -389,8 +392,9 @@ fn disc(from: Status, swept: f32, r: f32, color: rune::Color) -> Shape {
     let (start, rest) = if from == Status::InProgress { (FRAC_PI_2, PI) } else { (-FRAC_PI_2, TAU) };
     let end = -FRAC_PI_2 + rest * swept + if from == Status::InProgress { TAU } else { 0.0 };
     // Within a few degrees of closing it draws closed, so no hairline shows at the seam.
+    // Closed, it's traced from the top whatever it swept from, the same outline as settled.
     let closed = end - start > TAU - 0.12;
-    let end = if closed { start + TAU } else { end };
+    let (start, end) = if closed { (-FRAC_PI_2, -FRAC_PI_2 + TAU) } else { (start, end) };
     let steps = ((end - start) / TAU * 64.0).ceil().max(1.0) as usize;
     let at = |a: f32| [8.0 + r * a.cos(), 8.0 + r * a.sin()];
     let mut points: Vec<[f32; 2]> = (0..=steps).map(|i| at(start + (end - start) * i as f32 / steps as f32)).collect();
@@ -413,11 +417,6 @@ static IN_PROGRESS: Icon = Icon {
     name: "todo-in-progress",
     view: 16.0,
     body: r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/><path d="M8 4a4 4 0 0 0 0 8V4Z" fill="currentColor"/>"#,
-};
-static COMPLETED: Icon = Icon {
-    name: "todo-completed",
-    view: 16.0,
-    body: r#"<circle cx="8" cy="8" r="6.5" stroke="currentColor"/><circle cx="8" cy="8" r="4" fill="currentColor"/>"#,
 };
 static CANCELLED: Icon = Icon {
     name: "todo-cancelled",

@@ -216,7 +216,8 @@ fn a_finished_todo_closes_its_ring_and_draws_its_strike() {
         rt.frame(DT);
     }
     let find = |rt: &Runtime<App>, k: usize, key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && e.path.contains(&format!("/todo-{k}/")));
-    assert!(find(&rt, 0, "disc").is_none() && find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
+    assert!(find(&rt, 0, "strike").is_none(), "done before the list opened: drawn whole");
+    assert_eq!(find(&rt, 0, "disc").expect("a done todo's fill is the disc").rect, find(&rt, 0, "shape").unwrap().rect);
     rt.update(|s, _| crate::todo_stories::set_step(s, 3));
     rt.frame(DT);
     rt.frame(DT);
@@ -228,7 +229,8 @@ fn a_finished_todo_closes_its_ring_and_draws_its_strike() {
     for _ in 0..120 {
         rt.frame(DT);
     }
-    assert!(find(&rt, 2, "disc").is_none(), "settled, it's done's glyph");
+    assert!(rt.state.todo_ticks.growing.get(&2).is_some_and(|f| f.at(rt.state.todo_ticks.now).is_none()), "settled");
+    assert_eq!(find(&rt, 2, "disc").expect("settled, the same disc stays: no swap to an icon").rect, ring);
     let words = find(&rt, 2, "text").unwrap();
     let strike = find(&rt, 2, "strike").unwrap();
     assert!(strike.rect[0] <= words.rect[0] && strike.rect[0] + strike.rect[2] >= words.rect[0] + words.rect[2], "the strike crosses its words: {:?} over {:?}", strike.rect, words.rect);
