@@ -123,13 +123,17 @@ fn at_zoom_a_prompt_that_fits_the_shells_timeline_doesnt_fold() {
 }
 
 fn link_runtime(viewport: (f32, f32)) -> Runtime<App> {
+    link_runtime_with(viewport, crate::fold_stories::LINK)
+}
+
+fn link_runtime_with(viewport: (f32, f32), link: &str) -> Runtime<App> {
     let mut app = App::fixture_session();
     app.zoom = 1.6;
     let mut rt = app.into_runtime();
     rt.set_viewport(viewport, 1.6);
     rt.frame(1.0 / 60.0);
     rt.update(|s, tx| {
-        s.composer = rune::TextEdit::new(crate::fold_stories::LINK);
+        s.composer = rune::TextEdit::new(link);
         s.submit(false, tx);
     });
     for _ in 0..240 {
@@ -166,4 +170,17 @@ fn ordinary_words_still_break_at_spaces() {
     let words = rect(&rt, &format!("text-{}", sent(&rt))).unwrap();
     let (_, h) = rune::text::measure(text, &[], BUBBLE, Some(words[2]));
     assert_eq!(words[3], h, "laid out as the space-only measure says");
+}
+
+#[test]
+fn a_long_link_measures_to_the_lines_its_bubble_draws() {
+    let link = format!("https://example.com/{}", "a1b2c3d4".repeat(60));
+    let rt = link_runtime_with((1280.0, 820.0), &link);
+    let words = rect(&rt, &format!("text-{}", sent(&rt))).expect("the link's words");
+    let width = fold::text_width(1280.0 / 1.6, false);
+    let drawn = (words[3] / 1.6 / BUBBLE.line_px()).round() as usize;
+    assert!(drawn > 1, "the link wraps");
+    assert_eq!(fold::lines(&link, words[2] / 1.6), drawn, "text_width {width} vs drawn {}", words[2] / 1.6);
+    let (_, h) = fold::measure(&link, words[2] / 1.6);
+    assert!((h - words[3] / 1.6).abs() < 1.0, "{h} vs {}", words[3] / 1.6);
 }

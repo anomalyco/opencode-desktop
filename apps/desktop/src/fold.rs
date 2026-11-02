@@ -72,6 +72,12 @@ pub fn text_width(viewport: f32, quotes: bool) -> f32 {
     (row * 0.82).min(BUBBLE_MAX) - 24.0
 }
 
+/// The size of prompt `text` wrapped at `width`, laid out as the bubble draws it: a long word
+/// with no spaces (a link) breaks inside itself.
+pub fn measure(text: &str, width: f32) -> (f32, f32) {
+    rune::text::measure_with(text, &[], BUBBLE, Some(width.max(1.0)), rune::text::RichLayoutOptions::new().wrap_anywhere())
+}
+
 /// How many lines `text` lays out to at `width`: its hard line breaks at least, and its wrapped
 /// height when it could be long.
 pub fn lines(text: &str, width: f32) -> usize {
@@ -80,7 +86,7 @@ pub fn lines(text: &str, width: f32) -> usize {
     if hard > OVER || text.len() <= 30 * OVER {
         return hard;
     }
-    let (_, h) = rune::text::measure(text, &[], BUBBLE, Some(width.max(1.0)));
+    let (_, h) = measure(text, width);
     hard.max((h / BUBBLE.line_px()).round() as usize)
 }
 

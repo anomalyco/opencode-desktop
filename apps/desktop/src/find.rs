@@ -316,7 +316,7 @@ impl App {
         }
         let end = shown.ceil_char_boundary(hit.end_byte.min(shown.len()));
         let prefix = &shown[..end];
-        let (_, measured_h) = rune::text::measure(prefix, &[], crate::view::BUBBLE, Some(wrap_w.max(1.0)));
+        let (_, measured_h) = crate::fold::measure(prefix, wrap_w);
         let hard_h = prefix.split('\n').count() as f32 * crate::view::BUBBLE.line_px();
         let clear = crate::fold::SHOW as f32 * crate::view::BUBBLE.line_px() - 40.0;
         if measured_h.max(hard_h) <= clear {
