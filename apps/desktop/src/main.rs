@@ -147,6 +147,11 @@ mod stop_stories;
 mod stories;
 #[path = "stream/pace.rs"]
 mod stream_pace;
+#[path = "stream/cushion_story.rs"]
+mod cushion_story;
+#[cfg(test)]
+#[path = "stream/cushion_tests.rs"]
+mod cushion_tests;
 mod subagents;
 mod switcher;
 mod tab_actions;

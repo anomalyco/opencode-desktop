@@ -260,6 +260,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Question answers",
     "Timeline/Compaction",
     "Timeline/Working",
+    "Timeline/Room under a reply",
     "Timeline/Stop",
     "Timeline/Steer and Pending",
     "Timeline/Move to background",
