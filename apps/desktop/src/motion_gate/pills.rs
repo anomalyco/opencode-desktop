@@ -1,6 +1,7 @@
 //! Kit's capture (t1129): with thirty subagents and a plan running, opening and shutting a tool
 //! group in the last turn pushed Thinking and Working down under the pills. The pills have their
-//! own row under the timeline, so no text in it shows under a pill on any frame.
+//! own lane at the end of the timeline, so while it shows its end no text shows under a pill on
+//! any frame. Off the end (p248) the timeline runs on under the pills and fades into the composer.
 
 use rune::ElementInfo;
 
@@ -21,8 +22,9 @@ fn under_pills(els: &[ElementInfo]) -> Vec<String> {
 fn play_clear(r: &mut Run, secs: f64, what: &str) {
     for _ in 0..(secs / super::DT).round() as usize {
         r.play(super::DT);
+        let at_end = match &r.rt.state.route { crate::Route::Session(id) => r.rt.state.ends.at_end(id), _ => true };
         let over = under_pills(&r.rt.elements());
-        assert!(over.is_empty(), "{what}: text under a pill: {over:?}");
+        assert!(!at_end || over.is_empty(), "{what}: text under a pill at the end: {over:?}");
     }
 }
 

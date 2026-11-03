@@ -39,6 +39,7 @@ mod dictation;
 mod dictation_tests;
 mod disclosure;
 mod disk;
+mod dock_fade_stories;
 mod dropzone;
 mod events;
 mod files;

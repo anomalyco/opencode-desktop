@@ -269,6 +269,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Subagent starting",
     "Timeline/Images",
     "Timeline/Jump to latest",
+    "Timeline/Fade into composer",
     "Timeline/Frosted surfaces",
     "Timeline/Turn actions",
     "Timeline/Copy tick",

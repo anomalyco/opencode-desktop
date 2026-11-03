@@ -83,7 +83,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/effort-flyout", "model-efforts", "the efforts close at once, as Desktop's flyout does (model_picker::hover)"),
     ("jump", "window/effort-flyout", "model-efforts", "once one flyout has opened, the next row's efforts take its place at once, as Desktop's do (model_picker::hover)"),
     ("pop-out", "window/picker-model", "model-efforts", "Esc closes the list in its frame, as every popover closes by default (popover::motion CLOSE, t1150)"),
-    ("jump", "timeline-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
+    ("jump", "timeline-fade", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("jump", "t-msg_zzzzzdemo01005-0/#0/#0/b1", "demo/pinned/long/", "the summary's table widens at once as each row lands: a streaming table sizes its columns to each finished row (rune_kit markdown tables)"),
     ("jump", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
@@ -572,7 +572,7 @@ const ACTIONS: &[Action] = &[
         v
     }, run: super::permission::permission },
     // Kit's capture (t1129): thirty subagents and a plan run while a tool group in the last turn
-    // opens and shuts; nothing in the timeline shows under a pill.
+    // opens and shuts; while the timeline shows its end, nothing in it shows under a pill.
     Action { name: "working-under-pills", circs: || {
         let base = Circ { short_group: true, ..Circ::default() };
         vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, narrow: true, ..base }]

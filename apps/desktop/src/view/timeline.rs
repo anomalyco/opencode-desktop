@@ -23,7 +23,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
     let pills = if child { Vec::new() } else { pills(s, p, id) };
-    let mut page = page.child(crate::jump::over(s, p, id, timeline(s, p, id, t), pills)).child(composer_dock(s, p));
+    let lane = crate::jump::lane(!pills.is_empty());
+    let mut page = page.child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), pills)).child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     if s.opening.is_some() { page.inert() } else { page }
 }
@@ -204,6 +205,9 @@ pub(super) enum RowContent {
     /// fetched and decoded, only when the row mounts.
     UserImages { id: String, pt: f32 },
     ToolImages { start: usize, end: usize, tool: String },
+    /// Room at the timeline's end for the pills' lane, so its last row stands clear over them
+    /// (t1129); a row, so the pinned timeline glides up as it opens rather than jumping.
+    Lane(f32),
 }
 
 impl RowSpec {
@@ -336,6 +340,7 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued => crate::compaction::queued(p),
+            RowContent::Lane(h) => el().w_full().h(*h),
             // A line of space over Working and the turn's actions, which streaming text above
             // draws into while its row grows to fit (`CUSHION`, p191).
             RowContent::Actions { message, busy } => col().w_full().pt(CUSHION).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
@@ -426,16 +431,22 @@ pub(crate) const CUSHION: f32 = 24.0;
 /// words fading in; other rows still clip as they move.
 const STREAM_EDGE: rune::growth::StreamEdge = rune::growth::StreamEdge { overflow: true, ..edge::FEATHER };
 
-pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
+/// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
+/// its last row stands over the lane, clear of the fade into the composer.
+pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
     let e = STREAM_EDGE;
-    let specs = std::rc::Rc::new(t.map(|t| rows(s, t)).unwrap_or_default());
+    let mut specs = t.map(|t| rows(s, t)).unwrap_or_default();
+    if t.is_some() && lane > 0.0 {
+        specs.push(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false });
+    }
+    let specs = std::rc::Rc::new(specs);
     let mut stack = col()
         .key("timeline")
         .w_full()
         .center()
         .px(24.0)
         .pt(8.0)
-        .pb(END)
+        .pb(END.max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)

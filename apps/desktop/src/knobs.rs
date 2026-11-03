@@ -16,6 +16,9 @@ pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("S
 pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0)
     .about("Where Jump to latest sits over composer")
     .hints(&["At the composer's right end", "Centred above the composer"]);
+/// How far above the composer, and above the pills over it, the timeline fades out into the
+/// composer's top edge (p248).
+pub const COMPOSER_FADE: Knob = Knob::new("Composer fade", 0.0, 48.0, 16.0).step(1.0).about("Timeline fade reach above composer and pills");
 
 /// The composer ⇄ question morph's curve: a spring (duration and bounce) or an eased tween
 /// over the duration.
@@ -109,7 +112,7 @@ pub const WORKING: Group = Group::new(
 rune_register::slice!(pub GROUP_LIST: Group);
 
 rune_register::register!(GROUP_LIST: Group = [
-    Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE]),
+    Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE, COMPOSER_FADE]),
     Group::new("Timeline", "timeline", TIMELINE),
     WORKING,
 ]);
