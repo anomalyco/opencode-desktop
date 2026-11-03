@@ -13,7 +13,7 @@ const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
     ("stop-start", "", "steer-live/", "a steer lands as separate events a few frames apart (its echo, the running reply's tool row, the next step and its tool), each a row arriving that the timeline glides to in turn; no text is streaming then (p191)"),
     ("stop-start", "", "compaction/pinned/", "a compaction's start, its one summary delta and its end each move the narrow timeline once, three arrivals rather than a stream climbing (p191)"),
-    ("stop-start", "turn-actions/", "demo/", "the demo's turn arrives in steps a few hundred ms apart and the Working row rides each one (p191)"),
+    ("stop-start", "turn-actions", "demo/", "the demo's turn arrives in steps a few hundred ms apart and the Working row rides each one (p191)"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),

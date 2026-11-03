@@ -603,7 +603,7 @@ mod tests {
 
         // The server takes the first: it stays the same element, at full size, and slides up
         // over Working into the transcript (`trace` checks the one smooth path). In the timeline
-        // it rises by Working's lane. Working also splits the run, as Desktop's sent and pending
+        // it rises by Working's lane and the cushion over it. Working also splits the run, as Desktop's sent and pending
         // prompts never join: the first gains its copy line and the second its turn gap, and the
         // pinned timeline rises by that too.
         let sid = rt.state.inboxes.iter().find(|(_, i)| !i.items.is_empty()).unwrap().0.clone();
@@ -614,7 +614,7 @@ mod tests {
         });
         trace(&mut rt, &[a.clone(), b], 90);
         let rise = before - in_timeline(&rt);
-        assert!((rise - crate::working::LANE).abs() < 0.5, "rises by Working's lane in the timeline: {rise} pt");
+        assert!((rise - crate::working::LANE - crate::view::CUSHION).abs() < 0.5, "rises by Working's lane and the cushion in the timeline: {rise} pt");
     }
 
     #[test]

@@ -336,7 +336,9 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued => crate::compaction::queued(p),
-            RowContent::Actions { message, busy } => col().w_full().child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
+            // A line of space over Working and the turn's actions, which streaming text above
+            // draws into while its row grows to fit (`CUSHION`, p191).
+            RowContent::Actions { message, busy } => col().w_full().pt(CUSHION).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -414,8 +416,18 @@ pub(crate) fn timeline_row_builds() -> usize {
 /// The timeline's padding under its last row.
 const END: f32 = 24.0;
 
+/// The line of space under a streaming reply, over Working: a new line lands there in full while
+/// the reply's row grows to fit it, rather than typing in under a clip (p191). It's one line of
+/// reply text, more than the most a stream's row trails its text by, and whole pixels so the rows
+/// under it stay on the grid.
+pub(crate) const CUSHION: f32 = 24.0;
+
+/// The feather, with streaming text drawing past its row's growing edge into [`CUSHION`], its
+/// words fading in; other rows still clip as they move.
+const STREAM_EDGE: rune::growth::StreamEdge = rune::growth::StreamEdge { overflow: true, ..edge::FEATHER };
+
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>) -> El {
-    let e = edge::FEATHER;
+    let e = STREAM_EDGE;
     let specs = std::rc::Rc::new(t.map(|t| rows(s, t)).unwrap_or_default());
     let mut stack = col()
         .key("timeline")
