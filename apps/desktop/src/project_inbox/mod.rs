@@ -28,6 +28,29 @@ use crate::{App, Route, Source};
 
 pub use view::section;
 
+/// Off for now (Kit, Nov 3): nothing of projects shows or runs, and sessions marked on the
+/// server look like ordinary ones. Flip to bring the feature back.
+pub const PROJECTS: bool = false;
+
+#[cfg(test)]
+thread_local! {
+    static FORCE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether projects are on; tests can force it either way on their own thread.
+pub fn on() -> bool {
+    #[cfg(test)]
+    if let Some(v) = FORCE.with(std::cell::Cell::get) {
+        return v;
+    }
+    PROJECTS
+}
+
+#[cfg(test)]
+pub fn force(v: bool) {
+    FORCE.with(|f| f.set(Some(v)));
+}
+
 #[derive(Default)]
 pub struct State {
     /// What's been asked of the server already: a project's sessions (`p:`), a running task's
@@ -77,6 +100,9 @@ pub trait TaskInfo {
 
 impl TaskInfo for SessionInfo {
     fn seer_task(&self) -> Option<SeerTask<'_>> {
+        if !on() {
+            return None;
+        }
         let m = &self.metadata["seerTask"];
         Some(SeerTask { project: m["projectID"].as_str()?, state: m["state"].as_str().unwrap_or("working") })
     }
@@ -87,6 +113,9 @@ impl TaskInfo for SessionInfo {
 }
 
 fn marked(i: &SessionInfo) -> Option<i64> {
+    if !on() {
+        return None;
+    }
     i.seer_project().filter(|(id, _)| *id == i.id).map(|m| m.1)
 }
 
@@ -178,6 +207,9 @@ impl App {
 
     /// "Make project" / "Stop being a project": `metadata.seerProject` on the server.
     pub fn toggle_project(&mut self, id: &str, tx: &mut Tx) {
+        if !on() {
+            return;
+        }
         tx.instant();
         let Some(info) = self.session(id) else { return };
         let mut metadata = if info.metadata.is_object() { info.metadata.clone() } else { json!({}) };
@@ -217,6 +249,9 @@ impl App {
 
     /// "New project": a new session in a chosen folder, marked as it opens.
     pub fn new_project(&mut self, tx: &mut Tx) {
+        if !on() {
+            return;
+        }
         self.project_inbox.mark_next = true;
         self.open_project_dialog(tx);
     }
@@ -225,7 +260,7 @@ impl App {
 /// `poll`: asks the server for what the inbox needs that the first reads don't bring: each
 /// project's sessions with their subagents, and the open requests of running tasks.
 pub fn sync(s: &mut App) -> bool {
-    if s.launch.waiting || s.project_marks().is_empty() {
+    if !on() || s.launch.waiting || s.project_marks().is_empty() {
         return false;
     }
     let mut asks: Vec<(String, Request)> = s
@@ -269,6 +304,9 @@ pub fn reconnected(s: &mut App) {
 
 /// A session this app just created and opened: "New project" marks it.
 pub fn created(s: &mut App, id: &str, tx: &mut Tx) {
+    if !on() {
+        return;
+    }
     if std::mem::take(&mut s.project_inbox.mark_next) && !s.is_project(id) {
         s.toggle_project(id, tx);
     }
@@ -276,6 +314,9 @@ pub fn created(s: &mut App, id: &str, tx: &mut Tx) {
 
 /// Opening a task reads it on the server too, so every client's inbox agrees.
 pub fn opened(s: &mut App, id: &str) {
+    if !on() {
+        return;
+    }
     let Some(lead) = s.lead_of(id).map(str::to_owned) else { return };
     let Some(idle) = s.session(&lead).filter(|i| i.unread()).and_then(|i| i.idle) else { return };
     if lead == id && !s.running.contains(id) {
@@ -288,5 +329,6 @@ pub fn opened(s: &mut App, id: &str) {
 
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
     crate::commands::Cmd::new("project.new", "New project…", |s, tx| s.new_project(tx))
-        .describe("Pick a folder, start a project in it"),
+        .describe("Pick a folder, start a project in it")
+        .when(|_| on()),
 ]);

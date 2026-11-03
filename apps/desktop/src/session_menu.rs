@@ -79,7 +79,7 @@ fn item(id: &'static str, title: &'static str, enabled: bool) -> Line {
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
     let known = s.session(&t.id);
     let project = item("project", if s.is_project(&t.id) { "Stop being a project" } else { "Make project" }, known.is_some());
-    match t.spot {
+    let mut lines = match t.spot {
         Spot::Tab => vec![
             item("rename", "Rename", known.is_some()),
             item("close", "Close tab", true),
@@ -92,7 +92,11 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
         Spot::Inbox => vec![project, Line::Sep, item("delete", "Delete…", true)],
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
         Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), project, Line::Sep, item("delete", "Delete…", true)],
+    };
+    if !crate::project_inbox::on() {
+        lines.retain(|l| !matches!(l, Line::Item(i) if i.id == "project"));
     }
+    lines
 }
 
 fn native(lines: &[Line]) -> PopupMenu {

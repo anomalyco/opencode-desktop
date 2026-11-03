@@ -13,6 +13,9 @@ const INSTANT: Anim = Anim::INSTANT;
 
 /// Nothing while no session is a project.
 pub fn section(s: &App, p: &Pal) -> Option<El> {
+    if !super::on() {
+        return None;
+    }
     let marks = s.project_marks();
     if marks.is_empty() {
         return None;

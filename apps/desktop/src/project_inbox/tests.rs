@@ -8,6 +8,7 @@ use crate::session_menu::{self, Spot, Target};
 use crate::{App, Route};
 
 fn world() -> App {
+    super::force(true);
     let mut s = App::fixture_session();
     seed(&mut s);
     s
@@ -143,6 +144,7 @@ fn close_archives_a_task_and_another_client_can_bring_it_back() {
 
 #[test]
 fn the_menu_marks_and_unmarks_a_project_in_its_metadata() {
+    super::force(true);
     let mut s = App::fixture_session();
     let writes = s.fake_writes();
     let t = Target::new(crate::fixture_ids::THIRD, Spot::Tab);
@@ -158,6 +160,7 @@ fn the_menu_marks_and_unmarks_a_project_in_its_metadata() {
 
 #[test]
 fn another_clients_mark_arrives_as_an_event() {
+    super::force(true);
     let mut s = App::fixture_session();
     let id = crate::fixture_ids::THIRD;
     s.apply_event("session.metadata.updated", &serde_json::json!({ "sessionID": id, "metadata": { "seerProject": { "id": id, "since": 1 } } }));
@@ -166,6 +169,7 @@ fn another_clients_mark_arrives_as_an_event() {
 
 #[test]
 fn new_project_marks_the_session_it_opens() {
+    super::force(true);
     let mut s = App::fixture_session();
     let _writes = s.fake_writes();
     s.project_inbox.mark_next = true;
@@ -186,6 +190,27 @@ fn the_sidebar_lists_projects_instead_of_their_tabs() {
     assert!(rt.find("ib-ses_ib04").is_none(), "a working task has no row");
     assert!(rt.find("ib-ses_ib03").is_none(), "a helper folds into its task");
     assert!(rt.find(&format!("t-{MAIN}")).is_none(), "a project's tab is its Projects line");
+}
+
+#[test]
+fn with_projects_off_the_sidebar_has_no_inbox_and_marked_sessions_are_ordinary() {
+    let mut s = world();
+    super::force(false);
+    assert!(s.project_marks().is_empty() && s.inbox_rows().is_empty() && s.lead_of("ses_ib03").is_none());
+    let writes = s.fake_writes();
+    s.toggle_project(MAIN, &mut Tx::default());
+    s.new_project(&mut Tx::default());
+    assert!(!s.project_inbox.mark_next);
+    assert!(!s.commands().iter().any(|c| c.id == "project.new"));
+    let menu = session_menu::lines(&s, &Target::new(MAIN, Spot::Tab));
+    assert!(!menu.iter().any(|l| matches!(l, session_menu::Line::Item(i) if i.id == "project")));
+    let mut rt = s.into_runtime();
+    rt.frame(0.0);
+    for gone in ["inbox", "h-Projects", "h-Needs you · 3"] {
+        assert!(rt.find(gone).is_none(), "{gone}");
+    }
+    assert!(rt.find(&format!("t-{MAIN}")).is_some(), "a marked session keeps its tab");
+    assert!(writes.try_iter().next().is_none(), "nothing written to the server");
 }
 
 #[test]
