@@ -5368,7 +5368,7 @@ dependencies = [
 [[package]]
 name = "wraith-core"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=af1a2c14d782e2f1ddde82e136db604dc7f3b379#af1a2c14d782e2f1ddde82e136db604dc7f3b379"
+source = "git+https://github.com/anomalyco/wraith?rev=d40b43c66d0b11ee1a056bc2a60116085bd8529d#d40b43c66d0b11ee1a056bc2a60116085bd8529d"
 dependencies = [
  "ed25519-dalek",
  "postcard",
@@ -5379,7 +5379,7 @@ dependencies = [
 [[package]]
 name = "wraith-do"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=af1a2c14d782e2f1ddde82e136db604dc7f3b379#af1a2c14d782e2f1ddde82e136db604dc7f3b379"
+source = "git+https://github.com/anomalyco/wraith?rev=d40b43c66d0b11ee1a056bc2a60116085bd8529d#d40b43c66d0b11ee1a056bc2a60116085bd8529d"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -5394,7 +5394,7 @@ dependencies = [
 [[package]]
 name = "wraith-local"
 version = "0.0.0"
-source = "git+https://github.com/anomalyco/wraith?rev=af1a2c14d782e2f1ddde82e136db604dc7f3b379#af1a2c14d782e2f1ddde82e136db604dc7f3b379"
+source = "git+https://github.com/anomalyco/wraith?rev=d40b43c66d0b11ee1a056bc2a60116085bd8529d#d40b43c66d0b11ee1a056bc2a60116085bd8529d"
 dependencies = [
  "getrandom 0.3.4",
  "mio",
