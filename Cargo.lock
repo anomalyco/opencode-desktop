@@ -3544,6 +3544,8 @@ dependencies = [
  "seer-note-web",
  "seer-sync",
  "serde_json",
+ "wraith-core",
+ "wraith-local",
 ]
 
 [[package]]
