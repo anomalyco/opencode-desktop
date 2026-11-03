@@ -8,7 +8,7 @@
 //! | `docs/plan.md`, `./x.md`, `../x.md`, `/abs/in/folder`, `~/…`, `file://…` | The file's tab, at `#L12`, `#L12-L20`, `:12` or `:12-20`; a `#heading` scrolls a rendered file to it |
 //! | A file outside the session's folder | Its default Mac app (the server reads only inside the folder) |
 //! | A file that isn't there | A toast naming it |
-//! | A bare word (`link`, `url`, `TODO`): a placeholder, no `/`, `.` or scheme | Drawn as plain text; a click says it points nowhere |
+//! | A bare word (`link`, `Makefile`) that isn't a file there | A toast saying it points nowhere (a bare word that is a file opens it) |
 //!
 //! Relative links resolve against the session's folder in a reply, and against the file's own
 //! folder in a rendered file.
@@ -22,8 +22,6 @@ use crate::App;
 pub enum Link {
     /// A web or app address, opened as it is.
     Web(String),
-    /// A placeholder that points nowhere (`link`): no scheme, no `/`, no `.`.
-    Dead(String),
     /// A heading in the document the link is in (`#usage`).
     Heading(String),
     /// A file in the session's folder, relative to it.
@@ -38,9 +36,6 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
     let href = href.trim();
     if let Some(frag) = href.strip_prefix('#') {
         return Link::Heading(decode(frag));
-    }
-    if is_dead(href) {
-        return Link::Dead(href.to_owned());
     }
     let file_url = href.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
     if !file_url && scheme(href) {
@@ -90,10 +85,9 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
     Link::Inside { path: norm, lines, heading }
 }
 
-/// Whether `href` can't point at anything: empty, or one bare word (`link`, `url`).
-pub fn is_dead(href: &str) -> bool {
-    let h = href.trim();
-    !h.starts_with(['#', '~']) && !h.contains(['/', '.', ':', '\\', '%']) && !h.contains(char::is_whitespace) || h.is_empty()
+/// Whether `path` is one bare word (`link`, `Makefile`): no folder, no extension.
+fn is_bare_word(path: &str) -> bool {
+    !path.is_empty() && !path.contains(['/', '.', ':', '\\', '%', '#', '~']) && !path.contains(char::is_whitespace)
 }
 
 /// Whether `href` starts with a URL scheme (`https:`, `mailto:`, `seer:`) rather than a path
@@ -218,18 +212,12 @@ impl App {
         match classify(href, "", &self.draft_dir, &home()) {
             Link::Web(url) => self.open_web(&url, tx),
             Link::Heading(_) => {}
-            Link::Dead(h) => self.say_dead_link(&h),
             Link::Inside { path, .. } => {
                 let abs = format!("{}/{path}", self.draft_dir.trim_end_matches('/'));
                 self.open_outside_file(&abs);
             }
             Link::Outside { path } => self.open_outside_file(&path),
         }
-    }
-
-    fn say_dead_link(&mut self, href: &str) {
-        let shown = if href.trim().is_empty() { "(empty)" } else { href.trim() };
-        crate::status_toast::say(self, "This link doesn't point anywhere", shown);
     }
 
     fn open_web(&self, url: &str, tx: &mut Tx) {
@@ -244,7 +232,6 @@ impl App {
         let base = from.and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d);
         match classify(href, base, &self.link_directory(sid), &home()) {
             Link::Web(url) => self.open_web(&url, tx),
-            Link::Dead(h) => self.say_dead_link(&h),
             Link::Heading(h) => {
                 if let Some(f) = from {
                     self.scroll_to_heading(sid, f, &h, tx);
@@ -288,7 +275,8 @@ impl App {
             ws.docs.remove(path);
             ws.known_files.remove(path);
             ws.rebuild_tree();
-            crate::status_toast::say(self, "File not found", path);
+            let title = if is_bare_word(path) { "This link doesn't point anywhere" } else { "File not found" };
+            crate::status_toast::say(self, title, path);
             return;
         }
         // A line is in the source: a rendered file shows it there.

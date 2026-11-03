@@ -125,14 +125,19 @@ fn line_links_select_lines_and_missing_files_say_so() {
 }
 
 #[test]
-fn a_placeholder_link_says_it_points_nowhere_and_opens_nothing() {
+fn a_bare_word_link_opens_the_file_when_it_exists_and_says_so_when_it_does_not() {
     let mut rt = runtime();
+    rt.update(|s, tx| s.open_reply_link("Makefile", tx));
+    settle(&mut rt);
+    assert!(rt.state.toast.current.is_none());
+    assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), Some("Makefile"));
+
     rt.update(|s, tx| s.open_reply_link("link", tx));
     settle(&mut rt);
     let toast = rt.state.toast.current.clone().expect("a toast");
     assert_eq!((toast.title.as_str(), toast.description.as_deref()), ("This link doesn't point anywhere", Some("link")));
     assert!(!rt.state.open_in.busy());
-    assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), None);
+    assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), Some("Makefile"));
 }
 
 #[test]
