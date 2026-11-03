@@ -60,6 +60,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
+    crate::diagram::prepare(s);
     let mut inner = match s.stage {
         Some(st) => {
             cx.reduced_motion(s.reduced_motion);
@@ -108,6 +109,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     inner = inner.children(crate::files::palette::view(s, p));
     inner = inner.children(crate::attachments::viewer(s, p, cx));
+    inner = inner.children(crate::diagram::view(s, p, cx));
     inner = inner.children(crate::session_menu_view::confirm(s, p));
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));

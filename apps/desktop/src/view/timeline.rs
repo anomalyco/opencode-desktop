@@ -243,7 +243,7 @@ impl RowSpec {
                     {
                         // Only a reply with a diagram in it follows the column's width.
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw);
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagram.hidden_in(body));
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);

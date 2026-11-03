@@ -1,0 +1,6 @@
+{
+  "playground": "Timeline/Diagram full size", "secs": 7.0,
+  "events": [
+    {"t": 0.4, "type": "key", "name": "a"}
+  ]
+}

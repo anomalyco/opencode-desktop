@@ -11,6 +11,12 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("jerk", "diagram-lightbox", "diagram-full-size/", "an open diagram flies out of its card and back on the image viewer's 0.25 s spring (IMAGE_FLIGHT), from rest over several hundred points, so its first frames speed up by up to ~20 pt a frame (diagram::lightbox)"),
+    ("jerk", "fit/", "diagram-full-size/", "the open diagram's lines and labels ride its 0.25 s flight and ⌘0's spring back to the fit (diagram::lightbox)"),
+    ("lands-unseen", "fit/", "diagram-full-size/", "two fingers pan the open diagram, a frame at a time, until parts of it are outside the window, where a pan back brings them (diagram::lightbox)"),
+    ("fade-snap", "t-msg_zzwide1-0/#0/#0/b1/#0", "diagram-full-size/", "the reply's card shows again in the frame the open diagram, landed exactly over it, unmounts: one picture handed over in place (diagram::poll)"),
+    ("pop-out", "window/diagram-stage", "diagram-full-size/", "the open diagram unmounts once it has landed exactly over its card, which shows again in that frame (diagram::poll)"),
+    ("snap", "(pixels)", "diagram-full-size/", "once a pinch rests, the scaled diagram's text draws crisp again at its new size, in place (El::scale)"),
     ("stop-start", "", "steer-live/", "a steer lands as separate events a few frames apart (its echo, the running reply's tool row, the next step and its tool), each a row arriving that the timeline glides to in turn; no text is streaming then (p191)"),
     ("stop-start", "", "compaction/pinned/", "a compaction's start, its one summary delta and its end each move the narrow timeline once, three arrivals rather than a stream climbing (p191)"),
     ("stop-start", "turn-actions", "demo/", "the demo's turn arrives in steps a few hundred ms apart and the Working row rides each one (p191)"),
@@ -305,6 +311,10 @@ const ACTIONS: &[Action] = &[
     Action { name: "stream-pace-bursty", circs: pinned, run: super::stream_pace::bursty },
     Action { name: "stream-outline", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_outline },
     Action { name: "stream-diagram", circs: || wide_and_narrow(Circ::default()), run: super::genui::stream_diagram },
+    Action { name: "diagram-full-size", circs: || {
+        let base = Circ::default();
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
+    }, run: super::diagram::open_zoom_close },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {
         // The narrow window's pinned tail can hold no tool group: scroll one into view.
         for _ in 0..4 {

@@ -33,6 +33,7 @@ mod copied;
 mod demo;
 mod demo_script;
 mod diagnostics;
+mod diagram;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
@@ -223,6 +224,8 @@ pub struct App {
     pub shutting: HashMap<String, f64>,
     /// The copy button showing its tick (`copied.rs`).
     pub copied: copied::Copied,
+    /// The diagrams replies show, and the one open full size (`diagram`).
+    pub diagram: diagram::Diagrams,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
     /// A tab being dragged to a new place in the sidebar.
@@ -806,6 +809,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
+    changed |= diagram::poll(s, now, tx);
     changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s);

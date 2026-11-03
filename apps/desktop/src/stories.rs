@@ -174,6 +174,7 @@ const ORDER: &[&str] = &[
     "Timeline/Streaming text",
     "Timeline/Generative UI",
     "Timeline/Diagram streaming",
+    "Timeline/Diagram full size",
     "Timeline/Tool rows",
     "Timeline/Long tool group",
     "Timeline/Selection",

@@ -202,7 +202,9 @@ pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle
         .heading_font(3, H3)
         .code_block_font(CODE)
         .selection(p.selection)
-        .diagram_max_width(width);
+        .diagram_max_width(width)
+        // However wide, a diagram draws whole; it opens full size to be read (`diagram`).
+        .diagram_min_scale(0.0);
     match p.code {
         Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
         None => style,
@@ -212,7 +214,10 @@ pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle
 pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src: &str, fade: f32, streaming: bool, style: MarkdownStyle, highlights: Vec<H>) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
+    let full = std::rc::Rc::new(style.clone());
+    let pal = *p;
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
+        .diagram_frame(move |card, d| crate::diagram::frame(&pal, card, d, &full))
         .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| s.open_reply_link(url, tx))
         .build(crate::palette::kit(p)).selection_group(false)
 }

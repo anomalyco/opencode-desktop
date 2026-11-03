@@ -14,6 +14,7 @@ mod flights;
 mod genui;
 mod history;
 mod composer_grow;
+mod diagram;
 mod model_picker;
 mod odometers;
 mod panels;
