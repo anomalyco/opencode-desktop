@@ -24,6 +24,11 @@ const NEAR_TOP: f32 = 200.0;
 /// A failed or stuck older page isn't asked for again sooner (the pool's own backoff).
 const RETRY: Duration = Duration::from_secs(30);
 
+#[cfg(test)]
+mod bench_tests;
+#[cfg(test)]
+mod prefetch_tests;
+
 /// Session-page prefetch pool, delayed history-cursor expansion, and older pages on scroll.
 #[derive(Default)]
 pub struct State {

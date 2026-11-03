@@ -210,6 +210,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let mut list = col().key("activity-list").w_full().padding(PANEL_PAD);
     for it in &items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
+        let (visible, hover) = (child.clone(), child.clone());
         let name = name_of(it);
         list = list.child(
             row()
@@ -224,6 +225,14 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .radius(4.0)
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
+                .on_layout_tx(move |s: &mut App, _, tx| {
+                    tx.live_only();
+                    s.prefetch_session(&visible);
+                })
+                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                    tx.live_only();
+                    if inside { s.prefetch_session(&hover); }
+                })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.open_child(&parent, &child, &title, &agent, tx);

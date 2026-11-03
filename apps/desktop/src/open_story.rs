@@ -19,14 +19,15 @@ pub struct Demo {
 }
 
 /// The storybook's Session opening stories, in order.
-pub const PATHS: [&str; 3] = ["Session opening/Cold · ready at 100 ms", "Session opening/Prefetched · ready now", "Session opening/Slow · 150 ms fallback"];
+pub const PATHS: [&str; 4] = ["Session opening/Cold · ready at 100 ms", "Session opening/Prefetched · ready now", "Session opening/Slow · 150 ms fallback", "Session opening/Subagent · ready now"];
 /// Each story's triggers: R sets it up and clicks 0.75 s in, O clicks now.
-pub const KEYS: [&[Trigger]; 3] = [&[replay(open_at::<0>), CLICK], &[replay(open_at::<1>), CLICK], &[replay(open_at::<2>), CLICK]];
+pub const KEYS: [&[Trigger]; 4] = [&[replay(open_at::<0>), CLICK], &[replay(open_at::<1>), CLICK], &[replay(open_at::<2>), CLICK], &[replay(open_at::<3>), CLICK]];
 /// How the click opens the session: waiting for its content, or the old route switch at once.
 pub const VARIANTS: &[(&str, usize)] = &[("Wait for the content", 0), ("Switch at once", 1)];
 const CLICK: Trigger = Trigger { key: 'o', label: "Open now", run: click };
 
 pub fn setup(s: &mut App, at: usize) {
+    let prefetched = matches!(at, 1 | 3);
     let png = picture();
     let mut messages: Vec<_> = (0..24).map(|i| Message::User { id:format!("story_note_{i:02}"), text:format!("Layout review {i}: keep the chart aligned with the session header.") }).collect();
     messages.extend(model::parse_messages(&json!({"data":[
@@ -34,12 +35,12 @@ pub fn setup(s: &mut App, at: usize) {
         {"id":"story_answer", "type":"assistant", "time":{"created":100,"completed":101}, "tokens":{"input":42000}, "content":[{"type":"text","text":"Yes. The chart now fills the available width, and the controls stay aligned with the header.\n\nThe final image size and scroll position should be ready on the first frame."}]}
     ]})));
     let page = Arc::new(Page { key:Key { id:TARGET.into(), updated:0 }, messages, cursor:None, cached:false, history:false, images:vec![], bytes:0, read:Default::default() });
-    let (pages, send) = Pages::fixture((at == 1).then(|| page.clone()));
+    let (pages, send) = Pages::fixture(prefetched.then(|| page.clone()));
     s.pages.set(pages);
     s.transcripts.remove(TARGET);
     s.opening = None;
     s.attach = Default::default();
-    s.attach.fixture_media(MEDIA, (at == 1).then(|| png.clone()));
+    s.attach.fixture_media(MEDIA, prefetched.then(|| png.clone()));
     s.route = Route::Session("ses_open_previous".into());
     s.transcripts.insert("ses_open_previous".into(), Transcript { session:"ses_open_previous".into(), messages:vec![Message::User { id:"story_previous".into(), text:"Keep this session visible while the dashboard review gets ready.".into() }] });
     if !s.sessions.iter().any(|i| i.id == TARGET) {
@@ -49,6 +50,7 @@ pub fn setup(s: &mut App, at: usize) {
         info.id = "ses_open_previous".into(); info.title = "Current session".into();
         s.sessions.push(info);
     }
+    s.sessions.iter_mut().find(|i| i.id == TARGET).unwrap().parent = (at == 3).then(|| "ses_open_previous".into());
     s.composer.focused = false;
     s.open_demo = Some(Demo { page, send, png, at, before:false });
 }
@@ -69,7 +71,7 @@ fn click(s: &mut App, tx: &mut Play<App>) {
     let Some(d) = s.open_demo.as_ref() else { return };
     let (at, before) = (d.at, d.before);
     if before { s.open_now(TARGET, tx); s.open_page(TARGET, tx); } else { s.open(TARGET, tx); }
-    if at != 1 {
+    if !matches!(at, 1 | 3) {
         tx.after(if at == 2 { 0.25 } else { 0.05 }, deliver);
         tx.after(if at == 2 { 0.4 } else { 0.1 }, pixels);
     }
@@ -108,4 +110,4 @@ const fn story(at: usize) -> crate::stories::Story {
     crate::stories::Story { path: PATHS[at], scene: |s| crate::stories::stage(s, crate::stories::opening_view), knobs: &[], keys: KEYS[at], variants: VARIANTS }
 }
 
-rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [story(0), story(1), story(2)]);
+rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [story(0), story(1), story(2), story(3)]);

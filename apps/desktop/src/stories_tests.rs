@@ -295,6 +295,7 @@ const STORY_PATHS: &[&str] = &[
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",
     "Session opening/Slow · 150 ms fallback",
+    "Session opening/Subagent · ready now",
     "Requests/Permission",
     "Popover/Open and close",
     "Sidebar/Projects inbox",

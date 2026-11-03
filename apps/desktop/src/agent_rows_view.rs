@@ -151,11 +151,22 @@ fn now(p: &Pal, r: &Run, font: TextStyle, h: f32) -> El {
 fn opens(parent: &str, c: &Call, surface: El) -> El {
     let Some(child) = c.child else { return surface };
     let (parent, child, title, agent) = (parent.to_owned(), child.to_owned(), c.title.to_owned(), c.agent.to_owned());
+    let (visible, hover) = (child.clone(), child.clone());
     surface
         .role("button")
         .label(format!("{} {}", model::capitalize(&agent), title))
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
+        // Virtual rows mount around the viewport. Read the child while its card is being
+        // read, rather than starting a tunnel round trip only after the press.
+        .on_layout_tx(move |s: &mut App, _, tx| {
+            tx.live_only();
+            s.prefetch_session(&visible);
+        })
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+            tx.live_only();
+            if inside { s.prefetch_session(&hover); }
+        })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.open_child(&parent, &child, &title, &agent, tx);
