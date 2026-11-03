@@ -125,6 +125,17 @@ fn line_links_select_lines_and_missing_files_say_so() {
 }
 
 #[test]
+fn a_placeholder_link_says_it_points_nowhere_and_opens_nothing() {
+    let mut rt = runtime();
+    rt.update(|s, tx| s.open_reply_link("link", tx));
+    settle(&mut rt);
+    let toast = rt.state.toast.current.clone().expect("a toast");
+    assert_eq!((toast.title.as_str(), toast.description.as_deref()), ("This link doesn't point anywhere", Some("link")));
+    assert!(!rt.state.open_in.busy());
+    assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), None);
+}
+
+#[test]
 fn files_outside_the_folder_open_in_their_app_and_web_links_open_no_tab() {
     let mut rt = runtime();
     rt.update(|s, tx| s.open_reply_link("/Users/demo/code/harbor/README.md", tx));

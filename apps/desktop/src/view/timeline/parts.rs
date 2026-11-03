@@ -212,7 +212,9 @@ pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle
 pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src: &str, fade: f32, streaming: bool, style: MarkdownStyle, highlights: Vec<H>) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
-    Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
+    // A placeholder link (`[How it works](link)`) points nowhere: plain text, no underline.
+    Markdown::new(src).style(style).highlights(highlights)
+        .link_style(|url| crate::files::links::is_dead(url).then(|| (rune::Span::new(0, 0), rune::LinkPaint::new()))).reveal(fade).streaming(streaming).selectable(true)
         .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| s.open_reply_link(url, tx))
         .build(crate::palette::kit(p)).selection_group(false)
 }

@@ -98,3 +98,13 @@ fn without_a_folder_relative_paths_stay_relative() {
     assert_eq!(classify("/tmp/a.md", "", "", HOME), outside("/tmp/a.md"));
     assert_eq!(classify("../a.md", "", "", HOME), outside("../a.md"));
 }
+
+#[test]
+fn bare_words_point_nowhere_and_paths_and_urls_do_not() {
+    for href in ["link", "url", "TODO", "", "  "] {
+        assert!(matches!(reply(href), Link::Dead(_)), "{href:?}");
+    }
+    for href in ["a.md", "docs/plan", "./x", "~/x", "#top", "https://example.com", "seer:item", "mailto:a@b.co", "x.md:3"] {
+        assert!(!matches!(reply(href), Link::Dead(_)), "{href}");
+    }
+}
