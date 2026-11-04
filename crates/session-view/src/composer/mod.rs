@@ -226,6 +226,31 @@ pub trait ComposerHost: TimelineHost {
     }
 }
 
+/// Whether the composer holds something to send: words (whitespace doesn't count), or files,
+/// paths and quotes outside shell mode.
+pub fn ready<S: ComposerHost>(s: &S) -> bool {
+    let has_extra = !s.composer_attachments().is_empty()
+        || !s.composer_path_attachments().is_empty()
+        || s.composer_has_extra_payload();
+    !s.composer_edit().text.trim().is_empty() || (has_extra && !s.composer_shell_mode())
+}
+
+/// Whether Send shows as Stop: the open session is busy and there's nothing to send.
+pub fn stopping<S: ComposerHost>(s: &S) -> bool {
+    s.composer_busy() && !ready(s) && !s.composer_dictating()
+}
+
+/// ↵ (⌘↵ too): sends, or stops the run when Send shows as Stop, as Desktop does. A held ↵'s
+/// repeats never stop it.
+pub fn submit_or_stop<S: ComposerHost>(s: &mut S, tx: &mut Tx) {
+    if !stopping(s) {
+        return s.composer_send(tx);
+    }
+    if !tx.key_repeat() {
+        s.composer_stop(tx);
+    }
+}
+
 /// Renders the shared composer (`key("composer")`).
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
     composer_in(s, p, "")
@@ -238,12 +263,9 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         rune::memo::layout_with("editor-scroll", |r| r[3]),
     );
     WHOLE.set(!matches!((pad, shown), (Some(pad), Some(shown)) if pad > shown + 0.5));
-    let has_extra = !s.composer_attachments().is_empty()
-        || !s.composer_path_attachments().is_empty()
-        || s.composer_has_extra_payload();
-    let ready = !s.composer_edit().text.trim().is_empty() || (has_extra && !s.composer_shell_mode());
+    let ready = ready(s);
     let busy = s.composer_busy();
-    let stop = busy && !ready && !s.composer_dictating();
+    let stop = stopping(s);
     let submit = el()
         .key("submit")
         .role("button")
@@ -328,7 +350,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                     .on_input_change(S::composer_on_change)
                                     .on_input_key(S::composer_on_key)
                                     .on_input_paste(attachments::paste::<S>)
-                                    .on_submit(S::composer_send),
+                                    .on_submit(submit_or_stop::<S>),
                                 ),
                             ),
                     ),

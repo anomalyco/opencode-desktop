@@ -172,7 +172,11 @@ impl ComposerHost for App {
             return true;
         }
         if ev.key == Key::Enter && ev.mods.cmd {
-            self.submit(true, tx);
+            if session_view::composer::stopping(self) {
+                session_view::composer::submit_or_stop(self, tx);
+            } else {
+                self.submit(true, tx);
+            }
             return true;
         }
         self.shortcut(ev, tx) || self.picker_key(ev, tx) || self.history_key(ev, tx)

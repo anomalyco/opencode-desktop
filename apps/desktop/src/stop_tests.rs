@@ -334,3 +334,70 @@ fn an_idle_active_snapshot_confirms_a_stop_without_an_execution_end() {
     assert!(!l.rt.state.status.contains("confirm the stop"));
     assert_eq!(submit(&l), "Send");
 }
+
+fn enter(l: &mut Live, cmd: bool, repeat: bool) {
+    let ev = KeyEvent { key: Key::Enter, mods: Mods { cmd, ..Mods::default() } };
+    if repeat { l.rt.repeat_key(ev) } else { l.rt.key(ev) }
+    l.rt.frame(DT);
+}
+
+fn interrupts(l: &Live) -> Vec<String> {
+    l.writes.try_iter().filter_map(|w| match w { Write::Interrupt(id) => Some(id), _ => None }).collect()
+}
+
+#[test]
+fn enter_in_an_empty_composer_stops_the_run_as_desktop_does() {
+    let mut l = live();
+    enter(&mut l, false, false);
+    stopped(&l);
+    assert_eq!(interrupts(&l), vec![l.sid.clone()]);
+    assert!(l.rt.state.composer.focused);
+}
+
+#[test]
+fn whitespace_is_empty_and_cmd_enter_stops_too() {
+    let mut l = live();
+    l.rt.update(|s, _| s.composer.insert("   \n "));
+    l.rt.frame(DT);
+    assert_eq!(submit(&l), "Stop");
+    enter(&mut l, true, false);
+    stopped(&l);
+    assert_eq!(interrupts(&l), vec![l.sid.clone()]);
+}
+
+#[test]
+fn a_held_enter_never_stops() {
+    let mut l = live();
+    enter(&mut l, false, true);
+    enter(&mut l, true, true);
+    running(&l);
+    assert!(interrupts(&l).is_empty());
+}
+
+#[test]
+fn enter_with_words_still_steers_and_its_repeats_never_stop() {
+    let mut l = live();
+    l.rt.update(|s, _| s.composer.insert("try the other way"));
+    l.rt.frame(DT);
+    enter(&mut l, false, false);
+    assert!(l.rt.state.composer.text.is_empty(), "steered");
+    assert!(l.rt.state.busy(&l.sid));
+    enter(&mut l, false, true);
+    assert!(l.rt.state.busy(&l.sid), "the held key's repeats don't stop the run it steered");
+    let writes: Vec<_> = l.writes.try_iter().collect();
+    assert!(writes.iter().any(|w| !matches!(w, Write::Interrupt(_))), "the steer went out");
+    assert!(!writes.iter().any(|w| matches!(w, Write::Interrupt(_))));
+}
+
+#[test]
+fn enter_on_an_idle_session_does_nothing_even_with_background_children() {
+    let mut l = live();
+    l.rt.update(|s, _| crate::stop_stories::background(s));
+    l.rt.frame(DT);
+    assert_eq!(submit(&l), "Send");
+    l.rt.update(|s, _| s.composer.focused = true);
+    enter(&mut l, false, false);
+    enter(&mut l, true, false);
+    assert!(l.writes.try_recv().is_err(), "nothing sent, nothing interrupted");
+    assert_eq!(l.rt.state.running_subagents(&l.sid).len(), 6);
+}

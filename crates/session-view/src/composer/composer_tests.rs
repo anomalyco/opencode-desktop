@@ -174,3 +174,39 @@ fn grows_caps_sends_recalls_pastes_and_stops() {
     assert_eq!(rt.state.stopped, 1);
     assert!(!rt.state.busy);
 }
+
+#[test]
+fn enter_in_an_empty_composer_stops_a_busy_session_once() {
+    let mut rt = Runtime::new(TestHost::default(), app, (960.0, 640.0), Env::new(true, 1.0));
+    rt.frame(0.0);
+    rt.update(|s, _| s.edit.focused = true);
+    rt.frame(1.0 / 60.0);
+    let enter = KeyEvent { key: Key::Enter, mods: Mods::default() };
+
+    // Idle and empty: nothing happens.
+    rt.key(enter.clone());
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.sent.is_empty() && rt.state.stopped == 0);
+
+    // Busy with words: Enter still sends.
+    rt.update(|s, _| {
+        s.busy = true;
+        s.edit.text = "steer".into();
+    });
+    rt.frame(1.0 / 60.0);
+    rt.key(enter.clone());
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.sent, vec![("steer".to_owned(), 0)]);
+    assert!(rt.state.busy);
+
+    // A held Enter's repeats don't stop it; whitespace alone is empty, so a fresh press does.
+    rt.repeat_key(enter.clone());
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.stopped, 0);
+    rt.update(|s, _| s.edit.text = "  ".into());
+    rt.frame(1.0 / 60.0);
+    rt.key(enter);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.stopped, 1);
+    assert!(!rt.state.busy);
+}
