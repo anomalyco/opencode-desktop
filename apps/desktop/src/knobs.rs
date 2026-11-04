@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(growth(&k), rune::GROWTH);
         assert_eq!(actions_tail(&k), Spring::new(0.34, 0.0));
         assert_eq!(crate::line_reveal::line_grow(&k), Spring::new(0.08, 0.0));
-        assert_eq!(crate::line_reveal::reveal(&k), crate::line_reveal::Reveal::Clip);
+        assert_eq!(crate::line_reveal::reveal(&k), crate::line_reveal::Reveal::SoftEdge);
         assert_eq!(jump(&k, true), Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)));
         assert_eq!(jump(&k, false), Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0)));
         assert_eq!(k.get(&JUMP_RISE), 4.0);

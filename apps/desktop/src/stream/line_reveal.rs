@@ -17,7 +17,7 @@ use rune_knobs::{Knob, Knobs};
 
 use crate::App;
 
-pub const NEW_LINE_REVEAL: Knob = Knob::choice("New line reveal", &["Clip", "Grow, then show", "Soft edge", "Held room"], 0)
+pub const NEW_LINE_REVEAL: Knob = Knob::choice("New line reveal", &["Clip", "Grow, then show", "Soft edge", "Held room"], 2)
     .about("How streamed text shows each new line")
     .hints(&["Row clips its words as it opens", "Words come once the line is open", "Clip edge fades while it moves", "A line of room under the reply"]);
 /// The row taking a new line, as a spring's duration in milliseconds.
