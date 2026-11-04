@@ -68,7 +68,7 @@ pub fn default_user_actions<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &st
 /// `pending` (the session) draws an undelivered steer: muted, with Move to queue and Delete in
 /// copy's place, and the run's last one marked Pending under its bubble at all times.
 ///
-/// `quotes` are the prompt's quote cards: inside the bubble under its words, or in its place
+/// `quotes` are the prompt's quote cards: inside the bubble above its words, or in its place
 /// when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
@@ -111,12 +111,11 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
             }
         });
     }
-    let words = readable(p, words);
-    bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
+    let words = crate::fold::view(s, p, id, &shown, readable(p, words), fold, quotes.is_some() && !body.trim().is_empty());
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),
-        Some(cards) => bubble.w(342.0).pb(12.0).child(cards),
-        None => bubble,
+        Some(cards) => bubble.w(342.0).pt(12.0).child(cards).children(words),
+        None => bubble.children(words),
     };
     let actions = if below {
         face = face.child(actions.pin(Some(pin_x), None, None, Some(8.5)));

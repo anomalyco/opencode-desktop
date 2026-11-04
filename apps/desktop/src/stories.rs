@@ -677,12 +677,15 @@ fn pictures() -> &'static [Attachment] {
     })
 }
 
-/// A prompt with two images arrives; the first opens in the viewer and closes.
+/// A prompt with two images and a quote arrives, both above its words; the first image opens in
+/// the viewer and closes.
 fn images_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.4, |s, tx| {
         let id = format!("{ARRIVED}img");
         opencode_kit::model::set_user_files(&id, pictures().to_vec());
+        let quote = "One call for you: the sidebar reconnects on wake, but it drops the first heartbeat after the socket comes back";
+        opencode_kit::model::set_user_quotes(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None }]);
         emit(s, "session.prompted", json!({ "messageID": id, "text": "Here's the sidebar after a wake, and the reconnect log" }), tx);
     });
     tx.after(1.6, |s, _| view_image(s));

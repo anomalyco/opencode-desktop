@@ -223,7 +223,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     let quote = quote_preview(&q.text);
     let title = comment.map_or_else(|| quote.clone(), str::to_owned);
     let label = if comment.is_some() { quote } else { "Quote".to_owned() };
-    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
+    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let tip = tooltip(q);
     if comment.is_none() {
         title = title.help_when_truncated(tip.clone());
@@ -255,7 +255,8 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     if comment.is_some() && !active { c.help(tip) } else { c }
 }
 
-/// A sent prompt's quote cards (`UserMessageComments`), when it has any.
+/// A sent prompt's quote cards (`UserMessageComments`), when it has any; above its words, so
+/// what a reply answers reads first.
 pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> Option<El> {
     let quotes = opencode_kit::model::user_quotes(id);
     if quotes.is_empty() {
@@ -265,7 +266,7 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     let open = !bounded || s.quote_more_open(id) || quotes.len() <= BOUNDED;
     let shown = if open { &quotes[..] } else { &quotes[..BOUNDED] };
     let mut c = col().key("quotes").w_full().gap(8.0);
-    c = if bounded { c.max_w(318.0).mt(8.0) } else { c.max_w(320.0) };
+    c = if bounded { c.max_w(318.0).mb(8.0) } else { c.max_w(320.0) };
     for (i, q) in shown.iter().enumerate() {
         c = c.child(quote_card(p, q, false, false, true).key(format!("quote-{i}")));
     }
