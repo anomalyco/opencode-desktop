@@ -5,104 +5,27 @@
 
 use std::ops::Range;
 
-use opencode_kit::mention::{self, MentionKind, UserMention};
-use rune::{Color, PillStyle};
+#[cfg(test)]
+use opencode_kit::mention::MentionKind;
+use opencode_kit::mention::{self, UserMention};
+use rune::PillStyle;
 
 use crate::App;
 use crate::palette::Pal;
 use crate::view::title_of;
 
-/// A coloured kind's chip: its colour at this opacity, lighter on dark where tints read louder.
-fn tint(dark: bool) -> f32 {
-    if dark { 0.035 } else { 0.16 }
-}
-/// A plain kind's chip (skills, sessions, references): the text colour at this opacity.
-fn neutral(dark: bool) -> f32 {
-    if dark { 0.035 } else { 0.09 }
-}
-
-/// Colours the shared palette doesn't carry: `syntax-type` for agents, `syntax-property` for
-/// files, `icon-info-active`.
-pub(super) struct Ink {
-    pub agent: Color,
-    pub file: Color,
-    pub info: Color,
-}
-
-pub(super) fn ink(p: &Pal) -> Ink {
-    if let Some(code) = p.code {
-        return Ink { agent: code.ty, file: code.property, info: p.info };
-    }
-    let hex = |s: &str| rune::color::hex(s).unwrap_or(p.text);
-    Ink {
-        agent: if p.dark { hex("#ecf58c") } else { hex("#596600") },
-        file: if p.dark { hex("#ff9ae2") } else { hex("#ed6dc8") },
-        info: p.info,
-    }
-}
-
-/// A mention's badge: a chip and label, no icon, as Desktop draws mentions as text alone.
-pub fn style(p: &Pal, kind: MentionKind) -> PillStyle {
-    let k = ink(p);
-    let tinted = |c: Color| PillStyle::new().bg(c.alpha(tint(p.dark))).fg(c);
-    let neutral = |fg: Color| PillStyle::new().bg(p.text.alpha(neutral(p.dark))).fg(fg);
-    match kind {
-        MentionKind::Agent => tinted(k.agent),
-        MentionKind::File => tinted(k.file),
-        MentionKind::Directory => neutral(p.muted),
-        MentionKind::Skill | MentionKind::Session => neutral(p.text),
-    }
-}
-
-/// The kind of a composer pill by its id (`agent:`, `skill:`, `file:`, `session:`).
-pub fn kind_of(id: &str) -> Option<MentionKind> {
-    Some(match id.split_once(':')?.0 {
-        "agent" => MentionKind::Agent,
-        "skill" => MentionKind::Skill,
-        "file" => MentionKind::File,
-        "session" => MentionKind::Session,
-        _ => return None,
-    })
-}
-
-/// The composer's pill look by id. Pills that aren't mentions keep Rune's default.
-pub fn pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
-    let p = *p;
-    move |id: &str| kind_of(id).map_or_else(PillStyle::new, |k| style(&p, k))
-}
+pub use session_view::user_parts::{
+    mention_bubble as bubble, mention_ink as ink, mention_kind_of as kind_of,
+    mention_pill_style as pill_style, mention_style as style,
+};
+#[cfg(test)]
+use session_view::user_parts::{mention_neutral as neutral, mention_tint as tint};
 
 /// The mentions of a prompt sent from the composer, over its trimmed text (what its bubble
 /// shows until the server's copy replaces it).
 pub fn echo<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)]) -> Vec<UserMention> {
     let (lead, _, pills) = super::wire::inside_trimmed(text, pills);
     pills.filter_map(|(r, id)| Some(UserMention { range: r.start - lead..r.end - lead, kind: kind_of(id.as_ref())? })).collect()
-}
-
-/// A bubble's text and badges: the message's recorded mentions (those still on an `@` in the
-/// text, as an echo's may not be once the server's copy lands), and its `@session:<id>`
-/// tokens shown as `@<title>` when the session is known. `title` names a session by id.
-pub fn bubble(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<(Range<usize>, MentionKind)>) {
-    let mut marks: Vec<(Range<usize>, MentionKind, Option<String>)> =
-        mentions.iter().filter(|m| body.get(m.range.clone()).is_some_and(|t| t.starts_with('@'))).map(|m| (m.range.clone(), m.kind, None)).collect();
-    for (r, id) in mention::session_tokens(body) {
-        if !marks.iter().any(|(m, _, _)| m.start < r.end && r.start < m.end) {
-            marks.push((r, MentionKind::Session, title(id).map(|t| format!("@{t}"))));
-        }
-    }
-    marks.sort_by_key(|(r, _, _)| r.start);
-    let (mut out, mut ranges, mut at) = (String::with_capacity(body.len()), Vec::new(), 0);
-    for (r, kind, shown) in marks {
-        if r.start < at {
-            continue;
-        }
-        out.push_str(&body[at..r.start]);
-        let start = out.len();
-        out.push_str(shown.as_deref().unwrap_or(&body[r.clone()]));
-        ranges.push((start..out.len(), kind));
-        at = r.end;
-    }
-    out.push_str(&body[at..]);
-    (out, ranges)
 }
 
 impl App {

@@ -1,21 +1,24 @@
-use super::super::*;
+use opencode_kit::model::{self, InboxItem, Message, Part};
+use rune::{Color, El, Tx, col, el, row, text};
+
+use crate::TimelineHost;
 use crate::fold::Fold;
+use crate::palette::Pal;
+use crate::style::{BUBBLE, CONTENT_W, INSTANT, interrupted_label};
+pub use crate::style::{BUBBLE_MAX, markdown_style, markdown_tinted, markdown_with_highlights, readable};
 
 /// Where a prompt's bubble sits in its run (see `user_bubble`), and where it lays out.
 #[derive(Clone, Copy)]
-pub(in crate::view) struct Place {
-    pub(super) tight: bool,
-    pub(super) above: bool,
-    pub(super) below: bool,
-    pub(super) fold: Fold,
+pub struct Place {
+    pub tight: bool,
+    pub above: bool,
+    pub below: bool,
+    pub fold: Fold,
 }
-
-/// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
-pub(crate) const BUBBLE_MAX: f32 = 565.0;
 
 /// Whether prompt `b` joins the run of prompt `a` just above it: both have words and `b` brings
 /// no files (Desktop's `user-runs.ts`).
-pub(in crate::view) fn joins(a: &Message, b: &Message) -> bool {
+pub fn joins(a: &Message, b: &Message) -> bool {
     match (a, b) {
         (Message::User { text: x, .. }, Message::User { id, text: y }) => {
             !x.trim().is_empty() && !y.trim().is_empty() && model::user_files(id).is_empty()
@@ -25,8 +28,37 @@ pub(in crate::view) fn joins(a: &Message, b: &Message) -> bool {
 }
 
 /// Whether pending steer `b` joins the run of the prompt (or steer) with text `a` above it.
-pub(in crate::view) fn prompts_join(a: &str, b: &InboxItem) -> bool {
+pub fn prompts_join(a: &str, b: &InboxItem) -> bool {
     !a.trim().is_empty() && !b.text.trim().is_empty() && b.files.is_empty() && model::user_files(&b.id).is_empty()
+}
+
+/// Read-only hover action for a user prompt: Copy message (`copied::glyph`).
+pub fn default_user_actions<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (El, f32) {
+    let mut actions = row().key("user-actions").gap(6.0).center_y().group_opacity(0.0, 1.0);
+    if !body.trim().is_empty() {
+        let copy_key = format!("copy-u-{id}");
+        let copied = body.to_owned();
+        let glyph = crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted);
+        actions = actions.child(
+            row()
+                .key(format!("copy-{id}"))
+                .role("button")
+                .label("Copy message")
+                .help("Copy message")
+                .size(20.0, 20.0)
+                .center()
+                .radius(4.0)
+                .hover(p.hover)
+                .press(p.pressed)
+                .hover_motion(INSTANT, INSTANT)
+                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                    tx.copy(copied.clone());
+                    crate::copied::mark_copied(s, copy_key.clone(), tx);
+                })
+                .child(glyph),
+        );
+    }
+    (actions, -24.0)
 }
 
 /// A prompt's bubble. A run of prompts sits 4 apart with the trailing corners tightened where
@@ -38,17 +70,12 @@ pub(in crate::view) fn prompts_join(a: &str, b: &InboxItem) -> bool {
 ///
 /// `quotes` are the prompt's quote cards: inside the bubble under its words, or in its place
 /// when it has none.
-pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
+#[allow(clippy::too_many_arguments)]
+pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
     let Place { tight, above, below, fold } = place;
     let (actions, pin_x) = match pending {
-        Some(session) => (crate::queue::pending_actions(p, session, id, below, s.unsent.sending(id)), -50.0),
-        None => {
-            let (actions, pin_x) = crate::rewind::user_actions(s, p, id, body);
-            // A prompt that timed out may or may not have arrived: its copy and rewind wait.
-            if s.unsent.sending(id) {
-                (row().key("sending").h(20.0).center_y().child(text("Sending…").font(crate::view::UI_SMALL).color(p.faint)), pin_x)
-            } else { (actions, pin_x) }
-        }
+        Some(session) => s.pending_user_actions(p, session, id, below),
+        None => s.delivered_user_actions(p, id, body),
     };
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
     let mut bubble = col()
@@ -71,8 +98,8 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     }
     let ink = if pending.is_some() { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
-    let (shown, badges) = s.bubble_badges(p, id, body);
-    let highlights = if pending.is_none() { s.find.text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
+    let (shown, badges) = crate::user_parts::bubble_badges(s, p, id, body);
+    let highlights = if pending.is_none() { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
     let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights));
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
@@ -95,7 +122,7 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     c.children(actions.map(|actions| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(actions)))
 }
 
-pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
+pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -109,49 +136,56 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     if !busy && has_text {
         let session = session.to_owned();
         let id = message.id().to_owned();
-        button = button.on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            if let Some(Message::Assistant(a)) = s.transcripts.get(&session).and_then(|t| t.messages.iter().find(|m| m.id() == id)) {
-                tx.copy(a.parts.iter().filter_map(|part| match part {
-                    Part::Text { text } => Some(text.as_str()),
-                    _ => None,
-                }).collect::<Vec<_>>().join("\n\n"));
-                s.mark_copied(copy_key.clone(), tx);
+        button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            let copied = s
+                .with_transcript(&session, |t| {
+                    t.messages.iter().find(|m| m.id() == id).and_then(|m| match m {
+                        Message::Assistant(a) => Some(
+                            a.parts
+                                .iter()
+                                .filter_map(|part| match part {
+                                    Part::Text { text } => Some(text.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n\n"),
+                        ),
+                        _ => None,
+                    })
+                })
+                .flatten();
+            if let Some(body) = copied {
+                tx.copy(body);
+                crate::copied::mark_copied(s, copy_key.clone(), tx);
             }
         });
     }
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
-    let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.stops.has(session));
-    el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(&s.knobs))
+    let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.is_session_stopped(session));
+    el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
         .child(button.absolute(COPY_AT.0, COPY_AT.1))
-        .children(interrupted.then(|| crate::stop::interrupted(p, has_text)))
-        .children(crate::background::hint(s, p, session, busy))
+        .children(interrupted.then(|| interrupted_label(p, has_text)))
+        .children(s.turn_tail_extra(p, session, busy))
 }
 
 // ---------------------------------------------------------------------------------------------
 // Markdown
 
-#[cfg(test)]
-pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
-    markdown_tinted(p, src, fade, streaming, p.text, super::CONTENT_W)
+pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
+    markdown_tinted::<S>(p, src, fade, streaming, p.text, CONTENT_W)
 }
 
-pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
+pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
-    if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find.row_hits(row_key)) {
+    if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find_row_hits(row_key)) {
         return el;
     }
-    markdown_with_highlights(p, src, fade, streaming, p.text, crate::genui::width(s), s.find.markdown_highlights(p, row_key))
+    markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key))
 }
 
-/// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
-pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    session_view::style::markdown_tinted::<App>(p, src, fade, streaming, color, width)
+/// Convenience wrapper with explicit body colour and diagram max width.
+pub fn markdown_colored<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
+    markdown_tinted::<S>(p, src, fade, streaming, color, width)
 }
-
-fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
-    session_view::style::markdown_with_highlights::<App>(p, src, fade, streaming, color, width, highlights)
-}
-
-pub(crate) use session_view::style::{markdown_style, readable};

@@ -27,6 +27,11 @@ pub const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 /// `--container-session`: 744 including 24 px padding on each side.
 pub const CONTENT_W: f32 = 696.0;
 
+/// Desktop's dock: the composer and all that stacks with it sit 12 pt off the chat's sides and
+/// bottom, so at full width they stand 12 pt wider than the reply text on each side.
+pub const DOCK_SIDE: f32 = 12.0;
+pub const DOCK_W: f32 = CONTENT_W + 2.0 * DOCK_SIDE;
+
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
 pub const BUBBLE_MAX: f32 = 565.0;
 
@@ -269,4 +274,22 @@ fn radar() -> &'static [Dot16] {
             })
             .collect()
     })
+}
+
+/// A stopped turn's tail: Desktop's quiet Interrupted beside Copy, as its reply footer says
+/// it. It rises out of Working's place as Working goes, so the stop reads as the run settling.
+pub fn interrupted_label(p: &Pal, beside_copy: bool) -> El {
+    use crate::working::{COPY, COPY_AT, H, LANE_PAD};
+    use rune::{Spring, SpringPair, Transition};
+    // Level with Copy's glyph, 4 pt after its square, as Desktop's footer spaces them.
+    let (y, h) = (COPY_AT.1, COPY);
+    let rise = LANE_PAD + H / 2.0 - (y + h / 2.0);
+    let arrive = Transition::offset(0.0, rise).combined(Transition::opacity());
+    row()
+        .key("interrupted")
+        .absolute(if beside_copy { COPY_AT.0 + COPY + 4.0 } else { 0.0 }, y)
+        .h(h)
+        .center_y()
+        .transition(Transition::asymmetric(arrive, Transition::opacity()).springs(SpringPair::new(Spring::new(0.24, 0.0), Spring::new(0.12, 0.0))))
+        .child(text("Interrupted").font(UI_SMALL).color(p.faint))
 }

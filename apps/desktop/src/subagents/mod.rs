@@ -103,21 +103,7 @@ impl App {
     }
 }
 
-/// "12s", "1m 05s", "1h 02m" (`formatElapsed`).
-pub fn elapsed(ms: i64) -> String {
-    let t = (ms / 1000).max(0);
-    match t {
-        0..60 => format!("{t}s"),
-        60..3600 => format!("{}m {:02}s", t / 60, t % 60),
-        _ => format!("{}h {:02}m", t / 3600, t / 60 % 60),
-    }
-}
-
-/// A run time, "12s", in tabular digits. It changes at once, as Desktop's run times do: a digit
-/// that rolls each second smears the number while it's read.
-pub fn run_time(key: String, ms: i64, font: rune::TextStyle, color: rune::Color) -> El {
-    text(elapsed(ms)).key(key).font(font.features("\"tnum\"")).color(color)
-}
+pub use session_view::subagent_card::{elapsed, run_time};
 
 /// The child session a call runs in: the one it names, or before it says, the parent's newest
 /// child whose title starts with the call's description (`taskSession`).

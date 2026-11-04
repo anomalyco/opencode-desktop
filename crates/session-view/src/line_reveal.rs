@@ -15,7 +15,7 @@ use std::collections::{HashMap, VecDeque};
 use rune::{El, Spring, Tx, col};
 use rune_knobs::{Knob, Knobs};
 
-use crate::App;
+use crate::TimelineHost;
 
 pub const NEW_LINE_REVEAL: Knob = Knob::choice("New line reveal", &["Clip", "Grow, then show", "Soft edge", "Held room"], 2)
     .about("How streamed text shows each new line")
@@ -78,27 +78,33 @@ impl Hold {
 }
 
 /// Keeps [`Hold`] up with the open session's streaming text.
-pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    if reveal(&s.knobs) != Reveal::GrowThenShow {
-        let had = !s.line_hold.shown.is_empty();
-        s.line_hold = Hold::default();
+pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
+    if reveal(s.knobs()) != Reveal::GrowThenShow {
+        let had = !s.line_hold().shown.is_empty();
+        if had {
+            *s.line_hold_mut() = Hold::default();
+        }
         return had;
     }
-    let delay = f64::from(s.knobs.get(&LINE_GROW)) / 1000.0;
+    let delay = f64::from(s.knobs().get(&LINE_GROW)) / 1000.0;
+    let mut hold = std::mem::take(s.line_hold_mut());
     let mut lens: Vec<(String, usize)> = Vec::new();
-    if let crate::Route::Session(sid) = &s.route
-        && let Some(t) = s.transcripts.get(sid)
-        && (t.busy() || s.running.contains(sid))
-        && let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.last()
+    let s_ref: &S = &*s;
+    if let Some(sid) = s_ref.active_session_id()
+        && s_ref.is_session_live(sid)
     {
-        for (i, part) in a.parts.iter().enumerate() {
-            if let opencode_kit::model::Part::Text { text } = part {
-                lens.push((format!("{}:{i}", a.id), text.len()));
+        s_ref.with_transcript(sid, |t| {
+            if let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.last() {
+                for (i, part) in a.parts.iter().enumerate() {
+                    if let opencode_kit::model::Part::Text { text } = part {
+                        lens.push((format!("{}:{i}", a.id), text.len()));
+                    }
+                }
             }
-        }
+        });
     }
     let live: std::collections::HashSet<String> = lens.iter().map(|(k, _)| k.clone()).collect();
-    let Hold { seen, shown } = &mut s.line_hold;
+    let Hold { seen, shown } = &mut hold;
     for (key, len) in lens {
         let at = seen.entry(key).or_insert_with(|| VecDeque::from([(now - delay, 0)]));
         match at.back() {
@@ -127,6 +133,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         // Its last length is the base for the next words while it streams.
         at.len() > 1 || live.contains(key)
     });
+    *s.line_hold_mut() = hold;
     if next.is_finite() {
         tx.wake_after(std::time::Duration::from_secs_f64(next.max(0.0)));
     }
@@ -137,7 +144,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 /// then show, the column takes the whole text's height from an unseen copy in the same grid cell
 /// while only the first `shown` bytes draw, so the row opens a line before its words come. The
 /// words stay its first child either way, keeping their place and their names.
-pub(crate) fn words(body: El, md: impl Fn(&str, f32) -> El, text: &str, fade: f32, shown: Option<usize>) -> El {
+pub fn words(body: El, md: impl Fn(&str, f32) -> El, text: &str, fade: f32, shown: Option<usize>) -> El {
     match shown.filter(|&n| n < text.len() && text.is_char_boundary(n)) {
         None => body.child(md(text, fade)),
         Some(n) => body
@@ -148,6 +155,6 @@ pub(crate) fn words(body: El, md: impl Fn(&str, f32) -> El, text: &str, fade: f3
 }
 
 /// The room over Working: [`CUSHION`] for Held room, else none.
-pub(crate) fn room(s: &App) -> f32 {
-    if reveal(&s.knobs) == Reveal::HeldRoom { CUSHION } else { 0.0 }
+pub fn room<S: TimelineHost>(s: &S) -> f32 {
+    if reveal(s.knobs()) == Reveal::HeldRoom { CUSHION } else { 0.0 }
 }

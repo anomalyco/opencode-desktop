@@ -1,4 +1,4 @@
-use super::super::*;
+use super::*;
 
 /// The new-session page, as Desktop's `new-session/view.tsx`: the wordmark about a quarter of
 /// the way down, the composer 32 below it with where the session will start under that.

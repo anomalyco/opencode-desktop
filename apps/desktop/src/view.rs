@@ -4,41 +4,37 @@
 use std::sync::OnceLock;
 
 use rune::{
-    AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
-    Align, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
+    AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase, ScrollSpec,
+    Align, Side, Spring, TextStyle, Tx, col, el, icon, row, spacer, text, text_input,
 };
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, SessionInfo, Transcript};
+use opencode_kit::model::{self, Message, SessionInfo, Transcript};
 use crate::palette::{Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::odometer::odometer_end;
 use crate::pickers::Kind;
-use crate::turns::{self, Block, Step};
 
 mod composer;
+mod draft;
 mod header;
 mod home;
 mod narrow;
 mod narrow_story;
+mod session;
 mod sidebar;
-mod timeline;
 
 pub use composer::*;
+pub(crate) use draft::*;
 pub(crate) use header::*;
 pub(crate) use narrow::{Agent as ToolbarAgent, toolbar_shown};
 pub(crate) use home::{home, session_row};
+pub(crate) use session::*;
 pub use sidebar::*;
-pub(crate) use timeline::*;
 
-pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
+pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, DOCK_SIDE, DOCK_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
 const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
-
-/// Desktop's dock: the composer and all that stacks with it sit 12 pt off the chat's sides and
-/// bottom, so at full width they stand 12 pt wider than the reply text on each side.
-pub(crate) const DOCK_SIDE: f32 = 12.0;
-pub(crate) const DOCK_W: f32 = CONTENT_W + 2.0 * DOCK_SIDE;
 
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
 /// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The

@@ -29,11 +29,11 @@ use crate::App;
 use crate::palette::Pal;
 
 pub use session_view::images::{
-    MediaStore, PreparedImage, gallery, identity, inline_images, opens,
-    prepare_images, shows, view_image, viewer,
+    MediaStore, PreparedImage, identity, inline_images, opens,
+    prepare_images, view_image, viewer,
 };
 #[cfg(test)]
-use session_view::images::{Fetch, Fetched, fit, shown};
+use session_view::images::{Fetch, Fetched, fit, gallery, shown};
 
 /// The server's cap on one attachment.
 const MAX_BYTES: usize = 20 << 20;

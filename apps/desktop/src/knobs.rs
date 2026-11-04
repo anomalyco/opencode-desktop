@@ -5,15 +5,12 @@ use rune::{Anim, Curve, El, Easing, KeyEvent, Spring, Tx};
 use rune_knobs::{Group, Knob, Preset};
 
 use crate::App;
-use crate::line_reveal::{LINE_GROW, NEW_LINE_REVEAL, SOFT_EDGE};
 
 #[allow(unused_imports)]
 pub use session_view::knobs::*;
 
 /// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
 pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("How solid the subagent capsule fill is");
-/// Its corner radius in points: 12 is Desktop's; 14 makes a full pill.
-pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0).about("Corner radius of the subagent capsule");
 /// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
 pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("Strength of the subagent capsule hairline");
 
@@ -39,11 +36,6 @@ pub const ARRIVE_SLIDE: Knob = Knob::new("Arrive slide", 0.0, 32.0, 12.0).step(1
 /// The tallest a long question gets, as a share of the pane; its answers scroll inside (p273).
 pub const QUESTION_MAX: Knob = Knob::new("Max height", 0.3, 1.0, 0.6).step(0.05).about("Tallest the dock gets, share of pane");
 
-pub const TIMELINE_WITH_REVEAL: &[Knob] = &[
-    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, NEW_LINE_REVEAL,
-    LINE_GROW, SOFT_EDGE, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE, IMAGE_FLIGHT,
-];
-
 /// The defaults are Desktop's (`docks.morph`); the presets are the curves worth comparing.
 const QUESTION_PRESETS: &[Preset] = &[
     Preset { name: "iOS", values: &[("Morph duration", 0.5), ("Face in", 0.5)] },
@@ -62,7 +54,7 @@ rune_register::slice!(pub GROUP_LIST: Group);
 
 rune_register::register!(GROUP_LIST: Group = [
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE, COMPOSER_FADE]),
-    Group::new("Timeline", "timeline", TIMELINE_WITH_REVEAL),
+    TIMELINE_GROUP,
     crate::disclosure::GROUP,
     WORKING,
     crate::compaction::GROUP,

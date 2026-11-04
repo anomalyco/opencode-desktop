@@ -45,41 +45,7 @@ struct Log {
     dropped_at: i64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum State {
-    Running,
-    Done,
-    Failed,
-    /// A later call to the same agent took over while this one's work was under way.
-    Steered,
-}
-
-/// One call's run, as its row draws it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Run {
-    pub state: State,
-    /// The latest steps, newest last ("Read backoff.ts"), and how many came before them.
-    pub steps: Vec<String>,
-    pub taken: usize,
-    /// How long it has run, or ran, in ms.
-    pub ms: Option<i64>,
-    /// Its answer's first line, once done.
-    pub result: Option<String>,
-    /// What went wrong, once failed.
-    pub error: Option<String>,
-}
-
-impl Run {
-    /// The one line that says where it is: its step while running, else its result or error.
-    pub fn line(&self) -> String {
-        match self.state {
-            State::Running => self.steps.last().cloned().unwrap_or_else(|| "Starting".to_owned()),
-            State::Done => self.result.clone().unwrap_or_else(|| "Done".to_owned()),
-            State::Failed => self.error.clone().unwrap_or_else(|| "Failed".to_owned()),
-            State::Steered => "Steered".to_owned(),
-        }
-    }
-}
+pub use session_view::subagent_card::{Run, State};
 
 /// "Read backoff.ts", "Grep reconnect", "Shell bun test": a tool call as a one-line step.
 pub fn step_of(name: &str, input: &Value) -> String {

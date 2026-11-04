@@ -6,7 +6,10 @@
 #[global_allocator]
 static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
 
-pub use session_view::{agent_start, disclosure, odometer, palette, question_row, themes, turns};
+pub use session_view::{
+    agent_start, disclosure, fold, jump, line_reveal, odometer, palette, question_row,
+    subagent_card as agent_rows_view, themes, turns,
+};
 
 #[cfg_attr(test, path = ".")]
 mod compaction {
@@ -63,7 +66,6 @@ mod working {
 
 mod add_menu;
 mod agent_rows;
-mod agent_rows_view;
 mod agent_start_stories;
 mod agent_stories;
 mod appearance;
@@ -98,7 +100,6 @@ mod find_stories;
 #[cfg(test)]
 mod find_tests;
 mod fixture_ids;
-mod fold;
 mod fold_stories;
 #[cfg(test)]
 mod fold_tests;
@@ -114,7 +115,8 @@ mod home_search;
 #[cfg(test)]
 mod home_search_tests;
 mod icons;
-mod jump;
+#[cfg(test)]
+mod jump_tests;
 mod keys;
 mod knobs;
 mod launch;
@@ -194,8 +196,6 @@ mod stop_stories;
 mod stories;
 #[path = "stream/pace.rs"]
 mod stream_pace;
-#[path = "stream/line_reveal.rs"]
-mod line_reveal;
 #[path = "stream/line_grow_story.rs"]
 mod line_grow_story;
 #[cfg(test)]
@@ -452,9 +452,18 @@ impl session_view::TimelineHost for App {
     fn session_directory(&self, session: &str) -> Option<&str> {
         self.session(session).map(|i| i.directory.as_str())
     }
+    fn session_title(&self, session: &str) -> Option<String> {
+        self.mention_title(session)
+    }
     fn is_session_live(&self, session: &str) -> bool {
         self.running.contains(session)
             || (self.transcripts.get(session).is_some_and(Transcript::busy) && !self.stops.has(session))
+    }
+    fn is_session_stopped(&self, session: &str) -> bool {
+        self.stops.has(session)
+    }
+    fn session_revert(&self, session: &str) -> Option<&str> {
+        self.session(session).and_then(|i| i.revert.as_deref())
     }
     fn for_each_tracked_session(&self, mut f: impl FnMut(&str)) {
         for id in self.transcripts.keys().chain(self.running.iter()) {
@@ -503,6 +512,24 @@ impl session_view::TimelineHost for App {
     fn media_store_mut(&mut self) -> &mut session_view::images::MediaStore {
         &mut self.attach.store
     }
+    fn line_hold(&self) -> &line_reveal::Hold {
+        &self.line_hold
+    }
+    fn line_hold_mut(&mut self) -> &mut line_reveal::Hold {
+        &mut self.line_hold
+    }
+    fn ends(&self) -> &jump::Ends {
+        &self.ends
+    }
+    fn ends_mut(&mut self) -> &mut jump::Ends {
+        &mut self.ends
+    }
+    fn scrollbars(&self) -> &session_view::scrollbar::Bars {
+        &self.bars
+    }
+    fn fold_user_messages(&self) -> bool {
+        self.settings.fold_user
+    }
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
         self.open_reply_link(url, tx);
     }
@@ -536,6 +563,90 @@ impl session_view::TimelineHost for App {
         metadata: &Value,
     ) -> rune::El {
         tool_open::row(self, p, id, row, name, status, input, metadata)
+    }
+    fn can_open_subagent(&self) -> bool {
+        true
+    }
+    fn resolve_subagent<'a>(&'a self, parent: &str, session: Option<&'a str>, title: &str) -> Option<&'a str> {
+        subagents::child_of(self, parent, session, title)
+    }
+    fn subagent_run(&self, parent: &str, call: &str, child: Option<&str>, status: &opencode_kit::model::ToolStatus) -> agent_rows::Run {
+        self.agent_run(parent, call, child, status)
+    }
+    fn prefetch_subagent(&self, child: &str) {
+        self.prefetch_session(child);
+    }
+    fn open_subagent(&mut self, parent: &str, child: &str, title: &str, agent: &str, tx: &mut Tx) {
+        self.open_child(parent, child, title, agent, tx);
+    }
+    fn loading_error(&self, session: &str) -> Option<&str> {
+        self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error.as_deref())
+    }
+    fn loading_older(&self, session: &str) -> bool {
+        self.pages.loading_older(session)
+    }
+    fn more_above(&self, session: &str) -> bool {
+        self.pages.more_above(session)
+    }
+    fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
+        Some(Box::new(self.pages.watch_top(session)))
+    }
+    fn on_timeline_selection_change(s: &mut Self, change: &rune::SelectionChange, tx: &mut Tx) {
+        quote::selection_changed(s, change, tx);
+    }
+    fn find_row_version(&self, row_key: &str) -> u64 {
+        self.find.row_version(row_key)
+    }
+    fn find_text_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<rune::TextHighlight> {
+        self.find.text_highlights(p, row_key)
+    }
+    fn find_markdown_highlights(&self, p: &palette::Pal, row_key: &str) -> Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> {
+        self.find.markdown_highlights(p, row_key)
+    }
+    fn find_row_hits(&self, row_key: &str) -> Option<(&[Vec<std::ops::Range<usize>>], Option<usize>)> {
+        self.find.row_hits(row_key)
+    }
+    fn user_glow_at(&self, id: &str) -> Option<f64> {
+        self.glows.get(id).copied()
+    }
+    fn user_menu_open_on(&self, id: &str) -> bool {
+        self.rewind.menu_open_on(id)
+    }
+    fn quote_more_open(&self, id: &str) -> bool {
+        self.quote.more.contains(id)
+    }
+    fn open_quote_more(&mut self, id: String) {
+        self.quote.more.insert(id);
+    }
+    fn delivered_user_actions(&self, p: &palette::Pal, id: &str, body: &str) -> (rune::El, f32) {
+        let (actions, pin_x) = rewind::user_actions(self, p, id, body);
+        if self.unsent.sending(id) {
+            (
+                rune::row()
+                    .key("sending")
+                    .h(20.0)
+                    .center_y()
+                    .child(rune::text("Sending…").font(view::UI_SMALL).color(p.faint)),
+                pin_x,
+            )
+        } else {
+            (actions, pin_x)
+        }
+    }
+    fn pending_user_actions(&self, p: &palette::Pal, session: &str, id: &str, below: bool) -> (rune::El, f32) {
+        (queue::pending_actions(p, session, id, below, self.unsent.sending(id)), -50.0)
+    }
+    fn inbox_for(&self, session: &str) -> Option<&Inbox> {
+        App::inbox_for(self, session)
+    }
+    fn queued_compaction(&self, session: &str) -> Option<&str> {
+        self.inboxes.get(session).and_then(|i| i.compaction.as_deref())
+    }
+    fn pending_steer_label(&self, item: &opencode_kit::model::InboxItem) -> String {
+        queue::pending_label(item)
+    }
+    fn turn_tail_extra(&self, p: &palette::Pal, session: &str, busy: bool) -> Option<rune::El> {
+        background::hint(self, p, session, busy)
     }
 }
 

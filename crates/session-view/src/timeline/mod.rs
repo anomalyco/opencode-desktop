@@ -1,80 +1,30 @@
-use super::*;
+//! Shared virtualized session timeline: message rows, assistant turn folding, streamed line
+//! reveal, disclosure glides, scroll follower, and edge fades (`p255`).
+
+use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, Transcript};
+use rune::{El, GrowthSpec, ScrollSpec, col, edge, el, row, text};
+
+use crate::TimelineHost;
 use crate::compaction::Run;
 use crate::fold::Fold;
+use crate::palette::Pal;
+use crate::style::{CONTENT_W, UI, activity_ring};
+use crate::turns::{self, Block, Step};
 
 mod dividers;
-mod draft;
-mod parts;
+pub mod parts;
 
-pub(crate) use draft::*;
-#[cfg(test)]
-pub(crate) use dividers::divider_runs;
-pub(crate) use parts::*;
-
-// ---------------------------------------------------------------------------------------------
-// Session
-
-pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
-    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
-    let page = col().key("session").grow(1.0).w_full().child(header(s, p, s.session(id), t));
-    session_body(s, p, id, page)
-}
-
-/// The session page under its header: the timeline, and what sits under it.
-pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
-    let info = s.session(id);
-    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
-    let child = info.is_some_and(|i| i.parent.is_some());
-    let pills = if child { Vec::new() } else { pills(s, p, id) };
-    let lane = crate::jump::lane(!pills.is_empty());
-    let mut page = page.child(crate::jump::over(s, p, id, timeline(s, p, id, t, lane), pills)).child(composer_dock(s, p));
-    page = page.children(s.debug.then(|| status_bar(s, p, info)));
-    if s.opening.is_some() { page.inert() } else { page }
-}
-
-/// The pills over the composer: the subagent capsule, then the todo pill beside it.
-fn pills(s: &App, p: &Pal, id: &str) -> Vec<El> {
-    let capsule = crate::subagents::capsule(s, p, id);
-    let gap = if capsule.is_some() { crate::jump::GAP } else { 0.0 };
-    // The timeline's edge rises over their row first, so a pill fades in only once nothing is
-    // under it, and goes at once so the edge can come back down (t1129).
-    let enter = |pill: El| pill.transition(rune::Transition::asymmetric(rune::Transition::opacity(), rune::Transition::none())).enter_delay(PILL_WAIT);
-    capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).map(enter).collect()
-}
-
-/// How long the timeline's edge takes to clear the pills' row (the page's spring).
-const PILL_WAIT: f32 = 0.3;
-
-/// The storybook's stages (`stories.rs`): the open session's timeline and what sits under it,
-/// its header, and its composer with the subagent capsule over it.
-pub(crate) fn story_session(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return el() };
-    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0))
-}
-
-pub(crate) fn story_header(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return el() };
-    header(s, p, s.session(id), s.transcripts.get(id))
-}
-
-pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return composer_dock(s, p) };
-    let pills = pills(s, p, id);
-    col().key("session")
-        .w_full()
-        .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(crate::view::DOCK_SIDE).pb(8.0)
-            .child(row().key("activity-lane").w_full().max_w(crate::view::DOCK_W).children(pills))))
-        .child(composer_dock(s, p))
-}
+pub use dividers::divider_runs;
+pub use parts::*;
 
 /// One timeline row's content, before it becomes a growth-stack child.
-pub(super) struct RowSpec {
-    key: String,
-    content: RowContent,
-    streaming: bool,
+pub struct RowSpec {
+    pub key: String,
+    pub content: RowContent,
+    pub streaming: bool,
 }
 
-pub(super) enum RowContent {
+pub enum RowContent {
     User { message: usize, tight: bool, above: bool, below: bool, fold: Fold },
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
@@ -102,35 +52,36 @@ pub(super) enum RowContent {
 }
 
 impl RowSpec {
-    /// A row that folds open and shut under its header, keyed in `App::expanded` by its row key:
+    /// A row that folds open and shut under its header, keyed in `expanded` by its row key:
     /// a tool group, or the quiet Compacted divider's summary.
     fn folds(&self) -> bool {
         self.key.starts_with("c-") || matches!(self.content, RowContent::Compaction { piece: crate::compaction::Piece::Quiet, .. })
     }
 
-    fn wrap(&self, s: &App, el: El) -> El {
+    fn wrap<S: TimelineHost>(&self, s: &S, el: El) -> El {
         self.wrap_paced(s, el, false)
     }
 
     /// [`Self::wrap`], with `paced` streaming rows climbing at the stream's pace rather than a
     /// line at a time: a reply with a fenced block in it, whose diagram, outline or code can
     /// grow by many lines in one build.
-    fn wrap_paced(&self, s: &App, el: El, paced: bool) -> El {
+    fn wrap_paced<S: TimelineHost>(&self, s: &S, el: El, paced: bool) -> El {
         let row = col().w_full().max_w(CONTENT_W).child(el);
-        if self.streaming && (paced || crate::line_reveal::reveal(&s.knobs) == crate::line_reveal::Reveal::HeldRoom) {
+        let k = s.knobs();
+        if self.streaming && (paced || crate::line_reveal::reveal(k) == crate::line_reveal::Reveal::HeldRoom) {
             row.streaming(true)
         } else if self.streaming {
             // Streaming words open their row a line at a time, each line on its own quick spring
             // the moment it wraps, clipped at its moving edge: the line shows whole almost at once,
             // nothing paints over Working, and Working steps down by just that line, however
             // slowly the words come (p252, `line_reveal`).
-            row.fold_glide(crate::line_reveal::line_grow(&s.knobs)).fold_feather(crate::line_reveal::feather(&s.knobs))
+            row.fold_glide(crate::line_reveal::line_grow(k)).fold_feather(crate::line_reveal::feather(k))
         } else if self.folds() {
             // A fold glides on its own quick spring, however long it is. Shutting, what it showed
             // hangs below the header until it unmounts, and Rune clips a row only while its height
             // moves: a short group lands first, and its steps flashed over the rows below (t1107).
-            let row = if s.shutting(&self.key) { row.clip_soft(0.0) } else { row };
-            row.fold_glide(crate::disclosure::fold(&s.knobs)).fold_feather(s.knobs.get(&crate::disclosure::FOLD_FEATHER))
+            let row = if crate::disclosure::is_shutting(s, &self.key) { row.clip_soft(0.0) } else { row };
+            row.fold_glide(crate::disclosure::fold(k)).fold_feather(k.get(&crate::disclosure::FOLD_FEATHER))
         } else {
             // Finished content opens in one quick glide, which a pinned timeline follows.
             row.arrives_whole()
@@ -139,18 +90,16 @@ impl RowSpec {
 
     /// A reply's text part, its words held back for Grow, then show (`line_reveal`).
     #[allow(clippy::too_many_arguments)]
-    fn text_row(&self, s: &App, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32) -> El {
+    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32) -> El {
         let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live);
-        let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold.shown(message, part));
+        let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
         self.wrap_paced(s, words, body.contains("```"))
     }
 
-    fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
-        #[cfg(test)]
+    pub fn build<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, fade: f32) -> El {
         let eager = EAGER_ROWS.get();
-        #[cfg(not(test))]
-        let eager = false;
-        let find_ver = s.find.row_version(&self.key);
+        let find_ver = s.find_row_version(&self.key);
+        let k = s.knobs();
         if !eager {
             match &self.content {
                 RowContent::TurnText { message, part, live, pt } => {
@@ -159,23 +108,21 @@ impl RowSpec {
                     {
                         // Only a reply with a diagram in it follows the column's width.
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
-                        let reveal = crate::line_reveal::reveal(&s.knobs);
-                        let line = (reveal, s.knobs.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(&s.knobs).to_bits(), s.line_hold.shown(&a.id, *part));
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagram.hidden_in(body), line);
+                        let reveal = crate::line_reveal::reveal(k);
+                        let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line);
                         return rune::memo(self.key.clone(), ver, || {
-                            #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, &a.id, *part, body, fade, *live, *pt)
                         });
                     }
                 }
                 RowContent::Turn { start, end, block, live, pt }
-                    if self.key.starts_with("c-") && !s.expanded.contains(&self.key) && !s.shutting(&self.key) =>
+                    if self.key.starts_with("c-") && !s.expanded().contains(&self.key) && !crate::disclosure::is_shutting(s, &self.key) =>
                 {
-                    let fold = crate::disclosure::fold(&s.knobs).duration.to_bits();
+                    let fold = crate::disclosure::fold(k).duration.to_bits();
                     let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, fold);
                     return rune::memo(self.key.clone(), ver, || {
-                        #[cfg(test)]
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
                             Message::Assistant(a) => Some(a), _ => None,
@@ -191,16 +138,15 @@ impl RowSpec {
                 }
                 RowContent::User { message, tight, above, below, fold } => {
                     if let Message::User { id, text, .. } = &t.messages[*message]
-                        && !s.glows.contains_key(id)
-                        && !s.rewind.menu_open_on(id)
+                        && s.user_glow_at(id).is_none()
+                        && !s.user_menu_open_on(id)
                         && model::user_quotes(id).is_empty()
                         && opencode_kit::mention::user_mentions(id).is_empty()
                         && !text.contains("@ses_")
                     {
-                        let open = s.expanded.contains(&crate::fold::key(id));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.settings.fold_user, open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver);
+                        let open = s.expanded().contains(&crate::fold::key(id));
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver);
                         return rune::memo(self.key.clone(), ver, || {
-                            #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
                             self.wrap(s, user_bubble(s, p, id, text, run, 0.0, None, None))
@@ -210,14 +156,13 @@ impl RowSpec {
                 _ => {}
             }
         }
-        #[cfg(test)]
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
             RowContent::User { message, tight, above, below, fold } => match &t.messages[*message] {
                 Message::User { id, text, .. } => {
-                    let glow = s.glows.get(id).map_or(0.0, |at| crate::knobs::glow(&s.knobs, s.clock - at));
+                    let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
                     let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
-                    user_bubble(s, p, id, text, run, glow, None, crate::quote_cards::on_message(s, p, id, text))
+                    user_bubble(s, p, id, text, run, glow, None, crate::user_parts::quotes_on_message(s, p, id, text))
                 }
                 _ => unreachable!(),
             },
@@ -225,8 +170,8 @@ impl RowSpec {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
-                        let cards = crate::quote_cards::on_message(s, p, id, &item.text);
-                        let label = if cards.is_some() { item.text.clone() } else { crate::queue::pending_label(item) };
+                        let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text);
+                        let label = if cards.is_some() { item.text.clone() } else { s.pending_steer_label(item) };
                         let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
                         user_bubble(s, p, id, &label, run, 0.0, Some(&t.session), cards)
                     }
@@ -259,7 +204,7 @@ impl RowSpec {
             RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
-                crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
+                crate::images::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
             }
             RowContent::ToolImages { start, end, tool } => {
                 let files = t.messages[*start..*end].iter().find_map(|m| match m {
@@ -269,7 +214,7 @@ impl RowSpec {
                     }),
                     _ => None,
                 });
-                files.and_then(|f| crate::attachments::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
+                files.and_then(|f| crate::images::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
@@ -287,7 +232,7 @@ impl RowSpec {
                 match &blocks[*block] {
                     Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
                     Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
-                    Block::Agent { .. } => crate::agent_rows_view::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
+                    Block::Agent { .. } => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Block::Question { id, status, input, metadata } =>
                         crate::question_row::view(s, p, id, status, input, metadata).pt(*pt),
                 }
@@ -315,19 +260,16 @@ fn group_hash(messages: &[Message]) -> u64 {
     h.finish()
 }
 
-#[cfg(test)]
 thread_local! {
-    pub(super) static ROW_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub static ROW_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub static EAGER_ROWS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-#[cfg(test)]
-pub(crate) fn timeline_reset_row_builds() {
+pub fn timeline_reset_row_builds() {
     ROW_BUILDS.set(0);
 }
 
-#[cfg(test)]
-pub(crate) fn timeline_row_builds() -> usize {
+pub fn timeline_row_builds() -> usize {
     ROW_BUILDS.get()
 }
 
@@ -336,9 +278,9 @@ const END: f32 = 24.0;
 
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
 /// its last row stands over the lane, clear of the fade into the composer.
-pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
+pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
     // Held room's streaming text draws past its row's edge into the room over Working.
-    let held_room = crate::line_reveal::reveal(&s.knobs) == crate::line_reveal::Reveal::HeldRoom;
+    let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
     let mut specs = t.map(|t| rows(s, t)).unwrap_or_default();
     if t.is_some() && lane > 0.0 {
@@ -355,12 +297,9 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
-        .on_selection_change(crate::quote::selection_changed)
-        .growth(GrowthSpec { spring: crate::knobs::growth(&s.knobs), edge: e });
-    #[cfg(test)]
+        .on_selection_change(S::on_timeline_selection_change)
+        .growth(GrowthSpec { spring: crate::knobs::growth(s.knobs()), edge: e });
     let eager = EAGER_ROWS.get();
-    #[cfg(not(test))]
-    let eager = false;
     // Eager construction is the benchmark and regression-test reference.
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
@@ -370,9 +309,12 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         let id = id.to_owned();
         let p = *p;
         let n = specs.len();
-        stack = stack.virtual_rows(n, 80.0,
-            move |_: &App, i| keys[i].key.clone().into(),
-            move |s: &App, i| specs[i].build(s, &p, &s.transcripts[&id], e.word_fade));
+        stack = stack.virtual_rows(
+            n,
+            80.0,
+            move |_: &S, i| keys[i].key.clone().into(),
+            move |s: &S, i| s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col),
+        );
     }
     if t.is_none() {
         stack = stack.child(
@@ -384,7 +326,7 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
                 .gap(8.0)
                 .center()
                 .child(activity_ring(p))
-                .child(text(s.opening.as_ref().filter(|o| o.id == id).and_then(|o| o.error.as_deref()).unwrap_or("Loading messages…")).font(UI).color(p.faint)),
+                .child(text(s.loading_error(id).unwrap_or("Loading messages…")).font(UI).color(p.faint)),
         );
     }
     col()
@@ -395,9 +337,11 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .scroll(ScrollSpec { stick_bottom: true })
         // Near its top, older messages load above what's on screen.
         .on_scroll_offset({
-            let (top, bar) = (s.pages.watch_top(id), s.bars.watch(&format!("scroll-{id}")));
+            let (top, bar) = (s.watch_scroll_top(id), s.scrollbars().watch(&format!("scroll-{id}")));
             move |at| {
-                top(at);
+                if let Some(top) = &top {
+                    top(at);
+                }
                 bar(at);
             }
         })
@@ -406,22 +350,22 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .child(stack)
 }
 
-pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
+pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
-    let busy = t.busy() && !s.stops.has(&t.session);
+    let busy = t.busy() && !s.is_session_stopped(&t.session);
     // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
-    let revert = s.session(&t.session).and_then(|i| i.revert.as_deref());
+    let revert = s.session_revert(&t.session);
     let shown = t.visible_len(revert);
     let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
     let pending: Vec<&InboxItem> = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
     let fold = crate::fold::place(s, &t.session);
     // Working, or a compaction waiting to start, sits between the last prompt and the steers.
-    let queued = if revert.is_none() { s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) } else { None };
+    let queued = if revert.is_none() { s.queued_compaction(&t.session) } else { None };
     // A new session's first prompt has no reply above it yet, and Working shows under it all the same.
     let actions = last_assistant.or_else(|| (busy && revert.is_none() && shown > 0).then(|| shown - 1));
     let runs_off = actions.is_some() || queued.is_some();
     // Not the session's start while older messages remain to land above.
-    let older = s.pages.more_above(&t.session);
+    let older = s.more_above(&t.session);
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
     let mut steps: Vec<&Assistant> = Vec::new();
     let mut start = 0;
@@ -467,7 +411,7 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
     if let Some(last) = actions {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
-        let busy = busy || s.running.contains(&t.session);
+        let busy = busy || s.is_session_live(&t.session);
         out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     // A compaction waiting to start sits under Working, above the steers, as Desktop's.
@@ -492,17 +436,16 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
 }
 
 /// The keys of a transcript's rows, top to bottom.
-#[cfg(test)]
-pub(crate) fn row_keys(s: &App, t: &Transcript) -> Vec<String> {
+pub fn row_keys<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<String> {
     rows(s, t).into_iter().map(|r| r.key).collect()
 }
 
 /// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
 /// under what's above it. With `older` messages still to land above, the first prompt keeps the
 /// gap it will have under them.
-pub(super) fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
+pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
     let start = out.is_empty() && !older;
-    let gallery = crate::attachments::shows(&model::user_files(id));
+    let gallery = crate::images::shows(&model::user_files(id));
     let tight = start || gallery;
     if gallery {
         let pt = if start { 8.0 } else { 16.0 };
@@ -513,7 +456,7 @@ pub(super) fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bo
 
 /// Space above a turn's row, as Desktop spaces assistant parts: none under the prompt, 8 between
 /// two tools, 16 before anything else.
-pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
+pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
     match prev {
         None => 0.0,
         Some(true) if tool => 8.0,
@@ -522,11 +465,11 @@ pub(super) fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 }
 
 /// `live`: these steps end the transcript and the last one is still running.
-pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
+pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
     let n = blocks.len();
     let skip: Vec<bool> = if blocks.iter().any(|b| matches!(b, Block::Agent { .. })) {
-        (0..n).map(|i| crate::agent_rows_view::skip(&blocks, i)).collect()
+        (0..n).map(|i| crate::subagent_card::skip(&blocks, i)).collect()
     } else {
         Vec::new()
     };
@@ -544,7 +487,7 @@ pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usi
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
-                        && crate::attachments::shows(files)
+                        && crate::images::shows(files)
                     {
                         let content = RowContent::ToolImages { start, end, tool: id.to_string() };
                         out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false });
@@ -573,8 +516,8 @@ pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usi
 }
 
 /// An abort or interruption, which Desktop doesn't report as an error: the turn's tail says
-/// Interrupted instead (`view::turn_actions`).
-pub(crate) fn interrupted(kind: &str) -> bool {
+/// Interrupted instead (`parts::turn_actions`).
+pub fn interrupted(kind: &str) -> bool {
     let k = kind.to_lowercase();
     k.contains("abort") || k.contains("interrupt")
 }

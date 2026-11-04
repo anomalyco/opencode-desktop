@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, Transcript, capitalize};
+use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, capitalize};
 use rune::{El, Icon, Link, LinkPaint, Span, Tx, col, icon, row, text};
 
 use crate::TimelineHost;
@@ -277,14 +277,16 @@ thread_local! {
 pub fn poll<S: TimelineHost>(s: &S, tx: &mut Tx) -> bool {
     let Some(id) = s.active_session_id() else { return false };
     let now_ms = s.now_ms();
-    let r = s.transcript(id).filter(|t| t.busy()).and_then(Transcript::retrying);
-    let now = r.map(|r| (r.attempt, countdown(r, now_ms)));
+    let retrying = s
+        .with_transcript(id, |t| if t.busy() { t.retrying().map(|r| (r.attempt, r.at, countdown(r, now_ms))) } else { None })
+        .flatten();
+    let now = retrying.map(|(attempt, _, count)| (attempt, count));
     let changed = SHOWN.replace(now) != now;
-    if let Some(r) = r
-        && r.at > now_ms
+    if let Some((_, at, _)) = retrying
+        && at > now_ms
     {
         // The next half second past `at`, where the rounded count drops.
-        let left = (r.at - now_ms - 500).rem_euclid(1000) + 1;
+        let left = (at - now_ms - 500).rem_euclid(1000) + 1;
         tx.wake_after(std::time::Duration::from_millis(left as u64));
     }
     changed

@@ -3,6 +3,11 @@
 use rune::{Curve, Easing, Spring};
 use rune_knobs::{Group, Knob, Knobs};
 
+use crate::line_reveal::{LINE_GROW, NEW_LINE_REVEAL, SOFT_EDGE};
+
+/// Its corner radius in points: 12 is Desktop's; 14 makes a full pill.
+pub const CAPSULE_RADIUS: Knob = Knob::new("Capsule radius", 0.0, 14.0, 12.0).step(1.0).about("Corner radius of the subagent capsule");
+
 /// Where "Jump to latest" sits: at the composer's right end, or centred above it as on Desktop.
 pub const JUMP_PLACE: Knob = Knob::choice("Jump to latest", &["Right", "Centre"], 0)
     .about("Where Jump to latest sits over composer")
@@ -30,8 +35,8 @@ pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0).abo
 pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25).about("Spring duration for opening image viewer");
 
 pub const TIMELINE: &[Knob] = &[
-    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
-    IMAGE_FLIGHT,
+    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, NEW_LINE_REVEAL,
+    LINE_GROW, SOFT_EDGE, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE, IMAGE_FLIGHT,
 ];
 
 pub const TIMELINE_GROUP: Group = Group::new("Timeline", "timeline", TIMELINE);

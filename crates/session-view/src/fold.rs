@@ -9,9 +9,9 @@
 use rune::{El, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
-use crate::App;
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::view::{BUBBLE, BUBBLE_MAX, CONTENT_W, UI_MED};
+use crate::style::{BUBBLE, BUBBLE_MAX, CONTENT_W, UI_MED};
 
 /// iOS's `UserBubbleFold`, as Desktop: past 12 lines a prompt shows 8, so a fold always hides
 /// at least 5 lines and a prompt just past the limit never folds away a line or two.
@@ -40,18 +40,17 @@ pub struct Fold {
 /// Where prompts lay out, for folding them (`fold.rs`): the timeline's width (clamped to the
 /// content column so wide window resizes don't invalidate row memos), and for an opened prompt
 /// whether its top is scrolled above the timeline.
-pub fn place<'a>(s: &'a App, session: &str) -> impl Fn(&str) -> Fold + 'a {
-    let any_open = s.settings.fold_user && s.expanded.iter().any(|k| k.starts_with("user-expanded:"));
-    let viewport = s
-        .settings
-        .fold_user
+pub fn place<'a, S: TimelineHost>(s: &'a S, session: &str) -> impl Fn(&str) -> Fold + 'a {
+    let fold_user = s.fold_user_messages();
+    let any_open = fold_user && s.expanded().iter().any(|k| k.starts_with("user-expanded:"));
+    let viewport = fold_user
         .then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[2].min(CONTENT_W + 48.0)))
         .flatten()
         .unwrap_or(CONTENT_W + 48.0);
     VIEWPORT_W.set(viewport);
     let top = any_open.then(|| rune::memo::window_layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
     move |id| {
-        let past = top.is_some_and(|top| s.expanded.contains(&key(id)) && rune::memo::window_layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));
+        let past = top.is_some_and(|top| s.expanded().contains(&key(id)) && rune::memo::window_layout_with(&format!("u-{id}"), move |r| r[1] < top - 0.5).unwrap_or(false));
         Fold { viewport, past }
     }
 }
@@ -92,19 +91,19 @@ pub fn lines(text: &str, width: f32) -> usize {
 
 /// A prompt's words, folded with the toggle under them when they run past [`OVER`] lines.
 /// `quotes`: the bubble holds quote cards.
-pub fn view(s: &App, p: &Pal, id: &str, shown: &str, words: El, fold: Fold, quotes: bool) -> Vec<El> {
-    if !s.settings.fold_user || lines(shown, text_width(fold.viewport, quotes)) <= OVER {
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, shown: &str, words: El, fold: Fold, quotes: bool) -> Vec<El> {
+    if !s.fold_user_messages() || lines(shown, text_width(fold.viewport, quotes)) <= OVER {
         return vec![words];
     }
-    let open = s.expanded.contains(&key(id));
+    let open = s.expanded().contains(&key(id));
     let mut clip = col().key("fold").child(words);
     if !open {
         clip = clip.max_h(SHOW as f32 * BUBBLE.line_px()).clip_fade(0.0, 0.0, 0.0, FADE);
     }
-    vec![clip, toggle(p, id, open, fold.past)]
+    vec![clip, toggle::<S>(p, id, open, fold.past)]
 }
 
-fn toggle(p: &Pal, id: &str, open: bool, past: bool) -> El {
+fn toggle<S: TimelineHost>(p: &Pal, id: &str, open: bool, past: bool) -> El {
     let (id, label) = (id.to_owned(), if open { "Show less" } else { "Read more" });
     row()
         .key("fold-toggle")
@@ -118,16 +117,16 @@ fn toggle(p: &Pal, id: &str, open: bool, past: bool) -> El {
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         // The label and the chevron flip in the press's frame.
         .instant_changes()
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| flip(s, &id, past, tx))
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| flip(s, &id, past, tx))
         .child(text(label).font(UI_MED).color(p.muted).group_color(p.text))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if open { std::f32::consts::PI } else { 0.0 }).rotate_motion(rune::Anim::INSTANT))
 }
 
 /// Opens or closes prompt `id`'s fold. The height change rides the growth spring; what holds
 /// still is its top, or, closing one whose top is above the timeline, the toggle.
-pub fn flip(s: &mut App, id: &str, past: bool, tx: &mut Tx) {
+pub fn flip<S: TimelineHost>(s: &mut S, id: &str, past: bool, tx: &mut Tx) {
     let k = key(id);
-    let opening = s.toggle_expanded(&k);
+    let opening = crate::disclosure::toggle_expanded(s, &k);
     let row = format!("u-{id}");
     tx.keep_on_screen(if !opening && past { format!("{row}/fold-toggle") } else { row });
 }

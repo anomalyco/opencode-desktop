@@ -152,33 +152,40 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
     let now_ms = s.now_ms();
     let clock = s.clock();
     let mut compactions = std::mem::take(s.compactions_state_mut());
-    let t = s.active_session_id().and_then(|id| s.transcript(id));
-    let before = compactions.seen.len();
-    compactions.seen.retain(|id, _| {
-        t.is_some_and(|t| t.messages.iter().any(|m| matches!(m, Message::Compaction(c) if &c.id == id)))
-    });
-    let mut changed = compactions.seen.len() != before;
-    if let Some(t) = t {
-        for m in &t.messages {
-            let Message::Compaction(c) = m else { continue };
-            let running = c.status == CompactionStatus::Running;
-            match compactions.seen.get_mut(&c.id) {
-                None => {
-                    let age = now_ms - c.created;
-                    let enter = if running { (age < 400).then_some(Enter::Grace) } else { (age < 1_000).then_some(Enter::Now) };
-                    compactions.seen.insert(c.id.clone(), Seen { at: clock, enter, running });
-                    changed = true;
-                }
-                Some(seen) if seen.running && !running => {
-                    seen.running = false;
-                    if seen.enter == Some(Enter::Grace) && clock - seen.at < GRACE {
-                        *seen = Seen { at: clock, enter: Some(Enter::Now), running };
+    let mut changed = false;
+    let s_ref: &S = &*s;
+    let ran = s_ref.active_session_id().and_then(|id| {
+        s_ref.with_transcript(id, |t| {
+            let before = compactions.seen.len();
+            compactions.seen.retain(|cid, _| {
+                t.messages.iter().any(|m| matches!(m, Message::Compaction(c) if &c.id == cid))
+            });
+            changed |= compactions.seen.len() != before;
+            for m in &t.messages {
+                let Message::Compaction(c) = m else { continue };
+                let running = c.status == CompactionStatus::Running;
+                match compactions.seen.get_mut(&c.id) {
+                    None => {
+                        let age = now_ms - c.created;
+                        let enter = if running { (age < 400).then_some(Enter::Grace) } else { (age < 1_000).then_some(Enter::Now) };
+                        compactions.seen.insert(c.id.clone(), Seen { at: clock, enter, running });
+                        changed = true;
                     }
-                    changed = true;
+                    Some(seen) if seen.running && !running => {
+                        seen.running = false;
+                        if seen.enter == Some(Enter::Grace) && clock - seen.at < GRACE {
+                            *seen = Seen { at: clock, enter: Some(Enter::Now), running };
+                        }
+                        changed = true;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
+        })
+    });
+    if ran.is_none() && !compactions.seen.is_empty() {
+        compactions.seen.clear();
+        changed = true;
     }
     *s.compactions_state_mut() = compactions;
     changed

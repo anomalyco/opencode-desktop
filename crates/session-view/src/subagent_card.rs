@@ -1,24 +1,82 @@
 //! A subagent call's row in the parent's timeline: agents started together share one card,
-//! a live row each (`agent_rows.rs` has what each row knows).
+//! a live row each.
 //!
-//! A new step rises in from below as the old one rises out, the time ticks at once each second
-//! (`agent_rows::poll`), the mark crossfades and scales between spinner, ✓, ✕ and the dash of a
-//! call a later one steered (`agent_rows/calls.rs`), cut-off words fade out at the edge, and
-//! agents that join the card rise into place at the bottom (nothing above them moves). Hover and
-//! click are instant. A call still being written, or whose agent hasn't started, wakes in place
-//! when it does (`agent_start.rs`).
+//! A new step rises in from below as the old one rises out, the time ticks at once each second,
+//! the mark crossfades and scales between spinner, ✓, ✕ and the dash of a call a later one
+//! steered, cut-off words fade out at the edge, and agents that join the card rise into place at
+//! the bottom (nothing above them moves). Hover and click are instant. A call still being written,
+//! or whose agent hasn't started, wakes in place when it does (`agent_start.rs`).
 
-use rune::{El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
+use rune::{Color, El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, row, text};
 
 use opencode_kit::model::{self, ToolStatus};
 use rune_theme_opencode::icons as ic;
 
-use crate::App;
-use crate::agent_rows::{Run, State};
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::subagents::run_time;
+use crate::style::{INSTANT, UI, UI_MED, UI_SMALL};
 use crate::turns::Block;
-use crate::view::{INSTANT, UI, UI_MED, UI_SMALL};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum State {
+    Running,
+    Done,
+    Failed,
+    /// A later call to the same agent took over while this one's work was under way.
+    Steered,
+}
+
+/// One call's run, as its row draws it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Run {
+    pub state: State,
+    /// The latest steps, newest last ("Read backoff.ts"), and how many came before them.
+    pub steps: Vec<String>,
+    pub taken: usize,
+    /// How long it has run, or ran, in ms.
+    pub ms: Option<i64>,
+    /// Its answer's first line, once done.
+    pub result: Option<String>,
+    /// What went wrong, once failed.
+    pub error: Option<String>,
+}
+
+impl Run {
+    pub fn from_status(status: &ToolStatus) -> Self {
+        let state = match status {
+            ToolStatus::Running | ToolStatus::Pending => State::Running,
+            ToolStatus::Error => State::Failed,
+            ToolStatus::Completed => State::Done,
+        };
+        Run { state, steps: Vec::new(), taken: 0, ms: None, result: None, error: None }
+    }
+
+    /// The one line that says where it is: its step while running, else its result or error.
+    pub fn line(&self) -> String {
+        match self.state {
+            State::Running => self.steps.last().cloned().unwrap_or_else(|| "Starting".to_owned()),
+            State::Done => self.result.clone().unwrap_or_else(|| "Done".to_owned()),
+            State::Failed => self.error.clone().unwrap_or_else(|| "Failed".to_owned()),
+            State::Steered => "Steered".to_owned(),
+        }
+    }
+}
+
+/// "12s", "1m 05s", "1h 02m" (`formatElapsed`).
+pub fn elapsed(ms: i64) -> String {
+    let t = (ms / 1000).max(0);
+    match t {
+        0..60 => format!("{t}s"),
+        60..3600 => format!("{}m {:02}s", t / 60, t % 60),
+        _ => format!("{}h {:02}m", t / 3600, t / 60 % 60),
+    }
+}
+
+/// A run time, "12s", in tabular digits. It changes at once, as Desktop's run times do: a digit
+/// that rolls each second smears the number while it's read.
+pub fn run_time(key: String, ms: i64, font: TextStyle, color: Color) -> El {
+    text(elapsed(ms)).key(key).font(font.features("\"tnum\"")).color(color)
+}
 
 /// The widest a task gets, so what the agent is doing always shows beside it.
 const TITLE_W: f32 = 260.0;
@@ -39,15 +97,16 @@ struct Call<'a> {
 /// The row for `blocks[i]`, a subagent call: one card holding it and the calls that follow it
 /// (`skip` says which rows they took). A call still being written is Desktop's "Delegating
 /// agent…" line, in the card it will run in.
-pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i: usize) -> El {
+pub fn row_for<'a, S: TimelineHost>(s: &'a S, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i: usize) -> El {
+    let can_open = s.can_open_subagent();
     let call = |b: &'a Block<'a>| match b {
         Block::Agent { id, agent, title, status, .. } if **status == ToolStatus::Pending => {
             let run = Run { state: State::Running, steps: Vec::new(), taken: 0, ms: None, result: None, error: None };
             Some(Call { key: id.to_string(), agent, title, child: None, run, pending: true, starting: true })
         }
         Block::Agent { id, agent, title, status, session, .. } => {
-            let child = crate::subagents::child_of(s, parent, *session, title);
-            let run = s.agent_run(parent, id, child, status);
+            let child = s.resolve_subagent(parent, *session, title);
+            let run = s.subagent_run(parent, id, child, status);
             let starting = child.is_none() && run.state == State::Running;
             Some(Call { key: id.to_string(), agent, title, child, run, pending: false, starting })
         }
@@ -56,8 +115,11 @@ pub fn row_for<'a>(s: &'a App, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i
     let calls: Vec<Call> = blocks[i..].iter().map_while(call).collect();
     let mut card = col().key("agent-card").w_full().px(4.0).py(4.0).radius(10.0).fill(p.layer2);
     for c in &calls {
-        let line = live_row(p, c, 32.0).key("agent-line").px(8.0).radius(6.0).hover(p.hover);
-        card = card.child(row().key(format!("member-{}", c.key)).w_full().child(opens(parent, c, line)).transition(arrive()));
+        let mut line = live_row(p, c, 32.0, can_open).key("agent-line").px(8.0).radius(6.0);
+        if can_open {
+            line = line.hover(p.hover);
+        }
+        card = card.child(row().key(format!("member-{}", c.key)).w_full().child(opens::<S>(parent, c, line, can_open)).transition(arrive()));
     }
     row().w_full().child(card)
 }
@@ -148,7 +210,10 @@ fn now(p: &Pal, r: &Run, font: TextStyle, h: f32) -> El {
 }
 
 /// Makes `surface` open the call's session.
-fn opens(parent: &str, c: &Call, surface: El) -> El {
+fn opens<S: TimelineHost>(parent: &str, c: &Call, surface: El, can_open: bool) -> El {
+    if !can_open {
+        return surface;
+    }
     let Some(child) = c.child else { return surface };
     let (parent, child, title, agent) = (parent.to_owned(), child.to_owned(), c.title.to_owned(), c.agent.to_owned());
     let (visible, hover) = (child.clone(), child.clone());
@@ -159,23 +224,23 @@ fn opens(parent: &str, c: &Call, surface: El) -> El {
         .hover_motion(INSTANT, INSTANT)
         // Virtual rows mount around the viewport. Read the child while its card is being
         // read, rather than starting a tunnel round trip only after the press.
-        .on_layout_tx(move |s: &mut App, _, tx| {
+        .on_layout_tx(move |s: &mut S, _, tx| {
             tx.live_only();
-            s.prefetch_session(&visible);
+            s.prefetch_subagent(&visible);
         })
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
             tx.live_only();
-            if inside { s.prefetch_session(&hover); }
+            if inside { s.prefetch_subagent(&hover); }
         })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
-            s.open_child(&parent, &child, &title, &agent, tx);
+            s.open_subagent(&parent, &child, &title, &agent, tx);
         })
 }
 
 /// One agent's live row, `h` tall: its mark, task, what it's doing now, type and time, and a
 /// chevron on hover when there's a session to open.
-fn live_row(p: &Pal, c: &Call, h: f32) -> El {
+fn live_row(p: &Pal, c: &Call, h: f32, can_open: bool) -> El {
     let r = &c.run;
     let line = row()
         .w_full()
@@ -190,5 +255,5 @@ fn live_row(p: &Pal, c: &Call, h: f32) -> El {
     line.child(now(p, r, UI.lh(20.0), h - 6.0).transition(follow()))
         .child(tag(p, c.agent).transition(follow()))
         .children(time(p, &c.key, r.ms).map(|t| t.transition(follow())))
-        .children(c.child.map(|_| icon(&ic::CHEVRON_RIGHT, 16.0).key("open").color(p.icon_faint).group_opacity(0.0, 1.0)))
+        .children((can_open && c.child.is_some()).then(|| icon(&ic::CHEVRON_RIGHT, 16.0).key("open").color(p.icon_faint).group_opacity(0.0, 1.0)))
 }

@@ -3,75 +3,16 @@
 
 use rune::{Align, Cx, El, Key, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 
-use opencode_kit::model::Quote;
-
 use crate::App;
-use crate::attachments::{CARD_SUBTITLE, CARD_TITLE, remove_button};
+use crate::attachments::remove_button;
 use crate::palette::Pal;
-use crate::quote::{COMMENT, OUTLINE_QUOTE, Pending};
+use crate::quote::{OUTLINE_QUOTE, Pending};
+pub use session_view::user_parts::{quote_card as card, quote_preview as preview};
 
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const META: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0).tracking(0.05);
 const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
-/// A card shows this much of its quote.
-const PREVIEW: usize = 200;
-const TOOLTIP: usize = 600;
-/// A bubble shows this many cards before Show more.
-const BOUNDED: usize = 5;
 const EDITOR_W: f32 = 380.0;
-
-fn preview(text: &str) -> String {
-    text.chars().take(PREVIEW).collect()
-}
-
-/// The card's tooltip: the comment over the quote (Desktop's `quoteTooltip`).
-fn tooltip(q: &Quote) -> String {
-    let text: String = if q.text.chars().count() > TOOLTIP { format!("{}…", q.text.chars().take(TOOLTIP).collect::<String>()) } else { q.text.clone() };
-    match q.comment() {
-        Some(c) => format!("{c}\n\n{text}"),
-        None => text,
-    }
-}
-
-/// A quote's two-line card. Its title is the comment, or the quote without one; its subtitle the
-/// quote mark over "Quote", or the quote under a comment. `hint` is the composer's: hovered, it
-/// offers to add or edit the comment.
-fn card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
-    let comment = q.comment();
-    let quote = preview(&q.text);
-    let title = comment.map_or_else(|| quote.clone(), str::to_owned);
-    let label = if comment.is_some() { quote } else { "Quote".to_owned() };
-    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
-    let tip = tooltip(q);
-    if comment.is_none() {
-        title = title.help_when_truncated(tip.clone());
-    }
-    let line = |key: &str, glyph, label: String, color| {
-        row().key(key).w_full().h(14.0).gap(4.0).center_y().min_w(0.0)
-            .child(icon(glyph, 12.0).color(color))
-            .child(text(label).font(CARD_SUBTITLE).color(color).truncate_fade())
-    };
-    let mut subtitle = el().key("subtitle").w_full().h(14.0);
-    if hint {
-        let edit = if comment.is_some() { "Edit comment" } else { "Add comment" };
-        subtitle = subtitle
-            .child(line("quote-line", &OUTLINE_QUOTE, label, p.muted).group_opacity(1.0, 0.0))
-            .child(line("comment-line", &COMMENT, edit.to_owned(), p.text).absolute(0.0, 0.0).group_opacity(0.0, 1.0));
-    } else {
-        subtitle = subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted));
-    }
-    let mut c = col()
-        .key("card")
-        .padding(8.0)
-        .gap(6.0)
-        .radius(6.0)
-        .fill(if p.dark { p.hover } else { p.bg_base })
-        .border(0.5, if active { p.q.border_strong } else { p.border })
-        .child(title)
-        .child(subtitle);
-    c = if wide { c.w_full() } else { c.w(160.0) };
-    if comment.is_some() && !active { c.help(tip) } else { c }
-}
 
 /// The composer's quote cards, before its files (`editor.tsx`): a click toggles the quote's
 /// comment editor, and a round remove button shows on hover.
@@ -204,31 +145,4 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .child(field)
         .child(footer);
     Some(popover)
-}
-
-/// A sent prompt's quote cards (`UserMessageComments`), when it has any. Under its words
-/// (`body`) they sit inside the bubble, the first five until Show more; a prompt of only quotes
-/// shows every card in the bubble's place.
-pub fn on_message(s: &App, p: &Pal, id: &str, body: &str) -> Option<El> {
-    let quotes = opencode_kit::model::user_quotes(id);
-    if quotes.is_empty() {
-        return None;
-    }
-    let bounded = !body.trim().is_empty();
-    let open = !bounded || s.quote.more.contains(id) || quotes.len() <= BOUNDED;
-    let shown = if open { &quotes[..] } else { &quotes[..BOUNDED] };
-    let mut c = col().key("quotes").w_full().gap(8.0);
-    c = if bounded { c.max_w(318.0).mt(8.0) } else { c.max_w(320.0) };
-    for (i, q) in shown.iter().enumerate() {
-        c = c.child(card(p, q, false, false, true).key(format!("quote-{i}")));
-    }
-    if !open {
-        let id = id.to_owned();
-        c = c.child(
-            row().key("show-more").role("button").h(24.0).px(9.0).center_y().radius(4.0).hover(p.hover).press(p.pressed)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| { tx.instant(); s.quote.more.insert(id.clone()); })
-                .child(text("Show more").font(BUTTON).color(p.muted)),
-        );
-    }
-    Some(c)
 }

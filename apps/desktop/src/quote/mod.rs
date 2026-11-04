@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::ops::Range;
 use std::time::Duration;
 
-use rune::{Cx, El, Icon, SelectionChange, TextEdit, TextStyle, Transition, Tx, icon, row, text};
+use rune::{Cx, El, SelectionChange, TextEdit, TextStyle, Transition, Tx, icon, row, text};
 
 use opencode_kit::model::Quote;
 
@@ -25,17 +25,7 @@ const GAP: f32 = 8.0;
 const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 const TOO_LONG: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
-pub static OUTLINE_QUOTE: Icon = Icon {
-    name: "outline-quote",
-    view: 16.0,
-    body: r#"<path d="M9.5 8.49927C10.8333 8.49927 12.1667 8.49927 13.5 8.49927C13.5 9.74927 13.5 11.2493 13.5 12.4993C12.1667 12.4993 10.8333 12.4993 9.5 12.4993V7C9.5 5 10.5 3.5 13 3.5001" stroke="currentColor"/><path d="M2.5 8.49927C3.83333 8.49927 5.16667 8.49927 6.5 8.49927C6.5 9.74927 6.5 11.2493 6.5 12.4993C5.16667 12.4993 3.83333 12.4993 2.5 12.4993V7C2.5 5 3.5 3.5 6 3.5001" stroke="currentColor"/>"#,
-};
-
-pub static COMMENT: Icon = Icon {
-    name: "comment",
-    view: 16.0,
-    body: r#"<path d="M13.5 2.5H2.5V13.5H4.5L5.5 11.5H13.5V2.5Z" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>"#,
-};
+pub use session_view::user_parts::OUTLINE_QUOTE;
 
 /// The quotes waiting in the composer, the comment editor, and the button's offer.
 pub struct Quotes {

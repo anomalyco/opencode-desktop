@@ -48,7 +48,7 @@ fn wheel(rt: &mut Runtime<App>, dy: f32) {
 }
 
 fn offset(rt: &Runtime<App>) -> f32 {
-    rt.state.bars.bars.borrow()[KEY].pos.get().unwrap().0
+    rt.state.bars.position(KEY).unwrap().0
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn dragging_the_thumb_scrolls_zoomed() {
     rt.pointer_move(x, y);
     frames(&mut rt, 0.2);
     assert!(rt.state.bars.shown(KEY), "at the edge it shows");
-    let max = rt.state.bars.bars.borrow()[KEY].pos.get().unwrap().1;
+    let max = rt.state.bars.position(KEY).unwrap().1;
     rt.pointer_down(x, y);
     rt.frame(DT);
     // Halfway up the track's travel, in window points.
