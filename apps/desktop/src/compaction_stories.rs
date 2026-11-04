@@ -1,6 +1,7 @@
 //! The storybook's Compaction story (Timeline › Compaction): the conversation is summarised, as
 //! Desktop shows it. Variants: queued, running, done with its usage, by the provider, failed,
-//! and with background compaction on, quiet running, done and opened. R replays, E ends the
+//! and with background compaction on, quiet running, done, opened, and running right under a
+//! model switch's divider (Kit's capture, p265). R replays, E ends the
 //! running one, F fails it, and G starts a quiet one that ends inside its grace.
 
 use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
@@ -12,7 +13,7 @@ use crate::stories::{Trigger, emit, replay, sid};
 
 /// Done first, as the story opens on it.
 pub const VARIANTS: &[(&str, usize)] =
-    &[("Done", 2), ("Queued", 0), ("Running", 1), ("By the provider", 3), ("Failed", 4), ("Quiet running", 5), ("Quiet done", 6), ("Quiet opened", 7)];
+    &[("Done", 2), ("Queued", 0), ("Running", 1), ("By the provider", 3), ("Failed", 4), ("Quiet running", 5), ("Quiet done", 6), ("Quiet opened", 7), ("After a model switch", 8)];
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'e', label: "End it", run: |s, tx| {
@@ -43,6 +44,11 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if v == 0 {
         tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
         return;
+    }
+    if v == 8 {
+        let model = |id: &str| json!({ "id": id, "providerID": "anthropic", "variant": "" });
+        let data = json!({ "eventID": "evt_storycompactionmodel", "model": model("claude-opus-4-5"), "previous": model("claude-sonnet-4-5") });
+        tx.after(0.1, move |s, tx| emit(s, "session.model.selected", data.clone(), tx));
     }
     tx.after(0.3, |s, tx| start(s, tx));
     if (1..=4).contains(&v) {

@@ -215,12 +215,26 @@ pub(crate) fn divider(p: &Pal, label: &str) -> El {
 
 /// The divider around any `words`, such as a label with its value (a moved session's folder).
 pub(crate) fn divider_of(p: &Pal, words: El) -> El {
+    // The lines keep some length when long words (a moved session's folder) fill the row.
+    let line = |end: bool| hairline(p, el().key(if end { "end" } else { "start" }).h(1.0).grow(1.0).min_w(24.0), end);
+    col().w_full().pt(8.0).pb(8.0).child(divider_bar(line(false), words, line(true)).key("separator"))
+}
+
+/// A divider's row: `words` between its two lines.
+fn divider_bar(start: El, words: El, end: El) -> El {
+    row().h(32.0).w_full().gap(12.0).center_y().child(start).child(words).child(end)
+}
+
+/// How far a divider's line runs from its outer end before it reaches full strength, as a
+/// fraction of the line.
+const RAMP: f32 = 0.7;
+
+/// Paints `line` as every divider's hairline: from nothing at its outer end to the strong border
+/// [`RAMP`] of the way in. `end`: the line after the words, which mirrors the first.
+fn hairline(p: &Pal, line: El, end: bool) -> El {
     let strong = p.q.border_strong;
     let clear = Color { a: 0.0, ..strong };
-    // The lines keep some length when long words (a moved session's folder) fill the row.
-    let line = |key: &'static str, angle: f32| el().key(key).h(1.0).grow(1.0).min_w(24.0).linear_gradient(angle, [(0.0, clear), (0.7, strong)]);
-    let bar = row().key("separator").h(32.0).w_full().gap(12.0).center_y().child(line("start", FRAC_PI_2)).child(words).child(line("end", -FRAC_PI_2));
-    col().w_full().pt(8.0).pb(8.0).child(bar)
+    line.linear_gradient(if end { -FRAC_PI_2 } else { FRAC_PI_2 }, [(0.0, clear), (RAMP, strong)])
 }
 
 fn summary(c: &Compaction) -> &str {
@@ -293,18 +307,12 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
     let open = expandable && s.expanded.contains(&key);
     let shutting = expandable && !open && s.shutting(&key);
     let lit = running && !s.reduced_motion;
-    let mut divider = row()
+    let words = quiet_label(s, p, running, open, start);
+    let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true))
         // A new key restarts the fade in, with everything inside at rest as Compacted.
         .key(if enter == Some(Enter::Now) { "divider-now" } else { "divider" })
-        .h(32.0)
-        .w_full()
-        .gap(12.0)
-        .center_y()
         .label(if running { "Compacting" } else { "Compacted" })
-        .transition(Transition::none())
-        .child(quiet_line(s, p, lit, start, false))
-        .child(quiet_label(s, p, running, open, start))
-        .child(quiet_line(s, p, lit, start, true));
+        .transition(Transition::none());
     if enter.is_some() && s.clock - at < delay + 0.5 {
         divider = divider.looping(LoopSpec::sequence(Sequence::new(&ENTER).delay(delay)));
     }
@@ -354,17 +362,17 @@ pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
     }
 }
 
-/// A hairline that brightens when the compaction ends, with a light that gathers toward the label
-/// while it runs. `end`: the line after the label, which mirrors the first.
+/// A divider's hairline that brightens when the compaction ends, with a light that gathers
+/// toward the label while it runs. `end`: the line after the label, which mirrors the first.
 fn quiet_line(s: &App, p: &Pal, lit: bool, start: f64, end: bool) -> El {
     let base = el()
         .key("base")
         .absolute(0.0, 0.0)
         .w_full()
         .h_full()
-        .fill(p.q.border_strong)
         .opacity(if lit { 0.6 } else { 1.0 })
         .opacity_motion(Curve::tween(0.36, Easing::EASE_OUT));
+    let base = hairline(p, base, end);
     let mut line = el().key(if end { "end" } else { "start" }).h(1.0).grow(1.0).min_w(0.0).clip_soft(0.0).child(base);
     if lit {
         line = line.child(light(s, p, start, end));
@@ -372,20 +380,27 @@ fn quiet_line(s: &App, p: &Pal, lit: bool, start: f64, end: bool) -> El {
     line
 }
 
-/// The light: 40% of the line wide, it slides in from the outer end and off past the label in
-/// the first 70% of each cycle, fading up as it comes and out as it reaches the label. It fades
+/// The light's width, as a fraction of its line.
+const BEAM: f32 = 0.4;
+/// Where the light starts and ends each pass, in light widths from the line's outer end.
+const SLIDE: (f32, f32) = (-1.0, 2.5);
+/// Where the light is brightest, as a fraction of its width from its outer edge.
+const PEAK: f32 = 0.65;
+
+/// The light: [`BEAM`] of the line wide, it slides in from the outer end and off past the label
+/// in the first 70% of each cycle, fading up as it comes and out as it reaches the label. It fades
 /// out over 360 ms when the compaction ends.
 fn light(s: &App, p: &Pal, start: f64, end: bool) -> El {
     let peak = Color { a: p.muted.a * 0.55, ..p.muted };
     let clear = Color { a: 0.0, ..p.muted };
-    let (from, to) = if end { (1.0, -2.5) } else { (-1.0, 2.5) };
+    let (from, to) = if end { (-SLIDE.0, -SLIDE.1) } else { SLIDE };
     let slide = LoopSpec { delay: loop_delay(s.clock, start), ..LoopSpec::slide(f64::from(CYCLE), [from, 0.0], [to, 0.0]).easing(travel()) };
     let beam = el()
         .key("beam")
         .pin((!end).then_some(0.0), Some(0.0), end.then_some(0.0), None)
-        .w_frac(0.4)
+        .w_frac(BEAM)
         .h_full()
-        .linear_gradient(if end { -FRAC_PI_2 } else { FRAC_PI_2 }, [(0.0, clear), (0.65, peak), (1.0, clear)])
+        .linear_gradient(if end { -FRAC_PI_2 } else { FRAC_PI_2 }, [(0.0, clear), (PEAK, peak), (1.0, clear)])
         .looping(slide);
     el().key("light").absolute(0.0, 0.0).w_full().h_full().cycle(cycle(start, light_stops())).transition(fade_out(0.36)).child(beam)
 }
@@ -473,13 +488,23 @@ fn travel() -> Easing {
     Easing::Piecewise(stops)
 }
 
-/// The light's opacity: up by 14% of the cycle on the travel's curve, held to 49.5%, out by 70%.
+/// The light's opacity: up by 14% of the cycle on the travel's curve, held to 49.5%, out by 70%,
+/// and never brighter than the line's own [`RAMP`] where its peak is, so the line's outer end
+/// stays faint while the light crosses it.
 fn light_stops() -> &'static [(f32, f32)] {
     static STOPS: OnceLock<&'static [(f32, f32)]> = OnceLock::new();
     STOPS.get_or_init(|| {
-        let mut v = vec![(0.0, 0.0)];
-        v.extend(eased(Easing::cubic(0.4, 0.0, 0.6, 1.0), (0.0, 0.0), (0.14, 1.0), 8));
-        v.extend([(0.495, 1.0), (0.7, 0.0), (1.0, 0.0)]);
+        let mut shape = vec![(0.0, 0.0)];
+        shape.extend(eased(Easing::cubic(0.4, 0.0, 0.6, 1.0), (0.0, 0.0), (0.14, 1.0), 8));
+        shape.extend([(0.495, 1.0), (0.7, 0.0), (1.0, 0.0)]);
+        let shape = Cycle { period: 1.0, phase: 0.0, stops: Box::leak(shape.into_boxed_slice()), still: 0.0, fps: 60.0 };
+        let travel = travel();
+        let ramp = |t: f32| {
+            let peak = BEAM * (SLIDE.0 + (SLIDE.1 - SLIDE.0) * travel.eval(t) + PEAK);
+            (peak / RAMP).clamp(0.0, 1.0)
+        };
+        let mut v: Vec<(f32, f32)> = (0..=56).map(|i| i as f32 * 0.7 / 56.0).map(|t| (t, shape.sample(f64::from(t)) * ramp(t))).collect();
+        v.push((1.0, 0.0));
         Box::leak(v.into_boxed_slice())
     })
 }
