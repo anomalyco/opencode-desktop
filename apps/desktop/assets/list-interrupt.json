@@ -1,0 +1,97 @@
+{
+  "now": 1792659400000,
+  "tabs": [
+    "ses_fx0001aaaaaaaaaaaaaaaaaa"
+  ],
+  "projects": [
+    {
+      "id": "6c756d656e000000",
+      "canonical": "/Users/demo/code/lumen",
+      "vcs": "git",
+      "time": {
+        "created": 1790067400000,
+        "updated": 1792659280000,
+        "active": 1792659280000
+      },
+      "sandboxes": [
+        "/Users/demo/code/worktrees/lumen/reconnect-fix"
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "projectID": "6c756d656e000000",
+      "agent": "build",
+      "model": {
+        "id": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "variant": "high"
+      },
+      "cost": 1.84,
+      "tokens": {
+        "input": 6140,
+        "output": 5116,
+        "reasoning": 900,
+        "cache": {
+          "read": 61400,
+          "write": 2400
+        }
+      },
+      "time": {
+        "created": 1792658140000,
+        "updated": 1792659340000,
+        "idle": 1792659340000,
+        "viewed": 1792659340000
+      },
+      "title": "Make the slides better",
+      "location": {
+        "directory": "/Users/demo/code/lumen"
+      }
+    }
+  ],
+  "messages": {
+    "ses_fx0001aaaaaaaaaaaaaaaaaa": [
+      {
+        "id": "msg_001a162c32a80001fixture00",
+        "type": "user",
+        "text": "How could the slides be more useful, and have more juice?",
+        "time": {
+          "created": 1792658320000
+        }
+      },
+      {
+        "id": "msg_001a162c33250002fixture00",
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "claude-opus-5-5",
+          "providerID": "anthropic",
+          "variant": "high"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Here's what I'd do, split into making the slides more useful and giving them more juice.\n\n**More useful: make the slides real, not canned**\n1. **Run Blood live on screen.** Each slide runs the real `blood` command against a tiny store, so the hashes, check errors and timings are real. That also fills in the placeholder numbers on the F10 and Numbers slides.\n2. **Make it hands-on.** Press `e` on the store slide to edit `total` yourself and watch the hashes change down the chain. On the checks slide, type a mistake and get the real error with its fix-it.\n3. **End each slide with one \"try it\" command** you can copy.\n\n**More juice**\n4. **Hash ripple.** A changed hash scrambles and then settles on its new value, and a line draws from `total` to `two_cards` to show why that one changed too. Unchanged rows dim.\n5. **Panels that carry over.** The store panel stays put between slides and moves or resizes instead of redrawing, so the deck reads as one continuous story.\n6. **Real images in the terminal.** Ghostty can draw real images, so diagrams and charts could be crisp instead of made from text characters.\n7. **Live charts on the Numbers slide.** Bars that race against Go and Rust, using measured numbers.\n8. **Motion with weight.** Panels spring in a beat apart, the cursor types at a human rhythm, and the slide numbers count up.\n\n**My pick:** 1, 2 and 4 first. They make the deck prove its point instead of just saying it, and the hash ripple is the moment people will remember. The panel carry-over (5) is next. The Opus agent fixing the store slide is already in that code, so I'd give these to it once that lands."
+          }
+        ],
+        "time": {
+          "created": 1792658322000,
+          "streamed": 1792658331800,
+          "completed": 1792658332000
+        },
+        "finish": "stop",
+        "cost": 0.12,
+        "tokens": {
+          "input": 4,
+          "output": 620,
+          "reasoning": 180,
+          "cache": {
+            "read": 52000,
+            "write": 1800
+          }
+        }
+      }
+    ]
+  }
+}
