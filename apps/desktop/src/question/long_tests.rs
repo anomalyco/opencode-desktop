@@ -104,6 +104,6 @@ fn home_and_end_reach_the_ends() {
     press(&mut rt, Key::Home);
     let (first, question) = (el(&rt, "q-opt-0").rect, el(&rt, "q-text").rect);
     assert!(inside(first, view), "Home reveals the first answer");
-    let snug = first[1] + first[3] >= view[1] + view[3] - super::FADE * 1.6 - 1.0;
+    let snug = first[1] + first[3] >= view[1] + view[3] - session_view::dock::question::FADE * 1.6 - 1.0;
     assert!(inside(question, view) || snug, "and as much of the question as fits: {question:?} over {first:?} in {view:?}");
 }

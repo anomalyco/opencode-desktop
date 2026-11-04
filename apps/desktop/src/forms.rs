@@ -1,7 +1,7 @@
 //! Answering open permission requests and structured forms (`Pending`).
 
 use opencode_kit::client::Write;
-use opencode_kit::model::{FieldKind, Pending};
+use opencode_kit::model::Pending;
 use rune::TextEdit;
 use serde_json::Value;
 
@@ -35,7 +35,7 @@ impl App {
     }
 
     pub fn typed_mut(&mut self, form: &str, key: &str) -> &mut TextEdit {
-        self.question.typed.entry(format!("{form}/{key}")).or_insert_with(|| TextEdit::new(""))
+        self.question.typed_mut(form, key)
     }
 
     /// The answer to send, or None while a required field is empty.
@@ -43,36 +43,7 @@ impl App {
         let Some(Pending::Form { fields, .. }) = self.pending.iter().find(|p| p.id() == id) else {
             return None;
         };
-        let mut answer = serde_json::Map::new();
-        for f in fields {
-            let k = format!("{id}/{}", f.key);
-            let typed = self
-                .question
-                .typed
-                .get(&k)
-                .filter(|_| self.question.custom_on(&k))
-                .map(|t| t.text.trim().to_owned())
-                .filter(|t| !t.is_empty());
-            let picks = self.question.picks.get(&k).cloned().unwrap_or_default();
-            let v = match f.kind {
-                FieldKind::Multi => {
-                    let mut all = picks;
-                    all.extend(typed);
-                    (!all.is_empty()).then(|| Value::from(all))
-                }
-                FieldKind::Boolean => picks.first().map(|v| Value::Bool(v == "true")),
-                FieldKind::Number => typed.and_then(|t| t.parse::<f64>().ok()).map(Value::from),
-                FieldKind::Text => typed.or_else(|| picks.first().cloned()).map(Value::from),
-            };
-            match v {
-                Some(v) => {
-                    answer.insert(f.key.clone(), v);
-                }
-                None if f.required || fields.len() == 1 => return None,
-                None => {}
-            }
-        }
-        Some(Value::Object(answer))
+        self.question.answer(id, fields)
     }
 
     pub fn submit_form(&mut self, id: &str) {

@@ -14,6 +14,7 @@ pub mod composer;
 pub mod copied;
 pub mod diagram;
 pub mod disclosure;
+pub mod dock;
 pub mod fixture;
 pub mod fold;
 pub mod genui;

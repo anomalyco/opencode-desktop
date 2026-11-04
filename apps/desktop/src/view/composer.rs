@@ -45,6 +45,42 @@ pub(crate) fn composer_in(s: &App, p: &Pal, scope: &str) -> El {
     session_view::composer::composer_in(s, p, scope)
 }
 
+impl session_view::dock::DockHost for App {
+    fn dock(&self) -> &session_view::dock::Dock {
+        &self.question
+    }
+    fn dock_mut(&mut self) -> &mut session_view::dock::Dock {
+        &mut self.question
+    }
+    fn dock_pending(&self, id: &str) -> Vec<opencode_kit::model::Pending> {
+        self.pending_for(id).into_iter().cloned().collect()
+    }
+    fn dock_parent(&self, id: &str) -> Option<String> {
+        self.session(id).and_then(|i| i.parent.clone())
+    }
+    fn dock_auto_accept(&self) -> bool {
+        self.settings.auto_accept
+    }
+    fn dock_reply_permission(&mut self, id: &str, decision: &str) {
+        self.reply_permission(id, decision);
+    }
+    fn dock_submit_form(&mut self, id: &str) {
+        self.submit_form(id);
+    }
+    fn dock_dismiss_form(&mut self, id: &str) {
+        self.dismiss_form(id);
+    }
+    fn dock_waiting(&self, id: &str) -> bool {
+        self.pending.iter().any(|p| p.id() == id)
+    }
+    fn dock_refocus(&self) -> bool {
+        self.subagent_page().is_none()
+    }
+    fn dock_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        self.shortcut(ev, tx)
+    }
+}
+
 impl ComposerHost for App {
     fn composer_edit(&self) -> &TextEdit {
         &self.composer
@@ -106,7 +142,7 @@ impl ComposerHost for App {
         crate::queue::docked(self)
     }
     fn composer_face(&self, p: &Pal) -> Option<Vec<El>> {
-        crate::question::face(self, p).or_else(|| crate::permission::face(self, p))
+        session_view::dock::face(self, p)
     }
     fn composer_face_transition(&self) -> Transition {
         crate::question::face_transition(self)

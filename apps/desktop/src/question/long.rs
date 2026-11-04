@@ -1,52 +1,12 @@
-//! A long question keeps to part of the pane (p273): the dock is at most ⌘⇧K → Question dock →
-//! Max height of the pane it sits in, so the timeline still shows above it. Its header (1 of 3,
-//! the pager) and footer stay put, and the question and its answers scroll between them, fading
-//! under each edge while they hide rows; the keys bring the highlighted answer into sight, just
-//! far enough.
+//! A long question's scene and story (p273): the dock keeps to part of the pane
+//! (`session_view::dock::question`), its header and footer stay put, and the question and its
+//! answers scroll between them; the keys bring the highlighted answer into sight.
 
-use rune::{El, Key, KeyEvent, Mods, Play, ScrollSpec, Tx, col};
+use rune::{Key, KeyEvent, Mods, Play, Tx};
 use serde_json::{Value, json};
 
-use super::{has_custom, rows};
 use crate::stories::{Trigger, emit, replay};
 use crate::{App, knobs};
-
-/// The footer's height: its padding and the 32 pt buttons.
-const FOOTER_H: f32 = 47.0;
-/// Never shorter than this while the pane has room (Desktop's floor).
-const MIN_H: f32 = 240.0;
-/// How far the answers fade under the header and footer, and how clear of them a revealed one stops.
-const FADE: f32 = 16.0;
-
-/// The tallest the header and answers get, the footer under them taking the rest of the cap; None
-/// on a stage with no pane to share (the composer stories).
-pub(super) fn body_max(s: &App) -> Option<f32> {
-    let pane = ["story-session", "panel"].into_iter().find_map(|k| rune::memo::layout_with(k, |r| r[3]))?;
-    let cap = (pane * s.knobs.get(&knobs::QUESTION_MAX)).max(MIN_H).min(pane);
-    Some((cap - FOOTER_H).max(0.0))
-}
-
-/// Question `tab`'s text and answers in their own viewport, so a new question starts at its top.
-pub(super) fn scroller(tab: usize, page: El) -> El {
-    col().key(format!("q-scroll-{tab}")).w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(FADE).scroll_margin(FADE).child(page)
-}
-
-impl App {
-    /// Brings the highlighted answer, or "Type your own answer", into sight; on the first answer
-    /// as much of the question above it as fits shows too (reveals run in order, each from
-    /// where the last left the list).
-    pub(super) fn reveal_focus(&self, tx: &mut Tx) {
-        let Some(f) = self.asking() else { return };
-        let (tab, focus) = self.place(&f);
-        let field = &f.fields[tab];
-        let scope = format!("q-scroll-{tab}");
-        if focus == 0 {
-            tx.scroll_into_view_in(scope.clone(), format!("q-details-{tab}"));
-        }
-        let key = if focus >= rows(field).len() && has_custom(field) { "q-custom".to_owned() } else { format!("q-opt-{focus}") };
-        tx.scroll_into_view_in(scope, key);
-    }
-}
 
 /// Three questions, the first a pick-any with nine long answers.
 pub fn form(s: &App) -> Value {
