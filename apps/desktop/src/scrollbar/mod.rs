@@ -26,8 +26,8 @@ use crate::palette::Pal;
 mod tests;
 pub mod stories;
 
-pub const WIDTH: Knob = Knob::new("Scroll bar width", 3.0, 10.0, 6.0).step(0.5).about("Thumb width at rest");
-pub const HOT_WIDTH: Knob = Knob::new("Scroll bar hover width", 4.0, 14.0, 9.0).step(0.5).about("Thumb width under the pointer");
+pub const WIDTH: Knob = Knob::new("Scroll bar width", 2.0, 10.0, 4.0).step(0.5).about("Thumb width at rest");
+pub const HOT_WIDTH: Knob = Knob::new("Scroll bar hover width", 2.0, 14.0, 6.0).step(0.5).about("Thumb width under the pointer");
 pub const FADE_DELAY: Knob = Knob::new("Scroll bar fade delay", 0.2, 3.0, 0.9).step(0.05).about("Seconds at rest before the bar fades");
 
 rune_register::register!(crate::knobs::GROUP_LIST: Group = [
@@ -440,10 +440,7 @@ impl Bar {
             }
             Phase::Move => {}
         }
-        // Letting go away from the edge takes the track away.
-        if d.phase != Phase::Up {
-            tx.live_only();
-        }
+        tx.live_only();
     }
 }
 
@@ -481,21 +478,18 @@ pub fn bar(s: &App, p: &Pal, key: &str, bottom: f32) -> El {
             if size.track_h.replace(r[3]) != r[3] { size.place(true); }
             tx.live_only();
         })
-        // Not live-only: the track is drawn only under the pointer.
-        .on_hover_change(move |_: &mut App, on, _: &mut Tx| hover.hover(on))
+        .on_hover_change(move |_: &mut App, on, tx: &mut Tx| {
+            hover.hover(on);
+            tx.live_only();
+        })
         .on_drag(move |_: &mut App, d: &mut Drag, tx: &mut Tx| drag.drag(d, tx));
     if !b.mounted.get() {
         return strip;
     }
-    let rail = (b.hot() && b.scrolls()).then(|| {
-        el().key("bar-rail").pin(Some(REACH), Some(0.0), Some(0.0), Some(0.0)).fill(p.text.alpha(0.04))
-            .child(el().key("bar-edge").pin(Some(0.0), Some(0.0), None, Some(0.0)).w(0.5).fill(p.border_muted))
-    });
     strip
         // A transparent node takes no input, so the fade is on what's drawn, not the strip.
         .child(el().key("bar-face").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).inert()
             .live_opacity(b.opacity.smooth(if s.reduced_motion { Spring::NONE } else { FADE }))
-        .children(rail)
         .child(el().key("bar-carrier").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).live_offset(&b.outer)
             .child(el().key("bar-thumb").absolute(0.0, 0.0).size(1.0, 1.0).radius(99.0).live_fill(&b.fill)
                 .live_rect(&b.inner))))
@@ -506,7 +500,7 @@ fn look(k: &Knobs, p: &Pal) -> Look {
         width: k.get(&WIDTH),
         hot_width: k.get(&HOT_WIDTH).max(k.get(&WIDTH)),
         delay: crate::knobs::secs(k, &FADE_DELAY),
-        rest: p.text.alpha(if p.dark { 0.32 } else { 0.38 }),
-        hot: p.text.alpha(if p.dark { 0.5 } else { 0.55 }),
+        rest: p.text.alpha(if p.dark { 0.2 } else { 0.24 }),
+        hot: p.text.alpha(if p.dark { 0.32 } else { 0.36 }),
     }
 }
