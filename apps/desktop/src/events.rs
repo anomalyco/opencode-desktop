@@ -19,10 +19,8 @@ impl App {
                     return was;
                 }
                 let now = self.now_ms;
-                // Desktop reports the open session's idle mark as viewed, so it never lights up. A
-                // project's task is read only on its own page, so one finishing under its open
-                // project still reaches the inbox.
-                let open = matches!(&self.route, Route::Session(r) if self.scope_of(r) == self.scope_of(sid));
+                // Desktop reports the open session's idle mark as viewed, so it never lights up.
+                let open = matches!(&self.route, Route::Session(r) if self.root_of(r) == self.root_of(sid));
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.idle = Some(now);
                     if open {
@@ -115,7 +113,7 @@ impl App {
             changed |= self.apply_revert(ty, data, &sid);
         }
         changed |= self.apply_selected(ty, data, &sid);
-        changed |= crate::project_inbox::event(self, ty, data, &sid);
+        changed |= self.apply_archive(ty, data, &sid);
         if let Some(t) = self.transcripts.get_mut(&sid) {
             // A transcript shows only in its own family's page, so another session's stream
             // updates its state without rebuilding the view.
@@ -155,5 +153,19 @@ impl App {
             changed = true;
         }
         changed
+    }
+}
+
+impl App {
+    /// Archives and metadata changed from other clients.
+    fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        let now = self.now_ms;
+        let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
+        match ty {
+            "session.archived" | "session.unarchived" => i.archived = (ty == "session.archived").then_some(now),
+            "session.metadata.updated" => i.metadata = data["metadata"].clone(),
+            _ => return false,
+        }
+        true
     }
 }

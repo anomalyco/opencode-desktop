@@ -216,7 +216,6 @@ const APP_SCENES: &[&str] = &[
     "genui-stream",
     "diagram-stream",
     "permission",
-    "project-inbox",
     "short-group",
     "subagent",
 ];
@@ -300,7 +299,6 @@ const STORY_PATHS: &[&str] = &[
     "Session opening/Subagent · ready now",
     "Requests/Permission",
     "Popover/Open and close",
-    "Sidebar/Projects inbox",
     "Settings/Page",
     "Stream/Text speed",
     "Composer/Subagent reply",

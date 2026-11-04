@@ -38,15 +38,11 @@ impl App {
         if root == id && self.stage.is_none() && !self.dock_shown() {
             self.composer.focused = true;
         }
-        // Viewing it reads it, and its tab (or task): locally, except a project's task, which
-        // the server reads too.
-        crate::project_inbox::opened(self, id);
-        let scope = self.scope_of(id).to_owned();
-        for s in self.sessions.iter_mut().filter(|s| s.id == scope || s.id == id) {
+        // Viewing it reads it, and its tab, locally.
+        for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
-        // A task opens from the inbox, so it takes no tab and ⌘1–9 stay put.
-        if !self.tabs.iter().any(|t| t.id == root) && !self.is_task_session(&root) {
+        if !self.tabs.iter().any(|t| t.id == root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
             self.tabs.push(Tab { id: root.clone(), title, directory });
             self.save_tabs();

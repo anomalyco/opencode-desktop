@@ -11,7 +11,6 @@ use opencode_kit::model::{self, Project, SessionInfo};
 use rune::{El, Key, KeyEvent, Latest, Play, TextEdit, Tx, Waker, col};
 
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
-use crate::project_inbox::TaskInfo;
 use crate::palette::Pal;
 use crate::stories::{Story, Trigger, replay, stage};
 use crate::switcher::encode;
@@ -81,7 +80,6 @@ impl App {
         let q = self.search.text.trim().to_lowercase();
         self.merged_roots(&self.home_search.loaded)
             .into_iter()
-            .filter(|ses| !ses.is_seer_task())
             .filter(|ses| selected.is_none_or(|proj| self.project_for_session(ses).is_some_and(|p| p.id == proj.id)))
             .filter(|ses| {
                 if q.is_empty() {

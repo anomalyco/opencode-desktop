@@ -70,7 +70,7 @@ fn native(s: &mut App, tx: &mut Tx) {
     let anchor = match t.spot {
         Spot::Tab => "story-tab-0",
         Spot::Row => "story-row-0",
-        Spot::Header | Spot::Inbox => "story-title",
+        Spot::Header => "story-title",
     };
     session_menu::open(s, t, PopupAnchor::Key(anchor.into()), tx);
 }
@@ -93,7 +93,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let stage = match t.spot {
         Spot::Tab => tabs(s, p, menu),
         Spot::Row => rows(s, p, menu),
-        Spot::Header | Spot::Inbox => header(s, p, menu),
+        Spot::Header => header(s, p, menu),
     };
     col().key("story-menus").w_full().max_w(820.0).child(stage)
 }

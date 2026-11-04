@@ -103,9 +103,6 @@ fn each_menu_lists_what_desktop_lists_in_its_order() {
     // A tab whose session hasn't loaded can be closed, and nothing else.
     assert_eq!(ids(&lines(&rt.state, &Target::new("ses_unknown", Spot::Tab))), ["Rename (off)", "Close tab", "—", "Delete session… (off)"]);
     assert!(lines(&rt.state, &Target::new("ses_unknown", Spot::Row)).is_empty());
-    crate::project_inbox::force(true);
-    assert_eq!(of(Spot::Tab), ["Rename", "Close tab", "Make project", "—", "Delete session…"]);
-    assert_eq!(of(Spot::Row), ["Rename", "Export…", "Make project", "—", "Delete…"]);
 }
 
 #[test]

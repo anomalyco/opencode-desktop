@@ -18,7 +18,6 @@ use rune_theme_opencode::icons as ic;
 use opencode_kit::model::{self, SessionInfo};
 
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
-use crate::project_inbox::TaskInfo;
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, title_of};
 use crate::{App, Source};
@@ -239,7 +238,7 @@ impl App {
         }
         let group = if q.is_empty() { "Recent sessions" } else { "Session" };
         // A project's tasks live in its inbox.
-        let sessions = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| !s.is_seer_task()).map(|s| Entry {
+        let sessions = self.merged_roots(&self.switcher.loaded).into_iter().map(|s| Entry {
             key: format!("session:{}", s.id),
             action: Action::Session(s.id.clone()),
             title: title_of(s),
