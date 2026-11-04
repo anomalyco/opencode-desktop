@@ -24,6 +24,8 @@ pub mod knobs;
 pub mod line_reveal;
 pub mod odometer;
 pub mod palette;
+pub mod pickers;
+pub mod popover;
 pub mod question_row;
 pub mod story;
 pub mod style;

@@ -2,6 +2,7 @@
 //! composer, with the Popover knobs beside it (or set to their Grow and shrink preset). O opens, C closes, T toggles three times quickly
 //! (open, close, open, 80 ms apart) to catch an interrupted entrance, R replays.
 
+use crate::pickers::PickerHost as _;
 use rune::Play;
 use rune_knobs::Group;
 

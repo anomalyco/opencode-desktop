@@ -4,6 +4,7 @@
 //! resolves the chosen directory through `/api/location` so the server registers its project,
 //! refreshes `/api/project`, and starts a new session in that folder.
 
+use crate::pickers::PickerHost as _;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 

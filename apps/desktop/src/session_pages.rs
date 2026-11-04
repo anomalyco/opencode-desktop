@@ -1,5 +1,6 @@
 //! Latest-page prefetch and a bounded, server-scoped disk cache. Two read lanes keep a
 //! foreground click independent of speculative reads. Neither lane can write to the server.
+use crate::pickers::PickerHost as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, mpsc::{Receiver, Sender, channel}};

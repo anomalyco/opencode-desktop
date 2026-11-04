@@ -1,9 +1,8 @@
-//! The model list's own parts beyond the shared popover: the efforts flyout beside a row and
-//! when it opens.
+//! The model list's own parts beyond the shared popover live in `session_view::pickers`; this
+//! module keeps their story and tests.
 
-pub mod flyout;
-pub mod hover;
-pub mod rail;
+pub use session_view::pickers::{hover, rail};
+
 mod story;
 
 #[cfg(test)]

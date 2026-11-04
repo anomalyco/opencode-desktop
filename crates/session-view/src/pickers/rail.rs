@@ -6,9 +6,8 @@
 use rune::{El, Icon, ScrollSpec, Transition, Tx, col, el, icon, row};
 use rune_theme_opencode::provider_icons;
 
-use crate::App;
+use super::{FAVORITES, PickerHost, RECENT};
 use crate::palette::Pal;
-use crate::pickers::{FAVORITES, RECENT};
 use crate::popover::{self as pop, Look};
 
 /// The rail's width: a 28 pt button and the list's inset each side.
@@ -57,7 +56,7 @@ fn size(group: &str) -> f32 {
 }
 
 /// The rail, as tall as the list beside it, `lit` being the lit row's group.
-pub fn view(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str>) -> El {
+pub fn view<S: PickerHost>(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str>) -> El {
     let mut rail = col().key("picker-rail").w(W).h_full().padding(look.inset).gap(look.row_gap).items_center()
         .scroll(ScrollSpec { stick_bottom: false });
     let mut pinned = false;
@@ -67,19 +66,19 @@ pub fn view(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str>) -> El {
             rail = rail.child(el().key("rail-divider").w(16.0).h(0.5).my(2.0).fill(p.border_muted));
         }
         pinned = saved;
-        rail = rail.child(button(p, look, stop, lit == Some(stop.group.as_str())));
+        rail = rail.child(button::<S>(p, look, stop, lit == Some(stop.group.as_str())));
     }
     row().key("picker-rail-edge").h_full().child(rail).child(el().w(0.5).h_full().fill(p.border_muted))
 }
 
-fn button(p: &Pal, look: Look, stop: &Stop, lit: bool) -> El {
+fn button<S: PickerHost>(p: &Pal, look: Look, stop: &Stop, lit: bool) -> El {
     let (first, y) = (stop.first.clone(), stop.y);
     row().key(format!("rail-{}", stop.group)).role("button").label(format!("Jump to {}", stop.group)).help(format!("Jump to {}", stop.group))
         .size(28.0, 28.0).center().transition(Transition::none()).radius(look.row_radius).fill(pop::lit(p, lit)).hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
             pop::jump_highlight();
-            s.pickers.activate(first.clone());
+            s.pickers_mut().activate(first.clone());
             tx.scroll_to_y("picker-scroll", y);
         })
         .child(icon(mark(&stop.group, &stop.first), size(&stop.group)).color(p.icon_muted).transition(Transition::none()))

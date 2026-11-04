@@ -1,4 +1,5 @@
 //! Answering a subagent from its own page.
+use crate::pickers::PickerHost as _;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use opencode_kit::client::{Incoming, Prompt, Write};

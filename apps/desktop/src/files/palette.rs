@@ -1,5 +1,6 @@
 //! `⌘P` Open File modal palette (`use-session-commands.tsx` `file.open` + `DialogCommandPalette`).
 
+use crate::pickers::PickerHost as _;
 use std::borrow::Cow;
 use std::time::Duration;
 

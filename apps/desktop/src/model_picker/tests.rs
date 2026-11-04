@@ -2,6 +2,7 @@
 //! once after that, kept by the safe triangle on the way in, following a wheel scroll and closed
 //! by the arrow keys.
 
+use crate::pickers::PickerHost as _;
 use rune::{Key, KeyEvent, Mods, Runtime};
 
 use super::hover::in_triangle;

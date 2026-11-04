@@ -5,6 +5,7 @@
 //! Selecting a project updates `draft_dir` on a New Session page, or opens a new session in that
 //! project from anywhere else.
 
+use crate::pickers::PickerHost as _;
 use opencode_kit::model::{Project, project_sandboxes};
 use rune::{
     Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, spacer, text,

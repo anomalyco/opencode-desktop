@@ -1,6 +1,7 @@
 //! Views: the shell (sidebar + panel), the home page and the session page. Values follow
 //! OpenCode Desktop's v2 styles (`packages/app`, `packages/session-ui`, `packages/ui` tokens).
 
+use crate::pickers::PickerHost as _;
 use std::sync::OnceLock;
 
 use rune::{
@@ -53,13 +54,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         }
         None => shell(s, cx),
     };
-    if s.pickers.open.is_some() {
-        // Nothing gets focus back, so the search field can unmount in this frame.
-        let scrim = crate::popover::scrim("picker-dismiss", |s: &mut App, _| s.close_picker(false));
-        inner = inner.child(crate::model_picker::hover::watch(scrim))
-            .child(picker(s, p))
-            .children(crate::model_picker::flyout::view(s, p));
-    }
+    inner = inner.children(session_view::pickers::view::layer(s, p));
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
     {

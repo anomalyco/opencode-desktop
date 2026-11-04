@@ -3,6 +3,7 @@
 //! 24 × 16 switch), with only the preferences this app has. They live in
 //! `<data dir>/rune-opencode/settings.json`, next to `ui.json`.
 
+use crate::pickers::PickerHost as _;
 use std::path::PathBuf;
 
 use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, spacer, text};

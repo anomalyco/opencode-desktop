@@ -1,0 +1,211 @@
+//! The composer's agent, model and effort. Desktop reference: ModelSelectorPopoverView,
+//! ComposerEditorSelect and `providers/models/selection.tsx`. A session runs with what the
+//! server last said (`session.agent`, `session.model`); a pick is remembered per session and
+//! rides on its next prompt, which switches the session first (`Server::send`). Once the server
+//! says it runs with the pick, the memory goes, as Desktop's `reconcile` does.
+//!
+//! The state is [`Pickers`]; a host implements [`PickerHost`] for the session it shows, mounts
+//! [`view::layer`] over its window and calls [`hover::poll`] each frame.
+
+pub mod flyout;
+mod host;
+pub mod hover;
+pub mod prefs;
+pub mod rail;
+pub mod view;
+
+use std::collections::{HashMap, HashSet};
+
+use opencode_kit::model::ModelRef;
+use rune::TextEdit;
+use serde_json::Value;
+
+use crate::popover::Highlight;
+
+pub use flyout::EffortFlyout;
+pub use host::PickerHost;
+pub use hover::ModelHover;
+pub use prefs::ModelPrefs;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind { Agent, Model, Effort, Project }
+
+pub const ADD_PROJECT_KEY: &str = "+add";
+
+impl Kind {
+    pub fn key(self) -> &'static str {
+        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Model {
+    pub key: String,
+    pub id: String,
+    pub provider: String,
+    pub group: String,
+    pub name: String,
+    pub variants: Vec<String>,
+    /// Left out of the list until a search finds it (Desktop's `visible`).
+    pub hidden: bool,
+    /// OpenCode's free models (Desktop's `isFreeModel`).
+    pub free: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Selection { pub model: ModelRef, pub agent: String }
+
+#[derive(Clone, Default)]
+pub struct Item {
+    pub key: String,
+    pub label: String,
+    pub group: String,
+    /// Faint after the label: a model's provider in Favorites and Recent.
+    pub note: String,
+    pub free: bool,
+}
+
+impl Item {
+    pub fn new(key: impl Into<String>, label: impl Into<String>) -> Item {
+        Item { key: key.into(), label: label.into(), ..Item::default() }
+    }
+}
+
+pub const FAVORITES: &str = "Favorites";
+pub const RECENT: &str = "Recent";
+
+#[derive(Default)]
+pub struct Pickers {
+    pub models: Vec<Model>,
+    /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
+    pub limits: HashMap<String, u64>,
+    pub agents: Vec<String>,
+    /// Each agent's configured model (`/api/agent`'s `model`), which it switches to when picked.
+    pub agent_models: HashMap<String, ModelRef>,
+    pub open: Option<Kind>,
+    pub search: TextEdit,
+    pub toolbar_focus: Option<Kind>,
+    pub(crate) active: Highlight,
+    /// Picks by session id ("draft" for a new session), until the server runs with them.
+    pub selections: HashMap<String, Selection>,
+    /// The model each agent last had in a session, by session then agent, so switching back to
+    /// an agent brings its model back (Desktop's `choices`).
+    pub(crate) choices: HashMap<String, HashMap<String, ModelRef>>,
+    /// The effort last picked for each model, which picking that model again brings back
+    /// (Desktop's per-model `variant` preference).
+    pub(crate) efforts: HashMap<String, String>,
+    /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
+    /// (Desktop's staged variant). Opening the list clears them.
+    pub(crate) staged: HashMap<String, String>,
+    /// The lit model's efforts, open beside its row.
+    pub flyout: Option<flyout::Flyout>,
+    /// When the flyout opens on hover.
+    pub hover: hover::Hover,
+    pub prefs: ModelPrefs,
+}
+
+/// `items` with each group's rows together, groups in the order they first appear: the server
+/// needn't list a provider's models side by side, and a group gets one heading.
+fn grouped(mut items: Vec<Item>) -> Vec<Item> {
+    let mut order: Vec<String> = Vec::new();
+    for i in &items {
+        if !order.contains(&i.group) { order.push(i.group.clone()); }
+    }
+    items.sort_by_key(|i| order.iter().position(|g| *g == i.group));
+    items
+}
+
+fn wall_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+
+impl Pickers {
+    pub fn load(&mut self, fixture: &Value) {
+        self.models = fixture["models"].as_array().into_iter().flatten().map(|v| {
+            let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
+            Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
+                group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
+                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false }
+        }).collect();
+        self.load_limits(&fixture["models"]);
+        self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+    }
+
+    /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
+    /// Deprecated models are left out, as Desktop leaves them out of its catalog.
+    pub fn load_live(&mut self, models: &Value, agents: &Value) {
+        let now = wall_ms();
+        let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
+        let listed: Vec<&Value> = models.as_array().into_iter().flatten()
+            .filter(|v| v["enabled"].as_bool().unwrap_or(true) && v["status"].as_str() != Some("deprecated")).collect();
+        let shown = shown_models(&listed, now);
+        self.models = listed.iter().map(|v| {
+            let (id, provider) = (s(v, "id"), s(v, "providerID"));
+            let key = format!("{provider}:{id}");
+            Model { hidden: !shown.contains(&key), free: is_free(v), key, id, group: provider.clone(), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
+                variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
+        }).collect();
+        self.load_limits(models);
+        let agents: Vec<&Value> = agents.as_array().into_iter().flatten()
+            .filter(|a| a["mode"].as_str() != Some("subagent") && !a["hidden"].as_bool().unwrap_or(false)).collect();
+        self.agents = agents.iter().filter_map(|a| a["id"].as_str()).map(str::to_owned).collect();
+        self.agent_models = agents.iter().filter_map(|a| {
+            let m = &a["model"];
+            let model = ModelRef { id: s(m, "id"), provider: s(m, "providerID"), variant: s(m, "variant") };
+            (!model.id.is_empty()).then(|| (s(a, "id"), model))
+        }).collect();
+    }
+
+    /// Reads `limit.context` from a list of models, keyed by `provider` or `providerID`.
+    pub fn load_limits(&mut self, models: &Value) {
+        for m in models.as_array().into_iter().flatten() {
+            let provider = m["providerID"].as_str().or(m["provider"].as_str()).unwrap_or("");
+            if let (Some(id), Some(n)) = (m["id"].as_str(), m["limit"]["context"].as_u64()) {
+                self.limits.insert(format!("{provider}:{id}"), n);
+            }
+        }
+    }
+
+    /// Lights the row `key`; another row's efforts close.
+    pub fn activate(&mut self, key: String) {
+        if self.flyout.as_ref().is_some_and(|f| f.model != key) { self.flyout = None; }
+        self.active.set(key, self.search.text.clone());
+    }
+
+    /// Picking the model `key` now runs it with `effort` ("" for its default).
+    pub fn stage_effort(&mut self, key: &str, effort: &str) {
+        self.staged.insert(key.to_owned(), effort.to_owned());
+    }
+
+    pub fn model_name(&self, m: &ModelRef) -> String {
+        self.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone())
+    }
+}
+
+/// OpenCode's models that cost nothing (Desktop's `isFreeModel`): the untiered cost's input is 0.
+fn is_free(m: &Value) -> bool {
+    m["providerID"] == "opencode" && m["cost"].as_array().and_then(|c| c.iter().find(|c| c.get("tier").is_none()).or(c.first())).is_none_or(|c| c["input"].as_f64() == Some(0.0))
+}
+
+/// Desktop's default model list (`models.tsx` `visible`): each provider's newest model in a
+/// family released in the last six months, OpenCode's free models, and models with no release
+/// date. A search finds the rest.
+fn shown_models(models: &[&Value], now_ms: i64) -> HashSet<String> {
+    const SIX_MONTHS: f64 = 6.0 * 30.436875 * 24.0 * 3600.0 * 1000.0;
+    let key = |m: &Value| format!("{}:{}", m["providerID"].as_str().unwrap_or(""), m["id"].as_str().unwrap_or(""));
+    let free = |m: &Value| is_free(m);
+    let mut out = HashSet::new();
+    let mut newest: HashMap<String, (i64, String)> = HashMap::new();
+    for m in models {
+        let Some(released) = m["time"]["released"].as_f64() else { out.insert(key(m)); continue };
+        if free(m) { out.insert(key(m)); }
+        if (now_ms as f64 - released).abs() >= SIX_MONTHS { continue; }
+        let family = format!("{}/{}/{}", m["providerID"].as_str().unwrap_or(""), m["family"].as_str().unwrap_or(""), free(m));
+        // A tie keeps the first listed.
+        if newest.get(&family).is_none_or(|(t, _)| released as i64 > *t) {
+            newest.insert(family, (released as i64, key(m)));
+        }
+    }
+    out.extend(newest.into_values().map(|(_, k)| k));
+    out
+}

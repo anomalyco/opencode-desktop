@@ -9,6 +9,7 @@
 //! (`/api/session?search=`, after a 100 ms pause), and ranks sessions first (open tabs, then
 //! the newest) ahead of commands.
 
+use crate::pickers::PickerHost as _;
 use std::collections::HashMap;
 use std::time::Duration;
 

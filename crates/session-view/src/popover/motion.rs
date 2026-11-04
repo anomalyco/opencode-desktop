@@ -30,8 +30,6 @@ pub const GROUP: Group = Group::new("Popover", "popover", &[OPEN, CLOSE, DURATIO
         Preset { name: "Slide", values: &[("Popover open", 3.0), ("Popover close", 1.0), ("Popover duration", 0.2)] },
     ]);
 
-rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
-
 /// Whether a popover plays an entrance.
 pub fn opens(k: &Knobs) -> bool {
     k.get(&OPEN) as usize != 0

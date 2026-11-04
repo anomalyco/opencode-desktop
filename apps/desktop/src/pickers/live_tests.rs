@@ -2,7 +2,7 @@
 //! on the next prompt only when it differs from what the session runs with.
 use super::*;
 use opencode_kit::client::Write;
-use rune::{Mods, Runtime};
+use rune::{Key, Mods, Runtime};
 
 const SES: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 

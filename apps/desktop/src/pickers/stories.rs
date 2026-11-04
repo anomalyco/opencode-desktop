@@ -3,6 +3,7 @@
 //! switch the session to, or Recent (the current model first) and Favorites leading it. M opens and closes the list, E cycles the effort (⇧⌘D), A the agent
 //! (⌘.), F stars the lit model (⌘F), R replays.
 
+use crate::pickers::PickerHost as _;
 use rune::Play;
 
 use crate::App;

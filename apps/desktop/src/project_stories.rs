@@ -1,6 +1,7 @@
 //! Storybook stories for opening and switching projects (`Projects/Open project`,
 //! `Projects/Project switcher`).
 
+use crate::pickers::PickerHost as _;
 use rune::{El, Play, Tx, col, row};
 
 use crate::palette::Pal;

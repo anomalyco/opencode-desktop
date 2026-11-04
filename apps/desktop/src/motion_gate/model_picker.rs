@@ -2,6 +2,7 @@
 //! and its efforts open, moves to the next row and they follow at once, crosses a row on its
 //! way into them, wheels the list, then the arrow keys close them.
 
+use crate::pickers::PickerHost as _;
 use rune::{Key, KeyEvent, Mods, Runtime};
 
 use super::Run;

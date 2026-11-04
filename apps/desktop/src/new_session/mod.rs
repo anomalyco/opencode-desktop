@@ -3,6 +3,7 @@
 //! in the background (`Write::StartAs`). The id is chosen here, as Desktop does, so nothing
 //! swaps when the server's copy lands. A start that fails goes back to the new-session page
 //! with the words in the composer.
+use crate::pickers::PickerHost as _;
 use opencode_kit::client::Request;
 use opencode_kit::model::SessionInfo;
 use rune::Tx;

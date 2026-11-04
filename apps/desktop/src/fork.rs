@@ -6,6 +6,7 @@
 //! the settled history strictly before `messageID`. Once created, it opens as a tab with that
 //! prompt back in its composer ready to edit and send.
 
+use crate::pickers::PickerHost as _;
 use opencode_kit::client::Write;
 use opencode_kit::mention;
 use opencode_kit::model::{Message, SessionInfo, Transcript};

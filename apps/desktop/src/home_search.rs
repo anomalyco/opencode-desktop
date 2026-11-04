@@ -5,6 +5,7 @@
 //!   pasted `ses_…` ids (`GET /api/session/:id`).
 //! - ↑ / ↓ step through matching rows, ↩ opens the highlighted session, Esc clears and blurs.
 
+use crate::pickers::PickerHost as _;
 use std::time::Duration;
 
 use opencode_kit::model::{self, Project, SessionInfo};

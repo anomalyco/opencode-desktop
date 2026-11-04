@@ -4,6 +4,7 @@
 //! efforts beside it; its Favorite variant stars one model, so Favorites leads the rail. The
 //! provider rail runs down its left. R replays; O opens or closes the efforts.
 
+use crate::pickers::{EffortFlyout as _, ModelHover as _, PickerHost as _};
 use rune::Play;
 
 use crate::App;

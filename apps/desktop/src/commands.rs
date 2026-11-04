@@ -6,6 +6,7 @@
 //! `rune_register::register!(crate::commands::COMMANDS: Cmd = [Cmd::new("id", "Title", run)…]);`
 //! Panels with a `.command(…)` join the list on their own (`App::commands`).
 
+use crate::pickers::PickerHost as _;
 use rune::{El, Key, KeyEvent, Tx, row};
 use rune_register::{collect, slice};
 

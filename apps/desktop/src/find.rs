@@ -5,6 +5,7 @@
 //! so streaming replies only re-scan the changed part, and hashed per row so `rune::memo` only
 //! rebuilds mounted rows whose highlights or active match actually changed.
 
+use crate::pickers::PickerHost as _;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;

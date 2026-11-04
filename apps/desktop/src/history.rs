@@ -3,6 +3,7 @@
 //! Home, a new draft, Settings); a new move drops what was ahead. Back and forward open the
 //! entry at once, with no animation. Closing a tab or deleting a session drops its entries.
 
+use crate::pickers::PickerHost as _;
 use rune::{Key, KeyEvent, MenuItem, Mods, PhysicalKeyCode, Tx};
 
 use crate::{App, Route};

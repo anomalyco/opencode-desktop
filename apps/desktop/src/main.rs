@@ -6,6 +6,7 @@
 #[global_allocator]
 static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
 
+use crate::pickers::PickerHost as _;
 pub use session_view::{
     agent_start, disclosure, fold, jump, line_reveal, odometer, palette, question_row,
     subagent_card as agent_rows_view, themes, turns,
@@ -795,7 +796,7 @@ impl App {
             self.files.wrap = files::markdown::WrapPrefs::load();
         }
         self.prompts = prompt_history::PromptHistory::load();
-        self.pickers.prefs = model_prefs::ModelPrefs::load();
+        self.pickers.prefs = model_prefs::load();
         self.restore_ui(&server.base);
         if self.launch.offline { (self.tabs.clear(), self.route = Route::Home); }
         self.base_ms = wall_ms();
