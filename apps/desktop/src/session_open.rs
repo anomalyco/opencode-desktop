@@ -5,18 +5,19 @@ impl App {
     /// leaves Settings, as any page the sidebar opens does.
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.close_settings();
-        self.cancel_open(tx);
+        if self.opening.as_ref().is_some_and(|o| o.id == id) { return; }
         let held = self.pages.has_pool() && self.route != Route::Session(id.to_owned());
         if self.route != Route::Session(id.to_owned()) { crate::telemetry::open_begin(id, held); }
         if held {
             self.begin_open(id, tx);
         } else {
+            self.opening = None;
             self.open_now(id, tx);
             self.open_page(id, tx);
         }
     }
 
-    /// Commits the route, header and transcript together, once the opening gate is ready.
+    /// Commits the input destination immediately; the transcript can still be loading.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
         crate::telemetry::committed(id, false);
         let prev_route = self.route.clone();

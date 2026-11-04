@@ -28,6 +28,9 @@ fn spans_reach_a_collector_as_one_otlp_request() {
     let v: Value = serde_json::from_str(&body.1).unwrap();
     let rs = &v["resourceSpans"][0];
     assert_eq!(rs["resource"]["attributes"][0]["value"]["stringValue"], "otlp-lite-test");
+    let resource = |key: &str| rs["resource"]["attributes"].as_array().unwrap().iter().find(|a| a["key"] == key).unwrap()["value"].clone();
+    assert!(!resource("host.name")["stringValue"].as_str().unwrap().is_empty());
+    assert_eq!(resource("process.pid")["intValue"], std::process::id().to_string());
     let spans = rs["scopeSpans"][0]["spans"].as_array().unwrap();
     assert_eq!(spans.len(), 2, "both spans in one batch");
     let (read, open) = (&spans[0], &spans[1]);

@@ -20,22 +20,29 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
 // Session
 
 pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
-    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
-    let page = col().key("session").grow(1.0).w_full().child(header(s, p, s.session(id), t));
+    let shown = s.displayed_session(id).unwrap_or(id);
+    let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
+    let head = header(s, p, s.session(shown), t);
+    let page = col().key("session").grow(1.0).w_full().child(if s.opening.is_some() { head.inert() } else { head });
     session_body(s, p, id, page)
 }
 
 /// The session page under its header: the timeline, and what sits under it.
 pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let info = s.session(id);
-    let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
+    let shown = s.displayed_session(id);
+    let t = shown.and_then(|shown| s.transcripts.get(shown)).filter(|_| !s.loading_session(id));
     let child = info.is_some_and(|i| i.parent.is_some());
     let pills = if child { Vec::new() } else { pills(s, p, id) };
+    let timeline = match shown {
+        Some(shown) => session_view::timeline_area(s, p, shown, t, pills),
+        None => col().key("timeline-area").grow(1.0).w_full(),
+    };
     let mut page = page
-        .child(session_view::timeline_area(s, p, id, t, pills))
+        .child(if s.opening.is_some() { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
-    if s.opening.is_some() { page.inert() } else { page }
+    page
 }
 
 /// The pills over the composer: the subagent capsule, then the todo pill beside it.

@@ -28,6 +28,8 @@ const RETRY: Duration = Duration::from_secs(30);
 mod bench_tests;
 #[cfg(test)]
 mod prefetch_tests;
+#[cfg(test)]
+mod typing_tests;
 
 /// Session-page prefetch pool, delayed history-cursor expansion, and older pages on scroll.
 #[derive(Default)]
@@ -108,7 +110,7 @@ impl State {
     }
 }
 
-/// The visible route remains `from` until content can paint, or the loading deadline expires.
+/// Only the transcript remains `from` until content can paint or the loading deadline expires.
 pub struct Opening {
     pub id: String,
     from: super::Route,
@@ -410,6 +412,9 @@ fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
 impl super::App {
     pub fn cancel_open(&mut self, tx: &mut rune::Tx) {
         if let Some(opening) = self.opening.take() {
+            if let super::Route::Session(id) = &opening.from {
+                self.sync_route_draft(&self.route.clone(), id);
+            }
             self.route = opening.from;
             tx.settle();
         }
@@ -419,7 +424,9 @@ impl super::App {
         self.close_picker(false);
         self.activity_open = false;
         self.todo_open = false;
-        self.opening = Some(Opening { id: id.into(), from: self.route.clone(), started: Instant::now(), clock: self.clock, loading: false, received: self.transcripts.contains_key(id), error:None });
+        let from = self.opening.as_ref().filter(|o| !o.loading).map_or_else(|| self.route.clone(), |o| o.from.clone());
+        self.opening = Some(Opening { id: id.into(), from, started: Instant::now(), clock: self.clock, loading: false, received: self.transcripts.contains_key(id), error:None });
+        self.open_now(id, tx);
         self.open_page(id, tx);
         self.poll_open(tx);
         if self.opening.is_some() { tx.wake_after(HOLD); }
@@ -435,7 +442,8 @@ impl super::App {
         let ready = opening.received && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
         if ready {
             self.opening = None;
-            self.open_now(&id, tx);
+            // Mount the finished transcript at its end without resetting input or focus.
+            tx.settle();
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
@@ -444,8 +452,7 @@ impl super::App {
         let expired = if self.live() { opening.started.elapsed() >= HOLD } else { self.clock >= opening.clock + HOLD.as_secs_f64() };
         if expired && !opening.loading {
             self.opening.as_mut().unwrap().loading = true;
-            crate::telemetry::committed(&id, true);
-            self.open_now(&id, tx);
+            tx.settle();
             return true;
         }
         false
@@ -460,6 +467,14 @@ impl super::App {
 
     pub fn loading_session(&self, id: &str) -> bool {
         self.opening.as_ref().is_some_and(|o| o.id == id && o.loading)
+    }
+
+    /// The held transcript is read-only; the route and composer already belong to the target.
+    pub(crate) fn displayed_session<'a>(&'a self, id: &'a str) -> Option<&'a str> {
+        match self.opening.as_ref().filter(|o| o.id == id && !o.loading) {
+            Some(o) => match &o.from { super::Route::Session(from) => Some(from), _ => None },
+            None => Some(id),
+        }
     }
 
     /// Reads `id`'s latest page from the server again, ahead of anything speculative.
@@ -795,7 +810,7 @@ mod tests {
         rt.update(|s, tx| { s.open("ses_b", tx); s.open("ses_c", tx); });
         send.send(Ok(result("ses_b"))).unwrap();
         rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::Session("ses_slow".into()));
+        assert_eq!(rt.state.route, Route::Session("ses_c".into()), "input follows the newest click immediately");
         send.send(Ok(result("ses_c"))).unwrap();
         rt.update(|s, tx| { s.poll_pages(tx); });
         assert_eq!(rt.state.route, Route::Session("ses_c".into()));
@@ -872,11 +887,11 @@ mod tests {
             let elements = rt.elements();
             let loading = elements.iter().any(|e| e.text.as_deref() == Some("Loading messages…"));
             let target = rt.state.route == Route::Session("ses_target".into());
-            let grey = target && rt.state.attach.image_handles().iter().any(|img| !img.is_ready());
+            let grey = rt.state.opening.is_none() && target && rt.state.attach.image_handles().iter().any(|img| !img.is_ready());
             let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.label.as_deref() == Some("0"));
             let at_bottom = rt.scroll_at_bottom("scroll-ses_target");
             let image = elements.iter().find(|e| e.path.ends_with("/img-0") && !e.exiting).map(|e| e.rect);
-            if loading || grey || zero || (target && at_bottom == Some(false)) { bad.push(frame); }
+            if loading || grey || zero || (rt.state.opening.is_none() && target && at_bottom == Some(false)) { bad.push(frame); }
             if target && let Some(rect) = image {
                 if let Some(old) = bottom { if old != rect { bad.push(frame); } } else { bottom = Some(rect); }
             }

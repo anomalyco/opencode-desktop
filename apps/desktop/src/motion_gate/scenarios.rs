@@ -884,6 +884,12 @@ fn open(r: &mut Run) {
     let mut seen = state(&r.rt.state);
     // A prefetched session swaps in on the frame of the keypress itself.
     r.act("open", |rt| rt.key(KeyEvent { key: Key::Text("o".into()), mods: Mods::default() }));
+    // Input remains live while the transcript is held, loading, and mounting.
+    if let Some((x, y)) = r.rt.find("prompt") {
+        r.act("focus during load", |rt| { rt.pointer_down(x, y); rt.pointer_up(x, y); });
+        r.act("type during load", |rt| rt.key(KeyEvent { key: Key::Text("Draft".into()), mods: Mods::default() }));
+        assert_eq!(r.rt.state.composer.text, "Draft");
+    }
     for i in 0..=(1.5 / DT) as usize {
         if i > 0 {
             r.step_n(1);

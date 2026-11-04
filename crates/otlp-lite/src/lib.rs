@@ -140,15 +140,23 @@ fn exporter() -> Option<&'static Sender<Value>> {
         let to = to?;
         let (send, spans) = channel::<Value>();
         std::thread::Builder::new().name("otel-export".into()).spawn(move || {
+            // Resolve once on the exporter, never in the UI's per-span path.
+            let host = std::process::Command::new("hostname").output().ok()
+                .filter(|out| out.status.success())
+                .and_then(|out| String::from_utf8(out.stdout).ok())
+                .map(|host| host.trim().to_owned()).filter(|host| !host.is_empty());
+            let mut resource = vec![
+                json!({"key": "service.name", "value": {"stringValue": service}}),
+                json!({"key": "service.version", "value": {"stringValue": version}}),
+                json!({"key": "process.pid", "value": {"intValue": std::process::id().to_string()}}),
+            ];
+            if let Some(host) = host { resource.push(json!({"key": "host.name", "value": {"stringValue": host}})); }
             while let Ok(first) = spans.recv() {
                 // A short wait gathers one trace's spans into one request.
                 std::thread::sleep(Duration::from_millis(200));
                 let batch: Vec<Value> = std::iter::once(first).chain(spans.try_iter()).collect();
                 let body = json!({"resourceSpans": [{
-                    "resource": {"attributes": [
-                        {"key": "service.name", "value": {"stringValue": service}},
-                        {"key": "service.version", "value": {"stringValue": version}},
-                    ]},
+                    "resource": {"attributes": resource},
                     "scopeSpans": [{"scope": {"name": service}, "spans": batch}],
                 }]});
                 post(to, &body.to_string());

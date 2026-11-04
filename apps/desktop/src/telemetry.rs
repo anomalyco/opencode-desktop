@@ -53,6 +53,7 @@ thread_local! {
     static READ: RefCell<Option<(Instant, usize, Instant)>> = const { RefCell::new(None) };
     static OPEN: RefCell<Option<Open>> = const { RefCell::new(None) };
     static FRAME: RefCell<Option<(Instant, Option<f64>, Option<f64>)>> = const { RefCell::new(None) };
+    static PAINTED: RefCell<Option<(String, usize)>> = const { RefCell::new(None) };
 }
 
 /// The live reader's first byte, body size and JSON parse start, for the page worker's `Read`.
@@ -122,7 +123,9 @@ pub fn open_restored(id: &str, cached: usize) {
     let root = Span::root("session.open").at(start).attr("session.id", id).attr("restored", true).attr("cached_rows", cached as i64);
     let ctx = root.ctx();
     for (path, a, b) in LAUNCH_READS.lock().unwrap().drain(..) { record(ctx, "launch.read", (a, b), vec![("path", path.into())]); }
-    OPEN.with(|o| *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx, started: start, root: Some(root), committed: None, history: false, pages: 0, restored: true, live: false, painted: false }));
+    // on_ready connects after the cached launch frame; an unchanged server page need not draw.
+    let painted = PAINTED.with(|p| p.borrow().as_ref().is_some_and(|(shown, rows)| shown == id && *rows > 0));
+    OPEN.with(|o| *o.borrow_mut() = Some(Open { id: id.to_owned(), ctx, started: start, root: Some(root), committed: None, history: false, pages: 0, restored: true, live: false, painted }));
 }
 
 /// A page for `id` reached the app; `shown` is the UI thread's time merging it.
@@ -185,6 +188,12 @@ pub fn encoded(f: &rune::FrameEncoded) {
 /// After a drawn frame: `shown` is the session on screen with its messages, if any. Ends
 /// `session.open` on the first that paints the opening session, then times the older page's.
 pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant, Option<f64>, Option<f64>)) {
+    PAINTED.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.as_ref().map(|(id, rows)| (id.as_str(), *rows)) != shown {
+            *p = shown.map(|(id, rows)| (id.to_owned(), rows));
+        }
+    });
     let Some((id, rows)) = shown else { return };
     let finished = with_open(id, |open| {
         let frame = |name: &'static str| {

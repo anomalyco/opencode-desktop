@@ -89,7 +89,7 @@ fn pixels(s: &mut App, _: &mut Play<App>) {
 pub fn view(s: &App, p: &Pal) -> El {
     let Some(d) = s.open_demo.as_ref() else { return col() };
     let Route::Session(id) = &s.route else { return col() };
-    let label = if d.before { "Before · immediate route switch" } else { "After · wait for complete content" };
+    let label = if d.before { "Immediate transcript" } else { "Type while the transcript loads" };
     col().key("opening-stage").w_full().h_full()
         .child(text(label).font(crate::view::UI).color(p.muted).px(16.0).py(16.0))
         .child(crate::view::session_page(s, p, id))

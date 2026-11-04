@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 fn capture<R>(f: impl FnOnce() -> R) -> (R, Vec<Value>) {
     otlp_lite::capture(|| {
+        drawn(None, (Instant::now(), None, None));
         let r = f();
         OPEN.with(|o| *o.borrow_mut() = None);
         r
@@ -151,6 +152,20 @@ fn an_open_never_painted_ends_after_follow_instead_of_at_the_next_open() {
     });
     let root = named(&spans, "session.open");
     assert_eq!(attr(root, "outcome")["stringValue"], "unpainted");
+}
+
+#[test]
+fn a_restored_trace_started_after_the_cached_frame_does_not_wait_for_a_redraw() {
+    let _launch = LAUNCH.lock().unwrap_or_else(|e| e.into_inner());
+    let (_, spans) = capture(|| {
+        // on_ready starts connecting only after the cached launch frame has drawn.
+        drawn(Some(("ses_cached_launch", 10)), (Instant::now(), Some(1.0), None));
+        open_restored("ses_cached_launch", 10);
+        committed("ses_cached_launch", false);
+        page("ses_cached_launch", false, &Read { source: "server", messages: 10, ..Default::default() }, (Instant::now(), Instant::now()));
+        assert!(OPEN.with(|o| o.borrow().as_ref().unwrap().root.is_none()), "unchanged cached content needs no second paint");
+    });
+    assert_eq!(attr(named(&spans, "session.open"), "outcome")["stringValue"], "cached");
 }
 
 #[test]
