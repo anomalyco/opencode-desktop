@@ -14,17 +14,12 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
 /// `TITLE_FLOOR` (p263); the title takes what's left, fading at its edge.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>, scope: &str) -> El {
     // Context and spend: the last finished step's context window, the session's cost.
-    let last = t.and_then(|t| {
-        t.messages.iter().rev().find_map(|m| match m {
-            Message::Assistant(a) if a.tokens.context() > 0 => Some(a.tokens.context()),
-            _ => None,
-        })
-    });
+    let last = t.and_then(session_view::usage::context);
     let ctx = last.unwrap_or(0);
     // The session's own total (it includes subagents); the transcript's sum when it's ahead.
-    let summed = t.map_or(0.0, |t| t.messages.iter().map(|m| if let Message::Assistant(a) = m { a.cost } else { 0.0 }).sum::<f64>());
+    let summed = t.map_or(0.0, session_view::usage::spent);
     let cost = info.map_or(0.0, |i| i.cost).max(summed);
-    let (tokens, spend) = (model::tokens_short(ctx), format!("${cost:.2}"));
+    let (tokens, spend) = session_view::usage::labels(ctx, cost);
     let shows_usage = t.is_some() && last.is_some();
     let reserve_side = !s.right_column_open() && s.stage.is_none();
 
@@ -73,18 +68,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<
     // Each session's numbers are their own odometers, so opening another one shows its numbers
     // at once rather than rolling from this one's.
     let sid = info.map(|i| i.id.as_str()).or(t.map(|t| t.session.as_str())).unwrap_or("");
-    let usage = row()
-        .key("usage")
-        .gap(6.0)
-        .center_y()
-        // Its numbers widen to the left; the row slides on their spring, so they roll in place,
-        // while `ride_trailing` keeps it locked to `header`'s right edge as the side region moves.
-        .motion(crate::odometer::SPRING)
-        .width_leads()
-        .ride_trailing()
-        .children(keep(HeaderDrop::Ring).then(|| ring(p, (ctx as f32 / limit).min(1.0))))
-        .children(keep(HeaderDrop::Tokens).then(|| odometer_end(format!("ctx-{sid}"), tokens, ctx as f64, UI_SMALL, p.muted)))
-        .child(odometer_end(format!("cost-{sid}"), spend, (cost * 100.0).round(), UI_SMALL, p.faint));
+    let usage = session_view::usage::row_for(p, sid, ctx, cost, limit, keep(HeaderDrop::Ring), keep(HeaderDrop::Tokens));
     row()
         .key(scoped(scope, "header"))
         .h(48.0)
@@ -139,37 +123,6 @@ fn drops(s: &App, info: Option<&SessionInfo>, parent: Option<&SessionInfo>, proj
 /// `key`, or `{scope}-{key}` for a copy on a stage.
 pub(super) fn scoped(scope: &str, key: &str) -> String {
     if scope.is_empty() { key.to_owned() } else { format!("{scope}-{key}") }
-}
-
-/// Context ring: a track circle and an arc, both icons built once per 1/32 step.
-pub(super) fn ring(p: &Pal, frac: f32) -> El {
-    static ARCS: OnceLock<Vec<Icon>> = OnceLock::new();
-    static TRACK: Icon = Icon { name: "ring-track", view: 16.0, body: r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2"/>"# };
-    let arcs = ARCS.get_or_init(|| {
-        (0..=32)
-            .map(|k| {
-                let f = k as f32 / 32.0;
-                let body = if k == 0 {
-                    String::new()
-                } else if k == 32 {
-                    r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2"/>"#.to_owned()
-                } else {
-                    let a = f * std::f32::consts::TAU;
-                    let (x, y) = (8.0 + 6.0 * a.sin(), 8.0 - 6.0 * a.cos());
-                    format!(
-                        r#"<path d="M8 2A6 6 0 {} 1 {x:.3} {y:.3}" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#,
-                        u8::from(f > 0.5)
-                    )
-                };
-                Icon { name: "ring-arc", view: 16.0, body: Box::leak(body.into_boxed_str()) }
-            })
-            .collect()
-    });
-    let k = (frac * 32.0).round().clamp(0.0, 32.0) as usize;
-    el().key("ring")
-        .size(16.0, 16.0)
-        .child(icon(&TRACK, 16.0).color(p.layer3).absolute(0.0, 0.0))
-        .child(icon(&arcs[k], 16.0).color(p.icon).absolute(0.0, 0.0))
 }
 
 /// The header's session title. A root session's has Desktop's menu (a right-click, or the ⋯

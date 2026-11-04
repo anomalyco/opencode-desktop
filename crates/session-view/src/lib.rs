@@ -28,8 +28,10 @@ pub mod style;
 pub mod subagent_card;
 pub mod themes;
 pub mod timeline;
+pub mod title;
 pub mod turn_errors;
 pub mod turns;
+pub mod usage;
 pub mod user_parts;
 pub mod working;
 
