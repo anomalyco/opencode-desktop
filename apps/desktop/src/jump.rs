@@ -23,7 +23,7 @@ pub fn lane(pills: bool) -> f32 {
 }
 
 /// The timeline's fade over the composer (p248): transparent at the composer's top edge, under
-/// the pills' `lane`, and whole the "Composer fade" knob above them, linear in between.
+/// the pills' `lane`, and whole the "Composer fade" knob above them.
 pub fn fade(s: &App, lane: f32) -> f32 {
     lane + s.knobs.get(&crate::knobs::COMPOSER_FADE)
 }
@@ -133,7 +133,7 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         .w_full()
         // Its own bottom fade, a fixed one around the scroll's (which a wider one outranks):
         // under the timeline's last row at its end there's only padding.
-        .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
+        .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade(0.0, 0.0, 0.0, edge)
             .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id))))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(crate::view::DOCK_SIDE).center().child(lane))
         .children(centred)
@@ -298,8 +298,6 @@ mod tests {
             let last = shown_text(&rt).iter().map(|t| t.2).fold(f32::MIN, f32::max);
             assert!(last <= chip[1] - 8.0, "zoom {zoom}: the last line ({last}) ends clear over the capsule {chip:?}");
             assert_eq!(super::fade(&rt.state, super::lane(true)), super::CAPSULE_LANE + 16.0);
-            let linear = rt.instances.iter().any(|i| rune::render::unpack_fade(i.fade).0[3] < 0.0);
-            assert!(linear, "zoom {zoom}: the timeline's bottom fade is linear (a negative packed width)");
 
             rt.update(|s, _| s.composer = rune::TextEdit::new("one\ntwo\nthree\nfour"));
             rest(&mut rt);
