@@ -54,6 +54,7 @@ pub struct ViewState {
     pub media: images::MediaStore,
     pub line_hold: line_reveal::Hold,
     pub ends: jump::Ends,
+    pub composer: composer::ComposerState,
 }
 
 impl ViewState {

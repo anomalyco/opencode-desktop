@@ -94,6 +94,69 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
 }
 
+/// Per-window composer state (`ViewState::composer`) for hosts that manage multiple sessions by ID.
+#[derive(Clone, Debug, Default)]
+pub struct ComposerState {
+    pub files: std::collections::HashMap<String, Vec<Attachment>>,
+    pub paths: std::collections::HashMap<String, Vec<PathAttachment>>,
+    pub uploading: std::collections::HashMap<String, Vec<String>>,
+    pub history: history::PromptHistory<String>,
+    pub stopped: std::collections::HashSet<String>,
+}
+
+impl ComposerState {
+    pub fn files(&self, session: &str) -> &[Attachment] {
+        self.files.get(session).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn paths(&self, session: &str) -> &[PathAttachment] {
+        self.paths.get(session).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn uploading(&self, session: &str) -> &[String] {
+        self.uploading.get(session).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn add_file(&mut self, session: &str, a: Attachment) {
+        attachments::push_unique(self.files.entry(session.to_owned()).or_default(), a);
+    }
+
+    pub fn remove_file(&mut self, session: &str, id: &str) {
+        if let Some(list) = self.files.get_mut(session) {
+            list.retain(|f| crate::images::identity(f) != id);
+        }
+    }
+
+    pub fn add_path(&mut self, session: &str, p: PathAttachment) {
+        let list = self.paths.entry(session.to_owned()).or_default();
+        if !list.iter().any(|x| x.path == p.path) {
+            list.push(p);
+        }
+    }
+
+    pub fn remove_path(&mut self, session: &str, path: &str) {
+        if let Some(list) = self.paths.get_mut(session) {
+            list.retain(|f| f.path != path);
+        }
+    }
+
+    pub fn take(&mut self, session: &str) -> (Vec<Attachment>, Vec<PathAttachment>) {
+        (
+            self.files.remove(session).unwrap_or_default(),
+            self.paths.remove(session).unwrap_or_default(),
+        )
+    }
+
+    pub fn restore(&mut self, session: &str, files: Vec<Attachment>, paths: Vec<PathAttachment>) {
+        for a in files {
+            self.add_file(session, a);
+        }
+        for p in paths {
+            self.add_path(session, p);
+        }
+    }
+}
+
 /// Host hooks for the shared session composer. Defaults give a minimal host (like Seer) auto-grow,
 /// attachment chips, image paste, `+` attach button, and Send / Stop with ~20 lines of glue,
 /// while letting OpenCode (Rune) plug in its pickers, slash/mention menus, queue face, and dictation.
