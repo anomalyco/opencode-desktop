@@ -5,6 +5,7 @@ use rune::{Anim, Curve, El, Easing, KeyEvent, Spring, Tx};
 use rune_knobs::{Group, Knob, Knobs, Preset};
 
 use crate::App;
+use crate::line_reveal::{LINE_GROW, NEW_LINE_REVEAL, SOFT_EDGE};
 
 /// The subagent capsule's fill: 1 is Desktop's (the composer's surface), 0 a bare hairline.
 pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("How solid the subagent capsule fill is");
@@ -62,7 +63,7 @@ pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0).abo
 pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25).about("Spring duration for opening image viewer");
 
 pub const TIMELINE: &[Knob] = &[
-    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
+    GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, NEW_LINE_REVEAL, LINE_GROW, SOFT_EDGE, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE,
     IMAGE_FLIGHT,
 ];
 
@@ -238,6 +239,8 @@ mod tests {
         assert_eq!(glow_secs(&k), 0.9);
         assert_eq!(growth(&k), rune::GROWTH);
         assert_eq!(actions_tail(&k), Spring::new(0.34, 0.0));
+        assert_eq!(crate::line_reveal::line_grow(&k), Spring::new(0.08, 0.0));
+        assert_eq!(crate::line_reveal::reveal(&k), crate::line_reveal::Reveal::Clip);
         assert_eq!(jump(&k, true), Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)));
         assert_eq!(jump(&k, false), Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0)));
         assert_eq!(k.get(&JUMP_RISE), 4.0);

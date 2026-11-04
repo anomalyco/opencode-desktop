@@ -17,6 +17,7 @@ mod composer_grow;
 mod diagram;
 mod model_picker;
 mod odometers;
+mod line_reveal;
 mod panels;
 mod permission;
 mod pills;

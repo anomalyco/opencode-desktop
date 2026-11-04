@@ -146,11 +146,13 @@ mod stop_stories;
 mod stories;
 #[path = "stream/pace.rs"]
 mod stream_pace;
-#[path = "stream/cushion_story.rs"]
-mod cushion_story;
+#[path = "stream/line_reveal.rs"]
+mod line_reveal;
+#[path = "stream/line_grow_story.rs"]
+mod line_grow_story;
 #[cfg(test)]
-#[path = "stream/cushion_tests.rs"]
-mod cushion_tests;
+#[path = "stream/line_grow_tests.rs"]
+mod line_grow_tests;
 mod subagents;
 mod switcher;
 mod tab_actions;
@@ -228,6 +230,8 @@ pub struct App {
     pub expanded: HashSet<String>,
     /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
     pub shutting: HashMap<String, f64>,
+    /// Grow, then show's streaming words, held a line-grow behind (`line_reveal`).
+    pub line_hold: line_reveal::Hold,
     /// The copy button showing its tick (`copied.rs`).
     pub copied: copied::Copied,
     /// The diagrams replies show, and the one open full size (`diagram`).
@@ -812,6 +816,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= disclosure::poll(s, now, tx);
+    changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
     changed |= model_picker::hover::poll(s, now, tx);

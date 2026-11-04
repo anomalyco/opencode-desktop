@@ -92,9 +92,6 @@ pub(super) enum RowContent {
     TurnText { message: usize, part: usize, live: bool, pt: f32 },
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
-    /// Empty room this tall: [`CUSHION`] over Working while a reply's words stream in, and the
-    /// same at the timeline's end otherwise, so the room moves without the timeline changing height.
-    Room(f32),
     /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
     /// fetched and decoded, only when the row mounts.
     UserImages { id: String, pt: f32 },
@@ -111,24 +108,23 @@ impl RowSpec {
         self.key.starts_with("c-") || matches!(self.content, RowContent::Compaction { piece: crate::compaction::Piece::Quiet, .. })
     }
 
-    /// A streaming row with words in it: a reply's text (not its still-empty start) or a
-    /// compaction's summary.
-    fn shows_words(&self, t: &Transcript) -> bool {
-        let words = |m: usize, part: Option<usize>| match &t.messages[m] {
-            Message::Assistant(a) => matches!(part.map_or(a.parts.last(), |i| a.parts.get(i)), Some(Part::Text { text }) if !text.trim().is_empty()),
-            _ => false,
-        };
-        match &self.content {
-            RowContent::TurnText { message, part, .. } => words(*message, Some(*part)),
-            RowContent::Turn { end, .. } => words(*end - 1, None),
-            _ => true,
-        }
+    fn wrap(&self, s: &App, el: El) -> El {
+        self.wrap_paced(s, el, false)
     }
 
-    fn wrap(&self, s: &App, el: El) -> El {
-        let row = col().w_full().max_w(CONTENT_W).streaming(self.streaming).child(el);
-        if self.streaming {
-            row
+    /// [`Self::wrap`], with `paced` streaming rows climbing at the stream's pace rather than a
+    /// line at a time: a reply with a fenced block in it, whose diagram, outline or code can
+    /// grow by many lines in one build.
+    fn wrap_paced(&self, s: &App, el: El, paced: bool) -> El {
+        let row = col().w_full().max_w(CONTENT_W).child(el);
+        if self.streaming && (paced || crate::line_reveal::reveal(&s.knobs) == crate::line_reveal::Reveal::HeldRoom) {
+            row.streaming(true)
+        } else if self.streaming {
+            // Streaming words open their row a line at a time, each line on its own quick spring
+            // the moment it wraps, clipped at its moving edge: the line shows whole almost at once,
+            // nothing paints over Working, and Working steps down by just that line, however
+            // slowly the words come (p252, `line_reveal`).
+            row.fold_glide(crate::line_reveal::line_grow(&s.knobs)).fold_feather(crate::line_reveal::feather(&s.knobs))
         } else if self.folds() {
             // A fold glides on its own quick spring, however long it is. Shutting, what it showed
             // hangs below the header until it unmounts, and Rune clips a row only while its height
@@ -139,6 +135,14 @@ impl RowSpec {
             // Finished content opens in one quick glide, which a pinned timeline follows.
             row.arrives_whole()
         }
+    }
+
+    /// A reply's text part, its words held back for Grow, then show (`line_reveal`).
+    #[allow(clippy::too_many_arguments)]
+    fn text_row(&self, s: &App, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32) -> El {
+        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live);
+        let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold.shown(message, part));
+        self.wrap_paced(s, words, body.contains("```"))
     }
 
     fn build(&self, s: &App, p: &Pal, t: &Transcript, fade: f32) -> El {
@@ -155,11 +159,13 @@ impl RowSpec {
                     {
                         // Only a reply with a diagram in it follows the column's width.
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagram.hidden_in(body));
+                        let reveal = crate::line_reveal::reveal(&s.knobs);
+                        let line = (reveal, s.knobs.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(&s.knobs).to_bits(), s.line_hold.shown(&a.id, *part));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagram.hidden_in(body), line);
                         return rune::memo(self.key.clone(), ver, || {
                             #[cfg(test)]
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.wrap(s, col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)))
+                            self.text_row(s, p, &a.id, *part, body, fade, *live, *pt)
                         });
                     }
                 }
@@ -181,13 +187,6 @@ impl RowSpec {
                             _ => unreachable!(),
                         };
                         self.wrap(s, el)
-                    });
-                }
-                RowContent::Room(h) => {
-                    return rune::memo(self.key.clone(), h.to_bits(), || {
-                        #[cfg(test)]
-                        ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                        self.wrap(s, el().h(*h))
                     });
                 }
                 RowContent::User { message, tight, above, below, fold } => {
@@ -256,8 +255,8 @@ impl RowSpec {
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
             RowContent::Lane(h) => el().w_full().h(*h),
-            RowContent::Actions { message, busy } => col().w_full().child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
-            RowContent::Room(h) => el().h(*h),
+            // Held room keeps a line of room over Working, which streaming text draws into (#304).
+            RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::attachments::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -274,7 +273,7 @@ impl RowSpec {
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
-                    Part::Text { text: body } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
+                    Part::Text { text: body } => return self.text_row(s, p, &a.id, *part, body, fade, *live, *pt),
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
@@ -335,21 +334,12 @@ pub(crate) fn timeline_row_builds() -> usize {
 /// The timeline's padding under its last row.
 const END: f32 = 24.0;
 
-/// The line of space under a streaming reply, over Working: a new line lands there in full while
-/// the reply's row grows to fit it, rather than typing in under a clip (p191). It's one line of
-/// reply text, more than the most a stream's row trails its text by, and whole pixels so the rows
-/// under it stay on the grid. Only while words stream in: otherwise Working sits its lane's
-/// usual gap under the last row, and the room waits at the timeline's end (p252).
-pub(crate) const CUSHION: f32 = 24.0;
-
-/// The feather, with streaming text drawing past its row's growing edge into [`CUSHION`], its
-/// words fading in; other rows still clip as they move.
-const STREAM_EDGE: rune::growth::StreamEdge = rune::growth::StreamEdge { overflow: true, ..edge::FEATHER };
-
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
 /// its last row stands over the lane, clear of the fade into the composer.
 pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
-    let e = STREAM_EDGE;
+    // Held room's streaming text draws past its row's edge into the room over Working.
+    let held_room = crate::line_reveal::reveal(&s.knobs) == crate::line_reveal::Reveal::HeldRoom;
+    let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
     let mut specs = t.map(|t| rows(s, t)).unwrap_or_default();
     if t.is_some() && lane > 0.0 {
         specs.push(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false });
@@ -466,14 +456,10 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
         }
     }
     turn_rows(&mut out, &steps, start, shown, busy && revert.is_none());
-    let mut over = None;
     if let Some(last) = last_assistant {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
         let busy = busy || s.running.contains(&t.session);
-        let h = if out.iter().any(|r| r.streaming && r.shows_words(t)) { CUSHION } else { 0.0 };
-        out.push(RowSpec { key: "turn-cushion".into(), content: RowContent::Room(h), streaming: false });
-        over = Some(h);
         out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
     }
     // A compaction waiting to start sits under Working, above the steers, as Desktop's.
@@ -492,11 +478,6 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
         let tight = prompt_images(&mut out, &item.id, older);
         out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
-    }
-    // The cushion's room when it's shut: the two glide together on one spring, so the
-    // timeline's height holds as a stream starts or ends (p252).
-    if let Some(h) = over {
-        out.push(RowSpec { key: "turn-room".into(), content: RowContent::Room(CUSHION - h), streaming: false });
     }
     dividers::stack(t, &mut out);
     out

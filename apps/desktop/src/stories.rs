@@ -187,7 +187,7 @@ const ORDER: &[&str] = &[
     "Timeline/Question answers",
     "Timeline/Compaction",
     "Timeline/Working",
-    "Timeline/Room under a reply",
+    "Timeline/Streaming line growth",
     "Timeline/Stop",
     "Timeline/Steer and Pending",
     "Timeline/Move to background",
