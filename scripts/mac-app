@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Rune's scripts/mac-app from the pinned checkout (see scripts/rune-path); same flags. Seer's
-# installs sign with the Developer ID identity below unless MAC_APP_SIGN says otherwise.
+# Rune's scripts/mac-app from the pinned checkout (see scripts/rune-path); same flags.
+# Defaults to ad-hoc signing (`-`) unless MAC_APP_SIGN is set.
 set -euo pipefail
-export MAC_APP_SIGN=${MAC_APP_SIGN-Developer ID Application: Example Developer (TEAMID0000)}
 exec "$("$(dirname "$0")/rune-path" mac-app)" "$@"

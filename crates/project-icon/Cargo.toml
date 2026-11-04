@@ -1,6 +1,7 @@
 [package]
 name = "project-icon"
 version = "0.0.1"
+description = "Procedural CPU-shaded project icons and custom icon loader for Rune apps"
 edition.workspace = true
 license.workspace = true
 

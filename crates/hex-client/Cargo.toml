@@ -1,6 +1,7 @@
 [package]
 name = "hex-client"
 version = "0.0.1"
+description = "Local HTTP client for driving Hex voice dictation from Rune apps"
 edition.workspace = true
 license.workspace = true
 

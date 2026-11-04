@@ -1,6 +1,7 @@
 [package]
 name = "terminal"
 version = "0.0.1"
+description = "Embeddable Ghostty-VT terminal pane for Rune apps over OpenCode PTY WebSockets"
 edition.workspace = true
 license.workspace = true
 build = "build.rs"

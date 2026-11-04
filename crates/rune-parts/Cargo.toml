@@ -1,6 +1,7 @@
 [package]
 name = "rune-parts"
 version = "0.0.0"
+description = "Generative UI (```ui) outline parser, checker, and Rune element renderer"
 edition.workspace = true
 license.workspace = true
 publish = false

@@ -1,6 +1,7 @@
 [package]
 name = "browser-pane"
 version = "0.0.1"
+description = "Embeddable Chromium browser pane for Rune apps via the OpenCode Browser Engine sidecar"
 edition.workspace = true
 license.workspace = true
 

@@ -12,7 +12,7 @@ The `main` app checks `https://anoma.ly/release` 10 seconds after launch and onc
 
 ## 2. Try a pull request side by side
 
-Every open pull request in `anomalyco/seer` that touches `apps/desktop` (or one of its crates) posts a comment with a link to `OpenCode-Rune-PR-<N>-macos-arm64.dmg`.
+Every open pull request in `anomalyco/rune-desktop` that touches `apps/desktop` (or one of its crates) posts a comment with a link to `OpenCode-Rune-PR-<N>-macos-arm64.dmg`.
 
 1. Download the `.dmg` from the PR comment and drag **`OpenCode (Rune) · <branch>.app`** to `/Applications` (or open it directly from the mounted disk image).
 2. Look for the `#<N>` badge on its Dock icon and the branch name in its title. Each PR build has its own bundle ID (`anomaly.opencode-rune.pr.<N>`) and does not auto-update, so your `/Applications/OpenCode (Rune).app` from `main` stays untouched.

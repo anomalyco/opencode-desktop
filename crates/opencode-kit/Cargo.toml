@@ -1,6 +1,7 @@
 [package]
 name = "opencode-kit"
 version = "0.0.1"
+description = "OpenCode HTTP/SSE/WS client and session model for Rune apps"
 edition.workspace = true
 license.workspace = true
 

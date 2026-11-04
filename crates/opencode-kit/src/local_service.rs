@@ -1,5 +1,5 @@
 //! Discovers a local OpenCode Desktop / CLI `service.json` sidecar (`hostname`, `port`, `password`)
-//! when `OPENCODE_SERVER_PASSWORD` and Studio's migration password file are absent.
+//! when `OPENCODE_SERVER_PASSWORD` is unset.
 
 use std::path::{Path, PathBuf};
 
@@ -164,7 +164,7 @@ mod tests {
     fn local_port_matches_loopback_http_only() {
         assert_eq!(local_port("http://127.0.0.1:4096"), Some(4096));
         assert_eq!(local_port("http://localhost:4096/"), Some(4096));
-        assert_eq!(local_port("https://studio.example.ts.net:4096"), None);
+        assert_eq!(local_port("https://host.example.ts.net:4096"), None);
     }
 
     #[test]

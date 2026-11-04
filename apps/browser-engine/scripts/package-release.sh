@@ -92,7 +92,7 @@ sign_and_notarize() {
   local out_dir="$2"
   local work="$3"
 
-  local sign_id="${MAC_APP_SIGN:-Developer ID Application: Example Developer (TEAMID0000)}"
+  local sign_id="${MAC_APP_SIGN:?Set MAC_APP_SIGN to a Developer ID Application identity}"
   local providers_json="$HOME/.config/app-store-connect/providers.json"
   local notary_key_id="${NOTARY_KEY_ID:-}"
   local notary_issuer="${NOTARY_ISSUER:-}"

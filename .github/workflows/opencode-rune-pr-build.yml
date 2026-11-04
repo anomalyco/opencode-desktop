@@ -17,6 +17,7 @@ on:
       - "crates/otlp-lite/**"
       - "crates/project-icon/**"
       - "crates/rune-parts/**"
+      - "crates/session-view/**"
       - "crates/terminal/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -99,7 +100,6 @@ jobs:
           toolchain: stable
       - name: Build side-by-side badged PR app
         run: |
-          apps/desktop/scripts/isolate-workspace.sh "$PWD"
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
           mkdir -p "$RUNNER_TEMP/app" "$RUNNER_TEMP/macos" "$RUNNER_TEMP/dmg-stage"
           swift apps/desktop/scripts/badge-icon.swift "#$PR_NUMBER" "$RUNNER_TEMP/pr-icon.icns"

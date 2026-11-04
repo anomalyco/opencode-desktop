@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Rune's scripts/rune-hot from the pinned checkout (see scripts/rune-path); same flags:
-#   scripts/rune-hot --manifest apps/sketch/Cargo.toml --patch src/view.rs -- ARGS
-# The build and the app run together in one HiveMind cargo lease (HOT_WORKER, default studio).
+#   scripts/rune-hot --manifest apps/desktop/Cargo.toml --patch src/view.rs -- ARGS
 set -euo pipefail
-export RUNE_DEV_WRAP=${RUNE_DEV_WRAP-hivemind run --kind cargo --worker ${HOT_WORKER:-studio} --no-sync --}
 exec "$("$(dirname "$0")/rune-path" rune-hot)" "$@"

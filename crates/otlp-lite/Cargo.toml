@@ -1,6 +1,7 @@
 [package]
 name = "otlp-lite"
 version = "0.0.1"
+description = "Minimal OTLP/HTTP trace and log exporter"
 edition.workspace = true
 license.workspace = true
 

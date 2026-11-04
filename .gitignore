@@ -1,7 +1,5 @@
 /target
+/captures
 .DS_Store
 __pycache__/
 *.pyc
-/perf/scroll-runs/
-/perf/sidebar-runs/
-/crates/seer-worker/public/

@@ -45,7 +45,7 @@ notarize() {
   xcrun notarytool submit "$1" --key "$SEER_NOTARY_KEY" --key-id "$SEER_NOTARY_KEY_ID" --issuer "$SEER_NOTARY_ISSUER" --wait --timeout 45m
 }
 
-sign --entitlements "$release/seer.entitlements" "$app"
+sign --entitlements "$release/opencode-rune.entitlements" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$work/notarize.zip"

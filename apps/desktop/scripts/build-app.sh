@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds OpenCode (Rune).app (anomaly.opencode-rune by default) into OUT, ad-hoc signed, for the
 # OpenCode (Rune) release and PR workflows. opencode-rune-sign-macos.sh signs it with the
-# Developer ID afterwards. Kit's local install (com.kitlangton.opencode-rune-desktop) remains
-# apps/desktop/scripts/bundle.sh and is never touched here.
+# Developer ID afterwards. Local dev installs (anomaly.opencode-rune.dev) use
+# apps/desktop/scripts/bundle.sh and are never touched here.
 #
 #   apps/desktop/scripts/build-app.sh OUT
 #

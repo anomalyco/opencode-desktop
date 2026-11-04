@@ -25,9 +25,7 @@ done
 export MOTION_GATE=$filter
 rm -f "$OUT" "$OUT.sheet.png" "$OUT.dump"
 status=0
-# The filter and dump settings live in the environment, which hivemind's repeat guard can't see.
-HIVEMIND_ALLOW_REPEAT=1 hivemind run --kind cargo --worker "${MOTION_WORKER:-studio}" -- \
-  cargo test -q -p opencode-desktop motion_gate::scenarios >/dev/null 2>&1 || status=$?
+cargo test -q -p opencode-desktop motion_gate::scenarios >/dev/null 2>&1 || status=$?
 if [[ -s "$OUT" ]]; then cat "$OUT"; else echo "motion-audit-desktop: the test didn't run (exit $status); run cargo test -p opencode-desktop motion_gate to see why" >&2; exit 1; fi
 [[ -f "$OUT.sheet.png" ]] && echo "sheet: $OUT.sheet.png"
 [[ -f "$OUT.dump" ]] && echo "dump: $OUT.dump"

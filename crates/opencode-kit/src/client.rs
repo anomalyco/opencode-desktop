@@ -1,9 +1,9 @@
 //! The OpenCode server connection: GETs on a worker thread, writes (prompts, replies, stop, new
 //! session) on another, `/api/event` on a third, all waking the window when data lands.
 //!
-//! The password comes from `~/.local/share/opencode-studio-migration/password` (or
-//! `OPENCODE_SERVER_PASSWORD`), or from a connect link (`Server::with_password`, pairing.rs),
-//! and only ever goes into the Authorization header.
+//! The password comes from `OPENCODE_SERVER_PASSWORD`, the local OpenCode `service.json`,
+//! or a connect link (`Server::with_password`, pairing.rs), and only ever goes into the
+//! Authorization header.
 
 use std::io::{BufRead, BufReader};
 use std::net::{SocketAddr, TcpStream};

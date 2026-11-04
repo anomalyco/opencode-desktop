@@ -2,8 +2,8 @@
 //!
 //! Checks 10 seconds after launch and hourly afterwards, downloads and verifies updates in a
 //! private folder under `~/Library/Caches/anomaly.opencode-rune/Updates`, and swaps the bundle
-//! atomically when the user presses Restart to update. Kit's local builds
-//! (`com.kitlangton.opencode-rune-desktop`) and bare `cargo` binaries never run this updater.
+//! atomically when the user presses Restart to update. Local dev builds
+//! (`anomaly.opencode-rune.dev`) and bare `cargo` binaries never run this updater.
 
 pub mod mac;
 pub mod protocol;

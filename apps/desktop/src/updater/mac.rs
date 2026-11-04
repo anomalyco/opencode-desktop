@@ -4,10 +4,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Kit's local Studio/Air updater bundle ID (`scripts/seer-updater` and `apps/desktop/scripts/bundle.sh`).
+/// Local dev-install bundle ID (`apps/desktop/scripts/bundle.sh`).
 /// The release-service auto-updater never touches this bundle.
 #[cfg(test)]
-pub const KIT_LOCAL_BUNDLE_ID: &str = "com.kitlangton.opencode-rune-desktop";
+pub const LOCAL_DEV_BUNDLE_ID: &str = "anomaly.opencode-rune.dev";
 
 /// Team release bundle ID installed from `https://anoma.ly/release`.
 pub const TEAM_BUNDLE_ID: &str = "anomaly.opencode-rune";
@@ -20,7 +20,7 @@ pub struct BundleInfo {
     pub team: Option<String>,
 }
 
-/// Returns true only for bundles managed by the team release feed (never Kit's local updater build).
+/// Returns true only for bundles managed by the team release feed (never local dev builds).
 pub fn is_updatable_bundle_id(bundle_id: &str) -> bool {
     bundle_id == TEAM_BUNDLE_ID
 }

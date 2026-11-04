@@ -1,6 +1,16 @@
 [workspace]
 resolver = "3"
-members = ["apps/desktop", "apps/note-web", "apps/sketch", "crates/browser-pane", "crates/hex-client", "crates/opencode-kit", "crates/otlp-lite", "crates/project-icon", "crates/rune-parts", "crates/rune-rolling", "crates/seer-domain", "crates/seer-ffi", "crates/seer-sync", "crates/seer-worker", "crates/session-view", "crates/terminal"]
+members = [
+    "apps/desktop",
+    "crates/browser-pane",
+    "crates/hex-client",
+    "crates/opencode-kit",
+    "crates/otlp-lite",
+    "crates/project-icon",
+    "crates/rune-parts",
+    "crates/session-view",
+    "crates/terminal",
+]
 exclude = ["apps/browser-engine"]
 
 [workspace.package]
@@ -20,11 +30,6 @@ rune-perf = { git = "https://github.com/anomalyco/rune", rev = "dc7913072bb095ff
 rune-register = { git = "https://github.com/anomalyco/rune", rev = "dc7913072bb095ffe5f560753cf4b4198774cd62" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
-# Seer's shared data (crates/seer-domain). Private repo: .cargo/config.toml fetches it with git.
-wraith-core = { git = "https://github.com/anomalyco/wraith", rev = "d40b43c66d0b11ee1a056bc2a60116085bd8529d" }
-wraith-local = { git = "https://github.com/anomalyco/wraith", rev = "d40b43c66d0b11ee1a056bc2a60116085bd8529d" }
-wraith-do = { git = "https://github.com/anomalyco/wraith", rev = "d40b43c66d0b11ee1a056bc2a60116085bd8529d", default-features = false }
-seer-domain = { path = "crates/seer-domain" }
 
 [profile.dev.package."*"]
 debug = false
@@ -48,21 +53,11 @@ inherits = "release"
 incremental = false
 debug = 1
 
-[profile.wasm-release]
-inherits = "release"
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = "symbols"
-incremental = false
-
 [workspace.lints.rust]
 # shared-lints begin
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 # shared-lints end
-# shared: forbid; 173 sites left (t1003)
 unsafe_code = "warn"
 
 [workspace.lints.clippy]
@@ -75,9 +70,6 @@ expect_used = "warn"
 todo = "warn"
 unwrap_used = "warn"
 # shared-lints end
-# shared: deny; 264 sites left (t1003)
 let_underscore_must_use = "warn"
-# shared: deny; 128 sites left (t1003)
 disallowed_methods = "warn"
-# shared: deny; 139 sites left (t1003)
 undocumented_unsafe_blocks = "warn"

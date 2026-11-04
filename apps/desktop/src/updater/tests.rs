@@ -8,7 +8,7 @@ use rune::Tx;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
-use super::mac::{self, BundleInfo, KIT_LOCAL_BUNDLE_ID, TEAM_BUNDLE_ID};
+use super::mac::{self, BundleInfo, LOCAL_DEV_BUNDLE_ID, TEAM_BUNDLE_ID};
 use super::protocol::{self, Decision, TARGET_MACOS_ARM64};
 use super::{Engine, UpdateState, WorkerConfig, hex_lower};
 use crate::App;
@@ -25,7 +25,7 @@ fn parses_manifest_and_resolves_relative_target_urls() {
         "published_at": "2026-11-03T18:00:00Z",
         "release": {
             "version": "0.0.0-dev-42",
-            "notes_url": "https://github.com/anomalyco/seer/commit/abc",
+            "notes_url": "https://github.com/anomalyco/rune-desktop/commit/abc",
             "rollout_percent": 100,
             "targets": {
                 "macos-arm64": {
@@ -105,7 +105,7 @@ fn rollout_and_channel_rules_match_release_protocol() {
 
 #[test]
 fn kit_local_bundle_is_never_touched_by_team_updater() {
-    assert!(!mac::is_updatable_bundle_id(KIT_LOCAL_BUNDLE_ID));
+    assert!(!mac::is_updatable_bundle_id(LOCAL_DEV_BUNDLE_ID));
     assert!(mac::is_updatable_bundle_id(TEAM_BUNDLE_ID));
     assert_eq!(
         mac::bundle_root_from_exe(Path::new("/Applications/OpenCode (Rune).app/Contents/MacOS/opencode-desktop")),

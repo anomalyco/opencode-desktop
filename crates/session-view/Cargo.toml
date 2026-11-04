@@ -1,6 +1,7 @@
 [package]
 name = "session-view"
 version = "0.0.1"
+description = "Embeddable OpenCode session timeline view for Rune apps"
 edition.workspace = true
 license.workspace = true
 publish = false
