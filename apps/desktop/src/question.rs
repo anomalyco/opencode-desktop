@@ -21,6 +21,8 @@ use crate::palette::Pal;
 use crate::{App, Route, knobs};
 
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+/// An answer's description: a little tighter than the question, so long answers stay compact.
+const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(18.0);
 const STRONG: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0);
 const HINT: TextStyle = TextStyle::new(11.0, 440.0).lh(12.0);
 const MARK: TextStyle = TextStyle::new(11.0, 530.0).lh(12.0).features("\"tnum\"");
@@ -443,6 +445,7 @@ impl App {
                 self.dock(&f).focus = if ev.key == Key::Home { 0 } else { count(field) - 1 };
             }
         }
+        self.reveal_focus(tx);
         true
     }
 
@@ -464,6 +467,7 @@ impl App {
                 tx.instant();
                 self.stop_typing(&f, tab);
                 self.dock(&f).focus = n - 1;
+                self.reveal_focus(tx);
                 true
             }
             Key::Enter if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
@@ -597,19 +601,16 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         .key("q-header")
         .w_full()
         .px(10.0)
+        .child(row().key("q-top").w_full().min_h(28.0).gap(12.0).center_y().child(odometer(format!("q-title-{}", f.id), title, (tab + 1) as f64, TITLE, p.muted)).child(spacer()).children(progress));
+    let details = col()
+        .key(format!("q-details-{tab}"))
+        .w_full()
+        .px(10.0)
         .gap(4.0)
-        .child(row().key("q-top").w_full().min_h(28.0).gap(12.0).center_y().child(odometer(format!("q-title-{}", f.id), title, (tab + 1) as f64, TITLE, p.muted)).child(spacer()).children(progress))
-        .child(
-            col()
-                .key(format!("q-details-{tab}"))
-                .w_full()
-                .gap(4.0)
-                .transition(arrival(s, s.question.step))
-                .child(crate::view::readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
-                .children(multi.then(|| text("Pick any").key("q-hint").font(HINT).color(p.faint))),
-        );
+        .child(crate::view::readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
+        .children(multi.then(|| text("Pick any").key("q-hint").font(HINT).color(p.faint)));
 
-    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" }).transition(arrival(s, s.question.step));
+    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" });
     for (i, (value, label, desc)) in list.iter().enumerate() {
         let picked = picks.contains(value);
         answers = answers.child(
@@ -636,9 +637,9 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
                     col()
                         .key("main")
                         .grow(1.0)
-                        .gap(4.0)
+                        .gap(2.0)
                         .child(text(label.clone()).key("label").font(STRONG).color(p.text).wrap())
-                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(TITLE).color(p.muted).wrap())),
+                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap())),
                 ),
         );
     }
@@ -699,7 +700,13 @@ pub fn face(s: &App, p: &Pal) -> Option<Vec<El>> {
         );
     }
 
-    let body = col().key("question").w_full().padding(8.0).gap(16.0).transition(face_transition(s)).child(header).child(answers);
+    // The question and its answers scroll together under the header, sliding in as one.
+    let page = long::scroller(tab, col().key("q-page").w_full().gap(16.0).child(details).child(answers)).transition(arrival(s, s.question.step));
+    let body = col().key("question").w_full().padding(8.0).gap(4.0).transition(face_transition(s)).child(header).child(page);
+    let body = match long::body_max(s) {
+        Some(h) => body.max_h(h),
+        None => body,
+    };
 
     let last = f.last(tab);
     let footer = row()
@@ -753,6 +760,8 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
     }),
 ]);
+
+pub(crate) mod long;
 
 #[cfg(test)]
 mod custom_tests;

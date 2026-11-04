@@ -593,6 +593,8 @@ const ACTIONS: &[Action] = &[
         v.push(Circ { dock: Dock::Pending, ..Circ::default() });
         v
     }, run: super::permission::permission },
+    // A long question keeps to its share of the pane and scrolls its answers under the keys (p273).
+    Action { name: "question-long", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }, Circ { zoomed: true, ..Circ::default() }], run: super::question_long::walk },
     // Kit's capture (t1129): thirty subagents and a plan run while a tool group in the last turn
     // opens and shuts; while the timeline shows its end, nothing in it shows under a pill.
     Action { name: "working-under-pills", circs: || {

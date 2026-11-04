@@ -21,6 +21,7 @@ mod line_reveal;
 mod panels;
 mod permission;
 mod pills;
+mod question_long;
 mod rewind;
 mod scenarios;
 mod scrollbar;

@@ -40,6 +40,8 @@ pub const FADE_OUT: Knob = Knob::new("Fade out", 0.05, 0.5, 0.15).step(0.01).abo
 pub const ARRIVE: Knob = Knob::new("Arrive", 0.1, 0.8, 0.3).step(0.01).about("Seconds a new question's options slide in");
 /// How far they slide, in points.
 pub const ARRIVE_SLIDE: Knob = Knob::new("Arrive slide", 0.0, 32.0, 12.0).step(1.0).about("Points a new question's options slide");
+/// The tallest a long question gets, as a share of the pane; its answers scroll inside (p273).
+pub const QUESTION_MAX: Knob = Knob::new("Max height", 0.3, 1.0, 0.6).step(0.05).about("Tallest the dock gets, share of pane");
 
 /// The timeline's motion. The defaults are the curves it shipped with, and stay those exactly
 /// (`timeline_defaults_are_what_shipped`).
@@ -77,7 +79,7 @@ const QUESTION_PRESETS: &[Preset] = &[
 ];
 
 pub const QUESTION_DOCK: Group =
-    Group::new("Question dock", "question", &[MORPH_CURVE, MORPH_DURATION, MORPH_BOUNCE, FACE_IN, FACE_RISE, FADE_OUT, ARRIVE, ARRIVE_SLIDE])
+    Group::new("Question dock", "question", &[MORPH_CURVE, MORPH_DURATION, MORPH_BOUNCE, FACE_IN, FACE_RISE, FADE_OUT, ARRIVE, ARRIVE_SLIDE, QUESTION_MAX])
         .presets(QUESTION_PRESETS)
         .default_label("Desktop");
 
