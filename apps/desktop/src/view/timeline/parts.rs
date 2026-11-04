@@ -220,6 +220,7 @@ pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src
     Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
         .diagram_frame(move |card, d| crate::diagram::frame(&pal, card, d, &full))
         .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| s.open_reply_link(url, tx))
+        .link_help(|url| crate::files::link_tip::tip(url, ""))
         .build(crate::palette::kit(p)).selection_group(false)
 }
 

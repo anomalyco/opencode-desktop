@@ -86,7 +86,7 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
 }
 
 /// Whether `path` is one bare word (`link`, `Makefile`): no folder, no extension.
-fn is_bare_word(path: &str) -> bool {
+pub(super) fn is_bare_word(path: &str) -> bool {
     !path.is_empty() && !path.contains(['/', '.', ':', '\\', '%', '#', '~']) && !path.contains(char::is_whitespace)
 }
 
@@ -193,7 +193,7 @@ pub fn slug(text: &str) -> String {
         .collect()
 }
 
-fn home() -> String {
+pub(super) fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 

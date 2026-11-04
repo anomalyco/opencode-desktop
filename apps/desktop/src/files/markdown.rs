@@ -153,6 +153,7 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
     let active = find.map(|v| v.active);
     let find_ver = find.map(|v| (v.applied.clone(), v.matches.len(), v.active));
     let (sid_link, path_link) = (sid.to_owned(), path.to_owned());
+    let base = std::rc::Rc::new(path.rsplit_once('/').map_or("", |(d, _)| d).to_owned());
     let body = memo(format!("md-body-{sid}-{path}"), (doc.keys_rev, doc.rev, p.dark, find_ver), || {
         let src = doc.text();
         let marks: Vec<(&[Range<usize>], rune_kit::Highlight)> = find
@@ -164,6 +165,7 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
             .block_keys(headings(src).into_iter().map(|(at, s)| (at, heading_key(&s))))
             .selectable(true)
             .on_link_tx(move |s: &mut App, url: &str, tx: &mut Tx| s.open_link(&sid_link, Some(&path_link), url, tx))
+            .link_help({ let base = base.clone(); move |url| crate::files::link_tip::tip(url, base.as_str()) })
             .build(crate::palette::kit(p))
     });
     col()

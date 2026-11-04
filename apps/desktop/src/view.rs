@@ -66,6 +66,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
+    crate::files::link_tip::prepare(s);
     let mut inner = match s.stage {
         Some(st) => {
             cx.reduced_motion(s.reduced_motion);

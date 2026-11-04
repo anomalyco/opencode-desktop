@@ -2,6 +2,10 @@
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
 pub mod data;
+pub mod link_tip;
+mod link_tip_stories;
+#[cfg(test)]
+mod link_tip_tests;
 pub mod links;
 #[cfg(test)]
 mod links_tests;
