@@ -1,3 +1,4 @@
+use super::narrow::{self, Agent};
 use super::*;
 
 // ---------------------------------------------------------------------------------------------
@@ -14,7 +15,7 @@ pub(super) fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .child(text(label.to_owned()).font(UI).color(color));
+        .child(text(label.to_owned()).font(UI).color(color).truncate_fade());
     if chevron {
         r = r.child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_faint));
     }
@@ -49,11 +50,13 @@ pub fn composer_fill(p: &Pal) -> Color {
 }
 
 pub(super) fn composer(s: &App, p: &Pal) -> El {
+    composer_in(s, p, "")
+}
+
+/// The composer, keyed `{scope}-composer` when `scope` isn't empty (copies on one stage).
+pub(crate) fn composer_in(s: &App, p: &Pal, scope: &str) -> El {
     let (pad, shown) = (rune::memo::layout_with("editor-pad", |r| r[3]), rune::memo::layout_with("editor-scroll", |r| r[3]));
     WHOLE.set(!matches!((pad, shown), (Some(pad), Some(shown)) if pad > shown + 0.5));
-    let selected = s.selection();
-    let model = selected.model;
-    let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
     let ready = !s.composer.text.trim().is_empty() || ((s.attach.any() || s.quote.any()) && !s.add.shell);
     let busy = matches!(&s.route, Route::Session(id) if s.busy(id));
     // While dictating, Send finishes and sends with the words (dictation::submit), as on iOS.
@@ -78,7 +81,7 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
         }.transition(crate::stop::glyph_swap()));
     let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
     let composer = col()
-        .key("composer")
+        .key(super::header::scoped(scope, "composer"))
         .w_full()
         .max_w(crate::view::DOCK_W)
         .min_h(88.0)
@@ -127,36 +130,88 @@ pub(super) fn composer(s: &App, p: &Pal) -> El {
                     .on_submit(|s: &mut App, tx: &mut Tx| s.send(tx)),
             ))),
         )
-        .child(
-            row()
-                .key("toolbar")
-                .transition(crate::question::face_transition(s))
-                .h(44.0)
-                .px(8.0)
-                .gap(4.0)
-                .center_y()
-                .child(crate::add_menu::trigger(s, p))
-                .children((s.settings.show_agent || s.subagent_page().is_some()).then(|| picker_trigger(s, p, Kind::Agent, &model::capitalize(&selected.agent), p.muted)))
-                .child(picker_trigger(s, p, Kind::Model, &s.pickers.model_name(&model), p.muted))
-                // "Default" is the absence of a choice, so it reads fainter than a picked effort.
-                .children(s.has_effort().then(|| {
-                    picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted })
-                }))
-                .child(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children((busy && ready).then(|| {
-                    let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                    crate::queue::alternate_hint(p, room)
-                }).flatten()))
-                .children(crate::auto_accept::indicator(s, p))
-                .children(crate::dictation::toolbar(s, p))
-                .child(submit),
-        )
+        .child(toolbar(s, p, scope, submit, busy && ready))
         .children(crate::dictation::status(s, p)),
     }
 }
 
-pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color) -> El {
+/// The bar under the editor. In a narrow window its pickers fold, a step at a time
+/// (`narrow::Toolbar`), so Send never clips (p263).
+fn toolbar(s: &App, p: &Pal, scope: &str, submit: El, queues: bool) -> El {
+    let selected = s.selection();
+    let model = selected.model;
+    let effort = if model.variant.is_empty() { "Default".into() } else { model::capitalize(&model.variant) };
+    let agent = (s.settings.show_agent || s.subagent_page().is_some()).then(|| model::capitalize(&selected.agent));
+    let model_name = s.pickers.model_name(&model);
+    let mic = crate::dictation::toolbar(s, p);
+    let dictating = s.dictation.active();
+    let fold = folds(s, scope, agent.as_deref(), &model_name, s.has_effort().then_some(effort.as_str()), mic.is_some(), dictating);
+    narrow::note_toolbar(fold);
+    let agent = agent.and_then(|name| match fold.agent {
+        Agent::Name => Some(picker_trigger(s, p, Kind::Agent, &name, p.muted, fold.chevrons)),
+        Agent::Icon => Some(agent_icon(s, p, &name)),
+        Agent::Gone => None,
+    });
+    row()
+        .key("toolbar")
+        .transition(crate::question::face_transition(s))
+        .h(44.0)
+        .px(8.0)
+        .gap(4.0)
+        .center_y()
+        .child(crate::add_menu::trigger(s, p))
+        .children(agent)
+        .child(picker_trigger(s, p, Kind::Model, &model_name, p.muted, fold.chevrons).shrink().min_w(0.0))
+        // "Default" is the absence of a choice, so it reads fainter than a picked effort.
+        .children((s.has_effort() && fold.effort).then(|| {
+            picker_trigger(s, p, Kind::Effort, &effort, if model.variant.is_empty() { p.faint } else { p.muted }, fold.chevrons)
+        }))
+        .child(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children(queues.then(|| {
+            let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
+            crate::queue::alternate_hint(p, room)
+        }).flatten()))
+        .children(crate::auto_accept::indicator(s, p))
+        .children(mic.filter(|_| fold.mic || dictating))
+        .child(submit)
+}
+
+/// How far the toolbar folds to fit the width the composer had at the last layout.
+fn folds(s: &App, scope: &str, agent: Option<&str>, model: &str, effort: Option<&str>, mic: bool, dictating: bool) -> narrow::Toolbar {
+    let room = rune::memo::layout_with(&super::header::scoped(scope, "composer"), |r| r[2] - 16.0);
+    let label = |text: &str, chevron: bool| 16.0 + narrow::text_w(text, UI) + if chevron { 18.0 } else { 0.0 };
+    let need = |k: usize| {
+        let t = narrow::Toolbar::after(k);
+        // The add button, the room, Send, and auto-accept's mark when it's on.
+        let mut items = vec![28.0, 0.0, 28.0];
+        if s.settings.auto_accept { items.push(28.0); }
+        if mic && (t.mic || dictating) { items.push(28.0); }
+        match (agent, t.agent) {
+            (Some(name), Agent::Name) => items.push(label(name, t.chevrons)),
+            (Some(_), Agent::Icon) => items.push(28.0),
+            _ => {}
+        }
+        let whole = label(model, t.chevrons);
+        items.push(if t.model_whole { whole } else { whole.min(narrow::MODEL_FLOOR) });
+        if let Some(effort) = effort.filter(|_| t.effort) { items.push(label(effort, t.chevrons)); }
+        items.iter().sum::<f32>() + 4.0 * (items.len() - 1) as f32
+    };
+    narrow::Toolbar::after(narrow::steps(room, narrow::Toolbar::FOLDS, need))
+}
+
+/// The agent's picker folded to its mark; it still opens the agent list.
+fn agent_icon(s: &App, p: &Pal, name: &str) -> El {
+    let mut b = el().key(Kind::Agent.key()).role("button").label("Choose agent").help(format!("Choose agent ({name})"))
+        .size(28.0, 28.0).radius(6.0).center().hover(p.hover).press(p.pressed).motion(Spring::NONE)
+        .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
+    if !s.composer.focused && s.pickers.toolbar_focus == Some(Kind::Agent) {
+        b = b.fill(p.hover);
+    }
+    b.on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Agent); if s.pickers.open.is_some() { crate::popover::motion::opening(&s.knobs, tx); } })
+}
+
+pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: Color, chevron: bool) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
-    let mut button = ghost(p, kind.key(), label, true, color).label(format!("Choose {}", kind.key()))
+    let mut button = ghost(p, kind.key(), label, chevron, color).label(format!("Choose {}", kind.key()))
         .motion(Spring::NONE);
     if !s.composer.focused && s.pickers.toolbar_focus == Some(kind) {
         button = button.fill(p.hover);

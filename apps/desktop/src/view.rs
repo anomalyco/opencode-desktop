@@ -19,11 +19,16 @@ use crate::pickers::Kind;
 use crate::turns::{self, Block, Step};
 
 mod composer;
+mod header;
 mod home;
+mod narrow;
+mod narrow_story;
 mod sidebar;
 mod timeline;
 
 pub use composer::*;
+pub(crate) use header::*;
+pub(crate) use narrow::{Agent as ToolbarAgent, toolbar_shown};
 pub(crate) use home::{home, session_row};
 pub use sidebar::*;
 pub(crate) use timeline::*;
@@ -237,6 +242,8 @@ mod composer_height_tests;
 mod composer_tests;
 #[cfg(test)]
 mod diagram_width_tests;
+#[cfg(test)]
+mod narrow_tests;
 #[cfg(test)]
 pub(crate) mod selection_tests;
 #[cfg(test)]

@@ -169,6 +169,7 @@ const ORDER: &[&str] = &[
     "Header/Session header",
     "Header/Ticking",
     "Header/Title change",
+    "Header/Narrow window",
     "Timeline/Arrival glow",
     "Timeline/Send",
     "Timeline/Long prompt",

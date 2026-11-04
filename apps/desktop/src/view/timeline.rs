@@ -1,7 +1,6 @@
 use super::*;
 use crate::compaction::Run;
 use crate::fold::Fold;
-use crate::session_menu::{Spot, Target};
 
 mod dividers;
 mod draft;
@@ -66,119 +65,6 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
         .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(crate::view::DOCK_SIDE).pb(8.0)
             .child(row().key("activity-lane").w_full().max_w(crate::view::DOCK_W).children(pills))))
         .child(composer_dock(s, p))
-}
-
-pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
-    let mut crumbs = row().key("crumbs").gap(0.0).center_y().shrink().min_w(0.0);
-    if let Some(info) = info {
-        let project = s.project(&info.project);
-        let proj = project.map_or("", |x| x.name.as_str());
-        crumbs = crumbs
-            .child(crate::icons::badge(s, p, project, proj).mr(8.0))
-            .child(text(proj.to_owned()).font(UI_MED).color(p.faint))
-            .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(8.0).pr(4.0));
-        if let Some(parent) = info.parent.as_deref().and_then(|pid| s.session(pid)) {
-            let pid = parent.id.clone();
-            crumbs = crumbs
-                .child(
-                    row().key("parent-crumb").role("button").label(format!("Open {}", title_of(parent))).h(24.0).px(4.0).center_y().radius(4.0).shrink().min_w(0.0)
-                        .hover(p.hover).hover_motion(INSTANT, INSTANT)
-                        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                            tx.instant();
-                            s.open(&pid, tx);
-                        })
-                        .child(text(title_of(parent)).font(UI_MED).color(p.faint).truncate_fade()),
-                )
-                .child(text("/").font(TextStyle::new(11.0, 500.0)).color(p.faint).pl(4.0).pr(4.0));
-        }
-        crumbs = crumbs.children(header_title(s, p, info));
-        // A running subagent's header spins beside its title (`SessionWorkingIndicator`).
-        if info.parent.is_some() && s.subtree_running(&info.id) {
-            crumbs = crumbs.child(activity_ring(p).key("working").ml(6.0));
-        }
-    }
-    // Context and spend: the last finished step's context window, the session's cost.
-    let last = t.and_then(|t| {
-        t.messages.iter().rev().find_map(|m| match m {
-            Message::Assistant(a) if a.tokens.context() > 0 => Some(a.tokens.context()),
-            _ => None,
-        })
-    });
-    let ctx = last.unwrap_or(0);
-    // The session's own total (it includes subagents); the transcript's sum when it's ahead.
-    let summed = t.map_or(0.0, |t| t.messages.iter().map(|m| if let Message::Assistant(a) = m { a.cost } else { 0.0 }).sum::<f64>());
-    let cost = info.map_or(0.0, |i| i.cost).max(summed);
-    // The session model's context window, or 200k when the server doesn't say.
-    let limit = info
-        .and_then(|i| s.pickers.limits.get(&format!("{}:{}", i.model.provider, i.model.id)))
-        .map_or(200_000.0, |&n| n.max(1) as f32);
-    // Each session's numbers are their own odometers, so opening another one shows its numbers
-    // at once rather than rolling from this one's.
-    let sid = info.map(|i| i.id.as_str()).or(t.map(|t| t.session.as_str())).unwrap_or("");
-    let usage = row()
-        .key("usage")
-        .gap(6.0)
-        .center_y()
-        // Its numbers widen to the left; the row slides on their spring, so they roll in place,
-        // while `ride_trailing` keeps it locked to `header`'s right edge as the side region moves.
-        .motion(crate::odometer::SPRING)
-        .width_leads()
-        .ride_trailing()
-        .child(ring(p, (ctx as f32 / limit).min(1.0)))
-        .child(odometer_end(format!("ctx-{sid}"), model::tokens_short(ctx), ctx as f64, UI_SMALL, p.muted))
-        .child(odometer_end(format!("cost-{sid}"), format!("${cost:.2}"), (cost * 100.0).round(), UI_SMALL, p.faint));
-    let reserve_side = !s.right_column_open() && s.stage.is_none();
-    row()
-        .key("header")
-        .h(48.0)
-        .pl(14.0)
-        .pr(14.0)
-        .gap(if reserve_side { 8.0 } else { 0.0 })
-        .center_y()
-        .window_drag()
-        .motion(crate::panels::view::SIDE_SPRING)
-        .child(collapsed_slot(s))
-        .child(crumbs.mr(if reserve_side { 0.0 } else { 8.0 }))
-        .child(spacer())
-        .children(crate::find::bar(s, p))
-        .children(t.filter(|_| last.is_some()).map(|_| usage))
-        .children(s.stage.is_none().then(|| {
-            el().key("header-side-slot")
-                .w(if reserve_side { 30.0 } else { 0.0 })
-                .h(28.0)
-                .motion(crate::panels::view::SIDE_SPRING)
-        }))
-}
-
-/// Context ring: a track circle and an arc, both icons built once per 1/32 step.
-pub(super) fn ring(p: &Pal, frac: f32) -> El {
-    static ARCS: OnceLock<Vec<Icon>> = OnceLock::new();
-    static TRACK: Icon = Icon { name: "ring-track", view: 16.0, body: r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2"/>"# };
-    let arcs = ARCS.get_or_init(|| {
-        (0..=32)
-            .map(|k| {
-                let f = k as f32 / 32.0;
-                let body = if k == 0 {
-                    String::new()
-                } else if k == 32 {
-                    r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2"/>"#.to_owned()
-                } else {
-                    let a = f * std::f32::consts::TAU;
-                    let (x, y) = (8.0 + 6.0 * a.sin(), 8.0 - 6.0 * a.cos());
-                    format!(
-                        r#"<path d="M8 2A6 6 0 {} 1 {x:.3} {y:.3}" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#,
-                        u8::from(f > 0.5)
-                    )
-                };
-                Icon { name: "ring-arc", view: 16.0, body: Box::leak(body.into_boxed_str()) }
-            })
-            .collect()
-    });
-    let k = (frac * 32.0).round().clamp(0.0, 32.0) as usize;
-    el().key("ring")
-        .size(16.0, 16.0)
-        .child(icon(&TRACK, 16.0).color(p.layer3).absolute(0.0, 0.0))
-        .child(icon(&arcs[k], 16.0).color(p.icon).absolute(0.0, 0.0))
 }
 
 /// One timeline row's content, before it becomes a growth-stack child.
@@ -702,35 +588,4 @@ pub(super) fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usi
 pub(crate) fn interrupted(kind: &str) -> bool {
     let k = kind.to_lowercase();
     k.contains("abort") || k.contains("interrupt")
-}
-
-/// The header's session title. A root session's has Desktop's menu (a right-click, or the ⋯
-/// button beside it) and renames when clicked; a subagent's is plain.
-fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
-    if info.parent.is_some() {
-        return vec![text(title_of(info)).font(UI_MED).color(p.text).truncate_fade().pl(4.0)];
-    }
-    let target = Target::new(&info.id, Spot::Header);
-    let marked = s.menus.on.as_ref() == Some(&target);
-    let more = target.clone();
-    let title = match crate::session_menu_view::field(s, p, &target, UI_MED) {
-        Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
-        None => {
-            let begin = target.clone();
-            let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.begin_rename(&begin);
-                })
-                .child(crate::title_change::title(&s.knobs, &format!("title-{}", info.id), title_of(info), UI_MED, p.text));
-            if marked {
-                t = t.fill(p.hover);
-            }
-            crate::session_menu::on(t, target)
-        }
-    };
-    let dots = el().key("header-more").role("button").label("More options").size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, more.clone(), "header-more", tx))
-        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
-    vec![title, dots]
 }

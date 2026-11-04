@@ -503,8 +503,14 @@ impl App {
         }
         if self.composer.focused { self.pickers.toolbar_focus = None; }
         if ev.key == Key::Tab && (self.composer.focused || self.pickers.toolbar_focus.is_some()) {
+            // A narrow window's folded pickers aren't stops (`view::narrow`).
+            let shown = crate::view::toolbar_shown();
             let order: Vec<Kind> = [Kind::Agent, Kind::Model, Kind::Effort].into_iter()
-                .filter(|k| match k { Kind::Agent => self.settings.show_agent, Kind::Effort => self.has_effort(), _ => true }).collect();
+                .filter(|k| match k {
+                    Kind::Agent => self.settings.show_agent && shown.agent != crate::view::ToolbarAgent::Gone,
+                    Kind::Effort => self.has_effort() && shown.effort,
+                    _ => true,
+                }).collect();
             // The composer is the last stop after the pickers.
             let n = order.len();
             let next = self.pickers.toolbar_focus.and_then(|k| order.iter().position(|i| *i == k))
