@@ -243,3 +243,94 @@ fn other_writes_failing_are_not_a_stop() {
     assert!(!failed(&mut app, "POST /api/session/ses_a/prompt: timed out"));
     assert!(failed(&mut app, "POST /api/session/ses_a/interrupt: timed out"));
 }
+
+#[test]
+fn idle_parent_with_background_children_shows_send() {
+    let mut l = live();
+    l.rt.update(|s, _| {
+        crate::stop_stories::background(s);
+    });
+    l.rt.frame(DT);
+    assert_eq!(l.rt.state.running_subagents(&l.sid).len(), 6);
+    assert_eq!(submit(&l), "Send", "background helpers must not turn the idle parent's Send into Stop");
+    esc(&mut l);
+    assert!(l.writes.try_recv().is_err());
+    assert_eq!(l.rt.state.running_subagents(&l.sid).len(), 6);
+}
+
+#[test]
+fn stop_on_an_idle_parent_never_interrupts_background_children() {
+    let mut l = live();
+    let child = crate::fixture_ids::CHILD;
+    l.rt.update(|s, _| {
+        s.finish_stream();
+        s.running.clear();
+        s.running.insert(child.into());
+        s.stop();
+    });
+    assert!(l.writes.try_recv().is_err(), "an idle session needs no interrupt");
+    assert!(l.rt.state.stops.by.is_empty());
+    assert!(l.rt.state.running.contains(child));
+}
+
+#[test]
+fn stop_interrupts_only_the_open_session_as_desktop_does() {
+    let mut l = live();
+    let child = crate::fixture_ids::CHILD;
+    l.rt.update(|s, _| { s.running.insert(child.into()); });
+    esc(&mut l);
+    let interrupts: Vec<_> = l.writes.try_iter().filter_map(|w| match w { Write::Interrupt(id) => Some(id), _ => None }).collect();
+    assert_eq!(interrupts, vec![l.sid.clone()]);
+    assert!(l.rt.state.running.contains(child));
+    assert_eq!(submit(&l), "Send");
+}
+
+#[test]
+fn an_already_idle_interrupt_reply_confirms_without_an_execution_end() {
+    let mut l = live();
+    esc(&mut l);
+    event(&mut l, "session.interrupt.acknowledged", json!({ "interrupted": false }));
+    assert!(!l.rt.state.stops.pending(&l.sid));
+    play(&mut l, CONFIRM_SECS + 1.0);
+    assert!(!l.rt.state.status.contains("confirm the stop"));
+    assert_eq!(submit(&l), "Send");
+}
+
+#[test]
+fn an_accepted_interrupt_waits_for_execution_end_and_ignores_late_write_failure() {
+    let mut l = live();
+    esc(&mut l);
+    event(&mut l, "session.interrupt.acknowledged", json!({ "interrupted": true }));
+    assert!(l.rt.state.stops.pending(&l.sid));
+    event(&mut l, "session.execution.interrupted", json!({ "reason": "user" }));
+    l.server.send(Incoming::Status(format!("POST /api/session/{}/interrupt: timed out", l.sid))).unwrap();
+    l.rt.frame(DT);
+    assert!(!l.rt.state.status.contains("stop"));
+    assert_eq!(submit(&l), "Send");
+}
+
+#[test]
+fn stop_on_a_child_interrupts_that_child_not_its_parent() {
+    let mut l = live();
+    let child = crate::fixture_ids::CHILD;
+    l.rt.update(|s, _| {
+        s.route = Route::Session(child.into());
+        s.running.insert(child.into());
+        s.stop();
+    });
+    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(id)) if id == child));
+    assert!(l.writes.try_recv().is_err());
+    assert!(l.rt.state.running.contains(&l.sid));
+}
+
+#[test]
+fn an_idle_active_snapshot_confirms_a_stop_without_an_execution_end() {
+    let mut l = live();
+    esc(&mut l);
+    l.server.send(Incoming::Active(vec![])).unwrap();
+    l.rt.frame(DT);
+    assert!(!l.rt.state.stops.pending(&l.sid), "already idle is confirmation, even without an execution-end event");
+    play(&mut l, CONFIRM_SECS + 1.0);
+    assert!(!l.rt.state.status.contains("confirm the stop"));
+    assert_eq!(submit(&l), "Send");
+}

@@ -24,6 +24,10 @@ pub fn default_server() -> String {
     server_or_default(std::env::var("OPENCODE_SERVER_URL").ok())
 }
 
+#[cfg(test)]
+#[path = "interrupt_tests.rs"]
+mod interrupt_tests;
+
 fn server_or_default(env: Option<String>) -> String {
     env.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_SERVER.to_owned())
 }
@@ -505,6 +509,12 @@ impl Server {
         self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|_| ())
     }
 
+    /// Like `interrupt`, preserving whether a run was interrupted. `false` means idle or
+    /// already stopping; `None` is an older server that doesn't return an acknowledgement.
+    pub fn interrupt_ack(&self, session: &str) -> Result<Option<bool>, String> {
+        self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|v| v["interrupted"].as_bool())
+    }
+
     /// `session.background`: moves the session's running shells and subagents that block its run
     /// to the background, so the run goes on to its next step. The server moves each job once
     /// and ignores the call when nothing blocks.
@@ -712,7 +722,14 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                         Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
                         Write::Form { session, form, answer } => server.reply_form(&session, &form, answer),
                         Write::CancelForm { session, form } => server.cancel_form(&session, &form),
-                        Write::Interrupt(session) => server.interrupt(&session),
+                        Write::Interrupt(session) => server.interrupt_ack(&session).map(|interrupted| {
+                            if let Some(interrupted) = interrupted {
+                                let _ = inbox_tx.send(Incoming::Event {
+                                    ty: "session.interrupt.acknowledged".into(),
+                                    data: serde_json::json!({ "sessionID": session, "interrupted": interrupted }),
+                                });
+                            }
+                        }),
                         Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
                             server.send_prompt(&info.id, &text)?;
                             let _ = inbox_tx.send(Incoming::Created(info));

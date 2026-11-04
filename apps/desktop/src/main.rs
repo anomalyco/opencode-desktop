@@ -897,14 +897,10 @@ impl App {
         self.projects.iter().find(|p| p.id == id)
     }
 
-    /// Whether anything in the open session's family is running. A subagent's page counts only
-    /// its own run and those below it, so a reply to a finished one sends while its parent works.
+    /// The composer's own session, as Desktop's session status. Background helpers have their
+    /// own runs: they keep the activity chip busy, not this session's Send button.
     pub fn busy(&self, id: &str) -> bool {
-        if self.session(id).is_some_and(|i| i.parent.is_some()) {
-            return self.subtree_running(id);
-        }
-        let root = self.root_of(id);
-        self.running.iter().any(|s| self.root_of(s) == root)
+        self.running.contains(id)
     }
 
     pub(crate) fn route_busy(&self) -> bool {
@@ -1044,6 +1040,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Active(ids) => {
                         tx.instant();
+                        s.stops.reconcile(&ids);
                         // A stop the server hasn't confirmed yet stays stopped.
                         s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
                     }

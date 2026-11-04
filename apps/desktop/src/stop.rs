@@ -1,8 +1,8 @@
-//! Stop lands on the press. In the same frame the family's running sessions leave `running`
-//! and their unfinished steps stop counting as busy, so Stop turns back into Send, Working goes
-//! and the composer takes the next prompt; then the server is asked to interrupt each. Its
-//! `session.execution.*` end confirms the stop. An interrupt that fails, or that the server
-//! hasn't confirmed within [`CONFIRM_SECS`], puts the run back and says so.
+//! Stop lands on the press. In the same frame the open session leaves `running`
+//! and its unfinished steps stop counting as busy, so Stop turns back into Send, Working goes
+//! and the composer takes the next prompt; then the server is asked to interrupt it. Its
+//! execution end, already-idle reply or idle snapshot confirms the stop. An interrupt that fails,
+//! or that the server hasn't confirmed within [`CONFIRM_SECS`], puts the run back and says so.
 
 use std::collections::HashMap;
 
@@ -45,29 +45,36 @@ impl Stops {
     pub fn forget(&mut self, sid: &str) {
         self.by.remove(sid);
     }
+
+    /// A fresh active list also confirms sessions that ended while the event stream was away.
+    pub fn reconcile(&mut self, active: &[String]) {
+        for (id, stop) in &mut self.by {
+            if !active.contains(id) {
+                stop.confirmed = true;
+            }
+        }
+    }
 }
 
 impl App {
-    /// Stops every running session in the open session's family.
+    /// Stops only the open session, as Desktop does. The server cancels its blocking work;
+    /// detached background helpers keep running and can be stopped from their own pages.
     pub fn stop(&mut self) {
-        let Route::Session(id) = self.route.clone() else { return };
-        let root = self.root_of(&id).to_owned();
-        // On a subagent's page, Stop stops that subagent and its own helpers.
-        let child = self.session(&id).is_some_and(|i| i.parent.is_some());
-        let running: Vec<String> = self.running.iter().filter(|s| if child { self.descends(s, &id) } else { self.root_of(s) == root }).cloned().collect();
+        let Route::Session(sid) = self.route.clone() else { return };
+        if !self.running.contains(&sid) {
+            return;
+        }
         // The fixture and the storybook answer as a server would, a little later.
         let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        for sid in running {
-            let asked = if fixture {
-                self.fixture_interrupt(&sid);
-                true
-            } else {
-                self.write(Write::Interrupt(sid.clone()))
-            };
-            if asked {
-                self.running.remove(&sid);
-                self.stops.by.insert(sid, Stop { at: self.clock, confirmed: false });
-            }
+        let asked = if fixture {
+            self.fixture_interrupt(&sid);
+            true
+        } else {
+            self.write(Write::Interrupt(sid.clone()))
+        };
+        if asked {
+            self.running.remove(&sid);
+            self.stops.by.insert(sid, Stop { at: self.clock, confirmed: false });
         }
         if fixture {
             self.wake_at_playback();
@@ -92,10 +99,9 @@ impl App {
         self.schedule(at, "session.execution.interrupted", json!({ "sessionID": sid, "reason": "user" }));
     }
 
-    /// Whether a stop pressed in `id`'s family is still waiting on the server.
-    pub fn stopping_family(&self, id: &str) -> bool {
-        let root = self.root_of(id);
-        self.stops.by.iter().any(|(s, st)| !st.confirmed && self.root_of(s) == root)
+    /// Whether this session's stop is still waiting on the server.
+    pub fn stopping(&self, id: &str) -> bool {
+        self.stops.pending(id)
     }
 }
 
@@ -110,7 +116,7 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
         press(s, tx);
         return true;
     }
-    s.stopping_family(&id)
+    s.stopping(&id)
 }
 
 /// A press of Stop: everything it changes starts in this frame. Stop's square shrinks into
@@ -134,8 +140,8 @@ pub fn failed(s: &mut App, error: &str) -> bool {
     if s.stops.pending(sid) {
         s.stops.by.remove(sid);
         s.running.insert(sid.to_owned());
+        crate::status_toast::fail(s, "Couldn't stop the session", why);
     }
-    crate::status_toast::fail(s, "Couldn't stop the session", why);
     true
 }
 

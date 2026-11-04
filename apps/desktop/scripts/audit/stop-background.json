@@ -1,0 +1,8 @@
+{
+  "scene": "stop-background", "secs": 1.5,
+  "events": [
+    {"t": 0.2, "type": "tap", "key": "submit"},
+    {"t": 0.6, "type": "tap", "key": "prompt"},
+    {"t": 0.9, "type": "key", "name": "Escape"}
+  ]
+}

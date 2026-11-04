@@ -11,6 +11,26 @@ use crate::stories::{Trigger, emit, replay, sid};
 
 pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 's', label: "Stop (Esc)", run: |s, _| s.stop() }];
 
+/// The reported state: a finished parent with six detached helpers still working.
+pub fn background(s: &mut App) {
+    crate::scenes::open_scene(s);
+    s.finish_stream();
+    s.running.clear();
+    let parent = sid(s);
+    let from = s.session(&parent).cloned().unwrap_or_default();
+    s.sessions.retain(|i| !i.id.starts_with("ses_stop_background_"));
+    for k in 0..6 {
+        let id = format!("ses_stop_background_{k}");
+        s.sessions.push(opencode_kit::model::SessionInfo {
+            id: id.clone(), parent: Some(parent.clone()), title: format!("Background helper {}", k + 1),
+            agent: "general".into(), ..from.clone()
+        });
+        s.running.insert(id);
+    }
+}
+
+const BACKGROUND: &[Trigger] = &[replay(|s, _| background(s))];
+
 const REPLY: &str = "msg_zzzzstorystop";
 
 fn open(s: &mut App, tx: &mut Play<App>) {
@@ -30,4 +50,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story::session("Timeline/Stop", KEYS),
+    crate::stories::Story::session("Composer/Background helpers", BACKGROUND),
 ]);
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("stop-background", background)]);

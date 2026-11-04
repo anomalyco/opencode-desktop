@@ -170,6 +170,19 @@ fn scroll_bar_circs() -> Vec<Circ> {
 }
 
 const ACTIONS: &[Action] = &[
+    Action { name: "stop-background", circs: pinned, run: |r| {
+        r.rt.update(|s, _| {
+            crate::stop_stories::background(s);
+            s.running.insert(SID.into());
+        });
+        r.idle(0.5);
+        r.restart();
+        r.event("session.execution.succeeded", json!({"sessionID": SID}));
+        r.play(0.5);
+        assert!(!r.rt.state.busy(SID));
+        assert_eq!(r.rt.state.running_subagents(SID).len(), 6);
+        assert!(r.rt.elements().iter().any(|e| !e.exiting && e.key.as_deref() == Some("submit") && e.label.as_deref() == Some("Send")));
+    } },
     Action { name: "send", circs: || sends(Circ::default(), &[Dock::Pending]), run: |r| {
         r.type_prompt();
         r.enter(false);

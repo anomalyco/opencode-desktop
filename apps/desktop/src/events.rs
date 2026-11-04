@@ -5,6 +5,13 @@ impl App {
     pub(crate) fn apply_status(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
+            "session.interrupt.acknowledged" => {
+                // An idle/already-stopping execution has no new end event to send us.
+                if data["interrupted"] == false {
+                    crate::stop::confirmed(self, sid);
+                }
+                true
+            }
             "session.execution.started" => {
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);

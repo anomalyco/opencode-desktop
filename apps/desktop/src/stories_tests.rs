@@ -221,6 +221,7 @@ const APP_SCENES: &[&str] = &[
     "permission",
     "shell-fold",
     "short-group",
+    "stop-background",
     "subagent",
 ];
 
@@ -312,6 +313,7 @@ const STORY_PATHS: &[&str] = &[
     "Popover/Open and close",
     "Question dock/Long question",
     "Settings/Page",
+    "Composer/Background helpers",
     "Stream/Text speed",
     "Composer/Subagent reply",
     "Timeline/Open tool step",
