@@ -1,0 +1,364 @@
+name: OpenCode (Rune) PR Build
+
+# Builds every open PR touching apps/desktop (or its path crates) as a side-by-side
+# macOS app ("OpenCode (Rune) · <branch>.app", anomaly.opencode-rune.pr.<N>, badged icon),
+# posts/updates one download comment on the PR, and retires the hosted build when the PR
+# closes or merges.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/browser-pane/**"
+      - "crates/hex-client/**"
+      - "crates/opencode-kit/**"
+      - "crates/otlp-lite/**"
+      - "crates/project-icon/**"
+      - "crates/rune-parts/**"
+      - "crates/terminal/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/opencode-rune-pr-build.yml"
+      - ".github/release/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-rune-pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event.action != 'closed' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SEER_TEAM_ID: 5NZ4Q7NXJ4
+
+jobs:
+  plan:
+    if: >-
+      github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    outputs:
+      pr-number: ${{ steps.plan.outputs.pr-number }}
+      head-sha: ${{ steps.plan.outputs.head-sha }}
+      short-sha: ${{ steps.plan.outputs.short-sha }}
+      base-sha: ${{ steps.plan.outputs.base-sha }}
+      branch-slug: ${{ steps.plan.outputs.branch-slug }}
+      app-name: ${{ steps.plan.outputs.app-name }}
+      bundle-id: ${{ steps.plan.outputs.bundle-id }}
+      url-scheme: ${{ steps.plan.outputs.url-scheme }}
+      version: ${{ steps.plan.outputs.version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      file-stem: ${{ steps.plan.outputs.file-stem }}
+      release-tag: ${{ steps.plan.outputs.release-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: plan
+        run: bash .github/release/opencode-rune-pr-plan.sh
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+  # ---- Build: PR code; zero environment, secrets, or write tokens -------------
+
+  build-macos:
+    needs: plan
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.channel }}
+      OPENCODE_RUNE_APP_NAME: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_WINDOW_TITLE: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      OPENCODE_RUNE_URL_SCHEME: ${{ needs.plan.outputs.url-scheme }}
+      FILE_STEM: ${{ needs.plan.outputs.file-stem }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head-sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Build side-by-side badged PR app
+        run: |
+          apps/desktop/scripts/isolate-workspace.sh "$PWD"
+          apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
+          mkdir -p "$RUNNER_TEMP/app" "$RUNNER_TEMP/macos" "$RUNNER_TEMP/dmg-stage"
+          swift apps/desktop/scripts/badge-icon.swift "#$PR_NUMBER" "$RUNNER_TEMP/pr-icon.icns"
+          OPENCODE_RUNE_ICON="$RUNNER_TEMP/pr-icon.icns" apps/desktop/scripts/build-app.sh "$RUNNER_TEMP/app"
+          OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$RUNNER_TEMP/app/$OPENCODE_RUNE_APP_NAME.app"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/app/$OPENCODE_RUNE_APP_NAME.app" \
+            "$RUNNER_TEMP/macos/OpenCode-Rune-PR.app.zip"
+          /usr/bin/ditto "$RUNNER_TEMP/app/$OPENCODE_RUNE_APP_NAME.app" "$RUNNER_TEMP/dmg-stage/$OPENCODE_RUNE_APP_NAME.app"
+          ln -s /Applications "$RUNNER_TEMP/dmg-stage/Applications"
+          hdiutil create -quiet -fs APFS -format ULFO -volname "$OPENCODE_RUNE_APP_NAME" \
+            -srcfolder "$RUNNER_TEMP/dmg-stage" \
+            "$RUNNER_TEMP/macos/$FILE_STEM-unsigned-macos-arm64.dmg"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-opencode-rune-pr-macos-arm64
+          path: ${{ runner.temp }}/macos
+          retention-days: "7"
+
+  # ---- Sign: release environment; checks out ONLY main's .github/release/ -----
+
+  sign-macos:
+    needs: [plan, build-macos]
+    if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: release
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_RUNE_APP_NAME: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      OPENCODE_RUNE_FILE_STEM: ${{ needs.plan.outputs.file-stem }}
+    outputs:
+      signed: ${{ steps.credentials.outputs.available }}
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - name: Check out trusted release scripts from base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.base-sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: credentials
+        name: Check Apple signing credentials
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
+          ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          missing=
+          [ -n "$CERTIFICATE" ] || missing="$missing APPLE_SIGNING_CERTIFICATE"
+          [ -n "$KEY" ] || missing="$missing APPLE_NOTARY_KEY"
+          [ -n "$KEY_ID" ] || missing="$missing APPLE_NOTARY_KEY_ID"
+          [ -n "$ISSUER" ] || missing="$missing APPLE_NOTARY_ISSUER_ID"
+          if [ -z "$missing" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Developer ID signing for PR build: release environment lacks:$missing." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Download unsigned PR app
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-pr-macos-arm64
+          digests: build-opencode-rune-pr-macos-arm64=${{ needs.build-macos.outputs.digest }}
+      - name: Import the certificate and notary key
+        if: steps.credentials.outputs.available == 'true'
+        run: bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
+        env:
+          APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+      - name: Sign, notarize, and staple PR build
+        if: steps.credentials.outputs.available == 'true'
+        run: bash .github/release/opencode-rune-sign-macos.sh "$RUNNER_TEMP/in/build-opencode-rune-pr-macos-arm64/OpenCode-Rune-PR.app.zip" "$RUNNER_TEMP/out"
+        env:
+          SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
+          SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
+      - name: Remove the credentials
+        if: always() && steps.credentials.outputs.available == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/credentials"
+      - id: upload
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/upload
+        with:
+          name: sign-opencode-rune-pr-macos
+          path: ${{ runner.temp }}/out
+          retention-days: "7"
+
+  # ---- Verify signed PR build (when Apple credentials are present) -----------
+
+  verify-macos:
+    needs: [plan, sign-macos]
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && needs.sign-macos.outputs.signed == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.channel }}
+      OPENCODE_RUNE_APP_NAME: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      FILE_STEM: ${{ needs.plan.outputs.file-stem }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head-sha }}
+          persist-credentials: false
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-pr-macos
+          digests: sign-opencode-rune-pr-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Verify signed PR DMG and app
+        run: |
+          dmg="$RUNNER_TEMP/in/sign-opencode-rune-pr-macos/$FILE_STEM-macos-arm64.dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          check=$(mktemp -d)
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$check/dmg" "$dmg"
+          apps/desktop/scripts/validate-app.sh "$check/dmg/$OPENCODE_RUNE_APP_NAME.app" "$OPENCODE_RUNE_VERSION" "$OPENCODE_RUNE_BUILD_CHANNEL"
+          spctl --assess --type execute --verbose=2 "$check/dmg/$OPENCODE_RUNE_APP_NAME.app"
+          OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$check/dmg/$OPENCODE_RUNE_APP_NAME.app"
+          hdiutil detach -quiet "$check/dmg"
+
+  # ---- Publish PR pre-release + sticky PR comment ----------------------------
+
+  publish-pr-build:
+    needs: [plan, build-macos, sign-macos, verify-macos]
+    if: >-
+      ${{ !cancelled()
+      && needs.build-macos.result == 'success'
+      && needs.sign-macos.result == 'success'
+      && (needs.sign-macos.outputs.signed != 'true' || needs.verify-macos.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+      HEAD_SHA: ${{ needs.plan.outputs.head-sha }}
+      SHORT_SHA: ${{ needs.plan.outputs.short-sha }}
+      APP_NAME: ${{ needs.plan.outputs.app-name }}
+      BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      FILE_STEM: ${{ needs.plan.outputs.file-stem }}
+      RELEASE_TAG: ${{ needs.plan.outputs.release-tag }}
+      SIGNED: ${{ needs.sign-macos.outputs.signed }}
+    steps:
+      - name: Check out trusted release helpers from base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.base-sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Download signed PR DMG
+        if: env.SIGNED == 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-pr-macos
+          digests: sign-opencode-rune-pr-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Download unsigned PR DMG
+        if: env.SIGNED != 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-pr-macos-arm64
+          digests: build-opencode-rune-pr-macos-arm64=${{ needs.build-macos.outputs.digest }}
+      - name: Upload PR DMG and update sticky PR comment
+        run: |
+          mkdir -p "$RUNNER_TEMP/publish"
+          dmg_name="$FILE_STEM-macos-arm64.dmg"
+          dmg="$RUNNER_TEMP/publish/$dmg_name"
+          if [ "$SIGNED" = "true" ]; then
+            cp "$RUNNER_TEMP/in/sign-opencode-rune-pr-macos/$dmg_name" "$dmg"
+          else
+            cp "$RUNNER_TEMP/in/build-opencode-rune-pr-macos-arm64/$FILE_STEM-unsigned-macos-arm64.dmg" "$dmg"
+          fi
+          sha=$(sha256sum "$dmg" | awk '{ print $1 }')
+          notes="Side-by-side test build for #$PR_NUMBER (@ $SHORT_SHA). Retired automatically when the PR closes."
+
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$HEAD_SHA" -f force=true >/dev/null || true
+            gh release upload "$RELEASE_TAG" "$dmg" --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease \
+              --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
+          else
+            gh release create "$RELEASE_TAG" "$dmg" -R "$GITHUB_REPOSITORY" \
+              --target "$HEAD_SHA" --prerelease \
+              --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
+          fi
+
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$dmg_name"
+          if [ "$SIGNED" = "true" ]; then
+            trust_line="Signed & notarized (Developer ID, Gatekeeper verified)."
+          else
+            trust_line="Ad-hoc signed preview (\`release\` Apple signing secrets pending) — after dragging to \`/Applications\`, run \`xattr -cr \"/Applications/$APP_NAME.app\"\` once before first open."
+          fi
+
+          cat > "$RUNNER_TEMP/comment.md" <<EOF
+          <!-- opencode-rune-pr-build -->
+          ### Test build ready — [Download \`$dmg_name\`]($url)
+
+          - **App:** \`$APP_NAME.app\` (badged \`#$PR_NUMBER\`, bundle ID \`$BUNDLE_ID\`)
+          - **Commit:** \`$SHORT_SHA\` (\`$VERSION\`, sha256 \`${sha:0:12}…\`)
+          - **Side-by-side:** installs alongside \`OpenCode (Rune).app\` without replacing your \`main\` build; retired automatically when this PR closes.
+          - **Signing:** $trust_line
+          EOF
+          sed -i -E 's/^          //' "$RUNNER_TEMP/comment.md"
+
+          existing_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.body | contains("<!-- opencode-rune-pr-build -->")) | .id' | head -n 1 || true)
+          payload=$(jq -Rs '{body: .}' "$RUNNER_TEMP/comment.md")
+          if [ -n "$existing_id" ]; then
+            printf '%s' "$payload" | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" --input - >/dev/null
+          else
+            printf '%s' "$payload" | gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - >/dev/null
+          fi
+          echo "Published $url" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Retire: delete hosted PR build + update sticky comment on close -------
+
+  retire-pr-build:
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      MERGED: ${{ github.event.pull_request.merged }}
+      RELEASE_TAG: opencode-rune-pr-${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete PR pre-release and update comment
+        run: |
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" --cleanup-tag --yes -R "$GITHUB_REPOSITORY"
+          fi
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" >/dev/null 2>&1 || true
+
+          existing_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.body | contains("<!-- opencode-rune-pr-build -->")) | .id' | head -n 1 || true)
+          if [ -n "$existing_id" ]; then
+            if [ "$MERGED" = "true" ]; then
+              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — merged into `main`. Install or auto-update **OpenCode (Rune)** from [`https://anoma.ly/release/opencode-rune/desktop/dev/macos-arm64-dmg`](https://anoma.ly/release/opencode-rune/desktop/dev/macos-arm64-dmg).'
+            else
+              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — this pull request is closed.'
+            fi
+            jq -n --arg body "$body" '{body: $body}' \
+              | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" --input - >/dev/null
+          fi

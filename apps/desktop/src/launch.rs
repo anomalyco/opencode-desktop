@@ -24,6 +24,39 @@ pub fn print_version_if_asked() {
     }
 }
 
+/// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
+pub fn window_title() -> &'static str {
+    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
+}
+
+/// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
+/// icon badges) when bundled, or the embedded default icon during `cargo run`.
+pub fn apply_app_icon() {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| std::fs::read(exe.parent()?.parent()?.join("Resources/icon.icns")).ok());
+    match bundled {
+        Some(bytes) => {
+            let _ = rune::set_app_icon(bytes.as_slice());
+        }
+        None => {
+            let _ = rune::set_app_icon(include_bytes!("../assets/icon.icns").as_slice());
+        }
+    }
+}
+
+/// Initial server target: `--server` if passed, otherwise `:4096` (plus `service.json` discovery
+/// immediately when `on_ready` won't run, such as `--live --snap` or `hot` builds).
+pub fn initial_server() -> Server {
+    let explicit = crate::arg("--server");
+    let server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server)).with_media_refs();
+    if explicit.is_none() && !deferred() {
+        opencode_kit::local_service::discover_local_server(&server)
+    } else {
+        server
+    }
+}
+
 /// `main`, for runs that call `on_ready`: the server reads wait for it.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn defer() {
@@ -87,9 +120,9 @@ pub struct Launch {
     pub cold_transcript: Option<String>,
 }
 
-/// `setup`: connects now unless `on_ready` will start the reads.
+/// `setup`: connects now unless `on_ready` will start the reads (or a synchronous live probe found no server).
 pub fn setup(s: &mut App) {
-    if !s.launch.waiting {
+    if !s.launch.waiting && !s.launch.offline {
         start(s, &mut Tx::default());
     }
 }

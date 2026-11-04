@@ -94,27 +94,49 @@ pub fn password_for_base(base: &str) -> Option<String> {
     (svc.port == port).then_some(svc.password).flatten()
 }
 
-/// Returns `default` when reachable; otherwise, when `default` is `http://127.0.0.1:4096`, checks
-/// whether a local OpenCode Desktop sidecar in `service.json` is listening on another port.
-pub fn discover_local_server(default: &Server) -> Server {
-    if default.reachable() || default.base != DEFAULT_SERVER {
+fn probe_usable(server: &Server) -> bool {
+    if !server.reachable() {
+        return false;
+    }
+    let mut req = Server::agent(Some(std::time::Duration::from_millis(500)))
+        .get(format!("{}/api/project", server.base));
+    if let Some(auth) = &server.auth {
+        req = req.header("Authorization", auth);
+    }
+    req.call()
+        .ok()
+        .and_then(|r| r.into_body().read_to_string().ok())
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .is_some()
+}
+
+fn discover_with_service(default: &Server, default_base: &str, svc: Option<LocalService>) -> Server {
+    if default.base != default_base {
         return default.clone();
     }
-    if let Some(svc) = read_local_service()
-        && svc.base != DEFAULT_SERVER
-    {
-        let mut candidate = Server::new(&svc.base);
-        if let Some(pw) = &svc.password {
-            candidate = candidate.with_password(pw);
-        }
-        if default.media_refs {
-            candidate = candidate.with_media_refs();
-        }
-        if candidate.reachable() {
-            return candidate;
-        }
+    let Some(svc) = svc.filter(|s| s.base != default_base) else {
+        return default.clone();
+    };
+    if probe_usable(default) {
+        return default.clone();
+    }
+    let mut candidate = Server::new(&svc.base);
+    if let Some(pw) = &svc.password {
+        candidate = candidate.with_password(pw);
+    }
+    if default.media_refs {
+        candidate = candidate.with_media_refs();
+    }
+    if candidate.reachable() {
+        return candidate;
     }
     default.clone()
+}
+
+/// Returns `default` when usable; otherwise, when `default` is `http://127.0.0.1:4096`, checks
+/// whether a local OpenCode Desktop sidecar in `service.json` is listening on another port.
+pub fn discover_local_server(default: &Server) -> Server {
+    discover_with_service(default, DEFAULT_SERVER, read_local_service())
 }
 
 #[cfg(test)]
@@ -143,5 +165,40 @@ mod tests {
         assert_eq!(local_port("http://127.0.0.1:4096"), Some(4096));
         assert_eq!(local_port("http://localhost:4096/"), Some(4096));
         assert_eq!(local_port("https://studio.example.ts.net:4096"), None);
+    }
+
+    #[test]
+    fn falls_back_to_service_json_when_default_port_is_unauthorized() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let blocked = TcpListener::bind("127.0.0.1:0").unwrap();
+        let blocked_base = format!("http://{}", blocked.local_addr().unwrap());
+        let sidecar = TcpListener::bind("127.0.0.1:0").unwrap();
+        let sidecar_port = sidecar.local_addr().unwrap().port();
+        let sidecar_base = format!("http://127.0.0.1:{sidecar_port}");
+
+        std::thread::spawn(move || {
+            for stream in blocked.incoming().take(2).flatten() {
+                let mut s = stream;
+                let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+                let mut buf = [0u8; 512];
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n > 0 {
+                    let _ = s.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                }
+            }
+        });
+
+        let default = Server::new(&blocked_base).with_media_refs();
+        let svc = LocalService {
+            base: sidecar_base.clone(),
+            port: sidecar_port,
+            password: Some("sidecar-pw".into()),
+        };
+        let picked = discover_with_service(&default, &blocked_base, Some(svc));
+        assert_eq!(picked.base, sidecar_base);
+        assert!(picked.media_refs);
+        assert!(picked.auth.is_some());
     }
 }

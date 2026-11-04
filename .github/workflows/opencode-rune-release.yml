@@ -37,29 +37,13 @@ on:
       - ".cargo/**"
       - ".github/workflows/opencode-rune-release.yml"
       - ".github/release/**"
-  pull_request:
-    branches: [main]
-    paths:
-      - "apps/desktop/**"
-      - "crates/browser-pane/**"
-      - "crates/hex-client/**"
-      - "crates/opencode-kit/**"
-      - "crates/otlp-lite/**"
-      - "crates/project-icon/**"
-      - "crates/rune-parts/**"
-      - "crates/terminal/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - ".github/workflows/opencode-rune-release.yml"
-      - ".github/release/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: opencode-rune-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', inputs.channel) || github.ref_type == 'tag' && format('tag-{0}', github.ref_name) || 'main-dev' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  group: opencode-rune-${{ github.event_name == 'workflow_dispatch' && format('dispatch-{0}', inputs.channel) || github.ref_type == 'tag' && format('tag-{0}', github.ref_name) || 'main-dev' }}
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -82,11 +66,12 @@ jobs:
       build-desktop: ${{ steps.plan.outputs.build-desktop }}
       publish-engine: ${{ steps.plan.outputs.publish-engine }}
       engine-version: ${{ steps.plan.outputs.engine-version }}
+      engine-release-version: ${{ steps.plan.outputs.engine-release-version }}
       engine-sha256: ${{ steps.plan.outputs.engine-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
           sparse-checkout: |
             /.github/release/
             /apps/desktop/Cargo.toml
@@ -317,13 +302,14 @@ jobs:
         env:
           RELEASE: ${{ needs.plan.outputs.service }}
           ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+          ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
           ENGINE_SHA256: ${{ needs.plan.outputs.engine-sha256 }}
           GH_TOKEN: ${{ github.token }}
         run: |
           manifest_url="$RELEASE/opencode-rune/browser-engine/stable.json"
           name="OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
           if manifest=$(curl -fsS "$manifest_url" 2>/dev/null) &&
-             [ "$(printf '%s' "$manifest" | jq -r '.release.version // empty')" = "$ENGINE_VERSION" ] &&
+             [ "$(printf '%s' "$manifest" | jq -r '.release.version // empty')" = "$ENGINE_RELEASE_VERSION" ] &&
              [ "$(printf '%s' "$manifest" | jq -r '.release.targets["macos-arm64"].sha256 // empty')" = "$ENGINE_SHA256" ] &&
              curl -fsSI "$RELEASE/opencode-rune/files/$ENGINE_SHA256/$name" >/dev/null 2>&1; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
@@ -363,6 +349,7 @@ jobs:
     env:
       RELEASE: ${{ needs.plan.outputs.service }}
       ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+      ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
       ENGINE_SHA256: ${{ needs.plan.outputs.engine-sha256 }}
     steps:
       - *checkout-release
@@ -376,9 +363,9 @@ jobs:
           zip="$RUNNER_TEMP/in/browser-engine-macos-arm64/$name"
           notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/browser-engine-$ENGINE_VERSION"
           jq -n \
-            --arg version "$ENGINE_VERSION" \
+            --arg version "$ENGINE_RELEASE_VERSION" \
             --arg notes_url "$notes" \
-            '{channel: "stable", version: $version, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
+            '{channel: "stable", version: $version, allow_prerelease: true, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
             > "$RUNNER_TEMP/engine-release.json"
           bash .github/release/release-client.sh publish \
             --app opencode-rune \

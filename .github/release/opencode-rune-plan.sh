@@ -15,6 +15,7 @@ crate_version=$(awk '/^\[package\]/ { package = 1; next } /^\[/ { package = 0 } 
 [[ "$crate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Expected X.Y.Z version in apps/desktop/Cargo.toml, found $crate_version."
 
 engine_version=$(sed -n 's/^pub const ENGINE_VERSION: &str = "\([^"]*\)";/\1/p' crates/browser-pane/src/installer.rs | head -1)
+engine_release_version=$(printf '%s' "$engine_version" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+)\.(.+)$/\1-\2/')
 engine_sha256=$(awk '/ENGINE_DEFAULT_SHA256/ { want = 1 } want && match($0, /[0-9a-fA-F]{64}/) { print tolower(substr($0, RSTART, RLENGTH)); exit }' crates/browser-pane/src/installer.rs)
 [[ "$engine_version" =~ ^[0-9]+\.[0-9]+ ]] || die "Could not parse ENGINE_VERSION from crates/browser-pane/src/installer.rs."
 [[ "$engine_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Could not parse ENGINE_DEFAULT_SHA256 from crates/browser-pane/src/installer.rs."
@@ -88,6 +89,7 @@ fi
   echo "build-desktop=$build_desktop"
   echo "publish-engine=$publish_engine"
   echo "engine-version=$engine_version"
+  echo "engine-release-version=$engine_release_version"
   echo "engine-sha256=$engine_sha256"
 } >> "$GITHUB_OUTPUT"
 echo "Planned OpenCode (Rune) ($channel): desktop=$build_desktop ($release_channel $release_version), engine=$publish_engine ($engine_version) at $SHA." >> "$GITHUB_STEP_SUMMARY"

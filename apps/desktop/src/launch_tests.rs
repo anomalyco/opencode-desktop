@@ -87,6 +87,21 @@ fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
 }
 
 #[test]
+fn synchronous_live_load_enters_offline_instead_of_fixture() {
+    let mut fallback = App::empty();
+    assert!(!fallback.load_live(Server::new("http://127.0.0.1:9"), true));
+
+    let mut live = App::empty();
+    assert!(live.load_live(Server::new("http://127.0.0.1:9"), false));
+    assert!(live.live());
+    assert!(live.launch.offline);
+    assert_eq!(live.route, Route::Home);
+    assert!(live.tabs.is_empty());
+    super::setup(&mut live);
+    assert!(live.launch.first.is_none(), "offline setup does not spin up a second background probe");
+}
+
+#[test]
 fn idle_poll_allocates_nothing_with_open_transcript() {
     let mut app = App::fixture_session();
     let _ = crate::poll(&mut app, 0.0, &mut Tx::default());

@@ -183,7 +183,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
 use serde_json::Value;
 
-use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write, default_server};
+use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
 use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInfo, Transcript};
 use keys::on_key;
 pub(crate) use scenes::open_scene;
@@ -405,9 +405,9 @@ impl App {
     fn load() -> App {
         let mut app = Self::empty();
         let fixture_path = arg("--fixture");
-        let server = Server::new(&arg("--server").unwrap_or_else(default_server)).with_media_refs();
+        let server = launch::initial_server();
         let deferred = fixture_path.is_none() && launch::deferred();
-        let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
+        let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless() && !cfg!(test)));
         if want_live && app.load_live(server, false) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
@@ -468,15 +468,18 @@ impl App {
         }
     }
 
-    fn load_live(&mut self, server: Server, fallback_fixture: bool) -> bool {
+    pub(crate) fn load_live(&mut self, server: Server, fallback_fixture: bool) -> bool {
         // A headless snapshot reads the server now; a window reads it and probes after its first frame.
         let first = if launch::deferred() {
             self.launch.waiting = true;
             self.launch.fallback_fixture = fallback_fixture;
             None
         } else {
-            let Ok(first) = launch::First::fetch(&server) else { return false };
-            Some(first)
+            match launch::First::fetch(&server) {
+                Ok(f) => Some(f),
+                Err(_) if fallback_fixture => return false,
+                Err(_) => { self.launch.offline = true; None }
+            }
         };
         match tabs::load(&server.base).or_else(|| {
             (!self.launch.waiting && server.base == DEFAULT_SERVER).then(tabs::from_beta).flatten()
@@ -501,6 +504,7 @@ impl App {
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::ModelPrefs::load();
         self.restore_ui(&server.base);
+        if self.launch.offline { (self.tabs.clear(), self.route = Route::Home); }
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         let allow_send = !flag("--read-only") && !headless();
@@ -899,7 +903,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
-        ..AppSpec::new("OpenCode (Rune)", (1280.0, 820.0), init, view::app)
+        ..AppSpec::new(launch::window_title(), (1280.0, 820.0), init, view::app)
     }
 }
 
@@ -927,7 +931,7 @@ fn main() {
     telemetry::launched();
     rune_mac::launch();
     rune::prewarm_gpu();
-    let _ = rune::set_app_icon(include_bytes!("../assets/icon.icns").as_slice());
+    launch::apply_app_icon();
     #[cfg(feature = "hot")]
     rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
     #[cfg(not(feature = "hot"))]
