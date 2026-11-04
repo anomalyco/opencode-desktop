@@ -95,38 +95,6 @@ pub(in crate::view) fn user_bubble(s: &App, p: &Pal, id: &str, body: &str, place
     c.children(actions.map(|actions| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(actions)))
 }
 
-pub(crate) fn chevron(open: bool) -> &'static Icon {
-    if open { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }
-}
-
-pub(crate) fn reasoning(p: &Pal, key: &str, body: &str, secs: Option<i64>, open: bool, fade: f32) -> El {
-    let label = match secs {
-        Some(s) => format!("Thought for {s}s"),
-        None => "Thinking".into(),
-    };
-    let mut c = col().w_full().child(
-        row()
-            .key("trigger")
-            .role("button")
-            .h(28.0)
-            .gap(6.0)
-            .center_y()
-            // "Thinking" crossfades to "Thought for Ns" while the chevron slides over.
-            .animate_layout()
-            // Opening and closing is instant; only the streaming label change animates.
-            .on_press_tx(crate::disclosure::toggle(key.to_owned(), format!("{key}/trigger")))
-            .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted))
-            .child(text(label).key(if secs.is_some() { "thought" } else { "thinking" }).font(UI).color(p.muted))
-            .child(icon(chevron(open), 14.0).color(p.icon_faint)),
-    );
-    if open {
-        c = c.child(
-            row().key("thought").pl(22.0).pt(4.0).child(readable(p, text(body.to_owned()).font(UI.lh(20.0)).color(p.muted).wrap().reveal(fade).w_full())),
-        );
-    }
-    c
-}
-
 pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
@@ -179,53 +147,11 @@ pub(in crate::view) fn markdown_view_find(s: &App, p: &Pal, row_key: &str, src: 
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights(p, src, fade, streaming, color, width, Vec::new())
+    session_view::style::markdown_tinted::<App>(p, src, fade, streaming, color, width)
 }
 
 fn markdown_with_highlights(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32, highlights: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)>) -> El {
-    markdown_styled(p, src, fade, streaming, markdown_style(p, color, width), highlights)
+    session_view::style::markdown_with_highlights::<App>(p, src, fade, streaming, color, width, highlights)
 }
 
-/// The timeline's Markdown look, its body text in `color`, its diagrams at most `width` points
-/// wide (the column they sit in: wider ones lay out top-down or draw smaller).
-pub(crate) fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
-    let style = MarkdownStyle::from_kit(crate::palette::kit(p))
-        .text(color)
-        .muted(p.muted)
-        .link(p.accent)
-        .inline_code_bg(p.inline_code_bg)
-        .code_block(p.layer1, p.border_muted)
-        .quote_rule(p.layer3)
-        .rule(p.border)
-        .body_font(MD)
-        .heading_font(1, H1)
-        .heading_font(2, H2)
-        .heading_font(3, H3)
-        .code_block_font(CODE)
-        .selection(p.selection)
-        .diagram_max_width(width)
-        // However wide, a diagram draws whole; it opens full size to be read (`diagram`).
-        .diagram_min_scale(0.0);
-    match p.code {
-        Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
-        None => style,
-    }
-}
-
-pub(crate) fn markdown_styled<H: rune_kit::markdown::HighlightItem>(p: &Pal, src: &str, fade: f32, streaming: bool, style: MarkdownStyle, highlights: Vec<H>) -> El {
-    // Its texts join the timeline's selection group rather than forming one of their own, so
-    // a drag runs on out of this reply into the rest of the timeline.
-    let full = std::rc::Rc::new(style.clone());
-    let pal = *p;
-    Markdown::new(src).style(style).highlights(highlights).reveal(fade).streaming(streaming).selectable(true)
-        .diagram_frame(move |card, d| crate::diagram::frame(&pal, card, d, &full))
-        .on_link_tx(|s: &mut App, url: &str, tx: &mut Tx| s.open_reply_link(url, tx))
-        .link_help(|url| crate::files::link_tip::tip(url, ""))
-        .build(crate::palette::kit(p)).selection_group(false)
-}
-
-/// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome
-/// around it (triggers, labels, buttons) stays unselectable.
-pub(crate) fn readable(p: &Pal, t: El) -> El {
-    t.selectable(true).selection_color(p.selection)
-}
+pub(crate) use session_view::style::{markdown_style, readable};

@@ -1,6 +1,7 @@
 //! An outline drawn in the timeline: its words in the timeline's Markdown look (inline code,
 //! links), selectable like the prose around it, with Find's matches painted in place.
 
+use std::marker::PhantomData;
 use std::ops::Range;
 
 use rune::{Color, El, TextStyle, col, text};
@@ -8,9 +9,9 @@ use rune_kit::markdown::{self, Case};
 use rune_parts::Node;
 use rune_parts::view::{PartsResolver, outline as draw};
 
-use crate::find::{markdown_mark, text_mark};
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::view::{markdown_style, markdown_styled, readable};
+use crate::style::{markdown_mark, markdown_style, markdown_styled, readable, text_mark};
 
 /// Parts whose words draw through the resolver, so Find can paint them; the rest of an
 /// outline's words (labels, details, buttons) are drawn by `rune_parts` itself.
@@ -55,7 +56,7 @@ fn words_from(line: &str, name: &str) -> usize {
 }
 
 /// The words an outline shows through the resolver, in order: `(offset in body, words)`.
-pub(super) fn pieces<'a>(body: &'a str, src_at: usize, nodes: &[Node]) -> Vec<(usize, &'a str)> {
+pub fn pieces<'a>(body: &'a str, src_at: usize, nodes: &[Node]) -> Vec<(usize, &'a str)> {
     located(body, src_at, nodes).into_iter().map(|(n, at)| (at, &body[at..at + n.part.text.len()])).collect()
 }
 
@@ -72,16 +73,17 @@ fn rich(words: &str) -> bool {
 /// A Find match in an outline: `(index in the row, source ranges in the reply, active)`.
 pub(super) type Mark = (usize, Vec<Range<usize>>, bool);
 
-struct Resolver<'a> {
+struct Resolver<'a, S> {
     p: &'a Pal,
     fade: f32,
     width: f32,
     /// Each drawn piece of words by where its `String` lives: `(ptr, len, offset in the reply)`.
     spans: Vec<(*const u8, usize, usize)>,
     marks: Vec<Mark>,
+    host: PhantomData<fn() -> S>,
 }
 
-impl Resolver<'_> {
+impl<S> Resolver<'_, S> {
     /// The matches inside the words at `src`, moved to start from them.
     fn marks_for(&self, src: &str) -> Vec<Mark> {
         let Some(&(_, len, at)) = self.spans.iter().find(|(ptr, len, _)| *ptr == src.as_ptr() && *len == src.len()) else {
@@ -95,13 +97,13 @@ impl Resolver<'_> {
     }
 }
 
-impl PartsResolver for Resolver<'_> {
+impl<S: TimelineHost> PartsResolver for Resolver<'_, S> {
     fn inline(&self, src: &str, font: TextStyle, color: Color) -> El {
         let p = self.p;
         let marks = self.marks_for(src);
         if rich(src) {
             let marks: Vec<_> = marks.into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-            return col().w_full().child(markdown_styled(p, src, self.fade, false, markdown_style(p, color, self.width).body_font(font), marks));
+            return col().w_full().child(markdown_styled::<S, _>(p, src, self.fade, false, markdown_style(p, color, self.width).body_font(font), marks));
         }
         let hl = marks.into_iter().filter_map(|(i, m, on)| Some(text_mark(p, m.first()?.clone(), i, on)));
         readable(p, text(src.to_owned()).font(font).color(color).wrap().reveal(self.fade).text_highlights(hl))
@@ -109,9 +111,9 @@ impl PartsResolver for Resolver<'_> {
 }
 
 /// The outline `nodes` (from `src`, its first line at `src_at`) `width` points wide.
-pub(super) fn outline(p: &Pal, src: &str, src_at: usize, nodes: &[Node], width: f32, fade: f32, marks: Vec<Mark>) -> El {
+pub(super) fn outline<S: TimelineHost>(p: &Pal, src: &str, src_at: usize, nodes: &[Node], width: f32, fade: f32, marks: Vec<Mark>) -> El {
     let spans = located(src, src_at, nodes).into_iter().map(|(n, at)| (n.part.text.as_ptr(), n.part.text.len(), at)).collect();
-    let r = Resolver { p, fade, width, spans, marks };
+    let r = Resolver::<S> { p, fade, width, spans, marks, host: PhantomData };
     let plain = rune_parts::to_plain(nodes);
     col().w_full().selection_group(false)
         .selection_copy(move |sel| sel.texts().iter().all(|t| t.is_whole()).then(|| plain.clone()))

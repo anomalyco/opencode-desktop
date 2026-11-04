@@ -10,7 +10,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
 use opencode_kit::model::{Assistant, Message, Part, Transcript};
-use rune::{Color, El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
+use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
@@ -18,7 +18,6 @@ use crate::view::{INSTANT, UI};
 use crate::{App, Route};
 
 const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
-const ACTIVE_KEY: &str = "find-active";
 
 #[derive(Clone, Default)]
 struct Saved {
@@ -112,28 +111,7 @@ impl Find {
     }
 }
 
-/// Match `i` of a row in plain text, as `text_highlights` paints it.
-pub(crate) fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
-    if active {
-        TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
-    } else {
-        TextHighlight::new(r, hit_bg(p)).key(format!("find-hit-{i}"))
-    }
-}
-
-/// Match `i` of a row in Markdown, as `markdown_highlights` paints it.
-pub(crate) fn markdown_mark(p: &Pal, i: usize, active: bool) -> rune_kit::Highlight {
-    if active {
-        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
-    } else {
-        rune_kit::Highlight::new().bg(hit_bg(p)).key(format!("find-hit-{i}"))
-    }
-}
-
-/// Desktop's `::highlight(timeline-search-hit)`: `color-mix(in srgb, icon-accent 28%, transparent)`.
-fn hit_bg(p: &Pal) -> Color {
-    p.accent.alpha(0.28)
-}
+pub(crate) use session_view::style::{ACTIVE_KEY, markdown_mark, text_mark};
 
 fn str_sig(s: &str) -> u64 {
     let b = s.as_bytes();

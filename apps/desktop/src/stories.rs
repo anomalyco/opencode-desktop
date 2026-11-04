@@ -142,6 +142,7 @@ register!(STORY_LIST: Story = [
     Story::session("Timeline/Images", IMAGE_KEYS).knobs(IMAGE_KNOBS),
     Story::session("Timeline/Jump to latest", JUMP_KEYS).knobs(JUMP_KNOBS),
     Story::session("Timeline/Turn actions", TURN_KEYS).knobs(ACTIONS_KNOBS),
+    Story::session("Timeline/Copy tick", COPY_KEYS).knobs(&[crate::copied::GROUP]),
 ]);
 
 /// The storybook's order, which module paths don't give: a story's group first, then where it sits
@@ -231,6 +232,23 @@ pub fn stories() -> &'static [Story] {
 pub(crate) fn ordered<T>(mut items: Vec<T>, order: &[&str], name: impl Fn(&T) -> &str) -> Vec<T> {
     items.sort_by_key(|i| order.iter().position(|n| *n == name(i)).unwrap_or(usize::MAX));
     items
+}
+
+const COPY_KEYS: &[Trigger] = &[replay(copy_last)];
+
+/// Copies the session's last reply, as pressing its Copy does.
+fn copy_last(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    s.copied = crate::copied::Copied::default();
+    let id = sid(s);
+    let last = s
+        .transcripts
+        .get(&id)
+        .and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(_))))
+        .map(|m| m.id().to_owned());
+    if let Some(m) = last {
+        tx.after(0.4, move |s, tx| s.mark_copied(format!("copy-{m}"), tx));
+    }
 }
 
 const DRAFT: &str = "Also check that the sidebar recovers after the stream reconnects, and add a test for it";

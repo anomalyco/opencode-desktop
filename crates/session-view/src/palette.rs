@@ -126,7 +126,7 @@ pub struct Question {
     pub contrast_text: Color,
 }
 
-const THEME: &str = include_str!("../assets/theme.json");
+const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
 
 fn build(theme: usize, dark: bool) -> Pal {
     let src = crate::themes::json(theme, THEME);

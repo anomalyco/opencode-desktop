@@ -13,12 +13,7 @@
 //! place. A selection runs through an outline's words like the prose around it, and copying a
 //! whole outline copies it as plain indented lines (`rune_parts::to_plain`).
 
-pub(crate) mod demo;
-pub(crate) mod diagrams;
-mod inline;
-pub(crate) mod skill;
-#[cfg(test)]
-mod tests;
+pub mod inline;
 
 use std::ops::Range;
 
@@ -27,13 +22,13 @@ use rune_kit::markdown::{self, Block, Case};
 use rune_parts::Node;
 use rune_parts::view::PartsTheme;
 
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::view::{CONTENT_W, markdown_style, markdown_styled};
-use crate::{App, Route};
+use crate::style::{CONTENT_W, markdown_mark, markdown_style, markdown_styled};
 
 /// A slice of a reply: Markdown as written, or an outline.
 #[derive(Debug, PartialEq)]
-pub(crate) enum Seg {
+pub enum Seg {
     Md(Range<usize>),
     Ui {
         /// The fence lines and the outline between them.
@@ -64,7 +59,7 @@ fn may_open_ui(line: &str) -> bool {
 
 /// Cuts `body` into Markdown runs and outlines, or None when it has no outline (nor the start
 /// of one held back while streaming), so it draws as it always has.
-pub(crate) fn split(body: &str, streaming: bool) -> Option<Vec<Seg>> {
+pub fn split(body: &str, streaming: bool) -> Option<Vec<Seg>> {
     let tail_at = if streaming && !body.ends_with('\n') { body.rfind('\n').map_or(0, |i| i + 1) } else { body.len() };
     let tail_opens = may_open_ui(&body[tail_at..]);
     if !tail_opens && !body.contains("```ui") && !body.contains("~~~ui") {
@@ -100,7 +95,7 @@ pub(crate) fn split(body: &str, streaming: bool) -> Option<Vec<Seg>> {
 
 /// Matches of `query` (lowercase) in a reply's text as drawn: source byte ranges per match, as
 /// `markdown::find` gives them, with an outline's matches in the words it shows.
-pub(crate) fn find(body: &str, query: &str) -> Vec<Vec<Range<usize>>> {
+pub fn find(body: &str, query: &str) -> Vec<Vec<Range<usize>>> {
     let Some(segs) = split(body, false) else { return markdown::find(body, query, Case::Insensitive) };
     let mut out = Vec::new();
     for seg in segs {
@@ -121,7 +116,7 @@ fn shift(m: Vec<Range<usize>>, by: usize) -> Vec<Range<usize>> {
 }
 
 /// A row's Find matches: its source ranges, and the active one.
-pub(crate) type Hits<'a> = Option<(&'a [Vec<Range<usize>>], Option<usize>)>;
+pub type Hits<'a> = Option<(&'a [Vec<Range<usize>>], Option<usize>)>;
 
 /// Matches lying wholly in `r`, moved to start from it: `(index in the row, ranges, active)`.
 fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, bool)> {
@@ -135,7 +130,7 @@ fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, b
 }
 
 /// A reply with outlines in it, or None to draw it as plain Markdown.
-pub(crate) fn reply(s: &App, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>) -> Option<El> {
+pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>) -> Option<El> {
     let segs = split(src, streaming)?;
     let width = width(s);
     let mut root: Option<El> = None;
@@ -144,8 +139,8 @@ pub(crate) fn reply(s: &App, p: &Pal, src: &str, fade: f32, streaming: bool, hit
     for (i, seg) in segs.into_iter().enumerate() {
         let (el, (top, bottom)) = match seg {
             Seg::Md(r) => {
-                let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, crate::find::markdown_mark(p, i, on))).collect();
-                let el = markdown_styled(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks);
+                let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
+                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks);
                 // The first run is the root and keeps its blocks' keys from before any fence.
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))
@@ -154,7 +149,7 @@ pub(crate) fn reply(s: &App, p: &Pal, src: &str, fade: f32, streaming: bool, hit
                 let marks: Vec<inline::Mark> = hits_in(hits, &at).into_iter().map(|(i, m, on)| (i, shift(m, at.start), on)).collect();
                 let lines: Vec<(usize, u64)> = nodes_lines(&nodes);
                 let ver = (lines, src_at, width.to_bits(), fade.to_bits(), p.dark, p.theme, &marks);
-                let outline = rune::memo(format!("outline-{line}"), ver, || inline::outline(p, src, src_at, &nodes, width, fade, marks.clone()));
+                let outline = rune::memo(format!("outline-{line}"), ver, || inline::outline::<S>(p, src, src_at, &nodes, width, fade, marks.clone()));
                 // A pane that gains a sibling while it streams springs to its new width.
                 (col().key(format!("ui-{line}")).w_full().animate_layout().child(outline), UI_EDGES)
             }
@@ -169,7 +164,7 @@ pub(crate) fn reply(s: &App, p: &Pal, src: &str, fade: f32, streaming: bool, hit
 }
 
 /// Every line of an outline and its hash, what it draws from.
-fn nodes_lines(nodes: &[Node]) -> Vec<(usize, u64)> {
+pub fn nodes_lines(nodes: &[Node]) -> Vec<(usize, u64)> {
     let mut out = Vec::new();
     let mut stack: Vec<&Node> = nodes.iter().rev().collect();
     while let Some(n) = stack.pop() {
@@ -198,14 +193,14 @@ fn md_edges(src: &str) -> (f32, f32) {
 
 /// The width an outline lays out in: the timeline's content column, narrower in a narrow window.
 /// Layout rects are in the zoomed shell's points already.
-pub(crate) fn width(s: &App) -> f32 {
-    let Route::Session(id) = &s.route else { return CONTENT_W };
+pub fn width<S: TimelineHost>(s: &S) -> f32 {
+    let Some(id) = s.active_session_id() else { return CONTENT_W };
     rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - 48.0).clamp(0.0, CONTENT_W)).unwrap_or(CONTENT_W)
 }
 
 /// Parts in the timeline's colours: status tones from the theme's diff and state colours, frames
 /// with the plain ring panels use, and your bubble as the prompt's.
-pub(crate) fn theme(p: &Pal) -> PartsTheme {
+pub fn theme(p: &Pal) -> PartsTheme {
     PartsTheme {
         text: p.text,
         muted: p.muted,

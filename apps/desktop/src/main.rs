@@ -6,10 +6,64 @@
 #[global_allocator]
 static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
 
+pub use session_view::{agent_start, disclosure, odometer, palette, question_row, themes, turns};
+
+#[cfg_attr(test, path = ".")]
+mod compaction {
+    pub use session_view::compaction::*;
+    #[cfg(test)]
+    use crate::{App, Route};
+    #[cfg(test)]
+    #[path = "compaction_tests.rs"]
+    mod tests;
+}
+#[cfg_attr(test, path = ".")]
+mod copied {
+    pub use session_view::copied::*;
+    #[cfg(test)]
+    #[path = "copied_tests.rs"]
+    mod tests;
+}
+mod diagram {
+    pub use session_view::diagram::*;
+    pub(crate) mod stories;
+    #[cfg(test)]
+    mod tests;
+}
+mod genui {
+    pub use session_view::genui::*;
+    pub(crate) mod demo;
+    pub(crate) mod diagrams;
+    pub(crate) mod skill;
+    #[cfg(test)]
+    mod tests;
+}
+#[cfg_attr(test, path = ".")]
+mod turn_errors {
+    pub use session_view::turn_errors::*;
+    #[cfg(test)]
+    use crate::{App, Route};
+    #[cfg(test)]
+    #[path = "turn_errors_tests.rs"]
+    mod tests;
+}
+#[cfg_attr(test, path = ".")]
+mod working {
+    pub use session_view::working::*;
+    #[cfg(test)]
+    use crate::App;
+    #[cfg(test)]
+    use rune::Color;
+    #[cfg(test)]
+    use rune::color::srgb_encode;
+    #[cfg(test)]
+    #[path = "working_tests.rs"]
+    mod tests;
+}
+
 mod add_menu;
 mod agent_rows;
 mod agent_rows_view;
-mod agent_start;
 mod agent_start_stories;
 mod agent_stories;
 mod appearance;
@@ -25,19 +79,15 @@ mod capsule_stories;
 pub mod code_view;
 mod commands;
 mod commands_stories;
-mod compaction;
 mod compaction_stories;
 #[cfg(test)]
 mod compaction_fold_tests;
-mod copied;
 mod demo;
 mod demo_script;
 mod diagnostics;
-mod diagram;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
-mod disclosure;
 mod disk;
 mod dock_fade_stories;
 mod dropzone;
@@ -53,7 +103,6 @@ mod fold_stories;
 #[cfg(test)]
 mod fold_tests;
 mod fork;
-mod genui;
 mod forms;
 mod frosted_stories;
 mod composer_grow_stories;
@@ -81,7 +130,6 @@ mod motion_gate;
 mod motion_log;
 mod new_session;
 mod notifications;
-mod odometer;
 mod odometer_stories;
 mod title_change;
 mod open_in;
@@ -90,7 +138,6 @@ mod open_replay;
 mod open_story;
 #[cfg(test)]
 mod open_story_tests;
-mod palette;
 pub mod panels;
 #[cfg(test)]
 mod perf;
@@ -103,7 +150,6 @@ mod projects;
 mod prompt_history;
 mod prompt_history_story;
 mod question;
-mod question_row;
 mod question_stories;
 mod queue;
 mod quote;
@@ -162,7 +208,6 @@ mod tab_badges;
 mod tabs;
 mod telemetry;
 mod terminal;
-mod themes;
 mod todos;
 mod todo_stories;
 mod tool_group_stories;
@@ -170,12 +215,9 @@ mod tool_open;
 mod tool_open_stories;
 #[cfg(test)]
 mod tool_open_tests;
-mod turn_errors;
 mod turn_errors_stories;
-mod turns;
 mod updater;
 mod view;
-mod working;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};
@@ -362,6 +404,139 @@ pub struct App {
 fn arg(name: &str) -> Option<String> {
     let a = rune::extra_args();
     a.iter().position(|x| x == name).and_then(|i| a.get(i + 1).cloned())
+}
+
+impl App {
+    pub fn toggle_expanded(&mut self, key: &str) -> bool {
+        session_view::disclosure::toggle_expanded(self, key)
+    }
+
+    pub fn shutting(&self, key: &str) -> bool {
+        session_view::disclosure::is_shutting(self, key)
+    }
+
+    pub fn mark_copied(&mut self, key: impl Into<String>, tx: &mut Tx) {
+        session_view::copied::mark_copied(self, key, tx);
+    }
+
+    pub fn copied(&self, key: &str) -> bool {
+        session_view::copied::is_copied(self, key)
+    }
+}
+
+impl session_view::TimelineHost for App {
+    fn knobs(&self) -> &rune_knobs::Knobs {
+        &self.knobs
+    }
+    fn clock(&self) -> f64 {
+        self.clock
+    }
+    fn now_ms(&self) -> i64 {
+        self.now_ms
+    }
+    fn reduced_motion(&self) -> bool {
+        self.reduced_motion
+    }
+    fn zoom(&self) -> f32 {
+        self.zoom
+    }
+    fn active_session_id(&self) -> Option<&str> {
+        match &self.route {
+            Route::Session(id) => Some(id.as_str()),
+            _ => None,
+        }
+    }
+    fn transcript(&self, session: &str) -> Option<&Transcript> {
+        self.transcripts.get(session)
+    }
+    fn session_directory(&self, session: &str) -> Option<&str> {
+        self.session(session).map(|i| i.directory.as_str())
+    }
+    fn is_session_live(&self, session: &str) -> bool {
+        self.running.contains(session)
+            || (self.transcripts.get(session).is_some_and(Transcript::busy) && !self.stops.has(session))
+    }
+    fn for_each_tracked_session(&self, mut f: impl FnMut(&str)) {
+        for id in self.transcripts.keys().chain(self.running.iter()) {
+            f(id);
+        }
+    }
+    fn expanded(&self) -> &HashSet<String> {
+        &self.expanded
+    }
+    fn expanded_mut(&mut self) -> &mut HashSet<String> {
+        &mut self.expanded
+    }
+    fn shutting_map(&self) -> &HashMap<String, f64> {
+        &self.shutting
+    }
+    fn shutting_map_mut(&mut self) -> &mut HashMap<String, f64> {
+        &mut self.shutting
+    }
+    fn copied_state(&self) -> &copied::Copied {
+        &self.copied
+    }
+    fn copied_state_mut(&mut self) -> &mut copied::Copied {
+        &mut self.copied
+    }
+    fn working_state(&self) -> &working::Working {
+        &self.working
+    }
+    fn working_state_mut(&mut self) -> &mut working::Working {
+        &mut self.working
+    }
+    fn compactions_state(&self) -> &compaction::Compactions {
+        &self.compactions
+    }
+    fn compactions_state_mut(&mut self) -> &mut compaction::Compactions {
+        &mut self.compactions
+    }
+    fn diagrams(&self) -> &diagram::Diagrams {
+        &self.diagram
+    }
+    fn diagrams_mut(&mut self) -> &mut diagram::Diagrams {
+        &mut self.diagram
+    }
+    fn media_store(&self) -> &session_view::images::MediaStore {
+        &self.attach.store
+    }
+    fn media_store_mut(&mut self) -> &mut session_view::images::MediaStore {
+        &mut self.attach.store
+    }
+    fn open_link(&mut self, url: &str, tx: &mut Tx) {
+        self.open_reply_link(url, tx);
+    }
+    fn reply_link_help(url: &str) -> Option<String> {
+        crate::files::link_tip::tip(url, "")
+    }
+    fn send_request(&self, req: Request) {
+        if let Source::Live { requests: Some(r), .. } = &self.source {
+            let _ = r.send(req);
+        }
+    }
+    fn can_switch_model(&self) -> bool {
+        true
+    }
+    fn switch_model(&mut self, _tx: &mut Tx) {
+        if self.pickers.open != Some(pickers::Kind::Model) {
+            self.open_picker(pickers::Kind::Model);
+        }
+    }
+    fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
+        self.pickers.model_name(model)
+    }
+    fn decorate_tool_row(
+        &self,
+        p: &palette::Pal,
+        id: &str,
+        row: rune::El,
+        name: &str,
+        status: &opencode_kit::model::ToolStatus,
+        input: &Value,
+        metadata: &Value,
+    ) -> rune::El {
+        tool_open::row(self, p, id, row, name, status, input, metadata)
+    }
 }
 
 fn flag(name: &str) -> bool {

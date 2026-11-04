@@ -12,13 +12,13 @@ use std::collections::HashMap;
 use rune::color::{hex, srgb_decode, srgb_encode};
 use rune::{Color, Easing, El, LoopSpec, TextStyle, el, text};
 
-use crate::App;
+use crate::TimelineHost;
 use crate::knobs::{
     WORKING_BAND, WORKING_DIRECTION, WORKING_INTENSITY, WORKING_PACE, WORKING_PAUSE, WORKING_PERIOD, WORKING_SOFTNESS, WORKING_SPEED, WORKING_UNIT,
     secs,
 };
 use crate::palette::Pal;
-use crate::view::UI;
+use crate::style::UI;
 
 #[derive(Default)]
 pub struct Working {
@@ -28,7 +28,7 @@ pub struct Working {
     label: Option<&'static str>,
     /// The label before the last change and when it changed, until the sweep's pass then
     /// under way ends: that pass carries on from where it was ([`finish_pass`]).
-    relabeled: Option<(&'static str, f64)>,
+    pub relabeled: Option<(&'static str, f64)>,
 }
 
 impl Working {
@@ -47,78 +47,77 @@ impl Working {
 /// After the frame's events: starts the clock of each run that began and drops those that
 /// ended, and ends a pass a new label interrupted once it's over. True when what's drawn
 /// changed.
-pub fn sync(s: &mut App) -> bool {
-    let App { working, transcripts, running, stops, clock, .. } = s;
-    let live = |id: &str| running.contains(id) || (transcripts.get(id).is_some_and(|t| t.busy()) && !stops.has(id));
+pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
+    let clock = s.clock();
+    let mut working = std::mem::take(s.working_state_mut());
     let runs = working.since.len();
-    working.since.retain(|id, _| live(id));
+    working.since.retain(|id, _| s.is_session_live(id));
     let mut changed = working.since.len() != runs;
-    for id in transcripts.keys().chain(running.iter()) {
-        if !working.since.contains_key(id) && live(id) {
-            working.since.insert(id.clone(), *clock);
+    s.for_each_tracked_session(|id| {
+        if !working.since.contains_key(id) && s.is_session_live(id) {
+            working.since.insert(id.to_owned(), clock);
             changed = true;
         }
-    }
-    if let Some((old, at)) = s.working.relabeled {
-        let id = match &s.route {
-            crate::Route::Session(id) => Some(id.clone()),
-            _ => None,
-        };
-        let since = id.as_ref().and_then(|id| s.working.since.get(id).copied());
+    });
+    if let Some((old, at)) = working.relabeled {
+        let id = s.active_session_id();
+        let since = id.and_then(|id| working.since.get(id).copied());
         let b = band(s, width(old));
         let pass = |t: f64, since: f64| ((t - since) / b.period).floor();
-        if !since.is_some_and(|since| pass(s.clock, since) == pass(at, since)) {
+        if !since.is_some_and(|since| pass(clock, since) == pass(at, since)) {
             // The new words' passes run from the end of the one they interrupted, where the
             // band is out of sight: a row that mounts again picks up the same rhythm.
             if let (Some(id), Some(since)) = (id, since) {
-                s.working.since.insert(id, since + (pass(at, since) + 1.0) * b.period);
+                working.since.insert(id.to_owned(), since + (pass(at, since) + 1.0) * b.period);
             }
-            s.working.relabeled = None;
+            working.relabeled = None;
             changed = true;
         }
     }
+    *s.working_state_mut() = working;
     changed
 }
 
 /// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
 /// loops would keep waking frames.
-pub(crate) fn row(s: &App, p: &Pal, session: &str, live: bool) -> El {
-    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion))
+pub fn row<S: TimelineHost>(s: &S, p: &Pal, session: &str, live: bool) -> El {
+    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion()))
 }
 
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
-pub(crate) const LANE_PAD: f32 = 12.0;
-pub(crate) const H: f32 = 24.0;
-pub(crate) const LANE: f32 = LANE_PAD + H;
+pub const LANE_PAD: f32 = 12.0;
+pub const H: f32 = 24.0;
+pub const LANE: f32 = LANE_PAD + H;
 
 /// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
 /// glyph in its middle, 8 pt under the reply's last line. The square hangs into the gutter so
 /// at rest the glyph's ink, not its square, lines up with the reply's letters, which start
 /// about half a point inside their box.
-pub(crate) const COPY: f32 = 20.0;
-pub(crate) const COPY_GLYPH: f32 = 14.0;
-pub(crate) const COPY_AT: (f32, f32) = (-3.5, 8.0);
+pub const COPY: f32 = 20.0;
+pub const COPY_GLYPH: f32 = 14.0;
+pub const COPY_AT: (f32, f32) = (-3.5, 8.0);
 
 /// A label's width at the row's 13 px Inter.
-pub(crate) fn width(label: &str) -> f32 {
+pub fn width(label: &str) -> f32 {
     rune::text::measure(label, &[], UI, None).0
 }
 
-fn label(s: &App, p: &Pal, session: &str, on: bool) -> El {
-    let words = s.working.label();
+fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
+    let words = s.working_state().label();
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
     if !on {
         return rune::row().child(base);
     }
-    let run = Run { since: s.working.since.get(session).copied().unwrap_or(s.clock), now: s.clock };
-    let lit = weak.mix(strong, s.knobs.get(&WORKING_INTENSITY));
+    let clock = s.clock();
+    let run = Run { since: s.working_state().since.get(session).copied().unwrap_or(clock), now: clock };
+    let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));
     let w = width(words);
     let mut b = band(s, w);
     let mut shown = words;
-    if let Some((old, at)) = s.working.relabeled {
+    if let Some((old, at)) = s.working_state().relabeled {
         let was = band(s, width(old));
-        if ((s.clock - run.since) / was.period).floor() == ((at - run.since) / was.period).floor() {
+        if ((clock - run.since) / was.period).floor() == ((at - run.since) / was.period).floor() {
             let f = ((at - run.since) / was.period).rem_euclid(1.0) as f32;
             let here = was.x0 + f * (was.x1 - was.x0);
             let past = if was.x1 >= was.x0 { here >= width(old) } else { here + was.width <= 0.0 };
@@ -136,28 +135,28 @@ fn label(s: &App, p: &Pal, session: &str, on: bool) -> El {
 /// Another running label in the Working label's light (Desktop's `TextShimmer`, as a running
 /// tool's title has it), its rhythm counted from `since` on the app clock. Still when motion
 /// is reduced.
-pub(crate) fn shimmer(s: &App, p: &Pal, words: &'static str, font: TextStyle, since: f64) -> El {
+pub fn shimmer<S: TimelineHost>(s: &S, p: &Pal, words: &'static str, font: TextStyle, since: f64) -> El {
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(font).color(weak);
-    if s.reduced_motion {
+    if s.reduced_motion() {
         return rune::row().child(base);
     }
-    let lit = weak.mix(strong, s.knobs.get(&WORKING_INTENSITY));
+    let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));
     let w = rune::text::measure(words, &[], font, None).0;
-    sweep(Run { since, now: s.clock }, words, font, base, lit, band(s, w))
+    sweep(Run { since, now: s.clock() }, words, font, base, lit, band(s, w))
 }
 
 /// Where a run is: when it started and the app clock now.
 #[derive(Clone, Copy)]
-struct Run {
-    since: f64,
-    now: f64,
+pub struct Run {
+    pub since: f64,
+    pub now: f64,
 }
 
 impl Run {
     /// The delay that starts a loop mounting now in step with the run. A loop that mounts
     /// mid-pass waits for the next.
-    fn delay(self, period: f64) -> f64 {
+    pub fn delay(self, period: f64) -> f64 {
         let d = (-(self.now - self.since) / period).rem_euclid(1.0) * period;
         if d > period - 1e-6 { 0.0 } else { d }
     }
@@ -165,19 +164,19 @@ impl Run {
 
 /// A sweep: a band `width` wide whose left edge goes from `x0` to `x1` once a `period`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Band {
-    width: f32,
+pub struct Band {
+    pub width: f32,
     /// The soft part of each edge.
-    soft: f32,
-    x0: f32,
-    x1: f32,
-    period: f64,
+    pub soft: f32,
+    pub x0: f32,
+    pub x1: f32,
+    pub period: f64,
 }
 
 /// The sweep over a label `w` wide. The band leaves the label entirely before it comes round;
 /// a pause is more travel past the end, out of sight.
-fn band(s: &App, w: f32) -> Band {
-    let k = &s.knobs;
+pub fn band<S: TimelineHost>(s: &S, w: f32) -> Band {
+    let k = s.knobs();
     let width = (if k.get(&WORKING_UNIT) > 0.5 { w * k.get(&WORKING_BAND) / 100.0 } else { k.get(&WORKING_BAND) }).max(4.0);
     let span = w + width;
     let pass = if k.get(&WORKING_PACE) > 0.5 { f64::from(span / k.get(&WORKING_SPEED)) } else { secs(k, &WORKING_PERIOD) };
@@ -216,12 +215,12 @@ fn sweep(run: Run, words: &'static str, font: TextStyle, base: El, lit: Color, b
 
 /// Desktop's `--text-weak` and `--text-strong` (white at 42.2% and 93.6% on dark), each solved
 /// to the opaque colour a browser blends over the page in sRGB.
-fn colors(p: &Pal) -> (Color, Color) {
+pub fn colors(p: &Pal) -> (Color, Color) {
     if p.theme > 0 {
         return (p.muted, p.text);
     }
     if !p.dark {
-        return (hex("#8f8f8f").unwrap(), hex("#171717").unwrap());
+        return (hex("#8f8f8f").unwrap_or(p.muted), hex("#171717").unwrap_or(p.text));
     }
     let bg = p.bg_base;
     let over = |a: f32| {
@@ -230,7 +229,3 @@ fn colors(p: &Pal) -> (Color, Color) {
     };
     (over(0.422), over(0.936))
 }
-
-#[cfg(test)]
-#[path = "working_tests.rs"]
-mod tests;

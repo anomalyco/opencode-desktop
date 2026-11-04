@@ -11,10 +11,9 @@ use std::cell::Cell;
 use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, Transcript, capitalize};
 use rune::{El, Icon, Link, LinkPaint, Span, Tx, col, icon, row, text};
 
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::pickers::Kind;
-use crate::view::{UI, UI_MED, readable};
-use crate::{App, Route};
+use crate::style::{UI, UI_MED, readable};
 
 /// Desktop's `outline-hexagonal-warning`.
 static HEX_WARNING: Icon = Icon {
@@ -28,7 +27,7 @@ const MAX_RETRY_AFTER_MS: i64 = 7 * 86_400_000;
 
 /// A spent allowance or budget, which reads as a notice rather than an error.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Limit {
+pub enum Limit {
     /// OpenCode Zen's daily free messages.
     Free,
     /// An OpenCode Go subscription's usage limit.
@@ -40,7 +39,7 @@ pub(crate) enum Limit {
 }
 
 /// The limit a step's error is, and when it resets (epoch ms), if known.
-pub(crate) fn limit(a: &Assistant) -> Option<(Limit, Option<i64>)> {
+pub fn limit(a: &Assistant) -> Option<(Limit, Option<i64>)> {
     let e = a.failure.as_ref()?;
     Some(match e.kind.as_str() {
         "provider.free-limit" | "provider.go-limit" => {
@@ -66,7 +65,7 @@ fn resets_at(e: &StepError) -> Option<i64> {
 }
 
 /// `2026-11-01T00:00:00Z` or with `.000` and a `+hh:mm` offset, in epoch ms.
-pub(crate) fn parse_iso(t: &str) -> Option<i64> {
+pub fn parse_iso(t: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
     let (y, mo, d, h, mi, sec) = (n(0..4)?, n(5..7)?, n(8..10)?, n(11..13)?, n(14..16)?, n(17..19)?);
     let mut rest = &t[19..];
@@ -95,7 +94,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 
 /// A moment in local time.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Local {
+pub struct Local {
     pub year: i32,
     /// 1–12.
     pub month: u32,
@@ -106,10 +105,12 @@ pub(crate) struct Local {
     pub offset: i32,
 }
 
-pub(crate) fn local(ms: i64) -> Local {
+#[allow(unsafe_code)]
+pub fn local(ms: i64) -> Local {
     let secs = (ms / 1000) as libc::time_t;
-    // SAFETY: `localtime_r` writes only the `tm` it's given.
+    // SAFETY: `libc::tm` is a plain C struct where all-zero bytes are valid.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `localtime_r` reads `secs` and writes only into `tm`.
     unsafe { libc::localtime_r(&secs, &mut tm) };
     Local { year: tm.tm_year + 1900, month: tm.tm_mon as u32 + 1, day: tm.tm_mday as u32, hour: tm.tm_hour as u32, minute: tm.tm_min as u32, offset: tm.tm_gmtoff as i32 }
 }
@@ -117,18 +118,18 @@ pub(crate) fn local(ms: i64) -> Local {
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /// `3:45 PM`, as `Intl` formats `timeStyle: "short"` in English.
-pub(crate) fn short_time(t: Local) -> String {
+pub fn short_time(t: Local) -> String {
     let h = match t.hour % 12 { 0 => 12, h => h };
     format!("{h}:{:02} {}", t.minute, if t.hour < 12 { "AM" } else { "PM" })
 }
 
 /// `Oct 31, 2026, 3:45 PM`: `dateStyle: "medium"` with a short time.
-pub(crate) fn date_time(t: Local) -> String {
+pub fn date_time(t: Local) -> String {
     format!("{} {}, {}, {}", MONTHS[t.month as usize - 1], t.day, t.year, short_time(t))
 }
 
 /// `Nov 1, 12:00 AM GMT-7`: a month, day, time and `shortOffset` zone.
-pub(crate) fn budget_time(t: Local) -> String {
+pub fn budget_time(t: Local) -> String {
     let zone = match t.offset {
         0 => "GMT".to_owned(),
         o => {
@@ -141,7 +142,7 @@ pub(crate) fn budget_time(t: Local) -> String {
 }
 
 /// What a limit's row says, at `now` (epoch ms), with its action for a budget.
-pub(crate) fn limit_copy(kind: Limit, at: Option<i64>, now: i64) -> (String, Option<&'static str>) {
+pub fn limit_copy(kind: Limit, at: Option<i64>, now: i64) -> (String, Option<&'static str>) {
     match kind {
         Limit::Free | Limit::Go => {
             let (title, reset) = if kind == Limit::Go {
@@ -172,7 +173,7 @@ pub(crate) fn limit_copy(kind: Limit, at: Option<i64>, now: i64) -> (String, Opt
 }
 
 /// Desktop's `unwrapErrorMessage`: a provider's JSON error envelope as `type: message`.
-pub(crate) fn unwrap_error(message: &str) -> String {
+pub fn unwrap_error(message: &str) -> String {
     let text = message.strip_prefix("Error:").unwrap_or(message).trim();
     let read = |v: &str| -> Option<serde_json::Value> {
         let first: serde_json::Value = serde_json::from_str(v).ok()?;
@@ -218,22 +219,20 @@ fn mark(p: &Pal) -> El {
 }
 
 /// The turn's error row: a limit's notice, or the warning mark and the error.
-pub(crate) fn error(s: &App, p: &Pal, a: &Assistant) -> El {
+pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
     if let Some((kind, at)) = limit(a) {
-        let (words, action) = limit_copy(kind, at, s.now_ms);
+        let (words, action) = limit_copy(kind, at, s.now_ms());
         let mut line = text(words.clone()).key("words").font(UI).color(p.muted).wrap().w_full();
-        if let Some(action) = action {
+        if let Some(action) = action.filter(|_| s.can_switch_model()) {
             // The action flows on in the same paragraph, as Desktop's inline button does.
             let full = format!("{words} · {action}");
             let at = full.len() - action.len();
             line = text(full).key("words").font(UI).color(p.muted).wrap().w_full()
                 .spans(vec![Span::new(at, full_len(&words, action)).weight(530.0).color(p.text)])
                 .link(Link::new(at..full_len(&words, action), "switch-model").role("button").label(action).hover(LinkPaint::new().underline(p.text)))
-                .on_link(|s: &mut App, _: &str, tx: &mut Tx| {
+                .on_link(|s: &mut S, _: &str, tx: &mut Tx| {
                     tx.instant();
-                    if s.pickers.open != Some(Kind::Model) {
-                        s.open_picker(Kind::Model);
-                    }
+                    s.switch_model(tx);
                 });
         }
         return row().key("limit").w_full().role("status").label(words).child(readable(p, line));
@@ -243,7 +242,7 @@ pub(crate) fn error(s: &App, p: &Pal, a: &Assistant) -> El {
 }
 
 /// The Retry row's lines: what failed, and the attempt with its countdown at `now`.
-pub(crate) fn retry_copy(r: &Retry, now: i64) -> (String, String) {
+pub fn retry_copy(r: &Retry, now: i64) -> (String, String) {
     let message = if r.message.contains("exceeded your current quota") && r.message.contains("gemini") {
         "gemini is way too hot right now".to_owned()
     } else {
@@ -261,8 +260,8 @@ fn countdown(r: &Retry, now: i64) -> i64 {
 
 /// While the server waits to try the step again: what failed, and a countdown that changes in
 /// place.
-pub(crate) fn retry(s: &App, p: &Pal, r: &Retry) -> El {
-    let (message, info) = retry_copy(r, s.now_ms);
+pub fn retry<S: TimelineHost>(s: &S, p: &Pal, r: &Retry) -> El {
+    let (message, info) = retry_copy(r, s.now_ms());
     let body = col().key("body").grow(1.0).shrink().min_w(0.0)
         .child(row().key("what").w_full().child(titled(p, &message, false)))
         .child(text(info).key("info").font(UI).color(p.faint).pt(4.0));
@@ -275,28 +274,29 @@ thread_local! {
 }
 
 /// Redraws the open session's countdown when its number changes, and wakes for the next one.
-pub(crate) fn poll(s: &App, tx: &mut Tx) -> bool {
-    let Route::Session(id) = &s.route else { return false };
-    let r = s.transcripts.get(id).filter(|t| t.busy()).and_then(Transcript::retrying);
-    let now = r.map(|r| (r.attempt, countdown(r, s.now_ms)));
+pub fn poll<S: TimelineHost>(s: &S, tx: &mut Tx) -> bool {
+    let Some(id) = s.active_session_id() else { return false };
+    let now_ms = s.now_ms();
+    let r = s.transcript(id).filter(|t| t.busy()).and_then(Transcript::retrying);
+    let now = r.map(|r| (r.attempt, countdown(r, now_ms)));
     let changed = SHOWN.replace(now) != now;
     if let Some(r) = r
-        && r.at > s.now_ms
+        && r.at > now_ms
     {
         // The next half second past `at`, where the rounded count drops.
-        let left = (r.at - s.now_ms - 500).rem_euclid(1000) + 1;
+        let left = (r.at - now_ms - 500).rem_euclid(1000) + 1;
         tx.wake_after(std::time::Duration::from_millis(left as u64));
     }
     changed
 }
 
 /// Whether notice `n` draws as a divider.
-pub(crate) fn is_divider(n: &Notice) -> bool {
+pub fn is_divider(n: &Notice) -> bool {
     matches!(n.kind, NoticeKind::Moved { .. } | NoticeKind::Model { .. })
 }
 
 /// A notice row; a divider at `run`.
-pub(crate) fn notice(s: &App, p: &Pal, n: &Notice, run: crate::compaction::Run) -> El {
+pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compaction::Run) -> El {
     let faint_med = |key: &'static str, words: String| text(words).key(key).font(UI_MED).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let faint = |key: &'static str, words: String| text(words).key(key).font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).pt(12.0).pb(4.0).children(kids);
@@ -329,7 +329,7 @@ pub(crate) fn notice(s: &App, p: &Pal, n: &Notice, run: crate::compaction::Run) 
                 let v = if model.variant.is_empty() || model.variant == "default" { "Default".to_owned() } else { model.variant.clone() };
                 (format!("Switched variant to {v}"), None)
             } else {
-                (format!("Switched to {}", s.pickers.model_name(model)), Some(model.variant.as_str()).filter(|v| !v.is_empty() && *v != "default"))
+                (format!("Switched to {}", s.model_name(model)), Some(model.variant.as_str()).filter(|v| !v.is_empty() && *v != "default"))
             };
             let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(faint("label", label));
             if let Some(v) = variant {
@@ -341,7 +341,3 @@ pub(crate) fn notice(s: &App, p: &Pal, n: &Notice, run: crate::compaction::Run) 
         }
     }
 }
-
-#[cfg(test)]
-#[path = "turn_errors_tests.rs"]
-mod tests;

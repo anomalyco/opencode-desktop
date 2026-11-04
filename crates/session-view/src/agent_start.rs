@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use rune::{Color, Cycle, El, Spring, SpringPair, TextStyle, Transition, el, text};
 
 use crate::palette::Pal;
-use crate::view::activity_ring_sized;
+use crate::style::activity_ring_sized;
 
 /// The handoff's crossfade: the radar fades up as the starting dots fade down on the same
 /// spring, so the two grids' dots sit on each other and each one eases from its starting
@@ -22,7 +22,7 @@ const WORDS: &str = "Delegating agent…";
 
 /// The 14pt spinner: the starting dots while `starting`, else Desktop's radar. Either fades in
 /// or out over the other, so the handoff is one grid waking up.
-pub(crate) fn spinner(p: &Pal, starting: bool) -> El {
+pub fn spinner(p: &Pal, starting: bool) -> El {
     let fade = Transition::opacity().springs(WAKE);
     let layer = |key: &'static str, child: El| el().key(key).absolute(0.0, 0.0).size(SIZE, SIZE).child(child).transition(fade);
     let shown = if starting { layer("boot", dots(p.icon_muted)) } else { layer("radar", activity_ring_sized(p, SIZE)) };
@@ -30,7 +30,7 @@ pub(crate) fn spinner(p: &Pal, starting: bool) -> El {
 }
 
 /// "Delegating agent…" in the task's place, in `font`.
-pub(crate) fn words(p: &Pal, font: TextStyle) -> El {
+pub fn words(p: &Pal, font: TextStyle) -> El {
     text(WORDS).font(font).color(p.text)
 }
 

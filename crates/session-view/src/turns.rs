@@ -13,10 +13,10 @@ use rune::{El, col, icon, row, text};
 use opencode_kit::model::{Assistant, Attachment, Part, ToolStatus};
 use rune_theme_opencode::icons as ic;
 
-use crate::App;
+use crate::TimelineHost;
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, chevron, readable, reasoning};
+use crate::style::{UI, UI_MED, chevron, readable, reasoning};
 
 /// One step inside a group.
 #[derive(Debug)]
@@ -199,9 +199,9 @@ pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus)
 /// open and shut on the timeline's growth with its header held in place
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
 /// the group scrolls past.
-pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
-    let open = s.expanded.contains(key);
-    let shutting = !open && s.shutting(key);
+pub fn group<S: TimelineHost>(s: &S, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
+    let open = s.expanded().contains(key);
+    let shutting = !open && crate::disclosure::is_shutting(s, key);
     let l = label(steps, busy);
     let mut trigger = row()
         .key("trigger")
@@ -212,7 +212,7 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
         .center_y()
         // A step joining or the label changing crossfades the words while the chevron slides over.
         .animate_layout()
-        .on_press_tx(crate::disclosure::toggle_group(key.to_owned()));
+        .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
     if open || shutting {
         // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
         // shutting from there they slide away under it.
@@ -235,11 +235,11 @@ pub fn group(s: &App, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32)
             list = list.child(match step {
                 Step::Thought { msg, index, body, secs } => {
                     let key = format!("r-{msg}-{index}");
-                    reasoning(p, &key, body, *secs, s.expanded.contains(&key), fade).key(key)
+                    reasoning::<S>(p, &key, body, *secs, s.expanded().contains(&key), fade).key(key)
                 }
                 Step::Tool { id, name, title, status, files, input, metadata } => {
-                    let r = crate::tool_open::row(s, p, id, tool_row(p, id, name, title, status), name, status, input, metadata);
-                    match crate::attachments::gallery(s, p, "step-images", files, false) {
+                    let r = s.decorate_tool_row(p, id, tool_row(p, id, name, title, status), name, status, input, metadata);
+                    match crate::images::gallery(s, p, "step-images", files, false) {
                         Some(g) => col().key(format!("step-{id}")).w_full().child(r).child(g.pl(22.0)),
                         None => r,
                     }

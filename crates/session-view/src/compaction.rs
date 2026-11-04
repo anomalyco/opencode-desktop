@@ -21,9 +21,9 @@ use rune::{
 
 use rune_knobs::{Group, Knob};
 
+use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::view::{BUBBLE, UI, UI_MED, markdown_tinted, readable};
-use crate::{App, Route, Source};
+use crate::style::{BUBBLE, UI, UI_MED, markdown_tinted, readable};
 
 /// A new automatic compaction waits this long before it shows (Desktop's grace).
 const GRACE: f64 = 0.4;
@@ -45,28 +45,28 @@ pub struct Compactions {
     /// The setting where the server hasn't said (stories and tests set it).
     pub fallback: bool,
     /// When each compaction in the open session first showed, and how it enters.
-    seen: HashMap<String, Seen>,
+    pub seen: HashMap<String, Seen>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Seen {
-    at: f64,
-    enter: Option<Enter>,
-    running: bool,
+pub struct Seen {
+    pub at: f64,
+    pub enter: Option<Enter>,
+    pub running: bool,
 }
 
 /// A quiet divider's entrance. `Grace`: a new one fades in once the grace is out, showing
 /// Compacting. `Now`: one that ended inside the grace, or just before it showed, fades in at
 /// once showing only Compacted. Without either, it was there already and shows as it is.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Enter {
+pub enum Enter {
     Grace,
     Now,
 }
 
 /// One row of a compaction in the timeline.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Piece {
+pub enum Piece {
     Quiet,
     Start,
     Summary,
@@ -76,7 +76,7 @@ pub(crate) enum Piece {
 }
 
 impl Piece {
-    pub(crate) fn key(self, id: &str) -> String {
+    pub fn key(self, id: &str) -> String {
         let name = match self {
             Piece::Quiet => "quiet",
             Piece::Start => "start",
@@ -89,35 +89,32 @@ impl Piece {
 }
 
 /// Whether `session`'s directory has background compaction on.
-pub(crate) fn background(s: &App, session: &str) -> bool {
-    let dir = s.session(session).map(|i| i.directory.as_str());
-    dir.and_then(|d| s.compactions.background.get(d)).copied().unwrap_or(s.compactions.fallback)
+pub fn background<S: TimelineHost>(s: &S, session: &str) -> bool {
+    let dir = s.session_directory(session);
+    dir.and_then(|d| s.compactions_state().background.get(d)).copied().unwrap_or(s.compactions_state().fallback)
 }
 
 /// Asks the server whether `session`'s directory has background compaction on, once.
-pub(crate) fn ask(s: &App, session: &str) {
-    let Some(dir) = s.session(session).map(|i| i.directory.clone()).filter(|d| !d.is_empty()) else { return };
-    if let Source::Live { requests: Some(r), .. } = &s.source
-        && !s.compactions.background.contains_key(&dir)
-    {
-        let _ = r.send(Request::Config(dir));
+pub fn ask<S: TimelineHost>(s: &S, session: &str) {
+    let Some(dir) = s.session_directory(session).map(str::to_owned).filter(|d| !d.is_empty()) else { return };
+    if !s.compactions_state().background.contains_key(&dir) {
+        s.send_request(Request::Config(dir));
     }
 }
 
 /// `config.listed` (the reply to `Request::Config`) notes a directory's setting, and
 /// `config.updated` asks again for every directory asked about. True when the setting moved.
-pub(crate) fn apply_config(s: &mut App, ty: &str, data: &Value) -> bool {
+pub fn apply_config<S: TimelineHost>(s: &mut S, ty: &str, data: &Value) -> bool {
     match ty {
         "config.listed" => {
             let Some(dir) = data["directory"].as_str() else { return false };
             let on = data["backgroundCompaction"] == true;
-            s.compactions.background.insert(dir.to_owned(), on) != Some(on)
+            s.compactions_state_mut().background.insert(dir.to_owned(), on) != Some(on)
         }
         "config.updated" => {
-            if let Source::Live { requests: Some(r), .. } = &s.source {
-                for dir in s.compactions.background.keys() {
-                    let _ = r.send(Request::Config(dir.clone()));
-                }
+            let dirs: Vec<String> = s.compactions_state().background.keys().cloned().collect();
+            for dir in dirs {
+                s.send_request(Request::Config(dir));
             }
             false
         }
@@ -127,12 +124,12 @@ pub(crate) fn apply_config(s: &mut App, ty: &str, data: &Value) -> bool {
 
 /// Desktop's choice: quiet only for an automatic compaction that hasn't failed, with
 /// background compaction on.
-pub(crate) fn quiet(s: &App, session: &str, c: &Compaction) -> bool {
+pub fn quiet<S: TimelineHost>(s: &S, session: &str, c: &Compaction) -> bool {
     background(s, session) && !c.manual && c.status != CompactionStatus::Failed
 }
 
 /// The rows `c` takes, top to bottom.
-pub(crate) fn pieces(s: &App, session: &str, c: &Compaction) -> Vec<Piece> {
+pub fn pieces<S: TimelineHost>(s: &S, session: &str, c: &Compaction) -> Vec<Piece> {
     if quiet(s, session, c) {
         return vec![Piece::Quiet];
     }
@@ -151,40 +148,44 @@ pub(crate) fn pieces(s: &App, session: &str, c: &Compaction) -> Vec<Piece> {
 /// how it enters, and moves one that ended inside its grace to fading in as Compacted. Only the
 /// open session's are kept, so one seen again later shows as it is, as Desktop's remount does.
 /// True when what's drawn changed.
-pub fn sync(s: &mut App) -> bool {
-    let App { route, transcripts, compactions, now_ms, clock, .. } = s;
-    let t = match route {
-        Route::Session(id) => transcripts.get(id.as_str()),
-        _ => None,
-    };
-    let list: Vec<&Compaction> = t.into_iter().flat_map(|t| &t.messages).filter_map(|m| if let Message::Compaction(c) = m { Some(c) } else { None }).collect();
+pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
+    let now_ms = s.now_ms();
+    let clock = s.clock();
+    let mut compactions = std::mem::take(s.compactions_state_mut());
+    let t = s.active_session_id().and_then(|id| s.transcript(id));
     let before = compactions.seen.len();
-    compactions.seen.retain(|id, _| list.iter().any(|c| &c.id == id));
+    compactions.seen.retain(|id, _| {
+        t.is_some_and(|t| t.messages.iter().any(|m| matches!(m, Message::Compaction(c) if &c.id == id)))
+    });
     let mut changed = compactions.seen.len() != before;
-    for c in list {
-        let running = c.status == CompactionStatus::Running;
-        match compactions.seen.get_mut(&c.id) {
-            None => {
-                let age = *now_ms - c.created;
-                let enter = if running { (age < 400).then_some(Enter::Grace) } else { (age < 1_000).then_some(Enter::Now) };
-                compactions.seen.insert(c.id.clone(), Seen { at: *clock, enter, running });
-                changed = true;
-            }
-            Some(seen) if seen.running && !running => {
-                seen.running = false;
-                if seen.enter == Some(Enter::Grace) && *clock - seen.at < GRACE {
-                    *seen = Seen { at: *clock, enter: Some(Enter::Now), running };
+    if let Some(t) = t {
+        for m in &t.messages {
+            let Message::Compaction(c) = m else { continue };
+            let running = c.status == CompactionStatus::Running;
+            match compactions.seen.get_mut(&c.id) {
+                None => {
+                    let age = now_ms - c.created;
+                    let enter = if running { (age < 400).then_some(Enter::Grace) } else { (age < 1_000).then_some(Enter::Now) };
+                    compactions.seen.insert(c.id.clone(), Seen { at: clock, enter, running });
+                    changed = true;
                 }
-                changed = true;
+                Some(seen) if seen.running && !running => {
+                    seen.running = false;
+                    if seen.enter == Some(Enter::Grace) && clock - seen.at < GRACE {
+                        *seen = Seen { at: clock, enter: Some(Enter::Now), running };
+                    }
+                    changed = true;
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
+    *s.compactions_state_mut() = compactions;
     changed
 }
 
 /// Whether `piece` of `c` draws as a divider.
-pub(crate) fn is_divider(c: &Compaction, piece: Piece) -> bool {
+pub fn is_divider(c: &Compaction, piece: Piece) -> bool {
     match piece {
         Piece::Quiet | Piece::Start => true,
         Piece::End => c.status != CompactionStatus::Running,
@@ -194,14 +195,14 @@ pub(crate) fn is_divider(c: &Compaction, piece: Piece) -> bool {
 
 /// Piece `piece` of compaction `c`, a divider at `run`. `fade`: the timeline's word fade for a
 /// streaming summary.
-pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32, run: Run) -> El {
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, piece: Piece, fade: f32, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
     match piece {
         Piece::Quiet => quiet_view(s, p, c, run),
         Piece::Start => divider(s, p, "Session compaction started", run),
-        Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text, crate::genui::width(s))),
+        Piece::Summary => col().w_full().child(markdown_tinted::<S>(p, summary(c), fade, running, p.text, crate::genui::width(s))),
         Piece::End if running => {
-            let since = s.compactions.seen.get(&c.id).map_or(s.clock, |x| x.at);
+            let since = s.compactions_state().seen.get(&c.id).map_or(s.clock(), |x| x.at);
             let title = crate::working::shimmer(s, p, "Compacting", UI_MED, since);
             let tool = row().key("tool").h(28.0).gap(8.0).center_y().child(icon(&ARCHIVE, 14.0).color(p.icon_muted)).child(title);
             col().key("running").w_full().pt(8.0).pb(8.0).role("status").label("Compacting").transition(Transition::none()).child(tool)
@@ -215,21 +216,21 @@ pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32, ru
 }
 
 /// A compaction the server admitted but hasn't started.
-pub(crate) fn queued(s: &App, p: &Pal, run: Run) -> El {
+pub fn queued<S: TimelineHost>(s: &S, p: &Pal, run: Run) -> El {
     divider(s, p, "Session compaction queued", run)
 }
 
 /// Line to line, in points, for dividers stacked back to back.
 pub const DIVIDER_GAP: Knob = Knob::new("Divider gap", 16.0, 48.0, 28.0).step(2.0).about("Line to line for stacked dividers");
 
-rune_register::register!(crate::knobs::GROUP_LIST: Group = [Group::new("Dividers", "dividers", &[DIVIDER_GAP]).under("Timeline")]);
+pub const GROUP: Group = Group::new("Dividers", "dividers", &[DIVIDER_GAP]).under("Timeline");
 
 /// The height of a divider's words, which its lines run through the middle of.
-const WORDS: f32 = 16.0;
+pub const WORDS: f32 = 16.0;
 
 /// What sits beside a divider, on one side.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) enum Beside {
+pub enum Beside {
     /// Rows with no room of their own toward it, as a reply's text: the turn's usual 16.
     #[default]
     Other,
@@ -241,15 +242,15 @@ pub(crate) enum Beside {
 
 /// What sits above and below a divider.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Run {
+pub struct Run {
     pub above: Beside,
     pub below: Beside,
 }
 
 /// The room over and under a divider's words at `run`: the turn's usual gap from other rows, and
 /// [`DIVIDER_GAP`] line to line within a stack.
-pub(crate) fn space(s: &App, run: Run) -> (f32, f32) {
-    let half = (s.knobs.get(&DIVIDER_GAP).max(WORDS) - WORDS) / 2.0;
+pub fn space<S: TimelineHost>(s: &S, run: Run) -> (f32, f32) {
+    let half = (s.knobs().get(&DIVIDER_GAP).max(WORDS) - WORDS) / 2.0;
     let side = |b: Beside| match b {
         Beside::Other => 16.0,
         Beside::Spaced => 0.0,
@@ -260,12 +261,12 @@ pub(crate) fn space(s: &App, run: Run) -> (f32, f32) {
 
 /// Desktop's timeline separator: a hairline from nothing to the strong border on each side of a
 /// faint label, which fades out where it's cut off.
-pub(crate) fn divider(s: &App, p: &Pal, label: &str, run: Run) -> El {
+pub fn divider<S: TimelineHost>(s: &S, p: &Pal, label: &str, run: Run) -> El {
     divider_of(s, p, text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade(), run)
 }
 
 /// The divider around any `words`, such as a label with its value (a moved session's folder).
-pub(crate) fn divider_of(s: &App, p: &Pal, words: El, run: Run) -> El {
+pub fn divider_of<S: TimelineHost>(s: &S, p: &Pal, words: El, run: Run) -> El {
     // The lines keep some length when long words (a moved session's folder) fill the row.
     let line = |end: bool| hairline(p, el().key(if end { "end" } else { "start" }).h(1.0).grow(1.0).min_w(24.0), end);
     col().w_full().child(divider_bar(line(false), words, line(true), space(s, run)).key("separator"))
@@ -298,7 +299,7 @@ fn error(c: &Compaction) -> Option<&str> {
     (!matches!(ty.as_str(), "aborted" | "compaction.interrupted") && !message.is_empty()).then_some(message.as_str())
 }
 
-fn outcome(c: &Compaction) -> &'static str {
+pub fn outcome(c: &Compaction) -> &'static str {
     match (c.status, c.error.as_ref().map(|e| e.0.as_str())) {
         (CompactionStatus::Failed, Some("aborted")) => "Session compaction cancelled",
         (CompactionStatus::Failed, Some("compaction.interrupted")) => "Session compaction interrupted",
@@ -310,7 +311,7 @@ fn outcome(c: &Compaction) -> &'static str {
 
 /// The compaction request's own usage, "12.3K in · 1.1K out": none while it runs or when it
 /// used nothing.
-pub(crate) fn usage(c: &Compaction) -> Option<String> {
+pub fn usage(c: &Compaction) -> Option<String> {
     let t: &Tokens = c.tokens.as_ref().filter(|_| c.status != CompactionStatus::Running)?;
     let input = t.input + t.cache_read + t.cache_write;
     let output = t.output + t.reasoning;
@@ -318,7 +319,7 @@ pub(crate) fn usage(c: &Compaction) -> Option<String> {
 }
 
 /// `Intl.NumberFormat` with compact notation and at most one fraction digit: 999, 1K, 12.3K, 1.5M.
-pub(crate) fn compact(n: u64) -> String {
+pub fn compact(n: u64) -> String {
     let mut v = n as f64;
     let mut unit = 0;
     const UNITS: [&str; 5] = ["", "K", "M", "B", "T"];
@@ -344,20 +345,21 @@ fn error_card(p: &Pal, message: &str) -> El {
 // ---------------------------------------------------------------------------------------------
 // The quiet divider
 
-fn quiet_view(s: &App, p: &Pal, c: &Compaction, run: Run) -> El {
+fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
-    let seen = s.compactions.seen.get(&c.id).copied();
+    let clock = s.clock();
+    let seen = s.compactions_state().seen.get(&c.id).copied();
     let enter = seen.and_then(|x| x.enter);
-    let at = seen.map_or(s.clock, |x| x.at);
+    let at = seen.map_or(clock, |x| x.at);
     let delay = if enter == Some(Enter::Grace) { GRACE } else { 0.0 };
     // The light and the glint start with the fade in, after the grace.
     let start = at + delay;
     let body = summary(c);
     let expandable = !running && !body.is_empty();
     let key = Piece::Quiet.key(&c.id);
-    let open = expandable && s.expanded.contains(&key);
-    let shutting = expandable && !open && s.shutting(&key);
-    let lit = running && !s.reduced_motion;
+    let open = expandable && s.expanded().contains(&key);
+    let shutting = expandable && !open && crate::disclosure::is_shutting(s, &key);
+    let lit = running && !s.reduced_motion();
     let words = quiet_label(s, p, running, open, start);
     let (over, under) = space(s, run);
     let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true), (over, under))
@@ -365,12 +367,12 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, run: Run) -> El {
         .key(if enter == Some(Enter::Now) { "divider-now" } else { "divider" })
         .label(if running { "Compacting" } else { "Compacted" })
         .transition(Transition::none());
-    if enter.is_some() && s.clock - at < delay + 0.5 {
+    if enter.is_some() && clock - at < delay + 0.5 {
         divider = divider.looping(LoopSpec::sequence(Sequence::new(&ENTER).delay(delay)));
     }
     if expandable {
         let id = c.id.clone();
-        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| press(s, tx, &id));
+        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
     }
     let mut bar = col().key("bar").w_full().child(divider);
     if open || shutting {
@@ -391,7 +393,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, run: Run) -> El {
             .pt((16.0 - under).max(0.0))
             .pb(8.0)
             .transition(Transition::none())
-            .child(markdown_tinted(p, body, 0.0, false, p.muted, crate::genui::width(s)))
+            .child(markdown_tinted::<S>(p, body, 0.0, false, p.muted, crate::genui::width(s)))
             .children(usage(c).map(|u| text(u).key("usage").font(UI).color(p.faint).mt(8.0)));
         // Shutting, the summary stays laid out below a row that's only the divider, and the
         // row's clip folds it away; the box keeps its path, so a press doesn't remount it.
@@ -405,7 +407,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction, run: Run) -> El {
 /// row's `fold_glide`). The divider holds where it was pressed, at the timeline's end too, so
 /// the summary pushes what's below it down; pressed while stuck to the top, it stays there as
 /// the summary folds away.
-pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
+pub fn press<S: TimelineHost>(s: &mut S, tx: &mut Tx, id: &str) {
     let row = Piece::Quiet.key(id);
     if crate::disclosure::flip_fold(s, &row) {
         // Opening, the row's top holds: the divider turns sticky in the same commit, and a stuck
@@ -418,7 +420,7 @@ pub(crate) fn press(s: &mut App, tx: &mut Tx, id: &str) {
 
 /// A divider's hairline that brightens when the compaction ends, with a light that gathers
 /// toward the label while it runs. `end`: the line after the label, which mirrors the first.
-fn quiet_line(s: &App, p: &Pal, lit: bool, start: f64, end: bool) -> El {
+fn quiet_line<S: TimelineHost>(s: &S, p: &Pal, lit: bool, start: f64, end: bool) -> El {
     let base = el()
         .key("base")
         .absolute(0.0, 0.0)
@@ -444,11 +446,11 @@ const PEAK: f32 = 0.65;
 /// The light: [`BEAM`] of the line wide, it slides in from the outer end and off past the label
 /// in the first 70% of each cycle, fading up as it comes and out as it reaches the label. It fades
 /// out over 360 ms when the compaction ends.
-fn light(s: &App, p: &Pal, start: f64, end: bool) -> El {
+fn light<S: TimelineHost>(s: &S, p: &Pal, start: f64, end: bool) -> El {
     let peak = Color { a: p.muted.a * 0.55, ..p.muted };
     let clear = Color { a: 0.0, ..p.muted };
     let (from, to) = if end { (-SLIDE.0, -SLIDE.1) } else { SLIDE };
-    let slide = LoopSpec { delay: loop_delay(s.clock, start), ..LoopSpec::slide(f64::from(CYCLE), [from, 0.0], [to, 0.0]).easing(travel()) };
+    let slide = LoopSpec { delay: loop_delay(s.clock(), start), ..LoopSpec::slide(f64::from(CYCLE), [from, 0.0], [to, 0.0]).easing(travel()) };
     let beam = el()
         .key("beam")
         .pin((!end).then_some(0.0), Some(0.0), end.then_some(0.0), None)
@@ -462,11 +464,11 @@ fn light(s: &App, p: &Pal, start: f64, end: bool) -> El {
 /// "Compact" with its ending: "ing" rolls up and out, then "ed" rolls up into its place, in a box
 /// as wide as the wider so nothing beside it moves. While it runs, a brighter copy warms the
 /// label each time the lights land on it.
-fn quiet_label(s: &App, p: &Pal, running: bool, open: bool, start: f64) -> El {
+fn quiet_label<S: TimelineHost>(s: &S, p: &Pal, running: bool, open: bool, start: f64) -> El {
     let (stem, ing, ed) = ("Compact", "ing", "ed");
     let width = |w: &str| rune::text::measure(w, &[], UI, None).0;
     let ending_w = width(ing).max(width(ed)).ceil();
-    let calm = s.reduced_motion;
+    let calm = s.reduced_motion();
     let (shift, blur) = if calm { (0.0, 0.0) } else { (3.0, 2.0) };
     let out = Curve::tween(0.2, Easing::cubic(0.4, 0.0, 1.0, 1.0));
     let into = Curve::tween(0.28, Easing::cubic(0.2, 0.8, 0.2, 1.0)).delay(0.08);
@@ -574,7 +576,3 @@ fn glint_stops() -> &'static [(f32, f32)] {
         Box::leak(v.into_boxed_slice())
     })
 }
-
-#[cfg(test)]
-#[path = "compaction_tests.rs"]
-mod tests;

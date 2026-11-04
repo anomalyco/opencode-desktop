@@ -4,11 +4,9 @@
 use std::sync::OnceLock;
 
 use rune::{
-    Anim, AnimExt, Color, Curve, Cursor, Cx, Cycle, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
+    AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, GrowthSpec, Icon, Key, Phase, ScrollSpec,
     Align, Side, Spring, TextStyle, Tx, col, edge, el, icon, row, spacer, text, text_input,
 };
-
-use rune_kit::{Markdown, MarkdownStyle};
 
 use rune_theme_opencode::icons as ic;
 use opencode_kit::model::{self, Assistant, InboxItem, Message, Part, SessionInfo, Transcript};
@@ -33,23 +31,9 @@ pub(crate) use home::{home, session_row};
 pub use sidebar::*;
 pub(crate) use timeline::*;
 
-pub(crate) const INSTANT: Anim = Anim::INSTANT;
-
-// Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
-pub(crate) const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-pub(crate) const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
-pub(crate) const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
-const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
-pub(crate) const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
-const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
-const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
-const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
-const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
+pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
 const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
-
-/// `--container-session`: 744 including 24 px padding on each side.
-pub(crate) const CONTENT_W: f32 = 696.0;
 
 /// Desktop's dock: the composer and all that stacks with it sit 12 pt off the chat's sides and
 /// bottom, so at full width they stand 12 pt wider than the reply text on each side.

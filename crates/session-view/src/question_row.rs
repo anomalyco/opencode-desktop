@@ -9,10 +9,10 @@ use rune::{El, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
-use crate::App;
+use crate::TimelineHost;
 use crate::disclosure::toggle;
 use crate::palette::Pal;
-use crate::view::{UI, UI_MED, chevron, readable};
+use crate::style::{UI, UI_MED, chevron, readable};
 
 /// Each question's text, and its answer once the call has them (`None` before).
 pub fn answers(input: &Value, metadata: &Value) -> (Vec<String>, Option<Vec<String>>) {
@@ -36,7 +36,7 @@ fn error(status: &ToolStatus, metadata: &Value) -> Option<String> {
     Some(e.replace("Error: ", "").trim().to_owned()).filter(|e| !e.is_empty())
 }
 
-pub fn view(s: &App, p: &Pal, id: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> El {
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> El {
     let key = format!("question-{id}");
     match error(status, metadata) {
         Some(e) if e.contains("dismissed this question") => row()
@@ -51,7 +51,7 @@ pub fn view(s: &App, p: &Pal, id: &str, status: &ToolStatus, input: &Value, meta
     }
 }
 
-fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El {
+fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El {
     let (questions, answers) = answers(input, metadata);
     let n = questions.len();
     let subtitle = match (&answers, n) {
@@ -62,7 +62,7 @@ fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El 
     };
     // Answered, it starts open: `expanded` holds it while closed.
     let closed = format!("{key}-closed");
-    let open = answers.is_some() && !s.expanded.contains(&closed);
+    let open = answers.is_some() && !s.expanded().contains(&closed);
     let mut trigger = row()
         .key("trigger")
         .role("button")
@@ -75,7 +75,7 @@ fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El 
         trigger = trigger.child(text(subtitle).key("subtitle").font(UI).color(p.muted));
     }
     if answers.is_some() {
-        trigger = trigger.on_press_tx(toggle(closed, format!("{key}/trigger"))).child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
+        trigger = trigger.on_press_tx(toggle::<S>(closed, format!("{key}/trigger"))).child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
     }
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if let (true, Some(answers)) = (open, answers) {
@@ -93,9 +93,9 @@ fn answered(s: &App, p: &Pal, key: &str, input: &Value, metadata: &Value) -> El 
 }
 
 /// Desktop's tool error card: the error's first clause, and all of it when opened.
-fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
+fn failed<S: TimelineHost>(s: &S, p: &Pal, key: &str, e: &str) -> El {
     let open_key = format!("{key}-open");
-    let open = s.expanded.contains(&open_key);
+    let open = s.expanded().contains(&open_key);
     let head = e.split(": ").next().unwrap_or("").trim();
     let summary = opencode_kit::model::capitalize(if head.is_empty() { "Failed" } else { head });
     let mut trigger = row()
@@ -105,7 +105,7 @@ fn failed(s: &App, p: &Pal, key: &str, e: &str) -> El {
         .h(28.0)
         .gap(8.0)
         .center_y()
-        .on_press_tx(toggle(open_key, format!("{key}/trigger")))
+        .on_press_tx(toggle::<S>(open_key, format!("{key}/trigger")))
         .child(icon(&ic::WARNING, 16.0).color(p.danger))
         .child(text("Questions").key("title").font(UI_MED).color(p.text));
     if !open {

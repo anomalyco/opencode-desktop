@@ -6,8 +6,7 @@
 //! JPEG, GIF, WebP and PDF up to 20 MB) travels inline; any other file reaches it by path: its
 //! own on a local server, else a copy uploaded to the server's temporary directory.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
 #[cfg(test)]
@@ -15,8 +14,10 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
 use rune::Cx;
+#[cfg(test)]
+use rune::ImageCache;
 use rune::{
-    ClipboardContent, El, Image, ImageCache, SurfaceFit, TextStyle, Tx, Waker, col, el, icon, row,
+    ClipboardContent, El, SurfaceFit, TextStyle, Tx, col, el, icon, row,
     text,
 };
 use rune_theme_opencode::icons as ic;
@@ -27,21 +28,15 @@ use opencode_kit::model::{Attachment, Message, Transcript};
 use crate::App;
 use crate::palette::Pal;
 
-mod images;
-mod viewer;
-
-pub(crate) use images::{Fetched, PreparedImage, inline_images, prepare_images};
-use images::Media;
+pub use session_view::images::{
+    MediaStore, PreparedImage, gallery, identity, inline_images, opens,
+    prepare_images, shows, view_image, viewer,
+};
 #[cfg(test)]
-use images::{Fetch, fit};
-pub use viewer::{Viewing, view_image, viewer};
-use viewer::opens;
-#[cfg(test)]
-use viewer::shown;
+use session_view::images::{Fetch, Fetched, fit, shown};
 
 /// The server's cap on one attachment.
 const MAX_BYTES: usize = 20 << 20;
-const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 /// `attachment-card.css`: 11/14, with room for Inter's descenders where it truncates.
 pub(crate) const CARD_TITLE: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
 pub(crate) const CARD_SUBTITLE: TextStyle = TextStyle::new(11.0, 440.0).lh(14.0).tracking(0.05);
@@ -59,15 +54,8 @@ pub struct Attach {
     pub drop: crate::dropzone::Dropzone,
     /// Prompts shown before the server's copy: (session, local id, text).
     pub echoes: Vec<(String, String, String)>,
-    /// The image open in the viewer.
-    pub viewing: Option<Viewing>,
-    waker: Option<Waker>,
-    cache: RefCell<Option<ImageCache>>,
-    /// Decoded handles by the bytes' address, so a view doesn't re-hash megabytes each frame.
-    images: RefCell<HashMap<(usize, usize), PreparedImage>>,
-    /// `media:<hash>` refs: fetched once, decoded once, by hash.
-    media: Media,
-    refs: RefCell<HashMap<String, Image>>,
+    /// Shared image cache, `media:` ref fetcher, and active viewer state.
+    pub store: MediaStore,
 }
 
 impl Default for Attach {
@@ -81,13 +69,21 @@ impl Default for Attach {
             uploads,
             drop: Default::default(),
             echoes: Vec::new(),
-            viewing: None,
-            waker: None,
-            cache: RefCell::new(None),
-            images: RefCell::new(HashMap::new()),
-            media: Media::default(),
-            refs: RefCell::new(HashMap::new()),
+            store: MediaStore::default(),
         }
+    }
+}
+
+impl Deref for Attach {
+    type Target = MediaStore;
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+
+impl DerefMut for Attach {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.store
     }
 }
 
@@ -101,10 +97,6 @@ impl Attach {
         if !self.paths.iter().any(|x| x.path == r.path) {
             self.paths.push(r);
         }
-    }
-
-    pub fn set_waker(&mut self, waker: Waker) {
-        self.waker = Some(waker);
     }
 
     pub fn add(&mut self, a: Attachment) {
@@ -372,50 +364,6 @@ fn type_label(name: &str) -> String {
     match name.rsplit_once('.') {
         Some((_, ext)) if !ext.is_empty() => ext.to_uppercase(),
         _ => "File".into(),
-    }
-}
-
-/// Whether `gallery` shows anything for `files`, without loading them.
-pub fn shows(files: &[Attachment]) -> bool {
-    files.iter().any(|f| f.is_image() || f.unavailable().is_some())
-}
-
-/// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user. A
-/// ref still on its way holds a box; one whose bytes are gone shows the server's placeholder.
-pub fn gallery(s: &App, p: &Pal, key: &str, files: &[Attachment], end: bool) -> Option<El> {
-    let images: Vec<&Attachment> = files.iter().filter(|f| shows(std::slice::from_ref(f))).collect();
-    if images.is_empty() {
-        return None;
-    }
-    let mut r = row().key(key).w_full().gap(8.0).flex_wrap();
-    if end {
-        r = r.justify_end();
-    }
-    for (i, f) in images.into_iter().enumerate() {
-        let k = format!("img-{i}");
-        r = r.child(match s.attach.image(f) {
-            Some(img) if img.error().is_none() => {
-                let (w, h) = s.attach.thumbnail_size(f);
-                let held = el().key(format!("{k}-held")).size(w, h);
-                let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
-                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fit), held, format!("{key}:{}", identity(f)), f, img)
-            }
-            None if s.attach.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
-            _ => {
-                let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
-                row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted))
-            }
-        });
-    }
-    Some(col().w_full().pb(8.0).child(r))
-}
-
-/// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
-/// shared-element id.
-fn identity(f: &Attachment) -> String {
-    match &f.media {
-        Some(hash) => format!("{:x}:{hash}", f as *const Attachment as usize),
-        None => format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len()),
     }
 }
 

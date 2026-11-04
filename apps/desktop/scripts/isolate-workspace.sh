@@ -21,6 +21,7 @@ keep_members = [
     '"crates/otlp-lite"',
     '"crates/project-icon"',
     '"crates/rune-parts"',
+    '"crates/session-view"',
     '"crates/terminal"',
 ]
 src = manifest_path.read_text(encoding="utf-8")

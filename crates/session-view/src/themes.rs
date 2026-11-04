@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use serde_json::{Map, Value};
 
-const THEMES: &str = include_str!("../assets/themes.json");
+const THEMES: &str = include_str!("../../../apps/desktop/assets/themes.json");
 
 /// Desktop's id for its default theme.
 pub const DEFAULT: &str = "oc-2";
@@ -26,7 +26,7 @@ pub struct Info {
 pub fn all() -> &'static [Info] {
     static ALL: OnceLock<Vec<Info>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let list: Vec<Value> = serde_json::from_str(THEMES).expect("themes.json");
+        let list: Vec<Value> = serde_json::from_str(THEMES).unwrap_or_else(|e| panic!("themes.json: {e}"));
         let mode = |t: &Value, m: &str| t[m].as_object().cloned().unwrap_or_default();
         std::iter::once(Info { id: DEFAULT.into(), name: "OpenCode".into(), tokens: Default::default() })
             .chain(list.iter().map(|t| Info {
