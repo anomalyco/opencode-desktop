@@ -31,7 +31,7 @@ pub fn fixture() -> App {
     app
 }
 
-fn report(name: &str, values: &mut [f64]) {
+pub(crate) fn report(name: &str, values: &mut [f64]) {
     values.sort_by(f64::total_cmp);
     let at = |p: f64| values[((values.len() - 1) as f64 * p).round() as usize];
     println!("METRIC name={name} p50={:.4} p95={:.4} max={:.4} n={}", at(0.5), at(0.95), at(1.0), values.len());

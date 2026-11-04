@@ -39,8 +39,8 @@ pub enum Incoming {
     Messages { session: String, messages: Vec<Message> },
     Event { ty: String, data: Value },
     Status(String),
-    /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`) that failed, with the
-    /// id the prompt was sent under and the raw error.
+    /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
+    /// with the id the prompt was sent under and the raw error.
     SendFailed { session: String, id: String, error: String },
     /// A session's open permission requests and forms.
     Pending { session: String, items: Vec<Pending> },
@@ -96,6 +96,11 @@ pub enum Write {
     SendMovingHome { session: String, prompt: Prompt },
     /// `Create` with a full first prompt.
     Start { directory: String, prompt: Prompt },
+    /// `Start` under an id the app chose (`session_id`), so it can show the session before the
+    /// server has it: one create carrying the prompt's agent and model, then the prompt.
+    /// `Incoming::Created` follows once both land; any failure deletes what may have been made
+    /// and reports `Incoming::SendFailed` with the prompt's id.
+    StartAs { session: String, directory: String, prompt: Prompt },
     /// Withdraws an undelivered prompt (`DELETE /api/session/:id/inbox/:item`).
     Cancel { session: String, item: String },
     /// Moves an undelivered prompt between the queue and steering (`PATCH …/inbox/:item`).
@@ -158,10 +163,24 @@ pub fn data_url(mime: &str, bytes: &[u8]) -> String {
 /// digits of `ms * 0x1000 + counter` (its low 48 bits) and 14 random base62 characters. They
 /// sort by time, so a message sent now lands after the transcript's others.
 pub fn message_id() -> String {
-    message_id_at(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64))
+    message_id_at(now_ms())
+}
+
+/// A new `Session.ID` as the server makes them (`Identifier.descending`): `ses_`, then the
+/// message id's digits with the time inverted, so newer sessions sort first.
+pub fn session_id() -> String {
+    id_at("ses", now_ms(), true)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 fn message_id_at(ms: u64) -> String {
+    id_at("msg", ms, false)
+}
+
+fn id_at(prefix: &str, ms: u64, descending: bool) -> String {
     use std::hash::{BuildHasher, Hasher};
     use std::sync::Mutex;
     static LAST: Mutex<(u64, u64)> = Mutex::new((0, 0));
@@ -173,9 +192,13 @@ fn message_id_at(ms: u64) -> String {
         last.1 += 1;
         last.1
     };
-    let value = ms.wrapping_mul(0x1000).wrapping_add(counter) & 0xffff_ffff_ffff;
+    let mut value = ms.wrapping_mul(0x1000).wrapping_add(counter);
+    if descending {
+        value = !value;
+    }
+    let value = value & 0xffff_ffff_ffff;
     const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let mut out = format!("msg_{value:012x}");
+    let mut out = format!("{prefix}_{value:012x}");
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
     h.write_u64(value);
     let mut r = h.finish();
@@ -496,9 +519,46 @@ impl Server {
     }
 
     pub fn create_session(&self, directory: &str) -> Result<SessionInfo, String> {
-        let v = self.write("POST", "/api/session", Some(serde_json::json!({ "location": { "directory": directory } })))?;
+        self.create(serde_json::json!({ "location": { "directory": directory } }))
+    }
+
+    /// `create_session` under `id`, running `agent` and `model` from the start (Desktop's
+    /// `session.create` from the new-session page), so its first prompt needs no switches.
+    pub fn create_session_as(&self, id: &str, directory: &str, agent: Option<&str>, model: Option<&model::ModelRef>) -> Result<SessionInfo, String> {
+        let mut body = serde_json::json!({ "id": id, "location": { "directory": directory } });
+        if let Some(agent) = agent {
+            body["agent"] = agent.into();
+        }
+        if let Some(m) = model {
+            body["model"] = serde_json::json!({ "id": m.id, "providerID": m.provider });
+            if !m.variant.is_empty() {
+                body["model"]["variant"] = m.variant.clone().into();
+            }
+        }
+        self.create(body)
+    }
+
+    fn create(&self, body: Value) -> Result<SessionInfo, String> {
+        let v = self.write("POST", "/api/session", Some(body))?;
         let info = model::parse_session(v.get("data").unwrap_or(&v));
         if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
+    }
+
+    /// `Write::StartAs`: the create and the first prompt. When the prompt fails, or the create
+    /// may have arrived, the session is deleted so a failed start leaves nothing behind.
+    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, String> {
+        let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
+        // The create already chose the agent and model, so no switches before the prompt.
+        let sent = created.as_ref().map_err(String::clone).and_then(|_| self.write("POST", &format!("/api/session/{id}/prompt"), Some(prompt.body())));
+        match sent {
+            Ok(_) => created,
+            Err(e) => {
+                if created.is_ok() || !crate::plain_error::failed_for_sure(&e) {
+                    let _ = self.delete_session(id);
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Resolves `directory` (`GET /api/location?location[directory]=…`), registering its project
@@ -639,7 +699,10 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
             .spawn(move || {
                 for w in write_rx {
                     let prompt_id = match &w {
-                        Write::Send { session, prompt } | Write::SendMovingHome { session, prompt } | Write::SendFromRevert { session, prompt } => {
+                        Write::Send { session, prompt }
+                        | Write::SendMovingHome { session, prompt }
+                        | Write::SendFromRevert { session, prompt }
+                        | Write::StartAs { session, prompt, .. } => {
                             prompt.id.clone().map(|id| (session.clone(), id))
                         }
                         _ => None,
@@ -668,6 +731,9 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
                             }
                             let _ = inbox_tx.send(Incoming::Created(info));
                             Ok(())
+                        }),
+                        Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
+                            let _ = inbox_tx.send(Incoming::Created(info));
                         }),
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
@@ -847,8 +913,21 @@ pub fn mock(n: usize) -> (String, std::thread::JoinHandle<Vec<String>>) {
     (base, std::thread::spawn(move || (0..n).map(|_| mock_reply(&listener)).collect()))
 }
 
+/// [`mock`] answering each request in turn with its status (`"200 OK"`) and JSON body.
+#[cfg(test)]
+pub fn mock_replies(replies: Vec<(&'static str, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock");
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    (base, std::thread::spawn(move || replies.into_iter().map(|(status, body)| mock_reply_with(&listener, status, &body)).collect()))
+}
+
 #[cfg(test)]
 fn mock_reply(listener: &std::net::TcpListener) -> String {
+    mock_reply_with(listener, "200 OK", "{}")
+}
+
+#[cfg(test)]
+fn mock_reply_with(listener: &std::net::TcpListener, status: &str, body: &str) -> String {
     use std::io::{Read, Write};
     let (mut s, _) = listener.accept().expect("accept");
     s.set_read_timeout(Some(Duration::from_secs(5))).ok();
@@ -871,7 +950,7 @@ fn mock_reply(listener: &std::net::TcpListener) -> String {
             }
         }
     }
-    let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}");
+    let _ = s.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\n\r\n{body}", body.len()).as_bytes());
     String::from_utf8_lossy(&buf).into_owned()
 }
 
@@ -1011,6 +1090,58 @@ mod tests {
         // The server's id for a message created at that millisecond starts the same way.
         assert_eq!(&a[..16], "msg_17afac822001");
         assert!(a < b && b < c, "{a} {b} {c}");
+    }
+
+    #[test]
+    fn session_ids_match_the_servers_and_sort_newest_first() {
+        let a = id_at("ses", 1_793_064_618_118, true);
+        let b = id_at("ses", 1_793_064_618_119, true);
+        assert_eq!(a.len(), 4 + 26, "{a}");
+        // `Identifier.descending`: the inverted digits of the message id at that millisecond.
+        assert_eq!(&a[..16], format!("ses_{:012x}", !(1_793_064_618_118u64 * 0x1000 + 1) & 0xffff_ffff_ffff));
+        assert!(b < a, "{a} {b}");
+        assert!(session_id().starts_with("ses_"));
+    }
+
+    #[test]
+    fn a_start_creates_under_its_id_with_the_choice_then_prompts_without_switching() {
+        let info = serde_json::json!({ "data": { "id": "ses_new", "location": { "directory": "/r" } } }).to_string();
+        let (base, h) = mock_replies(vec![("200 OK", info), ("200 OK", r#"{"data":{"id":"msg_1"}}"#.into())]);
+        let prompt = Prompt {
+            id: Some("msg_1".into()),
+            text: "go".into(),
+            agent: Some("build".into()),
+            model: Some(model::ModelRef { id: "opus".into(), provider: "opencode".into(), variant: "high".into() }),
+            ..Default::default()
+        };
+        let made = Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).unwrap();
+        assert_eq!(made.id, "ses_new");
+        let reqs = h.join().unwrap();
+        let body = |r: &str| serde_json::from_str::<Value>(&r[r.find("\r\n\r\n").unwrap() + 4..]).unwrap();
+        assert!(reqs[0].starts_with("POST /api/session HTTP/1.1"), "{}", reqs[0]);
+        assert_eq!(body(&reqs[0]), serde_json::json!({ "id": "ses_new", "location": { "directory": "/r" }, "agent": "build",
+            "model": { "id": "opus", "providerID": "opencode", "variant": "high" } }));
+        assert!(reqs[1].starts_with("POST /api/session/ses_new/prompt HTTP/1.1"), "{}", reqs[1]);
+        assert_eq!(body(&reqs[1]), prompt.body());
+    }
+
+    #[test]
+    fn a_start_whose_prompt_fails_deletes_the_session() {
+        let info = serde_json::json!({ "data": { "id": "ses_new" } }).to_string();
+        let (base, h) = mock_replies(vec![("200 OK", info), ("500 Internal Server Error", "{}".into()), ("200 OK", "{}".into())]);
+        let prompt = Prompt { id: Some("msg_1".into()), text: "go".into(), ..Default::default() };
+        assert!(Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).is_err());
+        let reqs = h.join().unwrap();
+        assert!(reqs[2].starts_with("DELETE /api/session/ses_new HTTP/1.1"), "{}", reqs[2]);
+    }
+
+    #[test]
+    fn a_refused_start_deletes_nothing() {
+        let (base, h) = mock_replies(vec![("400 Bad Request", "{}".into())]);
+        let prompt = Prompt { id: Some("msg_1".into()), text: "go".into(), ..Default::default() };
+        let e = Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).unwrap_err();
+        assert!(crate::plain_error::failed_for_sure(&e), "{e}");
+        assert_eq!(h.join().unwrap().len(), 1);
     }
 
     #[test]

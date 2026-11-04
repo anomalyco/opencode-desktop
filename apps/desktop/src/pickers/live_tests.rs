@@ -139,7 +139,7 @@ fn a_new_session_starts_with_what_the_toolbar_shows() {
         s.composer = rune::TextEdit::new("start");
         s.send(tx);
     });
-    let Ok(Write::Start { prompt, .. }) = writes.try_recv() else { panic!("no start") };
+    let Ok(Write::StartAs { prompt, .. }) = writes.try_recv() else { panic!("no start") };
     assert_eq!(prompt.agent.as_deref(), Some("build"));
     assert_eq!(prompt.model.map(|m| m.id), Some("claude-opus-5-5".into()));
 }

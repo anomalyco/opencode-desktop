@@ -1,0 +1,9 @@
+{
+  "scene": "draft", "secs": 2.6,
+  "events": [
+    {"t": 0.2, "type": "tap", "key": "prompt"},
+    {"t": 0.3, "type": "paste", "text": "Find out why the sidebar flickers when the stream reconnects"},
+    {"t": 0.8, "type": "key", "name": "Enter"},
+    {"t": 2.2, "type": "move", "x": 700, "y": 300}
+  ]
+}

@@ -233,6 +233,7 @@ const STORY_PATHS: &[&str] = &[
     "Composer/Mentions",
     "Composer/Subagents capsule, 30 running",
     "Composer/Todo pill",
+    "Composer/New session",
     "Question dock/Question",
     "Question dock/Custom answer",
     "Question dock/Morph",

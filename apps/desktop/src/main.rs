@@ -79,6 +79,7 @@ mod tool_group_shut_tests;
 #[cfg(test)]
 mod motion_gate;
 mod motion_log;
+mod new_session;
 mod notifications;
 mod odometer;
 mod odometer_stories;
@@ -327,6 +328,8 @@ pub struct App {
     pub toast: status_toast::StatusToast,
     /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
     pub unsent: send_failed::Log,
+    /// Sessions shown before the server has them (`new_session.rs`).
+    pub starts: new_session::Starts,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
     base_ms: i64,
@@ -729,8 +732,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                             status_toast::from_server(s, e);
                         }
                     }
-                    Incoming::SendFailed { id, error, .. } => {
-                        if !s.send_failed(&id, &error) {
+                    Incoming::SendFailed { session, id, error } => {
+                        if !s.start_failed(&session, &id, &error, tx) && !s.send_failed(&id, &error) {
                             status_toast::from_server(s, error);
                         }
                     }
@@ -761,6 +764,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Forked { from, before, session } => {
                         fork::applied(s, from, before, session, tx);
+                    }
+                    Incoming::Created(info) if s.starts.has(&info.id) => {
+                        s.started(info, tx);
                     }
                     Incoming::Created(info) => {
                         let id = info.id.clone();

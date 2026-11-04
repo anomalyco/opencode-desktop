@@ -80,17 +80,19 @@ impl App {
             }
             return;
         }
+        // From the new-session page, the session shows at once under an id chosen here.
+        let starting = self.route == Route::Draft;
         let id = match self.route.clone() {
             Route::Session(id) => id,
-            Route::Draft if self.live() => {
+            Route::Draft if self.live() && crate::new_session::before() => {
                 if self.write(Write::Start { directory: self.draft_dir.clone(), prompt }) {
-                    self.status = "Starting a session…".into();
                     self.composer.clear();
                     self.attach.files.clear();
                     self.quote.take();
                 }
                 return;
             }
+            Route::Draft => opencode_kit::client::session_id(),
             _ => {
                 crate::status_toast::say(self, "Open a session to send to", "");
                 return;
@@ -101,13 +103,18 @@ impl App {
                 let local = prompt.id.clone().unwrap_or_default();
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
-                let w = if staged {
+                let w = if starting {
+                    Write::StartAs { session: id.clone(), directory: self.draft_dir.clone(), prompt }
+                } else if staged {
                     Write::SendFromRevert { session: id.clone(), prompt }
                 } else {
                     self.send_write(&id, prompt)
                 };
                 if !self.write(w) {
                     return;
+                }
+                if starting {
+                    self.start(&id, tx);
                 }
                 if staged {
                     self.commit_staged_revert(&id);
@@ -117,6 +124,9 @@ impl App {
                 local
             }
             Source::Fixture => {
+                if starting {
+                    self.start(&id, tx);
+                }
                 self.commit_staged_revert(&id);
                 let selection = self.selection();
                 self.sends += 1;

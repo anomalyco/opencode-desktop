@@ -56,7 +56,7 @@ impl Log {
         self.sent.iter().any(|s| s.id == id && s.unsure)
     }
 
-    fn take(&mut self, id: &str) -> Option<Sent> {
+    pub(crate) fn take(&mut self, id: &str) -> Option<Sent> {
         let at = self.sent.iter().position(|s| s.id == id)?;
         Some(self.sent.remove(at))
     }
@@ -142,12 +142,7 @@ impl App {
     fn roll_back(&mut self, sent: Sent, why: String) {
         if let Some(t) = self.transcripts.get_mut(&sent.session) { t.messages.retain(|m| m.id() != sent.id); }
         if let Some(i) = self.inboxes.get_mut(&sent.session) { i.items.retain(|x| x.id != sent.id); }
-        self.attach.echoes.retain(|e| e.1 != sent.id);
-        if self.composer.text.is_empty() && !self.attach.any() {
-            sent.draft.put(&mut self.composer, sent.draft.text.len());
-            for f in sent.files { self.attach.add(f); }
-            for p in sent.paths { self.attach.add_path(p); }
-        }
+        self.restore_draft(sent);
         crate::status_toast::fail(self, TITLE, why);
     }
 }

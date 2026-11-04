@@ -157,6 +157,7 @@ const ORDER: &[&str] = &[
     "Composer/Mentions",
     "Composer/Subagents capsule, 30 running",
     "Composer/Todo pill",
+    "Composer/New session",
     "Question dock/Question",
     "Question dock/Custom answer",
     "Question dock/Morph",
@@ -389,7 +390,7 @@ pub fn page(s: &App, p: &Pal, st: Stage) -> El {
 }
 
 /// A component's frame on the stage: the panel's surface, as wide as the timeline's column.
-fn frame(p: &Pal, key: &str) -> El {
+pub(crate) fn frame(p: &Pal, key: &str) -> El {
     col().key(key).w_full().max_w(820.0).radius(10.0).fill(p.bg_base).border(0.5, p.ring).shadow(1.0, 2.0, p.shadow).clip_soft(0.0)
 }
 

@@ -417,7 +417,9 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
     let fold = crate::fold::place(s, &t.session);
     // Working, or a compaction waiting to start, sits between the last prompt and the steers.
     let queued = if revert.is_none() { s.inboxes.get(&t.session).and_then(|i| i.compaction.as_ref()) } else { None };
-    let runs_off = last_assistant.is_some() || queued.is_some();
+    // A new session's first prompt has no reply above it yet, and Working shows under it all the same.
+    let actions = last_assistant.or_else(|| (busy && revert.is_none() && shown > 0).then(|| shown - 1));
+    let runs_off = actions.is_some() || queued.is_some();
     // Not the session's start while older messages remain to land above.
     let older = s.pages.more_above(&t.session);
     // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
@@ -462,7 +464,7 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
         }
     }
     turn_rows(&mut out, &steps, start, shown, busy && revert.is_none());
-    if let Some(last) = last_assistant {
+    if let Some(last) = actions {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
         let busy = busy || s.running.contains(&t.session);
