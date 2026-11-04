@@ -19,6 +19,8 @@ use rune::{
     text,
 };
 
+use rune_knobs::{Group, Knob};
+
 use crate::palette::Pal;
 use crate::view::{BUBBLE, UI, UI_MED, markdown_tinted, readable};
 use crate::{App, Route, Source};
@@ -181,12 +183,22 @@ pub fn sync(s: &mut App) -> bool {
     changed
 }
 
-/// Piece `piece` of compaction `c`. `fade`: the timeline's word fade for a streaming summary.
-pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) -> El {
+/// Whether `piece` of `c` draws as a divider.
+pub(crate) fn is_divider(c: &Compaction, piece: Piece) -> bool {
+    match piece {
+        Piece::Quiet | Piece::Start => true,
+        Piece::End => c.status != CompactionStatus::Running,
+        Piece::Summary | Piece::Error => false,
+    }
+}
+
+/// Piece `piece` of compaction `c`, a divider at `run`. `fade`: the timeline's word fade for a
+/// streaming summary.
+pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
     match piece {
-        Piece::Quiet => quiet_view(s, p, c),
-        Piece::Start => divider(p, "Session compaction started"),
+        Piece::Quiet => quiet_view(s, p, c, run),
+        Piece::Start => divider(s, p, "Session compaction started", run),
         Piece::Summary => col().w_full().child(markdown_tinted(p, summary(c), fade, running, p.text, crate::genui::width(s))),
         Piece::End if running => {
             let since = s.compactions.seen.get(&c.id).map_or(s.clock, |x| x.at);
@@ -196,33 +208,72 @@ pub(crate) fn view(s: &App, p: &Pal, c: &Compaction, piece: Piece, fade: f32) ->
         }
         Piece::End => {
             let label = [outcome(c).to_owned(), usage(c).unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
-            divider(p, &label).key("ended").transition(Transition::none())
+            divider(s, p, &label, run).key("ended").transition(Transition::none())
         }
         Piece::Error => error_card(p, error(c).unwrap_or_default()),
     }
 }
 
 /// A compaction the server admitted but hasn't started.
-pub(crate) fn queued(p: &Pal) -> El {
-    divider(p, "Session compaction queued")
+pub(crate) fn queued(s: &App, p: &Pal, run: Run) -> El {
+    divider(s, p, "Session compaction queued", run)
 }
 
-/// Desktop's timeline separator in its `py-2`: a hairline from nothing to the strong border on
-/// each side of a faint label, which fades out where it's cut off.
-pub(crate) fn divider(p: &Pal, label: &str) -> El {
-    divider_of(p, text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade())
+/// Line to line, in points, for dividers stacked back to back.
+pub const DIVIDER_GAP: Knob = Knob::new("Divider gap", 16.0, 48.0, 28.0).step(2.0).about("Line to line for stacked dividers");
+
+rune_register::register!(crate::knobs::GROUP_LIST: Group = [Group::new("Dividers", "dividers", &[DIVIDER_GAP]).under("Timeline")]);
+
+/// The height of a divider's words, which its lines run through the middle of.
+const WORDS: f32 = 16.0;
+
+/// What sits beside a divider, on one side.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) enum Beside {
+    /// Rows with no room of their own toward it, as a reply's text: the turn's usual 16.
+    #[default]
+    Other,
+    /// A row that brings its own room: a prompt (its copy line under it), Working, the end.
+    Spaced,
+    /// Another divider: the two lines sit [`DIVIDER_GAP`] apart.
+    Divider,
+}
+
+/// What sits above and below a divider.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Run {
+    pub above: Beside,
+    pub below: Beside,
+}
+
+/// The room over and under a divider's words at `run`: the turn's usual gap from other rows, and
+/// [`DIVIDER_GAP`] line to line within a stack.
+pub(crate) fn space(s: &App, run: Run) -> (f32, f32) {
+    let half = (s.knobs.get(&DIVIDER_GAP).max(WORDS) - WORDS) / 2.0;
+    let side = |b: Beside| match b {
+        Beside::Other => 16.0,
+        Beside::Spaced => 0.0,
+        Beside::Divider => half,
+    };
+    (side(run.above), side(run.below))
+}
+
+/// Desktop's timeline separator: a hairline from nothing to the strong border on each side of a
+/// faint label, which fades out where it's cut off.
+pub(crate) fn divider(s: &App, p: &Pal, label: &str, run: Run) -> El {
+    divider_of(s, p, text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade(), run)
 }
 
 /// The divider around any `words`, such as a label with its value (a moved session's folder).
-pub(crate) fn divider_of(p: &Pal, words: El) -> El {
+pub(crate) fn divider_of(s: &App, p: &Pal, words: El, run: Run) -> El {
     // The lines keep some length when long words (a moved session's folder) fill the row.
     let line = |end: bool| hairline(p, el().key(if end { "end" } else { "start" }).h(1.0).grow(1.0).min_w(24.0), end);
-    col().w_full().pt(8.0).pb(8.0).child(divider_bar(line(false), words, line(true)).key("separator"))
+    col().w_full().child(divider_bar(line(false), words, line(true), space(s, run)).key("separator"))
 }
 
-/// A divider's row: `words` between its two lines.
-fn divider_bar(start: El, words: El, end: El) -> El {
-    row().h(32.0).w_full().gap(12.0).center_y().child(start).child(words).child(end)
+/// A divider's row: `words` between its two lines, with `(over, under)` room around them.
+fn divider_bar(start: El, words: El, end: El, (over, under): (f32, f32)) -> El {
+    row().w_full().pt(over).pb(under).gap(12.0).center_y().child(start).child(words).child(end)
 }
 
 /// How far a divider's line runs from its outer end before it reaches full strength, as a
@@ -293,7 +344,7 @@ fn error_card(p: &Pal, message: &str) -> El {
 // ---------------------------------------------------------------------------------------------
 // The quiet divider
 
-fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
+fn quiet_view(s: &App, p: &Pal, c: &Compaction, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
     let seen = s.compactions.seen.get(&c.id).copied();
     let enter = seen.and_then(|x| x.enter);
@@ -308,7 +359,8 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
     let shutting = expandable && !open && s.shutting(&key);
     let lit = running && !s.reduced_motion;
     let words = quiet_label(s, p, running, open, start);
-    let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true))
+    let (over, under) = space(s, run);
+    let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true), (over, under))
         // A new key restarts the fade in, with everything inside at rest as Compacted.
         .key(if enter == Some(Enter::Now) { "divider-now" } else { "divider" })
         .label(if running { "Compacting" } else { "Compacted" })
@@ -320,7 +372,7 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
         let id = c.id.clone();
         divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| press(s, tx, &id));
     }
-    let mut bar = col().key("bar").w_full().pt(8.0).pb(8.0).child(divider);
+    let mut bar = col().key("bar").w_full().child(divider);
     if open || shutting {
         // While open it sticks to the timeline's top until the summary scrolls past, so it shuts
         // from anywhere in it; the summary softens into its fill as a tool group's steps do.
@@ -335,6 +387,8 @@ fn quiet_view(s: &App, p: &Pal, c: &Compaction) -> El {
         let summary = col()
             .key("summary")
             .w_full()
+            // The turn's usual gap under the divider's words, whatever row comes next.
+            .pt((16.0 - under).max(0.0))
             .pb(8.0)
             .transition(Transition::none())
             .child(markdown_tinted(p, body, 0.0, false, p.muted, crate::genui::width(s)))

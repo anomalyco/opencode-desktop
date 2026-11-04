@@ -1,11 +1,15 @@
 use super::*;
+use crate::compaction::Run;
 use crate::fold::Fold;
 use crate::session_menu::{Spot, Target};
 
+mod dividers;
 mod draft;
 mod parts;
 
 pub(crate) use draft::*;
+#[cfg(test)]
+pub(crate) use dividers::divider_runs;
 pub(crate) use parts::*;
 
 // ---------------------------------------------------------------------------------------------
@@ -190,14 +194,15 @@ pub(super) enum RowContent {
     /// under the same row key so delivery keeps it in place.
     Pending { id: String, tight: bool, above: bool, below: bool, fold: Fold },
     Note(usize),
-    /// A switched agent or model, a move, updated instructions (`turn_errors`).
-    Notice(usize),
+    /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
+    /// beside it should it draw as a divider.
+    Notice(usize, Run),
     /// The turn's last step's error, or its Retry row while the server waits to try it again.
     Error { message: usize, pt: f32 },
     Retry { message: usize, pt: f32 },
-    Compaction { message: usize, piece: crate::compaction::Piece },
+    Compaction { message: usize, piece: crate::compaction::Piece, run: Run },
     /// A compaction the server admitted but hasn't started.
-    CompactionQueued,
+    CompactionQueued(Run),
     TurnText { message: usize, part: usize, live: bool, pt: f32 },
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
@@ -347,8 +352,8 @@ impl RowSpec {
                 Message::Note { text: body, .. } => row().pt(16.0).child(readable(p, text(body.clone()).font(UI).color(p.faint))),
                 _ => unreachable!(),
             },
-            RowContent::Notice(i) => match &t.messages[*i] {
-                Message::Notice(n) => crate::turn_errors::notice(s, p, n),
+            RowContent::Notice(i, run) => match &t.messages[*i] {
+                Message::Notice(n) => crate::turn_errors::notice(s, p, n, *run),
                 _ => unreachable!(),
             },
             RowContent::Error { message, pt } => match &t.messages[*message] {
@@ -359,11 +364,11 @@ impl RowSpec {
                 Message::Assistant(Assistant { retry: Some(r), .. }) => crate::turn_errors::retry(s, p, r).pt(*pt),
                 _ => col(),
             },
-            RowContent::Compaction { message, piece } => match &t.messages[*message] {
-                Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, fade),
+            RowContent::Compaction { message, piece, run } => match &t.messages[*message] {
+                Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, fade, *run),
                 _ => unreachable!(),
             },
-            RowContent::CompactionQueued => crate::compaction::queued(p),
+            RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
             RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::Actions { message, busy } => col().w_full().child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::Room(h) => el().h(*h),
@@ -562,14 +567,14 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
             }
             Message::Notice(n) => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
-                out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi), streaming: false });
+                out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
             }
             Message::Compaction(c) => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
                 let running = c.status == model::CompactionStatus::Running;
                 for piece in crate::compaction::pieces(s, &t.session, c) {
                     let streaming = running && piece == crate::compaction::Piece::Summary;
-                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece }, streaming });
+                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming });
                 }
             }
         }
@@ -587,7 +592,7 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
     }
     // A compaction waiting to start sits under Working, above the steers, as Desktop's.
     if let Some(id) = queued {
-        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued, streaming: false });
+        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued(Run::default()), streaming: false });
     }
     // Undelivered steers wait under Working, as Desktop shows them, in the row each becomes
     // when the server delivers it to the end of the transcript; Rune slides it up into place.
@@ -607,6 +612,7 @@ pub(super) fn rows(s: &App, t: &Transcript) -> Vec<RowSpec> {
     if let Some(h) = over {
         out.push(RowSpec { key: "turn-room".into(), content: RowContent::Room(CUSHION - h), streaming: false });
     }
+    dividers::stack(t, &mut out);
     out
 }
 

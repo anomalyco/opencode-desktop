@@ -100,3 +100,26 @@ fn a_quiet_one_ending_inside_its_grace_fades_in_as_compacted() {
     assert!(sync(&mut s));
     assert_eq!(s.compactions.seen["msg_cmp"], Seen { at: 10.2, enter: Some(Enter::Now), running: false });
 }
+
+#[test]
+fn dividers_back_to_back_stack_tight_and_keep_the_usual_gap_outside() {
+    use opencode_kit::model::{Notice, NoticeKind};
+    let notice = |id: &str, kind: NoticeKind| Message::Notice(Notice { id: id.into(), kind });
+    let moved = |id: &str| notice(id, NoticeKind::Moved { directory: "/repo".into() });
+    let prompt = Message::User { id: "msg_p".into(), text: "inbox zero plz".into() };
+    let s = app(vec![shell("msg_a"), prompt, moved("msg_n1"), Message::Compaction(compaction(CompactionStatus::Completed, false)), moved("msg_n2")]);
+    let runs: Vec<Run> = crate::view::divider_runs(&s, &s.transcripts[SID]).into_iter().map(|(_, r)| r).collect();
+    let run = |above, below| Run { above, below };
+    // The loud compaction's summary breaks the stack: its start and end dividers sit 16 from it.
+    assert_eq!(runs, [
+        run(Beside::Spaced, Beside::Divider),
+        run(Beside::Divider, Beside::Other),
+        run(Beside::Other, Beside::Divider),
+        run(Beside::Divider, Beside::Spaced),
+    ]);
+    let gap = s.knobs.get(&DIVIDER_GAP);
+    let (_, under) = space(&s, runs[0]);
+    let (over, _) = space(&s, runs[1]);
+    assert_eq!(under + WORDS + over, gap, "line to line within a stack");
+    assert_eq!(space(&s, runs[3]), (gap / 2.0 - WORDS / 2.0, 0.0), "Working brings its own room");
+}

@@ -290,8 +290,13 @@ pub(crate) fn poll(s: &App, tx: &mut Tx) -> bool {
     changed
 }
 
-/// A notice row.
-pub(crate) fn notice(s: &App, p: &Pal, n: &Notice) -> El {
+/// Whether notice `n` draws as a divider.
+pub(crate) fn is_divider(n: &Notice) -> bool {
+    matches!(n.kind, NoticeKind::Moved { .. } | NoticeKind::Model { .. })
+}
+
+/// A notice row; a divider at `run`.
+pub(crate) fn notice(s: &App, p: &Pal, n: &Notice, run: crate::compaction::Run) -> El {
     let faint_med = |key: &'static str, words: String| text(words).key(key).font(UI_MED).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let faint = |key: &'static str, words: String| text(words).key(key).font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).pt(12.0).pb(4.0).children(kids);
@@ -316,7 +321,7 @@ pub(crate) fn notice(s: &App, p: &Pal, n: &Notice) -> El {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
                 .child(text("Moved to").key("label").font(UI).color(p.faint))
                 .child(faint("value", directory.clone()));
-            crate::compaction::divider_of(p, words)
+            crate::compaction::divider_of(s, p, words, run)
         }
         NoticeKind::Model { model, previous } => {
             let variant_only = previous.as_ref().is_some_and(|x| x.provider == model.provider && x.id == model.id);
@@ -332,7 +337,7 @@ pub(crate) fn notice(s: &App, p: &Pal, n: &Notice) -> El {
                     .child(rune::el().key("dot").size(2.25, 2.25).radius(2.0).fill(p.faint))
                     .child(text(capitalize(v)).key("variant").font(UI).color(p.faint));
             }
-            crate::compaction::divider_of(p, words)
+            crate::compaction::divider_of(s, p, words, run)
         }
     }
 }

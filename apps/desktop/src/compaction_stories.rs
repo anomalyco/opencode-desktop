@@ -1,8 +1,9 @@
 //! The storybook's Compaction story (Timeline › Compaction): the conversation is summarised, as
 //! Desktop shows it. Variants: queued, running, done with its usage, by the provider, failed,
-//! and with background compaction on, quiet running, done, opened, and running right under a
-//! model switch's divider (Kit's capture, p265). R replays, E ends the
-//! running one, F fails it, and G starts a quiet one that ends inside its grace.
+//! and with background compaction on, quiet running, done, opened, and right under a model
+//! switch's divider after a prompt, over Working (Kit's capture, p265): the pair, then a variant
+//! switch makes a run of three. R replays, E ends the running one, F fails it, and G starts a
+//! quiet one that ends inside its grace.
 
 use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
 use rune::{Key, Play, Tx};
@@ -14,6 +15,7 @@ use crate::stories::{Trigger, emit, replay, sid};
 /// Done first, as the story opens on it.
 pub const VARIANTS: &[(&str, usize)] =
     &[("Done", 2), ("Queued", 0), ("Running", 1), ("By the provider", 3), ("Failed", 4), ("Quiet running", 5), ("Quiet done", 6), ("Quiet opened", 7), ("After a model switch", 8)];
+const KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Compaction", "stage", &[crate::knobs::ROW_GROWTH, crate::compaction::DIVIDER_GAP])];
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 'e', label: "End it", run: |s, tx| {
@@ -46,16 +48,22 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         return;
     }
     if v == 8 {
-        let model = |id: &str| json!({ "id": id, "providerID": "anthropic", "variant": "" });
-        let data = json!({ "eventID": "evt_storycompactionmodel", "model": model("claude-opus-4-5"), "previous": model("claude-sonnet-4-5") });
+        tx.after(0.05, |s, tx| {
+            emit(s, "session.prompted", json!({ "messageID": "msg_zzzzcompactionprompt", "text": "inbox zero plz" }), tx);
+            emit(s, "session.execution.started", json!({}), tx);
+        });
+        let model = |id: &str, variant: &str| json!({ "id": id, "providerID": "anthropic", "variant": variant });
+        let data = json!({ "eventID": "evt_storycompactionmodel", "model": model("claude-opus-4-5", ""), "previous": model("claude-sonnet-4-5", "") });
         tx.after(0.1, move |s, tx| emit(s, "session.model.selected", data.clone(), tx));
+        let data = json!({ "eventID": "evt_storycompactionvariant", "model": model("claude-opus-4-5", "high"), "previous": model("claude-opus-4-5", "") });
+        tx.after(2.9, move |s, tx| emit(s, "session.model.selected", data.clone(), tx));
     }
     tx.after(0.3, |s, tx| start(s, tx));
     if (1..=4).contains(&v) {
         tx.after(0.5, stream);
     }
     match v {
-        2 | 3 | 6 | 7 => tx.after(2.6, |s, tx| end(s, tx)),
+        2 | 3 | 6 | 7 | 8 => tx.after(2.6, |s, tx| end(s, tx)),
         4 => tx.after(1.6, |s, tx| fail(s, tx)),
         _ => {}
     }
@@ -174,6 +182,6 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
 ]);
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
-    crate::stories::Story::session("Timeline/Compaction", KEYS).knobs(crate::stories::ROW_KNOBS).variants(VARIANTS),
+    crate::stories::Story::session("Timeline/Compaction", KEYS).knobs(KNOBS).variants(VARIANTS),
     crate::stories::Story::session("Timeline/Compacted summary", LONG_KEYS).knobs(LONG_KNOBS),
 ]);
