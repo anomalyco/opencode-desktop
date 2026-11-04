@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune_kit::ScrollBar;
 use serde_json::{Value, json};
 
 use crate::palette::Pal;
@@ -230,7 +231,6 @@ pub fn page(s: &App, p: &Pal) -> El {
         .shrink()
         .items_center()
         .scroll(rune::ScrollSpec { stick_bottom: false })
-        .on_scroll_offset(s.bars.watch("settings"))
         .child(
             col()
                 .w_full()
@@ -244,8 +244,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
         );
-    let area = col().key("settings-area").w_full().grow(1.0).shrink().child(body).child(crate::scrollbar::bar(s, p, "settings", 0.0));
-    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(area)
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar(crate::palette::kit(p)).h(0.0))
 }
 
 /// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,

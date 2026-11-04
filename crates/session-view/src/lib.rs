@@ -22,7 +22,6 @@ pub mod line_reveal;
 pub mod odometer;
 pub mod palette;
 pub mod question_row;
-pub mod scrollbar;
 pub mod story;
 pub mod style;
 pub mod subagent_card;
@@ -54,17 +53,12 @@ pub struct ViewState {
     pub media: images::MediaStore,
     pub line_hold: line_reveal::Hold,
     pub ends: jump::Ends,
-    pub bars: scrollbar::Bars,
 }
 
 impl ViewState {
-    /// Connects background wakers for media decoding and overlay scroll bars.
-    pub fn setup(&mut self, waker: Waker, headless: bool) {
-        self.media.set_waker(waker.clone());
-        self.bars.set_waker(waker);
-        if !headless {
-            self.bars.read_system_setting();
-        }
+    /// Connects the background waker for media decoding.
+    pub fn setup(&mut self, waker: Waker, _headless: bool) {
+        self.media.set_waker(waker);
     }
 }
 
@@ -90,7 +84,6 @@ macro_rules! delegate_view_state {
         fn line_hold_mut(&mut self) -> &mut $crate::line_reveal::Hold { &mut self.$field.line_hold }
         fn ends(&self) -> &$crate::jump::Ends { &self.$field.ends }
         fn ends_mut(&mut self) -> &mut $crate::jump::Ends { &mut self.$field.ends }
-        fn scrollbars(&self) -> &$crate::scrollbar::Bars { &self.$field.bars }
     };
 }
 
@@ -161,8 +154,6 @@ pub trait TimelineHost: Sized + 'static {
 
     fn ends(&self) -> &jump::Ends;
     fn ends_mut(&mut self) -> &mut jump::Ends;
-
-    fn scrollbars(&self) -> &scrollbar::Bars;
 
     fn fold_user_messages(&self) -> bool {
         true
@@ -302,7 +293,6 @@ pub fn overlays<S: TimelineHost>(s: &S, p: &palette::Pal, cx: &mut Cx<S>) -> Vec
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= turn_errors::poll(s, tx);
-    changed |= s.scrollbars().poll(now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     changed |= disclosure::poll(s, now, tx);
@@ -315,7 +305,6 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
 /// All ⌘⇧K knob groups owned by `session-view`.
 pub const KNOB_GROUPS: &[rune_knobs::Group] = &[
     knobs::TIMELINE_GROUP,
-    scrollbar::GROUP,
     disclosure::GROUP,
     knobs::WORKING,
     compaction::GROUP,

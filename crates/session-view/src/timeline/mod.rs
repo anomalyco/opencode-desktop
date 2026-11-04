@@ -329,25 +329,20 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 .child(text(s.loading_error(id).unwrap_or("Loading messages…")).font(UI).color(p.faint)),
         );
     }
-    col()
+    let mut scroll = col()
         .key(format!("scroll-{id}"))
         .grow(1.0)
         .shrink()
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
-        // Near its top, older messages load above what's on screen.
-        .on_scroll_offset({
-            let (top, bar) = (s.watch_scroll_top(id), s.scrollbars().watch(&format!("scroll-{id}")));
-            move |at| {
-                if let Some(top) = &top {
-                    top(at);
-                }
-                bar(at);
-            }
-        })
         // Its edges fade only while rows are under them, and never over a stuck group header.
         .scroll_edge_fade(16.0)
-        .child(stack)
+        .child(stack);
+    // Near its top, older messages load above what's on screen.
+    if let Some(top) = s.watch_scroll_top(id) {
+        scroll = scroll.on_scroll_offset(top);
+    }
+    scroll
 }
 
 pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {

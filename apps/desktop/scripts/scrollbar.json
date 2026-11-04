@@ -2,8 +2,8 @@
   "events": [
     {"t": 0.5, "type": "scroll", "x": 500, "y": 360, "dy": 1400, "dur": 0.35},
     {"t": 2.9, "type": "move", "x": 700, "y": 360},
-    {"t": 3.1, "type": "move", "key": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa-bar"},
-    {"t": 3.7, "type": "drag", "key": "bar-thumb", "dx": 0, "dy": -160, "dur": 0.9},
+    {"t": 3.1, "type": "move", "key": "scroll-bar"},
+    {"t": 3.7, "type": "drag", "key": "thumb", "dx": 0, "dy": -160, "dur": 0.9},
     {"t": 5.0, "type": "move", "x": 700, "y": 360}
   ]
 }

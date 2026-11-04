@@ -12,7 +12,7 @@ use session_view::story::{
     DIAGRAM_SRC, Host, READ_ONLY_VARIANTS, SCENES, is_dark, on_key, open_diagram_story,
     open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
 };
-use session_view::{KNOB_GROUPS, scrollbar};
+use session_view::KNOB_GROUPS;
 
 fn fresh(real: &Host) -> Host {
     let mut h = Host {
@@ -81,11 +81,6 @@ fn playground() -> Playground<Host> {
         .trigger("Session view/Scroll bar", 'r', "Replay", open_scrollbar)
         .trigger("Session view/Scroll bar", 'u', "Page up", |_, tx| tx.scroll_page(Host::scroll_key(), -1))
         .trigger("Session view/Scroll bar", 'd', "Page down", |_, tx| tx.scroll_page(Host::scroll_key(), 1))
-        .side_keys(
-            "Session view/Scroll bar",
-            |s, active, cx| side(s, &[scrollbar::GROUP], active, cx),
-            rune_knobs::side_key(&[scrollbar::GROUP], |s: &mut Host| &mut s.knobs),
-        )
         .trigger("Session view/Diagram", 'r', "Replay", open_diagram_story)
         .trigger("Session view/Diagram", 'o', "Open full size", |s, tx| {
             session_view::diagram::open_source(s, DIAGRAM_SRC, tx);

@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 
 use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
+use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
@@ -128,10 +129,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            s.scrollbars().follow(&target);
-            tx.scroll_to_bottom(target.clone());
-        });
+        .on_press_tx(move |_: &mut S, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
     if !shown {
         button = button.inert();
     }
@@ -149,10 +147,13 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         .w_full()
         // Its own bottom fade, a fixed one around the scroll's (which a wider one outranks):
         // under the timeline's last row at its end there's only padding.
+        // Rune's scroll bar, under the jump button and pills, which keep their presses where
+        // they overlap it.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
-            .child(scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)).on_at_bottom(at_end::<S>(id))))
-        // Under the jump button and pills, which keep their presses where they overlap it.
-        .child(crate::scrollbar::bar(s, p, &format!("scroll-{id}"), 0.0))
+            .child(scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)).on_at_bottom(at_end::<S>(id))
+                // Its wrapper isn't a scroll container: from no height, it takes only the room
+                // there is, not the content's.
+                .scroll_bar(crate::palette::kit(p)).h(0.0)))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
