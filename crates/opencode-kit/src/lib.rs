@@ -3,6 +3,7 @@
 
 pub mod client;
 pub mod client_mcp;
+pub mod local_service;
 pub mod mention;
 pub mod model;
 pub mod pairing;

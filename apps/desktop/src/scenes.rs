@@ -25,6 +25,7 @@ pub(crate) type Scene = (&'static str, fn(&mut App));
 /// module path.
 const ORDER: &[&str] = &[
     "home",
+    "no-server",
     "session",
     "streaming",
     "busy",
@@ -36,6 +37,7 @@ const ORDER: &[&str] = &[
     "queue-question-morph",
     "draft",
     "settings",
+    "settings-updates",
     "settings-sidebar-closed",
     "question",
     "question-morph",

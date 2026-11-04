@@ -1,0 +1,390 @@
+name: OpenCode (Rune) Release
+
+# Builds, signs, notarizes, and publishes OpenCode (Rune) (apps/desktop) and its
+# Browser Engine sidecar to https://anoma.ly/release (docs/releasing.md).
+#
+# Security boundary mirrors .github/workflows/release.yml:
+# - build and verify jobs run repository code with no environment, secrets, or id-token.
+# - sign and publish jobs run in the `release` environment, check out only
+#   /.github/release/, and treat artifacts strictly as SHA-256-verified data.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag, or branch to build
+        required: true
+        default: main
+      channel:
+        description: check (build, sign, verify; publish nothing), dev (publish dev from main), or stable (publish from opencode-rune-v* tag)
+        type: choice
+        options: [check, dev, stable]
+        default: check
+  push:
+    branches: [main]
+    tags: ["opencode-rune-v*", "browser-engine-*"]
+    paths:
+      - "apps/desktop/**"
+      - "crates/browser-pane/**"
+      - "crates/hex-client/**"
+      - "crates/opencode-kit/**"
+      - "crates/otlp-lite/**"
+      - "crates/project-icon/**"
+      - "crates/rune-parts/**"
+      - "crates/terminal/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/opencode-rune-release.yml"
+      - ".github/release/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/browser-pane/**"
+      - "crates/hex-client/**"
+      - "crates/opencode-kit/**"
+      - "crates/otlp-lite/**"
+      - "crates/project-icon/**"
+      - "crates/rune-parts/**"
+      - "crates/terminal/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - ".github/workflows/opencode-rune-release.yml"
+      - ".github/release/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-rune-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', inputs.channel) || github.ref_type == 'tag' && format('tag-{0}', github.ref_name) || 'main-dev' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SEER_TEAM_ID: 5NZ4Q7NXJ4
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      channel: ${{ steps.plan.outputs.channel }}
+      service: ${{ steps.plan.outputs.service }}
+      tag: ${{ steps.plan.outputs.tag }}
+      notes-url: ${{ steps.plan.outputs.notes-url }}
+      release-channel: ${{ steps.plan.outputs.release-channel }}
+      release-version: ${{ steps.plan.outputs.release-version }}
+      build-desktop: ${{ steps.plan.outputs.build-desktop }}
+      publish-engine: ${{ steps.plan.outputs.publish-engine }}
+      engine-version: ${{ steps.plan.outputs.engine-version }}
+      engine-sha256: ${{ steps.plan.outputs.engine-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /apps/desktop/Cargo.toml
+            /crates/browser-pane/src/installer.rs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: plan
+        run: SHA=$(git rev-parse HEAD) bash .github/release/opencode-rune-plan.sh
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          INPUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
+          CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || github.ref_type == 'tag' && 'stable' || 'dev' }}
+
+  # ---- Build: repository code; no environment, secrets, or id-token ----------
+
+  build-macos:
+    needs: plan
+    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Build OpenCode (Rune).app
+        run: |
+          apps/desktop/scripts/isolate-workspace.sh "$PWD"
+          apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
+          mkdir -p "$RUNNER_TEMP/app" "$RUNNER_TEMP/macos"
+          apps/desktop/scripts/build-app.sh "$RUNNER_TEMP/app"
+          OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$RUNNER_TEMP/app/OpenCode (Rune).app"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/app/OpenCode (Rune).app" "$RUNNER_TEMP/macos/OpenCode-Rune.app.zip"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-opencode-rune-macos-arm64
+          path: ${{ runner.temp }}/macos
+          retention-days: "7"
+
+  # ---- Sign: release environment; only .github/release/ is checked out -------
+
+  sign-macos:
+    needs: [plan, build-macos]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.build-desktop == 'true'
+      && needs.plan.outputs.channel != 'pr-check'
+      && needs.build-macos.result == 'success' }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: release
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      CHANNEL: ${{ needs.plan.outputs.channel }}
+    outputs:
+      signed: ${{ steps.credentials.outputs.available }}
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - &checkout-release
+        name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: credentials
+        name: Require the Apple values
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
+          ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          missing=
+          [ -n "$CERTIFICATE" ] || missing="$missing APPLE_SIGNING_CERTIFICATE"
+          [ -n "$KEY" ] || missing="$missing APPLE_NOTARY_KEY"
+          [ -n "$KEY_ID" ] || missing="$missing APPLE_NOTARY_KEY_ID"
+          [ -n "$ISSUER" ] || missing="$missing APPLE_NOTARY_ISSUER_ID"
+          if [ -z "$missing" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CHANNEL" = stable ]; then
+            echo "::error::Stable releases require Apple signing credentials; missing:$missing."
+            exit 1
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Developer ID signing: release environment lacks:$missing." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Download unsigned app
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-macos-arm64
+          digests: build-opencode-rune-macos-arm64=${{ needs.build-macos.outputs.digest }}
+      - name: Import the certificate and notary key
+        if: steps.credentials.outputs.available == 'true'
+        run: bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
+        env:
+          APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+      - name: Sign, notarize, and staple
+        if: steps.credentials.outputs.available == 'true'
+        run: bash .github/release/opencode-rune-sign-macos.sh "$RUNNER_TEMP/in/build-opencode-rune-macos-arm64/OpenCode-Rune.app.zip" "$RUNNER_TEMP/out"
+        env:
+          SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
+          SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
+      - name: Remove the credentials
+        if: always() && steps.credentials.outputs.available == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/credentials"
+      - id: upload
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/upload
+        with:
+          name: sign-opencode-rune-macos
+          path: ${{ runner.temp }}/out
+
+  # ---- Verify: repository code on the signed files; no secrets ---------------
+
+  verify-macos:
+    needs: [plan, sign-macos]
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && needs.sign-macos.outputs.signed == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-macos
+          digests: sign-opencode-rune-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Verify signed app, updater zip, and DMG
+        run: |
+          dmg="$RUNNER_TEMP/in/sign-opencode-rune-macos/OpenCode-Rune-$OPENCODE_RUNE_VERSION-macos-arm64.dmg"
+          zip="$RUNNER_TEMP/in/sign-opencode-rune-macos/OpenCode-Rune-$OPENCODE_RUNE_VERSION-macos-arm64.zip"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          check=$(mktemp -d)
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$check/dmg" "$dmg"
+          /usr/bin/ditto -x -k "$zip" "$check/update"
+          apps/desktop/scripts/validate-app.sh "$check/dmg/OpenCode (Rune).app" "$OPENCODE_RUNE_VERSION" "$OPENCODE_RUNE_BUILD_CHANNEL"
+          apps/desktop/scripts/validate-app.sh "$check/update/OpenCode (Rune).app" "$OPENCODE_RUNE_VERSION" "$OPENCODE_RUNE_BUILD_CHANNEL"
+          xcrun stapler validate "$check/update/OpenCode (Rune).app"
+          codesign --verify --deep --strict -R="$(cat apps/desktop/update-requirement.txt)" "$check/update/OpenCode (Rune).app"
+          spctl --assess --type execute --verbose=2 "$check/dmg/OpenCode (Rune).app"
+          diff -qr "$check/dmg/OpenCode (Rune).app" "$check/update/OpenCode (Rune).app"
+          OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$check/dmg/OpenCode (Rune).app"
+          hdiutil detach -quiet "$check/dmg"
+          codesign -dv "$check/update/OpenCode (Rune).app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Publish desktop: release environment; OIDC only -----------------------
+
+  publish-desktop:
+    needs: [plan, sign-macos, verify-macos]
+    if: >-
+      ${{ !cancelled()
+      && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
+      && needs.sign-macos.outputs.signed == 'true'
+      && needs.verify-macos.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE: ${{ needs.plan.outputs.service }}
+      VERSION: ${{ needs.plan.outputs.release-version }}
+      CHANNEL: ${{ needs.plan.outputs.release-channel }}
+      NOTES_URL: ${{ needs.plan.outputs.notes-url }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-macos
+          digests: sign-opencode-rune-macos=${{ needs.sign-macos.outputs.digest }}
+      - name: Publish OpenCode (Rune) desktop release
+        run: |
+          in_dir="$RUNNER_TEMP/in/sign-opencode-rune-macos"
+          zip="$in_dir/OpenCode-Rune-$VERSION-macos-arm64.zip"
+          dmg="$in_dir/OpenCode-Rune-$VERSION-macos-arm64.dmg"
+          jq -n \
+            --arg channel "$CHANNEL" \
+            --arg version "$VERSION" \
+            --arg notes_url "$NOTES_URL" \
+            '{channel: $channel, version: $version, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
+            > "$RUNNER_TEMP/release.json"
+          bash .github/release/release-client.sh publish \
+            --app opencode-rune \
+            --artifact desktop \
+            --release "$RUNNER_TEMP/release.json" \
+            --target "macos-arm64=$zip" \
+            --target "macos-arm64-dmg=$dmg" \
+            --out "$RUNNER_TEMP/manifest.json" \
+            --verify-downloads
+          { echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Publish Browser Engine: public download on https://anoma.ly/release ---
+
+  fetch-browser-engine:
+    needs: plan
+    if: ${{ needs.plan.outputs.publish-engine == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - *checkout-release
+      - id: check
+        name: Check if Browser Engine is already published on anoma.ly/release
+        env:
+          RELEASE: ${{ needs.plan.outputs.service }}
+          ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+          ENGINE_SHA256: ${{ needs.plan.outputs.engine-sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          manifest_url="$RELEASE/opencode-rune/browser-engine/stable.json"
+          name="OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
+          if manifest=$(curl -fsS "$manifest_url" 2>/dev/null) &&
+             [ "$(printf '%s' "$manifest" | jq -r '.release.version // empty')" = "$ENGINE_VERSION" ] &&
+             [ "$(printf '%s' "$manifest" | jq -r '.release.targets["macos-arm64"].sha256 // empty')" = "$ENGINE_SHA256" ] &&
+             curl -fsSI "$RELEASE/opencode-rune/files/$ENGINE_SHA256/$name" >/dev/null 2>&1; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Browser Engine $ENGINE_VERSION ($ENGINE_SHA256) is already live on $manifest_url." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/engine"
+          gh release download "browser-engine-$ENGINE_VERSION" -R "$GITHUB_REPOSITORY" \
+            --pattern "$name" --dir "$RUNNER_TEMP/engine" --clobber
+          actual=$(sha256sum "$RUNNER_TEMP/engine/$name" | awk '{ print $1 }')
+          if [ "$actual" != "$ENGINE_SHA256" ]; then
+            echo "::error::Downloaded $name sha256 ($actual) did not match pinned $ENGINE_SHA256."
+            exit 1
+          fi
+      - id: upload
+        if: steps.check.outputs.needed == 'true'
+        uses: ./.github/release/upload
+        with:
+          name: browser-engine-macos-arm64
+          path: ${{ runner.temp }}/engine
+          retention-days: "1"
+
+  publish-browser-engine:
+    needs: [plan, fetch-browser-engine]
+    if: >-
+      ${{ !cancelled()
+      && needs.plan.outputs.publish-engine == 'true'
+      && needs.fetch-browser-engine.result == 'success'
+      && needs.fetch-browser-engine.outputs.needed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE: ${{ needs.plan.outputs.service }}
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+      ENGINE_SHA256: ${{ needs.plan.outputs.engine-sha256 }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: browser-engine-macos-arm64
+          digests: browser-engine-macos-arm64=${{ needs.fetch-browser-engine.outputs.digest }}
+      - name: Publish Browser Engine to anoma.ly/release
+        run: |
+          name="OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
+          zip="$RUNNER_TEMP/in/browser-engine-macos-arm64/$name"
+          notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/browser-engine-$ENGINE_VERSION"
+          jq -n \
+            --arg version "$ENGINE_VERSION" \
+            --arg notes_url "$notes" \
+            '{channel: "stable", version: $version, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
+            > "$RUNNER_TEMP/engine-release.json"
+          bash .github/release/release-client.sh publish \
+            --app opencode-rune \
+            --artifact browser-engine \
+            --release "$RUNNER_TEMP/engine-release.json" \
+            --target "macos-arm64=$zip" \
+            --out "$RUNNER_TEMP/engine-manifest.json" \
+            --verify-downloads
+          { echo '### Browser Engine Manifest'; echo '```json'; cat "$RUNNER_TEMP/engine-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

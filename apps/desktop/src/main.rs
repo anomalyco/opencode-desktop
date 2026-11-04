@@ -169,6 +169,7 @@ mod tool_open_tests;
 mod turn_errors;
 mod turn_errors_stories;
 mod turns;
+mod updater;
 mod view;
 mod working;
 
@@ -331,6 +332,7 @@ pub struct App {
     sends: u32,
     waker: Option<Waker>,
     launch: launch::Launch,
+    pub updater: updater::Updater,
     pub icons: project_icon::Icons,
     pub side: panels::SideState,
     pub browser: browser::BrowserPane,
@@ -396,7 +398,7 @@ impl App {
         let server = Server::new(&arg("--server").unwrap_or_else(default_server)).with_media_refs();
         let deferred = fixture_path.is_none() && launch::deferred();
         let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless() && !cfg!(test) && server.reachable()));
-        if want_live && app.load_live(server, deferred && !flag("--live")) { return app; }
+        if want_live && app.load_live(server, false) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
             None => FIXTURE.to_owned(),
@@ -648,6 +650,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     let mut changed = dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
+    changed |= updater::poll(s, tx);
     changed |= appearance::poll(s);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
@@ -898,6 +901,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    launch::print_version_if_asked();
     if genui::skill::maybe_cli() {
         return;
     }

@@ -233,12 +233,19 @@ fn base64(input: &[u8]) -> String {
 
 impl Server {
     pub fn new(base: &str) -> Server {
-        let password = std::env::var("OPENCODE_SERVER_PASSWORD").ok().or_else(|| {
-            let home = std::env::var("HOME").ok()?;
-            std::fs::read_to_string(format!("{home}/.local/share/opencode-studio-migration/password")).ok()
-        });
-        let auth = password.map(|p| format!("Basic {}", base64(format!("opencode:{}", p.trim()).as_bytes())));
-        Server { base: base.trim_end_matches('/').to_owned(), auth, media_refs: false }
+        let clean = base.trim_end_matches('/').to_owned();
+        let password = std::env::var("OPENCODE_SERVER_PASSWORD")
+            .ok()
+            .or_else(|| {
+                let home = std::env::var("HOME").ok()?;
+                std::fs::read_to_string(format!("{home}/.local/share/opencode-studio-migration/password")).ok()
+            })
+            .or_else(|| crate::local_service::password_for_base(&clean));
+        let auth = password
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())
+            .map(|p| format!("Basic {}", base64(format!("opencode:{p}").as_bytes())));
+        Server { base: clean, auth, media_refs: false }
     }
 
     /// Uses `password` (a token from a connect link, say) in place of the one `new` found.

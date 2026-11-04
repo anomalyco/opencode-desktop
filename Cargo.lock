@@ -2535,8 +2535,10 @@ dependencies = [
  "rune-register",
  "rune-theme-opencode",
  "serde_json",
+ "sha2 0.10.9",
  "terminal",
  "tungstenite",
+ "ureq",
 ]
 
 [[package]]

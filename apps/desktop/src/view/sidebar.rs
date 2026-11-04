@@ -114,7 +114,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .scroll(ScrollSpec { stick_bottom: false })
             .clip_fade(0.0, 0.0, 0.0, 16.0)
             .child(list),
-    );
+    )
+    .children(crate::updater::sidebar_pill(s, p));
 
     // The aside's width moves the panel's edge; its contents keep their width, pinned to that edge.
     el().key("sidebar")

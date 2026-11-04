@@ -238,6 +238,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .pb(48.0)
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
+                .children(crate::updater::settings_section(s, p))
                 .child(section("General", general))
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),

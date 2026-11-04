@@ -16,6 +16,14 @@ use crate::{App, Route, Source, arg, headless, session_pages};
 
 static DEFERRED: AtomicBool = AtomicBool::new(false);
 
+/// `opencode-desktop --version`: the version and the release channel it was built for.
+pub fn print_version_if_asked() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("opencode-rune {} ({})", env!("CARGO_PKG_VERSION"), crate::updater::build_channel());
+        std::process::exit(0);
+    }
+}
+
 /// `main`, for runs that call `on_ready`: the server reads wait for it.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn defer() {
@@ -55,6 +63,7 @@ impl First {
 /// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
 /// reachable and the window should fall back to the fixture.
 pub struct Ready {
+    pub server: Option<Server>,
     pub beta_tabs: Option<Vec<crate::tabs::Tab>>,
     pub first: Option<Result<First, String>>,
 }
@@ -68,6 +77,8 @@ pub struct Launch {
     pub waiting: bool,
     /// Fall back to the built-in fixture when the background probe finds no server.
     pub fallback_fixture: bool,
+    /// True while a live launch found no local OpenCode server (Home shows the setup card).
+    pub offline: bool,
     /// Read Desktop Beta's `drafts.sqlite` tabs in `on_ready` before falling back to recent sessions.
     pub beta_tabs: bool,
     /// No tabs were saved: the first reads' recent sessions become them.
@@ -86,6 +97,23 @@ pub fn setup(s: &mut App) {
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) {
+    crate::updater::start_if_packaged(s);
+    start(s, tx);
+}
+
+/// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
+pub fn retry(s: &mut App, tx: &mut Tx) {
+    if s.launch.first.is_some() {
+        return;
+    }
+    if let Source::Live { server, .. } = &mut s.source {
+        let addr = crate::arg("--server").unwrap_or_else(opencode_kit::client::default_server);
+        *server = Server::new(&addr).with_media_refs();
+    }
+    s.launch.started = false;
+    s.launch.waiting = true;
+    s.launch.recent_tabs = s.tabs.is_empty();
+    tx.instant();
     start(s, tx);
 }
 
@@ -97,14 +125,26 @@ fn start(s: &mut App, tx: &mut Tx) {
     let (out, rx) = std::sync::mpsc::channel();
     let (server, wake) = (server.clone(), s.waker.clone());
     let (fallback, beta_tabs) = (s.launch.fallback_fixture, std::mem::take(&mut s.launch.beta_tabs));
+    let discover_local = crate::arg("--server").is_none();
     std::thread::Builder::new()
         .name("opencode-first".into())
         .spawn(move || {
-            let ready = if fallback && !server.reachable() {
-                Ready { beta_tabs: None, first: None }
+            let actual = if discover_local {
+                opencode_kit::local_service::discover_local_server(&server)
+            } else {
+                server
+            };
+            let ready = if !actual.reachable() {
+                if fallback {
+                    Ready { server: None, beta_tabs: None, first: None }
+                } else {
+                    let msg = format!("No OpenCode server responded at {}", actual.base);
+                    Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)) }
+                }
             } else {
                 let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-                Ready { beta_tabs, first: Some(First::fetch(&server)) }
+                let first = First::fetch(&actual);
+                Ready { server: Some(actual), beta_tabs, first: Some(first) }
             };
             let _ = out.send(ready);
             if let Some(w) = wake {
@@ -121,7 +161,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let ready = match rx.try_recv() {
         Ok(r) => r,
         Err(TryRecvError::Empty) => return false,
-        Err(TryRecvError::Disconnected) => Ready { beta_tabs: None, first: Some(Err("The first server reads stopped".into())) },
+        Err(TryRecvError::Disconnected) => Ready {
+            server: None,
+            beta_tabs: None,
+            first: Some(Err("The first server reads stopped".into())),
+        },
     };
     s.launch.first = None;
     s.launch.waiting = false;
@@ -134,19 +178,25 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         s.load_fixture(crate::FIXTURE);
         return true;
     };
+    if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut s.source) {
+        *server = actual;
+    }
     if let Some(tabs) = ready.beta_tabs {
         s.tabs = tabs;
         s.launch.recent_tabs = false;
     }
     match result {
         Ok(first) => {
+            s.launch.offline = false;
             s.apply_first(first);
             connect(s, tx);
         }
         Err(e) => {
-            // Desktop's `error.serverSync.connectFailed`.
-            let url = match &s.source { crate::Source::Live { server, .. } => server.base.clone(), _ => String::new() };
-            crate::status_toast::fail(s, "Couldn't connect to the server", format!("Is there a server running at {url}?"));
+            s.launch.offline = true;
+            s.launch.cold_transcript = None;
+            s.transcripts.clear();
+            s.tabs.clear();
+            s.route = Route::Home;
             s.status = e;
         }
     }

@@ -19,10 +19,17 @@ pub const ENGINE_DOWNLOAD_MB: u64 = 128;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub const ENGINE_DEFAULT_URL: Option<&str> = Some(
-    "https://github.com/anomalyco/seer/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
+    "https://anoma.ly/release/opencode-rune/files/92291cae38cec0cf280e64ac3eb43cb77e0b44cdd3f304279a050fa8c69cfa18/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
 );
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub const ENGINE_DEFAULT_URL: Option<&str> = None;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = Some(
+    "https://github.com/anomalyco/seer/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
+);
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = None;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub const ENGINE_DEFAULT_SHA256: Option<&str> =
@@ -224,7 +231,12 @@ pub(crate) fn download_and_install_with(
     let ext = if clean_url.ends_with(".tar.zst") { "tar.zst" } else { "zip" };
     let archive_path = staging.join(format!("engine.{ext}"));
 
-    let mut resp = match github_download::open(url, github) {
+    let mut resp = match github_download::open(url, github).or_else(|primary_err| {
+        match ENGINE_GITHUB_FALLBACK_URL.filter(|_| Some(url) == ENGINE_DEFAULT_URL) {
+            Some(fallback) => github_download::open(fallback, github).map_err(|_| primary_err),
+            None => Err(primary_err),
+        }
+    }) {
         Ok(r) => r,
         Err(err) => {
             let _ = std::fs::remove_dir_all(&staging);

@@ -7,6 +7,9 @@ use crate::session_menu::{Spot, Target};
 const WIDE_HOME_MIN_W: f32 = 860.0;
 
 pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
+    if s.launch.offline {
+        return no_server_home(s, p);
+    }
     let selected_id = s.project_state.home_selected.as_deref();
     let selected = selected_id.and_then(|id| s.project(id));
     let show_project_name = selected.is_none();
@@ -55,6 +58,17 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
                     .pl(12.0)
                     .center_y()
                     .child(text(format!("No sessions in {} yet", proj.name)).font(UI).color(p.muted))
+                    .child(spacer())
+                    .child(new_session_button(p)),
+            );
+        } else if !s.launch.waiting {
+            list = list.child(
+                row()
+                    .key("no-sessions-yet")
+                    .h(40.0)
+                    .pl(12.0)
+                    .center_y()
+                    .child(text("No sessions yet").font(UI).color(p.muted))
                     .child(spacer())
                     .child(new_session_button(p)),
             );
@@ -497,4 +511,149 @@ fn session_row_inner(
         r.child(spacer()).child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
         target,
     )
+}
+
+const SERVE_CMD: &str = "opencode serve --port 4096";
+
+fn no_server_home(s: &App, p: &Pal) -> El {
+    let addr = match &s.source {
+        crate::Source::Live { server, .. } => server.base.as_str(),
+        crate::Source::Fixture => opencode_kit::client::DEFAULT_SERVER,
+    };
+    let checking = s.launch.waiting;
+    let copy_key = "no-server-copy";
+    let cmd_row = row()
+        .key("no-server-cmd")
+        .w_full()
+        .h(36.0)
+        .pl(12.0)
+        .pr(6.0)
+        .gap(8.0)
+        .center_y()
+        .radius(6.0)
+        .fill(p.bg_base)
+        .border(0.5, p.ring)
+        .child(text(SERVE_CMD).font(CODE).color(p.text).grow(1.0).shrink().truncate_fade())
+        .child(
+            row()
+                .key(copy_key)
+                .role("button")
+                .label("Copy command")
+                .help("Copy command")
+                .size(24.0, 24.0)
+                .center()
+                .radius(4.0)
+                .hover(p.hover)
+                .press(p.pressed)
+                .hover_motion(INSTANT, INSTANT)
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    tx.copy(SERVE_CMD);
+                    s.mark_copied(copy_key, tx);
+                })
+                .child(crate::copied::glyph(s, copy_key, 14.0, p.icon_muted)),
+        );
+
+    let mut retry = row()
+        .key("no-server-retry")
+        .role("button")
+        .label(if checking { "Checking for server" } else { "Retry connection" })
+        .h(30.0)
+        .px(12.0)
+        .center()
+        .radius(6.0)
+        .fill(p.bg_base)
+        .border(0.5, p.ring)
+        .hover(if checking { p.bg_base } else { p.hover })
+        .hover_motion(INSTANT, INSTANT)
+        .child(text(if checking { "Checking…" } else { "Retry" }).font(UI_MED).color(if checking { p.faint } else { p.text }));
+    if !checking {
+        retry = retry.press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| crate::launch::retry(s, tx));
+    }
+
+    let card = col()
+        .key("no-server")
+        .w_full()
+        .max_w(460.0)
+        .padding(20.0)
+        .gap(14.0)
+        .radius(10.0)
+        .fill(p.layer2)
+        .border(0.5, p.ring)
+        .child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(text("No OpenCode server found").font(H2).color(p.text))
+                .child(
+                    text(format!("Start OpenCode Desktop or run a local server at {addr}, then retry."))
+                        .font(PROMPT)
+                        .color(p.muted)
+                        .wrap(),
+                ),
+        )
+        .child(cmd_row)
+        .child(row().w_full().child(retry));
+
+    col()
+        .key("home")
+        .grow(1.0)
+        .w_full()
+        .scroll(ScrollSpec { stick_bottom: false })
+        .clip_soft(0.0)
+        .child(col().key("home-content").w_full().center().px(24.0).pt(96.0).child(card))
+}
+
+mod no_server_story {
+    use rune::{El, Play, col};
+
+    use crate::App;
+    use crate::palette::Pal;
+    use crate::stories::{Story, Trigger, replay, stage};
+
+    const VARIANTS: &[(&str, usize)] = &[("Disconnected", 0), ("Checking", 1)];
+    const KEYS: &[Trigger] = &[
+        replay(open),
+        Trigger {
+            key: 'c',
+            label: "Toggle checking",
+            run: |s, tx| {
+                tx.instant();
+                s.launch.waiting = !s.launch.waiting;
+            },
+        },
+    ];
+
+    fn setup(s: &mut App) {
+        s.route = crate::Route::Home;
+        s.sessions.clear();
+        s.tabs.clear();
+        s.projects.clear();
+        s.launch.offline = true;
+        s.launch.waiting = s.variant == 1;
+    }
+
+    fn open(s: &mut App, tx: &mut Play<App>) {
+        setup(s);
+        tx.instant();
+    }
+
+    fn view(s: &App, p: &Pal) -> El {
+        col()
+            .key("story-no-server")
+            .w(760.0)
+            .h(440.0)
+            .radius(10.0)
+            .fill(p.bg_base)
+            .border(0.5, p.ring)
+            .clip_soft(0.0)
+            .child(super::home(s, p, 760.0))
+    }
+
+    rune_register::register!(crate::stories::STORY_LIST: Story = [
+        Story { path: "Home/No server", scene: |s| { setup(s); stage(s, view); }, knobs: &[], keys: KEYS, variants: VARIANTS },
+    ]);
+
+    rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+        ("no-server", setup),
+    ]);
 }

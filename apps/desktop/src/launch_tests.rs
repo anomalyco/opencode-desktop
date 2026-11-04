@@ -18,7 +18,7 @@ fn first_reads_land_in_one_poll() {
     app.launch.first = Some(rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })) };
-    out.send(Ready { beta_tabs: None, first: Some(Ok(first)) }).unwrap();
+    out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert!(!app.launch.waiting && app.launch.first.is_none());
     assert!(!app.projects.is_empty());
@@ -39,22 +39,51 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     app.launch.first = Some(rx);
     let beta = vec![crate::tabs::Tab { id: crate::fixture_ids::THIRD.into(), title: "Pinned".into(), directory: "/w".into() }];
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: None };
-    out.send(Ready { beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
+    out.send(Ready { server: None, beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert_eq!(app.tabs, beta, "Beta's tabs win over recent sessions");
     assert_eq!(app.route, Route::Home, "unknown restored session falls back to Home");
 
-    // Unreachable background probe falls back to the built-in fixture.
+    // Unreachable background probe falls back to the built-in fixture when explicitly requested.
     let mut offline = App::empty();
     offline.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     offline.launch.waiting = true;
     offline.launch.fallback_fixture = true;
     let (out, rx) = channel();
     offline.launch.first = Some(rx);
-    out.send(Ready { beta_tabs: None, first: None }).unwrap();
+    out.send(Ready { server: None, beta_tabs: None, first: None }).unwrap();
     assert!(poll(&mut offline, &mut Tx::default()));
     assert!(matches!(offline.source, Source::Fixture));
     assert!(!offline.sessions.is_empty());
+}
+
+#[test]
+fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
+    use rune::{Env, Runtime};
+    let mut app = App::empty();
+    app.source = Source::Live { server: Server::new("http://127.0.0.1:4096"), requests: None, writes: None, allow_send: false };
+    app.launch.waiting = true;
+    app.route = Route::Session("ses_restored".into());
+    app.tabs.push(crate::tabs::Tab { id: "ses_restored".into(), title: "Old".into(), directory: "/w".into() });
+    let (out, rx) = channel();
+    app.launch.first = Some(rx);
+    out.send(Ready {
+        server: Some(Server::new("http://127.0.0.1:4096")),
+        beta_tabs: None,
+        first: Some(Err("No OpenCode server responded at http://127.0.0.1:4096".into())),
+    })
+    .unwrap();
+    assert!(poll(&mut app, &mut Tx::default()));
+    assert!(app.live(), "never silently falls back to FIXTURE");
+    assert!(app.launch.offline);
+    assert!(app.sessions.is_empty());
+    assert!(app.tabs.is_empty());
+    assert_eq!(app.route, Route::Home);
+
+    let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("no-server").is_some(), "renders the no-server setup card on Home");
+    assert!(rt.find("no-server-retry").is_some(), "renders the Retry button");
 }
 
 #[test]

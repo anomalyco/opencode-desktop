@@ -192,6 +192,7 @@ fn registered_lists_keep_their_order() {
 
 const APP_SCENES: &[&str] = &[
     "home",
+    "no-server",
     "session",
     "streaming",
     "busy",
@@ -203,6 +204,7 @@ const APP_SCENES: &[&str] = &[
     "queue-question-morph",
     "draft",
     "settings",
+    "settings-updates",
     "settings-sidebar-closed",
     "question",
     "question-morph",
@@ -237,6 +239,7 @@ const STORY_PATHS: &[&str] = &[
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
     "Home/Session search",
+    "Home/No server",
     "Components/Odometer",
     "Components/Toast",
     "Header/Session header",
@@ -288,6 +291,7 @@ const STORY_PATHS: &[&str] = &[
     "Files/Markdown file",
     "Projects/Open project",
     "Projects/Project switcher",
+    "Settings/Updates",
     "Settings/Appearance",
     "Composer/Auto-accept",
     "Composer/Commands",

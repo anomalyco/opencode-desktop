@@ -163,6 +163,7 @@ const ORDER: &[&str] = &[
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
     "Home/Session search",
+    "Home/No server",
     "Components/Odometer",
     "Components/Toast",
     "Header/Session header",
@@ -214,6 +215,7 @@ const ORDER: &[&str] = &[
     "Files/Markdown file",
     "Projects/Open project",
     "Projects/Project switcher",
+    "Settings/Updates",
 ];
 
 /// Every story, in the storybook's order.

@@ -687,9 +687,17 @@ fn install_scratch(name: &str) -> std::path::PathBuf {
 #[test]
 fn release_asset_comes_from_the_default_url() {
     use crate::github_download::ReleaseAsset;
-    let asset = ReleaseAsset::parse(crate::installer::ENGINE_DEFAULT_URL.unwrap()).unwrap();
+    let public = crate::installer::ENGINE_DEFAULT_URL.unwrap();
+    let sha = crate::installer::ENGINE_DEFAULT_SHA256.unwrap();
+    let ver = crate::installer::ENGINE_VERSION;
+    assert_eq!(
+        public,
+        format!("https://anoma.ly/release/opencode-rune/files/{sha}/OpenCode-Browser-Engine-{ver}-macos-arm64.zip")
+    );
+    assert_eq!(ReleaseAsset::parse(public), None, "default URL is public on anoma.ly/release");
+    let asset = ReleaseAsset::parse(crate::installer::ENGINE_GITHUB_FALLBACK_URL.unwrap()).unwrap();
     assert_eq!((asset.owner.as_str(), asset.repo.as_str()), ("anomalyco", "seer"));
-    assert_eq!(asset.tag, format!("browser-engine-{}", crate::installer::ENGINE_VERSION));
+    assert_eq!(asset.tag, format!("browser-engine-{ver}"));
     assert!(asset.file.ends_with("-macos-arm64.zip"));
     assert_eq!(ReleaseAsset::parse("https://example.com/engine.zip"), None);
 }
