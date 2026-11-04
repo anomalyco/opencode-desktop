@@ -6,13 +6,16 @@
 
 use std::cell::RefCell;
 
-use opencode_kit::model::{Message, Transcript};
-use rune::{Cx, El, Key, KeyEvent, Play, Tx, Waker, col, el};
+use opencode_kit::model::{Attachment, Message, Transcript};
+use rune::{Cx, El, Key, KeyEvent, Play, TextEdit, Tx, Waker, col, el};
 use rune_knobs::Knobs;
 
+use crate::composer::attachments::push_unique;
+use crate::composer::history::{Entry, PromptHistory, arrow_up};
+use crate::composer::{ComposerHost, composer, is_stop_shortcut};
 use crate::fixture::{SESSION_ID, transcript};
 use crate::palette::{Pal, pal};
-use crate::style::INSTANT;
+use crate::style::{DOCK_SIDE, INSTANT};
 use crate::{TimelineHost, ViewState};
 
 pub const DIAGRAM_SRC: &str = "graph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Seer[seer-sketch]\n";
@@ -26,6 +29,11 @@ pub struct Host {
     pub zoom: f32,
     pub fold_user: bool,
     pub variant: usize,
+    pub show_composer: bool,
+    pub busy: bool,
+    pub edit: TextEdit,
+    pub files: Vec<Attachment>,
+    pub history: PromptHistory<String>,
     pub theme: String,
     pub talk: RefCell<Option<Transcript>>,
     pub waker: Option<Waker>,
@@ -43,6 +51,11 @@ impl Default for Host {
             zoom: 1.0,
             fold_user: true,
             variant: 0,
+            show_composer: false,
+            busy: false,
+            edit: TextEdit::new(""),
+            files: Vec::new(),
+            history: PromptHistory::default(),
             theme: String::new(),
             talk: RefCell::new(Some(transcript(base_ms, false))),
             waker: None,
@@ -68,10 +81,19 @@ impl Host {
     }
 
     pub fn reload(&mut self, streaming: bool) {
+        self.show_composer = false;
         self.fold_user = self.variant != 2;
+        self.busy = streaming;
         self.view.expanded.clear();
         self.view.shutting.clear();
         *self.talk.borrow_mut() = Some(transcript(self.now_ms, streaming));
+    }
+
+    pub fn open_composer(&mut self) {
+        self.reload(self.variant == 1);
+        self.show_composer = true;
+        self.edit = TextEdit::new("");
+        self.files.clear();
     }
 
     pub fn scroll_key() -> String {
@@ -99,10 +121,74 @@ impl TimelineHost for Host {
         let borrow = self.talk.borrow();
         borrow.as_ref().filter(|t| t.session == session).map(f)
     }
+    fn is_session_live(&self, session: &str) -> bool {
+        session == SESSION_ID && self.busy
+    }
     fn fold_user_messages(&self) -> bool {
         self.fold_user
     }
     crate::delegate_view_state!(view);
+}
+
+impl ComposerHost for Host {
+    fn composer_edit(&self) -> &TextEdit {
+        &self.edit
+    }
+    fn composer_edit_mut(&mut self) -> &mut TextEdit {
+        &mut self.edit
+    }
+    fn composer_busy(&self) -> bool {
+        self.busy
+    }
+    fn composer_send(&mut self, tx: &mut Tx) {
+        let text = self.edit.text.trim().to_owned();
+        if text.is_empty() && self.files.is_empty() {
+            return;
+        }
+        let mid = opencode_kit::client::message_id();
+        let entry = Entry::of(&self.edit);
+        let files = std::mem::take(&mut self.files);
+        if !files.is_empty() {
+            opencode_kit::model::set_user_files(&mid, files);
+        }
+        if let Some(t) = self.talk.borrow_mut().as_mut() {
+            t.messages.push(Message::User { id: mid, text });
+        }
+        let focused = self.edit.focused;
+        self.edit = TextEdit::new("");
+        self.edit.focused = focused;
+        self.history.add(entry, false);
+        tx.instant();
+        tx.scroll_to_bottom_instant(Self::scroll_key());
+    }
+    fn composer_stop(&mut self, tx: &mut Tx) {
+        self.busy = false;
+        tx.instant();
+    }
+    fn composer_attachments(&self) -> &[Attachment] {
+        &self.files
+    }
+    fn composer_remove_attachment(&mut self, id: &str) {
+        self.files.retain(|f| crate::images::identity(f) != id);
+    }
+    fn composer_paste_attachment(&mut self, a: Attachment) -> bool {
+        push_unique(&mut self.files, a);
+        true
+    }
+    fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        if self.busy && is_stop_shortcut(ev) {
+            self.composer_stop(tx);
+            return true;
+        }
+        if let Some(up) = arrow_up(ev) {
+            let scope = SESSION_ID.to_owned();
+            if self.history.step(&mut self.edit, &scope, false, up) {
+                tx.instant();
+                return true;
+            }
+        }
+        false
+    }
 }
 
 pub fn setup(s: &mut Host, waker: Waker) {
@@ -137,9 +223,13 @@ pub fn is_dark(cx: &Cx<Host>) -> bool {
 pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
     crate::themes::set_active(&s.theme);
     let p: &Pal = pal(is_dark(cx));
-    let body = s
-        .with_transcript(SESSION_ID, |t| crate::read_only(s, p, SESSION_ID, Some(t)))
-        .unwrap_or_else(|| crate::read_only(s, p, SESSION_ID, None));
+    let body = if s.show_composer {
+        s.with_transcript(SESSION_ID, |t| crate::timeline_area(s, p, SESSION_ID, Some(t), Vec::new()))
+            .unwrap_or_else(|| crate::timeline_area(s, p, SESSION_ID, None, Vec::new()))
+    } else {
+        s.with_transcript(SESSION_ID, |t| crate::read_only(s, p, SESSION_ID, Some(t)))
+            .unwrap_or_else(|| crate::read_only(s, p, SESSION_ID, None))
+    };
     let card = col()
         .key("session-stage")
         .w_full()
@@ -150,7 +240,10 @@ pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
         .border(0.5, p.ring)
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
-        .child(body);
+        .child(body)
+        .children(s.show_composer.then(|| {
+            col().key("dock").w_full().center().px(DOCK_SIDE).pb(DOCK_SIDE).child(composer(s, p))
+        }));
     let inner = col()
         .key("stage-bg")
         .w_full()
@@ -214,9 +307,15 @@ pub fn open_diagram_story(s: &mut Host, tx: &mut Play<Host>) {
     });
 }
 
+pub fn open_composer_story(s: &mut Host, _tx: &mut Play<Host>) {
+    s.open_composer();
+}
+
 pub const SCENES: &[(&str, fn(&mut Host))] = &[
     ("read-only", |s| s.reload(false)),
+    ("composer", |s| s.open_composer()),
     ("Session view/Read-only", |s| s.reload(s.variant == 1)),
+    ("Session view/Composer", |s| s.open_composer()),
     ("Session view/Scroll bar", |s| s.reload(false)),
     ("Session view/Diagram", |s| s.reload(false)),
 ];

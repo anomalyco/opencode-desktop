@@ -9,8 +9,8 @@ use rune::{App, AppSpec, Cx, Playground};
 use rune_knobs::Style;
 use session_view::palette::pal;
 use session_view::story::{
-    DIAGRAM_SRC, Host, READ_ONLY_VARIANTS, SCENES, is_dark, on_key, open_diagram_story,
-    open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
+    DIAGRAM_SRC, Host, READ_ONLY_VARIANTS, SCENES, is_dark, on_key, open_composer_story,
+    open_diagram_story, open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
 };
 use session_view::KNOB_GROUPS;
 
@@ -23,6 +23,8 @@ fn fresh(real: &Host) -> Host {
         zoom: real.zoom,
         fold_user: real.fold_user,
         variant: real.variant,
+        show_composer: real.show_composer,
+        busy: real.busy,
         theme: real.theme.clone(),
         waker: real.waker.clone(),
         ..Host::default()
@@ -81,6 +83,14 @@ fn playground() -> Playground<Host> {
         .trigger("Session view/Scroll bar", 'r', "Replay", open_scrollbar)
         .trigger("Session view/Scroll bar", 'u', "Page up", |_, tx| tx.scroll_page(Host::scroll_key(), -1))
         .trigger("Session view/Scroll bar", 'd', "Page down", |_, tx| tx.scroll_page(Host::scroll_key(), 1))
+        .trigger("Session view/Composer", 'r', "Replay", open_composer_story)
+        .trigger("Session view/Composer", 'g', "Type two lines", |s, _| {
+            s.edit = rune::TextEdit::new("First line\nSecond line");
+        })
+        .trigger("Session view/Composer", 'b', "Toggle busy", |s, tx| {
+            s.busy = !s.busy;
+            tx.instant();
+        })
         .trigger("Session view/Diagram", 'r', "Replay", open_diagram_story)
         .trigger("Session view/Diagram", 'o', "Open full size", |s, tx| {
             session_view::diagram::open_source(s, DIAGRAM_SRC, tx);

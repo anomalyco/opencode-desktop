@@ -8,7 +8,6 @@ use std::collections::HashMap;
 
 use opencode_kit::client::{Request, Write};
 use opencode_kit::model::Message;
-use rune::{Spring, SpringPair, Transition};
 use serde_json::json;
 
 use crate::{App, Route, Source};
@@ -103,11 +102,8 @@ impl App {
 /// Esc or ⌃G in the composer while the open session runs, as Desktop's: stops it. Again while
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
-    let m = ev.mods;
-    let esc = ev.key == rune::Key::Escape && !m.cmd && !m.ctrl && !m.alt && !m.shift;
-    let ctrl_g = matches!(&ev.key, rune::Key::Text(t) if t.eq_ignore_ascii_case("g")) && m.ctrl && !m.cmd && !m.alt && !m.shift;
     let Route::Session(id) = s.route.clone() else { return false };
-    if !(esc || ctrl_g) || !s.composer.focused {
+    if !session_view::composer::is_stop_shortcut(ev) || !s.composer.focused {
         return false;
     }
     if s.busy(&id) {
@@ -121,12 +117,6 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
 /// Send's arrow, Working goes, and Interrupted rises into its place ([`interrupted`]).
 pub fn press(s: &mut App, _tx: &mut rune::Tx) {
     s.stop();
-}
-
-/// The two glyphs of the submit button changing places: the leaving one shrinks away as the
-/// arriving one grows in, quickly and without bounce.
-pub fn glyph_swap() -> Transition {
-    Transition::scale(0.5).allow_small_scale().springs(SpringPair::new(Spring::new(0.2, 0.0), Spring::new(0.14, 0.0)))
 }
 
 /// The server ended `sid`'s run.

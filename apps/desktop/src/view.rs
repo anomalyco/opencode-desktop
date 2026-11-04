@@ -32,9 +32,8 @@ pub(crate) use home::{home, session_row};
 pub(crate) use session::*;
 pub use sidebar::*;
 
+pub(crate) use session_view::composer::PROMPT;
 pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, DOCK_SIDE, DOCK_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
-const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
-const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
 /// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The

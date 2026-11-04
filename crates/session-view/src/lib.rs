@@ -9,6 +9,7 @@
 
 pub mod agent_start;
 pub mod compaction;
+pub mod composer;
 pub mod copied;
 pub mod diagram;
 pub mod disclosure;
