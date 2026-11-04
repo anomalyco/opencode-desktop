@@ -3601,6 +3601,7 @@ dependencies = [
  "seer-domain",
  "seer-sync",
  "serde_json",
+ "session-view",
  "sha2 0.10.9",
  "ureq",
  "url",

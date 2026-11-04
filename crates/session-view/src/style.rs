@@ -135,7 +135,8 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     // a drag runs on out of this reply into the rest of the timeline.
     let full = std::rc::Rc::new(style.clone());
     let pal = *p;
-    Markdown::new(src)
+    let rewritten = S::rewrite_markdown(src);
+    Markdown::new(rewritten.as_deref().unwrap_or(src))
         .style(style)
         .highlights(highlights)
         .reveal(fade)

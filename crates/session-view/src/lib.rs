@@ -171,6 +171,12 @@ pub trait TimelineHost: Sized + 'static {
     fn reply_link_help(_url: &str) -> Option<String> {
         None
     }
+    /// A reply's Markdown as the host wants it drawn, e.g. its own ids made links; `None` draws
+    /// it as written. Find highlights index the text as written, so a host that rewrites
+    /// shouldn't also use find.
+    fn rewrite_markdown(_src: &str) -> Option<String> {
+        None
+    }
     fn send_request(&self, _req: Request) {}
     fn can_switch_model(&self) -> bool {
         false
