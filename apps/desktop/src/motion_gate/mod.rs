@@ -23,6 +23,7 @@ mod permission;
 mod pills;
 mod rewind;
 mod scenarios;
+mod scrollbar;
 mod steered;
 mod stream_pace;
 mod todos;

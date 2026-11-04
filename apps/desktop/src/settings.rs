@@ -230,6 +230,7 @@ pub fn page(s: &App, p: &Pal) -> El {
         .shrink()
         .items_center()
         .scroll(rune::ScrollSpec { stick_bottom: false })
+        .on_scroll_offset(s.bars.watch("settings"))
         .child(
             col()
                 .w_full()
@@ -243,7 +244,8 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section("Notifications", notification_list(s, p))),
         );
-    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body)
+    let area = col().key("settings-area").w_full().grow(1.0).shrink().child(body).child(crate::scrollbar::bar(s, p, "settings", 0.0));
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(area)
 }
 
 /// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,

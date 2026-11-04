@@ -118,6 +118,7 @@ mod rewind;
 mod rewind_stories;
 mod rune_mcp;
 mod scenes;
+mod scrollbar;
 mod short_group;
 mod selection_stories;
 mod send;
@@ -219,6 +220,8 @@ pub struct App {
     /// The live server events taken, for the motion log (`motion_log.rs`).
     motion_events: motion_log::Events,
     pages: session_pages::State,
+    /// The overlay scroll bars (`scrollbar`).
+    bars: scrollbar::Bars,
     opening: Option<session_pages::Opening>,
     open_demo: Option<open_story::Demo>,
     pub projects: Vec<Project>,
@@ -661,6 +664,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= turn_errors::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
+    changed |= s.bars.poll(now, tx);
     changed |= s.poll_open_in();
     let mut arrivals = None;
     let asked = s.dock_face();
@@ -859,6 +863,10 @@ fn setup(s: &mut App, waker: Waker) {
     s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());
     s.open_in.set_waker(waker.clone());
+    s.bars.set_waker(waker.clone());
+    if !headless() {
+        s.bars.read_system_setting();
+    }
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     s.setup_rune_mcp(waker);

@@ -115,7 +115,10 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            s.bars.follow(&target);
+            tx.scroll_to_bottom(target.clone());
+        });
     if !shown {
         button = button.inert();
     }
@@ -135,6 +138,8 @@ pub fn over(s: &App, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
         // under the timeline's last row at its end there's only padding.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
             .child(scroll.on_far_from_bottom(THRESHOLD, far(id)).on_at_bottom(at_end(id))))
+        // Under the jump button and pills, which keep their presses where they overlap it.
+        .child(crate::scrollbar::bar(s, p, &format!("scroll-{id}"), 0.0))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(crate::view::DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.

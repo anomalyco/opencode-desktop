@@ -198,6 +198,7 @@ const ORDER: &[&str] = &[
     "Timeline/Images",
     "Timeline/Jump to latest",
     "Timeline/Fade into composer",
+    "Timeline/Scroll bar",
     "Timeline/Frosted surfaces",
     "Timeline/Turn actions",
     "Timeline/Copy tick",
@@ -429,7 +430,7 @@ pub(crate) fn sid(s: &App) -> String {
     }
 }
 
-fn scroll_key(s: &App) -> String {
+pub(crate) fn scroll_key(s: &App) -> String {
     format!("scroll-{}", sid(s))
 }
 
@@ -507,7 +508,7 @@ fn prompt(s: &mut App, text: &str, queue: bool, tx: &mut Tx) {
 }
 
 /// The fixture's streaming turn, from its first event.
-fn stream_open(s: &mut App, _: &mut Play<App>) {
+pub(crate) fn stream_open(s: &mut App, _: &mut Play<App>) {
     let id = sid(s);
     s.start_stream_if_due(&id);
 }

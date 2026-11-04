@@ -105,6 +105,7 @@ const ALLOW: &[Allow] = &[
     ("jump", "th/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r0/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r1/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
+    ("jump", "-bar", "dropzone/", "the scroll bar's track ends where the timeline does, which gives the composer room at once (scrollbar::bar)"),
     ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
 ];
 
@@ -161,6 +162,11 @@ fn wide_and_narrow(base: Circ) -> Vec<Circ> {
         }
     }
     v
+}
+
+/// The scroll bar on the long session: wide, narrow, and zoomed.
+fn scroll_bar_circs() -> Vec<Circ> {
+    vec![Circ::default(), Circ { narrow: true, ..Circ::default() }, Circ { zoomed: true, ..Circ::default() }]
 }
 
 const ACTIONS: &[Action] = &[
@@ -701,6 +707,9 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play_out(1.0);
     } },
+    Action { name: "scrollbar-scroll", circs: scroll_bar_circs, run: super::scrollbar::scroll_fade },
+    Action { name: "scrollbar-hover", circs: scroll_bar_circs, run: super::scrollbar::hover },
+    Action { name: "scrollbar-drag", circs: scroll_bar_circs, run: super::scrollbar::drag },
     Action { name: "older-history", circs: || vec![Circ { scrolled: true, ..Circ::default() }, Circ { scrolled: true, narrow: true, zoomed: true, ..Circ::default() }], run: super::history::older },
     Action { name: "side-region", circs: || vec![Circ::default()], run: super::panels::side_region },
     Action { name: "review", circs: || vec![Circ::default()], run: super::panels::review },

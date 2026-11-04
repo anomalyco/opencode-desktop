@@ -394,7 +394,13 @@ pub(super) fn timeline(s: &App, p: &Pal, id: &str, t: Option<&Transcript>, lane:
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
         // Near its top, older messages load above what's on screen.
-        .on_scroll_offset(s.pages.watch_top(id))
+        .on_scroll_offset({
+            let (top, bar) = (s.pages.watch_top(id), s.bars.watch(&format!("scroll-{id}")));
+            move |at| {
+                top(at);
+                bar(at);
+            }
+        })
         // Its edges fade only while rows are under them, and never over a stuck group header.
         .scroll_edge_fade(16.0)
         .child(stack)
