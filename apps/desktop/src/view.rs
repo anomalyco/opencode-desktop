@@ -241,3 +241,5 @@ mod diagram_width_tests;
 pub(crate) mod selection_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod icon_centre_tests;

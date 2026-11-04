@@ -91,6 +91,14 @@ pub(crate) const LANE_PAD: f32 = 12.0;
 pub(crate) const H: f32 = 24.0;
 pub(crate) const LANE: f32 = LANE_PAD + H;
 
+/// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
+/// glyph in its middle, 8 pt under the reply's last line. The square hangs into the gutter so
+/// at rest the glyph's ink, not its square, lines up with the reply's letters, which start
+/// about half a point inside their box.
+pub(crate) const COPY: f32 = 20.0;
+pub(crate) const COPY_GLYPH: f32 = 14.0;
+pub(crate) const COPY_AT: (f32, f32) = (-3.5, 8.0);
+
 /// A label's width at the row's 13 px Inter.
 pub(crate) fn width(label: &str) -> f32 {
     rune::text::measure(label, &[], UI, None).0

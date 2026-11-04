@@ -132,11 +132,12 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
     let copy_key = format!("copy-{}", message.id());
+    use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label("Copy response")
-        .size(28.0, 28.0).pb(12.0).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
-        .child(crate::copied::glyph(s, &copy_key, 16.0, p.muted));
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
     if !busy && has_text {
         let session = session.to_owned();
         let id = message.id().to_owned();
@@ -155,7 +156,7 @@ pub(in crate::view) fn turn_actions(s: &App, p: &Pal, busy: bool, session: &str,
     let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.stops.has(session));
     el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(&s.knobs))
         .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
-        .child(button.absolute(0.0, crate::working::LANE - 28.0))
+        .child(button.absolute(COPY_AT.0, COPY_AT.1))
         .children(interrupted.then(|| crate::stop::interrupted(p, has_text)))
         .children(crate::background::hint(s, p, session, busy))
 }
