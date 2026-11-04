@@ -574,6 +574,12 @@ impl session_view::TimelineHost for App {
     fn open_subagent(&mut self, parent: &str, child: &str, title: &str, agent: &str, tx: &mut Tx) {
         self.open_child(parent, child, title, agent, tx);
     }
+    fn can_open_session(&self) -> bool {
+        true
+    }
+    fn open_session(&mut self, id: &str, tx: &mut Tx) {
+        self.open_mentioned(id, tx);
+    }
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error.as_deref())
     }

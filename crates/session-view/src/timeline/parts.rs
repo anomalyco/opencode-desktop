@@ -98,9 +98,20 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
     }
     let ink = if pending.is_some() { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
-    let (shown, badges) = crate::user_parts::bubble_badges(s, p, id, body);
+    let (shown, badges, links) = crate::user_parts::bubble_badges(s, p, id, body);
     let highlights = if pending.is_none() { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
-    let words = readable(p, text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights));
+    let mut words = text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights);
+    if !links.is_empty() {
+        for link in links {
+            words = words.link(link);
+        }
+        words = words.on_link(|s: &mut S, link: &str, tx: &mut Tx| {
+            if let Some(sid) = crate::user_parts::session_of_link(link) {
+                s.open_session(sid, tx);
+            }
+        });
+    }
+    let words = readable(p, words);
     bubble = bubble.children(crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty()));
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),

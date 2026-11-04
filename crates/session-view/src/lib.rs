@@ -205,6 +205,13 @@ pub trait TimelineHost: Sized + 'static {
     }
     fn prefetch_subagent(&self, _child: &str) {}
     fn open_subagent(&mut self, _parent: &str, _child: &str, _title: &str, _agent: &str, _tx: &mut Tx) {}
+    /// Whether a session mention's badge in a prompt opens that session ([`open_session`]).
+    ///
+    /// [`open_session`]: TimelineHost::open_session
+    fn can_open_session(&self) -> bool {
+        false
+    }
+    fn open_session(&mut self, _id: &str, _tx: &mut Tx) {}
 
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None

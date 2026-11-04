@@ -301,6 +301,7 @@ const STORY_PATHS: &[&str] = &[
     "Composer/Commands",
     "Timeline/Compacted summary",
     "Files/Link tips",
+    "Timeline/Session mention",
     "Popover/Menus",
     "Session opening/Cold · ready at 100 ms",
     "Session opening/Prefetched · ready now",

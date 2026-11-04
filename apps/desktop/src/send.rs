@@ -159,12 +159,13 @@ impl App {
         // A prompt sent while a stop settles runs next, so its Working shows.
         self.stops.forget(&id);
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
-        self.echo_mentions(&local);
+        self.echo_wire_mentions(&local, wire.marks);
         opencode_kit::model::set_user_quotes(&local, quotes);
         self.quote.take();
         self.land(&id, &local, &from, tx);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
-        t.messages.push(Message::User { id: local, text: wire.display });
+        // As the server's copy will read, so a session mention's badge stays put when it lands.
+        t.messages.push(Message::User { id: local, text: wire.text });
         self.composer.clear();
     }
 

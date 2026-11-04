@@ -1,6 +1,7 @@
 //! The storybook's Mentions story (Composer › Mentions): a sent prompt whose bubble shows a badge
 //! for each kind of mention (agent, skill, file, folder, reference, session), and a draft in the
-//! composer with the same badges. P lands the prompt again, R replays.
+//! composer with the same badges. P lands the prompt again, R replays. Also Timeline › Session
+//! mention.
 
 use crate::fixture_ids::{SIXTH as OTHER};
 use rune::{Play, TextEdit, Tx};
@@ -62,6 +63,21 @@ fn prompt(s: &mut App, tx: &mut Tx) {
     );
 }
 
+/// Timeline › Session mention (p279): Kit's prompt naming a known session and one this window
+/// hasn't loaded, with the stale offsets a local echo once left (`the @SEER …`, five bytes at
+/// 4). Each reads as one badge, its title or short id; pressing one opens that session.
+pub const SESSION_KEYS: &[Trigger] = &[replay(open_sessions)];
+
+fn open_sessions(s: &mut App, tx: &mut Play<App>) {
+    s.finish_stream();
+    let n = s.transcripts.get(&sid(s)).map_or(0, |t| t.messages.len());
+    let id = format!("msg_zzzzsesmention{n:04}");
+    let text = format!("the @session:{OTHER} session, and @session:ses_fx999900aaaaaaaaaaaaaaaaaa too");
+    opencode_kit::mention::set_user_mentions(&id, vec![opencode_kit::mention::UserMention { range: 4..9, kind: opencode_kit::mention::MentionKind::Session }]);
+    emit(s, "session.prompted", json!({ "messageID": id, "text": text }), tx);
+}
+
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story::session("Composer/Mentions", KEYS),
+    crate::stories::Story::session("Timeline/Session mention", SESSION_KEYS),
 ]);

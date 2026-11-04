@@ -310,7 +310,9 @@ fn sending_carries_the_mentions() {
     assert_eq!(rt.state.sends, 1);
     assert!(rt.state.composer.text.is_empty());
     let t = &rt.state.transcripts[crate::fixture_ids::THIRD];
-    assert!(matches!(t.messages.last(), Some(opencode_kit::model::Message::User { text, .. }) if text.ends_with("@Fix flaky reconnect in the event stream")), "the echo shows what was typed");
+    let Some(opencode_kit::model::Message::User { id, text }) = t.messages.last() else { panic!("an echo") };
+    assert_eq!(text, &w.text, "the echo reads as the server's copy will");
+    assert!(rt.state.bubble_text(id, text).ends_with(" and Fix flaky reconnect in the event stream"), "and shows the session's title");
 }
 
 #[test]

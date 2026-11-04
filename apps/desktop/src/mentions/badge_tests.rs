@@ -1,5 +1,6 @@
 use crate::fixture_ids::{THIRD as SESSION};
 use super::*;
+use opencode_kit::mention;
 use crate::mentions::tests::{key, runtime, shown, tap, typed};
 use crate::Route;
 use rune::{Key, KeyEvent, Mods};
@@ -69,17 +70,100 @@ fn a_bubble_badges_its_mentions_and_names_sessions() {
         UserMention { range: body.len() - 2..body.len() + 4, kind: MentionKind::File },
     ];
     let (text, marks) = bubble(body, &mentions, |id| (id == "ses_abc1").then(|| "Fix flaky".to_owned()));
-    assert_eq!(text, "@explore look at @opencode and @Fix flaky or @session:ses_gone");
+    assert_eq!(text, "@explore look at @opencode and Fix flaky or ses_gone");
     let got: Vec<(&str, MentionKind)> = marks.iter().map(|(r, k)| (&text[r.clone()], *k)).collect();
     assert_eq!(
         got,
         [
             ("@explore", MentionKind::Agent),
             ("@opencode", MentionKind::Skill),
-            ("@Fix flaky", MentionKind::Session),
-            ("@session:ses_gone", MentionKind::Session),
+            ("Fix flaky", MentionKind::Session),
+            ("ses_gone", MentionKind::Session),
         ]
     );
+}
+
+const UNKNOWN: &str = "ses_fx999900aaaaaaaaaaaaaaaaaa";
+
+/// p279: a prompt naming a session reads as one badge, its title or short id, even with the
+/// local echo's offsets (taken from the text as typed, `the @SEER session`) still recorded;
+/// pressing it opens the session. At zoom 1.6, as Kit reads.
+#[test]
+fn a_session_mention_is_one_badge_that_opens_it_at_zoom_1_6() {
+    for (n, target) in [(0, crate::fixture_ids::SIXTH), (1, UNKNOWN)] {
+        let mut app = App::empty();
+        app.load_fixture(crate::FIXTURE);
+        crate::open_scene(&mut app);
+        app.finish_stream();
+        app.route = Route::Session(SESSION.into());
+        app.zoom = 1.6;
+        let id = format!("msg_zzzzmention{n:02}");
+        let body = format!("the @session:{target} session");
+        app.transcripts.get_mut(SESSION).unwrap().messages.push(opencode_kit::model::Message::User { id: id.clone(), text: body });
+        mention::set_user_mentions(&id, vec![UserMention { range: 4..9, kind: MentionKind::Session }]);
+        let label = app.mention_title(target).unwrap_or_else(|| "ses_fx999900".to_owned());
+        assert_eq!(n == 0, label != "ses_fx999900", "SIXTH is known, the other isn't");
+        let mut rt = rune::Runtime::new(app, crate::view::app, (1600.0, 1400.0), rune::Env::new(true, 1.0));
+        rt.on_key = Some(crate::on_key);
+        rt.poll = Some(crate::poll);
+        for _ in 0..30 {
+            rt.frame(1.0 / 60.0);
+        }
+        let t = shown(&rt, &format!("text-{id}")).expect("the bubble shows");
+        assert_eq!(t.text.as_deref(), Some(format!("the {label} session").as_str()));
+        let r = t.rect;
+        let mut glyphs: Vec<[f32; 4]> = rt
+            .instances
+            .iter()
+            .filter(|i| i.params[1] == rune::render::KIND_GLYPH && i.rect[0] >= r[0] - 1.0 && i.rect[0] <= r[0] + r[2] && i.rect[1] >= r[1] - 4.0 && i.rect[1] <= r[1] + r[3])
+            .map(|i| i.rect)
+            .collect();
+        glyphs.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        // "the", the badge's icon, then its first letter.
+        let g = glyphs[4];
+        let (x, y) = (g[0] + g[2] / 2.0, g[1] + g[3] / 2.0);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        for _ in 0..10 {
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.route, Route::Session(target.to_owned()), "pressing {label} opens it");
+        assert!(rt.state.session(target).is_some());
+    }
+}
+
+#[test]
+fn a_sent_session_mention_echoes_as_its_token() {
+    let mut rt = runtime();
+    rt.state.route = Route::Session(SESSION.into());
+    rt.frame(1.0 / 60.0);
+    // Its own message id: the mention store is shared with tests running beside it.
+    rt.state.sends = 800;
+    tap(&mut rt, "prompt");
+    let sixth = crate::fixture_ids::SIXTH;
+    let title = rt.state.mention_title(sixth).expect("a fixture session");
+    let typed_text = format!("see @{title} and ");
+    rt.state.composer = rune::TextEdit::new("");
+    rt.state.composer.insert("see ");
+    rt.state.composer.insert_pill(format!("session:{sixth}"), &format!("@{title}"));
+    rt.state.composer.insert(" and ");
+    rt.state.composer.focused = true;
+    assert_eq!(rt.state.composer.text, typed_text);
+    typed(&mut rt, "@exp");
+    key(&mut rt, Key::Enter);
+    key(&mut rt, Key::Enter);
+    for _ in 0..90 {
+        rt.frame(1.0 / 60.0);
+    }
+    let echo = rt.state.transcripts[SESSION].messages.iter().rev().find_map(|m| match m {
+        opencode_kit::model::Message::User { id, text } if id.starts_with("msg_zzzzsent") => Some((id.clone(), text.clone())),
+        _ => None,
+    });
+    let (id, text) = echo.unwrap();
+    assert_eq!(text, format!("see @session:{sixth} and @explore"));
+    let marks: Vec<_> = mention::user_mentions(&id).iter().map(|m| (text[m.range.clone()].to_owned(), m.kind)).collect();
+    assert_eq!(marks, [("@explore".to_owned(), MentionKind::Agent)]);
+    assert_eq!(shown(&rt, &format!("text-{id}")).unwrap().text.as_deref(), Some(format!("see {title} and @explore").as_str()));
 }
 
 #[test]

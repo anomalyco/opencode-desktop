@@ -709,16 +709,9 @@ fn restore_pills(s: &App, id: &str, body: &str) -> (String, Vec<(Range<usize>, S
         Session(&'a str),
     }
     let mentions = mention::user_mentions(id);
-    let mut marks: Vec<(Range<usize>, SpanKind<'_>)> = mentions
-        .iter()
-        .filter(|m| body.get(m.range.clone()).is_some_and(|t| t.starts_with('@')))
-        .map(|m| (m.range.clone(), SpanKind::Recorded(m.kind)))
-        .collect();
-    for (r, sid) in mention::session_tokens(body) {
-        if !marks.iter().any(|(m, _)| m.start < r.end && r.start < m.end) {
-            marks.push((r, SpanKind::Session(sid)));
-        }
-    }
+    let mut marks: Vec<(Range<usize>, SpanKind<'_>)> =
+        session_view::user_parts::recorded_mentions(body, &mentions).map(|m| (m.range.clone(), SpanKind::Recorded(m.kind))).collect();
+    marks.extend(mention::session_tokens(body).into_iter().map(|(r, sid)| (r, SpanKind::Session(sid))));
     marks.sort_by_key(|(r, _)| r.start);
     let mut out = String::with_capacity(body.len());
     let mut pills = Vec::new();

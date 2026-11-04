@@ -91,37 +91,115 @@ pub fn mention_pill_style(p: &Pal) -> impl Fn(&str) -> PillStyle + 'static {
     move |id: &str| mention_kind_of(id).map_or_else(PillStyle::new, |k| mention_style(&p, k))
 }
 
-/// A bubble's text and badges: the message's recorded mentions (those still on an `@` in the
-/// text, as an echo's may not be once the server's copy lands), and its `@session:<id>`
-/// tokens shown as `@<title>` when the session is known. `title` names a session by id.
-pub fn mention_bubble(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<(Range<usize>, MentionKind)>) {
-    let mut marks: Vec<(Range<usize>, MentionKind, Option<String>)> =
-        mentions.iter().filter(|m| body.get(m.range.clone()).is_some_and(|t| t.starts_with('@'))).map(|m| (m.range.clone(), m.kind, None)).collect();
+/// Desktop's `speech-bubble`: what a session mention's chip leads with.
+pub static SESSION: Icon = Icon {
+    name: "speech-bubble",
+    view: 20.0,
+    body: r#"<path d="M18.3334 10.0003C18.3334 5.57324 15.0927 2.91699 10.0001 2.91699C4.90749 2.91699 1.66675 5.57324 1.66675 10.0003C1.66675 11.1497 2.45578 13.1016 2.5771 13.3949C2.5878 13.4207 2.59839 13.4444 2.60802 13.4706C2.69194 13.6996 3.04282 14.9364 1.66675 16.7684C3.5186 17.6538 5.48526 16.1982 5.48526 16.1982C6.84592 16.9202 8.46491 17.0837 10.0001 17.0837C15.0927 17.0837 18.3334 14.4274 18.3334 10.0003Z" stroke="currentColor" stroke-linecap="square"/>"#,
+};
+
+/// A session id short enough for a chip: `ses_` and its first eight characters.
+pub fn short_session_id(id: &str) -> &str {
+    let end = id.char_indices().nth(12).map_or(id.len(), |(i, _)| i);
+    &id[..end]
+}
+
+/// The recorded mentions still on an `@` in `body`, minus any over an `@session:` token, and
+/// recorded session mentions once the text has tokens. Those come from a local echo of the
+/// text as typed (a session pill reading `@SEER`), so on the server's copy their offsets can
+/// land inside a token and cut it (p279); the token is the truth.
+pub fn recorded_mentions<'a>(body: &'a str, mentions: &'a [UserMention]) -> impl Iterator<Item = &'a UserMention> + 'a {
+    let tokens = mention::session_tokens(body);
+    mentions.iter().filter(move |m| {
+        let stale = !tokens.is_empty() && m.kind == MentionKind::Session;
+        let cuts = tokens.iter().any(|(r, _)| m.range.start < r.end && r.start < m.range.end);
+        !stale && !cuts && body.get(m.range.clone()).is_some_and(|t| t.starts_with('@'))
+    })
+}
+
+/// One badge in a bubble's shown text; `session` is the id a session mention opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BubbleMark {
+    pub range: Range<usize>,
+    pub kind: MentionKind,
+    pub session: Option<String>,
+    /// The session's title, when known.
+    pub title: Option<String>,
+}
+
+/// A bubble's text and badges: the message's [`recorded_mentions`], and each `@session:<id>`
+/// token as one badge reading the session's title, or its short id when `title` (which names a
+/// session by id) doesn't know it.
+pub fn bubble_marks(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<BubbleMark>) {
+    let mut marks: Vec<(Range<usize>, MentionKind, Option<(&str, Option<String>)>)> =
+        recorded_mentions(body, mentions).map(|m| (m.range.clone(), m.kind, None)).collect();
     for (r, id) in mention::session_tokens(body) {
-        if !marks.iter().any(|(m, _, _)| m.start < r.end && r.start < m.end) {
-            marks.push((r, MentionKind::Session, title(id).map(|t| format!("@{t}"))));
-        }
+        marks.push((r, MentionKind::Session, Some((id, title(id).filter(|t| !t.trim().is_empty())))));
     }
     marks.sort_by_key(|(r, _, _)| r.start);
     let (mut out, mut ranges, mut at) = (String::with_capacity(body.len()), Vec::new(), 0);
-    for (r, kind, shown) in marks {
+    for (r, kind, session) in marks {
         if r.start < at {
             continue;
         }
         out.push_str(&body[at..r.start]);
         let start = out.len();
-        out.push_str(shown.as_deref().unwrap_or(&body[r.clone()]));
-        ranges.push((start..out.len(), kind));
+        match &session {
+            Some((id, t)) => out.push_str(t.as_deref().unwrap_or_else(|| short_session_id(id))),
+            None => out.push_str(&body[r.clone()]),
+        }
+        let (session, title) = session.map_or((None, None), |(id, t)| (Some(id.to_owned()), t));
+        ranges.push(BubbleMark { range: start..out.len(), kind, session, title });
         at = r.end;
     }
     out.push_str(&body[at..]);
     (out, ranges)
 }
 
-/// Message `id`'s bubble text and styled mention pills.
-pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>) {
-    let (text, marks) = mention_bubble(body, &mention::user_mentions(id), |sid| s.session_title(sid));
-    (text, marks.into_iter().map(|(r, k)| (r, mention_style(p, k))).collect())
+/// [`bubble_marks`] as the shown text and each badge's bytes and kind.
+pub fn mention_bubble(body: &str, mentions: &[UserMention], title: impl Fn(&str) -> Option<String>) -> (String, Vec<(Range<usize>, MentionKind)>) {
+    let (text, marks) = bubble_marks(body, mentions, title);
+    (text, marks.into_iter().map(|m| (m.range, m.kind)).collect())
+}
+
+/// What resting on a session badge says.
+pub fn session_tip(id: &str, title: Option<&str>) -> String {
+    match title {
+        Some(t) => format!("Open session “{t}”\n{id}"),
+        None => format!("Open session {id}"),
+    }
+}
+
+/// The `on_link` id a session badge reports, and back.
+pub fn session_link(id: &str) -> String {
+    format!("session:{id}")
+}
+
+pub fn session_of_link(link: &str) -> Option<&str> {
+    link.strip_prefix("session:")
+}
+
+/// Message `id`'s bubble text and its mention badges: pills styled by kind, a session's with
+/// its icon, and a link per session badge (opening it when the host can).
+pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>) {
+    let (text, marks) = bubble_marks(body, &mention::user_mentions(id), |sid| s.session_title(sid));
+    let links = marks
+        .iter()
+        .filter(|_| s.can_open_session())
+        .filter_map(|m| {
+            let sid = m.session.as_deref()?;
+            let link = rune::Link::new(m.range.clone(), session_link(sid)).role("button").help(session_tip(sid, m.title.as_deref()));
+            Some(link)
+        })
+        .collect();
+    let pills = marks
+        .into_iter()
+        .map(|m| {
+            let style = mention_style(p, m.kind);
+            (m.range, if m.session.is_some() { style.icon(&SESSION) } else { style })
+        })
+        .collect();
+    (text, pills, links)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -204,3 +282,7 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     }
     Some(c)
 }
+
+#[cfg(test)]
+#[path = "user_parts_tests.rs"]
+mod tests;

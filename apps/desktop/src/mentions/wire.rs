@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
+use opencode_kit::mention::UserMention;
 
 /// `parseSessionMention`: an id the server turns back into a session.
 pub(super) fn session_id_ok(id: &str) -> bool {
@@ -59,6 +60,9 @@ pub struct Wire {
     pub skills: Vec<SkillInput>,
     /// File mentions as `file://` references the server reads.
     pub files: Vec<FileInput>,
+    /// The badges a local echo of `text` shows until the server's copy lands, as bytes of
+    /// `text`. Session mentions aren't here: the bubble finds their `@session:` tokens itself.
+    pub marks: Vec<UserMention>,
 }
 
 /// `text`'s trimmed span as byte offsets, and the pills inside it (empty ones and ones spanning
@@ -93,7 +97,13 @@ pub fn wire<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)], directory: &
             _ => shown.to_owned(),
         };
         let start = utf16(&out.text);
+        let at_byte = out.text.len();
         out.text.push_str(&content);
+        if kind != "session"
+            && let Some(k) = super::badge::kind_of(id)
+        {
+            out.marks.push(UserMention { range: at_byte..out.text.len(), kind: k });
+        }
         let mention = Some(Mention { start, end: start + utf16(&content), text: content.clone() });
         match kind {
             "agent" => out.agents.push(AgentInput { name: value.to_owned(), mention }),
