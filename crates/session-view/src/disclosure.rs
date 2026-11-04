@@ -74,8 +74,16 @@ pub fn flip_fold<S: TimelineHost>(s: &mut S, key: &str) -> bool {
 /// scrolls to keep it there rather than following its end.
 pub fn toggle_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 'static {
     move |s: &mut S, tx: &mut Tx| {
-        flip_fold(s, &key);
-        tx.keep_on_screen(format!("{key}/trigger"));
+        if flip_fold(s, &key) {
+            // Opening, the header is revealed rather than held: it turns sticky in the same
+            // commit, so one pressed half under the top edge draws stuck lower than it was, and
+            // holding that place chased it until its steps scrolled out of sight above it (p277).
+            // Revealed, it comes down to the edge with its steps under it, and one already in
+            // view stays put while they open below it.
+            tx.scroll_into_view(format!("{key}/trigger"));
+        } else {
+            tx.keep_on_screen(format!("{key}/trigger"));
+        }
     }
 }
 

@@ -219,6 +219,7 @@ const APP_SCENES: &[&str] = &[
     "genui-stream",
     "diagram-stream",
     "permission",
+    "shell-fold",
     "short-group",
     "subagent",
 ];

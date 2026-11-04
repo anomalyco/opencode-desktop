@@ -81,6 +81,9 @@ pub struct Circ {
     /// The session ends with Kit's one-thought, one-shell group above five prompts
     /// (`short_group::add_short_group`).
     pub short_group: bool,
+    /// The session ends with Kit's one-shell reply under a long answer, still working
+    /// (`shell_fold::add_shell_fold`, p277).
+    pub shell_fold: bool,
     /// The session ends with a quiet compaction whose summary runs several screens
     /// (`compaction_stories::add_long_summary`).
     pub long_summary: bool,
@@ -88,7 +91,7 @@ pub struct Circ {
 
 impl Default for Circ {
     fn default() -> Self {
-        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false, short_group: false, long_summary: false }
+        Circ { length: Length::Long, scrolled: false, narrow: false, dock: Dock::None, prompt: Prompt::Line, unplayed: false, zoomed: false, long_group: false, short_group: false, shell_fold: false, long_summary: false }
     }
 }
 
@@ -116,6 +119,9 @@ impl Circ {
         }
         if self.short_group {
             parts.push("short-group");
+        }
+        if self.shell_fold {
+            parts.push("shell-fold");
         }
         if self.long_summary {
             parts.push("long-summary");
@@ -176,6 +182,9 @@ impl Run {
         }
         if c.short_group {
             crate::short_group::add_short_group(&mut app, SID);
+        }
+        if c.shell_fold {
+            crate::shell_fold::add_shell_fold(&mut app, SID);
         }
         if c.long_summary {
             crate::compaction_stories::add_long_summary(&mut app, SID);

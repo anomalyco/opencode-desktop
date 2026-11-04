@@ -128,6 +128,8 @@ mod model_prefs;
 #[cfg(test)]
 mod tool_group_shut_tests;
 #[cfg(test)]
+mod shell_fold_tests;
+#[cfg(test)]
 mod motion_gate;
 mod motion_log;
 mod new_session;
@@ -168,6 +170,7 @@ mod rewind_stories;
 mod rune_mcp;
 mod scenes;
 mod scrollbar;
+mod shell_fold;
 mod short_group;
 mod selection_stories;
 mod send;

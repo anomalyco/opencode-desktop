@@ -421,6 +421,25 @@ const ACTIONS: &[Action] = &[
         let at_end = matches!((end, floor), (Some(e), Some(f)) if e <= f + 0.5);
         assert!(near(held(r), top) || (at_end && held(r) > top), "shutting from the stuck header leaves it where it stuck: {:?} vs {top:?}", held(r));
     } },
+    // Kit's capture (p277): a one-shell group half under the timeline's top edge opens with its
+    // shell call right under its row, which comes down to the edge rather than chasing it up.
+    Action { name: "tool-group-open-at-top", circs: || {
+        let base = Circ { shell_fold: true, ..Circ::default() };
+        vec![base, Circ { zoomed: true, ..base }]
+    }, run: |r| {
+        let trigger = format!("{}/trigger", crate::shell_fold::GROUP);
+        r.act("scroll the row half under the top", |rt| rt.update(move |_, tx| tx.scroll_key_to(trigger.clone(), -10.0)));
+        r.play(0.5);
+        let group = format!("/{}/", crate::shell_fold::GROUP);
+        let path = r.rt.elements().into_iter().find(|e| e.key.as_deref() == Some("trigger") && e.path.contains(&group)).map(|e| e.path).expect("the group's row");
+        tap_trigger(r, Some(&path)).expect("the row shows enough to press");
+        r.play(0.6);
+        let els = r.rt.elements();
+        let head = els.iter().find(|e| e.path == path).map(|e| e.rect).expect("the group's row");
+        let step = els.iter().find(|e| !e.exiting && e.key.as_deref() == Some("tool-call_zzshellfold")).map(|e| e.visible);
+        let shows = step.map_or(0.0, |v| v[1] + v[3] - v[1].max(head[1] + head[3]));
+        assert!(shows >= 24.0 * r.rt.state.zoom, "the shell call shows under its row: {step:?} under {head:?}");
+    } },
     // A long prompt lands folded; Read more opens it on the growth spring with its top held,
     // and Show less closes it again.
     Action { name: "fold", circs: || {
