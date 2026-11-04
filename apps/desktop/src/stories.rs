@@ -220,6 +220,7 @@ const ORDER: &[&str] = &[
     "Projects/Open project",
     "Projects/Project switcher",
     "Settings/Updates",
+    "Dev/Rewind",
 ];
 
 /// Every story, in the storybook's order.

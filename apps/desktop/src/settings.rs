@@ -55,6 +55,8 @@ pub struct Settings {
     /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
     pub ui_font: usize,
     pub code_font: usize,
+    /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); off by default.
+    pub record_glitches: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +74,7 @@ impl Default for Settings {
             terminal_font: 0,
             ui_font: 0,
             code_font: 0,
+            record_glitches: false,
         }
     }
 }
@@ -90,6 +93,7 @@ impl Settings {
             "terminalFont": self.terminal_font,
             "uiFont": crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name,
             "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
+            "developer": { "recordGlitches": self.record_glitches },
         })
     }
 
@@ -107,6 +111,7 @@ impl Settings {
             terminal_font: v["terminalFont"].as_u64().map_or(0, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
+            record_glitches: v["developer"]["recordGlitches"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -221,7 +226,6 @@ pub fn page(s: &App, p: &Pal) -> El {
             switch(p, "auto-accept-switch", s.settings.auto_accept).on_press(|s: &mut App| s.set_auto_accept(!s.settings.auto_accept))),
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
     ]);
-    let section = |title: &'static str, list: El| col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list);
     let body = col()
         .key("settings")
         .role("region")
@@ -240,9 +244,10 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .gap(32.0)
                 .child(text("Settings").font(TITLE).color(p.text))
                 .children(crate::updater::settings_section(s, p))
-                .child(section("General", general))
-                .child(section("Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
-                .child(section("Notifications", notification_list(s, p))),
+                .child(section(p, "General", general))
+                .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
+                .child(section(p, "Notifications", notification_list(s, p)))
+                .children(crate::glitch::settings_section(s, p)),
         );
     col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar(crate::palette::kit(p)).h(0.0))
 }
@@ -276,6 +281,10 @@ fn back_button(p: &Pal) -> El {
             s.close_settings();
         })
         .child(icon(&crate::review::view::ARROW_LEFT, 20.0).color(p.icon_muted))
+}
+
+pub(crate) fn section(p: &Pal, title: &'static str, list: El) -> El {
+    col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list)
 }
 
 /// Desktop's three notification switches, with its titles and descriptions.
@@ -323,7 +332,7 @@ fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divi
 }
 
 /// Desktop's switch: 24 × 16, the thumb 12 × 12, accent when on. It flips in the press's frame.
-fn switch(p: &Pal, key: &str, on: bool) -> El {
+pub(crate) fn switch(p: &Pal, key: &str, on: bool) -> El {
     let thumb = el().size(12.0, 12.0).radius(2.0).fill(p.switch_thumb);
     row()
         .key(key)
@@ -497,7 +506,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2 };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

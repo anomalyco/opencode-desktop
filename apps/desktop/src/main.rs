@@ -73,6 +73,7 @@ mod appearance_stories;
 mod arrivals;
 mod attachments;
 mod auto_accept;
+mod glitch;
 mod auto_accept_story;
 mod background;
 mod background_stories;
@@ -326,6 +327,8 @@ pub struct App {
     pub mentions: mentions::Mentions,
     /// Live look-and-feel sliders (⌘⇧K).
     pub knobs: rune_knobs::Knobs,
+    /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
+    pub glitch: glitch::Glitch,
     /// The + menu, the `/` command popover and shell mode.
     pub add: add_menu::AddMenu,
     /// Hex dictation into the composer (⇧⌘M or the mic).
@@ -951,6 +954,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);
+    changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);

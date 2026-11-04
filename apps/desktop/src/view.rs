@@ -117,7 +117,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .center()
         // Hovers land and leave at once, like Desktop.
         .hover_motion_within(INSTANT, INSTANT)
-        .child(sized.key("zoomed").scale(s.zoom).child(inner))
+        .child(crate::glitch::wrap(s, sized.key("zoomed").scale(s.zoom).child(inner)))
         .child(crate::knobs::layer(s))
 }
 

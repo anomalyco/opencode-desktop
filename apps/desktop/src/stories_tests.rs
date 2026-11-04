@@ -298,6 +298,7 @@ const STORY_PATHS: &[&str] = &[
     "Projects/Open project",
     "Projects/Project switcher",
     "Settings/Updates",
+    "Dev/Rewind",
     "Settings/Appearance",
     "Composer/Auto-accept",
     "Composer/Commands",
