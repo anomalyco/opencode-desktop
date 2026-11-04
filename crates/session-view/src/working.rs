@@ -35,6 +35,11 @@ impl Working {
     pub fn label(&self) -> &'static str {
         self.label.unwrap_or("Working")
     }
+    /// When `session`'s run started, while the host counts it live; the sweep keeps its rhythm
+    /// from then.
+    pub fn since(&self, session: &str) -> Option<f64> {
+        self.since.get(session).copied()
+    }
     /// Shows `label` from `now` on (app clock).
     pub fn relabel(&mut self, label: &'static str, now: f64) {
         if self.relabeled.is_none() {

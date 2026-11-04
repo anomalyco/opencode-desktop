@@ -88,6 +88,28 @@ pub fn transcript(now_ms: i64, streaming: bool) -> Transcript {
     Transcript { session: SESSION_ID.to_owned(), messages }
 }
 
+/// The motion story's start: a prompt and a reply that has just begun streaming after two tool
+/// calls (`c-prt_m1`, `t-msg_m2-0`).
+pub fn motion(now_ms: i64) -> Transcript {
+    let messages = parse_messages(&json!({"data": [
+        {"id": "msg_m1", "type": "user", "time": {"created": now_ms - 20_000}, "text": "Why doesn't the timeline move in Seer?"},
+        {"id": "msg_m2", "type": "assistant", "time": {"created": now_ms - 18_000}, "content": [
+            {"type": "tool", "id": "prt_m1", "name": "read", "state": {"status": "completed", "input": {"filePath": "crates/session-view/src/lib.rs"}}},
+            {"type": "tool", "id": "prt_m2", "name": "grep", "state": {"status": "completed", "input": {"pattern": "fn poll"}}},
+            {"type": "text", "text": "The motion lives in the shared crate."},
+        ]},
+    ]}));
+    Transcript { session: SESSION_ID.to_owned(), messages }
+}
+
+/// What the motion story's reply streams, a chunk at a time.
+pub const MOTION_STREAM: &[&str] = &[
+    " Every host that mounts `read_only` and runs `poll` gets it.",
+    "\n\nA streamed line opens over a few frames instead of landing at once,",
+    " and the view follows the bottom while it grows.",
+    "\n\nFolds glide open and shut, and a new row eases in.",
+];
+
 #[cfg(test)]
 #[path = "fixture_tests.rs"]
 mod tests;

@@ -6,13 +6,14 @@
 
 use std::cell::RefCell;
 
-use opencode_kit::model::{Attachment, Message, Transcript};
+use opencode_kit::model::{Attachment, Message, Part, Transcript};
 use rune::{Cx, El, Key, KeyEvent, Play, TextEdit, Tx, Waker, col, el};
 use rune_knobs::Knobs;
 
 use crate::composer::attachments::push_unique;
 use crate::composer::history::{Entry, PromptHistory, arrow_up};
 use crate::composer::{ComposerHost, composer, is_stop_shortcut};
+use crate::arrivals::{Arrivals, Seen};
 use crate::fixture::{SESSION_ID, transcript};
 use crate::palette::{Pal, pal};
 use crate::style::{DOCK_SIDE, INSTANT};
@@ -38,6 +39,7 @@ pub struct Host {
     pub talk: RefCell<Option<Transcript>>,
     pub waker: Option<Waker>,
     pub view: ViewState,
+    pub arrivals: Arrivals,
 }
 
 impl Default for Host {
@@ -60,6 +62,7 @@ impl Default for Host {
             talk: RefCell::new(Some(transcript(base_ms, false))),
             waker: None,
             view: ViewState::default(),
+            arrivals: Arrivals::default(),
         }
     }
 }
@@ -126,6 +129,9 @@ impl TimelineHost for Host {
     }
     fn fold_user_messages(&self) -> bool {
         self.fold_user
+    }
+    fn user_glow_at(&self, id: &str) -> Option<f64> {
+        self.arrivals.glow_at(id)
     }
     crate::delegate_view_state!(view);
 }
@@ -200,7 +206,7 @@ pub fn setup(s: &mut Host, waker: Waker) {
 pub fn poll(s: &mut Host, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = s.base_ms + (now * 1000.0) as i64;
-    crate::poll(s, now, tx)
+    s.arrivals.poll(&s.knobs, now, tx) | crate::poll(s, now, tx)
 }
 
 pub fn on_key(s: &mut Host, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -311,9 +317,55 @@ pub fn open_composer_story(s: &mut Host, _tx: &mut Play<Host>) {
     s.open_composer();
 }
 
+/// The motion story's start: a reply just begun streaming.
+pub fn start_motion(s: &mut Host) {
+    s.fold_user = true;
+    s.view.expanded.clear();
+    s.view.shutting.clear();
+    *s.talk.borrow_mut() = Some(crate::fixture::motion(s.now_ms));
+}
+
+/// Adds `more` to the streaming reply's text.
+pub fn stream(s: &mut Host, more: &str) {
+    if let Some(t) = s.talk.borrow_mut().as_mut()
+        && let Some(Message::Assistant(a)) = t.messages.last_mut()
+        && let Some(Part::Text { text }) = a.parts.last_mut()
+    {
+        text.push_str(more);
+    }
+}
+
+/// Ends the turn and adds a prompt sent from another client, which glows as it lands.
+pub fn arrive(s: &mut Host) {
+    let at = s.now_ms;
+    if let Some(t) = s.talk.borrow_mut().as_mut() {
+        let seen = Seen::of(t);
+        if let Some(Message::Assistant(a)) = t.messages.last_mut() {
+            a.completed = Some(at);
+        }
+        t.messages.extend(opencode_kit::model::parse_messages(&serde_json::json!({"data": [
+            {"id": "msg_m3", "type": "user", "time": {"created": at}, "text": "Nice. Does Seer get it too?"},
+        ]})));
+        s.arrivals.landed(seen.as_ref(), t, s.clock);
+    }
+}
+
+/// The motion story: the reply streams in a chunk at a time, the tool group opens and shuts,
+/// and a prompt arrives from another client. R replays.
+pub fn open_motion(s: &mut Host, tx: &mut Play<Host>) {
+    start_motion(s);
+    for (i, more) in crate::fixture::MOTION_STREAM.iter().enumerate() {
+        tx.after(0.6 + 0.5 * i as f64, move |s, _| stream(s, more));
+    }
+    tx.after(3.0, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, &mut **tx));
+    tx.after(4.2, |s, tx| crate::disclosure::toggle_group::<Host>("c-prt_m1".into())(s, &mut **tx));
+    tx.after(5.2, |s, _| arrive(s));
+}
+
 pub const SCENES: &[(&str, fn(&mut Host))] = &[
     ("read-only", |s| s.reload(false)),
     ("composer", |s| s.open_composer()),
+    ("Session view/Motion", start_motion),
     ("Session view/Read-only", |s| s.reload(s.variant == 1)),
     ("Session view/Composer", |s| s.open_composer()),
     ("Session view/Scroll bar", |s| s.reload(false)),

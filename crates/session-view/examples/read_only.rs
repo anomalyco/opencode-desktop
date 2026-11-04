@@ -10,7 +10,8 @@ use rune_knobs::Style;
 use session_view::palette::pal;
 use session_view::story::{
     DIAGRAM_SRC, Host, READ_ONLY_VARIANTS, SCENES, is_dark, on_key, open_composer_story,
-    open_diagram_story, open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
+    open_diagram_story,
+    open_motion, open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
 };
 use session_view::KNOB_GROUPS;
 
@@ -77,6 +78,12 @@ fn playground() -> Playground<Host> {
         .trigger("Session view/Read-only", 'd', "Page down", |_, tx| tx.scroll_page(Host::scroll_key(), 1))
         .side_keys(
             "Session view/Read-only",
+            |s, active, cx| side(s, KNOB_GROUPS, active, cx),
+            rune_knobs::side_key(KNOB_GROUPS, |s: &mut Host| &mut s.knobs),
+        )
+        .trigger("Session view/Motion", 'r', "Replay", open_motion)
+        .side_keys(
+            "Session view/Motion",
             |s, active, cx| side(s, KNOB_GROUPS, active, cx),
             rune_knobs::side_key(KNOB_GROUPS, |s: &mut Host| &mut s.knobs),
         )

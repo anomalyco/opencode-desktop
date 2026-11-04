@@ -8,6 +8,7 @@
 //! and "Jump to latest", with no OpenCode (Rune)-only shell or side-panel assumptions inside.
 
 pub mod agent_start;
+pub mod arrivals;
 pub mod compaction;
 pub mod composer;
 pub mod copied;
@@ -34,6 +35,9 @@ pub mod turns;
 pub mod usage;
 pub mod user_parts;
 pub mod working;
+
+#[cfg(test)]
+mod motion_tests;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
