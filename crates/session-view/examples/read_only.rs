@@ -1,0 +1,114 @@
+//! Standalone read-only session timeline app & storybook (`p255`).
+//!
+//! Run interactively:
+//!   cargo run -p session-view --example read_only
+//! Capture a headless dark still at zoom 1.6:
+//!   cargo run -p session-view --example read_only -- --scene read-only --zoom 1.6 --size 1280x820 --scale 2 --theme dark --snap /tmp/read-only.png
+
+use rune::{App, AppSpec, Cx, Playground};
+use rune_knobs::Style;
+use session_view::palette::pal;
+use session_view::story::{
+    DIAGRAM_SRC, Host, READ_ONLY_VARIANTS, SCENES, is_dark, on_key, open_diagram_story,
+    open_read_only, open_scrollbar, poll, setup, toggle_fold, view,
+};
+use session_view::{KNOB_GROUPS, scrollbar};
+
+fn fresh(real: &Host) -> Host {
+    let mut h = Host {
+        knobs: real.knobs.clone(),
+        clock: real.clock,
+        now_ms: real.now_ms,
+        base_ms: real.base_ms,
+        zoom: real.zoom,
+        fold_user: real.fold_user,
+        variant: real.variant,
+        theme: real.theme.clone(),
+        waker: real.waker.clone(),
+        ..Host::default()
+    };
+    if let Some(waker) = h.waker.clone() {
+        h.view.setup(waker, true);
+    }
+    h
+}
+
+fn knobs_style(p: &session_view::palette::Pal) -> Style {
+    if p.dark {
+        return Style::dark();
+    }
+    Style {
+        bg: p.bg_base,
+        inset: p.bg_deep,
+        raised: p.pressed,
+        fg: p.text,
+        fg2: p.muted,
+        fg3: p.faint,
+        fill: p.layer1,
+        fill_hover: p.hover,
+        fill_selected: p.pressed,
+        slider: p.faint.alpha(0.55),
+        slider_hover: p.faint.alpha(0.7),
+        slider_active: p.muted.alpha(0.8),
+        handle: p.text,
+        border: p.ring,
+        rule: p.text.alpha(0.03),
+        rim: p.ring,
+        shadow: p.shadow,
+        outline: p.text.alpha(0.55),
+    }
+}
+
+fn side(s: &Host, knobs: &'static [rune_knobs::Group], active: bool, cx: &mut Cx<Host>) -> rune::El {
+    let p = pal(is_dark(cx));
+    rune_knobs::inline(&s.knobs, knobs, knobs_style(p), |s: &mut Host| &mut s.knobs, active)
+}
+
+fn playground() -> Playground<Host> {
+    let mut pg = Playground::<Host>::new()
+        .scenes(|name| name.contains('/'))
+        .fresh(fresh)
+        .keep(|stage, real| real.knobs = stage.knobs.clone())
+        .trigger("Session view/Read-only", 'r', "Replay", open_read_only)
+        .trigger("Session view/Read-only", 'o', "Read more / Show less", |s, tx| toggle_fold(s, tx))
+        .trigger("Session view/Read-only", 'u', "Page up", |_, tx| tx.scroll_page(Host::scroll_key(), -1))
+        .trigger("Session view/Read-only", 'd', "Page down", |_, tx| tx.scroll_page(Host::scroll_key(), 1))
+        .side_keys(
+            "Session view/Read-only",
+            |s, active, cx| side(s, KNOB_GROUPS, active, cx),
+            rune_knobs::side_key(KNOB_GROUPS, |s: &mut Host| &mut s.knobs),
+        )
+        .trigger("Session view/Scroll bar", 'r', "Replay", open_scrollbar)
+        .trigger("Session view/Scroll bar", 'u', "Page up", |_, tx| tx.scroll_page(Host::scroll_key(), -1))
+        .trigger("Session view/Scroll bar", 'd', "Page down", |_, tx| tx.scroll_page(Host::scroll_key(), 1))
+        .side_keys(
+            "Session view/Scroll bar",
+            |s, active, cx| side(s, &[scrollbar::GROUP], active, cx),
+            rune_knobs::side_key(&[scrollbar::GROUP], |s: &mut Host| &mut s.knobs),
+        )
+        .trigger("Session view/Diagram", 'r', "Replay", open_diagram_story)
+        .trigger("Session view/Diagram", 'o', "Open full size", |s, tx| {
+            session_view::diagram::open_source(s, DIAGRAM_SRC, tx);
+        })
+        .trigger("Session view/Diagram", 'c', "Close", |s, tx| session_view::diagram::close(s, tx));
+    for &(name, v) in READ_ONLY_VARIANTS {
+        pg = pg.variant("Session view/Read-only", name, move |s: &mut Host| s.variant = v);
+    }
+    pg
+}
+
+fn main() {
+    let spec = AppSpec {
+        scenes: SCENES,
+        fonts: rune_theme_opencode::FONTS,
+        families: ("Inter", "IBM Plex Mono"),
+        setup: Some(setup),
+        poll: Some(poll),
+        on_key: Some(on_key),
+        ..AppSpec::new("Session View (Read-only)", (1280.0, 820.0), Host::from_args, view)
+    };
+    App::new(spec)
+        .gpu_backend(rune::GpuBackend::Metal)
+        .playground(playground())
+        .run();
+}

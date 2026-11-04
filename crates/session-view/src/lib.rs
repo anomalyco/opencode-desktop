@@ -23,6 +23,7 @@ pub mod odometer;
 pub mod palette;
 pub mod question_row;
 pub mod scrollbar;
+pub mod story;
 pub mod style;
 pub mod subagent_card;
 pub mod themes;

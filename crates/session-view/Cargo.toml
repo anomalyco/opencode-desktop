@@ -16,5 +16,9 @@ rune-parts = { path = "../rune-parts", features = ["view"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+rune = { workspace = true, features = ["metal-backend"] }
+rune-knobs = { workspace = true, features = ["panel"] }
+
 [lints]
 workspace = true
