@@ -655,12 +655,12 @@ fn mock_http(
     MockHttp { base, seen }
 }
 
-const PUBLIC_PATH: &str = "/anomalyco/seer/releases/download/browser-engine-1/engine.zip";
+const PUBLIC_PATH: &str = "/anomalyco/rune-desktop/releases/download/browser-engine-1/engine.zip";
 
 /// A private release: the public URL 404s, the API lists the asset, and the asset redirects to `storage`.
 fn private_github(storage: String) -> MockHttp {
     mock_http(move |base, req| match req.path.as_str() {
-        "/repos/anomalyco/seer/releases/tags/browser-engine-1" => {
+        "/repos/anomalyco/rune-desktop/releases/tags/browser-engine-1" => {
             let assets = json!({ "assets": [
                 { "name": "SHA256SUMS", "url": format!("{base}/assets/1") },
                 { "name": "engine.zip", "url": format!("{base}/assets/2") },
@@ -696,7 +696,7 @@ fn release_asset_comes_from_the_default_url() {
     );
     assert_eq!(ReleaseAsset::parse(public), None, "default URL is public on anoma.ly/release");
     let asset = ReleaseAsset::parse(crate::installer::ENGINE_GITHUB_FALLBACK_URL.unwrap()).unwrap();
-    assert_eq!((asset.owner.as_str(), asset.repo.as_str()), ("anomalyco", "seer"));
+    assert_eq!((asset.owner.as_str(), asset.repo.as_str()), ("anomalyco", "rune-desktop"));
     assert_eq!(asset.tag, format!("browser-engine-{ver}"));
     assert!(asset.file.ends_with("-macos-arm64.zip"));
     assert_eq!(ReleaseAsset::parse("https://example.com/engine.zip"), None);
@@ -739,7 +739,7 @@ fn private_release_downloads_with_the_github_login_and_keeps_it_off_the_storage_
 
     let seen = github.seen.lock().unwrap().clone();
     let paths: Vec<_> = seen.iter().map(|r| r.path.as_str()).collect();
-    assert_eq!(paths, [PUBLIC_PATH, "/repos/anomalyco/seer/releases/tags/browser-engine-1", "/assets/2"]);
+    assert_eq!(paths, [PUBLIC_PATH, "/repos/anomalyco/rune-desktop/releases/tags/browser-engine-1", "/assets/2"]);
     assert_eq!(seen[0].auth, None, "the public URL is tried without a login");
     assert_eq!(seen[1].auth.as_deref(), Some("Bearer t0k"));
     assert_eq!(seen[2].auth.as_deref(), Some("Bearer t0k"));
@@ -776,7 +776,7 @@ fn private_release_the_login_cant_see_says_so() {
     let err = download_and_install_with(&url, None, &root.join("cache/1"), &state, None, &auth).unwrap_err();
     assert_eq!(
         err,
-        "Your GitHub account can't see the browser download.\nAsk for access to anomalyco/seer."
+        "Your GitHub account can't see the browser download.\nAsk for access to anomalyco/rune-desktop."
     );
     let _ = std::fs::remove_dir_all(&root);
 }

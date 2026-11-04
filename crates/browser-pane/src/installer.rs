@@ -26,7 +26,7 @@ pub const ENGINE_DEFAULT_URL: Option<&str> = None;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = Some(
-    "https://github.com/anomalyco/seer/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
+    "https://github.com/anomalyco/rune-desktop/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
 );
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = None;
