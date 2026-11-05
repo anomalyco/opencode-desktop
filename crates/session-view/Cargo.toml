@@ -21,5 +21,12 @@ serde_json.workspace = true
 rune = { workspace = true, features = ["metal-backend"] }
 rune-knobs = { workspace = true, features = ["panel"] }
 
+[features]
+open-bench = ["rune/frame-profile"]
+
+[[example]]
+name = "open_bench"
+required-features = ["open-bench"]
+
 [lints]
 workspace = true

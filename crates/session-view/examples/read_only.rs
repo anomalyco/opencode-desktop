@@ -114,7 +114,7 @@ fn main() {
         scenes: SCENES,
         fonts: rune_theme_opencode::FONTS,
         families: ("Inter", "IBM Plex Mono"),
-        setup: Some(setup),
+        setup: Some(setup_replay),
         poll: Some(poll),
         on_key: Some(on_key),
         ..AppSpec::new("Session View (Read-only)", (1280.0, 820.0), Host::from_args, view)
@@ -123,4 +123,25 @@ fn main() {
         .gpu_backend(rune::GpuBackend::Metal)
         .playground(playground())
         .run();
+}
+
+/// A saved API page can be inspected without connecting to any server. Private fixtures stay
+/// outside the repo. With refs, `--media-dir` holds the encoded files named by their hash.
+fn setup_replay(s: &mut Host, wake: rune::Waker) {
+    setup(s, wake);
+    let args: Vec<_> = std::env::args().collect();
+    let arg = |flag| args.windows(2).find(|p| p[0] == flag).map(|p| p[1].clone());
+    if let Some(path) = arg("--messages") {
+        let page = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        *s.talk.borrow_mut() = Some(opencode_kit::model::Transcript {
+            session: session_view::fixture::SESSION_ID.into(),
+            messages: opencode_kit::model::parse_messages(&page),
+        });
+    }
+    if let Some(dir) = arg("--media-dir") {
+        s.view.media.set_fetch(std::sync::Arc::new(move |hash| {
+            // Only content hashes are accepted by the attachment parser.
+            std::fs::read(std::path::Path::new(&dir).join(hash)).map_err(|e| e.to_string())
+        }));
+    }
 }

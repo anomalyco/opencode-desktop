@@ -12,6 +12,8 @@ use crate::style::{CONTENT_W, UI, activity_ring};
 use crate::turns::{self, Block, Step};
 
 mod dividers;
+#[cfg(test)]
+mod open_tests;
 pub mod parts;
 
 pub use dividers::divider_runs;
