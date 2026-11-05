@@ -1,5 +1,5 @@
 //! Kit's captures of a reply's screenshots letterboxed in 4:3 boxes (t1378): a Read tool returns
-//! a tall and a wide screenshot as `media:` refs, under the reply. `--scene reply-image`.
+//! a tall and a wide screenshot as `media:` refs, then three (a bento block). `--scene reply-image`.
 
 use opencode_kit::model::{Assistant, Attachment, Message, Part, ToolStatus};
 use serde_json::json;
@@ -8,6 +8,7 @@ use crate::App;
 
 const TALL: &str = "b1378b1378b1378b1378b1378b1378b1378b1378b1378b1378b1378b1378b137";
 const WIDE: &str = "c1378c1378c1378c1378c1378c1378c1378c1378c1378c1378c1378c1378c137";
+const PHONE: &str = "d1378d1378d1378d1378d1378d1378d1378d1378d1378d1378d1378d1378d137";
 
 /// A screenshot the size of Kit's (1560×1728 tall, 1600×1000 wide): a dark page of headings and rows.
 fn screenshot(w: u32, h: u32) -> Vec<u8> {
@@ -30,10 +31,13 @@ pub fn add_reply_image(app: &mut App, sid: &str) {
     let parts = vec![
         Part::Tool { id: "call_zzreplyimage".into(), name: "read".into(), title: "home-tab.png".into(), status: ToolStatus::Completed, input: json!({}), files: vec![shot(TALL, "home-tab.png"), shot(WIDE, "cached-tests.png")], metadata: json!(null) },
         Part::Text { text: "The Home tab is merged. This still uses demo data.".into() },
+        Part::Tool { id: "call_zzreplyimage2".into(), name: "read".into(), title: "phone.png".into(), status: ToolStatus::Completed, input: json!({}), files: vec![shot(PHONE, "phone.png"), shot(WIDE, "cached-tests.png"), shot(TALL, "home-tab.png")], metadata: json!(null) },
+        Part::Text { text: "And on the phone, beside the desktop shots.".into() },
     ];
     t.messages.push(Message::Assistant(Assistant { id: "msg_zzreplyimage1".into(), completed: Some(1), parts, ..Default::default() }));
     app.attach.fixture_media(TALL, Some(screenshot(1560, 1728)));
     app.attach.fixture_media(WIDE, Some(screenshot(1600, 1000)));
+    app.attach.fixture_media(PHONE, Some(screenshot(1179, 2556)));
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [

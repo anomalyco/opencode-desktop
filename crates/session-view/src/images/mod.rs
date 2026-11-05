@@ -1,6 +1,7 @@
 //! Media on attachments: `media:` ref fetches on a worker thread, decoded handles and the
 //! prepared-image cache behind a transcript's thumbnails.
 
+pub mod bento;
 pub mod viewer;
 
 use std::cell::RefCell;
@@ -348,36 +349,56 @@ pub fn shows(files: &[Attachment]) -> bool {
     files.iter().any(|f| f.is_image() || f.unavailable().is_some())
 }
 
-/// Images in the transcript, at most 320×240 points (2× pixels), right-aligned for a user. A
-/// ref still on its way holds a box; one whose bytes are gone shows the server's placeholder.
+/// Images in the transcript, right-aligned for a user: one at its own shape (at most 320×240
+/// points, 2× pixels), several in a bento block (`bento`). A ref still on its way holds a tile;
+/// one whose bytes are gone shows the server's placeholder as a chip.
 pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool) -> Option<El> {
     let images: Vec<&Attachment> = files.iter().filter(|f| shows(std::slice::from_ref(f))).collect();
     if images.is_empty() {
         return None;
     }
-    let mut r = row().key(key).w_full().gap(8.0).flex_wrap();
-    if end {
-        r = r.justify_end();
-    }
     let store = s.media_store();
+    // Pictures (and refs still loading) go in the bento block; the rest are named chips.
+    let mut shown = Vec::new();
+    let mut chips = Vec::new();
     for (i, f) in images.into_iter().enumerate() {
         let k = format!("img-{i}");
-        r = r.child(match store.image(f) {
-            Some(img) if img.error().is_none() => {
-                let (w, h) = store.thumbnail_size(f);
-                let held = el().key(format!("{k}-held")).size(w, h);
-                let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
-                // The box has the image's shape; Fill keeps a sliver's 24 pt floor from letterboxing it.
-                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fill), held, format!("{key}:{}", identity(f)), f, img)
-            }
-            None if store.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
+        match store.image(f) {
+            Some(img) if img.error().is_none() => shown.push((k, f, Some(img))),
+            None if store.fetched(f) == Some(Fetched::Loading) => shown.push((format!("{k}-loading"), f, None)),
             _ => {
                 let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
-                row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted))
+                chips.push(row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted)));
             }
+        }
+    }
+    let sizes: Vec<_> = shown.iter().map(|(_, f, img)| if img.is_some() { store.thumbnail_size(f) } else { (160.0, 120.0) }).collect();
+    let ((bw, bh), tiles) = bento::tiles(&sizes);
+    let mut block = el().key(key).size(bw, bh);
+    for ((k, f, img), [x, y, w, h]) in shown.into_iter().zip(tiles) {
+        let tile = el().key(k.clone()).label(f.name.clone()).size(w, h).radius(bento::RADIUS).fill(p.layer2);
+        block = block.child(match img {
+            Some(img) => {
+                let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
+                // The tile crops to its slot rather than letterboxing inside it.
+                let thumb = tile.border(0.5, p.border_muted).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
+                opens(s, thumb, held, format!("{key}:{}", identity(f)), f, img)
+            }
+            None => tile.absolute(x, y),
         });
     }
-    Some(col().w_full().pb(8.0).child(r))
+    let mut out = col().w_full().pb(8.0).gap(8.0);
+    if bh > 0.0 {
+        out = out.child(if end { row().w_full().justify_end().child(block) } else { block });
+    }
+    if !chips.is_empty() {
+        let mut r = row().key(format!("{key}-chips")).w_full().gap(8.0).flex_wrap().children(chips);
+        if end {
+            r = r.justify_end();
+        }
+        out = out.child(r);
+    }
+    Some(out)
 }
 
 /// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
