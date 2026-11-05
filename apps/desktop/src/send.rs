@@ -78,7 +78,7 @@ impl App {
                     tx.launch("prompt", format!("queued-{local}"));
                 }
             } else {
-                self.land(&id, &local, &from, tx);
+                session_view::composer::land(self, &id, &local, &from, tx);
             }
             return;
         }
@@ -164,7 +164,7 @@ impl App {
         self.echo_wire_mentions(&local, wire.marks);
         opencode_kit::model::set_user_quotes(&local, quotes);
         self.quote.take();
-        self.land(&id, &local, &from, tx);
+        session_view::composer::land(self, &id, &local, &from, tx);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         // As the server's copy will read, so a session mention's badge stays put when it lands.
         t.messages.push(Message::User { id: local, text: wire.text });
@@ -176,20 +176,6 @@ impl App {
     /// revert drops them, so a send from it goes straight in.
     fn steers_waiting(&self, id: &str) -> bool {
         self.session(id).and_then(|i| i.revert.as_ref()).is_none() && self.inbox_for(id).is_some_and(|i| i.steering().next().is_some())
-    }
-
-    /// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the
-    /// composer, its words where they were typed. Read further up, nothing flies: the timeline
-    /// cuts to its end, where the message already stands. A prompt longer than the composer,
-    /// whose words start out of sight in it, arrives where it lands instead of flying.
-    fn land(&mut self, id: &str, local: &str, from: &str, tx: &mut Tx) {
-        if self.ends.at_end(id) {
-            if crate::view::shows_whole_prompt() {
-                tx.launch(from, format!("u-{local}/bubble"));
-            }
-        } else {
-            tx.scroll_to_bottom_instant(format!("scroll-{id}"));
-        }
     }
 
     /// Queues a write to the server; false (with a status line) when this build can't write.

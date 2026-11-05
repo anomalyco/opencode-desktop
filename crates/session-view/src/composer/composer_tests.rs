@@ -210,3 +210,75 @@ fn enter_in_an_empty_composer_stops_a_busy_session_once() {
     assert_eq!(rt.state.stopped, 1);
     assert!(!rt.state.busy);
 }
+
+#[test]
+fn story_host_launches_sent_bubble_from_composer_and_docks_flush_under_timeline() {
+    use crate::fixture::SESSION_ID;
+    use crate::story::{Host, view};
+
+    let mut rt = Runtime::new(
+        Host { show_composer: true, ..Host::default() },
+        view,
+        (1100.0, 820.0),
+        Env::new(true, 1.0),
+    );
+    rt.frame(0.0);
+    for _ in 0..30 {
+        rt.frame(1.0 / 120.0);
+    }
+
+    let rect = |rt: &Runtime<Host>, key: &str| {
+        rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap().rect
+    };
+    let fade = rect(&rt, "timeline-fade");
+    let dock = rect(&rt, "dock");
+    assert!((fade[1] + fade[3] - dock[1]).abs() < 1.0, "timeline-fade meets dock: {fade:?} vs {dock:?}");
+
+    let prompt_x = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("prompt"))
+        .unwrap()
+        .rect[0]
+        + 4.0;
+    let prompt_y = rect(&rt, "prompt")[1] + 4.0;
+    rt.pointer_move(prompt_x, prompt_y);
+    rt.pointer_down(prompt_x, prompt_y);
+    rt.pointer_up(prompt_x, prompt_y);
+    rt.frame(1.0 / 120.0);
+    rt.key(KeyEvent { key: Key::Text("Launch me smoothly.".into()), mods: Mods::default() });
+    for _ in 0..10 {
+        rt.frame(1.0 / 120.0);
+    }
+    let source_y = rect(&rt, "prompt")[1];
+    let before_ids: Vec<String> = rt
+        .elements()
+        .into_iter()
+        .filter_map(|e| e.key.filter(|k| k.starts_with("u-")))
+        .collect();
+
+    rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
+    let mut ys = Vec::new();
+    let mut new_row = None;
+    for _ in 0..60 {
+        rt.frame(1.0 / 120.0);
+        let els = rt.elements();
+        let row_key = new_row.get_or_insert_with(|| {
+            els.iter()
+                .filter_map(|e| e.key.clone())
+                .find(|k| k.starts_with("u-") && !before_ids.contains(k))
+                .expect("sent user row")
+        });
+        let suffix = format!("/{row_key}/");
+        if let Some(b) = els.iter().find(|e| !e.exiting && e.key.as_deref() == Some("bubble") && e.path.contains(&suffix)) {
+            ys.push(b.rect[1]);
+        }
+    }
+    let first_y = ys[0];
+    let last_y = *ys.last().unwrap();
+    assert!(
+        (first_y - source_y).abs() < 40.0 && first_y > last_y + 40.0,
+        "sent bubble starts near prompt ({source_y}) and rises to {last_y}: {ys:?}"
+    );
+    assert!(rt.state.ends().at_end(SESSION_ID));
+}

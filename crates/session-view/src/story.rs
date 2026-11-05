@@ -12,11 +12,11 @@ use rune_knobs::Knobs;
 
 use crate::composer::attachments::push_unique;
 use crate::composer::history::{Entry, PromptHistory, arrow_up};
-use crate::composer::{ComposerHost, composer, is_stop_shortcut};
+use crate::composer::{ComposerHost, dock, is_stop_shortcut, land};
 use crate::arrivals::{Arrivals, Seen};
 use crate::fixture::{SESSION_ID, transcript};
 use crate::palette::{Pal, pal};
-use crate::style::{DOCK_SIDE, INSTANT};
+use crate::style::INSTANT;
 use crate::{TimelineHost, ViewState};
 
 pub const DIAGRAM_SRC: &str = "graph LR\n  Kit[opencode-kit] --> View[session-view]\n  View --> Desktop[opencode-desktop]\n  View --> Seer[seer-sketch]\n";
@@ -158,14 +158,13 @@ impl ComposerHost for Host {
             opencode_kit::model::set_user_files(&mid, files);
         }
         if let Some(t) = self.talk.borrow_mut().as_mut() {
-            t.messages.push(Message::User { id: mid, text });
+            t.messages.push(Message::User { id: mid.clone(), text });
         }
         let focused = self.edit.focused;
         self.edit = TextEdit::new("");
         self.edit.focused = focused;
         self.history.add(entry, false);
-        tx.instant();
-        tx.scroll_to_bottom_instant(Self::scroll_key());
+        land(self, SESSION_ID, &mid, "prompt", tx);
     }
     fn composer_stop(&mut self, tx: &mut Tx) {
         self.busy = false;
@@ -247,9 +246,7 @@ pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
         .child(body)
-        .children(s.show_composer.then(|| {
-            col().key("dock").w_full().center().px(DOCK_SIDE).pb(DOCK_SIDE).child(composer(s, p))
-        }));
+        .children(s.show_composer.then(|| dock(s, p)));
     let inner = col()
         .key("stage-bg")
         .w_full()

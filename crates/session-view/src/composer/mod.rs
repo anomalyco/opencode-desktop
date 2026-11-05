@@ -17,7 +17,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{DOCK_W, UI};
+use crate::style::{DOCK_SIDE, DOCK_W, UI};
 use crate::user_parts::mention_pill_style;
 
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
@@ -33,6 +33,32 @@ thread_local! {
 /// the editor, its words starting out of sight.
 pub fn shows_whole_prompt() -> bool {
     WHOLE.get()
+}
+
+/// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the
+/// composer, its words where they were typed. Read further up, nothing flies: the timeline cuts
+/// to its end, where the message already stands. A prompt longer than the composer, whose words
+/// start out of sight in it, arrives where it lands instead of flying.
+pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+    if s.ends().at_end(session) {
+        if shows_whole_prompt() {
+            tx.launch(from, format!("u-{local}/bubble"));
+        }
+    } else {
+        tx.scroll_to_bottom_instant(format!("scroll-{session}"));
+    }
+}
+
+/// Renders the shared composer in its bottom dock (`12pt` side and bottom inset, matching
+/// `jump-lane` so the timeline runs right down to its top edge).
+pub fn dock<S: ComposerHost>(s: &S, p: &Pal) -> El {
+    col()
+        .key("dock")
+        .w_full()
+        .center()
+        .px(DOCK_SIDE)
+        .pb(DOCK_SIDE)
+        .child(composer(s, p))
 }
 
 pub fn composer_fill(p: &Pal) -> Color {
