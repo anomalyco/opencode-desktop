@@ -100,3 +100,26 @@ fn a_drag_from_inline_code_starts_where_it_was_pressed() {
     assert!(!got.contains("Nothing urgent") && !got.contains("Still waiting"), "only to the press: {got:?}");
     settle(&mut rt);
 }
+
+#[test]
+fn the_quote_button_sits_over_a_drag_in_inline_code() {
+    let (mut rt, item) = reply();
+    rt.poll = Some(crate::poll);
+    let from = over(&mut rt, &item, "killall");
+    pause(&mut rt);
+    rt.pointer_move(from.0, from.1);
+    rt.pointer_down(from.0, from.1);
+    for k in 1..=6 {
+        rt.pointer_move(from.0 + 4.0 * k as f32, from.1);
+        rt.frame(1.0 / 120.0);
+    }
+    rt.pointer_up(from.0 + 24.0, from.1);
+    for _ in 0..40 {
+        rt.frame(1.0 / 120.0);
+    }
+    let bar = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("quote-toolbar")).expect("the Quote button");
+    let bottom = bar.rect[1] + bar.rect[3];
+    assert!(bottom < item.rect[1] && item.rect[1] - bottom < 14.0, "just above the code's line: {:?} over {:?}", bar.rect, item.rect);
+    let mid = from.0 + 12.0;
+    assert!((bar.rect[0] + bar.rect[2] / 2.0 - mid).abs() < 12.0, "centred on the drag: {:?}, {mid}", bar.rect);
+}
