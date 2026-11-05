@@ -526,7 +526,7 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -
         .h(28.0)
         .max_w(188.0)
         .pl(8.0)
-        .pr(if entry.tab.pinned || entry.tab.closable == CloseButtonMode::None { 8.0 } else { 4.0 })
+        .pr(if entry.tab.can_close() { 4.0 } else { 8.0 })
         .gap(6.0)
         .center_y()
         .radius(6.0)
@@ -563,7 +563,7 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -
         pill = pill.child(text(badge.clone()).font(UI_SMALL).color(p.faint));
     }
 
-    if !entry.tab.pinned && entry.tab.closable != CloseButtonMode::None {
+    if entry.tab.can_close() {
         let always_visible = entry.tab.closable == CloseButtonMode::Standard || active;
         let close_btn = el()
             .key(format!("side-tab-close-{safe_id}"))

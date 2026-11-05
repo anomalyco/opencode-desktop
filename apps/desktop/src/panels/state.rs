@@ -10,7 +10,7 @@ use super::tabs::{
     session_tab_pane, split_panel_key, take_closed_tab,
 };
 use super::{
-    CloseButtonMode, ClosedTabInfo, DockPlacement, PanelLauncherDesc, PanelRegion,
+    ClosedTabInfo, DockPlacement, PanelLauncherDesc, PanelRegion,
     PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane, find_panel, registered_panels,
 };
 use crate::{App, Route};
@@ -675,7 +675,7 @@ impl App {
         self.side.tab_menu = None;
         let reg = self.resolve_side_region();
         let entry = reg.as_ref().and_then(|r| r.entry(key)).cloned();
-        if entry.as_ref().is_some_and(|e| e.tab.pinned || e.tab.closable == CloseButtonMode::None) {
+        if entry.as_ref().is_some_and(|e| !e.tab.can_close()) {
             return;
         }
 

@@ -271,6 +271,11 @@ impl PanelTabDesc {
         self.closable = mode;
         self
     }
+
+    /// Whether Close (button, menu, ⌘W) can close this tab.
+    pub fn can_close(&self) -> bool {
+        !self.pinned && self.closable != CloseButtonMode::None
+    }
 }
 
 /// Entry in the side region's `+` menu and `"New tab"` launcher list (`SessionPanelMenuItem`).

@@ -1,7 +1,7 @@
 //! Review panel data model: server & fixture diff loading, off-main-thread patch parsing,
 //! depth-first directory-first path sorting (`review/kinds.ts`), and file filtering.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rune_kit::diff::{FileDiff, FileStatus, parse};
 use rune_kit::{FileNode, FileTree, TreeModel};
@@ -218,13 +218,35 @@ pub fn parse_diff_list(v: &Value) -> (Vec<FileDiff>, Vec<ReviewFileMeta>) {
     (files, metas)
 }
 
-pub fn build_change_tree(metas: &[ReviewFileMeta]) -> TreeModel<FileNode<ReviewFileMeta>> {
+/// Builds the change tree with every folder open except those in `collapsed`, so a refetch keeps
+/// the folders the user closed (`collapsed_folders` of the old tree).
+pub fn build_change_tree(
+    metas: &[ReviewFileMeta],
+    collapsed: &HashSet<String>,
+) -> TreeModel<FileNode<ReviewFileMeta>> {
     let mut tree = FileTree::new().build(metas.iter().map(|m| (m.path.as_str(), m.clone())));
     tree.expand_all();
+    for id in collapsed {
+        tree.set_expanded(id, false);
+    }
     if let Some(first) = metas.first() {
         tree.select(&first.path);
     }
     tree
+}
+
+pub fn collapsed_folders<T>(tree: &TreeModel<T>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let mut stack: Vec<String> = tree.children(None).map(str::to_owned).collect();
+    while let Some(id) = stack.pop() {
+        if tree.has_children(&id) {
+            if !tree.is_expanded(&id) {
+                out.insert(id.clone());
+            }
+            stack.extend(tree.children(Some(&id)).map(str::to_owned));
+        }
+    }
+    out
 }
 
 pub fn fetch_live_diffs(

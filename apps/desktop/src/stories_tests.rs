@@ -219,6 +219,7 @@ const APP_SCENES: &[&str] = &[
     "genui-stream",
     "diagram-stream",
     "permission",
+    "review-collapsed",
     "shell-fold",
     "short-group",
     "stop-background",

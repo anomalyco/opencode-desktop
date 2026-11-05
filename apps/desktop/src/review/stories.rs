@@ -139,6 +139,17 @@ fn view_inline_card(s: &App, p: &Pal) -> El {
         )
 }
 
+// `--snap review-collapsed`: `src/net` closed, then the agent edits a file (a refetch).
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("review-collapsed", |s| {
+    init_review(s);
+    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+    if let Some(sr) = s.review.sessions.get_mut(&sid) {
+        sr.tree.toggle("src/net");
+    }
+    s.note_review_event("filesystem.changed");
+    s.ensure_session_review(&sid);
+})]);
+
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story {
         path: "Review/Changes",

@@ -119,3 +119,56 @@ fn jumping_files_and_hunks_and_filtering_tree_syncs_selection() {
     assert_eq!(rt.state.review.sessions[&sid].mode, ChangeMode::Turn);
     assert!(!rt.state.review.sessions[&sid].meta.is_empty());
 }
+
+fn open_review(rt: &mut Runtime<App>) -> String {
+    rt.update(|s, tx| s.toggle_side_region(tx));
+    for _ in 0..45 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt.state.active_session_id().unwrap().to_owned()
+}
+
+#[test]
+fn a_collapsed_folder_stays_collapsed_across_a_refetch() {
+    let mut rt = test_runtime();
+    let sid = open_review(&mut rt);
+    let tree = &rt.state.review.sessions[&sid].tree;
+    assert!(tree.is_expanded("src/net") && tree.is_expanded("src/sidebar"));
+
+    rt.update(|s, _| s.review.sessions.get_mut(&sid).unwrap().tree.toggle("src/net"));
+    let before = rt.state.review.sessions[&sid].loaded_revision;
+    rt.update(|s, _| {
+        s.note_review_event("filesystem.changed");
+    });
+    rt.frame(1.0 / 60.0);
+    let sr = &rt.state.review.sessions[&sid];
+    assert_ne!(sr.loaded_revision, before, "the change refetched the diffs");
+    assert!(!sr.tree.is_expanded("src/net"), "the folder Kit closed stays closed");
+    assert!(sr.tree.is_expanded("src/sidebar"), "other folders stay open");
+}
+
+#[test]
+fn scrolling_the_diff_does_not_reopen_a_collapsed_folder() {
+    let mut rt = test_runtime();
+    let sid = open_review(&mut rt);
+    rt.update(|s, tx| {
+        let sr = s.review.sessions.get_mut(&sid).unwrap();
+        sr.tree.toggle("src/net");
+        sr.active_path = Some("src/sidebar/store.ts".to_owned());
+        s.sync_review_tree_to_diff(&sid, tx);
+    });
+    let sr = &rt.state.review.sessions[&sid];
+    assert!(sr.active_path.as_deref().is_some_and(|p| p.starts_with("src/net/")));
+    assert!(!sr.tree.is_expanded("src/net"));
+}
+
+#[test]
+fn the_files_changed_tab_menu_offers_no_close() {
+    let mut rt = test_runtime();
+    open_review(&mut rt);
+    rt.update(|s, _| s.side.tab_menu = Some((REVIEW_KEY.to_owned(), 100.0, 100.0)));
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("side-tab-menu").is_some());
+    assert!(rt.find("side-tab-menu-close").is_none(), "Files Changed can't close, so no Close tab");
+    assert!(rt.find("side-tab-menu-close-others").is_none(), "no other tab to close");
+}

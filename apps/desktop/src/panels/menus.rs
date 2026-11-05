@@ -135,12 +135,25 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
 pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
     if let Some((ref target_key, x, y)) = s.side.tab_menu {
         let tk = target_key.clone();
-        let tk_others = target_key.clone();
         let tk_split = target_key.clone();
         let tk_side = target_key.clone();
         let tk_bottom = target_key.clone();
+        let reg = s.resolve_side_region();
+        let entry = reg.as_ref().and_then(|r| r.entry(target_key));
+        let can_close = entry.is_some_and(|e| e.tab.can_close());
+        let pane = entry.map_or(SessionPane::Side, |e| e.pane);
+        let others: Vec<String> = reg
+            .as_ref()
+            .map(|r| {
+                r.pane_entries(pane)
+                    .into_iter()
+                    .filter(|e| e.key != *target_key && e.tab.can_close())
+                    .map(|e| e.key.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        let menu = col()
+        let mut menu = col()
             .key("side-tab-menu")
             .absolute(x.max(8.0), (y + 4.0).max(8.0))
             .w(176.0)
@@ -149,28 +162,31 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             .radius(8.0)
             .fill(p.layer2)
             .border(0.5, p.ring)
-            .shadow(4.0, 12.0, p.shadow)
-            .child(menu_row(p, "Close tab", "⌘W").on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                s.side.tab_menu = None;
-                s.close_side_tab(&tk, tx);
-            }))
-            .child(menu_row(p, "Close other tabs", "").on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.side.tab_menu = None;
-                if let Some(reg) = s.resolve_side_region() {
-                    let pane = reg.entry(&tk_others).map_or(SessionPane::Side, |e| e.pane);
-                    let others: Vec<String> = reg
-                        .pane_entries(pane)
-                        .into_iter()
-                        .filter(|e| e.key != tk_others && !e.tab.pinned)
-                        .map(|e| e.key.clone())
-                        .collect();
-                    for k in others {
-                        s.close_side_tab(&k, tx);
+            .shadow(4.0, 12.0, p.shadow);
+        if can_close {
+            menu = menu.child(menu_row(p, "Close tab", "⌘W").key("side-tab-menu-close").on_press_tx(
+                move |s: &mut App, tx: &mut Tx| {
+                    s.side.tab_menu = None;
+                    s.close_side_tab(&tk, tx);
+                },
+            ));
+        }
+        let has_others = !others.is_empty();
+        if has_others {
+            menu = menu.child(menu_row(p, "Close other tabs", "").key("side-tab-menu-close-others").on_press_tx(
+                move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.side.tab_menu = None;
+                    for k in &others {
+                        s.close_side_tab(k, tx);
                     }
-                }
-            }))
-            .child(el().w_full().h(0.5).my(2.0).fill(p.border_muted))
+                },
+            ));
+        }
+        if can_close || has_others {
+            menu = menu.child(el().w_full().h(0.5).my(2.0).fill(p.border_muted));
+        }
+        menu = menu
             .child(menu_row(p, "Move to split below", "").on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_split, SessionPane::Split, None, tx);

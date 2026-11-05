@@ -230,7 +230,7 @@ impl App {
             if let Some(act_key) = pane_act {
                 let is_pinned = self
                     .resolve_side_region()
-                    .and_then(|r| r.entry(&act_key).map(|e| e.tab.pinned))
+                    .and_then(|r| r.entry(&act_key).map(|e| !e.tab.can_close()))
                     .unwrap_or(false);
                 if is_pinned && pane != SessionPane::Bottom {
                     self.toggle_side_region(tx);

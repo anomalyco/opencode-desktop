@@ -21,8 +21,8 @@ use crate::panels::{
 };
 use crate::{App, Route, Source};
 use data::{
-    FetchedDiffs, ReviewFileMeta, build_change_tree, fetch_live_diffs, fetch_live_file_text,
-    filter_review_files, fixture_diff_count, load_fixture_diffs, parse_diff_list,
+    FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs,
+    fetch_live_file_text, filter_review_files, fixture_diff_count, load_fixture_diffs, parse_diff_list,
 };
 
 pub const REVIEW_KEY: &str = "review:changes";
@@ -421,7 +421,7 @@ impl App {
                 sr.branch_current = cur_b;
                 sr.branch_default = def_b;
                 sr.meta = meta.clone();
-                sr.tree = build_change_tree(&meta);
+                sr.tree = build_change_tree(&meta, &collapsed_folders(&sr.tree));
                 sr.active_path = meta.first().map(|m| m.path.clone());
                 sr.diffs.set_mode(diff_mode);
                 sr.diffs.set_files(files);
@@ -467,7 +467,7 @@ impl App {
         sr.branch_default = fetched.branch_default;
         sr.no_git = fetched.no_git;
         sr.meta = meta.clone();
-        sr.tree = build_change_tree(&meta);
+        sr.tree = build_change_tree(&meta, &collapsed_folders(&sr.tree));
         sr.diffs.set_mode(diff_mode);
         sr.diffs.set_files(files);
         sr.diffs.set_expand_mode(expand_mode);
@@ -607,7 +607,12 @@ impl App {
             let path = fd.path().to_owned();
             if sr.active_path.as_deref() != Some(path.as_str()) {
                 sr.active_path = Some(path.clone());
-                sr.tree.reveal(&path, tx);
+                // Scrolling follows in the tree without opening folders the user closed.
+                if sr.tree.visible_row(&path).is_some() {
+                    sr.tree.reveal(&path, tx);
+                } else {
+                    sr.tree.select(&path);
+                }
             }
         }
     }
