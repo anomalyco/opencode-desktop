@@ -346,7 +346,7 @@ impl List {
 /// The empty state's height in a list ("No models found").
 pub const EMPTY_H: f32 = 36.0;
 
-/// "No models found": faint, on the labels' edge.
-pub fn empty(p: &Pal, look: Look, key: &str, label: &str) -> El {
-    row().key(key.to_owned()).transition(Transition::none()).h(EMPTY_H).w_full().pl(look.label_x()).center_y().child(text(label.to_owned()).font(UI).color(p.faint))
+/// "No models found": faint, on the row labels' edge, `left` in from the list's own edge.
+pub fn empty(p: &Pal, key: &str, label: &str, left: f32) -> El {
+    row().key(key.to_owned()).transition(Transition::none()).h(EMPTY_H).w_full().pl(left).center_y().child(text(label.to_owned()).font(UI).color(p.faint))
 }

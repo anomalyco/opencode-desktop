@@ -68,11 +68,12 @@ pub fn deferred() -> bool {
     DEFERRED.load(Ordering::Relaxed)
 }
 
-/// The first reads: projects, sessions, models and agents, and what's running.
+/// The first reads: projects, sessions, models and agents, providers, and what's running.
 pub struct First {
     projects: Value,
     sessions: Option<Value>,
     models: Option<(Value, Value)>,
+    providers: Option<Value>,
     active: Option<Value>,
 }
 
@@ -87,8 +88,10 @@ impl First {
         let projects = get("/api/project")?;
         let sessions = get("/api/session?limit=120").ok();
         let models = get("/api/model").ok().map(|m| (m, get("/api/agent").unwrap_or_default()));
+        // The model list names a provider by its id; this names it as a person reads it.
+        let providers = get("/api/provider").ok();
         let active = get("/api/session/active").ok();
-        Ok(First { projects, sessions, models, active })
+        Ok(First { projects, sessions, models, providers, active })
     }
 }
 
@@ -241,6 +244,9 @@ impl App {
         self.projects = opencode_kit::model::parse_projects(&f.projects);
         if let Some(sessions) = &f.sessions {
             self.sessions = opencode_kit::model::parse_sessions(sessions);
+        }
+        if let Some(p) = &f.providers {
+            self.pickers.load_providers(p.get("data").unwrap_or(p));
         }
         if let Some((m, agents)) = &f.models {
             self.pickers.load_live(m.get("data").unwrap_or(m), agents.get("data").unwrap_or(agents));

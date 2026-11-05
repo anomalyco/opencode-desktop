@@ -1,5 +1,6 @@
 //! The composer's agent, model and effort. Desktop reference: ModelSelectorPopoverView,
-//! ComposerEditorSelect and `providers/models/selection.tsx`. A session runs with what the
+//! ComposerEditorSelect and `providers/models/selection.tsx`, with its model search in
+//! `providers/models/search.ts` ([`search`]). A session runs with what the
 //! server last said (`session.agent`, `session.model`); a pick is remembered per session and
 //! rides on its next prompt, which switches the session first (`Server::send`). Once the server
 //! says it runs with the pick, the memory goes, as Desktop's `reconcile` does.
@@ -12,6 +13,7 @@ mod host;
 pub mod hover;
 pub mod prefs;
 pub mod rail;
+pub mod search;
 pub mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -26,6 +28,11 @@ pub use flyout::EffortFlyout;
 pub use host::PickerHost;
 pub use hover::ModelHover;
 pub use prefs::ModelPrefs;
+
+#[cfg(test)]
+mod providers_tests;
+#[cfg(test)]
+mod search_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind { Agent, Model, Effort, Project }
@@ -43,6 +50,8 @@ pub struct Model {
     pub key: String,
     pub id: String,
     pub provider: String,
+    /// What the model's group header says: its provider's name from `/api/provider`, or the
+    /// provider's id when the server names it nothing better.
     pub group: String,
     pub name: String,
     pub variants: Vec<String>,
@@ -59,7 +68,11 @@ pub struct Selection { pub model: ModelRef, pub agent: String }
 pub struct Item {
     pub key: String,
     pub label: String,
+    /// The group's identity, which keeps its header and its rail mark together: a provider's id,
+    /// or Recent and Favorites.
     pub group: String,
+    /// What the header says where that differs from the identity: a provider's name.
+    pub heading: String,
     /// Faint after the label: a model's provider in Favorites and Recent.
     pub note: String,
     pub free: bool,
@@ -77,6 +90,9 @@ pub const RECENT: &str = "Recent";
 #[derive(Default)]
 pub struct Pickers {
     pub models: Vec<Model>,
+    /// Provider names by id from the server's `/api/provider` (`console-openai-test` is
+    /// "Anomaly / RITB"): what a model's group header says, and what a search matches.
+    pub providers: HashMap<String, String>,
     /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
     pub limits: HashMap<String, u64>,
     pub agents: Vec<String>,
@@ -128,7 +144,27 @@ impl Pickers {
                     .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false }
         }).collect();
         self.load_limits(&fixture["models"]);
+        // A fixture may name its providers too, as the server's `/api/provider` does.
+        self.load_providers(&fixture["providers"]);
         self.agents = fixture["agents"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+    }
+
+    /// The server's `/api/provider`: the name a model's group header says, where `/api/model`
+    /// only names the provider by id. A provider the list leaves out, or names as its id, keeps
+    /// its id; the rail's marks and stops stay keyed by the id. A list that names nothing leaves
+    /// the headers as they are, and a fixture may give one too.
+    pub fn load_providers(&mut self, providers: &Value) {
+        self.providers = providers.as_array().into_iter().flatten().filter_map(|p| {
+            let (id, name) = (p["id"].as_str()?, p["name"].as_str()?);
+            (!name.is_empty() && name != id).then(|| (id.to_owned(), name.to_owned()))
+        }).collect();
+        if self.providers.is_empty() {
+            return;
+        }
+        // The provider list may land after the models do.
+        for m in &mut self.models {
+            m.group = self.providers.get(&m.provider).cloned().unwrap_or_else(|| m.provider.clone());
+        }
     }
 
     /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
@@ -139,10 +175,11 @@ impl Pickers {
         let listed: Vec<&Value> = models.as_array().into_iter().flatten()
             .filter(|v| v["enabled"].as_bool().unwrap_or(true) && v["status"].as_str() != Some("deprecated")).collect();
         let shown = shown_models(&listed, now);
+        let names = self.providers.clone();
         self.models = listed.iter().map(|v| {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
-            Model { hidden: !shown.contains(&key), free: is_free(v), key, id, group: provider.clone(), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
+            Model { hidden: !shown.contains(&key), free: is_free(v), key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);

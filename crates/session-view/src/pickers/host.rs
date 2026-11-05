@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, Pickers, RECENT, Selection, grouped, hover};
+use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, Pickers, RECENT, Selection, grouped, hover, search};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -273,17 +273,25 @@ pub trait PickerHost: ComposerHost {
 /// provider after the name) and their models leave their provider's group. The model the
 /// session is on heads Recent whether or not it was picked lately (p169: "I don't even know
 /// what I am"), and shows nowhere else.
+///
+/// A search lists what it finds, best first and ties by name as Desktop lists them, each
+/// provider's models together: [`search::score`] finds a typo as well as a word (t1389).
 fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
-    let q = pk.search.text.to_lowercase();
     let current = format!("{}:{}", selection.model.provider, selection.model.id);
-    let item = |m: &Model, group: &str, note: bool| Item {
-        key: m.key.clone(), label: m.name.clone(), group: group.to_owned(),
+    // Rows are grouped, and the rail keyed, by the provider's id; the header says its name.
+    let item = |m: &Model, group: &str, heading: &str, note: bool| Item {
+        key: m.key.clone(), label: m.name.clone(), group: group.to_owned(), heading: heading.to_owned(),
         note: if note { m.group.clone() } else { String::new() }, free: m.free,
     };
-    if !q.is_empty() {
-        return grouped(pk.models.iter()
-            .filter(|m| format!("{} {} {}", m.name, m.group, m.id).to_lowercase().contains(&q))
-            .map(|m| item(m, &m.group, false)).collect());
+    if !pk.search.text.trim().is_empty() {
+        let mut hits: Vec<(i64, Item)> = pk.models.iter()
+            .filter_map(|m| {
+                let fields = [m.name.as_str(), m.group.as_str(), m.provider.as_str(), m.id.as_str()];
+                search::score(&pk.search.text, &fields).map(|score| (score, item(m, &m.provider, &m.group, false)))
+            })
+            .collect();
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.label.to_lowercase().cmp(&b.1.label.to_lowercase())));
+        return grouped(hits.into_iter().map(|(_, item)| item).collect());
     }
     let prefs = &pk.prefs;
     let find = |k: &String| pk.models.iter().find(|m| &m.key == k);
@@ -292,9 +300,9 @@ fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
         .chain(prefs.recent.iter().filter(|k| **k != current && !prefs.is_favorite(k)))
         .filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-    grouped(recent.iter().map(|m| item(m, RECENT, true))
-        .chain(favorites.iter().map(|m| item(m, FAVORITES, true)))
-        .chain(pk.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.group, false)))
+    grouped(recent.iter().map(|m| item(m, RECENT, "", true))
+        .chain(favorites.iter().map(|m| item(m, FAVORITES, "", true)))
+        .chain(pk.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.provider, &m.group, false)))
         .collect())
 }
 

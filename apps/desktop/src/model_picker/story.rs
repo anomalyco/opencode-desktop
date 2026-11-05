@@ -1,6 +1,7 @@
 //! The storybook's `Pickers/Model picker`: a list with several providers, one model under three
 //! of them, at the list's spacing, as Kit had it (p169): three recent models, none of them the
-//! one the session is on, which leads the list anyway. Its Efforts variant opens the lit model's
+//! one the session is on, which leads the list anyway. Its group headers say the providers'
+//! names ("Anomaly / RITB"), as the live list's do. Its Efforts variant opens the lit model's
 //! efforts beside it; its Favorite variant stars one model, so Favorites leads the rail. The
 //! provider rail runs down its left. R replays; O opens or closes the efforts.
 
@@ -38,6 +39,16 @@ fn open(s: &mut App, _: &mut Play<App>) {
         model("grok-5", "xai", "Grok 5"),
     ]);
     s.pickers.load_live(&models, &serde_json::json!([{"id": "build"}]));
+    // What the group headers say: `/api/provider`'s names, not the ids `/api/model` gives.
+    s.pickers.load_providers(&serde_json::json!([
+        { "id": "opencode", "name": "Anomaly / OpenCode" },
+        { "id": "github-copilot", "name": "GitHub Copilot" },
+        { "id": "openai", "name": "OpenAI" },
+        { "id": "console-openai-test", "name": "Anomaly / RITB" },
+        { "id": "console-moonshot-ai", "name": "Anomaly / Moonshot AI" },
+        { "id": "console-google", "name": "Anomaly / Google" },
+        { "id": "xai", "name": "xAI" },
+    ]));
     s.pickers.prefs = Default::default();
     s.open_picker(Kind::Model);
     s.pickers.stage_effort(CURRENT, "xhigh");

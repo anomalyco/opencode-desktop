@@ -23,10 +23,11 @@ static CLOCK: Icon = Icon {
     body: r#"<circle cx="8" cy="8" r="5.75" stroke="currentColor"/><path d="M8 4.75V8L10.25 9.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
-/// One provider on the rail: its heading's name, where the heading starts in the list, and the
-/// first model under it.
+/// One provider on the rail: its id, the name its button says, where the heading starts in the
+/// list, and the first model under it.
 pub struct Stop {
     pub group: String,
+    pub label: String,
     pub y: f32,
     pub first: String,
 }
@@ -73,7 +74,7 @@ pub fn view<S: PickerHost>(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str
 
 fn button<S: PickerHost>(p: &Pal, look: Look, stop: &Stop, lit: bool) -> El {
     let (first, y) = (stop.first.clone(), stop.y);
-    row().key(format!("rail-{}", stop.group)).role("button").label(format!("Jump to {}", stop.group)).help(format!("Jump to {}", stop.group))
+    row().key(format!("rail-{}", stop.group)).role("button").label(format!("Jump to {}", stop.label)).help(format!("Jump to {}", stop.label))
         .size(28.0, 28.0).center().transition(Transition::none()).radius(look.row_radius).fill(pop::lit(p, lit)).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();

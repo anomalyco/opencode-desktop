@@ -17,7 +17,7 @@ fn first_reads_land_in_one_poll() {
     let (out, rx) = channel();
     app.launch.first = Some(rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
-    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })) };
+    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })) };
     out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert!(!app.launch.waiting && app.launch.first.is_none());
@@ -38,7 +38,7 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     let (out, rx) = channel();
     app.launch.first = Some(rx);
     let beta = vec![crate::tabs::Tab { id: crate::fixture_ids::THIRD.into(), title: "Pinned".into(), directory: "/w".into() }];
-    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, active: None };
+    let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: None };
     out.send(Ready { server: None, beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert_eq!(app.tabs, beta, "Beta's tabs win over recent sessions");

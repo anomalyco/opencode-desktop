@@ -159,6 +159,70 @@ mod tests {
         assert!(rt.state.composer.focused);
     }
 
+    /// The text of the first text element under `key`.
+    fn text_of(rt: &rune::Runtime<App>, key: &str) -> String {
+        let els = rt.elements();
+        let at = els.iter().position(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("no {key}"));
+        els[at..].iter().find_map(|e| e.text.clone()).unwrap_or_else(|| panic!("{key} has no text"))
+    }
+
+    #[test]
+    fn a_group_header_says_the_providers_name_and_a_search_finds_it() {
+        let mut rt = runtime();
+        rt.update(|s, _| {
+            s.pickers.load_providers(&serde_json::json!([
+                { "id": "console-openai-test", "name": "Anomaly / RITB" },
+                { "id": "google", "name": "Google" },
+            ]));
+            s.pickers.load_live(&serde_json::json!([
+                { "id": "gpt-6-astra", "providerID": "console-openai-test", "name": "GPT-6 Astra" },
+                { "id": "gemini-4-argon", "providerID": "google", "name": "Gemini 4 Argon" },
+                { "id": "mystery", "providerID": "nowhere", "name": "Mystery" },
+            ]), &serde_json::json!([]));
+        });
+        tap(&mut rt, "model");
+        assert_eq!(text_of(&rt, "group-console-openai-test"), "Anomaly / RITB", "the header says the name");
+        assert!(rt.find("rail-console-openai-test").is_some(), "the rail's mark and stop stay keyed by the id");
+        assert_eq!(text_of(&rt, "group-nowhere"), "nowhere", "a provider with no name says its id");
+        key(&mut rt, Key::Text("anomaly".into()));
+        let keys: Vec<String> = rt.state.picker_items().into_iter().map(|i| i.key).collect();
+        assert_eq!(keys, ["console-openai-test:gpt-6-astra"], "typing the provider's name finds its models");
+    }
+
+    #[test]
+    fn a_typo_still_finds_its_model() {
+        let mut rt = runtime();
+        tap(&mut rt, "model");
+        key(&mut rt, Key::Text("gemiin".into()));
+        assert_eq!(rt.state.picker_active().as_deref(), Some("google:gemini-4-argon"), "a slip of the fingers still reaches Gemini");
+        key(&mut rt, Key::Enter);
+        assert_eq!(rt.state.selection().model.id, "gemini-4-argon");
+    }
+
+    #[test]
+    fn a_search_lists_the_best_match_first_and_ties_by_name() {
+        let mut rt = runtime();
+        rt.update(|s, _| {
+            s.pickers.load(&serde_json::json!({ "models": [
+                { "id": "pro-gemini", "provider": "x", "group": "X", "name": "Pro Gemini" },
+                { "id": "gemini-mini", "provider": "x", "group": "X", "name": "Gemini Mini" },
+                { "id": "gemini-pro", "provider": "x", "group": "X", "name": "Gemini Pro" },
+            ] }));
+        });
+        tap(&mut rt, "model");
+        key(&mut rt, Key::Text("gemini".into()));
+        let keys = |rt: &rune::Runtime<App>| rt.state.picker_items().into_iter().map(|i| i.key).collect::<Vec<_>>();
+        assert_eq!(keys(&rt), ["x:gemini-pro", "x:gemini-mini", "x:pro-gemini"], "names starting with the query lead, ties by name");
+    }
+
+    #[test]
+    fn a_model_is_found_by_its_id_without_punctuation() {
+        let mut rt = runtime();
+        tap(&mut rt, "model");
+        key(&mut rt, Key::Text("opus55".into()));
+        assert_eq!(rt.state.picker_active().as_deref(), Some("anthropic:claude-opus-5-5"), "claude-opus-5-5, as Desktop finds it");
+    }
+
     #[test]
     fn agent_effort_tab_pointer_and_session_isolation() {
         let mut rt = runtime();

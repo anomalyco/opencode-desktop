@@ -109,8 +109,10 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     for item in &items {
         let is_add = kind == Kind::Project && item.key == ADD_PROJECT_KEY;
         if !is_add && !item.group.is_empty() && item.group != group {
-            stops.push(rail::Stop { group: item.group.clone(), y: list.next_y(), first: item.key.clone() });
-            list.header(p, format!("group-{}", item.group), &item.group);
+            // The group's identity keys its header and its rail mark; the heading is what it says.
+            let heading = if item.heading.is_empty() { item.group.as_str() } else { item.heading.as_str() };
+            stops.push(rail::Stop { group: item.group.clone(), label: heading.to_owned(), y: list.next_y(), first: item.key.clone() });
+            list.header(p, format!("group-{}", item.group), heading);
             group = &item.group;
         }
         let key = item.key.clone();
@@ -171,7 +173,9 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         }
     }
     if kind == Kind::Model && items.is_empty() {
-        list.other(pop::empty(p, look, "picker-empty", "No models found"), pop::EMPTY_H);
+        // Nothing to jump to, so no rail: the words stand on the labels' edge with no empty
+        // column and hairline beside the search (t1389).
+        list.other(pop::empty(p, "picker-empty", "No models found", rail::LEAD + look.label_x()), pop::EMPTY_H);
     }
     list.slide(s.knobs(), p, &pk.search.text);
     let listed = !list.is_empty();
@@ -180,6 +184,7 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         let h = list.height().min(max_h);
         let scroll = list.build("picker-scroll", max_h);
         menu = menu.child(match kind {
+            Kind::Model if items.is_empty() => hover::scroll::<S>(scroll.h_full()),
             Kind::Model => row()
                 .key("picker-body")
                 .w_full()

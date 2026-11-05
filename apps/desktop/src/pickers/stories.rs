@@ -1,10 +1,11 @@
 //! The storybook's Pickers story (Composer › Pickers): the open session's agent, model and
 //! effort in the toolbar. Its variants open the model list or show a pick the next prompt will
-//! switch the session to, or Recent (the current model first) and Favorites leading it. M opens and closes the list, E cycles the effort (⇧⌘D), A the agent
-//! (⌘.), F stars the lit model (⌘F), R replays.
+//! switch the session to, Recent (the current model first) and Favorites leading it, a search
+//! that mistypes Gemini, or one that finds nothing. M opens and closes the list, E cycles the
+//! effort (⇧⌘D), A the agent (⌘.), F stars the lit model (⌘F), T types a typo, R replays.
 
 use crate::pickers::PickerHost as _;
-use rune::Play;
+use rune::{Play, TextEdit};
 
 use crate::App;
 use crate::pickers::Kind;
@@ -18,9 +19,24 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'f', label: "Star or unstar the lit model", run: |s, _| {
         if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
     } },
+    Trigger { key: 't', label: "Search a typo (gemiin)", run: |s, _| search(s, "gemiin") },
 ];
 
-pub const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Picked", 1), ("Recent and Favorites", 2)];
+pub const VARIANTS: &[(&str, usize)] = &[
+    ("Model list", 0),
+    ("Picked", 1),
+    ("Recent and Favorites", 2),
+    ("A typo in the search", 3),
+    ("An empty search", 4),
+];
+
+/// The model list open on `query`, as if typed.
+fn search(s: &mut App, query: &str) {
+    if s.pickers.open.is_some() { s.close_picker(false); }
+    s.open_picker(Kind::Model);
+    s.pickers.search = TextEdit::new(query);
+    s.pickers.search.focused = true;
+}
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
@@ -39,6 +55,10 @@ fn open(s: &mut App, _: &mut Play<App>) {
         }
         s.pickers.prefs.toggle_favorite("openai:gpt-6-astra");
         s.open_picker(Kind::Model);
+    } else if s.variant == 3 {
+        search(s, "gemiin");
+    } else if s.variant == 4 {
+        search(s, "zzzz");
     } else {
         s.open_picker(Kind::Model);
     }

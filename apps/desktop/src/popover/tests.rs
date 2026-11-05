@@ -52,7 +52,7 @@ fn search_headers_and_labels_share_one_edge() {
     rt.frame(1.0 / 60.0);
     let menu = rect(&rt, "picker-model");
     let query = rect(&rt, "picker-search")[0] - menu[0];
-    let header = left_of_text(&rt, "group-Anthropic") - menu[0];
+    let header = left_of_text(&rt, "group-anthropic") - menu[0];
     let label = left_of_text(&rt, "option-anthropic:claude-opus-5-5") - menu[0];
     // The rail runs down the list's left, under the glass; the query, the headers and the
     // labels start a row's inset past it (p169: no check slot before the label).
@@ -71,6 +71,22 @@ fn search_headers_and_labels_share_one_edge() {
     // The highlight stays 6 pt inside the rail's edge.
     let row = rect(&rt, "option-anthropic:claude-opus-5-5");
     assert!((row[0] - menu[0] - lead - LIST.inset).abs() < 0.5);
+}
+
+#[test]
+fn an_empty_search_keeps_the_labels_edge_and_no_rail() {
+    let mut rt = runtime();
+    rt.state.open_picker(Kind::Model);
+    rt.state.pickers.search = TextEdit::new("zzzz");
+    rt.invalidate();
+    for _ in 0..2 { rt.frame(1.0 / 60.0); }
+    let menu = rect(&rt, "picker-model");
+    let query = rect(&rt, "picker-search")[0] - menu[0];
+    let empty = left_of_text(&rt, "picker-empty") - menu[0];
+    assert!((empty - query).abs() < 0.5, "the empty state sits on the query's edge: {empty} vs {query}");
+    let gone = |key: &str| rt.elements().into_iter().all(|e| e.key.as_deref() != Some(key) || e.exiting);
+    assert!(gone("picker-rail"), "nothing to jump to, so no rail: no empty column beside it");
+    assert!(gone("picker-rail-edge"), "and no hairline down an empty column");
 }
 
 #[test]
