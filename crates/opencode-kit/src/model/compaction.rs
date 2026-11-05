@@ -81,6 +81,9 @@ pub(super) fn apply(messages: &mut Vec<Message>, ty: &str, d: &Value, now: i64) 
                 c.end(ty, d);
                 return true;
             }
+            if settled_already(messages, ty, d) {
+                return false;
+            }
             let input = d["inputID"].as_str().filter(|_| ty == "session.compaction.failed");
             input.map_or_else(|| event_message_id(d, now), str::to_owned)
         }
@@ -94,6 +97,16 @@ pub(super) fn apply(messages: &mut Vec<Message>, ty: &str, d: &Value, now: i64) 
     }
     messages.push(Message::Compaction(c));
     true
+}
+
+/// Whether the last compaction already ended as this end or failure says: a read of the latest
+/// page landed before the event, holding it settled under its start's id. Without this the end
+/// adds the same compaction again under its own id.
+fn settled_already(messages: &[Message], ty: &str, d: &Value) -> bool {
+    let Some(last) = messages.iter().rev().find_map(|m| if let Message::Compaction(c) = m { Some(c) } else { None }) else { return false };
+    let mut ended = Compaction::default();
+    ended.end(ty, d);
+    (last.status, &last.summary, last.native, &last.error, &last.tokens) == (ended.status, &ended.summary, ended.native, &ended.error, &ended.tokens)
 }
 
 /// The id the server gives a message an event created: the event's id (`eventID`, which the

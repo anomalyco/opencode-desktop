@@ -63,6 +63,35 @@ fn follows_compaction_events() {
 }
 
 #[test]
+fn an_end_the_page_already_holds_adds_nothing() {
+    let tokens = json!({"input": 4, "output": 2439, "reasoning": 0, "cache": {"read": 169624, "write": 1053}});
+    let settled = json!({"data": [{"id": "msg_s", "type": "compaction", "status": "completed", "reason": "auto", "summary": "## Goal", "tokens": tokens, "time": {"created": 1}}]});
+    let mut t = Transcript { session: "s".into(), messages: Vec::new() };
+    t.merge(parse_messages(&settled));
+    assert!(!t.apply("session.compaction.started", &json!({"sessionID": "s", "reason": "auto", "eventID": "evt_s"}), 2));
+    assert!(!t.apply("session.compaction.ended", &json!({"sessionID": "s", "reason": "auto", "text": "## Goal", "tokens": tokens, "eventID": "evt_e"}), 3));
+    assert_eq!((only(&t).id.as_str(), only(&t).status), ("msg_s", CompactionStatus::Completed));
+
+    // The same for a failure.
+    let error = json!({"type": "provider", "message": "Rate limited"});
+    let failed = json!({"data": [{"id": "msg_f", "type": "compaction", "status": "failed", "reason": "auto", "error": error, "time": {"created": 1}}]});
+    let mut t = Transcript { session: "s".into(), messages: Vec::new() };
+    t.merge(parse_messages(&failed));
+    assert!(!t.apply("session.compaction.failed", &json!({"sessionID": "s", "reason": "auto", "error": error, "eventID": "evt_x"}), 3));
+    assert_eq!(only(&t).id, "msg_f");
+}
+
+#[test]
+fn a_page_read_while_it_ran_does_not_rewind_its_end() {
+    let running = json!({"data": [{"id": "msg_abc", "type": "compaction", "status": "running", "reason": "auto", "summary": "", "time": {"created": 1}}]});
+    let mut t = Transcript { session: "s".into(), messages: Vec::new() };
+    t.apply("session.compaction.started", &json!({"sessionID": "s", "reason": "auto", "eventID": "evt_abc"}), 1);
+    t.apply("session.compaction.ended", &json!({"sessionID": "s", "reason": "auto", "text": "## Goal"}), 2);
+    t.merge(parse_messages(&running));
+    assert_eq!((only(&t).status, only(&t).summary.as_str()), (CompactionStatus::Completed, "## Goal"));
+}
+
+#[test]
 fn notes_a_queued_compaction() {
     let mut inbox = Inbox::default();
     let listed = json!({"sessionID": "s", "items": [{"id": "msg_c", "type": "compaction", "delivery": "steer", "payload": {}}]});

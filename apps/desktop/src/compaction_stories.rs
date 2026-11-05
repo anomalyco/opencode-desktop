@@ -3,8 +3,9 @@
 //! runs, then Compacting turns to Compacted. Variants: done, running, one a person asked for (as
 //! quiet), by the provider, ending inside its grace, opened, failed (the loud form), queued, and
 //! right under a model switch's divider after a prompt, over Working (Kit's capture, p265): the
-//! pair, then a variant switch makes a run of three. R replays, E ends the running one, F fails
-//! it, and G starts one that ends inside its grace.
+//! pair, then a variant switch makes a run of three; and one whose session page was read, already
+//! holding it settled, before its events arrived (Kit's capture, t1400: it showed twice). R
+//! replays, E ends the running one, F fails it, and G starts one that ends inside its grace.
 
 use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
 use rune::{Key, Play, Tx};
@@ -24,6 +25,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Failed", 4),
     ("Queued", 0),
     ("After a model switch", 8),
+    ("Page read first", 9),
 ];
 /// The variant whose compaction a person asked for (`/compact`).
 const MANUAL: usize = 5;
@@ -47,6 +49,9 @@ pub const KEYS: &[Trigger] = &[
 
 const EVENT: &str = "evt_storycompaction";
 pub const ID: &str = "msg_storycompaction";
+/// "Page read first"'s compaction, whose id sorts after the prompt it follows, as the server's do.
+const LATE_EVENT: &str = "evt_zzzzzstorycompaction";
+const LATE: &str = "msg_zzzzzstorycompaction";
 const QUEUED: &str = "inb_storycompaction";
 const SUMMARY: &str = "## Goal\nMake reconnects survive a laptop sleeping mid-stream.\n\n## Done so far\n- Backoff resets after a successful connect and caps at 30 s.\n- The sidebar re-reads running sessions when the stream comes back.\n\n## Next\n- A test for the reconnect jitter with the fake clock.";
 
@@ -55,6 +60,13 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     let v = s.variant;
     if v == 0 {
         tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
+        return;
+    }
+    if v == 9 {
+        tx.after(0.05, |s, tx| emit(s, "session.prompted", json!({ "messageID": "msg_zzzzcompactionprompt", "text": "inbox zero plz" }), tx));
+        tx.after(0.2, |s, _| settled_page(s));
+        tx.after(0.3, |s, tx| emit(s, "session.compaction.started", json!({ "eventID": LATE_EVENT, "reason": "auto" }), tx));
+        tx.after(0.35, |s, tx| end(s, tx));
         return;
     }
     if v == 8 {
@@ -107,9 +119,23 @@ fn stream(s: &mut App, tx: &mut Play<App>) {
     tx.after(0.12, stream);
 }
 
+fn tokens() -> serde_json::Value {
+    json!({ "input": 10_412, "output": 1_034, "reasoning": 96, "cache": { "read": 1_880, "write": 0 } })
+}
+
+/// A read of the session's latest page that lands before the compaction's events, holding it
+/// already settled, as the server had it.
+fn settled_page(s: &mut App) {
+    let id = sid(s);
+    let page = json!({ "data": [{ "id": LATE, "type": "compaction", "status": "completed", "reason": "auto", "summary": SUMMARY, "tokens": tokens(), "time": { "created": s.now_ms } }] });
+    if let Some(t) = s.transcripts.get_mut(&id) {
+        t.merge(opencode_kit::model::parse_messages(&page));
+    }
+}
+
 fn end(s: &mut App, tx: &mut Tx) {
     let v = s.variant;
-    let tokens = json!({ "input": 10_412, "output": 1_034, "reasoning": 96, "cache": { "read": 1_880, "write": 0 } });
+    let tokens = tokens();
     let mut d = json!({ "reason": reason(s), "text": SUMMARY, "tokens": tokens });
     if v == 3 {
         d = json!({ "reason": "auto", "text": "", "native": { "messages": [] }, "tokens": tokens });

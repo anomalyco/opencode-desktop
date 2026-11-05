@@ -90,6 +90,95 @@ fn a_quiet_one_ending_inside_its_grace_fades_in_as_compacted() {
     assert_eq!(s.compactions.seen["msg_cmp"], Seen { at: 10.2, enter: Some(Enter::Now), running: false });
 }
 
+/// The rows a WISP session had on Nov 5 around a background compaction (summary trimmed): a
+/// prompt, the automatic compaction it set off, and the step after it.
+mod wisp {
+    use serde_json::{Value, json};
+
+    pub const SID: &str = "ses_e71606f6bffdzppx1mkm1bg0fP";
+    pub const COMPACTION: &str = "msg_1ad7c4abd001JpdUrHDZgS8G6x";
+    pub const SUMMARY: &str = "## Objective\n- Act as WISP, Kit's live voice delegator.";
+
+    fn tokens() -> Value {
+        json!({"input": 4, "output": 2439, "reasoning": 0, "cache": {"read": 169624, "write": 1053}})
+    }
+
+    pub fn prompt() -> Value {
+        json!({"id": "msg_1ad7c3af5001GwbdWHbSDBiRaw", "type": "user", "time": {"created": 1793911966382_i64}, "text": "And make this card more information dense as well"})
+    }
+
+    pub fn compaction() -> Value {
+        json!({
+            "id": COMPACTION, "type": "compaction", "metadata": {"keepID": "msg_1ad66f130001lImFpN1iq3dthB"},
+            "time": {"created": 1793911966397_i64}, "status": "completed", "reason": "auto",
+            "model": {"id": "claude-opus-5-5", "providerID": "opencode", "variant": "medium"},
+            "summary": SUMMARY, "cost": 0.0879858, "tokens": tokens(),
+        })
+    }
+
+    pub fn page(rows: &[Value]) -> Vec<opencode_kit::model::Message> {
+        opencode_kit::model::parse_messages(&json!({"data": rows}))
+    }
+
+    /// The server's events, in order: the compaction starts and ends, then the next step starts.
+    pub fn events() -> Vec<(&'static str, Value)> {
+        vec![
+            ("session.compaction.started", json!({"sessionID": SID, "reason": "auto", "eventID": "evt_1ad7c4abd001JpdUrHDZgS8G6x"})),
+            ("session.compaction.ended", json!({"sessionID": SID, "reason": "auto", "text": SUMMARY, "cost": 0.0879858, "tokens": tokens(), "eventID": "evt_1ad7c4abe001RwnYwq4XbZ0kLs"})),
+            ("session.step.started", json!({"sessionID": SID, "assistantMessageID": "msg_1ad7c4ac9001iekcgkpBxQzghv"})),
+        ]
+    }
+}
+
+fn quiet_dividers(s: &App, sid: &str) -> Vec<String> {
+    crate::view::row_keys(s, &s.transcripts[sid]).into_iter().filter(|k| k.starts_with("cmp-")).collect()
+}
+
+/// Kit's Scrawl (t1400): one background compaction showed two Compacted dividers. A read of the
+/// session's latest page can land before or between the compaction's events, already holding it
+/// settled; its end then found nothing running and added a second one under the end's own id.
+#[test]
+fn one_compaction_is_one_divider_wherever_a_page_read_lands() {
+    let events = wisp::events();
+    // Where a read of the latest page lands among the events: never, before them all, between
+    // start and end, or after the end.
+    for at in [None, Some(0), Some(1), Some(2)] {
+        let mut s = App::empty();
+        s.transcripts.insert(wisp::SID.into(), Transcript { session: wisp::SID.into(), messages: wisp::page(&[wisp::prompt()]) });
+        s.route = Route::Session(wisp::SID.into());
+        for (i, (ty, data)) in events.iter().enumerate() {
+            if at == Some(i) {
+                s.transcripts.get_mut(wisp::SID).unwrap().merge(wisp::page(&[wisp::prompt(), wisp::compaction()]));
+            }
+            s.apply_event(ty, data);
+        }
+        assert_eq!(quiet_dividers(&s, wisp::SID), [format!("cmp-{}-quiet", wisp::COMPACTION)], "page read before event {at:?}");
+        let c = s.transcripts[wisp::SID].messages.iter().find_map(|m| if let Message::Compaction(c) = m { Some(c) } else { None }).unwrap();
+        assert_eq!((c.status, c.summary.as_str()), (CompactionStatus::Completed, wisp::SUMMARY), "page read before event {at:?}");
+    }
+    // Reloaded, the same rows show it once.
+    let mut s = App::empty();
+    s.transcripts.insert(wisp::SID.into(), Transcript { session: wisp::SID.into(), messages: wisp::page(&[wisp::prompt(), wisp::compaction()]) });
+    s.route = Route::Session(wisp::SID.into());
+    assert_eq!(quiet_dividers(&s, wisp::SID).len(), 1);
+}
+
+#[test]
+fn two_compactions_in_a_row_are_two_dividers() {
+    let mut s = app(vec![shell("msg_a")]);
+    for (n, text) in [(1, "## Goal\nFirst"), (2, "## Goal\nSecond")] {
+        s.apply_event("session.compaction.started", &serde_json::json!({"sessionID": SID, "reason": "auto", "eventID": format!("evt_s{n}")}));
+        s.apply_event("session.compaction.ended", &serde_json::json!({"sessionID": SID, "reason": "auto", "text": text, "eventID": format!("evt_e{n}")}));
+    }
+    assert_eq!(quiet_dividers(&s, SID), ["cmp-msg_s1-quiet", "cmp-msg_s2-quiet"]);
+    // And when their starts were missed (a server that sends only ends), still two.
+    let mut s = app(vec![shell("msg_a")]);
+    for (n, text) in [(1, "## Goal\nFirst"), (2, "## Goal\nSecond")] {
+        s.apply_event("session.compaction.ended", &serde_json::json!({"sessionID": SID, "reason": "auto", "text": text, "eventID": format!("evt_e{n}")}));
+    }
+    assert_eq!(quiet_dividers(&s, SID), ["cmp-msg_e1-quiet", "cmp-msg_e2-quiet"]);
+}
+
 #[test]
 fn dividers_back_to_back_stack_tight_and_keep_the_usual_gap_outside() {
     use opencode_kit::model::{Notice, NoticeKind};

@@ -54,7 +54,7 @@ impl ProjectIcon {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tokens {
     pub input: u64,
     pub output: u64,
@@ -713,6 +713,13 @@ impl Transcript {
                 if let (Message::Assistant(old), Message::Assistant(new)) = (&*slot, &m)
                     && new.completed.is_none()
                     && old.parts.len() > new.parts.len()
+                {
+                    continue;
+                }
+                // Nor rewind a compaction that ended to a copy read while it ran.
+                if let (Message::Compaction(old), Message::Compaction(new)) = (&*slot, &m)
+                    && old.status != CompactionStatus::Running
+                    && new.status == CompactionStatus::Running
                 {
                     continue;
                 }
