@@ -222,6 +222,8 @@ mod narrow_tests;
 #[cfg(test)]
 pub(crate) mod selection_tests;
 #[cfg(test)]
+mod inline_code_selection_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod icon_centre_tests;
