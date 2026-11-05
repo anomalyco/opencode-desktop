@@ -196,6 +196,17 @@ fn a_stop_the_server_never_confirms_comes_back_after_a_few_seconds() {
 }
 
 #[test]
+fn a_stop_lost_on_a_dead_link_says_the_link() {
+    let mut l = live();
+    l.server.send(Incoming::Status("events: timeout: per-read".into())).unwrap();
+    l.rt.frame(DT);
+    esc(&mut l);
+    play(&mut l, CONFIRM_SECS + 0.2);
+    running(&l);
+    assert_eq!(l.rt.state.status, "Can't reach OpenCode to stop the session");
+}
+
+#[test]
 fn a_prompt_sent_while_the_stop_settles_shows_working_for_itself() {
     let mut l = live();
     esc(&mut l);

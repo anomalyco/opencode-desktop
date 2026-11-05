@@ -193,6 +193,7 @@ mod settings;
 mod shortcuts;
 mod side_stories;
 mod slash;
+mod reconnect;
 mod status_toast;
 #[cfg(test)]
 mod status_toast_tests;
@@ -887,7 +888,7 @@ impl App {
 
     /// The first session in `id`'s parent chain (itself included) that isn't loaded, so a
     /// running subagent can be traced to its tab.
-    fn missing_ancestor(&self, id: &str) -> Option<String> {
+    pub(crate) fn missing_ancestor(&self, id: &str) -> Option<String> {
         self.ancestors(id).take(32).last().filter(|cur| self.session(cur).is_none()).map(str::to_owned)
     }
 
@@ -968,6 +969,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         if let Ok(first_in) = inbox.try_recv() {
             arrivals = Some(arrivals::Arrivals::before(s));
             for m in std::iter::once(first_in).chain(inbox.try_iter()) {
+                if !matches!(m, Incoming::Status(_) | Incoming::SendFailed { .. }) {
+                    reconnect::heard(s);
+                }
                 match m {
                     Incoming::Sessions(mut list) => {
                         for n in &mut list {
@@ -1006,6 +1010,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         attachments::reconcile(&mut s.attach.echoes, t, &messages);
                         let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
                         t.merge(messages);
+                        reconnect::page_in(s, &session);
                         s.settle_inbox(&session, &delivered);
                         if (first || cold) && s.route == Route::Session(session) {
                             // Guarantee 8: the first load of the open session lands, nothing grows in.
@@ -1022,7 +1027,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         continue;
                     }
                     Incoming::Status(e) => {
-                        if !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
+                        if !reconnect::dropped(s, &e, tx) && !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
                             subagents::reply::failed(s, &e);
                             status_toast::from_server(s, e);
                         }
@@ -1040,6 +1045,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Reconnected => {
                         tx.instant();
+                        reconnect::back(s);
                         s.stream_back();
                         s.check_sends();
                         s.resync();
@@ -1047,6 +1053,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     Incoming::Active(ids) => {
                         tx.instant();
                         s.stops.reconcile(&ids);
+                        reconnect::active(s, &ids);
                         // A stop the server hasn't confirmed yet stays stopped.
                         s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
                     }
@@ -1137,6 +1144,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.attach.poll();
     changed |= s.poll_panels(tx);
     changed |= rune_mcp::poll(s, tx);
+    changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();

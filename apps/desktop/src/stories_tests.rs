@@ -220,6 +220,7 @@ const APP_SCENES: &[&str] = &[
     "genui-stream",
     "diagram-stream",
     "permission",
+    "reconnecting",
     "review-collapsed",
     "send-unconfirmed",
     "send-failed",
@@ -228,6 +229,7 @@ const APP_SCENES: &[&str] = &[
     "short-group",
     "stop-background",
     "subagent",
+    "no-server-remote",
 ];
 
 const STORY_PATHS: &[&str] = &[
@@ -319,6 +321,7 @@ const STORY_PATHS: &[&str] = &[
     "Requests/Permission",
     "Popover/Open and close",
     "Question dock/Long question",
+    "Session/Reconnecting",
     "Timeline/Send receipts",
     "Settings/Page",
     "Composer/Background helpers",

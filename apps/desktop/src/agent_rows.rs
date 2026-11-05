@@ -79,7 +79,8 @@ impl App {
         {
             self.agent_rows.called.entry(id.to_owned()).or_insert(self.now_ms);
         }
-        if sid.is_empty() || self.session(sid).is_none_or(|i| i.parent.is_none()) {
+        // A session we don't know yet may be a subagent that started while the link was down.
+        if sid.is_empty() || self.session(sid).is_some_and(|i| i.parent.is_none()) {
             return false;
         }
         let step = match ty {
@@ -118,6 +119,11 @@ impl App {
             log.dropped_at = at;
         }
         true
+    }
+
+    /// Drops `child`'s step log, so its row reads its steps from a freshly loaded page.
+    pub(crate) fn forget_agent_steps(&mut self, child: &str) {
+        self.agent_rows.steps.remove(child);
     }
 
     /// How call `call` in `parent`, which started `child` or sent it more work, is going: only

@@ -696,6 +696,13 @@ const EVENTS_IDLE: Duration = Duration::from_secs(45);
 /// Starts the worker, writer and event threads (the first loads already happened). Returns the
 /// request and write senders and the inbox.
 pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
+    connect_with_idle(server, wake, EVENTS_IDLE)
+}
+
+/// [`connect`], dropping and reopening the event stream once it has been silent for `idle`
+/// (heartbeats included) instead of [`EVENTS_IDLE`]: a slow or dead link (a tunnel that still
+/// accepts but never answers) is noticed sooner.
+pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
     let (inbox_tx, inbox) = channel();
     let (req_tx, req_rx) = channel::<Request>();
     let (write_tx, write_rx) = channel::<Write>();
@@ -872,7 +879,7 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
             let mut resumed = false;
             loop {
                 let mut opened = false;
-                if let Err(e) = server.events(EVENTS_IDLE, &inbox_tx, &wake, resumed, &mut opened) {
+                if let Err(e) = server.events(idle, &inbox_tx, &wake, resumed, &mut opened) {
                     if inbox_tx.send(Incoming::Status(e)).is_err() {
                         return;
                     }
@@ -987,6 +994,26 @@ mod tests {
         assert_eq!(server_or_default(None), DEFAULT_SERVER);
         assert_eq!(server_or_default(Some("  ".into())), DEFAULT_SERVER);
         assert_eq!(server_or_default(Some("http://127.0.0.1:14096\n".into())), "http://127.0.0.1:14096");
+    }
+
+    #[test]
+    fn connect_with_idle_reports_a_stalled_stream() {
+        use std::io::Write;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        // A tunnel that accepts and answers, then never sends another byte.
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n").unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+        });
+        let start = std::time::Instant::now();
+        let (_r, _w, inbox) = connect_with_idle(Server::new(&base), std::sync::Arc::new(|| {}), Duration::from_millis(300));
+        let got = std::iter::from_fn(|| inbox.recv_timeout(Duration::from_millis(1500)).ok())
+            .find_map(|m| if let Incoming::Status(e) = m { Some(e) } else { None });
+        assert!(got.is_some_and(|e| e.starts_with("events:")), "the stalled stream is reported");
+        assert!(start.elapsed() < Duration::from_millis(1500));
+        h.join().unwrap();
     }
 
     #[test]

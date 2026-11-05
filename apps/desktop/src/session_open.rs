@@ -90,6 +90,7 @@ impl App {
             let _ = r.send(Request::Inbox(id.clone()));
             self.reload_session(&id);
         }
+        crate::reconnect::catch_up(self);
     }
 
     pub(crate) fn start_stream_if_due(&mut self, id: &str) {

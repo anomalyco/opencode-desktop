@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use opencode_kit::client::{Request, Server};
 use opencode_kit::model::Transcript;
@@ -95,6 +96,20 @@ impl First {
     }
 }
 
+#[cfg(test)]
+impl First {
+    pub fn from_parts(projects: Value, sessions: Option<Value>) -> First {
+        First { projects, sessions, models: None, providers: None, active: None }
+    }
+}
+
+#[cfg(test)]
+impl Launch {
+    pub fn set_first(&mut self, rx: Receiver<Ready>) {
+        self.first = Some(rx);
+    }
+}
+
 /// What `on_ready`'s background startup worker brings back: Desktop Beta's tabs (when no
 /// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
 /// reachable and the window should fall back to the fixture.
@@ -121,6 +136,43 @@ pub struct Launch {
     pub recent_tabs: bool,
     /// Restored session id whose cached messages painted on frame 0 and settle on first live refresh.
     pub cold_transcript: Option<String>,
+    /// Tabs put aside while the setup card shows, back when the server answers.
+    held_tabs: Vec<crate::tabs::Tab>,
+    /// A probe the app started on its own while offline: the card's button doesn't say Checking.
+    pub quiet: bool,
+    /// When the setup card next probes on its own (`App::clock`).
+    next_retry: f64,
+    /// How long a launch keeps probing before the setup card ([`GRACE`] unless a test sets it).
+    pub grace: Option<Duration>,
+    /// The address the setup card names, in its story.
+    pub story_addr: Option<String>,
+    /// The event stream after connecting (`reconnect`).
+    pub link: crate::reconnect::Link,
+}
+
+/// How long a launch keeps trying a server it hasn't reached before Home shows the setup card:
+/// a tunnel or a server that is just starting comes up in this time.
+pub const GRACE: Duration = Duration::from_secs(5);
+/// How often the setup card tries again on its own.
+const RETRY_EVERY: f64 = 3.0;
+
+/// The server `server` stands for (`service.json` when `discover`), probed until it answers or
+/// `grace` runs out; true when it answered.
+pub(crate) fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
+    let start = Instant::now();
+    let mut pause = Duration::from_millis(250);
+    loop {
+        let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
+        if actual.reachable() {
+            return (actual, true);
+        }
+        let left = grace.saturating_sub(start.elapsed());
+        if left.is_zero() {
+            return (actual, false);
+        }
+        std::thread::sleep(pause.min(left));
+        pause = (pause * 2).min(Duration::from_secs(1));
+    }
 }
 
 /// `setup`: connects now unless `on_ready` will start the reads (or a synchronous live probe found no server).
@@ -139,9 +191,13 @@ pub fn ready(s: &mut App, tx: &mut Tx) {
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
-    if s.launch.first.is_some() {
-        return;
+    s.launch.quiet = false;
+    if s.launch.first.is_none() {
+        again(s, tx);
     }
+}
+
+fn again(s: &mut App, tx: &mut Tx) {
     if let Source::Live { server, .. } = &mut s.source {
         let addr = crate::arg("--server").unwrap_or_else(opencode_kit::client::default_server);
         *server = Server::new(&addr).with_media_refs();
@@ -153,7 +209,7 @@ pub fn retry(s: &mut App, tx: &mut Tx) {
     start(s, tx);
 }
 
-fn start(s: &mut App, tx: &mut Tx) {
+pub(crate) fn start(s: &mut App, tx: &mut Tx) {
     if std::mem::replace(&mut s.launch.started, true) {
         return;
     }
@@ -162,15 +218,12 @@ fn start(s: &mut App, tx: &mut Tx) {
     let (server, wake) = (server.clone(), s.waker.clone());
     let (fallback, beta_tabs) = (s.launch.fallback_fixture, std::mem::take(&mut s.launch.beta_tabs));
     let discover_local = crate::arg("--server").is_none();
+    let grace = if s.launch.quiet { Duration::ZERO } else { s.launch.grace.unwrap_or(GRACE) };
     std::thread::Builder::new()
         .name("opencode-first".into())
         .spawn(move || {
-            let actual = if discover_local {
-                opencode_kit::local_service::discover_local_server(&server)
-            } else {
-                server
-            };
-            let ready = if !actual.reachable() {
+            let (actual, reached) = probe(&server, discover_local, grace);
+            let ready = if !reached {
                 if fallback {
                     Ready { server: None, beta_tabs: None, first: None }
                 } else {
@@ -193,6 +246,13 @@ fn start(s: &mut App, tx: &mut Tx) {
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    if s.launch.offline && s.launch.first.is_none() && s.live() && !crate::headless() {
+        if s.clock + 1e-3 < s.launch.next_retry {
+            return false;
+        }
+        s.launch.quiet = true;
+        again(s, tx);
+    }
     let Some(rx) = &s.launch.first else { return false };
     let ready = match rx.try_recv() {
         Ok(r) => r,
@@ -205,6 +265,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     };
     s.launch.first = None;
     s.launch.waiting = false;
+    let quiet = std::mem::take(&mut s.launch.quiet);
     tx.instant();
     let Some(result) = ready.first else {
         s.launch.cold_transcript = None;
@@ -224,13 +285,25 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     match result {
         Ok(first) => {
             s.launch.offline = false;
+            if s.tabs.is_empty() && !s.launch.held_tabs.is_empty() {
+                s.tabs = std::mem::take(&mut s.launch.held_tabs);
+                s.launch.recent_tabs = false;
+            }
             s.apply_first(first);
             connect(s, tx);
         }
         Err(e) => {
+            s.launch.next_retry = s.clock + RETRY_EVERY;
+            tx.wake_after(Duration::from_secs_f64(RETRY_EVERY));
+            if quiet {
+                return false;
+            }
             s.launch.offline = true;
             s.launch.cold_transcript = None;
             s.transcripts.clear();
+            if s.launch.held_tabs.is_empty() {
+                s.launch.held_tabs = std::mem::take(&mut s.tabs);
+            }
             s.tabs.clear();
             s.route = Route::Home;
             s.status = e;
@@ -255,7 +328,8 @@ impl App {
             let map = a.get("data").unwrap_or(a);
             self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
         }
-        if std::mem::take(&mut self.launch.recent_tabs) {
+        // Without the session list, recent sessions would be no tabs at all.
+        if f.sessions.is_some() && std::mem::take(&mut self.launch.recent_tabs) {
             self.tabs = self.recent_tabs();
         }
         let saved_projects = match &self.source {
@@ -285,7 +359,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
         let media = server.clone();
         s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
-        let (r, w, inbox) = opencode_kit::client::connect(server.clone(), waker);
+        let (r, w, inbox) = opencode_kit::client::connect_with_idle(server.clone(), waker, crate::reconnect::STREAM_IDLE);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !s.sessions.iter().any(|x| x.id == t.id)) {

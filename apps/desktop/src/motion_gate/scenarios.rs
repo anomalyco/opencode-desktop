@@ -613,6 +613,7 @@ const ACTIONS: &[Action] = &[
         v.push(Circ { zoomed: true, ..Circ::default() });
         v
     }, run: super::rewind::run },
+    Action { name: "reconnect", circs: || wide_and_narrow(Circ::default()), run: super::reconnect::run },
     // A compaction runs and ends as a quiet divider: its light while it runs, then its label's
     // ending. One a person asked for looks the same as an automatic one.
     Action { name: "compaction", circs: || places(Circ::default()), run: |r| compaction(r, "manual", 1.6) },

@@ -9,6 +9,10 @@ impl App {
     }
 
     pub(crate) fn save_tabs(&mut self) {
+        // Behind the setup card the tabs are put aside, not closed: nothing to save.
+        if self.launch.offline {
+            return;
+        }
         // Keep titles fresh for sessions outside the loaded list next launch.
         for t in &mut self.tabs {
             if let Some(s) = self.sessions.iter().find(|s| s.id == t.id) {

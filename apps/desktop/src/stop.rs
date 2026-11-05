@@ -155,7 +155,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     for sid in &late {
         s.stops.by.remove(sid);
         s.running.insert(sid.clone());
-        crate::status_toast::fail(s, "The server didn't confirm the stop", "");
+        let why = if crate::reconnect::down(s) { "Can't reach OpenCode to stop the session" } else { "The server didn't confirm the stop" };
+        crate::status_toast::fail(s, why, "");
     }
     if !late.is_empty()
         && let Source::Live { requests: Some(r), .. } = &s.source

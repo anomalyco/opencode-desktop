@@ -516,11 +516,14 @@ fn session_row_inner(
 const SERVE_CMD: &str = "opencode serve --port 4096";
 
 fn no_server_home(s: &App, p: &Pal) -> El {
-    let addr = match &s.source {
-        crate::Source::Live { server, .. } => server.base.as_str(),
-        crate::Source::Fixture => opencode_kit::client::DEFAULT_SERVER,
+    let addr = match (&s.launch.story_addr, &s.source) {
+        (Some(a), _) => a.as_str(),
+        (None, crate::Source::Live { server, .. }) => server.base.as_str(),
+        (None, crate::Source::Fixture) => opencode_kit::client::DEFAULT_SERVER,
     };
-    let checking = s.launch.waiting;
+    // Only the local default is a server to start; any other address is one to reach.
+    let local = addr == opencode_kit::client::DEFAULT_SERVER;
+    let checking = s.launch.waiting && !s.launch.quiet;
     let copy_key = "no-server-copy";
     let cmd_row = row()
         .key("no-server-cmd")
@@ -583,15 +586,15 @@ fn no_server_home(s: &App, p: &Pal) -> El {
             col()
                 .w_full()
                 .gap(6.0)
-                .child(text("No OpenCode server found").font(H2).color(p.text))
+                .child(text(if local { "No OpenCode server found" } else { "Can't reach OpenCode" }).font(H2).color(p.text))
                 .child(
-                    text(format!("Start OpenCode Desktop or run a local server at {addr}, then retry."))
+                    text(if local { "Start OpenCode Desktop, or run:".to_owned() } else { format!("Nothing answered at {addr}.") })
                         .font(PROMPT)
                         .color(p.muted)
                         .wrap(),
                 ),
         )
-        .child(cmd_row)
+        .children(local.then_some(cmd_row))
         .child(row().w_full().child(retry));
 
     col()
@@ -610,7 +613,7 @@ mod no_server_story {
     use crate::palette::Pal;
     use crate::stories::{Story, Trigger, replay, stage};
 
-    const VARIANTS: &[(&str, usize)] = &[("Disconnected", 0), ("Checking", 1)];
+    const VARIANTS: &[(&str, usize)] = &[("Disconnected", 0), ("Checking", 1), ("Other address", 2)];
     const KEYS: &[Trigger] = &[
         replay(open),
         Trigger {
@@ -630,6 +633,7 @@ mod no_server_story {
         s.projects.clear();
         s.launch.offline = true;
         s.launch.waiting = s.variant == 1;
+        s.launch.story_addr = (s.variant == 2).then(|| "http://127.0.0.1:14096".to_owned());
     }
 
     fn open(s: &mut App, tx: &mut Play<App>) {
@@ -655,5 +659,6 @@ mod no_server_story {
 
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         ("no-server", setup),
+        ("no-server-remote", |s| { s.variant = 2; setup(s) }),
     ]);
 }
