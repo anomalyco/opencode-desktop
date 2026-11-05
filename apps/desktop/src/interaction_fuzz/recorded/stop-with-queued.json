@@ -1,0 +1,398 @@
+{
+  "scenario": "stop-with-queued",
+  "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec88f7001gmExlqQ3KI6ncK",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "H10Q wait"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec88f7001gmExlqQ3KI6ncK"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8905001Y1DP0zVx9JvqSw",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902545159
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8905001Y1DP0zVx9JvqSw",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec8a2d001YV5j1kRFgNR8ZJ",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "P11Q later"
+          },
+          "delivery": "queue"
+        }
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8905001Y1DP0zVx9JvqSw",
+        "ordinal": 0,
+        "text": "working "
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8905001Y1DP0zVx9JvqSw"
+      }
+    },
+    {
+      "type": "session.step.failed",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8905001Y1DP0zVx9JvqSw",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      }
+    },
+    {
+      "type": "session.execution.interrupted",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "reason": "user"
+      }
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec8f36001xIAUr1xXdzCuv2",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "P12Q wakes it"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec8f36001xIAUr1xXdzCuv2"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8fc9001TDwQ7GxGI4K6gr",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902546895
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8fc9001TDwQ7GxGI4K6gr",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8fc9001TDwQ7GxGI4K6gr",
+        "ordinal": 0,
+        "text": "a short answer"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8fc9001TDwQ7GxGI4K6gr"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec8fc9001TDwQ7GxGI4K6gr",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "inboxID": "msg_1acec8a2d001YV5j1kRFgNR8ZJ"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec90bd0017hVBbZiz3pa4jS",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902547135
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec90bd0017hVBbZiz3pa4jS",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec90bd0017hVBbZiz3pa4jS",
+        "ordinal": 0,
+        "text": "a short answer"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec90bd0017hVBbZiz3pa4jS"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436",
+        "assistantMessageID": "msg_1acec90bd0017hVBbZiz3pa4jS",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.succeeded",
+      "data": {
+        "sessionID": "ses_e531377c1ffe2VIcrlp2896436"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1acec88f7001gmExlqQ3KI6ncK",
+        "time": {
+          "created": "2026-11-05T18:15:45.152Z"
+        },
+        "text": "H10Q wait",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec8905001Y1DP0zVx9JvqSw",
+        "time": {
+          "created": "2026-11-05T18:15:45.159Z",
+          "streamed": "2026-11-05T18:15:45.663Z",
+          "completed": "2026-11-05T18:15:45.665Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "working "
+          }
+        ],
+        "finish": "error",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      },
+      {
+        "id": "msg_1acec8b02001MPhmgnwlNPcZvS",
+        "time": {
+          "created": "2026-11-05T18:15:45.666Z"
+        },
+        "type": "idle",
+        "outcome": "interrupted"
+      },
+      {
+        "id": "msg_1acec8f36001xIAUr1xXdzCuv2",
+        "time": {
+          "created": "2026-11-05T18:15:46.880Z"
+        },
+        "text": "P12Q wakes it",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec8fc9001TDwQ7GxGI4K6gr",
+        "time": {
+          "created": "2026-11-05T18:15:46.895Z",
+          "streamed": "2026-11-05T18:15:47.121Z",
+          "completed": "2026-11-05T18:15:47.122Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "a short answer"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acec8a2d001YV5j1kRFgNR8ZJ",
+        "time": {
+          "created": "2026-11-05T18:15:47.129Z"
+        },
+        "text": "P11Q later",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec90bd0017hVBbZiz3pa4jS",
+        "time": {
+          "created": "2026-11-05T18:15:47.135Z",
+          "streamed": "2026-11-05T18:15:47.351Z",
+          "completed": "2026-11-05T18:15:47.352Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "a short answer"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acec919c001KAhn1uzws681Av",
+        "time": {
+          "created": "2026-11-05T18:15:47.356Z"
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlYzg4ZjcwMDFnbUV4bHFRM0tJNm5jSyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlYzkxOWMwMDFLQWhuMXV6d3M2ODFBdiIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}

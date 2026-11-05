@@ -45,6 +45,10 @@ pub struct Log {
     check_again: bool,
     #[cfg(test)]
     fetch: Option<crate::session_pages::Fetch>,
+    /// Set, receipt checks are handed here for a test's own network to answer
+    /// (`receipts_from`), rather than read on a thread.
+    #[cfg(test)]
+    pub(crate) asked: Option<Vec<(String, String)>>,
 }
 
 impl Log {
@@ -114,21 +118,25 @@ impl App {
         }
         if ask.is_empty() { return; }
         self.unsent.checking = true;
+        #[cfg(test)]
+        if let Some(asked) = &mut self.unsent.asked { asked.extend(ask); return; }
         self.unsent.receipts = rune::Latest::new(self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {})));
-        self.unsent.receipts.request(ask, move |ask| {
-            let mut results = Vec::new();
-            for (session, id) in ask {
-                let result = receipt::read(&*fetch, &session, &id);
-                let unavailable = result.is_err();
-                results.push((id, result));
-                if unavailable { break; }
-            }
-            results
-        });
+        self.unsent.receipts.request(ask, move |ask| read_receipts(&*fetch, ask));
     }
 
     pub(crate) fn poll_sends(&mut self) -> bool {
         let Some(receipts) = self.unsent.receipts.take() else { return false };
+        self.apply_receipts(receipts);
+        true
+    }
+
+    /// Answers the checks handed to `Log::asked` with `fetch`, as the thread would have.
+    #[cfg(test)]
+    pub(crate) fn receipts_from(&mut self, fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask: Vec<(String, String)>) {
+        self.apply_receipts(read_receipts(fetch, ask));
+    }
+
+    fn apply_receipts(&mut self, receipts: Vec<(String, Result<receipt::Receipt, String>)>) {
         self.unsent.checking = false;
         for (id, result) in receipts {
             // A newer SSE receipt always wins over an older absent read.
@@ -146,7 +154,6 @@ impl App {
             }
         }
         if std::mem::take(&mut self.unsent.check_again) { self.check_sends(); }
-        true
     }
 
     /// Positive evidence is usable even without a preceding reconnect, and from older pages.
@@ -203,6 +210,18 @@ impl App {
         self.restore_draft(sent);
         self.composer.focused = true;
     }
+}
+
+/// Each prompt's receipt in turn, stopping at the first the server can't answer.
+fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask: Vec<(String, String)>) -> Vec<(String, Result<receipt::Receipt, String>)> {
+    let mut results = Vec::new();
+    for (session, id) in ask {
+        let result = receipt::read(fetch, &session, &id);
+        let unavailable = result.is_err();
+        results.push((id, result));
+        if unavailable { break; }
+    }
+    results
 }
 
 #[cfg(test)]

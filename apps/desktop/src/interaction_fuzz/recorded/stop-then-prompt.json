@@ -1,0 +1,279 @@
+{
+  "scenario": "stop-then-prompt",
+  "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "inboxID": "msg_1acec84cb001QiIbxR9qNXaXVd",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "H7Q wait"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "inboxID": "msg_1acec84cb001QiIbxR9qNXaXVd"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec84df001zlnRTPFxL94oAF",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902544102
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec84df001zlnRTPFxL94oAF",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec84df001zlnRTPFxL94oAF",
+        "ordinal": 0,
+        "text": "working "
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec84df001zlnRTPFxL94oAF"
+      }
+    },
+    {
+      "type": "session.step.failed",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec84df001zlnRTPFxL94oAF",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      }
+    },
+    {
+      "type": "session.execution.interrupted",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "reason": "user"
+      }
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "inboxID": "msg_1acec8608001jeeP0wabez6TkM",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "P8Q right after"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "inboxID": "msg_1acec8608001jeeP0wabez6TkM"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec86120018u0pQA4GrviiLj",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902544407
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec86120018u0pQA4GrviiLj",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec86120018u0pQA4GrviiLj",
+        "ordinal": 0,
+        "text": "a short answer"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec86120018u0pQA4GrviiLj"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ",
+        "assistantMessageID": "msg_1acec86120018u0pQA4GrviiLj",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.succeeded",
+      "data": {
+        "sessionID": "ses_e53137b87fferfrEET5zGK5PdQ"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1acec84cb001QiIbxR9qNXaXVd",
+        "time": {
+          "created": "2026-11-05T18:15:44.089Z"
+        },
+        "text": "H7Q wait",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec84df001zlnRTPFxL94oAF",
+        "time": {
+          "created": "2026-11-05T18:15:44.102Z",
+          "streamed": "2026-11-05T18:15:44.386Z",
+          "completed": "2026-11-05T18:15:44.387Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "working "
+          }
+        ],
+        "finish": "error",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      },
+      {
+        "id": "msg_1acec8604001ClGDJNp0zbCFpl",
+        "time": {
+          "created": "2026-11-05T18:15:44.388Z"
+        },
+        "type": "idle",
+        "outcome": "interrupted"
+      },
+      {
+        "id": "msg_1acec8608001jeeP0wabez6TkM",
+        "time": {
+          "created": "2026-11-05T18:15:44.400Z"
+        },
+        "text": "P8Q right after",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec86120018u0pQA4GrviiLj",
+        "time": {
+          "created": "2026-11-05T18:15:44.407Z",
+          "streamed": "2026-11-05T18:15:44.618Z",
+          "completed": "2026-11-05T18:15:44.619Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "a short answer"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acec86ee001bplvdKD3YanCUH",
+        "time": {
+          "created": "2026-11-05T18:15:44.622Z"
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlYzg0Y2IwMDFRaUlieFI5cU5YYVhWZCIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlYzg2ZWUwMDFicGx2ZEtEM1lhbkNVSCIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}

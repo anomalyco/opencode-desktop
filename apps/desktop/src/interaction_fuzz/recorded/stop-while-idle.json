@@ -1,0 +1,154 @@
+{
+  "scenario": "stop-while-idle",
+  "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "inboxID": "msg_1acecee36001Or8u6GesII8ZSs",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "P21Q hello"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "inboxID": "msg_1acecee36001Or8u6GesII8ZSs"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "assistantMessageID": "msg_1acecee4a001Zxe60xAJwL5G9h",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902571083
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "assistantMessageID": "msg_1acecee4a001Zxe60xAJwL5G9h",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "assistantMessageID": "msg_1acecee4a001Zxe60xAJwL5G9h",
+        "ordinal": 0,
+        "text": "a short answer"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "assistantMessageID": "msg_1acecee4a001Zxe60xAJwL5G9h"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC",
+        "assistantMessageID": "msg_1acecee4a001Zxe60xAJwL5G9h",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.succeeded",
+      "data": {
+        "sessionID": "ses_e53131270ffeWd6fYp7rU3RteC"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1acecee36001Or8u6GesII8ZSs",
+        "time": {
+          "created": "2026-11-05T18:16:11.081Z"
+        },
+        "text": "P21Q hello",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acecee4a001Zxe60xAJwL5G9h",
+        "time": {
+          "created": "2026-11-05T18:16:11.083Z",
+          "streamed": "2026-11-05T18:16:11.299Z",
+          "completed": "2026-11-05T18:16:11.299Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "a short answer"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acecef24002qvkleXSV9zgCI5",
+        "time": {
+          "created": "2026-11-05T18:16:11.300Z"
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlY2VlMzYwMDFPcjh1Nkdlc0lJOFpTcyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlY2VmMjQwMDJxdmtsZVhTVjl6Z0NJNSIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}

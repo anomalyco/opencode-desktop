@@ -197,7 +197,7 @@ impl Pages {
 
     /// How long the open lane has gone without an answer from the server, if it has.
     pub fn stalled_for(&self) -> Option<Duration> {
-        self.shared.0.lock().unwrap().stalled.map(|at| at.elapsed())
+        self.shared.0.lock().unwrap().stalled.map(|at| now().saturating_duration_since(at))
     }
 
     /// Starts the silence over, as when the event stream comes back.
@@ -240,6 +240,66 @@ impl Pages {
             q.jobs.push_back(job);
         }
         self.shared.1.notify_all();
+    }
+}
+
+/// The silence timer's clock: the interaction fuzzer's virtual one under it.
+fn now() -> Instant {
+    #[cfg(test)]
+    if let Some(at) = crate::interaction_fuzz::instant_override() {
+        return at;
+    }
+    Instant::now()
+}
+
+/// The two lanes' workers, played by a test (`interaction_fuzz`) that answers the reads itself.
+#[cfg(test)]
+impl Pages {
+    /// The open lane's read failed and is being asked again (`failing`), or got an answer.
+    pub(crate) fn note_stall(&self, failing: bool) {
+        let mut q = self.shared.0.lock().unwrap();
+        if failing {
+            q.stalled.get_or_insert_with(now);
+        } else {
+            q.stalled = None;
+        }
+    }
+
+    /// The job lane `foreground`'s worker would take next, marked as being read: (key, cursor, limit).
+    pub(crate) fn take_job(&self, foreground: bool) -> Option<(Key, Option<String>, usize)> {
+        let mut q = self.shared.0.lock().unwrap();
+        let i = q.jobs.iter().rposition(|j| j.foreground == foreground)?;
+        let job = q.jobs.remove(i)?;
+        q.active.insert((job.key.clone(), job.cursor.clone()));
+        Some((job.key, job.cursor, job.limit))
+    }
+
+    /// Ends a job from [`Self::take_job`] as the worker does, once its result is sent.
+    pub(crate) fn finish_job(&self, key: &Key, cursor: &Option<String>, page: Option<&Arc<Page>>) {
+        let mut q = self.shared.0.lock().unwrap();
+        match page {
+            Some(page) if !page.history => {
+                if q.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated) {
+                    q.ready.retain(|p| p.key.id != page.key.id);
+                    q.ready.push_back(page.clone());
+                    while q.ready.len() > ENTRIES {
+                        q.ready.pop_front();
+                    }
+                }
+            }
+            Some(_) => {}
+            None => {
+                q.failed.insert(key.clone(), Instant::now() + Duration::from_secs(30));
+            }
+        }
+        q.active.remove(&(key.clone(), cursor.clone()));
+    }
+}
+
+#[cfg(test)]
+impl State {
+    pub(crate) fn pool(&self) -> Option<&Pages> {
+        self.pool.as_ref()
     }
 }
 
@@ -307,7 +367,7 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             let Err(error) = &answer else { break };
             if !foreground || !opencode_kit::plain_error::is_transient(error) { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
-            q.0.lock().unwrap().stalled.get_or_insert_with(Instant::now);
+            q.0.lock().unwrap().stalled.get_or_insert_with(now);
             wake();
             if !pause(&q, backoff(attempt)) { return; }
             start = Instant::now();

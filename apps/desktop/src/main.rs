@@ -118,6 +118,8 @@ mod home_search;
 mod home_search_tests;
 mod icons;
 #[cfg(test)]
+mod interaction_fuzz;
+#[cfg(test)]
 mod jump_tests;
 mod keys;
 mod knobs;
@@ -667,6 +669,10 @@ fn flag(name: &str) -> bool {
 pub(crate) use rune::is_headless as headless;
 
 fn wall_ms() -> i64 {
+    #[cfg(test)]
+    if let Some(ms) = interaction_fuzz::wall_override() {
+        return ms;
+    }
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 

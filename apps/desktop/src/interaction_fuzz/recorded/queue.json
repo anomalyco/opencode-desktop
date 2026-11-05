@@ -1,0 +1,273 @@
+{
+  "scenario": "queue",
+  "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "inboxID": "msg_1acec7b47001d9V6eud27ertQY",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "H4Q wait"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "inboxID": "msg_1acec7b47001d9V6eud27ertQY"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7b6d001ahISCV2YhXCtgI",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902541684
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7b6d001ahISCV2YhXCtgI",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "inboxID": "msg_1acec7c83001InyEwgGQXzLZVL",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "P5Q later"
+          },
+          "delivery": "queue"
+        }
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7b6d001ahISCV2YhXCtgI",
+        "ordinal": 0,
+        "text": "working  released"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7b6d001ahISCV2YhXCtgI"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7b6d001ahISCV2YhXCtgI",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "inboxID": "msg_1acec7c83001InyEwgGQXzLZVL"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7de2001hhBAba66dOQVJi",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902542308
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7de2001hhBAba66dOQVJi",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7de2001hhBAba66dOQVJi",
+        "ordinal": 0,
+        "text": "a short answer"
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7de2001hhBAba66dOQVJi"
+      }
+    },
+    {
+      "type": "session.step.ended",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8",
+        "assistantMessageID": "msg_1acec7de2001hhBAba66dOQVJi",
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.succeeded",
+      "data": {
+        "sessionID": "ses_e53138537ffeCwz6weC4TGIvG8"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1acec7b47001d9V6eud27ertQY",
+        "time": {
+          "created": "2026-11-05T18:15:41.672Z"
+        },
+        "text": "H4Q wait",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec7b6d001ahISCV2YhXCtgI",
+        "time": {
+          "created": "2026-11-05T18:15:41.684Z",
+          "streamed": "2026-11-05T18:15:42.299Z",
+          "completed": "2026-11-05T18:15:42.299Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "working  released"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acec7c83001InyEwgGQXzLZVL",
+        "time": {
+          "created": "2026-11-05T18:15:42.304Z"
+        },
+        "text": "P5Q later",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec7de2001hhBAba66dOQVJi",
+        "time": {
+          "created": "2026-11-05T18:15:42.308Z",
+          "streamed": "2026-11-05T18:15:42.548Z",
+          "completed": "2026-11-05T18:15:42.556Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "a short answer"
+          }
+        ],
+        "finish": "stop",
+        "rawFinish": "stop",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      {
+        "id": "msg_1acec7eeb001hg3eGXIyU7NVt4",
+        "time": {
+          "created": "2026-11-05T18:15:42.571Z"
+        },
+        "type": "idle",
+        "outcome": "succeeded"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlYzdiNDcwMDFkOVY2ZXVkMjdlcnRRWSIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlYzdlZWIwMDFoZzNlR1hJeVU3TlZ0NCIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}

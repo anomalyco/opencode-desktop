@@ -1,0 +1,312 @@
+{
+  "scenario": "stop-during-subagent",
+  "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "inboxID": "msg_1aceca2d70015HzMl5YQ1Ax4Vo",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "S17Q delegate"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "inboxID": "msg_1aceca2d70015HzMl5YQ1Ax4Vo"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902551777
+      }
+    },
+    {
+      "type": "session.tool.input.started",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "id": "call_S17Q",
+        "name": "subagent"
+      }
+    },
+    {
+      "type": "session.tool.input.ended",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "id": "call_S17Q",
+        "text": "{\"agent\":\"general\",\"description\":\"fuzz helper\",\"prompt\":\"H917Q help\"}"
+      }
+    },
+    {
+      "type": "session.tool.called",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "id": "call_S17Q",
+        "input": {
+          "agent": "general",
+          "description": "fuzz helper",
+          "prompt": "H917Q help"
+        },
+        "executed": false
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P"
+      }
+    },
+    {
+      "type": "session.tool.progress",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "id": "call_S17Q",
+        "metadata": {
+          "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+          "status": "running"
+        }
+      }
+    },
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "inboxID": "msg_1aceca339002njzB7qtCi1C7Rx",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "You are a subagent spawned by another session.\nH917Q help"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "inboxID": "msg_1aceca339002njzB7qtCi1C7Rx"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "assistantMessageID": "msg_1aceca343001hdkTuZffYoLoFR",
+        "agent": "general",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902551877
+      }
+    },
+    {
+      "type": "session.text.started",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "assistantMessageID": "msg_1aceca343001hdkTuZffYoLoFR",
+        "ordinal": 0
+      }
+    },
+    {
+      "type": "session.tool.failed",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "id": "call_S17Q",
+        "error": {
+          "type": "aborted",
+          "message": "Tool execution interrupted (sessionID: ses_e53135d12ffekkawHJnvPKW6i5)"
+        },
+        "metadata": {
+          "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+          "status": "running"
+        },
+        "executed": false
+      }
+    },
+    {
+      "type": "session.step.failed",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "assistantMessageID": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        },
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.interrupted",
+      "data": {
+        "sessionID": "ses_e53135d6cffeFLgeg0HyPYItxo",
+        "reason": "user"
+      }
+    },
+    {
+      "type": "session.text.ended",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "assistantMessageID": "msg_1aceca343001hdkTuZffYoLoFR",
+        "ordinal": 0,
+        "text": "working "
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "assistantMessageID": "msg_1aceca343001hdkTuZffYoLoFR"
+      }
+    },
+    {
+      "type": "session.step.failed",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "assistantMessageID": "msg_1aceca343001hdkTuZffYoLoFR",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      }
+    },
+    {
+      "type": "session.execution.interrupted",
+      "data": {
+        "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+        "reason": "user"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1aceca2d70015HzMl5YQ1Ax4Vo",
+        "time": {
+          "created": "2026-11-05T18:15:51.773Z"
+        },
+        "text": "S17Q delegate",
+        "type": "user"
+      },
+      {
+        "id": "msg_1aceca2df001rye0x44KGWAJ9P",
+        "time": {
+          "created": "2026-11-05T18:15:51.777Z",
+          "streamed": "2026-11-05T18:15:51.786Z",
+          "completed": "2026-11-05T18:15:52.385Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_S17Q",
+            "name": "subagent",
+            "executed": false,
+            "state": {
+              "status": "error",
+              "input": {
+                "agent": "general",
+                "description": "fuzz helper",
+                "prompt": "H917Q help"
+              },
+              "error": {
+                "type": "aborted",
+                "message": "Tool execution interrupted (sessionID: ses_e53135d12ffekkawHJnvPKW6i5)"
+              },
+              "metadata": {
+                "sessionID": "ses_e53135d12ffekkawHJnvPKW6i5",
+                "status": "running"
+              }
+            },
+            "time": {
+              "created": "2026-11-05T18:15:51.784Z",
+              "ran": "2026-11-05T18:15:51.785Z",
+              "completed": "2026-11-05T18:15:52.383Z"
+            }
+          }
+        ],
+        "finish": "error",
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      },
+      {
+        "id": "msg_1aceca543001iO6bo8BbpgkCu2",
+        "time": {
+          "created": "2026-11-05T18:15:52.387Z"
+        },
+        "type": "idle",
+        "outcome": "interrupted"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlY2EyZDcwMDE1SHpNbDVZUTFBeDRWbyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlY2E1NDMwMDFpTzZibzhCYnBna0N1MiIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}

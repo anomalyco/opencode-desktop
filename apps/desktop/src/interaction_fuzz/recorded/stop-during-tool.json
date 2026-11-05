@@ -1,0 +1,205 @@
+{
+  "scenario": "stop-during-tool",
+  "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+  "stuck": null,
+  "events": [
+    {
+      "type": "session.inbox.enqueued",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "inboxID": "msg_1acec9f18001cU5Mrt09jTfjRC",
+        "item": {
+          "type": "user",
+          "payload": {
+            "text": "W16Q run it"
+          },
+          "delivery": "steer"
+        }
+      }
+    },
+    {
+      "type": "session.execution.started",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ"
+      }
+    },
+    {
+      "type": "session.inbox.delivered",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "inboxID": "msg_1acec9f18001cU5Mrt09jTfjRC"
+      }
+    },
+    {
+      "type": "session.step.started",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "started": 1793902550821
+      }
+    },
+    {
+      "type": "session.tool.input.started",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "id": "call_W16Q",
+        "name": "shell"
+      }
+    },
+    {
+      "type": "session.tool.input.ended",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "id": "call_W16Q",
+        "text": "{\"command\":\"hang-W16Q\"}"
+      }
+    },
+    {
+      "type": "session.tool.called",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "id": "call_W16Q",
+        "input": {
+          "command": "hang-W16Q"
+        },
+        "executed": false
+      }
+    },
+    {
+      "type": "session.step.streamed",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD"
+      }
+    },
+    {
+      "type": "session.tool.failed",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "id": "call_W16Q",
+        "error": {
+          "type": "aborted",
+          "message": "Tool execution interrupted"
+        },
+        "executed": false
+      }
+    },
+    {
+      "type": "session.step.failed",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "assistantMessageID": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        },
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "session.execution.interrupted",
+      "data": {
+        "sessionID": "ses_e53136122ffeKkM3SiFzlMa0DQ",
+        "reason": "user"
+      }
+    }
+  ],
+  "messages": {
+    "data": [
+      {
+        "id": "msg_1acec9f18001cU5Mrt09jTfjRC",
+        "time": {
+          "created": "2026-11-05T18:15:50.817Z"
+        },
+        "text": "W16Q run it",
+        "type": "user"
+      },
+      {
+        "id": "msg_1acec9f23001Z01MmOfIWI6zeD",
+        "time": {
+          "created": "2026-11-05T18:15:50.821Z",
+          "streamed": "2026-11-05T18:15:50.833Z",
+          "completed": "2026-11-05T18:15:51.217Z"
+        },
+        "type": "assistant",
+        "agent": "build",
+        "model": {
+          "id": "gpt-sim-model",
+          "providerID": "simulation",
+          "variant": "default"
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_W16Q",
+            "name": "shell",
+            "executed": false,
+            "state": {
+              "status": "error",
+              "input": {
+                "command": "hang-W16Q"
+              },
+              "error": {
+                "type": "aborted",
+                "message": "Tool execution interrupted"
+              }
+            },
+            "time": {
+              "created": "2026-11-05T18:15:50.828Z",
+              "ran": "2026-11-05T18:15:50.832Z",
+              "completed": "2026-11-05T18:15:51.214Z"
+            }
+          }
+        ],
+        "finish": "error",
+        "rawFinish": "tool_calls",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "error": {
+          "type": "aborted",
+          "message": "Step interrupted"
+        }
+      },
+      {
+        "id": "msg_1aceca0b2002cXJBSx5Z48TaNw",
+        "time": {
+          "created": "2026-11-05T18:15:51.218Z"
+        },
+        "type": "idle",
+        "outcome": "interrupted"
+      }
+    ],
+    "cursor": {
+      "previous": "eyJpZCI6Im1zZ18xYWNlYzlmMTgwMDFjVTVNcnQwOWpUZmpSQyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+      "next": "eyJpZCI6Im1zZ18xYWNlY2EwYjIwMDJjWEpCU3g1WjQ4VGFOdyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+    }
+  }
+}
