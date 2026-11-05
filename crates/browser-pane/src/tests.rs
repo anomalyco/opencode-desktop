@@ -829,3 +829,43 @@ fn live_release_downloads_and_verifies() {
     let _ = std::fs::remove_dir_all(&root);
     assert!(res.is_ok(), "{res:?}");
 }
+
+#[test]
+fn a_tab_opened_during_a_background_download_starts_when_it_lands() {
+    let sock_dir = std::env::temp_dir().join(format!("bp-prefetch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&sock_dir);
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let sock = sock_dir.join("engine.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let engine = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(matches!(serde_json::from_str(&line).unwrap(), HostMsg::Hello { .. }));
+        let ready = serde_json::to_string(&EngineMsg::Ready { chromium_major: 156, pid: 1 }).unwrap();
+        writeln!(stream, "{ready}").unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str::<HostMsg>(&line).unwrap()
+    });
+
+    let mut host = BrowserHost::with_socket(sock);
+    host.set_mock_status(crate::EngineStatus::Downloading { downloaded_bytes: 0, total_bytes: None });
+    host.open_tab(":3000");
+    host.poll();
+    assert!(!host.is_connected(), "the tab waits while the engine downloads");
+
+    // What `prefetch`'s download does when it lands.
+    *host.status.lock().unwrap() = crate::EngineStatus::Ready;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !engine.is_finished() && Instant::now() < deadline {
+        host.poll();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    match engine.join().unwrap() {
+        HostMsg::OpenTab { url, .. } => assert_eq!(url, "http://localhost:3000"),
+        other => panic!("expected OpenTab, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}

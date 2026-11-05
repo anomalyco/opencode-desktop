@@ -214,6 +214,10 @@ impl App {
         {
             self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
         }
+        // Fetch the browser in the background, so the first page opens straight away.
+        if self.persists() && !self.use_mock_browser() {
+            self.browser.host.prefetch();
+        }
     }
 
     pub(crate) fn use_mock_browser(&self) -> bool {

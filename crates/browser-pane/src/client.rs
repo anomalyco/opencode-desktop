@@ -55,7 +55,7 @@ pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
     surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
-    status: Arc<Mutex<EngineStatus>>,
+    pub(crate) status: Arc<Mutex<EngineStatus>>,
     last_polled_status: EngineStatus,
     outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
     inbox_tx: Sender<EngineMsg>,
@@ -426,6 +426,26 @@ impl BrowserHost {
         self.start_install();
     }
 
+    /// Downloads the engine in the background when it isn't installed, without starting it, so
+    /// the first page opens without a wait. A tab opened meanwhile starts once the download lands.
+    pub fn prefetch(&mut self) {
+        if self.status() != EngineStatus::NotInstalled {
+            return;
+        }
+        let status = self.status.clone();
+        let waker = self.waker.clone();
+        installer::start_download(
+            status.clone(),
+            waker.clone(),
+            Box::new(move |_bin| {
+                *status.lock().unwrap() = EngineStatus::Ready;
+                if let Some(w) = waker {
+                    w();
+                }
+            }),
+        );
+    }
+
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
@@ -511,6 +531,10 @@ impl BrowserHost {
                     }
                 }
             }
+        }
+        // A background download finished while a tab waited for it.
+        if !self.pending_opens.is_empty() && !self.is_connected() && self.status() == EngineStatus::Ready {
+            self.ensure_connected();
         }
         {
             let guard = self.status.lock().unwrap();
@@ -699,9 +723,9 @@ impl BrowserHost {
             return;
         }
 
-        // 3. Otherwise stay in `NotInstalled` so the browser pane shows the one-click Download prompt.
+        // 3. Otherwise download it, then start it; a failed download waits for Retry.
         if !matches!(cur_status, EngineStatus::Failed(_)) {
-            *self.status.lock().unwrap() = EngineStatus::NotInstalled;
+            self.start_install();
         }
     }
 
