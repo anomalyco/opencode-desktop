@@ -1,149 +1,207 @@
-//! A prompt the server never took. Desktop puts a failed send back in the composer and says
-//! "Failed to send prompt" (`composer/submit.ts` `failSubmission`); here too.
-//!
-//! - A failure that certainly never arrived (a refusal, no connection) rolls back at once.
-//! - One that may have arrived (a timeout) keeps its prompt marked "Sending…" until the server
-//!   answers again (any read, or the event stream coming back). Then the session is re-read:
-//!   a prompt with that id is there, so it was sent after all; if not, it rolls back.
-//!
-//! A send is never retried, so it can't post twice.
-use opencode_kit::client::PathAttachment;
+//! Delivery receipts outlive a timed-out POST. A timeout is not proof of failure: server
+//! admission, a fetched message or a read-only receipt check settles it, never another POST.
+use opencode_kit::client::{PathAttachment, Prompt};
 use opencode_kit::model::{Attachment, Message};
 use opencode_kit::plain_error::failed_for_sure;
 
 use crate::prompt_history::Entry;
 use crate::{App, Source};
 
-const KEEP: usize = 32;
-/// A re-read that hasn't been answered by now is asked for again.
-const REASK: f64 = 10.0;
+mod receipt;
+mod view;
+pub(crate) mod stories;
+pub use view::footer;
 
+const KEEP: usize = 32;
 pub const TITLE: &str = "Failed to send prompt";
 
-/// A prompt sent and not yet seen back from the server.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum State {
+    #[default]
+    Sending,
+    Unconfirmed,
+    Failed,
+    Accepted,
+}
+
+#[derive(Clone)]
 pub struct Sent {
     pub session: String,
     pub id: String,
     pub draft: Entry,
     pub files: Vec<Attachment>,
     pub paths: Vec<PathAttachment>,
-    /// Waiting in the session's inbox (a steer or a queued prompt), not shown as a message.
     pub inbox: bool,
     pub why: String,
-    /// The write may have arrived; set once it timed out.
-    pub unsure: bool,
-    /// When the check was last asked for, and whether a re-read since showed no such message.
-    asked: Option<f64>,
-    missing: bool,
+    pub state: State,
+    pub prompt: Option<Prompt>,
 }
 
 #[derive(Default)]
 pub struct Log {
     sent: Vec<Sent>,
+    receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, String>)>>,
+    checking: bool,
+    check_again: bool,
+    #[cfg(test)]
+    fetch: Option<crate::session_pages::Fetch>,
 }
 
 impl Log {
     pub fn note(&mut self, s: Sent) {
-        self.sent.retain(|x| x.unsure || x.id != s.id);
+        self.sent.retain(|x| x.id != s.id);
         self.sent.push(s);
         if self.sent.len() > KEEP {
-            if let Some(i) = self.sent.iter().position(|x| !x.unsure) { self.sent.remove(i); }
+            // Never discard words the user still needs to recover.
+            if let Some(i) = self.sent.iter().position(|x| x.state == State::Accepted) { self.sent.remove(i); }
         }
     }
 
-    /// Whether prompt `id` is on screen as "Sending…".
-    pub fn sending(&self, id: &str) -> bool {
-        self.sent.iter().any(|s| s.id == id && s.unsure)
+    pub fn state(&self, id: &str) -> Option<State> {
+        self.sent.iter().find(|s| s.id == id).map(|s| s.state)
     }
+
+    pub fn sending(&self, id: &str) -> bool { self.state(id) == Some(State::Unconfirmed) }
 
     pub(crate) fn take(&mut self, id: &str) -> Option<Sent> {
         let at = self.sent.iter().position(|s| s.id == id)?;
         Some(self.sent.remove(at))
     }
 
-    pub fn unsure(&self) -> bool {
-        self.sent.iter().any(|s| s.unsure)
+    pub(crate) fn preserve_inbox(&self, session: &str, inbox: &mut opencode_kit::model::Inbox, old: Vec<opencode_kit::model::InboxItem>) {
+        for item in old {
+            if self.sent.iter().any(|s| s.session == session && s.id == item.id && matches!(s.state, State::Sending | State::Unconfirmed))
+                && !inbox.items.iter().any(|i| i.id == item.id) { inbox.upsert(item); }
+        }
     }
 }
 
 impl Sent {
     pub fn new(session: &str, id: &str, draft: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, inbox: bool) -> Self {
-        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), unsure: false, asked: None, missing: false }
+        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), state: State::Sending, prompt: None }
     }
+
+    pub fn with_prompt(mut self, prompt: &Prompt) -> Self { self.prompt = Some(prompt.clone()); self }
 }
 
 impl App {
-    /// A prompt write failed. False when this isn't a send the app knows (the caller shows the
-    /// failure its usual way).
     pub fn send_failed(&mut self, id: &str, error: &str) -> bool {
-        let why = error.split_once(": ").map_or(error, |(_, why)| why);
-        eprintln!("opencode-rune: prompt send failed: {error}");
         let Some(sent) = self.unsent.sent.iter_mut().find(|s| s.id == id) else { return false };
-        if failed_for_sure(error) {
-            let sent = self.unsent.take(id).unwrap();
-            self.roll_back(sent, crate::status_toast::plain(why));
-        } else {
-            sent.unsure = true;
-            sent.why = crate::status_toast::plain(why);
+        // An SSE admission can beat the failed HTTP response back to the UI.
+        if sent.state == State::Accepted { return true; }
+        eprintln!("opencode-rune: prompt send failed: {error}");
+        let why = error.split_once(": ").map_or(error, |(_, why)| why);
+        sent.why = crate::status_toast::plain(why);
+        if failed_for_sure(error) { self.fail_send(id); }
+        else {
+            sent.state = State::Unconfirmed;
+            self.check_sends();
         }
         true
     }
 
-    /// The server answered something: ask what became of each prompt that timed out. Called
-    /// when the event stream is back and after any read that came from the server.
+    /// A successful read or reconnect retries receipts, with at most one bounded batch in flight.
     pub fn check_sends(&mut self) {
-        let clock = self.clock;
-        let Source::Live { requests, .. } = &self.source else { return };
-        let requests = requests.clone();
+        if self.unsent.checking { self.unsent.check_again = true; return; }
+        let Source::Live { server, .. } = &self.source else { return };
+        let server = server.clone();
+        let fetch: crate::session_pages::Fetch = std::sync::Arc::new(move |path| server.read(path));
+        #[cfg(test)]
+        let fetch = self.unsent.fetch.clone().unwrap_or(fetch);
         let mut ask = Vec::new();
-        for s in self.unsent.sent.iter_mut().filter(|s| s.unsure) {
-            if s.asked.is_some_and(|at| clock - at < REASK) { continue; }
-            s.asked = Some(clock);
-            s.missing = false;
-            ask.push((s.session.clone(), s.inbox));
+        for s in self.unsent.sent.iter().filter(|s| s.state == State::Unconfirmed) {
+            ask.push((s.session.clone(), s.id.clone()));
         }
-        for (session, inbox) in ask {
-            self.read_latest(&session);
-            if inbox && let Some(r) = &requests { let _ = r.send(opencode_kit::client::Request::Inbox(session)); }
-        }
+        if ask.is_empty() { return; }
+        self.unsent.checking = true;
+        self.unsent.receipts = rune::Latest::new(self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {})));
+        self.unsent.receipts.request(ask, move |ask| {
+            let mut results = Vec::new();
+            for (session, id) in ask {
+                let result = receipt::read(&*fetch, &session, &id);
+                let unavailable = result.is_err();
+                results.push((id, result));
+                if unavailable { break; }
+            }
+            results
+        });
     }
 
-    /// A fresh latest page of `session` landed from the server: a prompt that timed out is
-    /// either in it (sent) or, unless it waits in the inbox, never arrived.
-    pub fn judge_sends_by_page(&mut self, session: &str, messages: &[Message]) {
-        let mut lost = Vec::new();
-        for s in self.unsent.sent.iter_mut().filter(|s| s.unsure && s.session == session && s.asked.is_some()) {
-            if messages.iter().any(|m| m.id() == s.id) { lost.push((s.id.clone(), true)); }
-            else if !s.inbox { lost.push((s.id.clone(), false)); }
-            else { s.missing = true; }
+    pub(crate) fn poll_sends(&mut self) -> bool {
+        let Some(receipts) = self.unsent.receipts.take() else { return false };
+        self.unsent.checking = false;
+        for (id, result) in receipts {
+            // A newer SSE receipt always wins over an older absent read.
+            if self.unsent.state(&id) != Some(State::Unconfirmed) { continue; }
+            match result {
+                Ok(receipt::Receipt::Delivered(message)) => {
+                    let session = self.unsent.sent.iter().find(|s| s.id == id).unwrap().session.clone();
+                    self.transcripts.entry(session.clone()).or_insert_with(|| opencode_kit::model::Transcript { session: session.clone(), messages: vec![] }).merge(vec![message]);
+                    if let Some(inbox) = self.inboxes.get_mut(&session) { inbox.remove(&id); }
+                    self.accept_send(&id);
+                }
+                Ok(receipt::Receipt::Admitted) => { self.accept_send(&id); }
+                Ok(receipt::Receipt::Missing) => self.fail_send(&id),
+                Err(error) => eprintln!("opencode-rune: prompt receipt unavailable: {error}"),
+            }
         }
-        self.settle_sends(lost);
+        if std::mem::take(&mut self.unsent.check_again) { self.check_sends(); }
+        true
     }
 
-    /// The session's inbox was listed.
-    pub fn judge_sends_by_inbox(&mut self, session: &str, ids: &[String]) {
-        let mut done = Vec::new();
-        for s in self.unsent.sent.iter().filter(|s| s.unsure && s.session == session && s.inbox && s.asked.is_some()) {
-            if ids.contains(&s.id) { done.push((s.id.clone(), true)); }
-            else if s.missing { done.push((s.id.clone(), false)); }
-        }
-        self.settle_sends(done);
+    /// Positive evidence is usable even without a preceding reconnect, and from older pages.
+    /// Absence on a limited latest page is NOT evidence that an older prompt never arrived.
+    pub fn judge_sends_by_page(&mut self, _session: &str, messages: &[Message]) {
+        for message in messages { self.accept_send(message.id()); }
     }
 
-    fn settle_sends(&mut self, done: Vec<(String, bool)>) {
-        for (id, arrived) in done {
-            let Some(sent) = self.unsent.take(&id) else { continue };
-            if !arrived { let why = sent.why.clone(); self.roll_back(sent, why); }
-        }
+    pub fn judge_sends_by_inbox(&mut self, _session: &str, ids: &[String]) -> bool {
+        let mut changed = false;
+        for id in ids { changed |= self.accept_send(id); }
+        changed
     }
 
-    /// Takes the prompt back off the timeline and out of the inbox, puts its words and files
-    /// in the composer when that's empty, and says why in plain words.
-    fn roll_back(&mut self, sent: Sent, why: String) {
-        if let Some(t) = self.transcripts.get_mut(&sent.session) { t.messages.retain(|m| m.id() != sent.id); }
-        if let Some(i) = self.inboxes.get_mut(&sent.session) { i.items.retain(|x| x.id != sent.id); }
+    pub(crate) fn accept_send(&mut self, id: &str) -> bool {
+        let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id) else { return false };
+        let changed = s.state != State::Accepted;
+        s.state = State::Accepted;
+        changed
+    }
+
+    fn fail_send(&mut self, id: &str) {
+        let Some(sent) = self.unsent.sent.iter_mut().find(|s| s.id == id) else { return };
+        sent.state = State::Failed;
+        let sent = sent.clone();
+        // Keep the failed bubble in place, including when it was an optimistic inbox entry.
+        if let Some(i) = self.inboxes.get_mut(&sent.session) { i.remove(id); }
+        let t = self.transcripts.entry(sent.session.clone()).or_insert_with(|| opencode_kit::model::Transcript { session: sent.session.clone(), messages: vec![] });
+        if !t.messages.iter().any(|m| m.id() == id) {
+            t.messages.push(Message::User { id: id.into(), text: sent.draft.text.clone() });
+        }
+        self.attach.echoes.retain(|e| e.1 != id);
+        crate::status_toast::fail(self, TITLE, sent.why);
+    }
+
+    pub(crate) fn retry_send(&mut self, id: &str) {
+        let Some(sent) = self.unsent.sent.iter().find(|s| s.id == id && s.state == State::Failed).cloned() else { return };
+        let Some(prompt) = sent.prompt.clone() else { return };
+        let write = self.send_write(&sent.session, prompt);
+        if !matches!(self.source, Source::Fixture) && !self.write(write) { return; }
+        if sent.inbox {
+            if let Some(t) = self.transcripts.get_mut(&sent.session) { t.messages.retain(|m| m.id() != id); }
+            self.inboxes.entry(sent.session.clone()).or_default().upsert(opencode_kit::model::InboxItem {
+                id: id.into(), text: sent.draft.text.clone(), files: sent.files.clone(),
+                delivery: sent.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(opencode_kit::model::Delivery::Steer),
+            });
+        }
+        self.unsent.note(Sent { state: State::Sending, ..sent });
+    }
+
+    pub(crate) fn edit_failed_send(&mut self, id: &str) {
+        let Some(sent) = self.unsent.sent.iter().find(|s| s.id == id && s.state == State::Failed).cloned() else { return };
+        if self.route != crate::Route::Session(sent.session.clone()) || !self.composer.text.is_empty() || self.attach.any() { return; }
         self.restore_draft(sent);
-        crate::status_toast::fail(self, TITLE, why);
+        self.composer.focused = true;
     }
 }
 

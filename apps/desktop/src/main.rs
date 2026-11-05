@@ -627,22 +627,20 @@ impl session_view::TimelineHost for App {
         self.quote.more.insert(id);
     }
     fn delivered_user_actions(&self, p: &palette::Pal, id: &str, body: &str) -> (rune::El, f32) {
-        let (actions, pin_x) = rewind::user_actions(self, p, id, body);
-        if self.unsent.sending(id) {
-            (
-                rune::row()
-                    .key("sending")
-                    .h(20.0)
-                    .center_y()
-                    .child(rune::text("Sending…").font(view::UI_SMALL).color(p.faint)),
-                pin_x,
-            )
-        } else {
-            (actions, pin_x)
+        rewind::user_actions(self, p, id, body)
+    }
+    fn user_status(&self, p: &palette::Pal, id: &str) -> Option<rune::El> {
+        send_failed::footer(self, p, id)
+    }
+    fn user_status_version(&self, id: &str) -> u64 {
+        match self.unsent.state(id) {
+            Some(send_failed::State::Unconfirmed) => 1,
+            Some(send_failed::State::Failed) => if self.composer.text.is_empty() && !self.attach.any() { 2 } else { 3 },
+            _ => 0,
         }
     }
     fn pending_user_actions(&self, p: &palette::Pal, session: &str, id: &str, below: bool) -> (rune::El, f32) {
-        (queue::pending_actions(p, session, id, below, self.unsent.sending(id)), -50.0)
+        (queue::pending_actions(p, session, id, below), -50.0)
     }
     fn inbox_for(&self, session: &str) -> Option<&Inbox> {
         App::inbox_for(self, session)
@@ -962,6 +960,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= turn_errors::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
+    changed |= s.poll_sends();
     changed |= s.poll_open_in();
     let mut arrivals = None;
     let asked = s.dock_face();
@@ -996,6 +995,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         }
                     }
                     Incoming::Messages { session, messages } => {
+                        s.judge_sends_by_page(&session, &messages);
+                        s.check_sends();
                         let cold = s.launch.cold_transcript.as_deref() == Some(session.as_str());
                         if cold {
                             s.launch.cold_transcript = None;

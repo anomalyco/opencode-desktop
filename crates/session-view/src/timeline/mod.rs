@@ -147,7 +147,7 @@ impl RowSpec {
                         && !text.contains("@ses_")
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver);
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };

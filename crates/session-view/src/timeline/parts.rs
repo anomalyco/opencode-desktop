@@ -117,7 +117,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
         Some(cards) => bubble.w(342.0).pt(12.0).child(cards).children(words),
         None => bubble.children(words),
     };
-    let actions = if below {
+    let status = s.user_status(p, id);
+    let actions = if status.is_some() {
+        status
+    } else if below {
         face = face.child(actions.pin(Some(pin_x), None, None, Some(8.5)));
         None
     } else {

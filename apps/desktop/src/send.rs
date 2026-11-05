@@ -103,7 +103,7 @@ impl App {
         let local = match &self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
-                let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false);
+                let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let w = if starting {
                     Write::StartAs { session: id.clone(), directory: self.draft_dir.clone(), prompt }

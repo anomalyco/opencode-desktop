@@ -170,6 +170,15 @@ fn scroll_bar_circs() -> Vec<Circ> {
 }
 
 const ACTIONS: &[Action] = &[
+    Action { name: "send-receipts", circs: pinned, run: |r| {
+        r.rt.update(|s, tx| { tx.instant(); crate::send_failed::stories::setup(s); });
+        r.idle(0.5);
+        r.restart();
+        r.rt.update(|s, _| crate::send_failed::stories::confirmed(s));
+        r.play(0.5);
+        assert_eq!(r.rt.state.unsent.state(crate::send_failed::stories::FIRST), Some(crate::send_failed::State::Failed));
+        assert_eq!(r.rt.state.unsent.state(crate::send_failed::stories::SECOND), Some(crate::send_failed::State::Accepted));
+    } },
     Action { name: "stop-background", circs: pinned, run: |r| {
         r.rt.update(|s, _| {
             crate::stop_stories::background(s);

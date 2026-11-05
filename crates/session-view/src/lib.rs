@@ -270,6 +270,10 @@ pub trait TimelineHost: Sized + 'static {
     fn delivered_user_actions(&self, p: &palette::Pal, id: &str, body: &str) -> (El, f32) {
         timeline::default_user_actions(self, p, id, body)
     }
+    /// Delivery status belongs below its own bubble, even inside a run of user messages.
+    fn user_status(&self, _p: &palette::Pal, _id: &str) -> Option<El> { None }
+    /// Included in the user-row memo key; a receipt can change without changing the message.
+    fn user_status_version(&self, _id: &str) -> u64 { 0 }
     fn pending_user_actions(&self, _p: &palette::Pal, _session: &str, _id: &str, _below: bool) -> (El, f32) {
         (rune::col(), -50.0)
     }

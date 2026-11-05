@@ -1,4 +1,10 @@
 [
+  {"trace": "send-receipts", "element": "/actions/send-status", "kind": "pop-out",
+   "reason": "server confirmation clears the delivery label immediately, leaving the bubble and its existing actions row in place; status changes do not fade (docs/kit-design.md)"},
+  {"trace": "send-receipts", "element": "/actions/send-status", "kind": "jump",
+   "reason": "Failed to send and its Retry/Edit controls replace Not confirmed immediately in the same right-aligned footer; the bubble stays in place and utility status changes do not animate"},
+  {"trace": "send-receipts", "element": "scroll-bar/thumb-slot", "kind": "invisible-work",
+   "reason": "the story starts at the transcript end with the scroll bar hidden; its startup presence settles for 59 frames at zero opacity, before the receipt changes"},
   {"trace": "typing-loading", "element": "playground-stage-ring", "kind": "pop-in",
    "reason": "clicking the now-active editor focuses the playground stage; its keyboard-focus outline appears immediately, without animating the user's hand"},
   {"trace": "typing-loading", "element": "composer/toolbar/", "kind": "invisible-work",

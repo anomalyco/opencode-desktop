@@ -53,7 +53,7 @@ impl App {
         prompt.delivery = Some(delivery);
         let id = prompt.id.clone().unwrap_or_default();
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
-        let sent = crate::send_failed::Sent::new(session, &id, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), true);
+        let sent = crate::send_failed::Sent::new(session, &id, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), true).with_prompt(&prompt);
         let write = self.send_write(session, prompt);
         if !self.inbox_write(write) {
             return;
@@ -116,19 +116,24 @@ impl App {
     /// `session.inbox.*`: a delivered prompt joins the end of the transcript, where the server
     /// puts it.
     pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
+        let mut admitted = matches!(ty, "session.inbox.enqueued" | "session.inbox.delivered")
+            && self.accept_send(data["inboxID"].as_str().unwrap_or(""));
         let inbox = self.inboxes.entry(sid.to_owned()).or_default();
+        let old = if ty == "session.inbox.listed" { inbox.items.clone() } else { vec![] };
         let change = inbox.apply(ty, data);
+        self.unsent.preserve_inbox(sid, inbox, old);
         // The server admits every prompt to its inbox, a send to an idle session too. That one
         // already shows as its prompt, which is where it stays, so it never waits as a steer.
         if let Some(t) = self.transcripts.get(sid) {
             inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
         }
-        if ty == "session.inbox.listed" && self.unsent.unsure() {
+        if ty == "session.inbox.listed" {
             let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
-            self.judge_sends_by_inbox(sid, &ids);
+            admitted |= self.judge_sends_by_inbox(sid, &ids);
+            self.check_sends();
         }
         match change {
-            InboxChange::None => false,
+            InboxChange::None => admitted,
             InboxChange::Changed => true,
             InboxChange::Delivered(item) => {
                 if !item.files.is_empty() {
@@ -168,7 +173,7 @@ pub fn pending_label(item: &InboxItem) -> String {
 /// A pending steer's Move to queue and Delete, where a prompt's copy button goes (see
 /// `view::user_bubble`): beside the bubble while hovered inside a run (`beside`), or on the
 /// line under the run's last steer, marked Pending.
-pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool, sending: bool) -> El {
+pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool) -> El {
     let (sq, iq) = (session.to_owned(), id.to_owned());
     let (sd, id) = (session.to_owned(), id.to_owned());
     let buttons = row()
@@ -187,7 +192,7 @@ pub fn pending_actions(p: &Pal, session: &str, id: &str, beside: bool, sending: 
         .h(20.0)
         .gap(8.0)
         .center_y()
-        .child(row().gap(4.0).center_y().child(icon(&STEER, 14.0).color(p.icon_faint)).child(text(if sending { "Sending…" } else { "Pending" }).font(UI_SMALL).color(p.faint)))
+        .child(row().gap(4.0).center_y().child(icon(&STEER, 14.0).color(p.icon_faint)).child(text("Pending").font(UI_SMALL).color(p.faint)))
         .child(buttons)
 }
 

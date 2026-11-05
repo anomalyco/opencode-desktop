@@ -580,7 +580,7 @@ impl super::App {
         let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
         let mut changed = false;
         for result in results {
-            if let Ok(page) = &result && !page.cached && !page.history && self.unsent.unsure() {
+            if let Ok(page) = &result && !page.cached {
                 self.judge_sends_by_page(&page.key.id, &page.messages);
                 self.check_sends();
                 changed = true;
