@@ -218,5 +218,7 @@ pub(crate) fn remove_button(p: &Pal, name: &str, w: f32, on: impl Fn(&mut App) +
     session_view::composer::attachments::remove_button(p, name, w, on)
 }
 
+mod reply_image;
+
 #[cfg(test)]
 mod tests;

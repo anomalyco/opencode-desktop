@@ -1133,6 +1133,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_commands();
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
+    changed |= s.attach.poll();
     changed |= s.poll_panels(tx);
     changed |= rune_mcp::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);

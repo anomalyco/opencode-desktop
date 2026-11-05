@@ -5,6 +5,7 @@ pub mod viewer;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
 use rune::{El, Image, ImageCache, SurfaceFit, TextStyle, Waker, col, el, row, text};
@@ -33,6 +34,10 @@ pub struct MediaStore {
     /// `media:<hash>` refs: fetched once, decoded once, by hash.
     pub media: Media,
     refs: RefCell<HashMap<String, Image>>,
+    /// A ref's header dimensions, so its box takes the image's own shape.
+    ref_sizes: RefCell<HashMap<String, [u32; 2]>>,
+    /// SHA-256 (a ref's hash) of inline images, by image id, computed only when a ref misses.
+    shas: RefCell<HashMap<rune::ImageId, String>>,
 }
 
 /// Header dimensions are available before decode; the same handle crosses from prefetch to view.
@@ -43,9 +48,15 @@ pub struct PreparedImage {
     size: Option<[u32; 2]>,
 }
 
+/// The image's upright size: Rune turns a phone's JPEG by its EXIF orientation, so a quarter
+/// turn swaps the header's width and height.
 fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
-    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
-    (w > 0 && h > 0).then_some([w, h])
+    use image::ImageDecoder;
+    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    let mut decoder = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_decoder().ok()?;
+    let (w, h) = decoder.dimensions();
+    let turned = matches!(decoder.orientation(), Ok(Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH));
+    (w > 0 && h > 0).then_some(if turned { [h, w] } else { [w, h] })
 }
 
 impl PreparedImage {
@@ -124,6 +135,8 @@ pub struct Media {
     fetch: Option<Fetch>,
     state: Arc<Mutex<HashMap<String, Fetched>>>,
     queue: RefCell<Option<Arc<(Mutex<Vec<String>>, Condvar)>>>,
+    /// A fetch finished since the app last polled: the view must run again to show it.
+    landed: Arc<AtomicBool>,
 }
 
 impl Media {
@@ -138,7 +151,8 @@ impl Media {
         let mut queue = self.queue.borrow_mut();
         let q = queue.get_or_insert_with(|| {
             let q = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
-            spawn_fetcher(Arc::downgrade(&q), self.state.clone(), fetch, waker.cloned().unwrap_or_else(|| Arc::new(|| {})));
+            let wake = waker.cloned().unwrap_or_else(|| Arc::new(|| {}));
+            spawn_fetcher(Arc::downgrade(&q), self.state.clone(), self.landed.clone(), fetch, wake);
             q
         });
         q.0.lock().unwrap_or_else(|e| e.into_inner()).push(hash.to_owned());
@@ -147,7 +161,7 @@ impl Media {
     }
 }
 
-fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, fetch: Fetch, wake: Waker) {
+fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, landed: Arc<AtomicBool>, fetch: Fetch, wake: Waker) {
     if let Err(e) = std::thread::Builder::new()
         .name("opencode-media".into())
         .spawn(move || {
@@ -171,6 +185,7 @@ fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<Ha
                     Err(e) => Fetched::Failed(e),
                 };
                 state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash, result);
+                landed.store(true, Ordering::Release);
                 wake();
             }
         })
@@ -187,6 +202,12 @@ pub fn decodable(mime: &str) -> bool {
 impl MediaStore {
     pub fn set_waker(&mut self, waker: Waker) {
         self.waker = Some(waker);
+    }
+
+    /// Whether a ref's bytes landed since the last call. The host's `poll` returns it, so a ref
+    /// still showing its loading box turns into its image without waiting for input.
+    pub fn poll(&self) -> bool {
+        self.media.landed.swap(false, Ordering::AcqRel)
     }
 
     /// A story controls byte arrival with the replay clock, then uses the real decoder.
@@ -244,11 +265,14 @@ impl MediaStore {
         }
     }
 
+    /// The image's own shape at most 320×240 points (2× pixels). A ref's shape is known once its
+    /// bytes land; until then it holds a 160×120 box.
     pub fn thumbnail_size(&self, f: &Attachment) -> (f32, f32) {
-        // Refs carry no dimensions: keep their reserved box after the fetch as well.
-        if f.media.is_some() { return (160.0, 120.0); }
-        self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size)
-            .map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
+        let size = match &f.media {
+            Some(hash) => self.ref_sizes.borrow().get(hash).copied(),
+            None => self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size),
+        };
+        size.map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
     }
 
     /// Where `media:` refs' bytes come from.
@@ -266,10 +290,14 @@ impl MediaStore {
             if let Some(img) = self.refs.borrow().get(hash) {
                 return Some(img.clone());
             }
+            // A page read swaps a live event's inline image for its ref: keep the pixels shown.
+            if let Some(p) = self.inline_copy(hash) {
+                self.adopt_ref(hash, p.image.clone(), p.size);
+                return Some(p.image);
+            }
             let Fetched::Ready(bytes) = self.media.get(hash, self.waker.as_ref()) else { return None };
-            let img = self.load(bytes);
-            self.refs.borrow_mut().insert(hash.clone(), img.clone());
-            self.media.state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash.clone(), Fetched::Decoded);
+            let img = self.load(bytes.clone());
+            self.adopt_ref(hash, img.clone(), dimensions(&bytes));
             return Some(img);
         }
         let key = (a.bytes.as_ptr() as usize, a.bytes.len());
@@ -279,6 +307,23 @@ impl MediaStore {
         let img = self.load(a.bytes.clone());
         self.images.borrow_mut().insert(key, PreparedImage { bytes: a.bytes.clone(), image: img.clone(), size: dimensions(&a.bytes) });
         Some(img)
+    }
+
+    fn adopt_ref(&self, hash: &str, img: Image, size: Option<[u32; 2]>) {
+        self.refs.borrow_mut().insert(hash.to_owned(), img);
+        if let Some(size) = size { self.ref_sizes.borrow_mut().insert(hash.to_owned(), size); }
+        self.media.state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash.to_owned(), Fetched::Decoded);
+    }
+
+    /// An inline image already held whose bytes are the ref's (the server's hash is SHA-256).
+    /// Each image is hashed once, and only when a ref misses.
+    fn inline_copy(&self, hash: &str) -> Option<PreparedImage> {
+        use sha2::{Digest, Sha256};
+        let images = self.images.borrow();
+        let mut shas = self.shas.borrow_mut();
+        images.values().find(|p| {
+            shas.entry(p.image.id()).or_insert_with(|| format!("{:x}", Sha256::digest(&p.bytes))) == hash
+        }).cloned()
     }
 
     /// A ref's fetch, once `image` has asked for it (None for inline files).
@@ -322,7 +367,8 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
                 let (w, h) = store.thumbnail_size(f);
                 let held = el().key(format!("{k}-held")).size(w, h);
                 let thumb = el().key(k).label(f.name.clone()).size(w, h).radius(8.0).fill(p.layer2).border(0.5, p.border_muted);
-                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fit), held, format!("{key}:{}", identity(f)), f, img)
+                // The box has the image's shape; Fill keeps a sliver's 24 pt floor from letterboxing it.
+                opens(s, thumb.pixels_fit(img.pixels(), SurfaceFit::Fill), held, format!("{key}:{}", identity(f)), f, img)
             }
             None if store.fetched(f) == Some(Fetched::Loading) => el().key(format!("{k}-loading")).label(f.name.clone()).size(160.0, 120.0).radius(8.0).fill(p.layer2),
             _ => {
@@ -342,3 +388,6 @@ pub fn identity(f: &Attachment) -> String {
         None => format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len()),
     }
 }
+
+#[cfg(test)]
+mod tests;

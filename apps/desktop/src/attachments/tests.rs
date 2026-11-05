@@ -319,7 +319,7 @@ fn gallery_view(s: &App, _: &mut Cx<App>) -> El {
 
 #[test]
 fn the_transcript_holds_a_box_for_a_ref_then_the_image_and_shows_the_unavailable_placeholder() {
-    let (fetch, _) = stub(Some(png(400, 200)));
+    let (fetch, _, land) = gated(Some(png(400, 200)));
     let mut app = App::empty();
     app.attach.set_fetch(fetch);
     let hash = "f".repeat(64);
@@ -336,8 +336,13 @@ fn the_transcript_holds_a_box_for_a_ref_then_the_image_and_shows_the_unavailable
     let unavailable = rt.elements().into_iter().filter_map(|e| e.text).find(|t| t.starts_with("[media unavailable"));
     assert_eq!(unavailable.as_deref(), Some("[media unavailable: gone.png (image/png)]"));
     let first = media(&hash, "shot.png");
+    let _ = crate::poll(&mut rt.state, 0.0, &mut Tx::default());
+    assert!(!crate::poll(&mut rt.state, 0.0, &mut Tx::default()), "idle while the fetch runs");
+    land.send(()).unwrap();
     settle(&rt.state.attach, &first);
-    // The worker's wake re-runs the view.
+    // The worker's wake runs the app's poll, which must report the bytes (t1378: the loading
+    // box stayed until a click).
+    assert!(crate::poll(&mut rt.state, 1.0 / 60.0, &mut Tx::default()), "a landed ref changes the view");
     rt.update(|_, _| {});
     rt.frame(1.0 / 60.0);
     rt.state.attach.image(&first).unwrap().wait().unwrap();
@@ -346,7 +351,7 @@ fn the_transcript_holds_a_box_for_a_ref_then_the_image_and_shows_the_unavailable
         rt.frame(1.0 / 60.0);
     }
     assert!(rect(&rt, "img-0-loading").is_none());
-    assert_eq!(rect(&rt, "/img-0").map(|r| [r[2], r[3]]), Some([160.0, 120.0]), "a ref keeps its reserved box");
+    assert_eq!(rect(&rt, "/img-0").map(|r| [r[2], r[3]]), Some([200.0, 100.0]), "a ref takes its image's own shape");
     opencode_kit::model::set_user_files(GALLERY, Vec::new());
 }
 

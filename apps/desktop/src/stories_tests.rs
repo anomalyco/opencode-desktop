@@ -213,6 +213,7 @@ const APP_SCENES: &[&str] = &[
     "status",
     "tab-badges",
     "demo",
+    "reply-image",
     "long-summary",
     "diagram-wide",
     "genui",
