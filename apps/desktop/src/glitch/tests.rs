@@ -24,10 +24,17 @@ fn on() -> rune::Runtime<crate::App> {
 }
 
 #[test]
-fn off_by_default_nothing_records_and_the_chord_says_how_to_turn_it_on() {
+fn on_by_default() {
     let mut rt = runtime();
     frames(&mut rt, 3);
-    assert!(!rt.state.settings.record_glitches);
+    assert!(rt.rewind().is_some());
+}
+
+#[test]
+fn turned_off_nothing_records_and_the_chord_says_how_to_turn_it_on() {
+    let mut rt = runtime();
+    rt.update(|s, _| s.settings.record_glitches = false);
+    frames(&mut rt, 3);
     assert!(rt.rewind().is_none());
     rt.key(chord());
     rt.frame(1.0 / 60.0);
@@ -93,11 +100,13 @@ fn return_sends_the_bundle_to_the_open_session() {
 #[test]
 fn it_is_kept_in_settings() {
     let mut s = Settings::default();
-    assert!(!s.record_glitches);
-    s.record_glitches = true;
-    assert_eq!(s.to_json()["developer"]["recordGlitches"], true);
-    assert!(Settings::from_json(&s.to_json()).record_glitches);
-    assert!(!Settings::from_json(&json!({})).record_glitches);
+    assert!(s.record_glitches);
+    s.record_glitches = false;
+    assert_eq!(s.to_json()["developer"]["rewind"], false);
+    assert!(!Settings::from_json(&s.to_json()).record_glitches);
+    assert!(Settings::from_json(&json!({})).record_glitches);
+    // An off saved before it was on by default doesn't count.
+    assert!(Settings::from_json(&json!({"developer": {"recordGlitches": false}})).record_glitches);
 }
 
 #[test]

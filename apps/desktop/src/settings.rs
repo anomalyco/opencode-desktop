@@ -55,7 +55,7 @@ pub struct Settings {
     /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
     pub ui_font: usize,
     pub code_font: usize,
-    /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); off by default.
+    /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
     pub record_glitches: bool,
 }
 
@@ -74,7 +74,7 @@ impl Default for Settings {
             terminal_font: 0,
             ui_font: 0,
             code_font: 0,
-            record_glitches: false,
+            record_glitches: true,
         }
     }
 }
@@ -93,7 +93,7 @@ impl Settings {
             "terminalFont": self.terminal_font,
             "uiFont": crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name,
             "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
-            "developer": { "recordGlitches": self.record_glitches },
+            "developer": { "rewind": self.record_glitches },
         })
     }
 
@@ -111,7 +111,7 @@ impl Settings {
             terminal_font: v["terminalFont"].as_u64().map_or(0, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
-            record_glitches: v["developer"]["recordGlitches"].as_bool().unwrap_or(false),
+            record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
         }
     }
 }
@@ -247,7 +247,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section(p, "General", general))
                 .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section(p, "Notifications", notification_list(s, p)))
-                .children(crate::glitch::settings_section(s, p)),
+                .child(crate::glitch::settings_section(s, p)),
         );
     col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar(crate::palette::kit(p)).h(0.0))
 }

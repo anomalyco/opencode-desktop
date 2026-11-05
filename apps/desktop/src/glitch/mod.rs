@@ -1,4 +1,4 @@
-//! Rewind for animation glitches (Settings › Developer, off by default). While it's on, Rune
+//! Rewind (Settings › Developer, on by default): anything that just moved wrong. While it's on, Rune
 //! records the last minute of the window's frames (`rune::rewind`): each keyed element's rect and
 //! opacity, never pixels. ⌘⇧⌥R freezes the window and lays the scrubber over it, with what moved
 //! in each frame outlined and the jumps marked on its track. Send writes the selected stretch as
@@ -37,23 +37,20 @@ impl Default for Glitch {
     }
 }
 
-/// Settings › Developer shows only on builds that aren't stable releases.
-pub fn offered() -> bool {
-    crate::updater::build_channel() != "stable"
-}
-
 /// Attaches the recorder while the setting is on, and lets it go when it's turned off.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let want = s.settings.record_glitches && offered();
+    let want = s.settings.record_glitches;
     if want == s.glitch.attached {
         return false;
     }
     s.glitch.attached = want;
     tx.record_rewind(want.then_some(&s.glitch.rewind));
+    // Attaching shows nothing new; only closing an open scrubber needs a frame.
+    let open = s.glitch.scrub.is_open();
     if !want {
         s.glitch.scrub.close();
     }
-    true
+    !want && open
 }
 
 fn is_chord(ev: &KeyEvent) -> bool {
@@ -76,7 +73,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if !s.glitch.attached {
-        crate::status_toast::say(s, "Rewind is off", "Turn on Record animation glitches in Settings › Developer.");
+        crate::status_toast::say(s, "Rewind is off", "Turn on Rewind in Settings › Developer.");
         return true;
     }
     freeze(s);
@@ -138,12 +135,12 @@ pub fn prompt(bundle: &rune::rewind::Bundle) -> Prompt {
 
 fn send(s: &mut App, sent: Sent, _: &mut Tx) {
     let Some(session) = target(s) else {
-        crate::status_toast::say(s, "Open a session to send to", "The glitch stays here until you send it.");
+        crate::status_toast::say(s, "Open a session to send to", "The rewind stays open until you send it.");
         return;
     };
     let bundle = match sent.write(&bundle_dir(s)) {
         Ok(b) => b,
-        Err(e) => return crate::status_toast::fail(s, "Couldn't write the glitch", e.to_string()),
+        Err(e) => return crate::status_toast::fail(s, "Couldn't save the rewind", e.to_string()),
     };
     let prompt = prompt(&bundle);
     let local = prompt.id.clone().unwrap_or_default();
@@ -167,18 +164,16 @@ fn send(s: &mut App, sent: Sent, _: &mut Tx) {
 fn close(s: &mut App, session: &str) {
     s.glitch.scrub.close();
     let title = s.sessions.iter().find(|i| i.id == session).map(|i| i.title.clone()).filter(|t| !t.is_empty());
-    s.status = format!("Glitch sent to {}", title.as_deref().unwrap_or("the session"));
+    s.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
 }
 
-/// Settings › Developer, on builds that aren't stable releases.
-pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
-    offered().then(|| {
-        let on = s.settings.record_glitches;
-        crate::settings::section(p, "Developer", crate::settings::settings_card(p, "developer-list", [(
-            "record-glitches",
-            "Record animation glitches",
-            "Keep the last minute of frames. ⌘⇧⌥R freezes the window to step back through them and send a stretch to the session.",
-            crate::settings::switch(p, "record-glitches-switch", on).on_press(|s: &mut App| s.change_settings(|st| st.record_glitches = !st.record_glitches)),
-        )]))
-    })
+/// Settings › Developer.
+pub fn settings_section(s: &App, p: &Pal) -> El {
+    let on = s.settings.record_glitches;
+    crate::settings::section(p, "Developer", crate::settings::settings_card(p, "developer-list", [(
+        "record-glitches",
+        "Rewind",
+        "Keep the last minute of the window. ⌘⇧⌥R freezes it so you can step back to what you didn't like and send it to the session.",
+        crate::settings::switch(p, "record-glitches-switch", on).on_press(|s: &mut App| s.change_settings(|st| st.record_glitches = !st.record_glitches)),
+    )]))
 }
