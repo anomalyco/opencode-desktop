@@ -66,12 +66,14 @@ impl App {
         }
         let quotes = prompt.quotes.clone();
         if let Route::Session(id) = self.route.clone()
-            && self.busy(&id)
+            && (self.busy(&id) || self.steers_waiting(&id))
         {
             let local = prompt.id.clone().unwrap_or_default();
+            // With no run to queue behind, ⌘⏎ sends as Enter does.
+            let queue = alternate && self.busy(&id);
             self.echo_mentions(&local);
-            self.admit(&id, prompt, if alternate { Delivery::Queue } else { Delivery::Steer });
-            if alternate {
+            self.admit(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer });
+            if queue {
                 if crate::view::shows_whole_prompt() {
                     tx.launch("prompt", format!("queued-{local}"));
                 }
@@ -167,6 +169,13 @@ impl App {
         // As the server's copy will read, so a session mention's badge stays put when it lands.
         t.messages.push(Message::User { id: local, text: wire.text });
         self.composer.clear();
+    }
+
+    /// Steers still wait after their run stopped: the server delivers them before any later
+    /// prompt, so one sent now waits behind them rather than landing above them. A staged
+    /// revert drops them, so a send from it goes straight in.
+    fn steers_waiting(&self, id: &str) -> bool {
+        self.session(id).and_then(|i| i.revert.as_ref()).is_none() && self.inbox_for(id).is_some_and(|i| i.steering().next().is_some())
     }
 
     /// Where sent prompt `local` shows up. When the timeline shows its end, it rises out of the

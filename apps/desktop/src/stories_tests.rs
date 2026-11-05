@@ -270,6 +270,7 @@ const STORY_PATHS: &[&str] = &[
     "Timeline/Streaming line growth",
     "Timeline/Stop",
     "Timeline/Steer and Pending",
+    "Timeline/Sends behind waiting steers",
     "Timeline/Move to background",
     "Timeline/Subagent",
     "Timeline/Subagent rows",

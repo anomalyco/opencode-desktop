@@ -20,6 +20,8 @@ enum How {
     Steer,
     /// A second steer, under the first.
     SteerTwice,
+    /// A send after the run stopped with a steer still waiting: it waits under that one.
+    AfterStop,
     /// ⌘⏎ into the queue, then the server delivers it: the flight out of the queue.
     Delivered,
 }
@@ -83,7 +85,7 @@ fn matrix() -> Vec<Case> {
     let all = [Words::Word, Words::Line, Words::Lines, Words::Long, Words::Paste, Words::Image, Words::Quote, Words::QuoteOnly, Words::Mention];
     for zoomed in [false, true] {
         for narrow in [false, true] {
-            for how in [How::Send, How::Steer, How::SteerTwice, How::Delivered] {
+            for how in [How::Send, How::Steer, How::SteerTwice, How::AfterStop, How::Delivered] {
                 for words in all {
                     v.push(Case { how, after: After::Reply, words, narrow, zoomed });
                 }
@@ -107,6 +109,7 @@ fn everyday(c: &Case) -> bool {
         | (How::Send, After::Compaction, Words::Line)
         | (How::Steer, After::Reply, Words::Lines | Words::Paste)
         | (How::SteerTwice, After::Reply, Words::Image)
+        | (How::AfterStop, After::Reply, Words::Line)
         | (How::Delivered, After::Reply, Words::Line | Words::Paste))
 }
 
@@ -220,10 +223,14 @@ fn frame(r: &Run, id: &str) -> Option<Frame> {
 fn measure(case: Case) -> Measured {
     let mut r = setup(&case);
     let window = r.circ.size();
-    if case.how == How::SteerTwice {
+    if matches!(case.how, How::SteerTwice | How::AfterStop) {
         compose(&mut r, &case, "First, keep the cap at 30 s.");
         r.enter(false);
         r.play(1.2);
+    }
+    if case.how == How::AfterStop {
+        r.event_now("session.execution.interrupted", json!({ "sessionID": SID, "reason": "user" }));
+        r.play(0.5);
     }
     compose(&mut r, &case, &case.body());
     let before = rows(&r);

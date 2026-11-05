@@ -30,6 +30,7 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "steer/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "steer-lands/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "steers-land/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
+    ("stop-start", "", "sends-behind-steers/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "stream-pace-medium/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
@@ -293,6 +294,26 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play(0.8);
         r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        r.play_out(1.0);
+    } },
+    // A steer waits, the run stops, and a second send joins it under Working (t1361); then the
+    // server delivers both in send order, so neither moves past the other.
+    Action { name: "sends-behind-steers", circs: || places(streaming()), run: |r| {
+        r.start_stream();
+        r.play(1.2);
+        r.type_prompt();
+        r.enter(false);
+        r.play(0.8);
+        r.event("session.execution.interrupted", json!({ "sessionID": SID, "reason": "user" }));
+        r.play(0.4);
+        r.type_prompt();
+        r.enter(false);
+        r.play(0.8);
+        let ids: Vec<String> = r.rt.state.inboxes.get(SID).map(|i| i.steering().map(|i| i.id.clone()).collect()).unwrap_or_default();
+        for id in ids {
+            r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+            r.play(0.1);
+        }
         r.play_out(1.0);
     } },
     // A shell blocks the run: "Move to background ⌃B" fades in beside Working, and ⌃B (or a

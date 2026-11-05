@@ -385,9 +385,65 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     }),
 ]);
 
+/// Timeline › Sends behind waiting steers: two steers wait, the run stops, and two more sends
+/// join them under Working, in the order the server delivers them all.
+mod behind_story {
+    use rune::Play;
+    use serde_json::json;
+
+    use crate::App;
+    use crate::stories::{Trigger, emit, replay, sid};
+
+    const WORDS: [&str; 4] = ["or did he give me stuff?", "can you check", "this is really weird", "what"];
+
+    const KEYS: &[Trigger] = &[
+        replay(open),
+        Trigger { key: 's', label: "Send", run: send },
+        Trigger { key: 'x', label: "Stop the run", run: stop },
+        Trigger { key: 'd', label: "Deliver the oldest", run: deliver },
+    ];
+
+    fn open(s: &mut App, tx: &mut Play<App>) {
+        s.finish_stream();
+        let id = sid(s);
+        s.running.insert(id);
+        tx.after(0.4, send);
+        tx.after(1.0, send);
+        tx.after(1.8, stop);
+        tx.after(2.4, send);
+        tx.after(3.0, send);
+        for k in 0..4 {
+            tx.after(4.2 + 0.1 * k as f64, deliver);
+        }
+    }
+
+    fn send(s: &mut App, tx: &mut Play<App>) {
+        let sent = s.inbox_for(&sid(s)).map_or(0, |i| i.items.len());
+        s.composer = rune::TextEdit::new(WORDS[sent % WORDS.len()]);
+        s.send(tx);
+    }
+
+    fn stop(s: &mut App, tx: &mut Play<App>) {
+        emit(s, "session.execution.interrupted", json!({ "reason": "user" }), tx);
+    }
+
+    fn deliver(s: &mut App, tx: &mut Play<App>) {
+        let Some(id) = s.inbox_for(&sid(s)).and_then(|i| i.steering().next()).map(|i| i.id.clone()) else { return };
+        emit(s, "session.inbox.delivered", json!({ "inboxID": id }), tx);
+    }
+
+    rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
+        crate::stories::Story::session("Timeline/Sends behind waiting steers", KEYS),
+    ]);
+}
+
 #[cfg(test)]
 #[path = "queue_edges_tests.rs"]
 mod edges_tests;
+
+#[cfg(test)]
+#[path = "queue_order_tests.rs"]
+mod order_tests;
 
 #[cfg(test)]
 mod tests {
