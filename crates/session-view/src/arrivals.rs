@@ -49,6 +49,11 @@ impl Arrivals {
         lit
     }
 
+    /// Whether a first load waits to land in place at the next [`Self::poll`].
+    pub fn settling(&self) -> bool {
+        self.settle
+    }
+
     pub fn glow_at(&self, id: &str) -> Option<f64> {
         self.glows.get(id).copied()
     }
