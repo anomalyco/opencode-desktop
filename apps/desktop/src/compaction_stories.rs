@@ -1,9 +1,10 @@
-//! The storybook's Compaction story (Timeline › Compaction): the conversation is summarised, as
-//! Desktop shows it. Variants: queued, running, done with its usage, by the provider, failed,
-//! and with background compaction on, quiet running, done, opened, and right under a model
-//! switch's divider after a prompt, over Working (Kit's capture, p265): the pair, then a variant
-//! switch makes a run of three. R replays, E ends the running one, F fails it, and G starts a
-//! quiet one that ends inside its grace.
+//! The storybook's Compaction story (Timeline › Compaction): the conversation is summarised in a
+//! quiet divider, as Desktop's `quiet-compaction` draws it. Light gathers along its lines while it
+//! runs, then Compacting turns to Compacted. Variants: done, running, one a person asked for (as
+//! quiet), by the provider, ending inside its grace, opened, failed (the loud form), queued, and
+//! right under a model switch's divider after a prompt, over Working (Kit's capture, p265): the
+//! pair, then a variant switch makes a run of three. R replays, E ends the running one, F fails
+//! it, and G starts one that ends inside its grace.
 
 use opencode_kit::model::{Assistant, Compaction, CompactionStatus, Message, Part, Tokens};
 use rune::{Key, Play, Tx};
@@ -13,8 +14,19 @@ use crate::App;
 use crate::stories::{Trigger, emit, replay, sid};
 
 /// Done first, as the story opens on it.
-pub const VARIANTS: &[(&str, usize)] =
-    &[("Done", 2), ("Queued", 0), ("Running", 1), ("By the provider", 3), ("Failed", 4), ("Quiet running", 5), ("Quiet done", 6), ("Quiet opened", 7), ("After a model switch", 8)];
+pub const VARIANTS: &[(&str, usize)] = &[
+    ("Done", 2),
+    ("Running", 1),
+    ("Asked for", 5),
+    ("By the provider", 3),
+    ("Inside the grace", 6),
+    ("Opened", 7),
+    ("Failed", 4),
+    ("Queued", 0),
+    ("After a model switch", 8),
+];
+/// The variant whose compaction a person asked for (`/compact`).
+const MANUAL: usize = 5;
 const KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Compaction", "stage", &[crate::knobs::ROW_GROWTH, crate::compaction::DIVIDER_GAP])];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -28,7 +40,6 @@ pub const KEYS: &[Trigger] = &[
     } },
     Trigger { key: 'g', label: "Quiet, ending inside the grace", run: |s, tx| {
         tx.clear();
-        s.compactions.fallback = true;
         start(s, tx);
         tx.after(0.2, |s, tx| end(s, tx));
     } },
@@ -42,7 +53,6 @@ const SUMMARY: &str = "## Goal\nMake reconnects survive a laptop sleeping mid-st
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let v = s.variant;
-    s.compactions.fallback = v >= 5;
     if v == 0 {
         tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
         return;
@@ -59,11 +69,12 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         tx.after(2.9, move |s, tx| emit(s, "session.model.selected", data.clone(), tx));
     }
     tx.after(0.3, |s, tx| start(s, tx));
-    if (1..=4).contains(&v) {
+    if (1..=5).contains(&v) {
         tx.after(0.5, stream);
     }
     match v {
-        2 | 3 | 6 | 7 | 8 => tx.after(2.6, |s, tx| end(s, tx)),
+        2 | 3 | 5 | 7 | 8 => tx.after(2.6, |s, tx| end(s, tx)),
+        6 => tx.after(0.5, |s, tx| end(s, tx)),
         4 => tx.after(1.6, |s, tx| fail(s, tx)),
         _ => {}
     }
@@ -75,8 +86,12 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     }
 }
 
+fn reason(s: &App) -> &'static str {
+    if s.variant == MANUAL { "manual" } else { "auto" }
+}
+
 fn start(s: &mut App, tx: &mut Tx) {
-    emit(s, "session.compaction.started", json!({ "eventID": EVENT, "reason": "auto" }), tx);
+    emit(s, "session.compaction.started", json!({ "eventID": EVENT, "reason": reason(s) }), tx);
 }
 
 /// The summary's next few words, while it runs.
@@ -95,7 +110,7 @@ fn stream(s: &mut App, tx: &mut Play<App>) {
 fn end(s: &mut App, tx: &mut Tx) {
     let v = s.variant;
     let tokens = json!({ "input": 10_412, "output": 1_034, "reasoning": 96, "cache": { "read": 1_880, "write": 0 } });
-    let mut d = json!({ "reason": "auto", "text": SUMMARY, "tokens": tokens });
+    let mut d = json!({ "reason": reason(s), "text": SUMMARY, "tokens": tokens });
     if v == 3 {
         d = json!({ "reason": "auto", "text": "", "native": { "messages": [] }, "tokens": tokens });
     }
@@ -131,9 +146,8 @@ pub const LONG_KEYS: &[Trigger] = &[
 pub const LONG: &str = "msg_zzlongcompaction";
 
 /// Ends session `session` with an automatic compaction whose summary runs several screens, then
-/// a prompt and its short answer, with background compaction on so it shows quiet.
+/// a prompt and its short answer.
 pub fn add_long_summary(s: &mut App, session: &str) {
-    s.compactions.fallback = true;
     let Some(t) = s.transcripts.get_mut(session) else { return };
     let tokens = Tokens { input: 181_000, output: 4_300, ..Default::default() };
     let c = Compaction { id: LONG.into(), status: CompactionStatus::Completed, summary: long_summary(), tokens: Some(tokens), ..Default::default() };

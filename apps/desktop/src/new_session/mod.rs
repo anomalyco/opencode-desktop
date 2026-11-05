@@ -80,7 +80,6 @@ impl App {
             let _ = r.send(Request::Pending(id.clone()));
             let _ = r.send(Request::Inbox(id.clone()));
         }
-        crate::compaction::ask(self, &id);
         self.open_page(&id, tx);
     }
 

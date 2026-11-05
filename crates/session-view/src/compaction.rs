@@ -1,29 +1,24 @@
 //! Compactions in the timeline, as Desktop draws them (`message-content.tsx`,
 //! `session-compaction.css`, `timeline-separator.tsx`).
 //!
-//! One a person asked for, one that failed, or any while `experimental.background_compaction`
-//! is off is loud: a divider opens it, the summary follows, and a divider with the request's
-//! usage ends it. With background compaction on, an automatic one is a quiet divider whose label
-//! reads Compacting, then Compacted, and opens the summary. One the server admitted but hasn't
-//! started is a divider of its own.
+//! Every compaction is a quiet divider: light gathers along its lines toward the label while it
+//! runs, the label reads Compacting, then Compacted, and pressing it opens the summary (Desktop's
+//! `quiet-compaction`). One that failed is loud: a divider opens it, a divider saying how it
+//! ended closes it, and an error card follows. One the server admitted but hasn't started is a
+//! divider of its own.
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::sync::OnceLock;
 
-use opencode_kit::client::Request;
 use opencode_kit::model::{Compaction, CompactionStatus, Message, Tokens};
-use serde_json::Value;
-use rune::{
-    AnimExt, Beat, Color, Curve, Cursor, Cycle, Easing, Effect, El, Icon, LoopSpec, Sequence, Spring, SpringPair, Transition, Tx, col, el, icon, row,
-    text,
-};
+use rune::{AnimExt, Beat, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, Sequence, Spring, SpringPair, Transition, Tx, col, el, row, text};
 
 use rune_knobs::{Group, Knob};
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{BUBBLE, UI, UI_MED, markdown_tinted, readable};
+use crate::style::{BUBBLE, UI, markdown_tinted, readable};
 
 /// A new automatic compaction waits this long before it shows (Desktop's grace).
 const GRACE: f64 = 0.4;
@@ -32,18 +27,8 @@ const CYCLE: f32 = 3.2;
 /// The quiet divider's fade in.
 static ENTER: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.32).easing(Easing::EASE_OUT)];
 
-static ARCHIVE: Icon = Icon {
-    name: "archive",
-    view: 16.0,
-    body: r#"<path d="M2.5 5.5V13.5H13.5V5.5M2.5 5.5H1.5V2.5H14.5V5.5H13.5M2.5 5.5H13.5M6.5 7.5H9.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
-};
-
 #[derive(Default)]
 pub struct Compactions {
-    /// `experimental.background_compaction` by directory, from `/api/config`.
-    pub background: HashMap<String, bool>,
-    /// The setting where the server hasn't said (stories and tests set it).
-    pub fallback: bool,
     /// When each compaction in the open session first showed, and how it enters.
     pub seen: HashMap<String, Seen>,
 }
@@ -69,8 +54,7 @@ pub enum Enter {
 pub enum Piece {
     Quiet,
     Start,
-    Summary,
-    /// Compacting while it runs, then the divider that ends it.
+    /// The divider that says how it ended.
     End,
     Error,
 }
@@ -80,7 +64,6 @@ impl Piece {
         let name = match self {
             Piece::Quiet => "quiet",
             Piece::Start => "start",
-            Piece::Summary => "summary",
             Piece::End => "end",
             Piece::Error => "error",
         };
@@ -88,56 +71,17 @@ impl Piece {
     }
 }
 
-/// Whether `session`'s directory has background compaction on.
-pub fn background<S: TimelineHost>(s: &S, session: &str) -> bool {
-    let dir = s.session_directory(session);
-    dir.and_then(|d| s.compactions_state().background.get(d)).copied().unwrap_or(s.compactions_state().fallback)
-}
-
-/// Asks the server whether `session`'s directory has background compaction on, once.
-pub fn ask<S: TimelineHost>(s: &S, session: &str) {
-    let Some(dir) = s.session_directory(session).map(str::to_owned).filter(|d| !d.is_empty()) else { return };
-    if !s.compactions_state().background.contains_key(&dir) {
-        s.send_request(Request::Config(dir));
-    }
-}
-
-/// `config.listed` (the reply to `Request::Config`) notes a directory's setting, and
-/// `config.updated` asks again for every directory asked about. True when the setting moved.
-pub fn apply_config<S: TimelineHost>(s: &mut S, ty: &str, data: &Value) -> bool {
-    match ty {
-        "config.listed" => {
-            let Some(dir) = data["directory"].as_str() else { return false };
-            let on = data["backgroundCompaction"] == true;
-            s.compactions_state_mut().background.insert(dir.to_owned(), on) != Some(on)
-        }
-        "config.updated" => {
-            let dirs: Vec<String> = s.compactions_state().background.keys().cloned().collect();
-            for dir in dirs {
-                s.send_request(Request::Config(dir));
-            }
-            false
-        }
-        _ => false,
-    }
-}
-
-/// Desktop's choice: quiet only for an automatic compaction that hasn't failed, with
-/// background compaction on.
-pub fn quiet<S: TimelineHost>(s: &S, session: &str, c: &Compaction) -> bool {
-    background(s, session) && !c.manual && c.status != CompactionStatus::Failed
+/// Quiet unless it failed: a manual compaction and an automatic one look the same.
+pub fn quiet(c: &Compaction) -> bool {
+    c.status != CompactionStatus::Failed
 }
 
 /// The rows `c` takes, top to bottom.
-pub fn pieces<S: TimelineHost>(s: &S, session: &str, c: &Compaction) -> Vec<Piece> {
-    if quiet(s, session, c) {
+pub fn pieces(c: &Compaction) -> Vec<Piece> {
+    if quiet(c) {
         return vec![Piece::Quiet];
     }
-    let mut v = vec![Piece::Start];
-    if !summary(c).is_empty() {
-        v.push(Piece::Summary);
-    }
-    v.push(Piece::End);
+    let mut v = vec![Piece::Start, Piece::End];
     if error(c).is_some() {
         v.push(Piece::Error);
     }
@@ -191,29 +135,16 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
     changed
 }
 
-/// Whether `piece` of `c` draws as a divider.
-pub fn is_divider(c: &Compaction, piece: Piece) -> bool {
-    match piece {
-        Piece::Quiet | Piece::Start => true,
-        Piece::End => c.status != CompactionStatus::Running,
-        Piece::Summary | Piece::Error => false,
-    }
+/// Whether `piece` draws as a divider.
+pub fn is_divider(piece: Piece) -> bool {
+    piece != Piece::Error
 }
 
-/// Piece `piece` of compaction `c`, a divider at `run`. `fade`: the timeline's word fade for a
-/// streaming summary.
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, piece: Piece, fade: f32, run: Run) -> El {
-    let running = c.status == CompactionStatus::Running;
+/// Piece `piece` of compaction `c`, a divider at `run`.
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, piece: Piece, run: Run) -> El {
     match piece {
         Piece::Quiet => quiet_view(s, p, c, run),
         Piece::Start => divider(s, p, "Session compaction started", run),
-        Piece::Summary => col().w_full().child(markdown_tinted::<S>(p, summary(c), fade, running, p.text, crate::genui::width(s))),
-        Piece::End if running => {
-            let since = s.compactions_state().seen.get(&c.id).map_or(s.clock(), |x| x.at);
-            let title = crate::working::shimmer(s, p, "Compacting", UI_MED, since);
-            let tool = row().key("tool").h(28.0).gap(8.0).center_y().child(icon(&ARCHIVE, 14.0).color(p.icon_muted)).child(title);
-            col().key("running").w_full().pt(8.0).pb(8.0).role("status").label("Compacting").transition(Transition::none()).child(tool)
-        }
         Piece::End => {
             let label = [outcome(c).to_owned(), usage(c).unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
             divider(s, p, &label, run).key("ended").transition(Transition::none())

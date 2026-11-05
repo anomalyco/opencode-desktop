@@ -62,7 +62,6 @@ impl App {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Pending(id.to_owned()));
                 let _ = r.send(Request::Inbox(id.to_owned()));
-                crate::compaction::ask(self, id);
             }
             Source::Live { .. } => {}
             Source::Fixture => self.start_stream_if_due(id),

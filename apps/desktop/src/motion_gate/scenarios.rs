@@ -59,7 +59,6 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "queue-list/queued-", "queue/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\") and rises as the queue's height springs (queue::panel); the gate doesn't pair the words that leave with the row that takes them"),
     ("pop-in", "queue-list/queued-", "queue-lands/", "a newly queued row takes over from the composer's words in the frame they clear (Tx::launch from \"prompt\"), as in the queue cells"),
     ("pop-out", "queue-list/queued-", "queue-lands/", "a delivered row hands its words to its bubble in the frame it clears (Tx::launch from queued-…/label, Arrivals::launch); the gate doesn't pair the row that leaves with the bubble that takes its words"),
-    ("pop-out", "cmp-msg_gatecompaction-end/running", "compaction/", "the Compacting row and the divider that ends the compaction trade places at once, as Desktop's Switch does (compaction::view)"),
     ("pop-in", "timeline/t-msg_0older", "older-history/", "at the very top, a page that lands above shows its last row in the gap over the first, as Desktop's does; nothing on screen moves (session_pages::load_older)"),
     ("pop-in", "timeline/u-", "scrolled-up", "read further up, a send flies nowhere: the timeline cuts to its end and the message is there (App::land)"),
     ("pop-in", "quote-toolbar", "", "the Quote button appears over a settled selection at once and goes at once, as Desktop's does (quote::toolbar)"),
@@ -605,12 +604,12 @@ const ACTIONS: &[Action] = &[
         v.push(Circ { zoomed: true, ..Circ::default() });
         v
     }, run: super::rewind::run },
-    // A compaction runs and ends: loud, its divider, summary and Compacting row, then the
-    // divider with its usage; quiet, the divider's light while it runs and its label's ending.
-    Action { name: "compaction", circs: || places(Circ::default()), run: |r| compaction(r, false, 1.6) },
-    Action { name: "compaction-quiet", circs: || places(Circ::default()), run: |r| compaction(r, true, 1.6) },
+    // A compaction runs and ends as a quiet divider: its light while it runs, then its label's
+    // ending. One a person asked for looks the same as an automatic one.
+    Action { name: "compaction", circs: || places(Circ::default()), run: |r| compaction(r, "manual", 1.6) },
+    Action { name: "compaction-quiet", circs: || places(Circ::default()), run: |r| compaction(r, "auto", 1.6) },
     // A quiet one that ends inside its grace fades in once, as Compacted.
-    Action { name: "compaction-quiet-grace", circs: || wide_and_narrow(Circ::default()), run: |r| compaction(r, true, 0.2) },
+    Action { name: "compaction-quiet-grace", circs: || wide_and_narrow(Circ::default()), run: |r| compaction(r, "auto", 0.2) },
     // Opened at the timeline's end, the Compacted divider holds and its summary pushes the end
     // down; scrolled into, it sticks, and shuts from there in place (p162).
     Action { name: "compaction-open-at-bottom", circs: || {
@@ -864,14 +863,13 @@ fn dictation_key() -> KeyEvent {
 }
 
 /// The Question answers story's variant `v`, asked and then answered.
-fn compaction(r: &mut Run, quiet: bool, runs: f64) {
-    r.act("background compaction", |rt| rt.update(move |s, _| s.compactions.fallback = quiet));
-    r.event("session.compaction.started", json!({ "sessionID": SID, "eventID": "evt_gatecompaction", "reason": "auto" }));
+fn compaction(r: &mut Run, reason: &str, runs: f64) {
+    r.event("session.compaction.started", json!({ "sessionID": SID, "eventID": "evt_gatecompaction", "reason": reason }));
     r.play(runs / 2.0);
     r.event("session.compaction.delta", json!({ "sessionID": SID, "text": "## Goal\nKeep reconnects alive." }));
     r.play(runs / 2.0);
     let tokens = json!({ "input": 10_412, "output": 1_034, "reasoning": 96, "cache": { "read": 1_880, "write": 0 } });
-    r.event("session.compaction.ended", json!({ "sessionID": SID, "reason": "auto", "text": "## Goal\nKeep reconnects alive.", "tokens": tokens }));
+    r.event("session.compaction.ended", json!({ "sessionID": SID, "reason": reason, "text": "## Goal\nKeep reconnects alive.", "tokens": tokens }));
     r.quiet();
     r.play(1.5);
 }

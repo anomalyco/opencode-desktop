@@ -26,36 +26,26 @@ fn a_compaction_breaks_the_fold() {
     let s = app(vec![shell("msg_a"), shell("msg_b"), Message::Compaction(c), shell("msg_c"), shell("msg_d")]);
     let keys = crate::view::row_keys(&s, &s.transcripts[SID]);
     let groups: Vec<usize> = keys.iter().enumerate().filter(|(_, k)| k.starts_with("c-")).map(|(i, _)| i).collect();
-    let divider = keys.iter().position(|k| k == "cmp-msg_cmp-start").expect("the compaction's divider");
+    let divider = keys.iter().position(|k| k == "cmp-msg_cmp-quiet").expect("the compaction's divider");
     assert_eq!(groups.len(), 2, "two folds, one each side: {keys:?}");
     assert!(groups[0] < divider && divider < groups[1], "the compaction sits between them: {keys:?}");
 }
 
 #[test]
-fn background_compaction_and_the_reason_pick_quiet_or_loud() {
-    let mut s = app(vec![]);
-    let auto = compaction(CompactionStatus::Completed, false);
-    let manual = compaction(CompactionStatus::Completed, true);
-    let failed = compaction(CompactionStatus::Failed, false);
-    assert_eq!(pieces(&s, SID, &auto), [Piece::Start, Piece::Summary, Piece::End], "loud while background compaction is off");
-    s.compactions.fallback = true;
-    assert_eq!(pieces(&s, SID, &auto), [Piece::Quiet], "an automatic one is quiet");
-    assert_eq!(pieces(&s, SID, &manual), [Piece::Start, Piece::Summary, Piece::End], "one a person asked for stays loud");
-    assert_eq!(pieces(&s, SID, &failed), [Piece::Start, Piece::End], "a failure stays loud, without its summary");
-    let mut info = opencode_kit::model::SessionInfo::default();
-    info.id = SID.into();
-    info.directory = "/repo".into();
-    s.sessions.push(info);
-    s.compactions.background.insert("/repo".into(), false);
-    assert_eq!(pieces(&s, SID, &auto)[0], Piece::Start, "the server's setting for the directory wins");
+fn only_a_failure_is_loud() {
+    for manual in [false, true] {
+        for status in [CompactionStatus::Running, CompactionStatus::Completed] {
+            assert_eq!(pieces(&compaction(status, manual)), [Piece::Quiet], "{status:?}, manual {manual}");
+        }
+    }
+    assert_eq!(pieces(&compaction(CompactionStatus::Failed, false)), [Piece::Start, Piece::End], "a failure stays loud, without its summary");
 }
 
 #[test]
 fn a_failure_shows_its_card_unless_cancelled_or_interrupted() {
-    let s = app(vec![]);
     let fail = |ty: &str| Compaction { error: Some((ty.into(), "The model refused".into())), ..compaction(CompactionStatus::Failed, true) };
-    assert_eq!(pieces(&s, SID, &fail("unknown")), [Piece::Start, Piece::End, Piece::Error]);
-    assert_eq!(pieces(&s, SID, &fail("aborted")), [Piece::Start, Piece::End]);
+    assert_eq!(pieces(&fail("unknown")), [Piece::Start, Piece::End, Piece::Error]);
+    assert_eq!(pieces(&fail("aborted")), [Piece::Start, Piece::End]);
     assert_eq!(outcome(&fail("aborted")), "Session compaction cancelled");
     assert_eq!(outcome(&fail("compaction.interrupted")), "Session compaction interrupted");
     assert_eq!(outcome(&fail("unknown")), "Session compaction failed");
@@ -88,7 +78,6 @@ fn a_queued_compaction_waits_under_the_turn() {
 #[test]
 fn a_quiet_one_ending_inside_its_grace_fades_in_as_compacted() {
     let mut s = app(vec![Message::Compaction(compaction(CompactionStatus::Running, false))]);
-    s.compactions.fallback = true;
     s.now_ms = 100;
     s.clock = 10.0;
     sync(&mut s);
@@ -110,16 +99,14 @@ fn dividers_back_to_back_stack_tight_and_keep_the_usual_gap_outside() {
     let s = app(vec![shell("msg_a"), prompt, moved("msg_n1"), Message::Compaction(compaction(CompactionStatus::Completed, false)), moved("msg_n2")]);
     let runs: Vec<Run> = crate::view::divider_runs(&s, &s.transcripts[SID]).into_iter().map(|(_, r)| r).collect();
     let run = |above, below| Run { above, below };
-    // The loud compaction's summary breaks the stack: its start and end dividers sit 16 from it.
     assert_eq!(runs, [
         run(Beside::Spaced, Beside::Divider),
-        run(Beside::Divider, Beside::Other),
-        run(Beside::Other, Beside::Divider),
+        run(Beside::Divider, Beside::Divider),
         run(Beside::Divider, Beside::Spaced),
     ]);
     let gap = s.knobs.get(&DIVIDER_GAP);
     let (_, under) = space(&s, runs[0]);
     let (over, _) = space(&s, runs[1]);
     assert_eq!(under + WORDS + over, gap, "line to line within a stack");
-    assert_eq!(space(&s, runs[3]), (gap / 2.0 - WORDS / 2.0, 0.0), "Working brings its own room");
+    assert_eq!(space(&s, runs[2]), (gap / 2.0 - WORDS / 2.0, 0.0), "Working brings its own room");
 }

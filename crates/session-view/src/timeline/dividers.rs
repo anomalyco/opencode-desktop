@@ -50,7 +50,7 @@ fn kind(t: &Transcript, c: &RowContent) -> Kind {
             _ => Kind::Other,
         },
         RowContent::Compaction { message, piece, .. } => match &t.messages[*message] {
-            Message::Compaction(x) if crate::compaction::is_divider(x, *piece) => Kind::Divider,
+            Message::Compaction(_) if crate::compaction::is_divider(*piece) => Kind::Divider,
             _ => Kind::Other,
         },
         RowContent::CompactionQueued(_) => Kind::Divider,

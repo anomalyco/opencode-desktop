@@ -197,7 +197,7 @@ impl RowSpec {
                 _ => col(),
             },
             RowContent::Compaction { message, piece, run } => match &t.messages[*message] {
-                Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, fade, *run),
+                Message::Compaction(c) => crate::compaction::view(s, p, c, *piece, *run),
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
@@ -396,10 +396,8 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
             }
             Message::Compaction(c) => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
-                let running = c.status == model::CompactionStatus::Running;
-                for piece in crate::compaction::pieces(s, &t.session, c) {
-                    let streaming = running && piece == crate::compaction::Piece::Summary;
-                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming });
+                for piece in crate::compaction::pieces(c) {
+                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming: false });
                 }
             }
         }

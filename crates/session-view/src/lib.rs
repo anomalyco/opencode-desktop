@@ -41,6 +41,8 @@ pub mod working;
 
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod reveal_tests;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;

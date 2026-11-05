@@ -102,9 +102,6 @@ impl App {
         let now = self.now_ms;
         if matches!(self.source, Source::Fixture) { self.served.record(ty, data); }
         let mut changed = self.note_agent(ty, data, &sid);
-        if ty.starts_with("config.") {
-            changed |= crate::compaction::apply_config(self, ty, data);
-        }
         changed |= self.apply_status(ty, data, &sid);
         changed |= self.note_review_event(ty);
         if ty.starts_with("pty.") {
