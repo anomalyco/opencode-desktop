@@ -250,7 +250,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section(p, "Notifications", notification_list(s, p)))
                 .child(crate::glitch::settings_section(s, p)),
         );
-    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar(crate::palette::kit(p)).h(0.0))
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar_styled(crate::palette::scroll_bar(p)))
 }
 
 /// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,

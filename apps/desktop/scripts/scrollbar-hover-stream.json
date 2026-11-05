@@ -1,0 +1,8 @@
+{
+  "events": [
+    {"t": 0.1, "type": "move", "x": 700, "y": 360},
+    {"t": 3.4, "type": "type", "text": "s"},
+    {"t": 9.0, "type": "move", "key": "scroll-bar"},
+    {"t": 10.4, "type": "move", "x": 700, "y": 360}
+  ]
+}

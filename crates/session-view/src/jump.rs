@@ -151,9 +151,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // they overlap it.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
             .child(scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)).on_at_bottom(at_end::<S>(id))
-                // Its wrapper isn't a scroll container: from no height, it takes only the room
-                // there is, not the content's.
-                .scroll_bar(crate::palette::kit(p)).h(0.0)))
+                .scroll_bar_styled(crate::palette::scroll_bar(p))))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.

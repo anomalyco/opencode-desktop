@@ -4,7 +4,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use rune::{Color, Shadow, Theme};
-use rune_kit::Kit;
+use rune_kit::{Kit, ScrollBarStyle};
 use rune_kit::syntax::SyntaxTheme;
 
 #[derive(Clone, Copy, Debug)]
@@ -266,6 +266,12 @@ pub fn kit(p: &Pal) -> &'static Kit {
     let k: &'static Kit = Box::leak(Box::new(kit_from(p)));
     kits.push((key, k));
     k
+}
+
+/// The timeline's and Settings' scroll bar thumb, as OpenCode Desktop draws it: `border_muted`
+/// and 4 points wide at rest, `border_strong` and 8 points under the pointer.
+pub fn scroll_bar(p: &Pal) -> ScrollBarStyle {
+    ScrollBarStyle::from_kit(kit(p)).thumb(p.border_muted).thumb_hover(p.q.border_strong).width(4.0).hover_width(8.0)
 }
 
 fn kit_from(p: &Pal) -> Kit {
