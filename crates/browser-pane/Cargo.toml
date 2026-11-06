@@ -6,9 +6,11 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["engine"]
+# Off by default, so `--workspace` builds don't turn it on for the app where no engine ships.
+default = []
 # Download, start and talk to the CEF engine over a Unix socket (Unix hosts only). Without it, the
-# pane keeps its tab model and reports `EngineStatus::Unsupported`.
+# pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS;
+# test it on its own with `cargo test -p browser-pane --features engine`.
 engine = []
 
 [dependencies]
