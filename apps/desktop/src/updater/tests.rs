@@ -1,16 +1,25 @@
+#[cfg(target_os = "macos")]
 use std::io::{Read as _, Write as _};
+#[cfg(target_os = "macos")]
 use std::net::TcpListener;
+#[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
 use rune::Tx;
 use serde_json::json;
+#[cfg(target_os = "macos")]
 use sha2::{Digest as _, Sha256};
 
+#[cfg(target_os = "macos")]
 use super::mac::{self, BundleInfo, LOCAL_DEV_BUNDLE_ID, TEAM_BUNDLE_ID};
 use super::protocol::{self, Decision, TARGET_MACOS_ARM64};
+#[cfg(target_os = "macos")]
 use super::UpdateState;
+#[cfg(target_os = "macos")]
 use super::worker::{Engine, WorkerConfig, hex_lower};
 use crate::App;
 
@@ -104,6 +113,7 @@ fn rollout_and_channel_rules_match_release_protocol() {
     assert!(protocol::parse_manifest(&make(100, Some(json!(false))), "https://anoma.ly/release/opencode-rune/desktop/dev.json", TARGET_MACOS_ARM64).is_err());
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn kit_local_bundle_is_never_touched_by_team_updater() {
     assert!(!mac::is_updatable_bundle_id(LOCAL_DEV_BUNDLE_ID));

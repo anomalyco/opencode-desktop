@@ -8,7 +8,9 @@
 
 #[cfg(target_os = "macos")]
 pub mod mac;
-#[cfg(target_os = "macos")]
+// The worker is macOS-only; elsewhere only the protocol's tests build it.
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub mod protocol;
 #[cfg(target_os = "macos")]
 mod worker;
@@ -296,5 +298,5 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     }),
 ]);
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests;

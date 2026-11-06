@@ -1,16 +1,26 @@
+#[cfg(all(feature = "engine", target_os = "macos"))]
 use std::collections::HashMap;
+#[cfg(all(feature = "engine", unix))]
 use std::io::{BufRead, BufReader, Write};
+#[cfg(all(feature = "engine", unix))]
 use std::os::unix::net::UnixListener;
+#[cfg(all(feature = "engine", unix))]
 use std::sync::{Arc, Mutex};
+#[cfg(all(feature = "engine", unix))]
 use std::time::{Duration, Instant};
 
+#[cfg(all(feature = "engine", target_os = "macos"))]
 use rune::NativeSurface;
+#[cfg(all(feature = "engine", unix))]
 use serde_json::json;
 
 use crate::address::resolve_address;
 use crate::client::BrowserHost;
-use crate::protocol::{CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot};
+use crate::protocol::{CursorKind, TabSnapshot};
+#[cfg(all(feature = "engine", unix))]
+use crate::protocol::{EngineMsg, HostMsg, PickedElement};
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn each_app_gets_its_own_engine_socket() {
     use crate::installer::socket_name_for;
@@ -23,6 +33,7 @@ fn each_app_gets_its_own_engine_socket() {
     assert!(socket_name_for(desktop, 501).starts_with("browser-501-"));
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn each_app_keeps_its_own_profile_paired_with_its_socket() {
     use crate::installer::socket_name_for;
@@ -38,6 +49,7 @@ fn each_app_keeps_its_own_profile_paired_with_its_socket() {
     assert_ne!(profile_dir_for(root, seer), profile_dir_for(root, desktop));
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn the_profile_defaults_per_app_and_the_environment_wins() {
     use crate::profile::{profile_dir_for, resolve, shared_profile_dir};
@@ -54,6 +66,7 @@ fn the_profile_defaults_per_app_and_the_environment_wins() {
     assert_eq!(resolve(Some("".into()), None, exe), own, "an empty variable doesn't count");
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn the_engine_is_spawned_with_its_profile() {
     use crate::transport::engine_command;
@@ -67,6 +80,7 @@ fn the_engine_is_spawned_with_its_profile() {
     assert_eq!(args, ["--socket", "/x/e.sock"]);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn a_spawn_waits_for_an_engine_on_its_way_out_to_free_the_profile() {
     use crate::profile::{is_free, wait_until_free};
@@ -106,6 +120,7 @@ fn resolves_addresses_like_desktop() {
     );
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn sidecar_socket_handshake_reconnect_and_cdp_roundtrip() {
     let sock_dir = std::env::temp_dir().join(format!("bp-test-{}", std::process::id()));
@@ -224,7 +239,7 @@ fn sidecar_socket_handshake_reconnect_and_cdp_roundtrip() {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn mach_pipe_transfers_iosurface_into_native_surface_zero_copy() {
     use std::ffi::c_void;
@@ -269,6 +284,7 @@ fn mach_pipe_transfers_iosurface_into_native_surface_zero_copy() {
     assert_eq!(surface.last_error(), None);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn live_sidecar_engine_smoke_when_installed() {
     if std::env::var("OPENCODE_BROWSER_ENGINE_SMOKE").as_deref() != Ok("1") {
@@ -320,7 +336,7 @@ fn live_sidecar_engine_smoke_when_installed() {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 fn serve_bytes_once(payload: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
     use std::net::TcpListener;
 
@@ -343,7 +359,7 @@ fn serve_bytes_once(payload: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
     (format!("http://127.0.0.1:{port}/OpenCode-Browser-Engine.zip"), handle)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 fn make_synthetic_engine_zip(work: &std::path::Path) -> (Vec<u8>, String) {
     use sha2::{Digest, Sha256};
 
@@ -382,7 +398,7 @@ fn make_synthetic_engine_zip(work: &std::path::Path) -> (Vec<u8>, String) {
     (bytes, sha)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn sha256_mismatch_rejects_archive_and_preserves_existing_cache() {
     use crate::installer::{
@@ -422,7 +438,7 @@ fn sha256_mismatch_rejects_archive_and_preserves_existing_cache() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn valid_archive_verifies_sha256_reports_progress_and_swaps_atomically() {
     use crate::installer::{EngineStatus, download_and_install_to};
@@ -470,7 +486,6 @@ fn valid_archive_verifies_sha256_reports_progress_and_swaps_atomically() {
     assert_eq!(leftovers, vec!["156.0.14"], "no staging or backup leftovers remain");
     let _ = std::fs::remove_dir_all(&root);
 }
-
 
 fn snapshot(tab_id: u64, url: &str, zoom: f64) -> TabSnapshot {
     TabSnapshot {
@@ -526,6 +541,7 @@ fn page_zoom_is_remembered_per_site() {
 
 /// A cookie set before the engine quits is sent again after it relaunches (the profile persists).
 /// Run with `OPENCODE_BROWSER_ENGINE_SMOKE=1` and `OPENCODE_BROWSER_PROFILE` set to a scratch dir.
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn live_engine_keeps_cookies_across_relaunch() {
     if std::env::var("OPENCODE_BROWSER_ENGINE_SMOKE").as_deref() != Ok("1") {
@@ -601,6 +617,7 @@ fn live_engine_keeps_cookies_across_relaunch() {
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[derive(Clone, Debug)]
 struct SeenRequest {
     path: String,
@@ -608,12 +625,14 @@ struct SeenRequest {
     accept: Option<String>,
 }
 
+#[cfg(all(feature = "engine", unix))]
 struct MockHttp {
     base: String,
     seen: Arc<Mutex<Vec<SeenRequest>>>,
 }
 
 /// A local HTTP server answering every request with `route(base, request)`: (status, extra headers, body).
+#[cfg(all(feature = "engine", unix))]
 fn mock_http(
     route: impl Fn(&str, &SeenRequest) -> (u16, String, Vec<u8>) + Send + 'static,
 ) -> MockHttp {
@@ -655,9 +674,11 @@ fn mock_http(
     MockHttp { base, seen }
 }
 
+#[cfg(all(feature = "engine", unix))]
 const PUBLIC_PATH: &str = "/anomalyco/rune-desktop/releases/download/browser-engine-1/engine.zip";
 
 /// A private release: the public URL 404s, the API lists the asset, and the asset redirects to `storage`.
+#[cfg(all(feature = "engine", unix))]
 fn private_github(storage: String) -> MockHttp {
     mock_http(move |base, req| match req.path.as_str() {
         "/repos/anomalyco/rune-desktop/releases/tags/browser-engine-1" => {
@@ -672,11 +693,13 @@ fn private_github(storage: String) -> MockHttp {
     })
 }
 
+#[cfg(all(feature = "engine", unix))]
 fn github_auth(api: &MockHttp, token: Option<&str>) -> crate::github_download::GithubAuth {
     let token = token.map(str::to_owned);
     crate::github_download::GithubAuth { api_base: api.base.clone(), token: Box::new(move || token.clone()) }
 }
 
+#[cfg(all(feature = "engine", unix))]
 fn install_scratch(name: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("bp-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -684,6 +707,7 @@ fn install_scratch(name: &str) -> std::path::PathBuf {
     root
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn release_asset_comes_from_the_default_url() {
     use crate::github_download::ReleaseAsset;
@@ -702,7 +726,7 @@ fn release_asset_comes_from_the_default_url() {
     assert_eq!(ReleaseAsset::parse("https://example.com/engine.zip"), None);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn public_release_downloads_without_a_github_login() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -723,7 +747,7 @@ fn public_release_downloads_without_a_github_login() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn private_release_downloads_with_the_github_login_and_keeps_it_off_the_storage_host() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -751,6 +775,7 @@ fn private_release_downloads_with_the_github_login_and_keeps_it_off_the_storage_
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn private_release_without_a_github_login_asks_to_sign_in() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -765,6 +790,7 @@ fn private_release_without_a_github_login_asks_to_sign_in() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn private_release_the_login_cant_see_says_so() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -781,7 +807,7 @@ fn private_release_the_login_cant_see_says_so() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "engine", target_os = "macos"))]
 #[test]
 fn private_release_with_a_bad_sha_is_rejected() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -799,6 +825,7 @@ fn private_release_with_a_bad_sha_is_rejected() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn unreachable_server_is_a_connection_error() {
     use crate::installer::{EngineStatus, download_and_install_with};
@@ -816,6 +843,7 @@ fn unreachable_server_is_a_connection_error() {
 }
 
 /// Downloads the real release into a scratch folder. Run with `OPENCODE_BROWSER_ENGINE_LIVE_DOWNLOAD=1`.
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn live_release_downloads_and_verifies() {
     if std::env::var("OPENCODE_BROWSER_ENGINE_LIVE_DOWNLOAD").as_deref() != Ok("1") {
@@ -830,6 +858,7 @@ fn live_release_downloads_and_verifies() {
     assert!(res.is_ok(), "{res:?}");
 }
 
+#[cfg(all(feature = "engine", unix))]
 #[test]
 fn a_tab_opened_during_a_background_download_starts_when_it_lands() {
     let sock_dir = std::env::temp_dir().join(format!("bp-prefetch-{}", std::process::id()));

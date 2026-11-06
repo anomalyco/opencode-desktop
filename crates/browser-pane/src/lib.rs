@@ -22,7 +22,7 @@ pub mod protocol;
 mod sidecar;
 mod site_zoom;
 mod surface;
-#[cfg(all(test, feature = "engine", unix))]
+#[cfg(test)]
 mod tests;
 #[cfg(all(feature = "engine", unix))]
 mod transport;
