@@ -383,7 +383,7 @@ fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 s.file_find_step(&sid, &path, !ev.mods.shift, tx);
                 return true;
             }
-            if ev.is_command('c') {
+            if Bind::CopySelection.matches_tx(ev, tx) {
                 return false;
             }
         }

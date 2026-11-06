@@ -98,7 +98,7 @@ static TABLE: LazyLock<[Keybind; 17]> = LazyLock::new(|| {
         Keybind::new("mod+."),
         Keybind::new("mod+shift+."),
         Keybind::new("mod+shift+d"),
-        // US keyboards type + with Shift, so "mod+plus" alone would need a keypad.
+        // ⌘= is the unshifted key; ⌘+ is the same key with Shift, or the keypad's.
         Keybind::new("mod+=, mod+plus, mod+shift+="),
         Keybind::new("mod+-, mod+shift+-"),
         Keybind::new("mod+0"),

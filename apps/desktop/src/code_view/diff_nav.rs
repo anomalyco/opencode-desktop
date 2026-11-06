@@ -185,7 +185,7 @@ impl DiffDocState {
                 self.shift = ev.mods.shift;
                 false
             }
-            _ if tx.focused().is_some() && !ev.is_command('c') => false,
+            _ if tx.focused().is_some() && !crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => false,
             Key::Left if !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift => {
                 self.next_file(false, tx)
             }
@@ -204,7 +204,7 @@ impl DiffDocState {
                 self.selection = None;
                 true
             }
-            _ if ev.is_command('c') => match self.selected_text() {
+            _ if crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => match self.selected_text() {
                 Some(text) => {
                     tx.copy(text);
                     true

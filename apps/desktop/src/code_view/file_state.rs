@@ -416,7 +416,7 @@ impl CodeDocState {
                 return true;
             }
         }
-        if ev.is_command('c')
+        if crate::keymap::Bind::CopySelection.matches_tx(ev, tx)
             && let Some(text) = self.selected_text()
         {
             tx.copy(text);

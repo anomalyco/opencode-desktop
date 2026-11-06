@@ -838,6 +838,10 @@ impl App {
         if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) {
             return true;
         }
+        if tx.focused().is_some() && keymap::Bind::PastePlain.matches_tx(ev, tx) {
+            tx.request_paste();
+            return true;
+        }
         if let Some(forward) = history::bracket(ev, tx.physical_key()) {
             self.navigate(forward, tx);
             return true;
