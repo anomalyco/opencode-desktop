@@ -322,8 +322,14 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
                 "terminal build: downloaded Zig reported unexpected version `{ver}`"
             ));
         }
+        // A rename can't replace a directory on Windows, so a stale install has to go first.
         if install_dir.exists() {
-            let _ = fs::remove_dir_all(&install_dir);
+            fs::remove_dir_all(&install_dir).map_err(|e| {
+                format!(
+                    "terminal build: failed to remove the old Zig in `{}` ({e})",
+                    install_dir.display()
+                )
+            })?;
         }
         fs::rename(&unpacked, &install_dir).map_err(|e| {
             format!(

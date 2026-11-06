@@ -42,11 +42,13 @@ pub fn zig_dist_for_host(host: &str) -> Result<ZigDist, String> {
             sha256: "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8",
             folder: "zig-aarch64-linux-0.17.0",
         }),
-        "x86_64-pc-windows-msvc" | "x86_64-pc-windows-gnu" => Ok(ZigDist {
-            url: "https://ziglang.org/download/0.17.0/zig-x86_64-windows-0.17.0.zip",
-            sha256: "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
-            folder: "zig-x86_64-windows-0.17.0",
-        }),
+        "x86_64-pc-windows-msvc" | "x86_64-pc-windows-gnu" | "x86_64-pc-windows-gnullvm" => {
+            Ok(ZigDist {
+                url: "https://ziglang.org/download/0.17.0/zig-x86_64-windows-0.17.0.zip",
+                sha256: "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
+                folder: "zig-x86_64-windows-0.17.0",
+            })
+        }
         "aarch64-pc-windows-msvc" | "aarch64-pc-windows-gnullvm" => Ok(ZigDist {
             url: "https://ziglang.org/download/0.17.0/zig-aarch64-windows-0.17.0.zip",
             sha256: "0a59d91fa1cb40cf068e9b0954434ce973500c7a2ea749f1e01af62cdab52d26",
