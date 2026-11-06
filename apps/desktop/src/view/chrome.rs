@@ -34,9 +34,11 @@ thread_local! {
     static CHROME: Cell<WindowChrome> = const { Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0 }) };
 }
 
-/// Notes the window's chrome for this frame's view (`view::app`).
-pub(crate) fn set_chrome(insets: ChromeInsets) {
-    let row_h = if TITLEBAR_ROW { insets.height } else { 0.0 };
+/// Notes the window's chrome for this frame's view (`view::app`), drawn at the app's `zoom`.
+/// Zoomed out, the row keeps the caption buttons' height in window points, as Desktop's
+/// `44 / min(zoom, 1)` does; zoomed in, it grows with the shell.
+pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32) {
+    let row_h = if TITLEBAR_ROW { insets.height / zoom.min(1.0) } else { 0.0 };
     CHROME.with(|c| c.set(WindowChrome { lights_end: insets.leading, row_h }));
 }
 

@@ -45,7 +45,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
-    set_chrome(cx.chrome_insets());
+    set_chrome(cx.chrome_insets(), s.zoom);
     cx.caption_color(caption_color(p.bg_deep));
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
