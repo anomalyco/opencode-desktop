@@ -11,12 +11,11 @@
 use rune::{El, col, icon, row, text};
 
 use opencode_kit::model::{Assistant, Attachment, Part, ToolStatus};
-use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::style::{UI, UI_MED, chevron, readable, reasoning};
+use crate::style::{UI, UI_MED, chevron, reasoning};
 
 /// One step inside a group.
 #[derive(Debug)]
@@ -173,26 +172,24 @@ pub fn label(steps: &[Step], busy: bool) -> Label {
     Label { count: Some(tools), title: names.join(", ") }
 }
 
-fn tool_icon(name: &str) -> &'static rune::Icon {
-    match name {
-        "shell" | "bash" | "execute" => &ic::CONSOLE,
-        "grep" | "glob" => &ic::MAGNIFYING_GLASS,
-        "read" | "edit" | "write" | "patch" | "apply_patch" => &ic::CODE_LINES,
-        "todowrite" | "todoread" => &ic::CHECKLIST,
-        _ => &ic::FILE_TREE,
+/// Step `st` as a tool call, when it is one.
+fn call<'a>(st: &Step<'a>) -> Option<crate::tools::Call<'a>> {
+    match st {
+        Step::Tool { id, name, status, input, metadata, .. } => Some(crate::tools::Call { id, name, status, input, metadata }),
+        Step::Thought { .. } => None,
     }
 }
 
-pub fn tool_row(p: &Pal, id: &str, name: &str, title: &str, status: &ToolStatus) -> El {
-    let color = if *status == ToolStatus::Error { p.danger } else { p.muted };
-    row()
-        .key(format!("tool-{id}"))
-        .h(28.0)
-        .gap(8.0)
-        .center_y()
-        .child(icon(tool_icon(name), 14.0).color(p.icon_muted))
-        .child(readable(p, text(tool_title(name).to_owned()).font(UI_MED).color(color)))
-        .child(readable(p, text(title.to_owned()).font(UI).color(p.faint).truncate_fade()))
+/// A read that shares a line with the reads beside it: not failed, not an image, and loading no
+/// instructions (`currentToolGroupedRead`).
+fn grouped_read(st: &Step) -> bool {
+    let Step::Tool { name: "read", status, input, metadata, .. } = st else { return false };
+    let image = crate::tools::path(input).is_some_and(|p| {
+        let p = p.to_ascii_lowercase();
+        [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".ico"].iter().any(|e| p.ends_with(e))
+    });
+    let loaded = metadata["loaded"].as_array().is_some_and(|a| a.iter().any(|v| v.is_string()));
+    **status != ToolStatus::Error && !image && !loaded
 }
 
 /// The folded row: its label and chevron, and when open, every step in order. The row springs
@@ -231,21 +228,33 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, key: &str, steps: &[Step], busy: b
     if open || shutting {
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
         let mut list = col().key("steps").w_full().pl(4.0).transition(rune::Transition::none());
-        for step in steps {
-            list = list.child(match step {
+        let mut i = 0;
+        while i < steps.len() {
+            // Plain reads in a row share one line (`CurrentReadToolGroup`).
+            let reads = steps[i..].iter().take_while(|st| grouped_read(st)).count();
+            if reads > 1 {
+                let calls: Vec<crate::tools::Call> = steps[i..i + reads].iter().filter_map(call).collect();
+                list = list.child(crate::tools::read_group(s, p, &calls).key(format!("reads-{}", calls[0].id)));
+                i += reads;
+                continue;
+            }
+            list = list.child(match &steps[i] {
                 Step::Thought { msg, index, body, secs } => {
                     let key = format!("r-{msg}-{index}");
                     reasoning::<S>(p, &key, body, *secs, s.expanded().contains(&key), fade).key(key)
                 }
-                Step::Tool { id, name, title, status, files, input, metadata } => {
-                    let r = s.decorate_tool_row(p, id, tool_row(p, id, name, title, status), name, status, input, metadata);
+                st @ Step::Tool { id, files, .. } => {
+                    let r = crate::tools::view(s, p, &call(st).expect("a tool step"));
                     match crate::images::gallery(s, p, "step-images", files, false) {
-                        Some(g) => col().key(format!("step-{id}")).w_full().child(r).child(g.pl(22.0)),
+                        Some(g) => r.child(g.pl(22.0)),
                         None => r,
                     }
+                    .key(format!("step-{id}"))
                 }
             });
+            i += 1;
         }
+
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.
         // The box keeps the steps' path the same either way, so they don't remount on a press.

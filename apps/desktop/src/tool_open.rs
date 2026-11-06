@@ -1,7 +1,7 @@
-//! A tool step in the timeline opens what it touched in the side region: an edit or a patch
-//! in Changes, scrolled to that change and selected; a read or a write in Files, at the lines
-//! read. Desktop has no tool-step click (its edits fold open inline); this follows how its
-//! file links open (`gui-plugins/src/file/renderer.tsx`, `LinkHandler`): the side region opens
+//! A tool step's sidebar button (on its row while hovered) opens what it touched in the side
+//! region: an edit or a patch in Changes, scrolled to that change and selected; a read or a
+//! write in Files, at the lines read. A press on the row folds the step open inline, as
+//! Desktop's does; the button follows how Desktop's file links open (`gui-plugins/src/file/renderer.tsx`, `LinkHandler`): the side region opens
 //! if it was shut, the file's tab is added or selected, and the lines are selected and
 //! scrolled into view. Here it opens at once, focus stays in the timeline, and the same click
 //! or Esc puts the side region back how it was.
@@ -219,22 +219,26 @@ pub fn locate(fd: &FileDiff, anchor: &Anchor) -> Option<Located> {
     Some(Located { side, start, end, top })
 }
 
-/// The step's row, pressable when it has somewhere to open.
-pub fn row(s: &App, p: &Pal, id: &str, row: El, name: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> El {
-    let Some(sid) = s.active_session_id() else { return row };
+/// The step's "open in sidebar" button, on its row while hovered, when the step has somewhere
+/// to open: a press on the row itself folds the step open inline, as Desktop's does.
+pub fn action(s: &App, p: &Pal, id: &str, name: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> Option<El> {
+    let sid = s.active_session_id()?;
     let directory = s.session(sid).map(|i| i.directory.as_str()).unwrap_or("");
-    let Some(t) = target(name, status, input, metadata, directory) else { return row };
+    let t = target(name, status, input, metadata, directory)?;
     let step = id.to_owned();
-    row.role("button")
+    let ink = if s.tool_step_showing(id) { p.text } else { p.icon_muted };
+    Some(rune::row()
+        .key(format!("open-{id}"))
+        .role("button")
         .label(format!("{} {}", crate::turns::tool_title(name), t.path()))
         .help(t.tooltip())
-        .w_full()
-        .px(6.0)
-        .ml(-6.0)
-        .radius(6.0)
+        .size(24.0, 24.0)
+        .center()
+        .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
+        .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink))
         .on_press_tx({
             let (step, t) = (step.clone(), t.clone());
             move |s: &mut App, tx: &mut Tx| s.open_tool_step(&step, t.clone(), tx)
@@ -244,7 +248,7 @@ pub fn row(s: &App, p: &Pal, id: &str, row: El, name: &str, status: &ToolStatus,
             if !s.tool_step_showing(&step) {
                 s.open_tool_step(&step, t.clone(), tx);
             }
-        })
+        }))
 }
 
 impl App {

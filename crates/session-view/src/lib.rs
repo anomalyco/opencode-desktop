@@ -33,6 +33,7 @@ pub mod subagent_card;
 pub mod themes;
 pub mod timeline;
 pub mod title;
+pub mod tools;
 pub mod turn_errors;
 pub mod turns;
 pub mod usage;
@@ -193,18 +194,11 @@ pub trait TimelineHost: Sized + 'static {
             model.id.clone()
         }
     }
-    #[allow(clippy::too_many_arguments)]
-    fn decorate_tool_row(
-        &self,
-        _p: &palette::Pal,
-        _id: &str,
-        row: El,
-        _name: &str,
-        _status: &ToolStatus,
-        _input: &Value,
-        _metadata: &Value,
-    ) -> El {
-        row
+    /// A button on tool call `id`'s row, shown on hover, that opens what the call touched in the
+    /// host's side panel (a changed file in its review, a read file at its lines); `None` for none.
+    /// A press on the row itself opens the call inline.
+    fn tool_row_action(&self, _p: &palette::Pal, _id: &str, _name: &str, _status: &ToolStatus, _input: &Value, _metadata: &Value) -> Option<El> {
+        None
     }
 
     fn can_open_subagent(&self) -> bool {

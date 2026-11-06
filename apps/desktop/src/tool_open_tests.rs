@@ -100,7 +100,7 @@ fn locate_finds_the_run_nearest_the_hint() {
 fn an_edit_opens_its_change_and_the_same_click_shuts_it() {
     let mut rt = runtime();
     assert!(!rt.state.side_open());
-    let key = format!("tool-{EDIT}");
+    let key = format!("open-{EDIT}");
     let y0 = tap(&mut rt, &key);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
@@ -156,7 +156,7 @@ fn esc_shuts_a_side_region_the_step_opened() {
 #[test]
 fn a_double_click_leaves_the_step_open() {
     let mut rt = runtime();
-    let key = format!("tool-{EDIT}");
+    let key = format!("open-{EDIT}");
     let (x, y) = rt.find(&key).unwrap();
     rt.wheel(x, 450.0, 450.0 - y);
     rt.frame(1.0 / 60.0);
