@@ -15,6 +15,7 @@ use crate::review::ChangeMode;
 
 const CDP_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TEXT_BYTES: usize = 32 * 1024;
+const BROWSER_UNSUPPORTED: &str = "The browser isn't available on this platform yet in OpenCode (Rune)";
 
 pub(super) struct PendingCdp {
     pub call: McpCall,
@@ -320,6 +321,10 @@ pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
             })));
         }
         "browser_open" => {
+            if s.browser_unsupported() {
+                call.respond(McpResult::error(BROWSER_UNSUPPORTED));
+                return;
+            }
             tx.instant();
             let raw = args["url"].as_str().unwrap_or("about:blank");
             let id = s.open_new_browser_tab_for_session(Some(sid), raw, None, false);
@@ -331,6 +336,10 @@ pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
                 call.respond(McpResult::error("Missing 'url'"));
                 return;
             };
+            if s.browser_unsupported() {
+                call.respond(McpResult::error(BROWSER_UNSUPPORTED));
+                return;
+            }
             tx.instant();
             if let Some(req_id) = tab_arg
                 && s.browser.host.tab(req_id).is_none()
@@ -560,9 +569,7 @@ fn send_cdp_call(
     };
     if !s.browser.host.has_live_sidecar() {
         let msg = match s.browser.host.status() {
-            browser_pane::EngineStatus::Unsupported => {
-                "The browser isn't available on this platform yet in OpenCode (Rune)".to_owned()
-            }
+            browser_pane::EngineStatus::Unsupported => BROWSER_UNSUPPORTED.to_owned(),
             browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Downloading { .. } => {
                 "Browser engine isn't installed yet in OpenCode (Rune)".to_owned()
             }

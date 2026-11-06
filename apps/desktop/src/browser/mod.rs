@@ -70,8 +70,10 @@ fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> 
 
 fn open_from_launcher(s: &mut App, pane: SessionPane, _tx: &mut Tx) {
     s.open_new_browser_tab_in("about:blank", Some(pane));
-    s.composer.focused = false;
-    s.browser.address.focused = true;
+    if !s.browser_unsupported() {
+        s.composer.focused = false;
+        s.browser.address.focused = true;
+    }
 }
 
 fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
@@ -148,7 +150,7 @@ fn on_enter_tab(s: &mut App, _session_id: &str, tab_id: &str) {
             .host
             .tab(id)
             .is_some_and(|t| t.url.is_empty() || t.url == "about:blank");
-        if is_blank {
+        if is_blank && !s.browser_unsupported() {
             s.composer.focused = false;
             s.browser.address.focused = true;
         }
@@ -218,6 +220,12 @@ impl App {
         if self.persists() && !self.use_mock_browser() {
             self.browser.host.prefetch();
         }
+    }
+
+    /// No engine drives live tabs in this build: they show the unsupported card and have no address
+    /// bar to focus. Mock tabs (headless, tests, stories) still work.
+    pub(crate) fn browser_unsupported(&self) -> bool {
+        !self.use_mock_browser() && self.browser.host.status() == EngineStatus::Unsupported
     }
 
     pub(crate) fn use_mock_browser(&self) -> bool {
@@ -440,7 +448,7 @@ impl App {
     }
 
     pub fn browser_scoped_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if !self.side_open() {
+        if !self.side_open() || self.browser_unsupported() {
             return false;
         }
         // ⌘L focuses the URL bar on an open browser tab, or opens a browser tab if on New tab.
