@@ -1,6 +1,13 @@
-//! Discovers a local OpenCode Desktop / CLI `service.json` sidecar (`hostname`, `port`, `password`)
-//! when `OPENCODE_SERVER_PASSWORD` is unset.
+//! Discovers the local OpenCode background service when `OPENCODE_SERVER_PASSWORD` is unset, where
+//! OpenCode's own clients look (`@opencode/client` `service-probe.ts`, Desktop's
+//! `background-service.ts`): the service's registration `<state>/opencode/service.json` (`url`,
+//! `password`), with `<state>` = `XDG_STATE_HOME`, else `<home>/.local/state` on every platform
+//! and `<home>` = `USERPROFILE` on Windows; `service-local.json` there for Desktop's local channel
+//! (`OPENCODE_DESKTOP_SERVER_CHANNEL=local`). The CLI's own config (`hostname`, `port`,
+//! `password` in `OPENCODE_CONFIG_DIR`, else `<config>/opencode/service.json`) comes after, for a
+//! service that hasn't registered.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -14,13 +21,20 @@ pub struct LocalService {
     pub password: Option<String>,
 }
 
-/// Parses a `service.json` file written by `opencode serve --service`.
+/// Parses a `service.json` written by `opencode serve --service`: the registration (`url`) or the
+/// CLI's config (`hostname`, `port`).
 pub fn parse_service_json(text: &str) -> Option<LocalService> {
     let v: Value = serde_json::from_str(text).ok()?;
-    let port_u64 = v.get("port")?.as_u64()?;
-    let port = u16::try_from(port_u64).ok().filter(|p| *p > 0)?;
-    let raw_host = v.get("hostname").and_then(Value::as_str).unwrap_or("127.0.0.1").trim();
-    let host = match raw_host {
+    let (raw_host, port) = match v.get("url").and_then(Value::as_str) {
+        Some(url) => {
+            let authority = url.trim().strip_prefix("http://")?.split('/').next()?;
+            let (host, port) = authority.rsplit_once(':')?;
+            (host, port.parse::<u64>().ok()?)
+        }
+        None => (v.get("hostname").and_then(Value::as_str).unwrap_or("127.0.0.1"), v.get("port")?.as_u64()?),
+    };
+    let port = u16::try_from(port).ok().filter(|p| *p > 0)?;
+    let host = match raw_host.trim() {
         "" | "0.0.0.0" | "localhost" | "127.0.0.1" => "127.0.0.1",
         "::1" | "[::1]" => "[::1]",
         _ => return None,
@@ -34,27 +48,21 @@ pub fn parse_service_json(text: &str) -> Option<LocalService> {
     Some(LocalService { base: format!("http://{host}:{port}"), port, password })
 }
 
-#[allow(clippy::disallowed_methods)]
-fn candidate_paths() -> Vec<PathBuf> {
-    let mut out = Vec::with_capacity(4);
-    if let Ok(dir) = std::env::var("OPENCODE_CONFIG_DIR") {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            out.push(PathBuf::from(trimmed).join("service.json"));
-        }
-    }
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        let trimmed = xdg.trim();
-        if !trimmed.is_empty() {
-            out.push(PathBuf::from(trimmed).join("opencode/service.json"));
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        let home = PathBuf::from(home);
-        out.push(home.join(".config/opencode/service.json"));
-        out.push(home.join(".local/share/opencode-studio-migration/config/service.json"));
-    }
-    out
+/// The files to try, in order, from an environment lookup (see the module docs).
+fn candidate_paths(var: impl Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let set = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let home = rune::dirs::home_from(&var);
+    let xdg = |k: &str, fallback: &[&str]| set(k).or_else(|| Some(fallback.iter().fold(home.clone()?, |p, part| p.join(part))));
+    let local = var("OPENCODE_DESKTOP_SERVER_CHANNEL").is_some_and(|c| c == "local");
+    let registration = if local { "service-local.json" } else { "service.json" };
+    [
+        xdg("XDG_STATE_HOME", &[".local", "state"]).map(|d| d.join("opencode").join(registration)),
+        set("OPENCODE_CONFIG_DIR").map(|d| d.join("service.json")),
+        xdg("XDG_CONFIG_HOME", &[".config"]).map(|d| d.join("opencode").join("service.json")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 pub fn read_local_service_from(paths: &[PathBuf]) -> Option<LocalService> {
@@ -66,12 +74,12 @@ fn read_one(path: &Path) -> Option<LocalService> {
     parse_service_json(&text)
 }
 
-/// Reads the first valid local `service.json` in standard OpenCode config locations.
+/// Reads the first valid `service.json` where OpenCode's clients look.
 pub fn read_local_service() -> Option<LocalService> {
     if cfg!(test) {
         return None;
     }
-    read_local_service_from(&candidate_paths())
+    read_local_service_from(&candidate_paths(|k| std::env::var_os(k)))
 }
 
 fn local_port(base: &str) -> Option<u16> {
