@@ -22,6 +22,7 @@ pub mod images;
 pub mod jump;
 pub mod knobs;
 pub mod line_reveal;
+pub mod local_time;
 pub mod odometer;
 pub mod palette;
 pub mod pickers;

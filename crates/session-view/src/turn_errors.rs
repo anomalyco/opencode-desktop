@@ -93,27 +93,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 }
 
 /// A moment in local time.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Local {
-    pub year: i32,
-    /// 1–12.
-    pub month: u32,
-    pub day: u32,
-    pub hour: u32,
-    pub minute: u32,
-    /// Seconds east of UTC.
-    pub offset: i32,
-}
-
-#[allow(unsafe_code)]
-pub fn local(ms: i64) -> Local {
-    let secs = (ms / 1000) as libc::time_t;
-    // SAFETY: `libc::tm` is a plain C struct where all-zero bytes are valid.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: `localtime_r` reads `secs` and writes only into `tm`.
-    unsafe { libc::localtime_r(&secs, &mut tm) };
-    Local { year: tm.tm_year + 1900, month: tm.tm_mon as u32 + 1, day: tm.tm_mday as u32, hour: tm.tm_hour as u32, minute: tm.tm_min as u32, offset: tm.tm_gmtoff as i32 }
-}
+pub use crate::local_time::{Local, local};
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 

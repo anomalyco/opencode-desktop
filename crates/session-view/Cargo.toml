@@ -8,7 +8,6 @@ publish = false
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-libc = "0.2"
 opencode-kit = { path = "../opencode-kit" }
 rune.workspace = true
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
@@ -17,6 +16,12 @@ rune-parts = { path = "../rune-parts", features = ["view"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Time"] }
 
 [dev-dependencies]
 rune = { workspace = true, features = ["metal-backend"] }
