@@ -10,6 +10,7 @@
 
 pub mod address;
 mod client;
+#[cfg(all(feature = "engine", unix))]
 mod github_download;
 pub mod installer;
 mod keys;
@@ -31,9 +32,9 @@ pub use address::{bare_url, host_of, resolve_address};
 pub use client::BrowserHost;
 pub use client::BrowserTab;
 pub use installer::{
-    ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, EngineStatus,
+    ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, ERR_DOWNLOAD, ERR_SIGN_IN,
+    EngineStatus, err_no_access,
 };
-pub use github_download::{ERR_DOWNLOAD, ERR_SIGN_IN, err_no_access};
 #[cfg(all(feature = "engine", unix))]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;

@@ -6,17 +6,11 @@ use std::process::{Command, Stdio};
 
 use ureq::config::RedirectAuthHeaders;
 
-pub const ERR_DOWNLOAD: &str =
-    "Couldn't download the browser. Check your connection and try again.";
-pub const ERR_SIGN_IN: &str =
-    "Sign in to GitHub to download the browser.\nRun gh auth login in Terminal, then retry.";
+use crate::installer::{ERR_DOWNLOAD, ERR_SIGN_IN, err_no_access};
+
 pub(crate) const ERR_LOGIN_EXPIRED: &str =
     "Your GitHub login has expired.\nRun gh auth login in Terminal, then retry.";
 pub(crate) const ERR_MISSING: &str = "The browser download is missing from its GitHub release.";
-
-pub fn err_no_access(owner: &str, repo: &str) -> String {
-    format!("Your GitHub account can't see the browser download.\nAsk for access to {owner}/{repo}.")
-}
 
 fn err_server(code: u16) -> String {
     format!("The download server returned error {code}. Try again later.")

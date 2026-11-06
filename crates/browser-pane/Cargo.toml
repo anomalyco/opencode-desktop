@@ -11,18 +11,18 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (Unix hosts only). Without it, the
 # pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS;
 # test it on its own with `cargo test -p browser-pane --features engine`.
-engine = []
+engine = ["dep:libc", "dep:sha2", "dep:ureq"]
 
 [dependencies]
 base64 = "0.22"
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
-sha2 = "0.10"
-ureq = { workspace = true, features = ["rustls"] }
+sha2 = { version = "0.10", optional = true }
+ureq = { workspace = true, features = ["rustls"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { version = "0.2", optional = true }
 
 [lints]
 workspace = true

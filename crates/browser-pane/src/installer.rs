@@ -1,15 +1,22 @@
-//! Resolves or downloads the signed `OpenCode Browser Engine.app` sidecar bundle.
+//! The engine's release, status and failure messages, and, with the `engine` feature on a Unix
+//! host, resolving or downloading the signed `OpenCode Browser Engine.app` sidecar bundle.
 
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+#[cfg(all(feature = "engine", unix))]
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+    sync::{Arc, Mutex},
+};
 
+#[cfg(all(feature = "engine", unix))]
 use rune::Waker;
+#[cfg(all(feature = "engine", unix))]
 use sha2::{Digest, Sha256};
 
-use crate::github_download::{self, ERR_DOWNLOAD, GithubAuth};
+#[cfg(all(feature = "engine", unix))]
+use crate::github_download::{self, GithubAuth};
 
 pub const ENGINE_VERSION: &str = "156.0.14.1";
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
@@ -37,6 +44,16 @@ pub const ENGINE_DEFAULT_SHA256: Option<&str> =
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub const ENGINE_DEFAULT_SHA256: Option<&str> = None;
 
+pub const ERR_DOWNLOAD: &str =
+    "Couldn't download the browser. Check your connection and try again.";
+pub const ERR_SIGN_IN: &str =
+    "Sign in to GitHub to download the browser.\nRun gh auth login in Terminal, then retry.";
+
+pub fn err_no_access(owner: &str, repo: &str) -> String {
+    format!("Your GitHub account can't see the browser download.\nAsk for access to {owner}/{repo}.")
+}
+
+#[cfg(all(feature = "engine", unix))]
 static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,10 +71,12 @@ pub enum EngineStatus {
 /// The engine's folders, shared by every app that shows a browser pane (`rune::dirs`): its
 /// state folder is `~/Library/Application Support/co.anomaly.opencode` on macOS and
 /// `%LOCALAPPDATA%\co.anomaly.opencode` on Windows; its cache folder holds the sockets.
+#[cfg(all(feature = "engine", unix))]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     rune::dirs::AppDirs::new("co.anomaly.opencode")
 }
 
+#[cfg(all(feature = "engine", unix))]
 pub fn engine_cache_root() -> PathBuf {
     engine_dirs()
         .map_or_else(|| std::env::temp_dir().join("co.anomaly.opencode"), |d| d.state().to_owned())
@@ -65,6 +84,7 @@ pub fn engine_cache_root() -> PathBuf {
         .join(ENGINE_VERSION)
 }
 
+#[cfg(all(feature = "engine", unix))]
 pub fn resolve_installed_executable() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("OPENCODE_BROWSER_ENGINE_BIN") {
         let p = PathBuf::from(explicit);
@@ -86,6 +106,7 @@ pub fn resolve_installed_executable() -> Option<PathBuf> {
 }
 
 /// Resolves `(download_url, expected_sha256)` from env overrides or baked-in release constants.
+#[cfg(all(feature = "engine", unix))]
 pub fn resolve_download_source() -> Option<(String, Option<String>)> {
     if let Ok(custom_url) = std::env::var("OPENCODE_BROWSER_ENGINE_URL") {
         let trimmed = custom_url.trim();
@@ -106,7 +127,7 @@ pub fn resolve_download_source() -> Option<(String, Option<String>)> {
     Some((url, sha))
 }
 
-#[cfg(unix)]
+#[cfg(all(feature = "engine", unix))]
 pub fn socket_path() -> PathBuf {
     if let Ok(custom) = std::env::var("OPENCODE_BROWSER_SOCKET") {
         return PathBuf::from(custom);
@@ -120,17 +141,19 @@ pub fn socket_path() -> PathBuf {
 
 /// The engine serves one app at a time: the last to connect takes every frame and tab update,
 /// and every app numbers its tabs from 1. So each app (by executable path) runs its own engine.
+#[cfg(all(feature = "engine", unix))]
 pub fn socket_name_for(exe: &Path, uid: u32) -> String {
     format!("browser-{uid}-{}.sock", exe_tag(exe))
 }
 
 /// Eight hex digits of the executable path's hash, pairing an app's socket with its profile.
+#[cfg(all(feature = "engine", unix))]
 pub(crate) fn exe_tag(exe: &Path) -> String {
     let digest = Sha256::digest(exe.as_os_str().as_encoded_bytes());
     digest[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(unix)]
+#[cfg(all(feature = "engine", unix))]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir)?;
@@ -138,6 +161,7 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Downloads, SHA-256 verifies, and atomically installs `OpenCode Browser Engine.app` on a background thread.
+#[cfg(all(feature = "engine", unix))]
 pub fn start_download(
     state: Arc<Mutex<EngineStatus>>,
     waker: Option<Waker>,
@@ -184,11 +208,14 @@ pub fn start_download(
         .ok();
 }
 
+#[cfg(all(feature = "engine", unix))]
 const ERR_VERIFY: &str = "Download couldn't be verified. Try again.";
+#[cfg(all(feature = "engine", unix))]
 const ERR_INSTALL: &str = "Couldn't install the browser. Check available disk space and try again.";
 
 /// Downloads `url`, checks `expected_sha256`, extracts the bundle, and swaps `dest_root` atomically.
 /// A private GitHub release is fetched with the user's GitHub login.
+#[cfg(all(feature = "engine", unix))]
 pub fn download_and_install_to(
     url: &str,
     expected_sha256: Option<&str>,
@@ -199,6 +226,7 @@ pub fn download_and_install_to(
     download_and_install_with(url, expected_sha256, dest_root, state, waker, &GithubAuth::user())
 }
 
+#[cfg(all(feature = "engine", unix))]
 pub(crate) fn download_and_install_with(
     url: &str,
     expected_sha256: Option<&str>,
