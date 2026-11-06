@@ -18,16 +18,16 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "90c1ff3a3008654577a042c00ae3e205155ece86" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "de2b16de8d165955bd387e67d353198e49957bbf" }
 serde_json = "1"
 ureq = { version = "3.4", default-features = false }
 
