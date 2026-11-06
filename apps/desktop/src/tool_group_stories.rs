@@ -69,3 +69,61 @@ const KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Tool group", "stag
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story::session("Timeline/Long tool group", KEYS).knobs(KNOBS),
 ]);
+
+/// The fixture's tour session, which calls every kind of tool once, and the groups its turns
+/// fold into (`turns::fold` keys a group by its first tool's id).
+const TOUR_GROUPS: &[&str] = &["c-call_list_tour", "c-call_webfetch_tour", "c-call_edit_tour", "c-call_shell_tour", "c-call_shellerr_tour"];
+
+/// The tour with its groups open: `group` alone, the session ending on the turn that holds it,
+/// and `open` (tool rows, `tool:{id}`) open inside it. With no group, every group is open and
+/// the whole session shows.
+fn tour(s: &mut App, group: Option<&str>, open: &[&str]) {
+    s.route = crate::Route::Session(crate::fixture_ids::TOUR.into());
+    let groups: Vec<&str> = group.map_or_else(|| TOUR_GROUPS.to_vec(), |g| vec![g]);
+    s.expanded.extend(groups.iter().chain(open).map(|k| (*k).to_owned()));
+    let Some(first) = group.and_then(|g| g.strip_prefix("c-")) else { return };
+    if let Some(t) = s.transcripts.get_mut(crate::fixture_ids::TOUR)
+        && let Some(at) = t.messages.iter().position(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(|p| matches!(p, Part::Tool { id, .. } if id == first))))
+    {
+        t.messages.truncate(at + 1);
+    }
+}
+
+/// The tour's last turn still running: a shell streaming its output, a web search under way and
+/// an edit the model is still writing.
+fn tour_running(s: &mut App) {
+    tour(s, Some("c-call_shell_tour"), &[]);
+    let Some(t) = s.transcripts.get_mut(crate::fixture_ids::TOUR) else { return };
+    let tool = |id: &str, name: &str, status, input: serde_json::Value, metadata: serde_json::Value| Part::Tool {
+        id: id.into(),
+        name: name.into(),
+        status,
+        title: String::new(),
+        input,
+        files: vec![],
+        metadata,
+    };
+    let parts = vec![
+        tool("call_live_shell", "shell", ToolStatus::Running, serde_json::json!({ "command": "kiln test --all" }), serde_json::json!({ "output": "running 126 tests\ntest cache::tests::evicts_oldest ... ok\ntest graph::tests::cycles_are_errors ... ok\n" })),
+        tool("call_live_search", "websearch", ToolStatus::Running, serde_json::json!({ "query": "kiln doctor exit codes" }), serde_json::Value::Null),
+        tool("call_live_edit", "edit", ToolStatus::Pending, serde_json::Value::Null, serde_json::Value::Null),
+    ];
+    t.messages.push(Message::Assistant(Assistant { id: "msg_zztourlive".into(), parts, ..Default::default() }));
+    s.running.insert(crate::fixture_ids::TOUR.into());
+    s.expanded.extend(["c-call_live_shell".to_owned(), "tool:call_live_shell".to_owned()]);
+}
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("tools", |s| tour(s, None, &[])),
+    ("tools-list", |s| tour(s, Some("c-call_list_tour"), &["tool:call_list_tour"])),
+    ("tools-glob-grep", |s| tour(s, Some("c-call_list_tour"), &["tool:call_glob_tour", "tool:call_grep_tour"])),
+    ("tools-read", |s| tour(s, Some("c-call_list_tour"), &[])),
+    ("tools-web", |s| tour(s, Some("c-call_webfetch_tour"), &["tool:call_websearch_tour"])),
+    ("tools-edit", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_edit_tour"])),
+    ("tools-write", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_write_tour"])),
+    ("tools-patch", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_patch_tour/0", "tool:call_patch_tour/1"])),
+    ("tools-shell", |s| tour(s, Some("c-call_shell_tour"), &["tool:call_shell_tour"])),
+    ("tools-execute", |s| tour(s, Some("c-call_shell_tour"), &["tool:call_execute_tour", "tool:call_execute_tour/output"])),
+    ("tools-error", |s| tour(s, Some("c-call_shellerr_tour"), &["tool:call_shellerr_tour"])),
+    ("tools-running", tour_running),
+]);

@@ -4,6 +4,8 @@ pub const MAIN: &str = "ses_fx0001aaaaaaaaaaaaaaaaaa";
 pub const CHILD: &str = "ses_fx0002aaaaaaaaaaaaaaaaaa";
 pub const THIRD: &str = "ses_fx0003aaaaaaaaaaaaaaaaaa";
 pub const SIXTH: &str = "ses_fx0006aaaaaaaaaaaaaaaaaa";
+/// Kiln's tour of the tools: one call of every kind, and two that failed (`tools-*` scenes).
+pub const TOUR: &str = "ses_fx0020aaaaaaaaaaaaaaaaaa";
 /// Kiln's sessions whose last step failed: a spent free allowance, Go limit, workspace budget,
 /// model budget, and a plain error; one the server is retrying; and one with every notice.
 #[cfg(test)]
