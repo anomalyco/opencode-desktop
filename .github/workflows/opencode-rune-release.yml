@@ -35,6 +35,7 @@ on:
       - "crates/terminal/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".cargo/**"
       - ".github/workflows/opencode-rune-release.yml"
       - ".github/release/**"
@@ -105,9 +106,9 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
+      # rust-toolchain.toml picks the toolchain.
+      - name: Rust toolchain
+        run: rustup toolchain install
       - name: Build OpenCode (Rune).app
         run: |
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
