@@ -219,6 +219,30 @@ fn keep_tool_ran(metadata: &mut Value, time: &Value) {
     metadata[TOOL_RAN] = ran.into();
 }
 
+/// Where a finished tool call's text result is kept in its `metadata`.
+const TOOL_OUTPUT: &str = "opencode-kit.output";
+
+/// A tool call's text result: what a running call has streamed so far (`metadata.output`), or
+/// the text items of what a finished one returned.
+pub fn tool_output<'a>(status: &ToolStatus, metadata: &'a Value) -> Option<&'a str> {
+    match status {
+        ToolStatus::Running => metadata["output"].as_str(),
+        _ => metadata[TOOL_OUTPUT].as_str(),
+    }
+}
+
+/// Keeps the text items of a tool result's `content` in `metadata`.
+fn keep_tool_output(metadata: &mut Value, content: &Value) {
+    let texts: Vec<&str> = content.as_array().into_iter().flatten().filter(|c| c["type"] == "text").filter_map(|c| c["text"].as_str()).collect();
+    if texts.is_empty() {
+        return;
+    }
+    if !metadata.is_object() {
+        *metadata = Value::Object(Default::default());
+    }
+    metadata[TOOL_OUTPUT] = texts.join("\n").into();
+}
+
 /// Swaps in the server's newer `metadata`, keeping when the call began running.
 fn replace_tool_metadata(metadata: &mut Value, new: &Value) {
     let ran = metadata[TOOL_RAN].clone();
@@ -472,6 +496,7 @@ fn parse_part(c: &Value) -> Option<Part> {
             let input = c["state"]["input"].clone();
             let mut metadata = c["state"]["metadata"].clone();
             keep_tool_error(&mut metadata, &c["state"]["error"]);
+            keep_tool_output(&mut metadata, &c["state"]["content"]);
             keep_tool_ran(&mut metadata, &c["time"]);
             Part::Tool {
                 id: s(&c["id"]),
@@ -881,6 +906,7 @@ impl Transcript {
                         if ty == "session.tool.failed" {
                             keep_tool_error(metadata, &d["error"]);
                         }
+                        keep_tool_output(metadata, &d["content"]);
                         let got = parse_attachments(&d["content"]);
                         if !got.is_empty() {
                             *files = got;
