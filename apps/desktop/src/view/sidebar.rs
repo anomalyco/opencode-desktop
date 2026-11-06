@@ -10,10 +10,6 @@ pub const SIDEBAR_MIN: f32 = 120.0;
 pub const SIDEBAR_MAX: f32 = 640.0;
 /// The sidebars' shared spring, "smooth" (`panel-motion.ts`).
 pub(super) const SIDEBAR_SPRING: Spring = Spring::new(0.3, 0.0);
-/// Where the zoom button ends with the lights on the header's centre line (`macVerticalTrafficLights`).
-pub(super) const TRAFFIC_LIGHTS_END: f32 = 85.0;
-/// The collapsed toggle's box: from the shell inset plus header padding (18) to past the lights.
-pub(super) const COLLAPSED_SLOT: f32 = TRAFFIC_LIGHTS_END + 16.0 - 18.0 + 32.0;
 /// How far a closed panel's contents dim at the end of the flight.
 pub(super) const FADE_FLOOR: f32 = 0.5;
 
@@ -57,20 +53,22 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     }
 
     let w = s.sidebar_w;
+    let chrome = chrome();
     let inner = col()
         .key("sidebar-inner")
         // Pinned to the aside's end edge: it slides out as the aside narrows.
         .absolute(if s.sidebar_open { 0.0 } else { -w }, 0.0)
         .w(w)
         .h_full()
-        .pt(8.0)
+        .pt(chrome.top())
         .pl(10.0)
         .pr(2.0)
         .pb(10.0)
         .opacity(if s.sidebar_open { 1.0 } else { FADE_FLOOR })
         .opacity_motion(SIDEBAR_SPRING)
-        .child(
-            // Shares the session header's 48px centre line with the traffic lights; drags the window.
+        // Shares the session header's 48px centre line with the traffic lights; drags the window.
+        // A titlebar row above holds the toggle instead (`titlebar.tsx` on Windows).
+        .children(chrome.sidebar_header().then(|| {
             row()
                 .key("sidebar-header")
                 .w_full()
@@ -79,11 +77,12 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
                 .gap(8.0)
                 .center_y()
                 .window_drag()
-                .child(el().key("lights").w(TRAFFIC_LIGHTS_END - 10.0).h(28.0))
+                // The lights' end, less the sidebar's 10pt padding.
+                .child(el().key("lights").w((chrome.lights_end - 10.0).max(0.0)).h(28.0))
                 .child(spacer())
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
-                .child(el().key("toggle-slot").size(28.0, 28.0)),
-        );
+                .child(el().key("toggle-slot").size(28.0, 28.0))
+        }));
     let inner = inner.child(
         col()
             .key("actions")
@@ -306,7 +305,8 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
     let exit = Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0));
     let dragging = s.sidebar_drag.is_some();
     el().key("sidebar-resize")
-        .absolute(w, 0.0)
+        // Below a titlebar row, which moves the window instead.
+        .absolute(w, chrome().row_h)
         .w(8.0)
         .h_full()
         .center()
@@ -339,11 +339,11 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
 /// One toggle that reads as the header's and the collapsed one: it rides the sidebar's edge
 /// to the collapsed spot past the traffic lights while its glyph turns (`sidebar-toggle.tsx`).
 pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
-    let x = if open { w - 2.0 - 28.0 } else { 18.0 + COLLAPSED_SLOT - 4.0 - 28.0 };
+    let (x, y) = chrome().toggle_at(open, w);
     el().key("sidebar-toggle")
         .role("button")
         .label("Toggle sidebar")
-        .absolute(x, 18.0)
+        .absolute(x, y)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -359,7 +359,7 @@ pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
 /// Room the session header keeps for the collapsed toggle.
 pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
-    el().key("toggle-space").w(if s.sidebar_open { 0.0 } else { COLLAPSED_SLOT - 4.0 }).h(28.0).motion(SIDEBAR_SPRING)
+    el().key("toggle-space").w(chrome().toggle_space(s.sidebar_open)).h(28.0).motion(SIDEBAR_SPRING)
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise

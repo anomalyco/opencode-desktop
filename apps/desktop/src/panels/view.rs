@@ -87,7 +87,7 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
 
         let mut column = col()
             .key("side-column")
-            .pin(Some(0.0), Some(8.0), None, Some(col_bottom))
+            .pin(Some(0.0), Some(crate::view::chrome().top()), None, Some(col_bottom))
             .w(w)
             .opacity(if col_open { 1.0 } else { FADE_FLOOR })
             .opacity_motion(SIDE_SPRING);
@@ -610,7 +610,8 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
         el().key("side-toggle")
             .role("button")
             .label(if open { "Hide side panel (⌥⌘B)" } else { "Show side panel (⌥⌘B)" })
-            .pin(None, Some(18.0), Some(18.0), None)
+            // On the session header's centre line, 10pt into the panel.
+            .pin(None, Some(crate::view::chrome().top() + 10.0), Some(18.0), None)
             .size(28.0, 28.0)
             .radius(6.0)
             .center()
@@ -652,7 +653,7 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
 
     Some(
         el().key("side-resize")
-            .absolute(x, 0.0)
+            .absolute(x, crate::view::chrome().row_h)
             .w(8.0)
             .h_full()
             .center()

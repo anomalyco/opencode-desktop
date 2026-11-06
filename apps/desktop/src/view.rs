@@ -15,6 +15,7 @@ use crate::{App, Route, TabStatus};
 use crate::odometer::odometer_end;
 use crate::pickers::Kind;
 
+mod chrome;
 mod composer;
 mod draft;
 mod header;
@@ -24,6 +25,7 @@ mod narrow_story;
 mod session;
 mod sidebar;
 
+pub(crate) use chrome::*;
 pub use composer::*;
 pub(crate) use draft::*;
 pub(crate) use header::*;
@@ -43,6 +45,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
+    set_chrome(cx.chrome_insets());
+    cx.caption_color(caption_color(p.bg_deep));
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);
@@ -145,7 +149,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .grow(1.0)
                 .shrink()
                 .ml(8.0)
-                .mt(8.0)
+                .mt(chrome().top())
                 .mr(8.0)
                 .mb(8.0 + bottom_reserve)
                 .radius(10.0)
@@ -172,8 +176,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx))
-        // The empty inset above the panels moves the window, as the titlebar does.
-        .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(8.0).window_drag());
+        // The empty inset above the panels moves the window, as the titlebar does; on Windows
+        // it's the titlebar row itself.
+        .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(chrome().top()).window_drag());
     if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
         let left = if open { w } else { 0.0 };
         root = root.child(

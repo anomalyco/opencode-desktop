@@ -108,7 +108,7 @@ fn drops(s: &App, info: Option<&SessionInfo>, parent: Option<&SessionInfo>, proj
     // What never goes: the sidebar toggle's room, the side slot, the find bar, the gaps and the cost.
     let children = 3 + usize::from(s.find.open) + usize::from(usage) + usize::from(s.stage.is_none());
     let gaps = if reserve_side { 8.0 * (children - 1) as f32 } else { 8.0 };
-    let toggle = if s.sidebar_open { 0.0 } else { COLLAPSED_SLOT - 4.0 };
+    let toggle = chrome().toggle_space(s.sidebar_open);
     let side = if reserve_side { 30.0 } else { 0.0 };
     let find = if s.find.open { 200.0 } else { 0.0 };
     let fixed = toggle + side + find + gaps + title + working + if usage { text_w(spend, NUMBERS) } else { 0.0 };
