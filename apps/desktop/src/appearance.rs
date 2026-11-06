@@ -6,11 +6,12 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 
-use rune::{Color, El, PopupAnchor, PopupMenu, Tx, icon, row, text};
+use rune::{Color, El, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
 use crate::palette::Pal;
+use crate::popup::{self, Menu};
 use crate::view::UI;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -184,11 +185,11 @@ impl App {
         self.apply_reduce_motion();
     }
 
-    /// Every theme in a native menu over the Theme row's button, the current one checked.
+    /// Every theme in a menu from the Theme row's button, the current one checked.
     pub fn open_theme_menu(&mut self, tx: &mut Tx) {
         let themes = crate::themes::all();
-        let menu = PopupMenu::picker(themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id);
-        tx.popup_menu(menu, PopupAnchor::Key("theme-select".into()), |s: &mut App, picked, tx| {
+        let menu = Menu::picker("Theme", themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id);
+        popup::open(self, menu, "theme-select", tx, |s: &mut App, picked, tx| {
             if let Some(id) = picked {
                 s.set_theme(id, tx);
             }
@@ -235,9 +236,9 @@ fn code_font_select(s: &App, p: &Pal) -> El {
 /// A font row's select: the current font's name, opening the choices over the button.
 fn font_select(p: &Pal, key: &'static str, label: &'static str, fonts: &'static [Font], current: usize, set: fn(&mut App, usize, &mut Tx)) -> El {
     let current = current.min(fonts.len() - 1);
-    select(p, key, label, fonts[current].name).on_press_tx(move |_: &mut App, tx: &mut Tx| {
-        let menu = PopupMenu::picker(fonts.iter().enumerate().map(|(i, f)| (i.to_string(), f.name)), &current.to_string());
-        tx.popup_menu(menu, PopupAnchor::Key(key.into()), move |s: &mut App, picked, tx| {
+    select(p, key, label, fonts[current].name).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        let menu = Menu::picker(label, fonts.iter().enumerate().map(|(i, f)| (i.to_string(), f.name)), &current.to_string());
+        popup::open(s, menu, key, tx, move |s: &mut App, picked, tx| {
             if let Some(i) = picked.and_then(|i| i.parse().ok()) {
                 set(s, i, tx);
             }
@@ -253,8 +254,8 @@ fn theme_select(s: &App, p: &Pal) -> El {
 fn terminal_font_select(s: &App, p: &Pal) -> El {
     let current = TERMINAL_FONTS[s.settings.terminal_font.min(TERMINAL_FONTS.len() - 1)];
     select(p, "terminal-font-select", "Choose terminal font", current).on_press_tx(|s: &mut App, tx: &mut Tx| {
-        let menu = PopupMenu::picker(TERMINAL_FONTS.iter().enumerate().map(|(i, f)| (i.to_string(), *f)), &s.settings.terminal_font.to_string());
-        tx.popup_menu(menu, PopupAnchor::Key("terminal-font-select".into()), |s: &mut App, picked, tx| {
+        let menu = Menu::picker("Terminal font", TERMINAL_FONTS.iter().enumerate().map(|(i, f)| (i.to_string(), *f)), &s.settings.terminal_font.to_string());
+        popup::open(s, menu, "terminal-font-select", tx, |s: &mut App, picked, tx| {
             if let Some(i) = picked.and_then(|i| i.parse().ok()) {
                 s.set_terminal_font(i, tx);
             }
@@ -262,8 +263,8 @@ fn terminal_font_select(s: &App, p: &Pal) -> El {
     })
 }
 
-/// Desktop's Select as a native pop-up button: the current choice and a chevron, opening the
-/// choices with the current one checked over the button.
+/// Desktop's Select: the current choice and a chevron, opening the choices with the current
+/// one checked (a native pop-up button on macOS, a drawn list below it elsewhere).
 fn select(p: &Pal, key: &'static str, label: &'static str, current: &str) -> El {
     row()
         .key(key)

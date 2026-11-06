@@ -97,11 +97,12 @@ fn each_menu_lists_what_desktop_lists_in_its_order() {
     let (rt, _) = app();
     let id = rt.state.tabs[0].id.clone();
     let of = |spot| ids(&lines(&rt.state, &Target::new(&id, spot)));
-    assert_eq!(of(Spot::Tab), ["Rename", "Close tab", "—", "Delete session…"]);
+    let more = if rt.state.tabs.len() > 1 { "" } else { " (off)" };
+    assert_eq!(of(Spot::Tab), ["Rename", "Close tab", &*format!("Close other tabs{more}"), &*format!("Close tabs to the right{more}"), "—", "Delete session…"]);
     assert_eq!(of(Spot::Row), ["Rename", "Export…", "—", "Delete…"]);
     assert_eq!(of(Spot::Header), ["Rename", "Export…", "—", "Delete…"]);
     // A tab whose session hasn't loaded can be closed, and nothing else.
-    assert_eq!(ids(&lines(&rt.state, &Target::new("ses_unknown", Spot::Tab))), ["Rename (off)", "Close tab", "—", "Delete session… (off)"]);
+    assert_eq!(ids(&lines(&rt.state, &Target::new("ses_unknown", Spot::Tab))), ["Rename (off)", "Close tab", "Close other tabs", "Close tabs to the right (off)", "—", "Delete session… (off)"]);
     assert!(lines(&rt.state, &Target::new("ses_unknown", Spot::Row)).is_empty());
 }
 

@@ -12,7 +12,9 @@
 
 use std::sync::Arc;
 
-use rune::{Anim, Cursor, El, PointerPress, PopupItem, PopupMenu, Latest, Tx, Waker, el, icon, row, text};
+use rune::{Align, Anim, Cursor, El, PointerPress, Latest, Tx, Waker, el, icon, row, text};
+
+use crate::popup::{self, Item, Menu};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -258,9 +260,9 @@ impl App {
     }
 }
 
-fn app_items(s: &App, with_current: bool) -> Vec<PopupItem> {
+fn app_items(s: &App, with_current: bool) -> Vec<Item> {
     let cur = s.open_in.current();
-    s.open_in.options().into_iter().map(|(id, label)| PopupItem::new(format!("app:{id}"), label).checked(with_current && id == cur)).collect()
+    s.open_in.options().into_iter().map(|(id, label)| Item::new(format!("app:{id}"), label).checked(with_current && id == cur)).collect()
 }
 
 fn pick(s: &mut App, rel: &str, id: &str, tx: &mut Tx) {
@@ -285,10 +287,10 @@ pub fn context(row: El, rel: String) -> El {
         if !s.can_open_in() {
             return;
         }
-        let menu = PopupMenu::new().items(app_items(s, false)).separator().item(PopupItem::new("copy", "Copy path"));
+        let menu = Menu::new("Open in").items(app_items(s, false)).separator().item(Item::new("copy", "Copy path"));
         let rel = rel.clone();
         tx.instant();
-        tx.popup_menu(menu, press, move |s: &mut App, picked, tx| {
+        popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
             tx.instant();
             if let Some(id) = picked {
                 pick(s, &rel, id, tx);
@@ -339,14 +341,15 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .label("Open options")
         .help("Open options")
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = PopupMenu::new()
+            let menu = Menu::new("Open in")
                 .items(app_items(s, true))
                 .separator()
-                .item(PopupItem::new("reveal", "Reveal in Finder"))
-                .item(PopupItem::new("copy", "Copy path"));
+                .item(Item::new("reveal", "Reveal in Finder"))
+                .item(Item::new("copy", "Copy path"))
+                .align(Align::End);
             let rel = rel_menu.clone();
             tx.instant();
-            tx.popup_menu(menu, anchor.clone(), move |s: &mut App, picked, tx| {
+            popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| {
                 tx.instant();
                 if let Some(id) = picked {
                     pick(s, &rel, id, tx);

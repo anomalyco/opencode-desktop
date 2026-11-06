@@ -4,7 +4,7 @@
 use rune::{Color, El, Tx, col, el, row, spacer, text, text_input};
 
 use crate::palette::Pal;
-use crate::session_menu::{Item, Line, Spot, Target};
+use crate::session_menu::{Line, Spot, Target};
 use crate::view::{UI, UI_MED};
 use crate::App;
 
@@ -81,23 +81,9 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     ]
 }
 
-/// `lines` as a menu: rounded, raised, 13 pt; item `hot` lit as if the pointer were on it.
+/// `lines` as the drawn menu draws them (`popup::surface`), item `hot` lit as if the pointer
+/// were on it, for the storybook's stills.
 pub fn preview(p: &Pal, key: &str, lines: &[Line], hot: Option<&str>) -> El {
-    let mut c = col().key(key.to_owned()).w(188.0).padding(5.0).radius(8.0).fill(p.bg_base).border(0.5, p.ring).shadow(10.0, 28.0, p.shadow).raise();
-    for (n, l) in lines.iter().enumerate() {
-        c = c.child(match l {
-            Line::Item(i) => entry(p, i, hot == Some(i.id)),
-            Line::Sep => el().key(format!("sep-{n}")).w_full().h(1.0).my(5.0).px(10.0).child(el().key("line").w_full().h(1.0).fill(p.ring)),
-        });
-    }
-    c
-}
-
-fn entry(p: &Pal, i: &Item, hot: bool) -> El {
-    let ink = if hot { p.on_fill } else if i.enabled { p.text } else { p.faint };
-    let mut r = row().key(format!("item-{}", i.id)).w_full().h(22.0).px(10.0).radius(4.0).center_y();
-    if hot {
-        r = r.fill(p.bg_accent);
-    }
-    r.child(text(i.title).font(UI).color(ink))
+    let lit = lines.iter().position(|l| matches!(l, Line::Item(i) if hot == Some(i.id)));
+    crate::popup::surface(p, &crate::session_menu::menu(lines), lit).key(key.to_owned()).raise()
 }

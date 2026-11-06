@@ -233,14 +233,14 @@ fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El
         .hover(if active { p.pressed } else { p.hover })
         .press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
-        .on_secondary_press(move |_: &mut App, press: rune::PointerPress, tx: &mut Tx| {
-            let menu = rune::PopupMenu::new()
-                .item(rune::PopupItem::new("new-session", "New session"))
+        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
+            let menu = crate::popup::Menu::new("Project")
+                .item(crate::popup::Item::new("new-session", "New session"))
                 .separator()
-                .item(rune::PopupItem::new("close", "Close"));
+                .item(crate::popup::Item::new("close", "Close"));
             let pid = menu_id.clone();
             let dir = menu_dir.clone();
-            tx.popup_menu(menu, press, move |s: &mut App, picked, tx| match picked.as_deref() {
+            crate::popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| match picked {
                 Some("new-session") => s.open_project_dir(&dir, true, tx),
                 Some("close") => s.hide_project(&pid, tx),
                 _ => {}

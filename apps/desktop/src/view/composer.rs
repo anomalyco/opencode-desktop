@@ -155,7 +155,8 @@ impl ComposerHost for App {
         self.slash_changed(tx);
     }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if crate::rewind::menu_key(self, ev, tx)
+        if crate::popup::key(self, ev, tx)
+            || crate::rewind::menu_key(self, ev, tx)
             || self.fork_key(ev, tx)
             || self.mention_key(ev, tx)
             || self.add_key(ev, tx)

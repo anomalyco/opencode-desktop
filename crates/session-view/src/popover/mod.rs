@@ -205,12 +205,18 @@ pub struct Opt {
     pub trailing: Vec<El>,
     /// In a [`List`]: its sliding highlight lights the row, not the row's own fill.
     pub slides: bool,
+    /// A destructive action (Delete): its label in Desktop's critical ink.
+    pub danger: bool,
+    /// Shown but not offered: a faint label that neither lights nor picks.
+    pub disabled: bool,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false }
     }
+    pub fn danger(mut self, on: bool) -> Opt { self.danger = on; self }
+    pub fn disabled(mut self, on: bool) -> Opt { self.disabled = on; self }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
     pub fn active(mut self, on: bool) -> Opt { self.active = on; self }
     pub fn slides(mut self) -> Opt { self.slides = true; self }
@@ -220,7 +226,8 @@ impl Opt {
     pub fn trailing(mut self, e: El) -> Opt { self.trailing.push(e); self }
 }
 
-/// An option row: the highlight follows the pointer at once (`hover`) and a press picks it.
+/// An option row: the highlight follows the pointer at once (`hover`) and a press picks it. A
+/// disabled one does neither.
 pub fn option<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S) + 'static, pick: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     let slides = o.slides;
     let r = row()
@@ -236,19 +243,24 @@ pub fn option<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S) + 
         .gap(look.gap)
         .center_y()
         .radius(look.row_radius)
-        .fill(lit(p, o.active && !o.slides))
-        .press(p.pressed)
-        // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
-            if inside {
-                tx.instant();
-                if slides { slide::jump(); }
-                hover(s);
-            }
-        })
-        .on_press_tx(pick);
+        .fill(lit(p, o.active && !o.slides && !o.disabled));
+    let r = if o.disabled {
+        r.disabled(true)
+    } else {
+        r.press(p.pressed)
+            // Not `on_hover`: its commit would animate the highlight's fill from row to row.
+            .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
+                if inside {
+                    tx.instant();
+                    if slides { slide::jump(); }
+                    hover(s);
+                }
+            })
+            .on_press_tx(pick)
+    };
+    let ink = if o.disabled { p.faint } else if o.danger { p.danger } else { p.text };
     let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
-        .child(text(o.label).font(UI).color(p.text).shrink().truncate_fade())
+        .child(text(o.label).font(UI).color(ink).shrink().truncate_fade())
         .children(o.after);
     r.children(o.lead)
         .child(words)

@@ -154,6 +154,7 @@ mod perf;
 mod permission;
 mod pickers;
 mod popover;
+mod popup;
 mod project_stories;
 mod project_switcher;
 mod projects;
@@ -330,6 +331,8 @@ pub struct App {
     pub home_search: home_search::HomeSearch,
     /// Session menus, the title being renamed and Delete's confirmation.
     pub menus: session_menu::Menus,
+    /// The drawn menu or picker open now (off macOS).
+    pub popup: popup::Popup,
     pub pickers: pickers::Pickers,
     /// The composer's `@` popover and what it lists.
     pub mentions: mentions::Mentions,

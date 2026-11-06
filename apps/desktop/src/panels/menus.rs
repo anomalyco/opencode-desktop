@@ -1,12 +1,13 @@
 //! Side region `"New tab"` launcher cards, `Recently closed` list, and tab/`+` context menus.
 
-use rune::{Anim, El, Icon, ScrollSpec, Tx, col, el, icon, row, text};
+use rune::{Align, Anim, El, Icon, ScrollSpec, Side, Tx, col, el, icon, row, text};
 
 use super::state::ResolvedRegion;
 use super::{SessionPane, icon_by_name};
 use crate::App;
 use crate::keymap::{self, Bind};
 use crate::palette::Pal;
+use crate::popover::{self, MENU, Opt};
 use crate::view::{UI, UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -134,6 +135,8 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
         .child(row().w_full().center().child(list))
 }
 
+/// The side panel's tab and `+` menus, drawn on every platform with the one popover every menu
+/// is built from (`popover::MENU`), at the right-click.
 pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
     if let Some((ref target_key, x, y)) = s.side.tab_menu {
         let tk = target_key.clone();
@@ -155,138 +158,89 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             })
             .unwrap_or_default();
 
-        let mut menu = col()
-            .key("side-tab-menu")
-            .absolute(x.max(8.0), (y + 4.0).max(8.0))
-            .w(176.0)
-            .padding(4.0)
-            .gap(2.0)
-            .radius(8.0)
-            .fill(p.layer2)
-            .border(0.5, p.ring)
-            .shadow(4.0, 12.0, p.shadow);
+        let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
         if can_close {
-            menu = menu.child(menu_row(p, "Close tab", &Bind::TabClose.label()).key("side-tab-menu-close").on_press_tx(
-                move |s: &mut App, tx: &mut Tx| {
-                    s.side.tab_menu = None;
-                    s.close_side_tab(&tk, tx);
-                },
-            ));
+            rows = rows.child(menu_row(p, "side-tab-menu-close", None, "Close tab", &Bind::TabClose.label(), move |s: &mut App, tx: &mut Tx| {
+                s.side.tab_menu = None;
+                s.close_side_tab(&tk, tx);
+            }));
         }
         let has_others = !others.is_empty();
         if has_others {
-            menu = menu.child(menu_row(p, "Close other tabs", "").key("side-tab-menu-close-others").on_press_tx(
-                move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.side.tab_menu = None;
-                    for k in &others {
-                        s.close_side_tab(k, tx);
-                    }
-                },
-            ));
+            rows = rows.child(menu_row(p, "side-tab-menu-close-others", None, "Close other tabs", "", move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.side.tab_menu = None;
+                for k in &others {
+                    s.close_side_tab(k, tx);
+                }
+            }));
         }
         if can_close || has_others {
-            menu = menu.child(el().w_full().h(0.5).my(2.0).fill(p.border_muted));
+            rows = rows.child(separator(p));
         }
-        menu = menu
-            .child(menu_row(p, "Move to split below", "").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        rows = rows
+            .child(menu_row(p, "side-tab-menu-split", None, "Move to split below", "", move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_split, SessionPane::Split, None, tx);
             }))
-            .child(menu_row(p, "Move to top pane", "").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "side-tab-menu-top", None, "Move to top pane", "", move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_side, SessionPane::Side, None, tx);
             }))
-            .child(menu_row(p, "Move to bottom dock", &Bind::BottomToggle.label()).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "side-tab-menu-bottom", None, "Move to bottom dock", &Bind::BottomToggle.label(), move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_bottom, SessionPane::Bottom, None, tx);
             }));
-
-        return Some(
-            el().key("side-menu-backdrop")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.side.tab_menu = None;
-                })
-                .child(menu),
-        );
+        let menu = popover::surface::<App>(p, MENU, "side-tab-menu", "Tab").w(196.0).child(rows);
+        return Some(layer(s, (x, y), menu, |s| s.side.tab_menu = None));
     }
 
     if let Some((pane, x, y)) = s.side.add_menu {
         let reg = s.resolve_side_region()?;
-        let mut menu = col()
-            .key("side-add-menu")
-            .absolute(x.max(8.0), (y + 4.0).max(8.0))
-            .w(196.0)
-            .padding(4.0)
-            .gap(2.0)
-            .radius(8.0)
-            .fill(p.layer2)
-            .border(0.5, p.ring)
-            .shadow(4.0, 12.0, p.shadow);
+        let mut rows = col().key("side-add-menu-rows").w_full().padding(MENU.inset);
         for &(_pl, ref desc, open_fn) in &reg.launchers {
-            menu = menu.child(
-                menu_row_icon(p, desc.icon, &desc.title, &keymap::first_label(desc.shortcut)).on_press_tx(
-                    move |s: &mut App, tx: &mut Tx| {
-                        tx.instant();
-                        s.side.add_menu = None;
-                        open_fn(s, pane, tx);
-                    },
-                ),
-            );
+            let key = format!("side-add-menu-{}", desc.id);
+            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &keymap::first_label(desc.shortcut), move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.side.add_menu = None;
+                open_fn(s, pane, tx);
+            }));
         }
-        return Some(
-            el().key("side-menu-backdrop")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.side.add_menu = None;
-                })
-                .child(menu),
-        );
+        let menu = popover::surface::<App>(p, MENU, "side-add-menu", "New tab").w(220.0).child(rows);
+        return Some(layer(s, (x, y), menu, |s| s.side.add_menu = None));
     }
 
     None
 }
 
-fn menu_row(p: &Pal, label: &str, hint: &str) -> El {
-    let mut r = row()
-        .role("menuitem")
-        .label(label)
-        .w_full()
-        .h(28.0)
-        .px(8.0)
-        .gap(8.0)
-        .center_y()
-        .radius(5.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(INSTANT, INSTANT)
-        .child(text(label.to_owned()).font(UI).color(p.text).truncate_fade().grow(1.0));
-    if !hint.is_empty() {
-        r = r.child(text(hint.to_owned()).font(UI_SMALL).color(p.faint));
-    }
-    r
+/// `menu` at the point (`x`, `y`), kept inside the window, over a layer whose press closes it.
+fn layer(s: &App, (x, y): (f32, f32), menu: El, close: fn(&mut App)) -> El {
+    el().key("side-menu-backdrop")
+        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            close(s);
+        })
+        .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| {
+            tx.instant();
+            close(s);
+        })
+        .child(el().key("side-menu-point").absolute(x, y).size(0.0, 0.0))
+        .child(popover::place(&s.knobs, menu, "side-menu-point", Side::Bottom, Align::Start, 2.0))
 }
 
-fn menu_row_icon(p: &Pal, glyph: &'static Icon, label: &str, hint: &str) -> El {
-    let mut r = row()
-        .role("menuitem")
-        .label(label)
-        .w_full()
-        .h(28.0)
-        .px(8.0)
-        .gap(8.0)
-        .center_y()
-        .radius(5.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(INSTANT, INSTANT)
-        .child(icon(glyph, 14.0).color(p.icon_muted))
-        .child(text(label.to_owned()).font(UI).color(p.text).truncate_fade().grow(1.0));
-    if !hint.is_empty() {
-        r = r.child(text(hint.to_owned()).font(UI_SMALL).color(p.faint));
+/// A menu row as the shared popover draws one: lit while the pointer is on it.
+fn menu_row(p: &Pal, key: &str, glyph: Option<&'static Icon>, label: &str, hint: &str, pick: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    let mut o = Opt::new(key.to_owned(), label.to_owned()).role("menuitem");
+    if let Some(glyph) = glyph {
+        o = o.lead(icon(glyph, popover::SLOT).color(p.icon_muted));
     }
-    r
+    if !hint.is_empty() {
+        o = o.trailing(popover::hint(p, hint));
+    }
+    popover::option::<App>(p, MENU, o, |_| {}, pick).hover(p.row_active).hover_motion(INSTANT, INSTANT)
+}
+
+fn separator(p: &Pal) -> El {
+    col().key("side-menu-separator").w_full().py(2.0).child(popover::divider(p, "line"))
 }

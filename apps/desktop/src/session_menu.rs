@@ -1,11 +1,11 @@
 //! Right-click menus on sessions and renaming them in place, as Desktop has them (`tab-nav.tsx`,
-//! `home/sessions/view.tsx`, `message-timeline.tsx`). The menus are native; the actions go
-//! through the same calls Desktop's do (`PATCH /api/session/:id` with `{ title }`, `DELETE`,
-//! the Export JSON).
+//! `home/sessions/view.tsx`, `message-timeline.tsx`). The menus are native on macOS and drawn
+//! elsewhere (`popup`); the actions go through the same calls Desktop's do
+//! (`PATCH /api/session/:id` with `{ title }`, `DELETE`, the Export JSON).
 //!
 //! | Where | Items |
 //! | --- | --- |
-//! | Sidebar tab | Rename, Close tab, Make project, —, Delete session… |
+//! | Sidebar tab | Rename, Close tab, Close other tabs, Close tabs to the right, —, Delete session… |
 //! | Home row, session header | Rename, Export…, Make project, —, Delete… |
 //! | Inbox task / project line | Close (archive) / Stop being a project, —, Delete… |
 //!
@@ -13,10 +13,11 @@
 //! Home row cancels, as Desktop's does). Double-clicking a tab and clicking a root session's
 //! header title start it, and ⌃R does for the open session. Delete asks first.
 
-use rune::{Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, TextEdit, Tx};
+use rune::{Key, KeyEvent, PopupAnchor, TextEdit, Tx};
 
 use opencode_kit::client::Write;
 
+use crate::popup::{self, Menu};
 use crate::{App, Route};
 
 /// Where a session's title is drawn: each has its own menu and its own blur rule.
@@ -60,6 +61,8 @@ pub struct Item {
     pub id: &'static str,
     pub title: &'static str,
     pub enabled: bool,
+    /// Destructive: Desktop's critical ink.
+    pub danger: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,28 +72,35 @@ pub enum Line {
 }
 
 fn item(id: &'static str, title: &'static str, enabled: bool) -> Line {
-    Line::Item(Item { id, title, enabled })
+    Line::Item(Item { id, title, enabled, danger: false })
 }
 
 /// The menu for `t`, as Desktop lists it. A tab's Rename and Delete wait for its session to
-/// load; a subagent's header has no menu.
+/// load, and its Close other tabs and Close tabs to the right for tabs to close; a subagent's
+/// header has no menu.
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
     let known = s.session(&t.id);
     match t.spot {
-        Spot::Tab => vec![
-            item("rename", "Rename", known.is_some()),
-            item("close", "Close tab", true),
-            Line::Sep,
-            item("delete", "Delete session…", known.is_some()),
-        ],
+        Spot::Tab => {
+            let at = s.tabs.iter().position(|x| x.id == t.id);
+            vec![
+                item("rename", "Rename", known.is_some()),
+                item("close", "Close tab", true),
+                item("close-others", "Close other tabs", s.tabs.iter().any(|x| x.id != t.id)),
+                item("close-right", "Close tabs to the right", at.is_some_and(|i| i + 1 < s.tabs.len())),
+                Line::Sep,
+                Line::Item(Item { id: "delete", title: "Delete session…", enabled: known.is_some(), danger: true }),
+            ]
+        }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
         Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), Line::Sep, item("delete", "Delete…", true)],
     }
 }
 
-fn native(lines: &[Line]) -> PopupMenu {
-    lines.iter().fold(PopupMenu::new(), |m, l| match l {
-        Line::Item(i) => m.item(PopupItem::new(i.id, i.title).enabled(i.enabled)),
+/// `lines` as the menu that shows them.
+pub fn menu(lines: &[Line]) -> Menu {
+    lines.iter().fold(Menu::new("Session"), |m, l| match l {
+        Line::Item(i) => m.item(popup::Item::new(i.id, i.title).enabled(i.enabled).danger(i.danger)),
         Line::Sep => m.separator(),
     })
 }
@@ -108,7 +118,7 @@ pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     s.finish_rename(true);
     s.menus.on = Some(t.clone());
     tx.instant();
-    tx.popup_menu(native(&lines), at, move |s: &mut App, picked, tx| {
+    popup::open(s, menu(&lines), at, tx, move |s: &mut App, picked, tx| {
         s.menus.on = None;
         tx.instant();
         if let Some(id) = picked {
@@ -127,6 +137,16 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
     match id {
         "rename" => s.begin_rename(t),
         "close" => s.close_tab(&t.id, tx),
+        "close-others" | "close-right" => {
+            let at = s.tabs.iter().position(|x| x.id == t.id).unwrap_or(0);
+            let gone: Vec<String> = s.tabs.iter().enumerate()
+                .filter(|(i, x)| x.id != t.id && (id == "close-others" || *i > at))
+                .map(|(_, x)| x.id.clone())
+                .collect();
+            for g in gone {
+                s.close_tab(&g, tx);
+            }
+        }
         "export" => {
             s.write(Write::Export(t.id.clone()));
         }
