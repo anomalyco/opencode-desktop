@@ -10,7 +10,8 @@ use sha2::{Digest as _, Sha256};
 
 use super::mac::{self, BundleInfo, LOCAL_DEV_BUNDLE_ID, TEAM_BUNDLE_ID};
 use super::protocol::{self, Decision, TARGET_MACOS_ARM64};
-use super::{Engine, UpdateState, WorkerConfig, hex_lower};
+use super::UpdateState;
+use super::worker::{Engine, WorkerConfig, hex_lower};
 use crate::App;
 
 #[test]
