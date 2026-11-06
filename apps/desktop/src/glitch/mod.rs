@@ -102,7 +102,7 @@ pub fn wrap(s: &App, app: El) -> El {
 /// Where a bundle goes: `<data dir>/rune-opencode/glitches/<ms>`, or the temp folder in tests
 /// and headless runs.
 fn bundle_dir(s: &App) -> PathBuf {
-    let base = if s.persists() { crate::restore::data_dir() } else { None };
+    let base = if s.persists() { crate::dirs::data() } else { None };
     base.unwrap_or_else(|| std::env::temp_dir().join("rune-opencode")).join("glitches").join(crate::wall_ms().to_string())
 }
 

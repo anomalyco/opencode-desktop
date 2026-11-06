@@ -143,7 +143,7 @@ pub fn number_from_title(title: &str) -> Option<usize> {
 }
 
 fn file() -> Option<PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("terminals.json"))
+    crate::dirs::data().map(|d| d.join("terminals.json"))
 }
 
 fn read_disk() -> Value {

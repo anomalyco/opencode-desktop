@@ -92,6 +92,7 @@ mod diagnostics;
 mod dictation;
 #[cfg(test)]
 mod dictation_tests;
+mod dirs;
 mod disk;
 mod dock_fade_stories;
 mod dropzone;
@@ -310,6 +311,8 @@ pub struct App {
     pub question: question::Dock,
     /// Where "New session" creates its session.
     pub draft_dir: String,
+    /// The home folder paths show as `~`: the user's, or the fixture's in a fixture run.
+    pub home: String,
     pub sidebar_open: bool,
     pub sidebar_w: f32,
     /// The width when a resize drag started.
@@ -678,8 +681,10 @@ fn wall_ms() -> i64 {
 
 impl App {
     fn empty() -> App {
+        let home = dirs::home();
         App {
-            draft_dir: arg("--directory").unwrap_or_else(|| std::env::var("HOME").unwrap_or_default()),
+            draft_dir: arg("--directory").unwrap_or_else(|| home.clone()),
+            home,
             sidebar_open: !flag("--sidebar-closed"),
             sidebar_w: view::SIDEBAR_W,
             zoom: arg("--zoom").and_then(|z| z.parse::<f32>().ok()).map_or(1.0, |z| z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX)),
@@ -756,6 +761,9 @@ impl App {
         self.status = "Fixture".into();
         self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode"])));
         self.open_in.detect();
+        if let Some(home) = v["home"].as_str() {
+            self.home = home.to_owned();
+        }
         self.fixture = v;
         self.source = Source::Fixture;
         self.init_used_projects(None);
@@ -1232,6 +1240,7 @@ fn main() {
         return;
     }
     telemetry::launched();
+    opencode_kit::client::set_download_dir(dirs::downloads());
     rune_mac::launch();
     rune::prewarm_gpu();
     launch::apply_app_icon();

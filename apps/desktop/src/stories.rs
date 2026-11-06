@@ -297,7 +297,7 @@ pub fn playground() -> Playground<App> {
 
 /// `<data dir>/rune-opencode/storybook.json`: the groups folded in the list.
 fn folds_file() -> Option<std::path::PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("storybook.json"))
+    crate::dirs::data().map(|d| d.join("storybook.json"))
 }
 
 /// Headless runs and tests neither read nor write them, so a capture's list never depends on

@@ -205,7 +205,7 @@ impl OpenIn {
 }
 
 fn file() -> Option<std::path::PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("open-in.json"))
+    crate::dirs::data().map(|d| d.join("open-in.json"))
 }
 
 impl App {

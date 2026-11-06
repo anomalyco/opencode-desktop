@@ -212,7 +212,7 @@ impl App {
         self.browser.host.set_waker(waker);
         self.browser.host.set_shell_shortcut(claims_app_shortcut);
         if self.persists()
-            && let Some(dir) = crate::restore::data_dir()
+            && let Some(dir) = crate::dirs::data()
         {
             self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
         }

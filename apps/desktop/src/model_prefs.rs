@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub use session_view::pickers::ModelPrefs;
 
 pub fn load() -> ModelPrefs {
-    ModelPrefs::load(crate::restore::data_dir().map(|d| d.join("model-prefs.json")), write)
+    ModelPrefs::load(crate::dirs::data().map(|d| d.join("model-prefs.json")), write)
 }
 
 fn write(path: PathBuf, body: String) {

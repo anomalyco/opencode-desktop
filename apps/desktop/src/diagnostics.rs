@@ -99,7 +99,7 @@ impl State {
 }
 
 fn start() -> Option<Recorder> {
-    let dir = crate::restore::data_dir()?.join("perf");
+    let dir = crate::dirs::data()?.join("perf");
     let config = Config::new(dir, "OpenCode (Rune)").build(env!("CARGO_PKG_VERSION"));
     match Recorder::start(config) {
         Ok(r) => {

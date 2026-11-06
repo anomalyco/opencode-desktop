@@ -263,10 +263,6 @@ impl Server {
         let clean = base.trim_end_matches('/').to_owned();
         let password = std::env::var("OPENCODE_SERVER_PASSWORD")
             .ok()
-            .or_else(|| {
-                let home = std::env::var("HOME").ok()?;
-                std::fs::read_to_string(format!("{home}/.local/share/opencode-studio-migration/password")).ok()
-            })
             .or_else(|| crate::local_service::password_for_base(&clean));
         let auth = password
             .map(|p| p.trim().to_owned())
@@ -914,8 +910,15 @@ pub fn export_filename(info: &Value, id: &str) -> String {
     format!("{}.json", if clean.is_empty() { id } else { clean })
 }
 
+static DOWNLOADS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+/// Where [`Write::Export`] saves sessions: the app's Downloads folder, set once at startup.
+pub fn set_download_dir(dir: Option<std::path::PathBuf>) {
+    let _ = DOWNLOADS.set(dir);
+}
+
 fn save_download(name: &str, json: &str) -> Result<String, String> {
-    let dir = std::path::PathBuf::from(std::env::var("HOME").map_err(|e| e.to_string())?).join("Downloads");
+    let dir = DOWNLOADS.get().cloned().flatten().ok_or("No Downloads folder")?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;

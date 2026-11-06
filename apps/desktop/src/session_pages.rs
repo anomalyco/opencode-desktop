@@ -414,10 +414,7 @@ fn pause(q: &Shared, total: Duration) -> bool {
 fn disk_dir(server: &str) -> Option<PathBuf> {
     // Stable server namespace, including port; session IDs alone do not identify a server.
     let namespace = server.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    let cache = if cfg!(target_os = "macos") { home.join("Library/Caches") }
-        else { std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".cache")) };
-    Some(cache.join(format!("rune-opencode/pages-v1/{namespace:016x}")))
+    Some(crate::dirs::cache()?.join("pages-v1").join(format!("{namespace:016x}")))
 }
 
 fn file(dir: &std::path::Path, key: &Key) -> Option<PathBuf> {

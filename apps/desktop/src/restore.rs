@@ -1,6 +1,6 @@
 //! What survives a relaunch beyond the tabs: the open session and every composer draft. The
 //! auto-rebuild restarts the app on each merge, so live mode writes this on every change, to
-//! `<data dir>/rune-opencode/ui.json`, one entry per server.
+//! `ui.json` in the app's data folder (`crate::dirs`), one entry per server.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -29,22 +29,8 @@ pub struct Restore {
     stamp: Option<u64>,
 }
 
-/// The platform's per-user data directory.
-pub fn base_dir() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    if cfg!(target_os = "macos") {
-        return Some(home.join("Library/Application Support"));
-    }
-    Some(std::env::var_os("XDG_DATA_HOME").map_or_else(|| home.join(".local/share"), PathBuf::from))
-}
-
-/// `<data dir>/rune-opencode`, where the saved UI and settings live.
-pub fn data_dir() -> Option<PathBuf> {
-    base_dir().map(|d| d.join("rune-opencode"))
-}
-
 fn file() -> Option<PathBuf> {
-    data_dir().map(|d| d.join("ui.json"))
+    crate::dirs::data().map(|d| d.join("ui.json"))
 }
 
 fn read() -> Value {

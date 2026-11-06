@@ -20,15 +20,7 @@ pub const PROFILE_ENV: &str = "OPENCODE_BROWSER_PROFILE";
 pub(crate) const UNLOCK_WAIT: Duration = Duration::from_secs(20);
 
 fn profiles_root() -> PathBuf {
-    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
-    #[cfg(target_os = "macos")]
-    {
-        home.join("Library/Application Support/co.anomaly.opencode")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        home.join(".local/share/opencode")
-    }
+    crate::installer::engine_dirs().map_or_else(|| PathBuf::from("/tmp"), |d| d.state().to_owned())
 }
 
 /// The profile every app shared before each got its own; the engine's own default.

@@ -193,10 +193,6 @@ pub fn slug(text: &str) -> String {
         .collect()
 }
 
-pub(super) fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
-}
-
 impl App {
     /// The folder links in session `sid` resolve against.
     pub fn link_directory(&self, sid: &str) -> String {
@@ -209,7 +205,7 @@ impl App {
             return self.open_link(&sid, None, href, tx);
         }
         // A new session's page: no side panel to open a file in.
-        match classify(href, "", &self.draft_dir, &home()) {
+        match classify(href, "", &self.draft_dir, &self.home) {
             Link::Web(url) => self.open_web(&url, tx),
             Link::Heading(_) => {}
             Link::Inside { path, .. } => {
@@ -230,7 +226,7 @@ impl App {
     /// in the viewer, whose folder relative links resolve against.
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
         let base = from.and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d);
-        match classify(href, base, &self.link_directory(sid), &home()) {
+        match classify(href, base, &self.link_directory(sid), &self.home) {
             Link::Web(url) => self.open_web(&url, tx),
             Link::Heading(h) => {
                 if let Some(f) = from {

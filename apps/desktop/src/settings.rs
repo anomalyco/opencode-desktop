@@ -118,7 +118,7 @@ impl Settings {
 }
 
 fn file() -> Option<PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("settings.json"))
+    crate::dirs::data().map(|d| d.join("settings.json"))
 }
 
 pub fn load() -> Settings {

@@ -62,11 +62,6 @@ pub struct SwitcherRow {
     pub kind: RowKind,
 }
 
-fn short_path(dir: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "\u{0}".into());
-    dir.replace("/Users/demo", "~").replace(&home, "~")
-}
-
 fn matches_query(q: &str, fields: &[&str]) -> bool {
     let q = q.trim().to_lowercase();
     q.is_empty() || fields.iter().any(|f| f.to_lowercase().contains(&q))
@@ -104,7 +99,7 @@ impl App {
         match &self.project_switcher.mode {
             StepMode::Worktrees(pid) => {
                 let Some(project) = self.project(pid) else { return Vec::new() };
-                let main_short = short_path(&project.directory);
+                let main_short = self.tilde(&project.directory);
                 let mut out = Vec::new();
                 if matches_query(q, &[&project.name, &project.directory, &main_short]) {
                     out.push(SwitcherRow {
@@ -125,7 +120,7 @@ impl App {
                         continue;
                     }
                     let title = folder_name(&dir);
-                    let short = short_path(&dir);
+                    let short = self.tilde(&dir);
                     if matches_query(q, &[&title, &dir, &short]) {
                         out.push(SwitcherRow {
                             key: format!("wt:{dir}"),
@@ -141,8 +136,8 @@ impl App {
             StepMode::Others => self
                 .other_projects()
                 .into_iter()
-                .filter(|p| matches_query(q, &[&p.name, &p.directory, &short_path(&p.directory)]))
-                .map(|p| project_row_item(p, false))
+                .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
+                .map(|p| project_row_item(p, self.tilde(&p.directory), false))
                 .collect(),
             StepMode::Projects => {
                 let used = self.used_projects();
@@ -150,15 +145,15 @@ impl App {
                 let other_count = others.len();
                 let mut out: Vec<SwitcherRow> = used
                     .into_iter()
-                    .filter(|p| matches_query(q, &[&p.name, &p.directory, &short_path(&p.directory)]))
-                    .map(|p| project_row_item(p, true))
+                    .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
+                    .map(|p| project_row_item(p, self.tilde(&p.directory), true))
                     .collect();
                 if !q.is_empty() {
                     out.extend(
                         others
                             .into_iter()
-                            .filter(|p| matches_query(q, &[&p.name, &p.directory, &short_path(&p.directory)]))
-                            .map(|p| project_row_item(p, false)),
+                            .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
+                            .map(|p| project_row_item(p, self.tilde(&p.directory), false)),
                     );
                 } else if other_count > 0 {
                     out.push(SwitcherRow {
@@ -374,12 +369,12 @@ impl App {
     }
 }
 
-fn project_row_item(p: &Project, used: bool) -> SwitcherRow {
+fn project_row_item(p: &Project, subtitle: String, used: bool) -> SwitcherRow {
     let drillable = !project_sandboxes(&p.id).is_empty();
     SwitcherRow {
         key: format!("project:{}", p.id),
         title: p.name.clone(),
-        subtitle: short_path(&p.directory),
+        subtitle,
         section: if used { "Projects" } else { "Other projects" },
         kind: RowKind::Project { id: p.id.clone(), directory: p.directory.clone(), used, drillable },
     }

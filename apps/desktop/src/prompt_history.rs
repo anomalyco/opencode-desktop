@@ -18,7 +18,7 @@ pub struct PromptHistory {
 }
 
 fn file() -> Option<PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("prompt-history.json"))
+    crate::dirs::data().map(|d| d.join("prompt-history.json"))
 }
 
 impl PromptHistory {

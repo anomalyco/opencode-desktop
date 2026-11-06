@@ -1,6 +1,7 @@
 //! The live app's motion log: every drawn frame of real use is watched for the glitches the
 //! motion gate looks for on fixtures, and each one seen is appended as one JSON line to
-//! `~/Library/Logs/opencode-rune/motion.jsonl`.
+//! `motion.jsonl` in the app's log folder (`~/Library/Logs/opencode-rune` on macOS; see
+//! `crate::dirs`).
 //!
 //! It runs from `App::on_frame_drawn`, so it costs nothing while the window is idle and never asks
 //! for a frame. The UI thread only takes Rune's light snapshot (`Runtime::motion_elements`) and
@@ -411,8 +412,7 @@ impl Log {
         let (tx, back) = self.tx.get_or_insert_with(|| {
             let (tx, rx) = std::sync::mpsc::sync_channel::<Frame>(QUEUE);
             let (done, back) = std::sync::mpsc::sync_channel(QUEUE + 1);
-            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-            let mut worker = Worker::new(home.join("Library/Logs/opencode-rune/motion.jsonl"));
+            let mut worker = Worker::new(crate::dirs::motion_log().unwrap_or_else(|| std::env::temp_dir().join("motion.jsonl")));
             let _ = std::thread::Builder::new().name("motion-log".into()).spawn(move || {
                 for mut f in rx {
                     for line in worker.take(&mut f) { worker.write(&line, f.ms); }

@@ -83,7 +83,7 @@ impl WrapPrefs {
     }
 
     fn file() -> Option<std::path::PathBuf> {
-        crate::restore::data_dir().map(|d| d.join("file-wrap.json"))
+        crate::dirs::data().map(|d| d.join("file-wrap.json"))
     }
 
     pub fn load() -> Self {

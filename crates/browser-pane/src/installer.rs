@@ -51,20 +51,18 @@ pub enum EngineStatus {
     Failed(String),
 }
 
+/// The engine's folders, shared by every app that shows a browser pane (`rune::dirs`): its
+/// state folder is `~/Library/Application Support/co.anomaly.opencode` on macOS and
+/// `%LOCALAPPDATA%\co.anomaly.opencode` on Windows; its cache folder holds the sockets.
+pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
+    rune::dirs::AppDirs::new("co.anomaly.opencode")
+}
+
 pub fn engine_cache_root() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    #[cfg(target_os = "macos")]
-    {
-        PathBuf::from(home)
-            .join("Library/Application Support/co.anomaly.opencode/browser-engine")
-            .join(ENGINE_VERSION)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        PathBuf::from(home)
-            .join(".local/share/opencode/browser-engine")
-            .join(ENGINE_VERSION)
-    }
+    engine_dirs()
+        .map_or_else(|| std::env::temp_dir().join("co.anomaly.opencode"), |d| d.state().to_owned())
+        .join("browser-engine")
+        .join(ENGINE_VERSION)
 }
 
 pub fn resolve_installed_executable() -> Option<PathBuf> {
@@ -113,12 +111,8 @@ pub fn socket_path() -> PathBuf {
     if let Ok(custom) = std::env::var("OPENCODE_BROWSER_SOCKET") {
         return PathBuf::from(custom);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let uid = unsafe { libc::geteuid() };
-    #[cfg(target_os = "macos")]
-    let dir = PathBuf::from(home).join("Library/Caches/co.anomaly.opencode");
-    #[cfg(not(target_os = "macos"))]
-    let dir = PathBuf::from(home).join(".cache/opencode");
+    let dir = engine_dirs().map_or_else(|| PathBuf::from("/tmp"), |d| d.cache().to_owned());
     let _ = create_private_dir(&dir);
     let exe = std::env::current_exe().unwrap_or_default();
     dir.join(socket_name_for(&exe, uid))

@@ -47,7 +47,7 @@ pub(super) fn start(s: &mut App) {
     if !mac::is_updatable_bundle_id(&bundle.id) {
         return;
     }
-    let Some(cache_root) = update_cache_dir() else { return };
+    let Some(cache_root) = crate::dirs::updates(TEAM_BUNDLE_ID) else { return };
     let channel = env_nonempty("OPENCODE_RUNE_UPDATE_CHANNEL").unwrap_or_else(|| update_feed_channel().to_owned());
     let service = env_nonempty("OPENCODE_RUNE_RELEASE_URL").unwrap_or_else(|| DEFAULT_SERVICE_URL.to_owned());
     let initial_delay = env_nonempty("OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS")
@@ -69,12 +69,6 @@ pub(super) fn start(s: &mut App) {
     let _ = std::thread::Builder::new()
         .name("opencode-updater".into())
         .spawn(move || worker_loop(cfg, cmd_rx, state_tx, waker));
-}
-
-#[allow(clippy::disallowed_methods)]
-fn update_cache_dir() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty())?;
-    Some(PathBuf::from(home).join("Library/Caches").join(TEAM_BUNDLE_ID).join("Updates"))
 }
 
 pub(super) struct WorkerConfig {

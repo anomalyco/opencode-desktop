@@ -2,7 +2,6 @@
 //! OpenCode Desktop's v2 styles (`packages/app`, `packages/session-ui`, `packages/ui` tokens).
 
 use crate::pickers::PickerHost as _;
-use std::sync::OnceLock;
 
 use rune::{
     AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase, ScrollSpec,
@@ -204,11 +203,6 @@ pub(crate) fn title_of(s: &SessionInfo) -> String {
 
 pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {
     project.map(|p| p.name.clone()).unwrap_or_else(|| dir.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
-}
-
-fn home_dir() -> String {
-    static H: OnceLock<String> = OnceLock::new();
-    H.get_or_init(|| std::env::var("HOME").unwrap_or_else(|_| "\u{0}".into())).clone()
 }
 
 #[cfg(test)]

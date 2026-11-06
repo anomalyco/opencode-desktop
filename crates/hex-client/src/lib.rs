@@ -58,21 +58,20 @@ pub const NOT_RUNNING: &str = "Hex isn't running";
 pub const BUSY: &str = "Hex is already recording";
 pub const OUTDATED: &str = "This Hex can't record and needs an update";
 
-/// Hex's endpoint file: `SEER_HEX` names one (tests, or a Hex elsewhere), else Hex's own.
-pub fn discovery() -> PathBuf {
+/// Hex's endpoint file: `SEER_HEX` names one (tests, or a Hex elsewhere), else Hex's own in
+/// `HEX_APPLICATION_SUPPORT_DIR` or `support` (the app passes Hex's Application Support folder).
+pub fn discovery(support: &Path) -> PathBuf {
     if let Some(p) = std::env::var_os("SEER_HEX") {
         return p.into();
     }
-    let support = std::env::var_os("HEX_APPLICATION_SUPPORT_DIR").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Library/Application Support/hex")
-    });
+    let support = std::env::var_os("HEX_APPLICATION_SUPPORT_DIR").map_or_else(|| support.to_owned(), PathBuf::from);
     support.join("local-api.json")
 }
 
 impl Hex {
-    /// Hex at its usual endpoint file, recording for `source`.
-    pub fn connect(source: &str) -> Result<Hex, String> {
-        Self::connect_at(&discovery(), source)
+    /// Hex at its usual endpoint file under `support`, recording for `source`.
+    pub fn connect(support: &Path, source: &str) -> Result<Hex, String> {
+        Self::connect_at(&discovery(support), source)
     }
 
     pub fn connect_at(file: &Path, source: &str) -> Result<Hex, String> {

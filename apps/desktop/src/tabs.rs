@@ -99,7 +99,7 @@ impl Reorder {
 }
 
 fn file() -> Option<PathBuf> {
-    crate::restore::data_dir().map(|d| d.join("tabs.json"))
+    crate::dirs::data().map(|d| d.join("tabs.json"))
 }
 
 fn parse(list: &Value) -> Vec<Tab> {
@@ -209,7 +209,7 @@ pub fn save_projects(server: &str, ids: &[String]) {
 /// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
 /// written window first. Read-only: `mode=ro` and `-readonly`.
 pub fn from_beta() -> Option<Vec<Tab>> {
-    from_beta_db(&crate::restore::base_dir()?.join("ai.opencode.desktop.beta/drafts.sqlite"))
+    from_beta_db(&crate::dirs::beta_drafts()?)
 }
 
 pub(crate) fn from_beta_db(db: &std::path::Path) -> Option<Vec<Tab>> {
