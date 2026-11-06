@@ -112,7 +112,9 @@ impl RowSpec {
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part));
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line);
+                        // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
+                        let copied = body.contains("```").then(|| crate::copied::current(s)).flatten();
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, copied);
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, &a.id, *part, body, fade, *live, *pt)

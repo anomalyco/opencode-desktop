@@ -103,7 +103,7 @@ impl<S: TimelineHost> PartsResolver for Resolver<'_, S> {
         let marks = self.marks_for(src);
         if rich(src) {
             let marks: Vec<_> = marks.into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-            return col().w_full().child(markdown_styled::<S, _>(p, src, self.fade, false, markdown_style(p, color, self.width).body_font(font), marks));
+            return col().w_full().child(markdown_styled::<S, _>(p, src, self.fade, false, markdown_style(p, color, self.width).body_font(font), marks, None));
         }
         let hl = marks.into_iter().filter_map(|(i, m, on)| Some(text_mark(p, m.first()?.clone(), i, on)));
         readable(p, text(src.to_owned()).font(font).color(color).wrap().reveal(self.fade).text_highlights(hl))

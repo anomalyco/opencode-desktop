@@ -1199,8 +1199,8 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         scenes: stories::scenes(),
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
-            include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf"),
-            include_bytes!("../assets/fonts/IBMPlexMono-Medium.ttf"),
+            // Desktop sets every IBM Plex Mono weight below 600 in its Text cut (`index.css`).
+            include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
             include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
             include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
             include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),

@@ -6,8 +6,8 @@
 // usage: bun tools/themes.ts <opencode>/packages/ui/src/theme > assets/themes.json
 //
 // Values are `#rrggbbaa`, or the name of a static alpha ramp entry (`alpha-dark-10`) that
-// `assets/theme.json`'s palette carries. Desktop's default (`oc-2`) is left out: the app keeps
-// `assets/theme.json` for it.
+// `assets/theme.json`'s palette carries. Desktop's default (`oc-2`) carries only its v1 tokens
+// (code colours): the app keeps `assets/theme.json` for its v2 ones.
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -31,6 +31,7 @@ const V2 = [
   "text-text-muted",
   "text-text-faint",
   "text-text-accent",
+  "text-text-accent-hover",
   "text-text-inverse",
   "text-text-contrast",
   "icon-icon-base",
@@ -52,6 +53,8 @@ const V2 = [
 ]
 const V1 = [
   "text-stronger",
+  "text-base",
+  "background-stronger",
   "syntax-comment",
   "syntax-string",
   "syntax-keyword",
@@ -60,6 +63,7 @@ const V1 = [
   "syntax-type",
   "syntax-constant",
   "syntax-punctuation",
+  "syntax-operator",
   "syntax-variable",
   "syntax-diff-add",
   "syntax-diff-delete",
@@ -100,8 +104,7 @@ const names = Object.fromEntries(
 const themes = readdirSync(join(dir, "themes"))
   .filter((f) => f.endsWith(".json"))
   .map((f) => f.slice(0, -5))
-  .filter((id) => id !== "oc-2")
-  .sort()
+  .sort((a, b) => (a === "oc-2" ? -1 : b === "oc-2" ? 1 : a.localeCompare(b)))
   .map((id) => {
     const theme = JSON.parse(readFileSync(join(dir, "themes", `${id}.json`), "utf8"))
     const mode = (dark: boolean) => {
@@ -109,8 +112,9 @@ const themes = readdirSync(join(dir, "themes"))
       const v1 = resolveThemeVariant(variant, dark)
       const v2 = resolveThemeVariantV2(variant, dark)
       const out: Record<string, string> = {}
-      for (const k of V2) out[k] = resolve(v2, "v2-", k)
-      for (const k of V1) out[k] = resolve(v1, "", k)
+      if (id !== "oc-2") for (const k of V2) out[k] = resolve(v2, "v2-", k)
+      // v1 tokens may name v2 ones (`syntax-keyword: var(--v2-pink-800)`).
+      for (const k of V1) out[k] = resolve({ ...v1, ...Object.fromEntries(Object.entries(v2).map(([n, v]) => [n.startsWith("v2-") ? n : `v2-${n}`, v])) }, "", k)
       return out
     }
     return { id, name: names[id] ?? theme.name, light: mode(false), dark: mode(true) }

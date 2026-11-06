@@ -73,6 +73,13 @@ pub struct Pal {
     /// A chosen theme's code colours (Desktop's `syntax-*`); None for the default, whose code
     /// keeps rune-kit's colours.
     pub code: Option<Code>,
+    /// Every theme's code colours, the default's included: replies' code blocks, as
+    /// Desktop's `markdown.worker.ts` colours them.
+    pub syntax: Code,
+    /// `text-text-accent-hover`: a link under the pointer.
+    pub accent_hover: Color,
+    /// Desktop's code block fill: the v1 `background-stronger` (`.highlights`).
+    pub code_bg: Color,
 }
 
 /// Desktop's `syntax-*` tokens, as `highlight-theme.tsx` assigns them to token kinds.
@@ -138,6 +145,17 @@ fn build(theme: usize, dark: bool) -> Pal {
     let themed = theme > 0;
     let success = c("state-fg-success");
     let danger = c("state-fg-danger");
+    let syntax = Code {
+        comment: c("syntax-comment"),
+        string: c("syntax-string"),
+        keyword: c("syntax-keyword"),
+        primitive: c("syntax-primitive"),
+        property: c("syntax-property"),
+        ty: c("syntax-type"),
+        constant: c("syntax-constant"),
+        punctuation: c("syntax-punctuation"),
+        variable: c("syntax-variable"),
+    };
     Pal {
         dark,
         theme,
@@ -148,17 +166,10 @@ fn build(theme: usize, dark: bool) -> Pal {
         term_fg: if themed { c("text-stronger") } else { text },
         diff_add: if themed { c("syntax-diff-add") } else { success },
         diff_del: if themed { c("syntax-diff-delete") } else { danger },
-        code: themed.then(|| Code {
-            comment: c("syntax-comment"),
-            string: c("syntax-string"),
-            keyword: c("syntax-keyword"),
-            primitive: c("syntax-primitive"),
-            property: c("syntax-property"),
-            ty: c("syntax-type"),
-            constant: c("syntax-constant"),
-            punctuation: c("syntax-punctuation"),
-            variable: c("syntax-variable"),
-        }),
+        accent_hover: c("text-text-accent-hover"),
+        code_bg: c("background-stronger"),
+        code: themed.then_some(syntax),
+        syntax,
         bg_base: c("background-bg-base"),
         bg_deep: c("background-bg-deep"),
         layer1: c("background-bg-layer-01"),

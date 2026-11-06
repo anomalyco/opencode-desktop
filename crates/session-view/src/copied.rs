@@ -33,6 +33,12 @@ pub fn is_copied<S: TimelineHost>(s: &S, key: &str) -> bool {
     s.copied_state().0.as_ref().is_some_and(|(k, at)| k == key && clock - at < show)
 }
 
+/// The copy button showing its tick now, if any.
+pub fn current<S: TimelineHost>(s: &S) -> Option<String> {
+    let (key, _) = s.copied_state().0.as_ref()?;
+    is_copied(s, key).then(|| key.clone())
+}
+
 /// The button's glyph, `size` pt in `color`: the copy icon, or the tick growing in.
 pub fn glyph<S: TimelineHost>(s: &S, key: &str, size: f32, color: rune::Color) -> El {
     if is_copied(s, key) {

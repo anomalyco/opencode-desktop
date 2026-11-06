@@ -1,6 +1,7 @@
 //! Desktop's colour themes (Settings › Appearance › Theme). `assets/themes.json` holds each
 //! of Desktop's theme files resolved as Desktop resolves them (`tools/themes.ts`), so a theme
-//! here paints what it paints there. The default, OpenCode, keeps `assets/theme.json`.
+//! here paints what it paints there. The default, OpenCode, keeps `assets/theme.json` and
+//! takes only its code colours from there.
 //!
 //! The chosen theme is per thread, like Rune's blend mode: the view reads it through
 //! `palette::pal`, and tests on other threads keep the default.
@@ -28,8 +29,10 @@ pub fn all() -> &'static [Info] {
     ALL.get_or_init(|| {
         let list: Vec<Value> = serde_json::from_str(THEMES).unwrap_or_else(|e| panic!("themes.json: {e}"));
         let mode = |t: &Value, m: &str| t[m].as_object().cloned().unwrap_or_default();
-        std::iter::once(Info { id: DEFAULT.into(), name: "OpenCode".into(), tokens: Default::default() })
-            .chain(list.iter().map(|t| Info {
+        let default = list.iter().find(|t| t["id"] == DEFAULT);
+        let tokens = default.map(|t| [mode(t, "light"), mode(t, "dark")]).unwrap_or_default();
+        std::iter::once(Info { id: DEFAULT.into(), name: "OpenCode".into(), tokens })
+            .chain(list.iter().filter(|t| t["id"] != DEFAULT).map(|t| Info {
                 id: t["id"].as_str().unwrap_or_default().to_owned(),
                 name: t["name"].as_str().unwrap_or_default().to_owned(),
                 tokens: [mode(t, "light"), mode(t, "dark")],
@@ -56,10 +59,10 @@ pub fn set_active(id: &str) {
     ACTIVE.with(|a| a.set(index(id)));
 }
 
-/// `base` (the default theme's JSON) with theme `i`'s tokens laid over both modes, or None for
-/// the default itself.
+/// `base` (the default theme's JSON) with theme `i`'s tokens laid over both modes (the default's
+/// are its code colours alone), or None when `base` has no modes to lay them over.
 pub fn json(i: usize, base: &str) -> Option<String> {
-    let t = all().get(i).filter(|_| i > 0)?;
+    let t = all().get(i)?;
     let mut v: Value = serde_json::from_str(base).ok()?;
     v["name"] = Value::String(t.name.clone());
     for (m, tokens) in ["light", "dark"].into_iter().zip(&t.tokens) {

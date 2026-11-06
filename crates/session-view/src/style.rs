@@ -17,11 +17,18 @@ pub const INSTANT: Anim = Anim::INSTANT;
 pub const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 pub const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 pub const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
-pub const MD: TextStyle = TextStyle::new(14.0, 400.0).lh(22.4);
+pub const MD: TextStyle = TextStyle::new(14.0, 440.0).lh(22.4);
 pub const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
 pub const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
 pub const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
 pub const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
+// Reply headings (`markdown.css`): line-height 150%; h4 to h6 share one, in the muted colour.
+const MD_H: [TextStyle; 4] = [
+    TextStyle::new(17.0, 600.0).lh(25.5),
+    TextStyle::new(15.0, 600.0).lh(22.5),
+    TextStyle::new(14.0, 670.0).lh(21.0),
+    TextStyle::new(14.0, 530.0).lh(21.0),
+];
 pub const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
 
 /// `--container-session`: 744 including 24 px padding on each side.
@@ -99,30 +106,71 @@ fn hit_bg(p: &Pal) -> Color {
 
 /// The timeline's Markdown look, its body text in `color`, its diagrams at most `width` points
 /// wide (the column they sit in: wider ones lay out top-down or draw smaller).
+///
+/// Every value is Desktop's `markdown.css`: links with no underline until hovered, inline code
+/// at the text's size in the medium weight, code blocks on `background-stronger` coloured by
+/// the theme's `syntax-*` (shell commands plain on `layer-02`), a hairline quote rule, invisible
+/// rules, outside list markers, the browser's disabled checkboxes, and the Console's data table.
 pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
-    let style = MarkdownStyle::from_kit(crate::palette::kit(p))
+    let k = crate::palette::kit(p);
+    let [h1, h2, h3, h4] = MD_H;
+    MarkdownStyle::from_kit(k)
         .text(color)
         .muted(p.muted)
         .link(p.accent)
+        .link_underline(Color::TRANSPARENT)
+        .link_hover(p.accent_hover)
         .inline_code_bg(p.inline_code_bg)
-        .code_block(p.layer1, p.border_muted)
-        .quote_rule(p.layer3)
-        .rule(p.border)
+        .inline_code_font(1.0, 530.0)
+        .inline_code_pad(4.0)
+        .code_block(p.code_bg, p.border)
+        .code_block_text(p.syntax.variable)
+        .shell_code(p.code_bg, p.border_muted, p.text)
+        .quote(p.border, 0.5, 8.0, p.muted)
+        .rule(Color::TRANSPARENT)
         .body_font(MD)
-        .heading_font(1, H1)
-        .heading_font(2, H2)
-        .heading_font(3, H3)
+        .heading_font(1, h1)
+        .heading_font(2, h2)
+        .heading_font(3, h3)
+        .heading_font(4, h4)
+        .list(32.0, 8.0)
+        .list_markers_outside(true)
+        .list_nested_indent(16.0, 28.0)
+        .task_checkbox(13.0, 2.0, 12.0, Some(4.0), checkbox(p, true), checkbox_mark(p), checkbox(p, false), checkbox_border(p))
+        .table_card(k)
+        .table_header_text(p.muted)
+        .table_header_weight(530.0)
+        .table_column_align(false)
         .code_block_font(CODE)
         .selection(p.selection)
         .diagram_max_width(width)
         // However wide, a diagram draws whole; it opens full size to be read (`diagram`).
-        .diagram_min_scale(0.0);
-    match p.code {
-        Some(code) => style.syntax_theme(code.syntax(rune_kit::syntax::SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)),
-        None => style,
+        .diagram_min_scale(0.0)
+        .syntax_theme(p.syntax.syntax(rune_kit::syntax::SyntaxTheme::from_kit(k), p.diff_add, p.diff_del))
+}
+
+// A task item's checkbox is the browser's own, disabled (`<input type="checkbox" disabled>`):
+// Chromium's grey fill and white tick when checked, a pale box in a grey outline when not.
+fn checkbox(p: &Pal, checked: bool) -> Color {
+    let hex = |s: &str| rune::color::hex(s).unwrap_or(p.layer2);
+    match (p.dark, checked) {
+        (false, true) => hex("#d2d2d2"),
+        (false, false) => hex("#f9f9f9"),
+        (true, true) => hex("#757575"),
+        (true, false) => hex("#3b3b3b"),
     }
 }
 
+fn checkbox_mark(p: &Pal) -> Color {
+    rune::color::hex(if p.dark { "#3b3b3b" } else { "#ffffff" }).unwrap_or(p.text)
+}
+
+fn checkbox_border(p: &Pal) -> Color {
+    rune::color::hex(if p.dark { "#626262" } else { "#d1d1d1" }).unwrap_or(p.border)
+}
+
+/// `copied` is the copy button showing its tick (`copied::current`), for code blocks' own.
+#[allow(clippy::too_many_arguments)]
 pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     p: &Pal,
     src: &str,
@@ -130,6 +178,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     streaming: bool,
     style: MarkdownStyle,
     highlights: Vec<H>,
+    copied: Option<String>,
 ) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
@@ -143,17 +192,54 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .streaming(streaming)
         .selectable(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
+        .code_frame(move |card, c| code_card::<S>(&pal, card, c, copied.as_deref()))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| s.open_link(url, tx))
         .link_help(S::reply_link_help)
         .build(crate::palette::kit(p))
         .selection_group(false)
 }
 
-/// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
-pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new())
+/// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
+/// ghost icon button 4 pt in from the top right, shown while the pointer is over the block,
+/// its glyph a tick for a moment after a copy.
+fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: Option<&str>) -> El {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (c.index, c.source).hash(&mut h);
+    let key = format!("code-copy-{:016x}", h.finish());
+    let done = copied == Some(key.as_str());
+    let label = if done { "Copied" } else { "Copy" };
+    let (code, mark) = (c.source.to_owned(), key);
+    let button = row()
+        .key("copy")
+        .role("button")
+        .label(label)
+        .help(label)
+        .size(24.0, 24.0)
+        .center()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.copy(code.clone());
+            crate::copied::mark_copied(s, mark.clone(), tx);
+        })
+        .child(icon(if done { &ic::CHECK } else { &ic::OUTLINE_COPY }, 16.0).color(p.icon_muted));
+    col()
+        .w_full()
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .child(card)
+        .child(button.pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0))
 }
 
+/// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
+pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn markdown_with_highlights<S: TimelineHost>(
     p: &Pal,
     src: &str,
@@ -162,8 +248,9 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     color: Color,
     width: f32,
     highlights: Vec<(&[Range<usize>], rune_kit::Highlight)>,
+    copied: Option<String>,
 ) -> El {
-    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights)
+    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied)
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
