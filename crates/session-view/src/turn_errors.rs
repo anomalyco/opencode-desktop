@@ -9,7 +9,7 @@
 use std::cell::Cell;
 
 use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, capitalize};
-use rune::{El, Icon, Link, LinkPaint, Span, Tx, col, icon, row, text};
+use rune::{El, Icon, Link, LinkPaint, LocalTime, Span, Tx, col, icon, row, text};
 
 use crate::TimelineHost;
 use crate::palette::Pal;
@@ -92,24 +92,21 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
 }
 
-/// A moment in local time.
-pub use crate::local_time::{Local, local};
-
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /// `3:45 PM`, as `Intl` formats `timeStyle: "short"` in English.
-pub fn short_time(t: Local) -> String {
+pub fn short_time(t: LocalTime) -> String {
     let h = match t.hour % 12 { 0 => 12, h => h };
     format!("{h}:{:02} {}", t.minute, if t.hour < 12 { "AM" } else { "PM" })
 }
 
 /// `Oct 31, 2026, 3:45 PM`: `dateStyle: "medium"` with a short time.
-pub fn date_time(t: Local) -> String {
+pub fn date_time(t: LocalTime) -> String {
     format!("{} {}, {}, {}", MONTHS[t.month as usize - 1], t.day, t.year, short_time(t))
 }
 
 /// `Nov 1, 12:00 AM GMT-7`: a month, day, time and `shortOffset` zone.
-pub fn budget_time(t: Local) -> String {
+pub fn budget_time(t: LocalTime) -> String {
     let zone = match t.offset {
         0 => "GMT".to_owned(),
         o => {
@@ -131,20 +128,20 @@ pub fn limit_copy(kind: Limit, at: Option<i64>, now: i64) -> (String, Option<&'s
                 ("You've used today's free messages.", "You've used today's free messages. They reset at")
             };
             let Some(at) = at else { return (title.to_owned(), None) };
-            let (t, today) = (local(at), local(now));
+            let (t, today) = (LocalTime::at(at), LocalTime::at(now));
             let same_day = (t.year, t.month, t.day) == (today.year, today.month, today.day) && at - now < 86_400_000;
             (format!("{reset} {}.", if same_day { short_time(t) } else { date_time(t) }), None)
         }
         Limit::Budget => (
             match at {
-                Some(at) => format!("Workspace budget reached · paid models paused until {} · free models still work", budget_time(local(at))),
+                Some(at) => format!("Workspace budget reached · paid models paused until {} · free models still work", budget_time(LocalTime::at(at))),
                 None => "Workspace budget reached · paid models paused until it resets · free models still work".to_owned(),
             },
             Some("Use a free model"),
         ),
         Limit::ModelBudget => (
             match at {
-                Some(at) => format!("Model budget reached · this model is paused until {}", budget_time(local(at))),
+                Some(at) => format!("Model budget reached · this model is paused until {}", budget_time(LocalTime::at(at))),
                 None => "Model budget reached · this model is paused until it resets".to_owned(),
             },
             Some("Switch model"),

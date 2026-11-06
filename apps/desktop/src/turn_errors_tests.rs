@@ -1,4 +1,5 @@
 use opencode_kit::model::{Assistant, Message, NoticeKind, Retry, StepError, Transcript, parse_messages};
+use rune::LocalTime;
 use serde_json::json;
 
 use super::*;
@@ -55,11 +56,12 @@ fn limits_are_told_apart_with_their_reset() {
 fn times_read_as_desktop_formats_them() {
     assert_eq!(parse_iso("1970-01-02T00:00:00Z"), Some(86_400_000));
     assert_eq!(parse_iso("1970-01-01T01:00:00+01:00"), Some(0));
-    let t = Local { year: 2026, month: 11, day: 1, hour: 0, minute: 5, offset: -7 * 3600 };
+    let t = LocalTime::at_offset(parse_iso("2026-11-01T07:05:00Z").unwrap(), -7 * 3600);
     assert_eq!(short_time(t), "12:05 AM");
     assert_eq!(date_time(t), "Nov 1, 2026, 12:05 AM");
     assert_eq!(budget_time(t), "Nov 1, 12:05 AM GMT-7");
-    assert_eq!(budget_time(Local { offset: 19_800, hour: 13, ..t }), "Nov 1, 1:05 PM GMT+5:30");
+    let t = LocalTime::at_offset(parse_iso("2026-11-01T07:35:00Z").unwrap(), 19_800);
+    assert_eq!(budget_time(t), "Nov 1, 1:05 PM GMT+5:30");
 }
 
 #[test]

@@ -3285,7 +3285,6 @@ name = "session-view"
 version = "0.0.1"
 dependencies = [
  "image",
- "libc",
  "opencode-kit",
  "rune",
  "rune-kit",
@@ -3294,7 +3293,6 @@ dependencies = [
  "rune-theme-opencode",
  "serde_json",
  "sha2",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
