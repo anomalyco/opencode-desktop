@@ -483,7 +483,7 @@ fn tab_bar(
         bar = bar.child(
             el().key("bottom-hide")
                 .role("button")
-                .label("Hide bottom panel (⌘J)")
+                .label(crate::keymap::Bind::BottomToggle.tip("Hide bottom panel"))
                 .size(28.0, 28.0)
                 .radius(6.0)
                 .center()
@@ -597,7 +597,7 @@ fn empty_pane_view(p: &Pal) -> El {
         .center()
         .padding(24.0)
         .gap(8.0)
-        .child(text("Open a tab with + or ⌘T").font(UI).color(p.faint))
+        .child(text(format!("Open a tab with + or {}", crate::keymap::Bind::PaneTabNew.label())).font(UI).color(p.faint))
 }
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
@@ -609,7 +609,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
     Some(
         el().key("side-toggle")
             .role("button")
-            .label(if open { "Hide side panel (⌥⌘B)" } else { "Show side panel (⌥⌘B)" })
+            .label(crate::keymap::Bind::SideToggle.tip(if open { "Hide side panel" } else { "Show side panel" }))
             // On the session header's centre line, 10pt into the panel.
             .pin(None, Some(crate::view::chrome().top() + 10.0), Some(18.0), None)
             .size(28.0, 28.0)

@@ -237,11 +237,10 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         tx.instant();
         return true;
     }
-    let ctrl_r = ev.mods.ctrl && !ev.mods.alt && matches!(&ev.key, Key::Command('r') | Key::Text(_)) && match &ev.key {
-        Key::Text(t) => t.eq_ignore_ascii_case("r") || t == "\u{12}",
-        _ => true,
-    };
-    if !ctrl_r || s.stage.is_some() {
+    // Off macOS ⌃R is Ctrl+R, the Browser's reload; a focused pane keeps it, as Desktop's
+    // `session.rename` skips plugin panes.
+    let pane_owns = (s.side.focused || s.side.dock_focused) && crate::keymap::Bind::BrowserReload.matches_tx(ev, tx);
+    if !crate::keymap::Bind::Rename.matches_tx(ev, tx) || pane_owns || s.stage.is_some() {
         return false;
     }
     let Route::Session(id) = s.route.clone() else { return false };

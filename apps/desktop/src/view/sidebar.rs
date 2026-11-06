@@ -88,16 +88,16 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .key("actions")
             .w_full()
             .gap(4.0)
-            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", "⌘B", s.route == Route::Home && !s.settings.open).on_press_tx(
+            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", &crate::keymap::Bind::Home.label(), s.route == Route::Home && !s.settings.open).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.go_home(tx),
             ))
-            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", "⇧⌘F", false).on_press_tx(
+            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", &crate::keymap::Bind::SessionSearch.label(), false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| {
                     s.close_settings();
                     s.open_session_search(tx)
                 },
             ))
-            .child(action_row(p, "new", &ic::EDIT, "New session", "⌘T", false).on_press_tx(
+            .child(action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false).on_press_tx(
                 |s: &mut App, tx: &mut Tx| s.new_session(tx),
             )),
     )

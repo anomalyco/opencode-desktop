@@ -226,7 +226,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }))
                 .child({
                     let ready = answered(s, &f, tab);
-                    let b = button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some("⌘⏎"), ready);
+                    let b = button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
                     if ready { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );

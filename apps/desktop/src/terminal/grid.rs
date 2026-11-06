@@ -236,7 +236,7 @@ fn tab_bar(
 
     let wk_new = ws_key.to_owned();
     strip = strip.child(
-        bar_btn(p, "terminal-new-tab", "New terminal (⌃⌥T)", &ic::PLUS, 14.0).on_press_tx(
+        bar_btn(p, "terminal-new-tab", &crate::keymap::Bind::TerminalNew.tip("New terminal"), &ic::PLUS, 14.0).on_press_tx(
             move |app: &mut App, tx: &mut Tx| {
                 tx.instant();
                 app.new_terminal_in(&wk_new);
@@ -259,7 +259,7 @@ fn tab_bar(
 
     if show_close_dock {
         bar = bar.child(
-            bar_btn(p, "terminal-hide", "Hide terminal (⌘J)", &ic::CLOSE, 14.0).on_press_tx(
+            bar_btn(p, "terminal-hide", &crate::keymap::Bind::DockToggle.tip("Hide terminal"), &ic::CLOSE, 14.0).on_press_tx(
                 |app: &mut App, tx: &mut Tx| {
                     app.side.dock_focused = false;
                     app.close_dock(tx);
@@ -438,7 +438,7 @@ fn render_viewport(
                     shift: ev.mods.shift,
                     ctrl: ev.mods.ctrl,
                     alt: ev.mods.alt,
-                    cmd: ev.mods.cmd,
+                    cmd: crate::keymap::logo_held(ev.mods),
                 });
                 return true;
             }

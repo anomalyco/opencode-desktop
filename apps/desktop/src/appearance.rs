@@ -3,6 +3,7 @@
 //! motion (System / On / Off). Desktop's font rows take any family name; here they pick from
 //! the faces the app bundles or macOS always has, since Rune loads only those.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 
 use rune::{Color, El, PopupAnchor, PopupMenu, Tx, icon, row, text};
@@ -204,16 +205,23 @@ impl App {
 }
 
 /// The rows, in Desktop's order.
-pub fn rows(s: &App, p: &Pal) -> Vec<(&'static str, &'static str, &'static str, El)> {
+pub fn rows(s: &App, p: &Pal) -> Vec<(&'static str, &'static str, Cow<'static, str>, El)> {
     vec![
-        ("appearance", "Color scheme", "Choose whether OpenCode follows the system, light, or dark theme", crate::settings::scheme_control(s, p)),
-        ("theme", "Theme", "Customise how OpenCode is themed.", theme_select(s, p)),
-        ("ui-font", "UI Font", "Customise the font used throughout the interface", ui_font_select(s, p)),
-        ("code-font", "Code Font", "Customise the font used in code blocks", code_font_select(s, p)),
-        ("terminal-font", "Terminal Font", "Customise the font used in the terminal", terminal_font_select(s, p)),
-        ("zoom", "Zoom", "Make text and controls larger across the app. ⌘+ ⌘− ⌘0 do the same.", crate::settings::zoom_control(s, p)),
-        ("reduce-motion", "Reduce motion", "Reduce animations or match your system", reduce_motion_control(s, p)),
+        ("appearance", "Color scheme", "Choose whether OpenCode follows the system, light, or dark theme".into(), crate::settings::scheme_control(s, p)),
+        ("theme", "Theme", "Customise how OpenCode is themed.".into(), theme_select(s, p)),
+        ("ui-font", "UI Font", "Customise the font used throughout the interface".into(), ui_font_select(s, p)),
+        ("code-font", "Code Font", "Customise the font used in code blocks".into(), code_font_select(s, p)),
+        ("terminal-font", "Terminal Font", "Customise the font used in the terminal".into(), terminal_font_select(s, p)),
+        ("zoom", "Zoom", zoom_about().into(), crate::settings::zoom_control(s, p)),
+        ("reduce-motion", "Reduce motion", "Reduce animations or match your system".into(), reduce_motion_control(s, p)),
     ]
+}
+
+/// "⌘+ ⌘− ⌘0 do the same", in this platform's keys.
+fn zoom_about() -> String {
+    use crate::keymap::{Bind, label};
+    let chord = |b: Bind, i: usize| b.keybind().chords().get(i).map_or_else(String::new, |c| label(*c));
+    format!("Make text and controls larger across the app. {} {} {} do the same.", chord(Bind::ZoomIn, 1), chord(Bind::ZoomOut, 0).replace('-', "−"), chord(Bind::ZoomReset, 0))
 }
 
 fn ui_font_select(s: &App, p: &Pal) -> El {

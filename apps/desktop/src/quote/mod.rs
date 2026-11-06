@@ -290,7 +290,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .key("quote-add")
         .role("button")
         .label("Quote")
-        .help("Quote and comment ⌥")
+        .help(format!("Quote and comment {}", crate::keymap::modifier_label(rune::ChordMod::Alt)))
         .h(24.0)
         .px(9.0)
         .gap(6.0)

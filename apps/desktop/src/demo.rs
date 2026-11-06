@@ -111,18 +111,20 @@ pub fn apply(s: &mut App, ty: &str, data: &Value, tx: &mut Tx) {
 
 /// ⌥⌘R replays from the start, ⌥⌘P pauses or resumes; only once the demo has played.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.demo.run == 0 || !ev.mods.cmd || !ev.mods.alt {
+    use crate::keymap::Bind;
+    if s.demo.run == 0 {
         return false;
     }
-    match ev.key {
-        Key::Command('r') => {
-            start(s);
-            tx.settle();
-        }
-        Key::Command('p') => toggle_pause(s),
-        _ => return false,
+    if Bind::DemoReplay.matches_tx(ev, tx) {
+        start(s);
+        tx.settle();
+        return true;
     }
-    true
+    if Bind::DemoPause.matches_tx(ev, tx) {
+        toggle_pause(s);
+        return true;
+    }
+    false
 }
 
 fn toggle_pause(s: &mut App) {

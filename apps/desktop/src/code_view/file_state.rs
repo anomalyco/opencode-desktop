@@ -378,7 +378,7 @@ impl CodeDocState {
             self.shift = ev.mods.shift;
             return false;
         }
-        if ev.is_command('f') && !ev.mods.shift && !ev.mods.alt && !ev.mods.ctrl {
+        if crate::keymap::Bind::Find.matches_tx(ev, tx) {
             tx.instant();
             self.find_open = true;
             self.find_input.focused = true;

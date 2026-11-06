@@ -27,10 +27,11 @@ use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 use rune_kit::{FileNode, TreeModel, file_icon};
 use rune_theme_opencode::icons as ic;
 
+use crate::keymap::Bind;
 use crate::code_view::CodeDocState;
 use crate::panels::{
     CloseButtonMode, PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc,
-    SessionPane, ShortcutChord, panel_key,
+    SessionPane, panel_key,
 };
 use crate::{App, Source};
 use data::{
@@ -151,7 +152,8 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::new("file", list_tabs, view::render)
         .order(15)
         .legacy(&[("open-file", OPEN_TAB_ID)])
-        .command("Open file", ShortcutChord::cmd_p())
+        .command("Open file", Bind::FileOpen)
+        .shortcuts(&[(Bind::FileBrowse, browse_files)])
         .slash("open")
         .launcher(launcher_desc, open_files_launcher)
         .on_focus(on_focus_file)
@@ -169,10 +171,15 @@ fn launcher_desc(_s: &App, ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
         title: "Open file".into(),
         description: Some("Browse workspace files or search by name".into()),
         icon: &ic::FILE_TREE,
-        shortcut_hint: "⌘P",
+        shortcut: &[Bind::FileBrowse, Bind::FileOpen],
         order: 10,
         opened: false,
     })
+}
+
+/// Desktop's `file.browse`: the Files tab, as its launcher card opens it.
+fn browse_files(s: &mut App, tx: &mut Tx) {
+    open_files_launcher(s, SessionPane::Side, tx);
 }
 
 fn open_files_launcher(s: &mut App, pane: SessionPane, tx: &mut Tx) {
@@ -311,12 +318,7 @@ fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     };
 
     // `⌘\` toggles the workspace file tree sidebar.
-    let is_cmd_backslash = ev.mods.cmd
-        && !ev.mods.alt
-        && !ev.mods.ctrl
-        && !ev.mods.shift
-        && (matches!(&ev.key, Key::Command('\\'))
-            || matches!(&ev.key, Key::Text(t) if t == "\\"));
+    let is_cmd_backslash = Bind::TreeToggle.matches_tx(ev, tx);
     if is_cmd_backslash && active_path.is_some() {
         tx.instant();
         s.files.sidebar_open = !s.files.sidebar_open;

@@ -6,6 +6,7 @@ use terminal::{
 };
 
 use crate::App;
+use crate::keymap::Bind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyOutcome {
@@ -51,29 +52,19 @@ pub fn dispatch_key(
 ) -> KeyOutcome {
     let m = ev.mods;
 
-    // Leave app-level command palette (`⌘K`), settings (`⌘,`), session switcher, and panel toggles
-    // to the outer shell unless the shortcut belongs to the terminal.
-    if ev.is_command('c') && !m.alt && !m.ctrl && !m.shift {
+    // ⌘C, and Ctrl+Shift+C everywhere (Desktop `terminal.tsx:477`), copy the selection; ⌘C with
+    // none leaves the key to the app. Off macOS Ctrl+C stays the shell's interrupt.
+    if Bind::TerminalCopy.matches_tx(ev, tx) {
         if let Some(sel) = session.selected_text() {
             tx.copy(sel);
             return KeyOutcome::Consumed;
         }
-        return KeyOutcome::Ignored;
+        if crate::keymap::logo_held(m) {
+            return KeyOutcome::Ignored;
+        }
     }
 
-    // `Ctrl+Shift+C` also copies selection (matches Desktop `terminal.tsx:477`).
-    if m.ctrl
-        && m.shift
-        && !m.cmd
-        && !m.alt
-        && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("c"))
-        && let Some(sel) = session.selected_text()
-    {
-        tx.copy(sel);
-        return KeyOutcome::Consumed;
-    }
-
-    if ev.is_command('v') && !m.alt && !m.ctrl && !m.shift {
+    if Bind::TerminalPaste.matches_tx(ev, tx) {
         tx.read_clipboard(move |app: &mut App, content, _tx| {
             let text = content.text();
             if text.is_empty() {
@@ -98,21 +89,23 @@ pub fn dispatch_key(
         return KeyOutcome::Consumed;
     }
 
-    if ev.is_command('a') && !m.alt && !m.ctrl && !m.shift {
+    if Bind::TerminalSelectAll.matches_tx(ev, tx) {
         session.select(SelectionOp::All);
         return KeyOutcome::Consumed;
     }
 
     // `⌘Backspace` kills the line (`\x15`, matching OpenCode Desktop `terminal-key-event.ts`).
-    if m.cmd && !m.ctrl && !m.alt && !m.shift && ev.key == Key::Backspace {
+    if Bind::TerminalKillLine.matches_tx(ev, tx) {
         let mut ki = KeyInput::press(GhosttyKey::Backspace);
         ki.cmd = true;
         session.send_key(ki);
         return KeyOutcome::ConsumedResetBlink;
     }
 
-    // Let other `⌘` shortcuts (`⌘J`, `⌘W`, `⌘T`, `⌘K`, `⌘1..9`, `⌘+`/`⌘-`, `⌘,`) bubble up.
-    if m.cmd {
+    // Other ⌘ chords bubble up (`⌘J`, `⌘W`, `⌘T`, `⌘K`, `⌘1..9`, `⌘,`), as Desktop's
+    // `consumeTerminalMetaKey` keeps them from the shell. Off macOS Ctrl is the shell's key, so a
+    // Ctrl chord leaves only when it is one of the app's commands (Ctrl+T, Ctrl+K, Ctrl+`).
+    if crate::keymap::logo_held(m) || (m.cmd && crate::keymap::takes_from_pane(ev, tx)) {
         return KeyOutcome::Ignored;
     }
 
@@ -245,6 +238,12 @@ fn map_key_event(ev: &KeyEvent) -> Option<KeyInput> {
                 _ => GhosttyKey::F12,
             };
             (fk, None, None)
+        }
+        // Off macOS a Ctrl chord arrives as `Key::Command` (Ctrl is the primary key there); the shell
+        // reads it as the control character.
+        Key::Command(c) => {
+            let (gk, base_cp) = char_to_ghostty_key(*c);
+            (gk, None, Some(base_cp))
         }
         Key::Text(s) if !s.is_empty() => {
             let mut chars = s.chars();

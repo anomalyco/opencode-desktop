@@ -20,7 +20,10 @@ use crate::view::UI;
 use crate::{App, Route, Source};
 
 pub const LABEL: &str = "Move to background";
-pub const HINT: &str = "Press ⌃B to move running work to the background";
+/// The hint's accessible label: "Press ⌃B to move running work to the background".
+pub fn hint_label() -> String {
+    format!("Press {} to move running work to the background", crate::keymap::Bind::Background.label())
+}
 pub const FAILED: &str = "Request failed";
 const HINT_H: f32 = 22.0;
 
@@ -109,9 +112,7 @@ pub fn admitted(s: &mut App, ty: &str, data: &serde_json::Value, sid: &str) {
 /// ⌃B, Desktop's `session.background` keybind, while the open session has blocking work. With
 /// none it passes on, so a text field's ⌃B still moves the caret back.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let m = ev.mods;
-    let ctrl_b = matches!(&ev.key, rune::Key::Text(t) if t.eq_ignore_ascii_case("b")) && m.ctrl && !m.cmd && !m.alt && !m.shift;
-    if !ctrl_b {
+    if !crate::keymap::Bind::Background.matches_tx(ev, tx) {
         return false;
     }
     let Route::Session(id) = s.route.clone() else { return false };
@@ -134,7 +135,7 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     let hint = row()
         .key("background-hint")
         .role("button")
-        .label(HINT)
+        .label(hint_label())
         .absolute(x, y)
         .h(HINT_H)
         .px(6.0)
@@ -149,8 +150,7 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
             s.move_to_background(tx);
         })
         .child(text(LABEL).font(UI).color(p.faint))
-        .child(crate::queue::keycap(p, "⌃"))
-        .child(crate::queue::keycap(p, "B"));
+        .children(crate::keymap::Bind::Background.keycaps().iter().map(|k| crate::queue::keycap(p, &k.to_uppercase())));
     Some(hint)
 }
 

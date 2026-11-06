@@ -1,13 +1,14 @@
 use super::*;
+use crate::keymap::Bind;
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if crate::glitch::key(s, ev, tx) || crate::demo::key(s, ev, tx) || crate::diagram::key(s, ev, tx) || crate::rewind::menu_key(s, ev, tx) || s.fork_key(ev, tx) || crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.project_switcher_key(ev, tx) || s.file_palette_key(ev, tx) || s.settings_key(ev, tx) || s.panels_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
-        Key::Command(c) if c.eq_ignore_ascii_case(&'b') && ev.mods.shift => {
+        _ if Bind::Sidebar.matches_tx(ev, tx) => {
             s.sidebar_open = !s.sidebar_open;
             true
         }
-        Key::Command('b') => {
+        _ if Bind::Home.matches_tx(ev, tx) => {
             if s.route == Route::Home {
                 s.opening = None;
                 s.route = s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone()));

@@ -96,8 +96,8 @@ fn draft_project_picker_add_project_and_cmd_k_trigger_open_project() {
     rt.frame(1.0 / 60.0);
     rt.key(KeyEvent { key: Key::Text("project".into()), mods: Mods::default() });
     rt.frame(1.0 / 60.0);
-    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:open-project" && e.hint == "⌘O"));
-    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:select-project" && e.hint == "⇧⌘O"));
+    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:open-project" && e.hint == Some(crate::keymap::Bind::OpenProject)));
+    assert!(rt.state.switcher_entries().iter().any(|e| e.key == "command:select-project" && e.hint == Some(crate::keymap::Bind::SelectProject)));
     rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
     rt.frame(1.0 / 60.0);
 

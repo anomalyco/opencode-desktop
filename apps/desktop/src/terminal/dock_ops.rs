@@ -7,6 +7,7 @@ use serde_json::Value;
 use terminal::{RestoreState, TerminalConfig, TerminalSession};
 
 use super::{grid, input, theme_from_pal, workspace_key};
+use crate::keymap::Bind;
 use crate::palette::{Pal, pal};
 use crate::panels::{
     PanelLauncherDesc, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SessionPane,
@@ -23,17 +24,13 @@ pub(super) fn launcher_desc(s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLaun
         title: "Terminal".into(),
         description: Some("Open integrated terminal".into()),
         icon: &ic::CONSOLE,
-        shortcut_hint: "⌘J",
+        shortcut: &[Bind::DockToggle],
         order: 20,
         opened: s.dock_open(),
     })
 }
 
 pub(super) fn open_from_launcher(s: &mut App, _pane: SessionPane, tx: &mut Tx) {
-    s.toggle_dock(tx);
-}
-
-pub(super) fn shortcut_toggle_terminal(s: &mut App, tx: &mut Tx) {
     s.toggle_dock(tx);
 }
 
@@ -97,13 +94,7 @@ pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     };
 
-    let m = ev.mods;
-    let is_close = m.cmd
-        && !m.alt
-        && !m.ctrl
-        && !m.shift
-        && matches!(&ev.key, Key::Command('w' | 'W'));
-    if is_close {
+    if Bind::TabClose.matches_tx(ev, tx) {
         let active_id = s.terminal.workspaces.get(&wk).and_then(|ws| {
             ws.active
                 .clone()
@@ -118,8 +109,8 @@ pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
 
-    let prev_tab = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command('[' | '{'));
-    let next_tab = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command(']' | '}'));
+    let prev_tab = Bind::PaneTabPrev.matches_tx(ev, tx);
+    let next_tab = Bind::PaneTabNext.matches_tx(ev, tx);
     if (prev_tab || next_tab)
         && s.select_adjacent_terminal_tab(&wk, if prev_tab { -1 } else { 1 }, tx)
     {

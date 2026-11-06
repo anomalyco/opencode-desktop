@@ -23,7 +23,7 @@ pub struct Item {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub keys: &'static str,
+    pub keys: Option<crate::keymap::Bind>,
     pub builtin: Option<&'static str>,
 }
 
@@ -92,7 +92,7 @@ impl App {
             id: c.name.clone(),
             name: c.name.clone(),
             description: c.description.clone(),
-            keys: "",
+            keys: None,
             builtin: None,
         });
         let own = self.commands().into_iter().filter_map(|c| {
@@ -225,7 +225,7 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             label: format!("/{}", c.name),
             lead: None,
             description: c.description.clone(),
-            trail: (!c.keys.is_empty()).then(|| crate::commands::keycaps(p, c.keys)),
+            trail: c.keys.filter(|b| b.chord().is_some()).map(|b| crate::keymap::keycaps(p, b)),
         })
         .collect();
     let spec = Spec { key: "commands", label: "Commands", empty: "No matching commands", width };

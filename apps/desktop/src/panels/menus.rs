@@ -5,6 +5,7 @@ use rune::{Anim, El, Icon, ScrollSpec, Tx, col, el, icon, row, text};
 use super::state::ResolvedRegion;
 use super::{SessionPane, icon_by_name};
 use crate::App;
+use crate::keymap::{self, Bind};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, UI_SMALL};
 
@@ -51,8 +52,9 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
                 open_fn(s, pane, tx);
             })
             .child(left);
-        if !desc.shortcut_hint.is_empty() {
-            card = card.child(text(desc.shortcut_hint).font(UI_SMALL).color(p.faint));
+        let keys = keymap::first_label(desc.shortcut);
+        if !keys.is_empty() {
+            card = card.child(text(keys).font(UI_SMALL).color(p.faint));
         }
         list = list.child(card);
     }
@@ -115,7 +117,7 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
                 })
                 .child(label_row);
             if i == 0 {
-                r = r.child(text("⇧⌘T").font(UI_SMALL).color(p.faint));
+                r = r.child(text(Bind::TabReopen.label()).font(UI_SMALL).color(p.faint));
             }
             recent = recent.child(r);
         }
@@ -164,7 +166,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             .border(0.5, p.ring)
             .shadow(4.0, 12.0, p.shadow);
         if can_close {
-            menu = menu.child(menu_row(p, "Close tab", "⌘W").key("side-tab-menu-close").on_press_tx(
+            menu = menu.child(menu_row(p, "Close tab", &Bind::TabClose.label()).key("side-tab-menu-close").on_press_tx(
                 move |s: &mut App, tx: &mut Tx| {
                     s.side.tab_menu = None;
                     s.close_side_tab(&tk, tx);
@@ -195,7 +197,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_side, SessionPane::Side, None, tx);
             }))
-            .child(menu_row(p, "Move to bottom dock", "⌘J").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "Move to bottom dock", &Bind::BottomToggle.label()).on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.move_side_tab(&tk_bottom, SessionPane::Bottom, None, tx);
             }));
@@ -225,7 +227,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             .shadow(4.0, 12.0, p.shadow);
         for &(_pl, ref desc, open_fn) in &reg.launchers {
             menu = menu.child(
-                menu_row_icon(p, desc.icon, &desc.title, desc.shortcut_hint).on_press_tx(
+                menu_row_icon(p, desc.icon, &desc.title, &keymap::first_label(desc.shortcut)).on_press_tx(
                     move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
                         s.side.add_menu = None;

@@ -16,6 +16,7 @@ use rune::{Cursor, El, Icon, Key, KeyEvent, Tx, el, icon};
 use rune_kit::{DiagramFrame, MarkdownStyle};
 
 use crate::TimelineHost;
+use crate::keymap::Bind;
 use crate::palette::Pal;
 use crate::style::INSTANT;
 
@@ -156,9 +157,9 @@ pub fn key<S: TimelineHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     match &ev.key {
         Key::Escape => close(s, tx),
         _ if space => close(s, tx),
-        Key::Command('=' | '+') => lightbox::zoom_step(s, 1.25, tx),
-        Key::Command('-' | '_') => lightbox::zoom_step(s, 0.8, tx),
-        Key::Command('0') if !ev.mods.shift => lightbox::fit(s, tx),
+        _ if Bind::ZoomIn.matches_tx(ev, tx) => lightbox::zoom_step(s, 1.25, tx),
+        _ if Bind::ZoomOut.matches_tx(ev, tx) => lightbox::zoom_step(s, 0.8, tx),
+        _ if Bind::ZoomReset.matches_tx(ev, tx) => lightbox::fit(s, tx),
         _ => return false,
     }
     true

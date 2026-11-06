@@ -137,7 +137,7 @@ fn ctrl_b_and_the_hint_move_and_report() {
     call(&mut rt, &id, "call_bg_shell", "shell");
     frames(&mut rt, 4);
     let hint = shown(&rt, "background-hint").expect("the hint shows beside Working");
-    assert_eq!(hint.label.as_deref(), Some(crate::background::HINT));
+    assert_eq!(hint.label.as_deref(), Some(crate::background::hint_label().as_str()));
     rt.key(ctrl_b());
     frames(&mut rt, 2);
     assert_eq!(moves(&writes), vec![(id.clone(), false)], "⌃B reports its failure");

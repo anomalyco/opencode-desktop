@@ -128,8 +128,8 @@ fn files_sidebar(
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
-                .label("Quick open file ⌘P")
-                .help("Quick open file ⌘P")
+                .label(crate::keymap::Bind::FileOpen.hint("Quick open file"))
+                .help(crate::keymap::Bind::FileOpen.hint("Quick open file"))
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_file_palette(tx))
                 .child(icon(&ic::MAGNIFYING_GLASS, 13.0).color(p.icon_muted)),
         );

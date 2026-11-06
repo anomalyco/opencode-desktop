@@ -1,6 +1,6 @@
 //! Line-delimited JSON wire protocol between `crates/browser-pane` and `opencode-browser-engine`.
 
-use rune::{Cursor, Mods, PointerButton};
+use rune::{Cursor, KeyPlatform, Mods, PointerButton};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -9,18 +9,23 @@ pub const MOD_CTRL: u8 = 1 << 1;
 pub const MOD_ALT: u8 = 1 << 2;
 pub const MOD_CMD: u8 = 1 << 3;
 
+/// The keys held, for the engine: Control, Alt, Shift and Meta (⌘, or the Windows key). `cmd` is
+/// the primary key reported beside its own flag (`ctrl` off macOS, `logo` on it), so it adds
+/// nothing unless an event names it alone (a script), where it stands for the primary key.
 pub fn pack_mods(m: Mods) -> u8 {
+    let mac = KeyPlatform::current() == KeyPlatform::Mac;
+    let scripted = m.cmd && !m.ctrl && !m.logo;
     let mut bits = 0;
     if m.shift {
         bits |= MOD_SHIFT;
     }
-    if m.ctrl {
+    if m.ctrl || (scripted && !mac) {
         bits |= MOD_CTRL;
     }
     if m.alt {
         bits |= MOD_ALT;
     }
-    if m.cmd || m.logo {
+    if m.logo || (scripted && mac) {
         bits |= MOD_CMD;
     }
     bits

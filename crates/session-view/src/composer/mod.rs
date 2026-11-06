@@ -77,12 +77,7 @@ pub fn stop_glyph_swap() -> Transition {
 pub fn is_stop_shortcut(ev: &KeyEvent) -> bool {
     let m = ev.mods;
     let esc = ev.key == Key::Escape && !m.cmd && !m.ctrl && !m.alt && !m.shift;
-    let ctrl_g = matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("g"))
-        && m.ctrl
-        && !m.cmd
-        && !m.alt
-        && !m.shift;
-    esc || ctrl_g
+    esc || crate::keymap::Bind::Stop.matches(ev)
 }
 
 /// Ghost toolbar button shared by Desktop's agent/model/effort pickers.
@@ -110,7 +105,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .key("add")
         .role("button")
         .label("Add images and files")
-        .help("Add images and files ⌘U")
+        .help(format!("Add images and files {}", crate::keymap::Bind::Attach.label()))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()

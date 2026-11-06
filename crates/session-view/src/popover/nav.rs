@@ -23,17 +23,16 @@ impl Highlight {
     }
 }
 
-/// Up, Down, Ctrl-N and Ctrl-P as a step of ±1. `ctrl_alt` lets Ctrl-N/P through with Alt held.
+/// Up, Down, and on macOS Ctrl-N and Ctrl-P, as a step of ±1. `ctrl_alt` lets Ctrl-N/P through with Alt held.
 pub fn nav_step(ev: &KeyEvent, ctrl_alt: bool) -> Option<i64> {
-    let ctrl = |c: &str| {
-        ev.mods.ctrl && !ev.mods.cmd && (ctrl_alt || !ev.mods.alt) && matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case(c))
-    };
+    use crate::keymap::Bind;
+    let hit = |b: Bind, alt: Bind| b.matches(ev) || (ctrl_alt && alt.matches(ev));
     let plain = !ev.mods.alt && !ev.mods.cmd && !ev.mods.shift;
     match &ev.key {
         Key::Down if plain => Some(1),
         Key::Up if plain => Some(-1),
-        _ if ctrl("n") => Some(1),
-        _ if ctrl("p") => Some(-1),
+        _ if hit(Bind::PopoverNext, Bind::PopoverNextAlt) => Some(1),
+        _ if hit(Bind::PopoverPrev, Bind::PopoverPrevAlt) => Some(-1),
         _ => None,
     }
 }

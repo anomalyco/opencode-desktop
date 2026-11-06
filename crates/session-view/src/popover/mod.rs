@@ -165,7 +165,7 @@ pub fn badge(p: &Pal, label: &str) -> El {
 /// A row's star at its end: filled when `on`. A press toggles it and leaves the row unpicked.
 pub fn star<S: 'static>(p: &Pal, on: bool, toggle: impl Fn(&mut S) + 'static) -> El {
     row().key("star").role("button").label(if on { "Unfavorite" } else { "Favorite" })
-        .help(if on { "Unfavorite ⌘F" } else { "Favorite ⌘F" })
+        .help(format!("{} {}", if on { "Unfavorite" } else { "Favorite" }, crate::keymap::Bind::Favorite.label()))
         .size(20.0, 20.0).center().radius(4.0).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();

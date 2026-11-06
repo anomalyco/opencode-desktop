@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use opencode_kit::model::Message;
 use opencode_kit::prompt::{PathAttachment, Prompt};
-use rune::{Key, KeyEvent};
+use rune::KeyEvent;
 use rune::rewind::{Keyed, Rewind, Scrub, Sent};
 use rune::{El, Tx};
 
@@ -54,7 +54,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 fn is_chord(ev: &KeyEvent) -> bool {
-    matches!(ev.key, Key::Command(c) if c.eq_ignore_ascii_case(&'r')) && ev.mods.shift && ev.mods.alt
+    crate::keymap::Bind::Rewind.matches(ev)
 }
 
 /// ⌘⇧⌥R freezes the window (and closes the scrubber again); while it's open, it takes every key.
@@ -173,7 +173,7 @@ pub fn settings_section(s: &App, p: &Pal) -> El {
     crate::settings::section(p, "Developer", crate::settings::settings_card(p, "developer-list", [(
         "record-glitches",
         "Rewind",
-        "Keep the last minute of the window. ⌘⇧⌥R freezes it so you can step back to what you didn't like and send it to the session.",
+        &format!("Keep the last minute of the window. {} freezes it so you can step back to what you didn't like and send it to the session.", crate::keymap::Bind::Rewind.label()),
         crate::settings::switch(p, "record-glitches-switch", on).on_press(|s: &mut App| s.change_settings(|st| st.record_glitches = !st.record_glitches)),
     )]))
 }

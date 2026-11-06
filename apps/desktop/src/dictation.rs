@@ -266,7 +266,7 @@ pub fn submit(s: &mut App, alternate: bool) -> bool {
 }
 
 fn shortcut(ev: &KeyEvent) -> bool {
-    ev.key == Key::Command('m') && ev.mods.shift && !ev.mods.alt && !ev.mods.ctrl
+    crate::keymap::Bind::Dictate.matches(ev)
 }
 
 /// ⇧⌘M starts or finishes; while a recording is on, Esc throws it away.
@@ -408,10 +408,10 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .motion_intent(rune::MotionIntent::CUT)
         .preserve_focus_on_press(true);
     b = match &d.rec {
-        None => b.label("Dictate with Hex").help("Dictate with Hex ⇧⌘M").child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
+        None => b.label("Dictate with Hex").help(crate::keymap::Bind::Dictate.hint("Dictate with Hex")).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
         Some(_) if finishing => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_sized(p, 14.0)),
         // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
-        Some(_) => b.label("Stop dictation").help("Stop dictation ⇧⌘M").fill(p.layer2)
+        Some(_) => b.label("Stop dictation").help(crate::keymap::Bind::Dictate.hint("Stop dictation")).fill(p.layer2)
             .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
     };
     if !finishing {

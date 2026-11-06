@@ -18,6 +18,7 @@ use rune_theme_opencode::icons as ic;
 
 use opencode_kit::model::{self, SessionInfo};
 
+use crate::keymap::Bind;
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, title_of};
@@ -54,7 +55,8 @@ pub struct Entry {
     pub project: String,
     /// A session's project, a command's description.
     pub description: String,
-    pub hint: &'static str,
+    /// A command's keymap entry, whose chord the row shows.
+    pub hint: Option<crate::keymap::Bind>,
     pub group: &'static str,
     pub updated: Option<i64>,
     /// The session is open as a tab.
@@ -245,7 +247,7 @@ impl App {
             title: title_of(s),
             project: s.project.clone(),
             description: self.project_label(s),
-            hint: "",
+            hint: None,
             group,
             updated: Some(s.updated),
             open: self.tabs.iter().any(|t| t.id == s.id),
@@ -345,33 +347,25 @@ impl App {
     /// ⌘K toggles "Search everything", ⇧⌘F "Search sessions" and ⇧⌘P "Search commands"; while
     /// open, the list's keys.
     pub fn switcher_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if !ev.mods.alt && !ev.mods.ctrl {
-            if ev.is_command('p') && ev.mods.shift {
-                if self.switcher.open && self.switcher.mode == SwitcherMode::Commands {
-                    self.close_switcher(true);
-                } else {
-                    self.open_command_search(tx);
-                }
-                return true;
+        if Bind::CommandSearch.matches_tx(ev, tx) {
+            if self.switcher.open && self.switcher.mode == SwitcherMode::Commands {
+                self.close_switcher(true);
+            } else {
+                self.open_command_search(tx);
             }
-            if ev.is_command('k') && !ev.mods.shift {
-                if self.switcher.open && self.switcher.mode == SwitcherMode::All {
-                    self.close_switcher(true);
-                } else {
-                    tx.instant();
-                    self.open_switcher_mode(SwitcherMode::All);
-                }
-                return true;
+            return true;
+        }
+        for (bind, mode) in [(Bind::Palette, SwitcherMode::All), (Bind::SessionSearch, SwitcherMode::Sessions)] {
+            if !bind.matches_tx(ev, tx) {
+                continue;
             }
-            if ev.is_command('f') && ev.mods.shift {
-                if self.switcher.open && self.switcher.mode == SwitcherMode::Sessions {
-                    self.close_switcher(true);
-                } else {
-                    tx.instant();
-                    self.open_switcher_mode(SwitcherMode::Sessions);
-                }
-                return true;
+            if self.switcher.open && self.switcher.mode == mode {
+                self.close_switcher(true);
+            } else {
+                tx.instant();
+                self.open_switcher_mode(mode);
             }
+            return true;
         }
         self.switcher.open && self.switcher_nav(ev, tx)
     }
@@ -531,8 +525,8 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El
         .child(main.child(words));
     if let Some(at) = e.updated {
         r = r.child(text(model::ago(now, at)).key("meta").font(UI).color(p.muted));
-    } else if !e.hint.is_empty() {
-        r = r.child(spacer()).child(crate::commands::keycaps(p, e.hint).key("hint"));
+    } else if let Some(bind) = e.hint.filter(|b| b.chord().is_some()) {
+        r = r.child(spacer()).child(crate::keymap::keycaps(p, bind).key("hint"));
     }
     r
 }

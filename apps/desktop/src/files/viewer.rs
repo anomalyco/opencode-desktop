@@ -21,7 +21,7 @@ static WRAP_ICON: Icon = Icon {
 };
 
 /// A toolbar button: `glyph`, filled while `on`, saying `help` on hover.
-fn tool(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label: &'static str, help: &'static str, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+fn tool(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label: &'static str, help: &str, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     el().key(key)
         .size(25.0, 25.0)
         .radius(5.0)
@@ -32,7 +32,7 @@ fn tool(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label: &'sta
         .hover_motion(INSTANT, INSTANT)
         .role("button")
         .label(label)
-        .help(help)
+        .help(help.to_owned())
         .on_press_tx(press)
         .child(icon(glyph, 13.0).color(if on { p.icon } else { p.icon_muted }))
 }
@@ -59,7 +59,7 @@ pub(super) fn files_main(
             .padding(24.0)
             .child(icon(&ic::FILE_TREE, 24.0).color(p.icon_faint))
             .child(text("Open file").font(UI_MED).color(p.text))
-            .child(text("Select a file to open or press ⌘P").font(UI_SMALL).color(p.muted));
+            .child(text(crate::keymap::Bind::FileOpen.hint("Select a file to open or press")).font(UI_SMALL).color(p.muted));
     };
 
     let doc = ws.docs.get(path);
@@ -113,7 +113,7 @@ pub(super) fn files_main(
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
                 .label("Toggle file tree")
-                .help("Toggle file tree ⌘\\")
+                .help(crate::keymap::Bind::TreeToggle.hint("Toggle file tree"))
                 .on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.files.sidebar_open = !s.files.sidebar_open;
@@ -125,7 +125,7 @@ pub(super) fn files_main(
             let (glyph, label) = if rendered { (&ic::CODE_LINES, "Show source") } else { (&READ_ICON, "Show rendered") };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
-        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, "Find in file", "Find in file ⌘F", at(|s, sid, path, tx| {
+        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, "Find in file", &crate::keymap::Bind::Find.hint("Find in file"), at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
                 d.find_open = !d.find_open;

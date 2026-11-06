@@ -374,7 +374,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
         .child(text("Add project").font(UI).color(p.text))
         .child(spacer())
-        .child(text("⌘O").font(UI).color(p.faint));
+        .child(text(crate::keymap::Bind::OpenProject.label()).font(UI).color(p.faint));
 
     let mut menu = col()
         .key("home-projects-popover")

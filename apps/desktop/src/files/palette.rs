@@ -204,11 +204,7 @@ impl App {
     }
 
     pub fn file_palette_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if ev.mods.cmd
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
-            && matches!(&ev.key, Key::Command('p' | 'P'))
+        if crate::keymap::Bind::FileOpen.matches_tx(ev, tx)
             && matches!(self.route, Route::Session(_))
             && !self.settings.open
         {

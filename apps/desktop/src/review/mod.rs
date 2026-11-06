@@ -14,9 +14,10 @@ use rune_kit::diff::{DiffMode, Expand};
 use rune_kit::{FileNode, TreeModel};
 use rune_theme_opencode::icons as ic;
 
+use crate::keymap::Bind;
 use crate::code_view::{DiffDocState, ExpandMode};
 use crate::panels::{
-    CloseButtonMode, PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane, ShortcutChord,
+    CloseButtonMode, PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane,
     panel_key,
 };
 use crate::{App, Route, Source};
@@ -167,7 +168,7 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .transient(true)
         .legacy(&[("review", "changes")])
         .wide(is_split_wide)
-        .command("Review changes", ShortcutChord::ctrl_cmd('r', "⌃⌘R"))
+        .command("Review changes", Bind::ReviewOpen)
         .launcher(no_launcher, open_review_command)
         .on_enter(on_enter_review)
         .on_focus(on_focus_review)
@@ -260,12 +261,7 @@ fn key_review(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     // `⌘\` toggles the file tree sidebar inside the Review panel (`fileTree.toggle`).
-    let is_cmd_backslash = ev.mods.cmd
-        && !ev.mods.alt
-        && !ev.mods.ctrl
-        && !ev.mods.shift
-        && (matches!(&ev.key, Key::Command('\\'))
-            || matches!(&ev.key, Key::Text(t) if t == "\\"));
+    let is_cmd_backslash = Bind::TreeToggle.matches_tx(ev, tx);
     if is_cmd_backslash {
         tx.instant();
         s.review.sidebar_open = !s.review.sidebar_open;

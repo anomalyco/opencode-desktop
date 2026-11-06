@@ -573,7 +573,7 @@ fn review_main(
             .hover_motion(INSTANT, INSTANT)
             .role("button")
             .label("Toggle file tree")
-            .help("Toggle file tree ⌘\\")
+            .help(crate::keymap::Bind::TreeToggle.hint("Toggle file tree"))
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.review.sidebar_open = !s.review.sidebar_open;

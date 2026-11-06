@@ -7,10 +7,10 @@
 //! Panels with a `.command(…)` join the list on their own (`App::commands`).
 
 use crate::pickers::PickerHost as _;
-use rune::{El, Key, KeyEvent, Tx, row};
+use rune::{KeyEvent, Tx};
 use rune_register::{collect, slice};
 
-use crate::palette::Pal;
+use crate::keymap::Bind;
 use crate::panels::PanelRegion;
 use crate::pickers::Kind;
 use crate::{App, Route};
@@ -26,8 +26,8 @@ pub struct Cmd {
     pub description: &'static str,
     /// The `/name` that runs it from the composer.
     pub slash: Option<&'static str>,
-    /// Its shortcut as Desktop draws it, `⇧⌘P`.
-    pub keys: &'static str,
+    /// Its keymap command, whose chord the palette draws (`⇧⌘P`, `Ctrl+Shift+P`).
+    pub keys: Option<Bind>,
     /// Listed only while this holds (Desktop's `disabled`).
     pub enabled: fn(&App) -> bool,
     pub run: fn(&mut App, &mut Tx),
@@ -39,7 +39,7 @@ fn always(_: &App) -> bool {
 
 impl Cmd {
     pub const fn new(id: &'static str, title: &'static str, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: "", slash: None, keys: "", enabled: always, run }
+        Cmd { id, title, description: "", slash: None, keys: None, enabled: always, run }
     }
 
     pub const fn describe(mut self, description: &'static str) -> Cmd {
@@ -52,8 +52,8 @@ impl Cmd {
         self
     }
 
-    pub const fn keys(mut self, keys: &'static str) -> Cmd {
-        self.keys = keys;
+    pub const fn keys(mut self, keys: Bind) -> Cmd {
+        self.keys = Some(keys);
         self
     }
 
@@ -77,7 +77,7 @@ pub struct Command {
     pub title: &'static str,
     pub description: &'static str,
     pub slash: Option<&'static str>,
-    pub keys: &'static str,
+    pub keys: Option<Bind>,
     pub run: Run,
 }
 
@@ -104,7 +104,7 @@ impl App {
                 title: p.command_title?,
                 description: "",
                 slash: p.slash,
-                keys: p.shortcut.map_or("", |s| s.hint),
+                keys: p.shortcut,
                 run: Run::Panel(p.plugin),
             })
         });
@@ -164,21 +164,7 @@ impl App {
 
 /// ⌃L, as Desktop binds `input.focus`. A focused panel (the terminal's clear screen) takes it first.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let m = ev.mods;
-    if !m.ctrl || m.cmd || m.alt || m.shift {
-        return false;
-    }
-    let l = match &ev.key {
-        Key::Text(t) => t.eq_ignore_ascii_case("l") || t == "\u{c}",
-        Key::Command(c) => c.eq_ignore_ascii_case(&'l'),
-        _ => false,
-    };
-    l && s.focus_composer(tx)
-}
-
-/// A shortcut's keys, one cap each (`Keybind` with `formatKeybindParts`).
-pub fn keycaps(p: &Pal, keys: &str) -> El {
-    keys.chars().fold(row().key("keys").gap(2.0).center_y(), |r, c| r.child(crate::queue::keycap(p, &c.to_string())))
+    Bind::FocusInput.matches_tx(ev, tx) && s.focus_composer(tx)
 }
 
 fn in_session(s: &App) -> bool {
@@ -219,32 +205,32 @@ fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
 }
 
 rune_register::register!(COMMANDS: Cmd = [
-    Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new").keys("⌘T"),
-    Cmd::new("home", "Home", |s, tx| s.go_home(tx)).keys("⌘B"),
-    Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys("⇧⌘B"),
-    Cmd::new("settings", "Settings", |s, tx| s.toggle_settings(tx)).keys("⌘,"),
-    Cmd::new("side", "Toggle side panel", |s, tx| s.toggle_side_region(tx)).keys("⌥⌘B").when(in_session),
-    Cmd::new("open-project", "Open project", |s, tx| s.open_project_dialog(tx)).keys("⌘O"),
-    Cmd::new("select-project", "Search projects", |s, tx| s.toggle_project_switcher(tx)).keys("⇧⌘O"),
-    Cmd::new("sessions", "Search sessions", |s, tx| s.open_session_search(tx)).keys("⇧⌘F"),
-    Cmd::new(SEARCH, "Search commands", |s, tx| s.open_command_search(tx)).keys("⇧⌘P"),
+    Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new").keys(Bind::TabNew),
+    Cmd::new("home", "Home", |s, tx| s.go_home(tx)).keys(Bind::Home),
+    Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys(Bind::Sidebar),
+    Cmd::new("settings", "Settings", |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
+    Cmd::new("side", "Toggle side panel", |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
+    Cmd::new("open-project", "Open project", |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
+    Cmd::new("select-project", "Search projects", |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
+    Cmd::new("sessions", "Search sessions", |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
+    Cmd::new(SEARCH, "Search commands", |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
     Cmd::new("model", "Choose model", |s, _| s.open_picker(Kind::Model))
         .describe("Select a different model")
         .slash("model")
-        .keys("⌘'")
+        .keys(Bind::Model)
         .when(App::has_composer),
     Cmd::new("agent", "Cycle agent", |s, tx| s.cycle_picker(Kind::Agent, false, tx))
         .describe("Switch to the next agent")
         .slash("agent")
-        .keys("⌘.")
+        .keys(Bind::Agent)
         .when(App::has_composer),
     Cmd::new("agent-back", "Cycle agent backwards", |s, tx| s.cycle_picker(Kind::Agent, true, tx))
         .describe("Switch to the previous agent")
-        .keys("⇧⌘.")
+        .keys(Bind::AgentBack)
         .when(App::has_composer),
     Cmd::new("variant", "Cycle model variant", |s, tx| s.cycle_picker(Kind::Effort, false, tx))
         .describe("Switch to the next model variant")
-        .keys("⇧⌘D")
+        .keys(Bind::Variant)
         .when(|s| s.has_composer() && s.has_effort()),
     Cmd::new("compact", "Compact session", compact)
         .describe("Summarize the session to reduce context size")
@@ -272,9 +258,9 @@ rune_register::register!(COMMANDS: Cmd = [
         s.move_to_background(tx);
     })
     .slash("background")
-    .keys("⌃B")
+    .keys(Bind::Background)
     .when(can_background),
-    Cmd::new("rename", "Rename session", rename).slash("rename").keys("⌃R").when(in_session),
+    Cmd::new("rename", "Rename session", rename).slash("rename").keys(Bind::Rename).when(in_session),
     Cmd::new("export", "Export session", export)
         .describe("Export the full session transcript as JSON")
         .slash("export")
@@ -285,25 +271,25 @@ rune_register::register!(COMMANDS: Cmd = [
         s.copy_id(id, tx);
     })
     .when(has_project),
-    Cmd::new("find", "Find in session", |s, tx| s.open_find(tx)).keys("⌘F").when(|s| s.open_session().is_some()),
+    Cmd::new("find", "Find in session", |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
     Cmd::new("focus", "Focus input", |s, tx| {
         s.focus_composer(tx);
     })
-    .keys("⌃L")
+    .keys(Bind::FocusInput)
     .when(App::has_composer),
-    Cmd::new("next-tab", "Next tab", |s, tx| s.select_adjacent(1, false, tx)).keys("⌥↓").when(has_tabs),
-    Cmd::new("previous-tab", "Previous tab", |s, tx| s.select_adjacent(-1, false, tx)).keys("⌥↑").when(has_tabs),
+    Cmd::new("next-tab", "Next tab", |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext).when(has_tabs),
+    Cmd::new("previous-tab", "Previous tab", |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev).when(has_tabs),
     Cmd::new("close-tab", "Close tab", |s, tx| {
         if let Some(id) = s.current_tab() {
             s.close_tab(&id, tx);
         }
     })
-    .keys("⌘W")
+    .keys(Bind::TabClose)
     .when(|s| s.current_tab().is_some()),
-    Cmd::new("reopen-tab", "Reopen closed tab", |s, tx| s.reopen_tab(tx)).keys("⇧⌘T"),
-    Cmd::new("zoom-in", "Zoom in", |s, tx| s.zoom_by(1, tx)).keys("⌘="),
-    Cmd::new("zoom-out", "Zoom out", |s, tx| s.zoom_by(-1, tx)).keys("⌘-"),
-    Cmd::new("zoom-reset", "Actual size", |s, tx| s.zoom_by(0, tx)).keys("⌘0"),
+    Cmd::new("reopen-tab", "Reopen closed tab", |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
+    Cmd::new("zoom-in", "Zoom in", |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
+    Cmd::new("zoom-out", "Zoom out", |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),
+    Cmd::new("zoom-reset", "Actual size", |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset),
 ]);
 
 #[cfg(test)]

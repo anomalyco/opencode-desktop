@@ -28,7 +28,8 @@ use terminal::{
 };
 
 use crate::palette::{Pal, pal};
-use crate::panels::{PanelRegistration, ShortcutChord};
+use crate::keymap::Bind;
+use crate::panels::PanelRegistration;
 use crate::{App, Route, Source};
 use persist::StoredWorkspace;
 
@@ -56,15 +57,12 @@ rune_register::register!(crate::knobs::GROUP_LIST: Group = [
     Group::new("Terminal", "terminal", TERMINAL_KNOBS),
 ]);
 
-const EXTRA_SHORTCUTS: &[(ShortcutChord, fn(&mut App, &mut Tx))] = &[
-    (ShortcutChord::ctrl_backtick(), dock_ops::shortcut_toggle_terminal),
-    (ShortcutChord::ctrl_alt('t', "⌃⌥T"), dock_ops::shortcut_new_terminal),
-];
+const EXTRA_SHORTCUTS: &[(Bind, fn(&mut App, &mut Tx))] = &[(Bind::TerminalNew, dock_ops::shortcut_new_terminal)];
 
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::dock("terminal", dock_ops::list_dock_tabs, dock_ops::render_dock)
         .order(20)
-        .command("Toggle terminal", ShortcutChord::cmd_j())
+        .command("Toggle terminal", Bind::DockToggle)
         .slash("terminal")
         .shortcuts(EXTRA_SHORTCUTS)
         .launcher(dock_ops::launcher_desc, dock_ops::open_from_launcher)

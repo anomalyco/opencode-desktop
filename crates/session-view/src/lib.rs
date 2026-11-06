@@ -20,6 +20,7 @@ pub mod fold;
 pub mod genui;
 pub mod images;
 pub mod jump;
+pub mod keymap;
 pub mod knobs;
 pub mod line_reveal;
 pub mod odometer;

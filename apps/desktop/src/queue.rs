@@ -329,8 +329,9 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
 /// window it can't push the mic and Send aside.
 pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
     // The two keycaps and the gap between them, its padding and its right margin.
-    let caps: f32 = ["⌘", "⏎"].iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
-    let keys = caps + 6.0 + 12.0 + 4.0;
+    let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
+    let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
+    let keys = caps + 6.0 * labels.len().saturating_sub(1) as f32 + 12.0 + 4.0;
     let word = rune::text::measure("Queue", &[], UI_MED, None).0 + 6.0;
     if room < keys {
         return None;
@@ -350,8 +351,7 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
         .children((room >= keys + word).then(|| text("Queue").font(UI_MED).color(p.faint)))
-        .child(keycap(p, "⌘"))
-        .child(keycap(p, "⏎"));
+        .children(labels.iter().map(|k| keycap(p, k)));
     Some(hint)
 }
 

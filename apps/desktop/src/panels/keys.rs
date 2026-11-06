@@ -4,6 +4,8 @@ use std::collections::HashSet;
 
 use rune::{Ime, Key, KeyEvent, Tx};
 
+use crate::keymap::Bind;
+
 use super::tabs::{SessionTabs, panel_key};
 use super::{PanelRegion, SessionPane};
 use crate::App;
@@ -107,11 +109,7 @@ impl App {
     }
 
     pub fn panels_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        let is_close_key = ev.mods.cmd
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
-            && matches!(&ev.key, Key::Command('w' | 'W'));
+        let is_close_key = Bind::TabClose.matches_tx(ev, tx);
 
         if self.side.emptied_guard {
             if is_close_key {
@@ -133,22 +131,12 @@ impl App {
         }
 
         // 1. Toggle side region: ⌥⌘B or Desktop's ⇧⌘R (`review.toggle`).
-        let toggle_alt_cmd_b = ev.mods.cmd
-            && ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
-            && matches!(&ev.key, Key::Command('b' | 'B'));
-        let toggle_shift_cmd_r = ev.mods.cmd
-            && ev.mods.shift
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && matches!(&ev.key, Key::Command('r' | 'R'));
-        if toggle_alt_cmd_b || toggle_shift_cmd_r {
+        if Bind::SideToggle.matches_tx(ev, tx) {
             self.toggle_side_region(tx);
             return true;
         }
 
-        // 2. Registered panel global launcher shortcuts (e.g. ⌃⌘B Browser, ⌃⌘R Review, ⌃⌘P Files, ⌘J / ⌃` / ⌃⌥T Terminal).
+        // 2. Registered panels' launcher commands (Browser, Review, Files, Terminal; chords in `keymap`).
         for p in self.all_panels() {
             if let Some(sc) = p.shortcut
                 && sc.matches_tx(ev, tx)
@@ -172,12 +160,7 @@ impl App {
 
         // 3. ⌘J toggles the `Dock` region when any `PanelRegion::Dock` provider is registered,
         //    or toggles `SessionPane::Bottom` when bottom tabs exist.
-        if ev.mods.cmd
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
-            && matches!(&ev.key, Key::Command('j' | 'J'))
-        {
+        if Bind::BottomToggle.matches_tx(ev, tx) {
             if self.has_dock_provider() {
                 self.toggle_dock(tx);
                 return true;
@@ -210,7 +193,6 @@ impl App {
         }
 
         // 5. Side-region tab strip shortcuts when focus is in the side/bottom tab strip.
-        let m = ev.mods;
         if is_close_key {
             let sid = self.active_session_id().unwrap().to_owned();
             let pane = self.side.active_pane_focus;
@@ -248,23 +230,17 @@ impl App {
             return true;
         }
 
-        if m.cmd && !m.alt && !m.ctrl && !m.shift && matches!(&ev.key, Key::Command('t' | 'T')) {
+        if Bind::PaneTabNew.matches_tx(ev, tx) {
             tx.instant();
             self.open_side_new_tab(self.side.active_pane_focus);
             return true;
         }
 
-        if m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command('t' | 'T')) {
+        if Bind::TabReopen.matches_tx(ev, tx) {
             return self.reopen_closed_side_tab(None, tx);
         }
 
-        if m.cmd
-            && !m.alt
-            && !m.ctrl
-            && !m.shift
-            && let Key::Command(c @ '1'..='9') = ev.key
-        {
-            let idx = (c as usize) - ('1' as usize);
+        if let Some(idx) = Bind::tab_at(ev, tx) {
             if let Some(reg) = self.resolve_side_region() {
                 let keys: Vec<String> = reg
                     .pane_entries(self.side.active_pane_focus)
@@ -280,15 +256,10 @@ impl App {
             }
         }
 
-        let prev_bracket = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command('[' | '{'));
-        let next_bracket = m.cmd && m.shift && !m.alt && !m.ctrl && matches!(&ev.key, Key::Command(']' | '}'));
-        let prev_arrow = m.cmd && m.alt && !m.ctrl && !m.shift && ev.key == Key::Left;
-        let next_arrow = m.cmd && m.alt && !m.ctrl && !m.shift && ev.key == Key::Right;
-        let ctrl_tab = m.ctrl && !m.cmd && !m.alt && ev.key == Key::Tab;
-        if prev_bracket || prev_arrow || (ctrl_tab && m.shift) {
+        if Bind::PaneTabPrev.matches_tx(ev, tx) || Bind::TabPrev.matches_tx(ev, tx) {
             return self.select_adjacent_side_tab(-1, tx);
         }
-        if next_bracket || next_arrow || (ctrl_tab && !m.shift) {
+        if Bind::PaneTabNext.matches_tx(ev, tx) || Bind::TabNext.matches_tx(ev, tx) {
             return self.select_adjacent_side_tab(1, tx);
         }
 

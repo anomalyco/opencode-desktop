@@ -440,7 +440,7 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str) -> El {
 
     match &r.kind {
         RowKind::Add => {
-            line = line.child(spacer()).child(text("⌘O").font(UI).color(p.faint));
+            line = line.child(spacer()).child(text(crate::keymap::Bind::OpenProject.label()).font(UI).color(p.faint));
         }
         RowKind::Other { .. } => {
             line = line.child(spacer()).child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_muted));

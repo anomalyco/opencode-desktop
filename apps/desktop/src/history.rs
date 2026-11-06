@@ -4,8 +4,9 @@
 //! entry at once, with no animation. Closing a tab or deleting a session drops its entries.
 
 use crate::pickers::PickerHost as _;
-use rune::{Key, KeyEvent, MenuItem, Mods, PhysicalKeyCode, Tx};
+use rune::{Key, KeyEvent, MenuItem, PhysicalKeyCode, Tx};
 
+use crate::keymap::Bind;
 use crate::{App, Route};
 
 const MAX: usize = 100;
@@ -106,21 +107,14 @@ impl History {
 /// `forward` for ⌘], `false` for ⌘[. Desktop reads `{` and `}` as the brackets, and a layout
 /// that types no ASCII there falls back to the physical key, so it works on any layout.
 pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool> {
-    let Mods { cmd, ctrl, alt, shift, .. } = ev.mods;
-    if !cmd || ctrl || alt || shift {
-        return None;
-    }
     let Key::Command(c) = ev.key else { return None };
-    match c {
-        '[' => Some(false),
-        ']' => Some(true),
-        _ if !c.is_ascii() => match physical? {
-            PhysicalKeyCode::BracketLeft => Some(false),
-            PhysicalKeyCode::BracketRight => Some(true),
-            _ => None,
-        },
-        _ => None,
-    }
+    let key = match (c.is_ascii(), physical) {
+        (false, Some(PhysicalKeyCode::BracketLeft)) => '[',
+        (false, Some(PhysicalKeyCode::BracketRight)) => ']',
+        _ => c,
+    };
+    let ev = KeyEvent { key: Key::Command(key), mods: ev.mods };
+    [(Bind::GoBack, false), (Bind::GoForward, true)].into_iter().find(|(b, _)| b.matches(&ev)).map(|(_, forward)| forward)
 }
 
 impl App {
@@ -174,14 +168,14 @@ pub fn menu_items() -> Vec<MenuItem<App>> {
         })
         .id("Go/Back")
         .menu("Go")
-        .key_equivalent("cmd+[".parse().unwrap())
+        .key_equivalent(Bind::GoBack.shortcut().expect("bound"))
         .keys_first(),
         MenuItem::new("Forward", |s: &mut App, tx: &mut Tx| {
             s.navigate(true, tx);
         })
         .id("Go/Forward")
         .menu("Go")
-        .key_equivalent("cmd+]".parse().unwrap())
+        .key_equivalent(Bind::GoForward.shortcut().expect("bound"))
         .keys_first(),
     ]
 }

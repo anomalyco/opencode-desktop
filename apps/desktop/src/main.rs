@@ -122,6 +122,7 @@ mod icons;
 mod interaction_fuzz;
 #[cfg(test)]
 mod jump_tests;
+mod keymap;
 mod keys;
 mod knobs;
 mod launch;
@@ -841,7 +842,7 @@ impl App {
             self.navigate(forward, tx);
             return true;
         }
-        let Some(action) = shortcuts::action(ev) else { return false };
+        let Some(action) = shortcuts::action_tx(ev, tx) else { return false };
         match action {
             // Zoom lands at once; the scale and every re-laid-out row would otherwise spring.
             Action::ZoomIn => self.zoom_by(1, tx),

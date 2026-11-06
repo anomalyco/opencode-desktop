@@ -331,7 +331,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             Some(Nav::Choose) => {
                 if s.pickers().search.preedit.is_none() && let Some(key) = s.picker_active() { s.choose_picker_tx(&key, tx); }
             }
-            None if ev.is_command('f') && open == Kind::Model && !ev.mods.shift => {
+            None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
                 if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
             }
             // As in Desktop's list: with no query, ← → change the lit model's effort.
@@ -360,10 +360,12 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if matches!(ev.key, Key::Enter | Key::Down | Key::Up)
         && let Some(kind) = toolbar_focus { s.open_picker(kind); return true; }
-    if ev.key == Key::Command('\'') { s.open_picker(Kind::Model); return true; }
-    let cycle = match ev.key {
-        Key::Command('.') => Some((Kind::Agent, ev.mods.shift)),
-        Key::Command('d') if ev.mods.shift && s.has_effort() => Some((Kind::Effort, false)),
+    use crate::keymap::Bind;
+    if Bind::Model.matches_tx(ev, tx) { s.open_picker(Kind::Model); return true; }
+    let cycle = match () {
+        _ if Bind::Agent.matches_tx(ev, tx) => Some((Kind::Agent, false)),
+        _ if Bind::AgentBack.matches_tx(ev, tx) => Some((Kind::Agent, true)),
+        _ if Bind::Variant.matches_tx(ev, tx) && s.has_effort() => Some((Kind::Effort, false)),
         _ => None,
     };
     if let Some((kind, backwards)) = cycle {

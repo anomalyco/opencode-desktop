@@ -1,13 +1,15 @@
 //! Which keys stay with the app, and the engine's names for the rest.
 
-use rune::{Key, KeyEvent, Mods};
+use std::sync::LazyLock;
+
+use rune::{Key, KeyEvent, Keybind};
+
+/// The app's tab keys: Alt+↑/↓ (with Shift, unread ones) and Ctrl+Tab.
+static TAB_KEYS: LazyLock<Keybind> =
+    LazyLock::new(|| Keybind::new("alt+up, alt+down, shift+alt+up, shift+alt+down, ctrl+tab, ctrl+shift+tab"));
 
 pub(crate) fn is_shell_shortcut(ev: &KeyEvent) -> bool {
-    let m: Mods = ev.mods;
-    if m.alt && !m.cmd && !m.ctrl && matches!(ev.key, Key::Up | Key::Down) {
-        return true;
-    }
-    if m.ctrl && !m.cmd && !m.alt && ev.key == Key::Tab {
+    if TAB_KEYS.matches(ev) {
         return true;
     }
     match ev.key {

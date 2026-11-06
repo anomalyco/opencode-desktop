@@ -21,6 +21,7 @@ use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
 use super::{DockHost, knobs, morph};
+use crate::keymap::Bind;
 
 mod face;
 pub use face::face;
@@ -120,13 +121,13 @@ pub enum Zone {
     Input,
 }
 
-/// `questionKey` for a Mac: `count` answers including the typed one.
+/// Desktop's `questionKey`: `count` answers including the typed one.
 pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
     let m = ev.mods;
     match &ev.key {
         Key::Escape => return Intent::Dismiss,
-        Key::Command('[') if !m.ctrl && !m.alt => return Intent::Question(-1),
-        Key::Enter if (m.cmd || m.ctrl) && !m.alt => return Intent::Advance,
+        _ if Bind::QuestionBack.matches(ev) => return Intent::Question(-1),
+        _ if Bind::QuestionAdvance.matches(ev) => return Intent::Advance,
         _ => {}
     }
     if zone == Zone::Input || m.cmd || m.ctrl || matches!(ev.key, Key::Command(_)) {

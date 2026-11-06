@@ -125,7 +125,7 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
             o = o.slides();
         }
         if is_add {
-            o = o.role("menuitem").lead(icon(&ic::PLUS, 16.0).color(p.icon_muted)).trailing(pop::hint(p, "⌘O"));
+            o = o.role("menuitem").lead(icon(&ic::PLUS, 16.0).color(p.icon_muted)).trailing(pop::hint(p, &crate::keymap::Bind::OpenProject.label()));
         } else if kind == Kind::Project
             && let Some(lead) = s.picker_project_lead(p, &item.key, &item.label)
         {

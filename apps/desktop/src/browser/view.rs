@@ -79,7 +79,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         .child(
             text_input(&s.browser.address, MONO_URL)
                 .key("browser-address")
-                .placeholder("Enter URL, :port, or search… (⌘L)", p.faint)
+                .placeholder(crate::keymap::Bind::BrowserAddress.tip("Enter URL, :port, or search…"), p.faint)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
@@ -108,7 +108,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     let mut reload_btn = icon_btn(
         p,
         "browser-reload",
-        if loading { "Stop loading" } else { "Reload page (⌘R)" },
+        &if loading { "Stop loading".to_owned() } else { crate::keymap::Bind::BrowserReload.tip("Reload page") },
         if loading { &ic::XMARK_SMALL } else { &RELOAD_ICON },
         14.0,
         false,
@@ -166,7 +166,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     let mut inspect_btn = icon_btn(
         p,
         "browser-inspect",
-        "Pick page element for prompt (@e1, ⇧⌘C)",
+        &format!("Pick page element for prompt (@e1, {})", crate::keymap::Bind::BrowserInspect.label()),
         &PICKER_ICON,
         15.0,
         inspecting,
@@ -310,7 +310,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                         .child(icon(&ic::GLOBE, 20.0).color(p.icon_muted))
                         .child(text("Enter a URL or :port above").font(UI_MED).color(p.text))
                         .child(
-                            text("⌘L jumps to the address bar, ⌘T opens a new tab, ⇧⌘C picks an element.")
+                            text(format!("{} jumps to the address bar, {} opens a new tab, {} picks an element.", crate::keymap::Bind::BrowserAddress.label(), crate::keymap::Bind::BrowserTab.label(), crate::keymap::Bind::BrowserInspect.label()))
                                 .font(UI_SMALL)
                                 .color(p.muted)
                                 .truncate_fade(),

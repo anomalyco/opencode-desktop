@@ -1,8 +1,10 @@
-//! OpenCode Desktop's macOS keyboard defaults, as pure functions: which key is which action
+//! OpenCode Desktop's window-wide keys, as pure functions: which keymap command is which action
 //! (`packages/app` `tab-strip.tsx`, `use-session-commands.tsx`, the View menu) and how tabs and
 //! zoom step.
 
-use rune::{Key, KeyEvent};
+use rune::{KeyEvent, Tx};
+
+use crate::keymap::Bind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -24,30 +26,45 @@ pub enum Action {
     AutoAccept,
 }
 
+/// The action `ev` is, by the keymap's chords (US punctuation; see `action_tx`).
 pub fn action(ev: &KeyEvent) -> Option<Action> {
-    let m = ev.mods;
-    match &ev.key {
-        Key::Up | Key::Down if m.alt && !m.cmd && !m.ctrl => {
-            let offset = if ev.key == Key::Up { -1 } else { 1 };
-            Some(if m.shift { Action::UnreadTab(offset) } else { Action::Tab(offset) })
-        }
-        Key::Left | Key::Right if m.cmd && m.alt && !m.ctrl && !m.shift => Some(Action::Tab(if ev.key == Key::Left { -1 } else { 1 })),
-        Key::Tab if m.ctrl && !m.cmd && !m.alt => Some(Action::Tab(if m.shift { -1 } else { 1 })),
-        Key::Command(_) if m.alt || m.ctrl => None,
-        Key::Command('=' | '+') => Some(Action::ZoomIn),
-        Key::Command('-' | '_') => Some(Action::ZoomOut),
-        Key::Command('0') if !m.shift => Some(Action::ZoomReset),
-        Key::Command(c) if c.eq_ignore_ascii_case(&'a') && m.shift => Some(Action::AutoAccept),
-        Key::Command(',') if !m.shift => Some(Action::Settings),
-        Key::Command('t') if m.shift => Some(Action::ReopenTab),
-        Key::Command('t' | 'n') if !m.shift => Some(Action::NewSession),
-        Key::Command(c) if c.eq_ignore_ascii_case(&'o') => {
-            Some(if m.shift { Action::SelectProject } else { Action::OpenProject })
-        }
-        Key::Command('w') if !m.shift => Some(Action::CloseTab),
-        Key::Command(c @ '1'..='9') if !m.shift => Some(Action::TabAt(*c as usize - '1' as usize)),
-        _ => None,
-    }
+    resolve(|b| b.matches(ev))
+}
+
+/// `action`, following the keyboard layout as a key handler should.
+pub fn action_tx(ev: &KeyEvent, tx: &Tx) -> Option<Action> {
+    resolve(|b| b.matches_tx(ev, tx))
+}
+
+fn resolve(hit: impl Fn(Bind) -> bool) -> Option<Action> {
+    const TABLE: [(Bind, Action); 25] = [
+        (Bind::SessionPrev, Action::Tab(-1)),
+        (Bind::SessionNext, Action::Tab(1)),
+        (Bind::UnseenPrev, Action::UnreadTab(-1)),
+        (Bind::UnseenNext, Action::UnreadTab(1)),
+        (Bind::TabPrev, Action::Tab(-1)),
+        (Bind::TabNext, Action::Tab(1)),
+        (Bind::ZoomIn, Action::ZoomIn),
+        (Bind::ZoomOut, Action::ZoomOut),
+        (Bind::ZoomReset, Action::ZoomReset),
+        (Bind::AutoAccept, Action::AutoAccept),
+        (Bind::Settings, Action::Settings),
+        (Bind::TabReopen, Action::ReopenTab),
+        (Bind::TabNew, Action::NewSession),
+        (Bind::OpenProject, Action::OpenProject),
+        (Bind::SelectProject, Action::SelectProject),
+        (Bind::TabClose, Action::CloseTab),
+        (Bind::Tab1, Action::TabAt(0)),
+        (Bind::Tab2, Action::TabAt(1)),
+        (Bind::Tab3, Action::TabAt(2)),
+        (Bind::Tab4, Action::TabAt(3)),
+        (Bind::Tab5, Action::TabAt(4)),
+        (Bind::Tab6, Action::TabAt(5)),
+        (Bind::Tab7, Action::TabAt(6)),
+        (Bind::Tab8, Action::TabAt(7)),
+        (Bind::Tab9, Action::TabAt(8)),
+    ];
+    TABLE.iter().find(|(b, _)| hit(*b)).map(|(_, a)| *a)
 }
 
 /// The nearest other tab in `offset`'s direction, wrapping, that `include` accepts
@@ -79,7 +96,7 @@ pub fn step_zoom(zoom: f32, dir: i32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rune::Mods;
+    use rune::{Key, Mods};
 
     fn ev(key: Key, f: impl FnOnce(&mut Mods)) -> KeyEvent {
         let mut mods = Mods::default();

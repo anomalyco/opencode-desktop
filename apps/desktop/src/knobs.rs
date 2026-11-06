@@ -49,7 +49,8 @@ pub fn apply_preset(s: &mut App, name: &str) {
 
 /// ⌘⇧K toggles the layer; Esc closes it.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.mods.alt || ev.mods.ctrl || !rune_knobs::key(&mut s.knobs, ev) {
+    let ours = crate::keymap::Bind::Knobs.matches_tx(ev, tx) || (ev.key == rune::Key::Escape && !ev.mods.alt && !ev.mods.ctrl);
+    if !ours || !rune_knobs::key(&mut s.knobs, ev) {
         return false;
     }
     tx.instant();

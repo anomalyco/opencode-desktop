@@ -18,10 +18,11 @@ pub mod view;
 
 use std::sync::OnceLock;
 
-use rune::{El, Icon, Ime, Key, KeyEvent, Tx};
+use rune::{El, Icon, Ime, KeyEvent, Tx};
 use rune_register::{collect, slice};
 
 use crate::App;
+use crate::keymap::Bind;
 use crate::palette::Pal;
 
 pub use state::{SessionSideState, SideState};
@@ -109,66 +110,6 @@ pub enum CloseButtonMode {
     Hover,
     /// Unclosable tab (e.g. pinned).
     None,
-}
-
-/// Declarative keyboard shortcut chord for a panel launcher or scoped action.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ShortcutChord {
-    pub key: char,
-    pub cmd: bool,
-    pub ctrl: bool,
-    pub alt: bool,
-    pub shift: bool,
-    pub hint: &'static str,
-}
-
-impl ShortcutChord {
-    pub const fn ctrl_cmd(key: char, hint: &'static str) -> Self {
-        Self { key, cmd: true, ctrl: true, alt: false, shift: false, hint }
-    }
-
-    pub const fn cmd_j() -> Self {
-        Self { key: 'j', cmd: true, ctrl: false, alt: false, shift: false, hint: "⌘J" }
-    }
-
-    pub const fn cmd_p() -> Self {
-        Self { key: 'p', cmd: true, ctrl: false, alt: false, shift: false, hint: "⌘P" }
-    }
-
-    pub const fn ctrl_backtick() -> Self {
-        Self { key: '`', cmd: false, ctrl: true, alt: false, shift: false, hint: "⌃`" }
-    }
-
-    pub const fn ctrl_alt(key: char, hint: &'static str) -> Self {
-        Self { key, cmd: false, ctrl: true, alt: true, shift: false, hint }
-    }
-
-    pub fn matches(&self, ev: &KeyEvent) -> bool {
-        let m = ev.mods;
-        if m.cmd != self.cmd || m.ctrl != self.ctrl || m.alt != self.alt || m.shift != self.shift {
-            return false;
-        }
-        match &ev.key {
-            Key::Command(c) => c.eq_ignore_ascii_case(&self.key),
-            Key::Text(s) => {
-                let mut chars = s.chars();
-                chars.next().is_some_and(|c| c.eq_ignore_ascii_case(&self.key))
-                    && chars.next().is_none()
-            }
-            _ => false,
-        }
-    }
-
-    pub fn matches_tx(&self, ev: &KeyEvent, tx: &Tx) -> bool {
-        if self.matches(ev) {
-            return true;
-        }
-        let m = ev.mods;
-        if m.cmd != self.cmd || m.ctrl != self.ctrl || m.alt != self.alt || m.shift != self.shift {
-            return false;
-        }
-        tx.key_base().is_some_and(|b| b.eq_ignore_ascii_case(&self.key))
-    }
 }
 
 /// Pure-data descriptor of one tab offered by a `Panel` in the session's strip.
@@ -285,7 +226,8 @@ pub struct PanelLauncherDesc {
     pub title: String,
     pub description: Option<String>,
     pub icon: &'static Icon,
-    pub shortcut_hint: &'static str,
+    /// The commands whose chord the entry shows: the first one bound on this platform.
+    pub shortcut: &'static [Bind],
     /// Ascending display order (Desktop: Review = 10, Browser = 15, Terminal = 20, Open file = 30).
     pub order: i32,
     /// Singleton tab is already open: omitted from `"New tab"` launcher cards, kept in `+` menu.
@@ -361,12 +303,12 @@ pub struct PanelRegistration {
     /// Legacy stored keys mapped to `(old_key, new_tab_id)`.
     pub legacy: &'static [(&'static str, &'static str)],
     /// Optional global shortcut & `⌘K` palette title for launching/toggling this panel.
-    pub shortcut: Option<ShortcutChord>,
+    pub shortcut: Option<Bind>,
     pub command_title: Option<&'static str>,
     /// The `/name` that runs the command from the composer.
     pub slash: Option<&'static str>,
     /// Additional session-scoped global shortcuts (e.g. `⌃\`` toggle and `⌃⌥T` new terminal).
-    pub extra_shortcuts: &'static [(ShortcutChord, fn(&mut App, &mut Tx))],
+    pub extra_shortcuts: &'static [(Bind, fn(&mut App, &mut Tx))],
     /// Optional `+` / `"New tab"` launcher entry.
     pub launcher: Option<fn(&App, &PanelSessionCtx) -> Option<PanelLauncherDesc>>,
     /// Invoked when the user triggers the launcher or global command.
@@ -464,7 +406,7 @@ impl PanelRegistration {
         self
     }
 
-    pub const fn command(mut self, title: &'static str, shortcut: ShortcutChord) -> Self {
+    pub const fn command(mut self, title: &'static str, shortcut: Bind) -> Self {
         self.command_title = Some(title);
         self.shortcut = Some(shortcut);
         self
@@ -477,7 +419,7 @@ impl PanelRegistration {
 
     pub const fn shortcuts(
         mut self,
-        shortcuts: &'static [(ShortcutChord, fn(&mut App, &mut Tx))],
+        shortcuts: &'static [(Bind, fn(&mut App, &mut Tx))],
     ) -> Self {
         self.extra_shortcuts = shortcuts;
         self

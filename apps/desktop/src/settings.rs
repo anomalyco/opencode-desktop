@@ -248,6 +248,7 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section(p, "General", general))
                 .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section(p, "Notifications", notification_list(s, p)))
+                .child(crate::keymap::settings_section(s, p))
                 .child(crate::glitch::settings_section(s, p)),
         );
     col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar_styled(crate::palette::scroll_bar(p)))
@@ -303,12 +304,12 @@ fn notification_list(s: &App, p: &Pal) -> El {
     }))
 }
 
-pub(crate) fn settings_card<'a, K: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, &'a str, El)>) -> El {
+pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
     let items: Vec<_> = items.into_iter().collect();
     let n = items.len();
     let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
     for (i, (k, title, description, control)) in items.into_iter().enumerate() {
-        list = list.child(setting(p, k.as_ref(), title, description, control, i + 1 < n));
+        list = list.child(setting(p, k.as_ref(), title, description.as_ref(), control, i + 1 < n));
     }
     list
 }

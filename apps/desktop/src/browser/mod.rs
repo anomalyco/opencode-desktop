@@ -11,10 +11,11 @@ use browser_pane::{BrowserHost, EngineStatus, bare_url, host_of};
 use rune::{Ime, Key, KeyEvent, TextEdit, Tx, Waker};
 use rune_theme_opencode::icons as ic;
 
+use crate::keymap::Bind;
 use crate::App;
 use crate::panels::{
     ClosedPanelTab, ClosedTabInfo, PanelLauncherDesc, PanelRegistration, PanelSessionCtx,
-    PanelTabDesc, SessionPane, ShortcutChord, panel_key, split_panel_key,
+    PanelTabDesc, SessionPane, panel_key, split_panel_key,
 };
 
 pub struct BrowserPane {
@@ -44,7 +45,7 @@ impl Default for BrowserPane {
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::new("browser", list_tabs, view::render_panel)
         .order(15)
-        .command("Open browser", ShortcutChord::ctrl_cmd('b', "⌃⌘B"))
+        .command("Open browser", Bind::BrowserOpen)
         .launcher(launcher_desc, open_from_launcher)
         .on_close(on_close_tab)
         .closed(closed_tab_info)
@@ -62,7 +63,7 @@ fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> 
         title: "Browser".into(),
         description: Some("Open a local port or web page".into()),
         icon: &ic::GLOBE,
-        shortcut_hint: "⌃⌘B",
+        shortcut: &[Bind::BrowserOpen],
         order: 15,
         opened: false,
     })
@@ -173,39 +174,28 @@ fn ime_panel(s: &mut App, ime: &Ime) -> bool {
 
 /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow.
 pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
+    // The page's own editing keys: select all, copy, paste, cut, undo, redo, and reload. Off
+    // macOS Ctrl+R is also Rename, which leaves a focused page alone, as Desktop's does.
+    if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
+        return false;
+    }
     if crate::shortcuts::action(ev).is_some() {
         return true;
     }
-    let m = ev.mods;
-    // ⌃R (rename session) and ⌃B (move blocking shell to background).
-    if m.ctrl && !m.cmd && !m.alt && matches!(&ev.key, Key::Command('r' | 'b') | Key::Text(_)) {
-        if let Key::Text(s) = &ev.key {
-            if s.eq_ignore_ascii_case("r") || s.eq_ignore_ascii_case("b") || s == "`" {
-                return true;
-            }
-        } else {
-            return true;
-        }
+    // Rename, Move to background and the terminal toggle, whose chords name Ctrl.
+    if [Bind::Rename, Bind::Background, Bind::DockToggle].iter().any(|b| b.matches(ev)) {
+        return true;
     }
-    match &ev.key {
-        Key::Command(c) => {
-            let lo = c.to_ascii_lowercase();
-            // Shell, side-region, picker, knobs, storybook, and dictation chords:
-            // Note: ⌘A/C/V/X/Z/R (unshifted, without alt/ctrl) stay with the web page!
-            if !m.alt && !m.ctrl && !m.shift && matches!(lo, 'a' | 'c' | 'v' | 'x' | 'z' | 'r') {
-                return false;
-            }
-            if !m.alt && !m.ctrl && m.shift && lo == 'z' {
-                return false;
-            }
-            matches!(
-                lo,
-                'k' | 'l' | 'b' | 'j' | 'r' | 'p' | 'o' | 'c' | 'd' | 'm' | '\'' | '.' | ',' | '[' | ']' | '{' | '}'
-            )
-        }
-        _ => false,
-    }
+    // Shell, side-region, picker, knobs, storybook, and dictation chords: any with the primary key.
+    matches!(&ev.key, Key::Command(c) if matches!(
+        c.to_ascii_lowercase(),
+        'k' | 'l' | 'b' | 'j' | 'r' | 'p' | 'o' | 'c' | 'd' | 'm' | '\'' | '.' | ',' | '[' | ']' | '{' | '}'
+    ))
 }
+
+static PAGE_KEYS: std::sync::LazyLock<[rune::Chord; 7]> = std::sync::LazyLock::new(|| {
+    ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"].map(|c| rune::Chord::parse(c).expect("chord"))
+});
 
 impl App {
     pub fn setup_browser(&mut self, waker: Waker) {
@@ -452,7 +442,8 @@ impl App {
             return false;
         }
         // ⌘L focuses the URL bar on an open browser tab, or opens a browser tab if on New tab.
-        if ev.is_command('l') && !ev.mods.alt && !ev.mods.ctrl && !ev.mods.shift {
+        // Off macOS Ctrl+L is also Focus input, so there the address bar takes it only from the pane.
+        if Bind::BrowserAddress.matches_tx(ev, tx) && (self.side.focused || !Bind::FocusInput.matches_tx(ev, tx)) {
             tx.instant();
             if self.active_browser_tab_id().is_none() {
                 self.open_new_browser_tab("about:blank");
@@ -466,10 +457,7 @@ impl App {
         }
 
         // ⌘T in a browser tab's pane (page or address bar) opens another browser tab, like Brave.
-        if ev.is_command('t')
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
+        if Bind::BrowserTab.matches_tx(ev, tx)
             && let Some(pane) = self.focused_browser_pane()
         {
             tx.instant();
@@ -504,25 +492,13 @@ impl App {
         };
 
         // ⌘R reloads the active browser tab when focus is in the side region.
-        if self.side.focused
-            && ev.mods.cmd
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && !ev.mods.shift
-            && matches!(&ev.key, Key::Command('r' | 'R'))
-        {
+        if self.side.focused && Bind::BrowserReload.matches_tx(ev, tx) {
             self.browser.host.reload(active_id);
             return true;
         }
 
         // ⇧⌘C toggles the @eN element picker (`browser.inspect`).
-        if self.side.focused
-            && ev.mods.cmd
-            && ev.mods.shift
-            && !ev.mods.alt
-            && !ev.mods.ctrl
-            && matches!(&ev.key, Key::Command('c' | 'C'))
-        {
+        if self.side.focused && Bind::BrowserInspect.matches_tx(ev, tx) {
             tx.instant();
             self.browser.host.toggle_inspect(active_id);
             return true;

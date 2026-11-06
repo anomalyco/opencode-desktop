@@ -14,6 +14,7 @@ use opencode_kit::model::{Assistant, Message, Part, Transcript};
 use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 
+use crate::keymap::Bind;
 use crate::palette::Pal;
 use crate::view::{INSTANT, UI};
 use crate::{App, Route};
@@ -498,19 +499,19 @@ pub fn poll(s: &mut App) -> bool {
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;
 /// ⌘G and ⇧⌘G step while session Find is open.
 pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let m = ev.mods;
-    if s.settings.open || s.opening.is_some() || m.alt || m.ctrl {
+    if s.settings.open || s.opening.is_some() {
         return false;
     }
-    if ev.is_command('f') && !m.shift {
+    if Bind::Find.matches_tx(ev, tx) {
         return match s.route {
             Route::Session(_) => { s.open_find(tx); true }
             Route::Home => { s.focus_home_search(tx); true }
             Route::Draft => false,
         };
     }
-    if matches!(s.route, Route::Session(_)) && s.find.open && ev.is_command('g') {
-        s.step_find(if m.shift { -1 } else { 1 }, tx);
+    let step = [(Bind::FindNext, 1), (Bind::FindPrev, -1)].into_iter().find(|(b, _)| b.matches_tx(ev, tx));
+    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session(_)) && s.find.open) {
+        s.step_find(d, tx);
         return true;
     }
     false
@@ -609,17 +610,17 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
 
 /// Native macOS Edit menu items (`keys_first` so focused fields and `on_key` see them first).
 pub fn install(app: rune::App<App>) -> rune::App<App> {
-    let item = |title, id, key: &str, f: fn(&mut App, &mut Tx)| {
-        MenuItem::new(title, f).id(id).menu("Edit").key_equivalent(key.parse().unwrap()).keys_first()
+    let item = |title, id, key: Bind, f: fn(&mut App, &mut Tx)| {
+        MenuItem::new(title, f).id(id).menu("Edit").key_equivalent(key.shortcut().expect("bound")).keys_first()
     };
     [
-        item("Find…", "Edit/Find", "cmd+f", |s, tx| match s.route {
+        item("Find…", "Edit/Find", Bind::Find, |s, tx| match s.route {
             Route::Session(_) => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),
             Route::Draft => {}
         }),
-        item("Find Next", "Edit/FindNext", "cmd+g", |s, tx| s.step_find(1, tx)),
-        item("Find Previous", "Edit/FindPrevious", "shift+cmd+g", |s, tx| s.step_find(-1, tx)),
+        item("Find Next", "Edit/FindNext", Bind::FindNext, |s, tx| s.step_find(1, tx)),
+        item("Find Previous", "Edit/FindPrevious", Bind::FindPrev, |s, tx| s.step_find(-1, tx)),
     ]
     .into_iter()
     .fold(app, |a, i| a.menu_item(i))

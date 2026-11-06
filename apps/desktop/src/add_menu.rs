@@ -47,12 +47,12 @@ impl Item {
         }
     }
 
-    fn shortcut(self) -> &'static str {
+    fn shortcut(self) -> String {
         match self {
-            Item::Attach => "⌘U",
-            Item::Commands => "/",
-            Item::Context => "@",
-            Item::Shell => "!",
+            Item::Attach => crate::keymap::Bind::Attach.label(),
+            Item::Commands => "/".into(),
+            Item::Context => "@".into(),
+            Item::Shell => "!".into(),
         }
     }
 }
@@ -164,7 +164,7 @@ impl App {
             }
             return true;
         }
-        if ev.is_command('u') && !ev.mods.shift && !ev.mods.alt && self.has_composer() {
+        if crate::keymap::Bind::Attach.matches_tx(ev, tx) && self.has_composer() {
             if !self.add.shell {
                 self.close_mentions();
                 self.pick_attachment(tx);
@@ -270,7 +270,7 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .key("add")
         .role("button")
         .label("Add images and files")
-        .help("Add images and files ⌘U")
+        .help(crate::keymap::Bind::Attach.hint("Add images and files"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -335,7 +335,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_add(item, tx))
                 .child(text(item.label()).font(UI).color(p.text))
                 .child(spacer())
-                .child(row().key("shortcut").w(20.0).center().child(text(item.shortcut()).font(SHORTCUT).color(p.faint))),
+                .child(row().key("shortcut").min_w(20.0).center().child(text(item.shortcut()).font(SHORTCUT).color(p.faint))),
         );
     }
     Some(

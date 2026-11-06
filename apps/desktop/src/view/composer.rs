@@ -167,7 +167,7 @@ impl ComposerHost for App {
         if ev.key == Key::Escape && !self.route_busy() && crate::status_toast::key(self, ev, tx) {
             return true;
         }
-        if ev.key == Key::Enter && ev.mods.cmd {
+        if crate::keymap::Bind::SubmitAlternate.matches_tx(ev, tx) {
             if session_view::composer::stopping(self) {
                 session_view::composer::submit_or_stop(self, tx);
             } else {
