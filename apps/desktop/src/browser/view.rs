@@ -41,14 +41,15 @@ pub fn render_panel(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         .ok()
         .or_else(|| s.browser.host.focused_tab_id());
 
+    let status = s.browser.host.status();
     let content = col().key("browser-pane-content").w_full().grow(1.0).min_h(0.0);
-    if s.browser.host.status() == EngineStatus::Unsupported {
-        return content.child(unsupported(p));
-    }
-    content
-        .child(address_bar(s, p, tab_id))
-        .child(el().w_full().h(0.5).fill(p.border_muted))
-        .child(viewport(s, p, tab_id, ctx.env_scale))
+    // Without an engine there is nothing to type an address for.
+    let content = if status == EngineStatus::Unsupported {
+        content
+    } else {
+        content.child(address_bar(s, p, tab_id)).child(el().w_full().h(0.5).fill(p.border_muted))
+    };
+    content.child(viewport(s, p, tab_id, status, ctx.env_scale))
 }
 
 fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
@@ -184,8 +185,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     bar
 }
 
-fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
-    let status = s.browser.host.status();
+fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_scale: f32) -> El {
     match status {
         EngineStatus::Unsupported => unsupported(p),
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
