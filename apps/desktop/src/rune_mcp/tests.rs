@@ -1,11 +1,17 @@
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::net::UnixListener;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use browser_pane::BrowserHost;
+// The browser test talks to a fake engine over its Unix socket.
+#[cfg(any(target_os = "macos", all(unix, feature = "browser")))]
+use {
+    browser_pane::BrowserHost,
+    std::io::{BufRead, BufReader},
+    std::os::unix::net::UnixListener,
+    std::sync::Mutex,
+};
 use opencode_kit::client::Server;
 use opencode_kit::client_mcp::{ClientMcpStatus, SESSION_ID_META_KEY};
 use opencode_kit::model::{Project, ProjectIcon, SessionInfo};
@@ -556,6 +562,7 @@ fn folder_close_reconnect_and_server_without_route() {
     old_thread.join().unwrap();
 }
 
+#[cfg(any(target_os = "macos", all(unix, feature = "browser")))]
 #[test]
 fn browser_cdp_snapshot_highlight_evaluate_and_screenshot_with_image() {
     let dir = std::env::temp_dir().join(format!("rune-mcp-sidecar-{}", std::process::id()));

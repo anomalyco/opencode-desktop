@@ -1,4 +1,4 @@
-//! Unix-socket sidecar launch, framing threads, and shell-shortcut filter.
+//! Unix-socket sidecar launch and framing threads.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rune::{Key, KeyEvent, Mods, Waker};
+use rune::Waker;
 
 use crate::installer::EngineStatus;
 use crate::profile;
@@ -119,40 +119,4 @@ pub(crate) fn wire_stream(
             *outbox_reader.lock().unwrap() = None;
         })
         .ok();
-}
-
-pub(crate) fn is_shell_shortcut(ev: &KeyEvent) -> bool {
-    let m: Mods = ev.mods;
-    if m.alt && !m.cmd && !m.ctrl && matches!(ev.key, Key::Up | Key::Down) {
-        return true;
-    }
-    if m.ctrl && !m.cmd && !m.alt && ev.key == Key::Tab {
-        return true;
-    }
-    match ev.key {
-        Key::Command(c) => matches!(
-            c.to_ascii_lowercase(),
-            'k' | 'l' | 't' | 'n' | 'w' | 'b' | ',' | '[' | ']' | '1'..='9' | '=' | '+' | '-' | '_' | '0'
-        ),
-        _ => false,
-    }
-}
-
-pub(crate) fn named_key_str(key: &Key) -> Option<&'static str> {
-    match key {
-        Key::Enter => Some("Enter"),
-        Key::Backspace => Some("Backspace"),
-        Key::Delete => Some("Delete"),
-        Key::Tab => Some("Tab"),
-        Key::Escape => Some("Escape"),
-        Key::Left => Some("ArrowLeft"),
-        Key::Right => Some("ArrowRight"),
-        Key::Up => Some("ArrowUp"),
-        Key::Down => Some("ArrowDown"),
-        Key::Home => Some("Home"),
-        Key::End => Some("End"),
-        Key::PageUp => Some("PageUp"),
-        Key::PageDown => Some("PageDown"),
-        _ => None,
-    }
 }

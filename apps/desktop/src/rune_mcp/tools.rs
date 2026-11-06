@@ -560,6 +560,9 @@ fn send_cdp_call(
     };
     if !s.browser.host.has_live_sidecar() {
         let msg = match s.browser.host.status() {
+            browser_pane::EngineStatus::Unsupported => {
+                "The browser isn't available on this platform yet in OpenCode (Rune)".to_owned()
+            }
             browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Downloading { .. } => {
                 "Browser engine isn't installed yet in OpenCode (Rune)".to_owned()
             }

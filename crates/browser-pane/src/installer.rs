@@ -41,6 +41,9 @@ static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineStatus {
+    /// This build has no engine for its platform (it is built without the `engine` feature, or
+    /// for a platform without a Unix-socket engine), so the pane never downloads or starts one.
+    Unsupported,
     NotInstalled,
     Downloading { downloaded_bytes: u64, total_bytes: Option<u64> },
     Connecting,
@@ -105,6 +108,7 @@ pub fn resolve_download_source() -> Option<(String, Option<String>)> {
     Some((url, sha))
 }
 
+#[cfg(unix)]
 pub fn socket_path() -> PathBuf {
     if let Ok(custom) = std::env::var("OPENCODE_BROWSER_SOCKET") {
         return PathBuf::from(custom);
@@ -132,14 +136,11 @@ pub(crate) fn exe_tag(exe: &Path) -> String {
     digest[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(unix)]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
 /// Downloads, SHA-256 verifies, and atomically installs `OpenCode Browser Engine.app` on a background thread.

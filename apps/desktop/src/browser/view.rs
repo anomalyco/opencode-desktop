@@ -41,11 +41,11 @@ pub fn render_panel(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         .ok()
         .or_else(|| s.browser.host.focused_tab_id());
 
-    col()
-        .key("browser-pane-content")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
+    let content = col().key("browser-pane-content").w_full().grow(1.0).min_h(0.0);
+    if s.browser.host.status() == EngineStatus::Unsupported {
+        return content.child(unsupported(p));
+    }
+    content
         .child(address_bar(s, p, tab_id))
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(viewport(s, p, tab_id, ctx.env_scale))
@@ -187,6 +187,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
 fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
     let status = s.browser.host.status();
     match status {
+        EngineStatus::Unsupported => unsupported(p),
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
             let done_mb = (downloaded_bytes as f64 / 1_000_000.0).floor();
             let tot_mb = total_bytes
@@ -338,6 +339,27 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, env_scale: f32) -> El {
             }
         }
     }
+}
+
+/// This build has no browser engine for its platform: no address bar, nothing to download.
+fn unsupported(p: &Pal) -> El {
+    col()
+        .key("browser-unsupported")
+        .grow(1.0)
+        .w_full()
+        .center()
+        .padding(28.0)
+        .gap(8.0)
+        .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
+        .child(text("Browser isn't available on this platform yet").font(UI_MED).color(p.text).truncate_fade())
+        .child(
+            text("The built-in browser runs on macOS for now.")
+                .font(UI_SMALL)
+                .color(p.muted)
+                .wrap()
+                .align(rune::Align::Center)
+                .max_w(320.0),
+        )
 }
 
 fn icon_btn(

@@ -1,9 +1,7 @@
 //! Sidecar connection, multi-tab state, and one-line Rune `NativeSurface` element builder.
 
 use std::collections::{HashMap, VecDeque};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -13,17 +11,14 @@ use rune::{Ime, Key, KeyEvent, NativeSurface, Waker};
 use serde_json::Value;
 
 use crate::address::resolve_address;
-use crate::installer::{self, EngineStatus};
-use crate::profile;
-#[cfg(target_os = "macos")]
+use crate::installer::EngineStatus;
+use crate::keys::{is_shell_shortcut, named_key_str};
+#[cfg(all(feature = "engine", target_os = "macos"))]
 use crate::mach_pipe::MachReceiver;
 use crate::site_zoom::{SiteZoom, site_of};
 use crate::protocol::{
     CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot, pack_mods,
 };
-use crate::transport::{is_shell_shortcut, named_key_str, spawn_and_attach_bg, wire_stream};
-
-static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub struct BrowserTab {
@@ -54,16 +49,18 @@ impl BrowserTab {
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
-    surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
+    pub(crate) surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
     pub(crate) status: Arc<Mutex<EngineStatus>>,
     last_polled_status: EngineStatus,
-    outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
-    inbox_tx: Sender<EngineMsg>,
+    pub(crate) outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
+    #[cfg_attr(not(all(feature = "engine", unix)), allow(dead_code))]
+    pub(crate) inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
-    waker: Option<Waker>,
+    pub(crate) waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
-    socket_override: Option<PathBuf>,
-    profile_dir: Option<PathBuf>,
+    pub(crate) socket_override: Option<PathBuf>,
+    #[cfg_attr(not(all(feature = "engine", unix)), allow(dead_code))]
+    pub(crate) profile_dir: Option<PathBuf>,
     next_tab_id: u64,
     next_req_id: u64,
     pending_opens: Vec<(u64, String)>,
@@ -73,8 +70,8 @@ pub struct BrowserHost {
     keep_engine: bool,
     /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
     pub(crate) last_viewport: ((f32, f32), f32),
-    #[cfg(target_os = "macos")]
-    mach: Option<MachReceiver>,
+    #[cfg(all(feature = "engine", target_os = "macos"))]
+    pub(crate) mach: Option<MachReceiver>,
 }
 
 impl Default for BrowserHost {
@@ -86,11 +83,7 @@ impl Default for BrowserHost {
 impl BrowserHost {
     pub fn new() -> Self {
         let (inbox_tx, inbox_rx) = mpsc::channel();
-        let initial_status = if installer::resolve_installed_executable().is_some() {
-            EngineStatus::Ready
-        } else {
-            EngineStatus::NotInstalled
-        };
+        let initial_status = Self::initial_status();
         Self {
             tabs: Vec::new(),
             focused_tab: None,
@@ -112,7 +105,7 @@ impl BrowserHost {
             site_zoom: SiteZoom::default(),
             keep_engine: false,
             last_viewport: ((800.0, 600.0), 2.0),
-            #[cfg(target_os = "macos")]
+            #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
         }
     }
@@ -383,67 +376,8 @@ impl BrowserHost {
         self.picked.drain(..)
     }
 
-    /// Starts (or retries) downloading and installing the browser engine off the main thread,
-    /// then spawns it and opens any queued tabs as soon as it is ready.
-    pub fn start_install(&mut self) {
-        if self.is_connected() {
-            return;
-        }
-        if matches!(
-            self.status(),
-            EngineStatus::Downloading { .. } | EngineStatus::Connecting
-        ) {
-            return;
-        }
-        let mach_service = self.ensure_mach_receiver();
-        let sock = self
-            .socket_override
-            .clone()
-            .unwrap_or_else(installer::socket_path);
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            self.attach_stream(stream, mach_service);
-            return;
-        }
-        if let Some(bin) = installer::resolve_installed_executable() {
-            self.spawn_and_connect(bin, sock, mach_service);
-            return;
-        }
-        let status = self.status.clone();
-        let waker = self.waker.clone();
-        let outbox = self.outbox.clone();
-        let inbox_tx = self.inbox_tx.clone();
-        let profile = profile::for_spawn(self.profile_dir.as_deref());
-        installer::start_download(
-            status.clone(),
-            waker.clone(),
-            Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
-            }),
-        );
-    }
-
     pub fn retry_install(&mut self) {
         self.start_install();
-    }
-
-    /// Downloads the engine in the background when it isn't installed, without starting it, so
-    /// the first page opens without a wait. A tab opened meanwhile starts once the download lands.
-    pub fn prefetch(&mut self) {
-        if self.status() != EngineStatus::NotInstalled {
-            return;
-        }
-        let status = self.status.clone();
-        let waker = self.waker.clone();
-        installer::start_download(
-            status.clone(),
-            waker.clone(),
-            Box::new(move |_bin| {
-                *status.lock().unwrap() = EngineStatus::Ready;
-                if let Some(w) = waker {
-                    w();
-                }
-            }),
-        );
     }
 
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
@@ -679,80 +613,18 @@ impl BrowserHost {
         });
         true
     }
-
-    fn ensure_mach_receiver(&mut self) -> Option<String> {
-        #[cfg(target_os = "macos")]
-        {
-            if self.mach.is_none() {
-                let tag = NEXT_RECEIVER_TAG.fetch_add(1, Ordering::Relaxed);
-                self.mach = MachReceiver::start(self.surfaces.clone(), tag).ok();
-            }
-            self.mach.as_ref().map(|m| m.service_name.clone())
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            None
-        }
-    }
-
-    fn ensure_connected(&mut self) {
-        if self.is_connected() {
-            return;
-        }
-        let cur_status = self.status();
-        if matches!(cur_status, EngineStatus::Downloading { .. } | EngineStatus::Connecting) {
-            return;
-        }
-
-        let sock = self
-            .socket_override
-            .clone()
-            .unwrap_or_else(installer::socket_path);
-
-        // 1. Reconnect to an already-running sidecar first (survives UI hot-reloads).
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            let mach_service = self.ensure_mach_receiver();
-            self.attach_stream(stream, mach_service);
-            return;
-        }
-
-        // 2. Spawn installed sidecar binary if present on disk.
-        if let Some(bin) = installer::resolve_installed_executable() {
-            let mach_service = self.ensure_mach_receiver();
-            self.spawn_and_connect(bin, sock, mach_service);
-            return;
-        }
-
-        // 3. Otherwise download it, then start it; a failed download waits for Retry.
-        if !matches!(cur_status, EngineStatus::Failed(_)) {
-            self.start_install();
-        }
-    }
-
-    fn spawn_and_connect(&mut self, bin: PathBuf, sock: PathBuf, mach_service: Option<String>) {
-        *self.status.lock().unwrap() = EngineStatus::Connecting;
-        let status = self.status.clone();
-        let outbox = self.outbox.clone();
-        let inbox_tx = self.inbox_tx.clone();
-        let waker = self.waker.clone();
-        let profile = profile::for_spawn(self.profile_dir.as_deref());
-        std::thread::Builder::new()
-            .name("opencode-browser-connect".into())
-            .spawn(move || {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
-            })
-            .ok();
-    }
-
-    fn attach_stream(&mut self, stream: UnixStream, mach_service: Option<String>) {
-        wire_stream(
-            stream,
-            mach_service,
-            &self.status,
-            &self.outbox,
-            self.inbox_tx.clone(),
-            self.waker.clone(),
-        );
-    }
 }
 
+#[cfg(not(all(feature = "engine", unix)))]
+impl BrowserHost {
+    pub(crate) fn initial_status() -> EngineStatus {
+        EngineStatus::Unsupported
+    }
+
+    /// No engine runs on this platform yet: tabs stay mock-only and the status stays as it is.
+    pub fn start_install(&mut self) {}
+
+    pub fn prefetch(&mut self) {}
+
+    pub(crate) fn ensure_connected(&mut self) {}
+}

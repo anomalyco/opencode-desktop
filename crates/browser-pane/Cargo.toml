@@ -5,14 +5,22 @@ description = "Embeddable Chromium browser pane for Rune apps via the OpenCode B
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["engine"]
+# Download, start and talk to the CEF engine over a Unix socket (Unix hosts only). Without it, the
+# pane keeps its tab model and reports `EngineStatus::Unsupported`.
+engine = []
+
 [dependencies]
 base64 = "0.22"
-libc = "0.2"
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"
 ureq = { workspace = true, features = ["rustls"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true
