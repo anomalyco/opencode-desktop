@@ -42,6 +42,16 @@ pub fn zig_dist_for_host(host: &str) -> Result<ZigDist, String> {
             sha256: "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8",
             folder: "zig-aarch64-linux-0.17.0",
         }),
+        "x86_64-pc-windows-msvc" | "x86_64-pc-windows-gnu" => Ok(ZigDist {
+            url: "https://ziglang.org/download/0.17.0/zig-x86_64-windows-0.17.0.zip",
+            sha256: "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
+            folder: "zig-x86_64-windows-0.17.0",
+        }),
+        "aarch64-pc-windows-msvc" | "aarch64-pc-windows-gnullvm" => Ok(ZigDist {
+            url: "https://ziglang.org/download/0.17.0/zig-aarch64-windows-0.17.0.zip",
+            sha256: "0a59d91fa1cb40cf068e9b0954434ce973500c7a2ea749f1e01af62cdab52d26",
+            folder: "zig-aarch64-windows-0.17.0",
+        }),
         other => Err(format!(
             "terminal build: no pinned Zig {ZIG_VERSION} archive for host `{other}`; set ZIG or GHOSTTY_VT_LIB"
         )),
@@ -100,9 +110,9 @@ pub fn archive_present(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
-/// Exclusive cross-process/cross-thread advisory lock on `<cache_root>/.build.lock`.
-/// Notice on Unix `flock` locks per open file description (`OpenOptions::open`), so two threads or
-/// processes opening the same lock file serialize cleanly.
+/// Exclusive cross-process/cross-thread lock on `<cache_root>/.build.lock` (`flock` on Unix,
+/// `LockFileEx` on Windows). Both lock per open file, so two threads or processes opening the same
+/// lock file serialize cleanly, and closing the file releases the lock.
 pub struct CacheLock {
     file: File,
 }
@@ -129,33 +139,19 @@ impl CacheLock {
                     lock_path.display()
                 )
             })?;
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            // SAFETY: the descriptor is owned by `file`, which is open for the whole call.
-            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-            if rc != 0 {
-                return Err(format!(
-                    "terminal build: flock failed on `{}` ({})",
-                    lock_path.display(),
-                    std::io::Error::last_os_error()
-                ));
-            }
-        }
+        file.lock().map_err(|e| {
+            format!(
+                "terminal build: failed to lock `{}` ({e})",
+                lock_path.display()
+            )
+        })?;
         Ok(Self { file })
     }
 }
 
 impl Drop for CacheLock {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            // SAFETY: the descriptor is owned by `self.file`, which is open for the whole call.
-            unsafe {
-                let _ = libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
-            }
-        }
+        let _ = self.file.unlock();
     }
 }
 

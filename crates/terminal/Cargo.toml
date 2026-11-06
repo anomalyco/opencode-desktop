@@ -16,7 +16,6 @@ serde_json.workspace = true
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 
 [build-dependencies]
-libc = "0.2"
 sha2 = "0.10"
 ureq = { workspace = true, features = ["rustls"] }
 

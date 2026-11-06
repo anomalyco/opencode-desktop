@@ -2,7 +2,8 @@
 //!
 //! Lookup order:
 //! 1. `GHOSTTY_VT_LIB=/path/to/libghostty-vt.a`: offline override, zero Zig or network use.
-//! 2. Warm machine cache (`$GHOSTTY_VT_CACHE_DIR` or `~/.cache/seer/ghostty-vt/<key>/libghostty-vt.a`):
+//! 2. Warm machine cache (`$GHOSTTY_VT_CACHE_DIR`, else `~/.cache/seer/ghostty-vt/<key>/libghostty-vt.a`,
+//!    or `%LOCALAPPDATA%\seer\ghostty-vt\<key>\ghostty-vt-static.lib` on Windows):
 //!    links immediately with zero downloads and zero Zig invocations.
 //! 3. Cold miss under exclusive `<cache>/.build.lock`: resolves Zig `0.17.x` (`ZIG`, `PATH`, or
 //!    SHA256-verified official Zig `0.17.0` archive), fetches SHA256-verified Ghostty `v1.4.0`
@@ -70,6 +71,11 @@ fn main() {
 fn default_cache_root() -> PathBuf {
     if let Some(dir) = std::env::var_os("GHOSTTY_VT_CACHE_DIR").filter(|s| !s.is_empty()) {
         return PathBuf::from(dir);
+    }
+    if cfg!(windows)
+        && let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|s| !s.is_empty())
+    {
+        return PathBuf::from(local).join("seer").join("ghostty-vt");
     }
     if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(xdg).join("seer").join("ghostty-vt");
@@ -285,7 +291,8 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
 
     let dist = zig_dist_for_host(host)?;
     let install_dir = cache_root.join(dist.folder);
-    let zig_bin = install_dir.join("zig");
+    let zig_exe = format!("zig{}", std::env::consts::EXE_SUFFIX);
+    let zig_bin = install_dir.join(&zig_exe);
     if zig_bin.is_file()
         && let Ok(ver) = zig_version_of(&zig_bin)
         && ver.starts_with("0.17.")
@@ -300,14 +307,15 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
             .map_err(|e| format!("terminal build: mkdir zig stage failed ({e})"))?;
         let bytes = download_bytes(dist.url)?;
         verify_sha256("zig-0.17.0", dist.url, dist.sha256, &bytes)?;
-        let archive = stage.join("zig.tar.xz");
+        // `.tar.xz` on macOS and Linux, `.zip` on Windows; `tar` (bsdtar on Windows) reads both.
+        let archive = stage.join(dist.url.rsplit('/').next().unwrap_or("zig-archive"));
         fs::write(&archive, &bytes)
             .map_err(|e| format!("terminal build: write zig archive failed ({e})"))?;
         let unpacked = stage.join("unpacked");
         fs::create_dir_all(&unpacked)
             .map_err(|e| format!("terminal build: mkdir zig unpacked failed ({e})"))?;
         extract_tar(&archive, &unpacked, true)?;
-        let staged_zig = unpacked.join("zig");
+        let staged_zig = unpacked.join(&zig_exe);
         let ver = zig_version_of(&staged_zig)?;
         if !ver.starts_with("0.17.") {
             return Err(format!(
@@ -365,7 +373,7 @@ fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
 }
 
 fn extract_tar(archive: &Path, dest: &Path, strip_first: bool) -> Result<(), String> {
-    let mut cmd = Command::new("tar");
+    let mut cmd = Command::new(tar_program());
     cmd.arg("-xf").arg(archive).arg("-C").arg(dest);
     if strip_first {
         cmd.arg("--strip-components=1");
@@ -385,6 +393,20 @@ fn extract_tar(archive: &Path, dest: &Path, strip_first: bool) -> Result<(), Str
         ));
     }
     Ok(())
+}
+
+/// Windows ships bsdtar as `System32\tar.exe`, which reads `.zip` and takes drive-letter paths.
+/// A GNU tar earlier on `PATH` (Git for Windows, MSYS2) reads neither, so prefer the system one.
+fn tar_program() -> PathBuf {
+    if cfg!(windows)
+        && let Some(root) = std::env::var_os("SystemRoot").filter(|s| !s.is_empty())
+    {
+        let tar = PathBuf::from(root).join("System32").join("tar.exe");
+        if tar.is_file() {
+            return tar;
+        }
+    }
+    PathBuf::from("tar")
 }
 
 fn copy_source_tree(from: &Path, to: &Path) -> Result<(), String> {
