@@ -38,7 +38,7 @@ pub struct MdView {
 }
 
 fn ext(path: &str) -> Option<String> {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = opencode_kit::path::basename(path);
     match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() => Some(ext.to_ascii_lowercase()),
         _ => None,
@@ -53,7 +53,7 @@ pub fn is_markdown(path: &str) -> bool {
 /// files a project keeps beside its code (`LICENSE`, `README`).
 pub fn is_prose(path: &str) -> bool {
     const NAMES: &[&str] = &["LICENSE", "LICENCE", "README", "COPYING", "NOTICE", "AUTHORS", "CHANGELOG", "CONTRIBUTORS", "PATENTS"];
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = opencode_kit::path::basename(path);
     match ext(path) {
         Some(e) => matches!(e.as_str(), "md" | "markdown" | "mdx" | "txt" | "rst" | "adoc"),
         None => {
@@ -153,7 +153,7 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
     let active = find.map(|v| v.active);
     let find_ver = find.map(|v| (v.applied.clone(), v.matches.len(), v.active));
     let (sid_link, path_link) = (sid.to_owned(), path.to_owned());
-    let base = std::rc::Rc::new(path.rsplit_once('/').map_or("", |(d, _)| d).to_owned());
+    let base = std::rc::Rc::new(opencode_kit::path::parent(path).to_owned());
     let body = memo(format!("md-body-{sid}-{path}"), (doc.keys_rev, doc.rev, p.dark, find_ver), || {
         let src = doc.text();
         let marks: Vec<(&[Range<usize>], rune_kit::Highlight)> = find

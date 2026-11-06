@@ -160,7 +160,8 @@ pub fn dispatch_key(
         let short_dir = ws_key
             .as_deref()
             .and_then(|k| k.split_once('\0'))
-            .and_then(|(_, d)| d.rsplit('/').find(|s| !s.is_empty()))
+            .map(|(_, d)| opencode_kit::path::basename(d))
+            .filter(|d| !d.is_empty())
             .unwrap_or("workspace");
         echo_fixture_key(st, ev, short_dir);
     }

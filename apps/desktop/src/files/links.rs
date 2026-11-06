@@ -13,6 +13,7 @@
 //! Relative links resolve against the session's folder in a reply, and against the file's own
 //! folder in a rendered file.
 
+use opencode_kit::path::is_absolute;
 use rune::Tx;
 
 use crate::App;
@@ -61,17 +62,23 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
         }
     }
     let path = decode(raw).replace('\\', "/");
+    // `file:///C:/notes.md` names `C:/notes.md`.
+    let path = match path.strip_prefix('/') {
+        Some(p) if p.as_bytes().get(1) == Some(&b':') && is_absolute(p) => p.to_owned(),
+        _ => path,
+    };
+    let (directory, home) = (directory.replace('\\', "/"), home.replace('\\', "/"));
     let dir = directory.trim_end_matches('/');
     let joined = if let Some(rest) = path.strip_prefix("~/").or((path == "~").then_some("")) {
         format!("{}/{rest}", home.trim_end_matches('/'))
-    } else if path.starts_with('/') {
+    } else if is_absolute(&path) {
         path
     } else {
         let base = base.trim_matches('/');
         let rel = if base.is_empty() { path } else { format!("{base}/{path}") };
         if dir.is_empty() { rel } else { format!("{dir}/{rel}") }
     };
-    let abs = joined.starts_with('/');
+    let abs = is_absolute(&joined);
     let norm = collapse(&joined);
     if !dir.is_empty() {
         return match crate::tool_open::relative(&norm, dir) {
@@ -141,13 +148,14 @@ fn parse_range(s: &str) -> Option<(u32, u32)> {
 
 /// `a/./b/../c` → `a/c`; leading `..` stay on a relative path and drop at `/`.
 fn collapse(path: &str) -> String {
-    let abs = path.starts_with('/');
+    let abs = is_absolute(path);
     let mut out: Vec<&str> = Vec::new();
     for seg in path.split('/') {
         match seg {
             "" | "." => {}
             ".." => {
-                if out.last().is_some_and(|l| *l != "..") {
+                // A drive (`C:`) is a root, like `/`.
+                if out.last().is_some_and(|l| *l != ".." && !(abs && out.len() == 1 && l.ends_with(':'))) {
                     out.pop();
                 } else if !abs {
                     out.push("..");
@@ -157,7 +165,7 @@ fn collapse(path: &str) -> String {
         }
     }
     let joined = out.join("/");
-    if abs { format!("/{joined}") } else { joined }
+    if path.starts_with('/') { format!("/{joined}") } else { joined }
 }
 
 /// Percent-decodes `s`; a malformed escape stays as written.
@@ -225,7 +233,7 @@ impl App {
     /// Follows `href` clicked in session `sid`'s timeline, or in its file `from` (`Some`) rendered
     /// in the viewer, whose folder relative links resolve against.
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
-        let base = from.and_then(|f| f.rsplit_once('/')).map_or("", |(d, _)| d);
+        let base = from.map_or("", opencode_kit::path::parent);
         match classify(href, base, &self.link_directory(sid), &self.home) {
             Link::Web(url) => self.open_web(&url, tx),
             Link::Heading(h) => {
@@ -287,7 +295,7 @@ impl App {
 
     /// A file outside the session's folder: its default Mac app, where this Mac has it.
     fn open_outside_file(&mut self, path: &str) {
-        if !self.can_open_in() || !path.starts_with('/') {
+        if !self.can_open_in() || !is_absolute(path) {
             crate::status_toast::say(self, "Can't open files outside this session's folder", path);
             return;
         }

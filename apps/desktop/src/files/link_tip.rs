@@ -51,13 +51,8 @@ pub fn label(href: &str, base: &str, dir: &str, home: &str, bare: Option<&[Strin
             };
             format!("{path}{at}")
         }
-        Link::Outside { path } => {
-            let home = home.trim_end_matches('/');
-            match path.strip_prefix(home).filter(|r| !home.is_empty() && r.starts_with('/')) {
-                Some(rest) => format!("~{rest}"),
-                None => path,
-            }
-        }
+        Link::Outside { path } if path != home => opencode_kit::path::tilde(&path, home),
+        Link::Outside { path } => path,
     };
     (!out.is_empty()).then_some(out)
 }

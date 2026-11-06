@@ -427,10 +427,7 @@ fn filtered_list_view(s: &App, p: &Pal, session_id: &str, sr: &SessionReview) ->
                 let highlighted = r
                     .and_then(|sr| sr.highlighted_filter_path.as_deref())
                     .map_or(i == 0, |hp| hp == path);
-                let (dir, name) = match path.rsplit_once('/') {
-                    Some((d, b)) => (Some(d), b),
-                    None => (None, path.as_str()),
-                };
+                let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
                 let path_click = path.clone();
                 let mut row_el = row()
                     .w_full()

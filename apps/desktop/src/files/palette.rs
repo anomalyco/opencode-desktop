@@ -346,10 +346,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 move |s: &App, i| {
                     let path = &rows_vec[i];
                     let active = i == active_idx;
-                    let (dir, name) = match path.rsplit_once('/') {
-                        Some((d, b)) => (Some(d), b),
-                        None => (None, path.as_str()),
-                    };
+                    let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
                     let status = s
                         .review
                         .sessions

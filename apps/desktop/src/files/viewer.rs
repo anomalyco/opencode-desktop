@@ -72,10 +72,8 @@ pub(super) fn files_main(
         if a == b { format!("L{a}") } else { format!("L{a}–{b}") }
     });
 
-    let (dir_part, base_name) = match path.rsplit_once('/') {
-        Some((d, b)) => (Some(format!("{d}/")), b),
-        None => (None, path),
-    };
+    let (dir_part, base_name) = opencode_kit::path::split(path);
+    let dir_part = Some(dir_part.to_owned()).filter(|d| !d.is_empty());
     let mut crumb = row().key("files-crumb").grow(1.0).shrink().min_w(0.0).gap(3.0).center_y();
     if !sidebar_open && dir_part.is_none() {
         crumb = crumb.child(text(format!("{proj_title}/")).font(UI_SMALL).color(p.faint).shrink().min_w(0.0).truncate_fade());

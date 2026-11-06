@@ -10,6 +10,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::client::{DEFAULT_SERVER, Request, Write};
 use opencode_kit::model::{LocationInfo, Project, ProjectIcon, SessionInfo, Transcript, project_sandboxes};
+use opencode_kit::path;
 use rune::{FileDialogOptions, Tx};
 
 use crate::{App, Source, tabs};
@@ -27,25 +28,17 @@ pub struct ProjectsState {
 }
 
 pub(crate) fn clean_dir(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed == "/" {
-        return "/".into();
-    }
-    trimmed.trim_end_matches('/').to_owned()
+    path::trim(raw.trim()).to_owned()
 }
 
 pub(crate) fn folder_name(dir: &str) -> String {
-    dir.rsplit('/').find(|s| !s.is_empty()).unwrap_or(dir).to_owned()
+    Some(path::basename(dir)).filter(|n| !n.is_empty()).unwrap_or(dir).to_owned()
 }
 
 fn synthetic_project_id(dir: &str) -> String {
     let mut h = DefaultHasher::new();
     dir.hash(&mut h);
     format!("local_{:016x}", h.finish())
-}
-
-fn same_or_within(root: &str, dir: &str) -> bool {
-    !root.is_empty() && (dir == root || dir.starts_with(&format!("{root}/")))
 }
 
 impl App {
@@ -202,7 +195,7 @@ impl App {
 
     fn project_containing(&self, dir: &str) -> Option<&Project> {
         let dir = clean_dir(dir);
-        self.projects.iter().filter(|p| same_or_within(&p.directory, &dir)).max_by_key(|p| p.directory.len())
+        self.projects.iter().filter(|p| path::contains(&p.directory, &dir)).max_by_key(|p| p.directory.len())
     }
 
     /// Opens the native folder chooser (`⌘O`, "Open project") and opens the chosen folder.

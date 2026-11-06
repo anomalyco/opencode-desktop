@@ -204,7 +204,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             continue;
         }
         let Some(path) = file_tab_path(id) else { continue };
-        let name = path.rsplit('/').next().unwrap_or(&path);
+        let name = opencode_kit::path::basename(&path);
         let missing = ws
             .and_then(|w| w.docs.get(&path))
             .is_some_and(|d| d.missing);

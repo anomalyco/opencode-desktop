@@ -127,7 +127,7 @@ pub(crate) fn candidates(root: &Path, name: &str) -> Vec<Cand> {
 }
 
 fn named(path: &Path, lname: &str) -> bool {
-    !lname.is_empty() && path.to_string_lossy().to_lowercase().rsplit('/').take(3).any(|c| c.contains(lname))
+    !lname.is_empty() && path.to_string_lossy().to_lowercase().rsplit(opencode_kit::path::SEPARATORS).take(3).any(|c| c.contains(lname))
 }
 
 fn file_cand(path: &Path, kind: Kind, depth: usize, lname: &str) -> Option<Cand> {

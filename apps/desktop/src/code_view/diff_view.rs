@@ -700,10 +700,8 @@ impl<S: 'static> Inner<S> {
             });
 
         let full_path = file.path();
-        let (dir_part, base_name) = match full_path.rsplit_once('/') {
-            Some((d, b)) => (Some(format!("{d}/")), b),
-            None => (None, full_path),
-        };
+        let (dir_part, base_name) = opencode_kit::path::split(full_path);
+        let dir_part = Some(dir_part.to_owned()).filter(|d| !d.is_empty());
         let mut path_row = row().key("path").grow(1.0).shrink().min_w(0.0).center_y().gap(4.0);
         if let Some(d) = dir_part {
             path_row = path_row.child(

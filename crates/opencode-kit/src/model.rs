@@ -456,10 +456,7 @@ pub fn parse_sessions(v: &Value) -> Vec<SessionInfo> {
 
 fn tool_title(name: &str, input: &Value) -> String {
     let get = |k: &str| input[k].as_str().map(str::to_owned);
-    let short = |p: String| {
-        let parts: Vec<&str> = p.split('/').collect();
-        if parts.len() > 3 { parts[parts.len() - 2..].join("/") } else { p }
-    };
+    let short = |p: String| if p.split(crate::path::SEPARATORS).count() > 3 { crate::path::tail(&p, 2).to_owned() } else { p };
     let t = match name {
         "shell" | "bash" => get("description").or_else(|| get("command")),
         "read" | "write" | "edit" => get("filePath").or_else(|| get("path")).map(short),

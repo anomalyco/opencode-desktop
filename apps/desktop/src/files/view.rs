@@ -47,13 +47,7 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
 
     let proj_title = s
         .project(ctx.project_id)
-        .map(|pr| {
-            pr.directory
-                .rsplit('/')
-                .find(|seg| !seg.is_empty())
-                .unwrap_or("Workspace")
-                .to_owned()
-        })
+        .map(|pr| Some(opencode_kit::path::basename(&pr.directory)).filter(|n| !n.is_empty()).unwrap_or("Workspace").to_owned())
         .unwrap_or_else(|| "Workspace".into());
 
     let empty = SessionFiles::default();
@@ -379,10 +373,7 @@ fn filtered_files_view(
                     .and_then(|w| w.highlighted_filter_path.as_deref())
                     .map_or(i == 0, |hp| hp == path);
                 let active = act_owned.as_deref() == Some(path.as_str());
-                let (dir, name) = match path.rsplit_once('/') {
-                    Some((d, b)) => (Some(d), b),
-                    None => (None, path.as_str()),
-                };
+                let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
                 let click_p = path.clone();
                 let dbl_p = path.clone();
                 let mut r = row()

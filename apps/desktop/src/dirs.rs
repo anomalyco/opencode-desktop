@@ -71,12 +71,6 @@ pub fn home() -> String {
 impl App {
     /// `dir` with the home folder (the fixture's, in a fixture run) shown as `~`.
     pub(crate) fn tilde(&self, dir: &str) -> String {
-        let home = self.home.trim_end_matches(['/', '\\']);
-        if home.is_empty() || dir.len() < home.len() || !dir.is_char_boundary(home.len()) {
-            return dir.to_owned();
-        }
-        let (head, rest) = dir.split_at(home.len());
-        let same = if cfg!(windows) { head.eq_ignore_ascii_case(home) } else { head == home };
-        if same && (rest.is_empty() || rest.starts_with(['/', '\\'])) { format!("~{rest}") } else { dir.to_owned() }
+        opencode_kit::path::tilde(dir, &self.home)
     }
 }

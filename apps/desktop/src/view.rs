@@ -207,7 +207,7 @@ pub(crate) fn title_of(s: &SessionInfo) -> String {
 }
 
 pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {
-    project.map(|p| p.name.clone()).unwrap_or_else(|| dir.rsplit('/').find(|x| !x.is_empty()).unwrap_or("").to_owned())
+    project.map(|p| p.name.clone()).unwrap_or_else(|| opencode_kit::path::basename(dir).to_owned())
 }
 
 #[cfg(test)]

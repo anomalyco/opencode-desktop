@@ -300,6 +300,9 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
     if crate::sprites::owns(look.style) {
         return crate::sprites::draw(p, seed, variant, look, px);
     }
+    if look.style == Style::Desktop {
+        return desktop(p, variant, size_pt, px);
+    }
     let h = hash(seed);
     let dir = if h >> 8 & 1 == 0 { 1 } else { -1 };
     let s = look.saturation;
@@ -325,7 +328,6 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
             return [0.0; 4];
         }
         let mut col: Rgb = match style {
-            Style::Desktop => a,
             Style::Gradient | Style::Monogram => {
                 let col = lerp(a, b, diag(x, y));
                 // A soft light from one top corner.
@@ -419,10 +421,6 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
             }
             _ => crate::retro::shade(style, &retro, u, v),
         };
-        if style == Style::Desktop {
-            // Desktop's sheen: white at 16% at the top, fading out at the bottom.
-            col = lerp(col, [1.0; 3], 0.16 * (1.0 - v));
-        }
         let ink = match style {
             Style::Glyph => glyph(h, x * 16.0, y * 16.0),
             Style::Quilt => quilt(h, u * 16.0, v * 16.0),
@@ -433,7 +431,7 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
         }
         if d > -ring {
             let strength = match style {
-                Style::Desktop | Style::Glyph | Style::Quilt => 1.0,
+                Style::Glyph | Style::Quilt => 1.0,
                 Style::Neon | Style::Dither => 0.2,
                 _ => 0.45,
             };
@@ -458,6 +456,42 @@ pub(crate) fn draw(p: &Palette, seed: &str, variant: usize, look: &Look, size_pt
         }
     }
     buf.to_rgba8()
+}
+
+/// Desktop's letter tile (`project-avatar.css`): the avatar colour under a white sheen fading
+/// from `alpha-light-16` at the top to nothing at the bottom, inside a half-point inset ring of
+/// its border colour. Mixed and antialiased in sRGB, as the browser composites them.
+fn desktop(p: &Palette, variant: usize, size_pt: f32, px: u32) -> Vec<u8> {
+    let srgb = |c: Color| [c.r, c.g, c.b].map(crate::pixels::enc);
+    let (bg, border) = (srgb(p.avatars[variant].0), srgb(p.avatars[variant].1));
+    let sheen = 0x29 as f32 / 255.0;
+    let ring = 0.5 / size_pt;
+    let n = 4;
+    let q = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let mut out = Vec::with_capacity((px * px * 4) as usize);
+    for py in 0..px {
+        for x in 0..px {
+            let mut acc = [0.0f32; 4];
+            for sy in 0..n {
+                for sx in 0..n {
+                    let u = (x as f32 + (sx as f32 + 0.5) / n as f32) / px as f32;
+                    let v = (py as f32 + (sy as f32 + 0.5) / n as f32) / px as f32;
+                    let d = round_box(u - 0.5, v - 0.5, 0.5, RADIUS);
+                    if d > 0.0 {
+                        continue;
+                    }
+                    let col = if d > -ring { border } else { lerp(bg, [1.0; 3], sheen * (1.0 - v)) };
+                    acc = [acc[0] + col[0], acc[1] + col[1], acc[2] + col[2], acc[3] + 1.0];
+                }
+            }
+            if acc[3] == 0.0 {
+                out.extend([0; 4]);
+                continue;
+            }
+            out.extend([q(acc[0] / acc[3]), q(acc[1] / acc[3]), q(acc[2] / acc[3]), q(acc[3] / (n * n) as f32)]);
+        }
+    }
+    out
 }
 
 /// One of eight small shapes, centred, in 16 pt tile points: 1 inside, 0 outside.

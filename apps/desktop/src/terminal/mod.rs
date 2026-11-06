@@ -453,10 +453,7 @@ impl App {
         let init_cols = ((est_w / cell_w).floor() as u16).clamp(10, 500);
         let init_rows = ((est_h / cell_h).floor() as u16).clamp(2, 240);
 
-        let short_dir = directory
-            .rsplit('/')
-            .find(|s| !s.is_empty())
-            .unwrap_or("workspace");
+        let short_dir = Some(opencode_kit::path::basename(&directory)).filter(|d| !d.is_empty()).unwrap_or("workspace");
         let banner = if num == 1 {
             format!(
                 "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m cargo test --quiet\r\n\

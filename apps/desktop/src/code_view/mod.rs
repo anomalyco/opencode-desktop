@@ -149,7 +149,7 @@ impl CodeLook {
 
 /// Maps a file path to a `rune_kit::syntax` language tag, when supported.
 pub fn lang_for_path(path: &str) -> Option<&'static str> {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = opencode_kit::path::basename(path);
     match name {
         "Dockerfile" | "Makefile" | "Justfile" | ".zshrc" | ".bashrc" => return Some("sh"),
         _ => {}

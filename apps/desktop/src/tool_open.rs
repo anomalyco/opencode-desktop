@@ -103,9 +103,8 @@ pub fn target(name: &str, status: &ToolStatus, input: &Value, metadata: &Value, 
 
 /// `path` inside `directory`, relative to it; `None` for a path outside it.
 pub(crate) fn relative(path: &str, directory: &str) -> Option<String> {
-    let dir = directory.trim_end_matches('/');
-    let rel = if path.starts_with('/') {
-        path.strip_prefix(dir).filter(|_| !dir.is_empty())?.strip_prefix('/')?
+    let rel = if opencode_kit::path::is_absolute(path) {
+        opencode_kit::path::strip_dir(path, directory)?
     } else {
         path.trim_start_matches("./")
     };

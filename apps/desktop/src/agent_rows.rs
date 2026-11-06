@@ -52,7 +52,7 @@ pub fn step_of(name: &str, input: &Value) -> String {
     let get = |k: &str| input[k].as_str().map(str::to_owned);
     let target = match name {
         "shell" | "bash" => get("description").or_else(|| get("command")),
-        "read" | "write" | "edit" => get("filePath").or_else(|| get("path")).map(|p| p.rsplit('/').next().unwrap_or("").to_owned()),
+        "read" | "write" | "edit" => get("filePath").or_else(|| get("path")).map(|p| opencode_kit::path::basename(&p).to_owned()),
         "grep" | "glob" => get("pattern"),
         "task" | "subagent" => get("description"),
         "webfetch" => get("url"),

@@ -172,7 +172,7 @@ pub fn rank_file_query(paths: &[String], query: &str) -> Vec<String> {
 
 fn score_path(path: &str, needle_lower: &str) -> Option<i32> {
     let hay = path.to_lowercase();
-    let base = hay.rsplit('/').next().unwrap_or(&hay);
+    let base = opencode_kit::path::basename(&hay);
     if base == needle_lower {
         return Some(1000 - path.len() as i32);
     }

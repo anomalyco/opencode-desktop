@@ -13,8 +13,7 @@ pub(super) fn session_id_ok(id: &str) -> bool {
 
 /// `path` under `directory` unless it's already absolute.
 pub(super) fn absolute(directory: &str, path: &str) -> String {
-    let windows = path.as_bytes().get(1) == Some(&b':') && path.as_bytes()[0].is_ascii_alphabetic();
-    if path.starts_with('/') || path.starts_with("\\\\") || windows {
+    if opencode_kit::path::is_absolute(path) {
         return path.to_owned();
     }
     format!("{}/{path}", directory.trim_end_matches(['/', '\\']))
@@ -46,8 +45,7 @@ pub(super) fn encode_path(path: &str) -> String {
 
 /// `getFilename`: the last segment, ignoring trailing separators.
 pub(super) fn filename(path: &str) -> &str {
-    let trimmed = path.trim_end_matches(['/', '\\']);
-    trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed)
+    opencode_kit::path::basename(path)
 }
 
 /// What a prompt sends for its pills.

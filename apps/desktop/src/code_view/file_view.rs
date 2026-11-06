@@ -53,7 +53,7 @@ impl<S: 'static> CodeViewer<S> {
                 .child(text("Loading file…").font(look.label).color(look.muted));
         }
         if st.missing {
-            let name = st.path().rsplit('/').next().unwrap_or(st.path());
+            let name = opencode_kit::path::basename(st.path());
             return col()
                 .key(root_key)
                 .w_full()

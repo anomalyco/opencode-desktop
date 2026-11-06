@@ -83,7 +83,7 @@ pub fn parse_project(p: &Value) -> Option<Project> {
         return None;
     }
     let id = str_of(&p["id"]);
-    let fallback = dir.rsplit('/').find(|s| !s.is_empty()).unwrap_or(&dir);
+    let fallback = Some(crate::path::basename(&dir)).filter(|n| !n.is_empty()).unwrap_or(&dir);
     let name = p["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(fallback).to_owned();
     if let Some(items) = p["sandboxes"].as_array() {
         let mut sandboxes: Vec<String> = items

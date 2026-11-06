@@ -7,6 +7,7 @@ pub mod local_service;
 pub mod mention;
 pub mod model;
 pub mod pairing;
+pub mod path;
 pub mod plain_error;
 pub mod project;
 pub mod prompt;
