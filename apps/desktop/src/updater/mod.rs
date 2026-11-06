@@ -27,7 +27,9 @@ use crate::view::{INSTANT, UI, UI_MED};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum UpdateState {
+    /// No updater runs in this build (unpackaged or dev bundles), so Settings has no Updates section.
     #[cfg_attr(target_os = "macos", default)]
+    Hidden,
     Idle,
     Checking,
     Downloading {
@@ -48,44 +50,59 @@ enum WorkerCmd {
     Install,
 }
 
+/// What carries out a check or an install.
+#[derive(Default)]
+enum Driver {
+    /// Nothing: no updater runs in this build.
+    #[default]
+    None,
+    /// The background worker of a packaged macOS build.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Worker(Sender<WorkerCmd>),
+    /// The Settings/Updates story, which plays each step itself.
+    Story,
+}
+
 #[derive(Default)]
 pub struct Updater {
-    supported: bool,
-    story_visible: bool,
     pub version: String,
     pub channel: String,
     pub state: UpdateState,
-    cmd: Option<Sender<WorkerCmd>>,
+    driver: Driver,
     rx: Option<Receiver<UpdateState>>,
 }
 
 impl Updater {
     pub fn supported(&self) -> bool {
-        self.supported
-    }
-
-    pub fn visible(&self) -> bool {
-        self.supported || self.story_visible || self.state == UpdateState::Unsupported
+        matches!(self.driver, Driver::Worker(_))
     }
 
     pub fn check(&mut self, tx: &mut Tx) {
-        if let Some(cmd) = &self.cmd {
-            tx.instant();
-            self.state = UpdateState::Checking;
-            let _ = cmd.send(WorkerCmd::Check);
-        } else if self.story_visible {
-            tx.instant();
-            self.state = UpdateState::Checking;
+        match &self.driver {
+            Driver::Worker(cmd) => {
+                tx.instant();
+                self.state = UpdateState::Checking;
+                let _ = cmd.send(WorkerCmd::Check);
+            }
+            Driver::Story => {
+                tx.instant();
+                self.state = UpdateState::Checking;
+            }
+            Driver::None => {}
         }
     }
 
     pub fn install(&mut self, tx: &mut Tx) {
-        if let Some(cmd) = &self.cmd {
-            tx.instant();
-            let _ = cmd.send(WorkerCmd::Install);
-        } else if self.story_visible {
-            tx.instant();
-            self.state = UpdateState::UpToDate;
+        match &self.driver {
+            Driver::Worker(cmd) => {
+                tx.instant();
+                let _ = cmd.send(WorkerCmd::Install);
+            }
+            Driver::Story => {
+                tx.instant();
+                self.state = UpdateState::UpToDate;
+            }
+            Driver::None => {}
         }
     }
 }
@@ -100,7 +117,7 @@ pub fn build_channel() -> &'static str {
 /// Starts the background updater when running inside `anomaly.opencode-rune`.
 #[cfg(target_os = "macos")]
 pub fn start_if_packaged(s: &mut App) {
-    if !crate::headless() && !cfg!(test) && s.updater.cmd.is_none() {
+    if !crate::headless() && !cfg!(test) && !s.updater.supported() {
         worker::start(s);
     }
 }
@@ -119,7 +136,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             Err(TryRecvError::Empty) => break,
             Err(TryRecvError::Disconnected) => {
                 s.updater.rx = None;
-                s.updater.cmd = None;
+                s.updater.driver = Driver::None;
                 break;
             }
         }
@@ -170,12 +187,10 @@ pub fn sidebar_pill(s: &App, p: &Pal) -> Option<El> {
 /// Settings section shown on packaged team builds (`anomaly.opencode-rune`), in its story, and on
 /// platforms without an updater yet.
 pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
-    if !s.updater.visible() {
-        return None;
-    }
     let ver = if s.updater.version.is_empty() { env!("CARGO_PKG_VERSION") } else { &s.updater.version };
     let ch = if s.updater.channel.is_empty() { build_channel() } else { &s.updater.channel };
     let (about, action) = match &s.updater.state {
+        UpdateState::Hidden => return None,
         UpdateState::Idle => (format!("Version {ver} ({ch}). Checks automatically every hour."), Some(("Check for updates", false, false))),
         UpdateState::Checking => (format!("Version {ver} ({ch}). Checking for updates…"), Some(("Checking…", false, true))),
         UpdateState::Downloading { version } => (format!("Downloading {version}…"), Some(("Downloading…", false, true))),
@@ -251,7 +266,7 @@ const STORY_KEYS: &[Trigger] = &[
 ];
 
 fn story_setup(s: &mut App) {
-    s.updater.story_visible = true;
+    s.updater.driver = Driver::Story;
     s.updater.version = "0.0.0-dev-41".into();
     s.updater.channel = "dev".into();
     s.updater.state = match s.variant {

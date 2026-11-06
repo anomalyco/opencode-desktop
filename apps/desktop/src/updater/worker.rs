@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::mac::{self, BundleInfo, TEAM_BUNDLE_ID};
 use super::protocol::{self, DEFAULT_SERVICE_URL, Decision, TARGET_MACOS_ARM64};
-use super::{UpdateState, WorkerCmd, build_channel};
+use super::{Driver, UpdateState, WorkerCmd, build_channel};
 use crate::App;
 
 const INITIAL_DELAY: Duration = Duration::from_secs(10);
@@ -55,13 +55,13 @@ pub(super) fn start(s: &mut App) {
         .map_or(INITIAL_DELAY, Duration::from_millis);
     let auto_install = env_nonempty("OPENCODE_RUNE_AUTO_INSTALL_ON_READY").as_deref() == Some("1");
 
-    s.updater.supported = true;
+    s.updater.state = UpdateState::Idle;
     s.updater.version = bundle.version.clone();
     s.updater.channel = channel.clone();
 
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel();
     let (state_tx, state_rx) = std::sync::mpsc::channel();
-    s.updater.cmd = Some(cmd_tx);
+    s.updater.driver = Driver::Worker(cmd_tx);
     s.updater.rx = Some(state_rx);
     let waker = s.waker.clone();
 
