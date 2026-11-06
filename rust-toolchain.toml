@@ -1,0 +1,4 @@
+[toolchain]
+# Cargo 1.99 is the first that lets a member set `default-features = false` on a workspace dependency (rune-parts).
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

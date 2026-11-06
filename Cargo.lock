@@ -3293,6 +3293,7 @@ dependencies = [
  "rune-parts",
  "rune-theme-opencode",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
