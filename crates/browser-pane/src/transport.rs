@@ -52,13 +52,15 @@ pub(crate) fn spawn_and_attach_bg(
     profile::wait_until_free(&profile, profile::UNLOCK_WAIT);
     if let Err(e) = engine_command(&bin, &sock, &profile).spawn() {
         *status.lock().unwrap() =
-            EngineStatus::Failed(format!("failed to start {}: {e}", bin.display()));
+            EngineStatus::Failed(format!("failed to start {}: {e}", bin.display()).into());
         if let Some(w) = waker {
             w();
         }
         return;
     }
-    for _ in 0..80 {
+    // Up to 20 s: the first start after an install can take several, while the OS scans the
+    // engine's freshly unpacked files (Windows Defender does, for each new DLL).
+    for _ in 0..400 {
         if let Ok(stream) = UnixStream::connect(&sock) {
             wire_stream(stream, mach_service, &status, &outbox, inbox_tx, surfaces, waker);
             return;
@@ -66,7 +68,7 @@ pub(crate) fn spawn_and_attach_bg(
         std::thread::sleep(Duration::from_millis(50));
     }
     *status.lock().unwrap() =
-        EngineStatus::Failed(format!("timed out waiting for {}", Path::display(&sock)));
+        EngineStatus::Failed(format!("timed out waiting for {}", Path::display(&sock)).into());
     if let Some(w) = waker {
         w();
     }

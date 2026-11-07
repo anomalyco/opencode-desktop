@@ -478,6 +478,7 @@ dependencies = [
  "sha2",
  "uds_windows",
  "ureq",
+ "windows",
 ]
 
 [[package]]

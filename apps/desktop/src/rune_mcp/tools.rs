@@ -570,7 +570,10 @@ fn send_cdp_call(
     if !s.browser.host.has_live_sidecar() {
         let msg = match s.browser.host.status() {
             browser_pane::EngineStatus::Unsupported => BROWSER_UNSUPPORTED.to_owned(),
-            browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Downloading { .. } => {
+            browser_pane::EngineStatus::NotInstalled
+            | browser_pane::EngineStatus::Downloading { .. }
+            | browser_pane::EngineStatus::Verifying
+            | browser_pane::EngineStatus::Paused(_) => {
                 "Browser engine isn't installed yet in OpenCode (Rune)".to_owned()
             }
             browser_pane::EngineStatus::Failed(err) => format!("Browser engine failed to start: {err}"),

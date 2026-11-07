@@ -26,6 +26,8 @@ pub const INSTALL_VARIANTS: &[(&str, usize)] = &[
     ("Downloading", 1),
     ("Download failed", 2),
     ("No GitHub login", 3),
+    ("Verifying", 4),
+    ("Paused on battery", 5),
 ];
 
 pub const INSTALL_KEYS: &[Trigger] = &[
@@ -208,6 +210,8 @@ pub fn init_install(s: &mut App) {
             total_bytes: Some(128_352_035),
         },
         2 => EngineStatus::Failed(browser_pane::ERR_DOWNLOAD.into()),
+        4 => EngineStatus::Verifying,
+        5 => EngineStatus::Paused(browser_pane::PauseReason::OnBattery),
         _ => EngineStatus::Failed(browser_pane::ERR_SIGN_IN.into()),
     };
     let id = s

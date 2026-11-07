@@ -11,7 +11,7 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
 # and Windows; test it on its own with `cargo test -p browser-pane --features engine`.
-engine = ["dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows"]
+engine = ["dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows"]
 
 [dependencies]
 base64 = "0.22"
@@ -24,9 +24,15 @@ ureq = { workspace = true, features = ["rustls"], optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
 
-# The engine's socket: AF_UNIX, in Windows 10 1803 and later.
+# The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
+# thread priority and its pause checks (power line, connection cost).
 [target.'cfg(windows)'.dependencies]
 uds_windows = { version = "1.1", optional = true }
+windows = { version = "0.62", optional = true, features = [
+    "Networking_Connectivity",
+    "Win32_System_Power",
+    "Win32_System_Threading",
+] }
 
 [lints]
 workspace = true

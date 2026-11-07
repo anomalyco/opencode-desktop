@@ -4,6 +4,11 @@
 # The zip holds the folder at its root, as the app's installer expects. With WINDOWS_SIGN_THUMBPRINT
 # set, signtool signs both executables (SHA-256, timestamped) before zipping.
 #   pwsh apps/browser-engine/scripts/package-release.ps1 <out-dir>
+# TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
+# ("here" is crates/browser-pane/src/installer.rs. The CDN path follows macOS:
+# https://anoma.ly/release/opencode-rune/files/<sha256>/OpenCode-Browser-Engine-<version>-windows-x64.zip.
+# Until then Windows has no download: the app skips its background download, and
+# install-local.ps1 installs a local build.)
 param([Parameter(Mandatory)][string]$OutDir)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'assemble-windows.ps1')

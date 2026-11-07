@@ -61,11 +61,18 @@ impl ReleaseAsset {
     }
 }
 
-pub(crate) fn open(url: &str, auth: &GithubAuth) -> Result<ureq::http::Response<ureq::Body>, String> {
-    match ureq::get(url).call() {
+/// Opens `url` from byte `from` on (a `Range` request when it isn't 0). A server that ignores the
+/// range answers 200 with the whole file; one past the end answers `ERR_RANGE`.
+pub(crate) fn open(url: &str, auth: &GithubAuth, from: u64) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let mut req = ureq::get(url);
+    if from > 0 {
+        req = req.header("Range", &format!("bytes={from}-"));
+    }
+    match req.call() {
         Ok(resp) => Ok(resp),
+        Err(ureq::Error::StatusCode(416)) => Err(ERR_RANGE.into()),
         Err(ureq::Error::StatusCode(code @ (401 | 403 | 404))) => match ReleaseAsset::parse(url) {
-            Some(asset) => open_private(&asset, auth),
+            Some(asset) => open_private(&asset, auth, from),
             None => Err(err_server(code)),
         },
         Err(ureq::Error::StatusCode(code)) => Err(err_server(code)),
@@ -73,9 +80,13 @@ pub(crate) fn open(url: &str, auth: &GithubAuth) -> Result<ureq::http::Response<
     }
 }
 
+/// The server has no bytes past the partial download's end.
+pub(crate) const ERR_RANGE: &str = "range not satisfiable";
+
 fn open_private(
     asset: &ReleaseAsset,
     auth: &GithubAuth,
+    from: u64,
 ) -> Result<ureq::http::Response<ureq::Body>, String> {
     let token = (auth.token)().ok_or_else(|| ERR_SIGN_IN.to_owned())?;
     // The asset URL redirects to a signed storage host; the token must never follow it there.
@@ -121,13 +132,18 @@ fn open_private(
         .and_then(|a| a["url"].as_str())
         .ok_or_else(|| ERR_MISSING.to_owned())?;
 
-    agent
+    let mut req = agent
         .get(asset_url)
         .header("Authorization", &bearer)
         .header("Accept", "application/octet-stream")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .map_err(api_error)
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if from > 0 {
+        req = req.header("Range", &format!("bytes={from}-"));
+    }
+    req.call().map_err(|err| match err {
+        ureq::Error::StatusCode(416) => ERR_RANGE.to_owned(),
+        err => api_error(err),
+    })
 }
 
 /// The user's GitHub token from `GH_TOKEN`/`GITHUB_TOKEN`, else `gh auth token`. GUI apps don't

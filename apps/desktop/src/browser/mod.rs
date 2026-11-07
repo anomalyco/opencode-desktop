@@ -1,6 +1,7 @@
 //! Built-in Chromium 156 Browser panel registered on `crate::panels::PANELS`, with `:port` URL
 //! resolution and `@eN` visual element picker into `s.composer`.
 
+pub mod prefetch;
 #[cfg(test)]
 mod tests;
 pub mod view;
@@ -24,6 +25,7 @@ pub struct BrowserPane {
     pub session_tabs: HashMap<String, Vec<u64>>,
     pub ref_nodes: HashMap<(u64, String), i64>,
     pub next_ref: u64,
+    pub prefetch: prefetch::IdleGate,
     last_synced_url: String,
     last_synced_tab: Option<u64>,
 }
@@ -36,6 +38,7 @@ impl Default for BrowserPane {
             session_tabs: HashMap::new(),
             ref_nodes: HashMap::new(),
             next_ref: 1,
+            prefetch: Default::default(),
             last_synced_url: String::new(),
             last_synced_tab: None,
         }
@@ -205,10 +208,6 @@ impl App {
             && let Some(dir) = crate::dirs::data()
         {
             self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
-        }
-        // Fetch the browser in the background, so the first page opens straight away.
-        if self.persists() && !self.use_mock_browser() {
-            self.browser.host.prefetch();
         }
     }
 
@@ -519,6 +518,7 @@ impl App {
     }
 
     pub fn poll_browser(&mut self, tx: &mut Tx) -> bool {
+        self.poll_browser_prefetch(tx);
         let mut changed = self.browser.host.poll();
         // The engine paints only its focused tab, so the page on screen must be that tab (after a
         // session switch, say, which shows another session's page without selecting it).

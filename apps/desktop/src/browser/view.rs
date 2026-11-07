@@ -188,58 +188,15 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
 fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_scale: f32) -> El {
     match status {
         EngineStatus::Unsupported => unsupported(p),
+        // The background download, when the pane opens on it, shows here and goes on.
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
-            let done_mb = (downloaded_bytes as f64 / 1_000_000.0).floor();
-            let tot_mb = total_bytes
-                .filter(|&t| t > 0)
-                .map(|t| (t as f64 / 1_000_000.0).round().max(1.0));
-            let odo_label = match tot_mb {
-                Some(tot) => format!("{done_mb:.0} / {tot:.0} MB"),
-                None => format!("{done_mb:.0} MB"),
-            };
             let frac = total_bytes
                 .filter(|&t| t > 0)
                 .map_or(0.25, |t| (downloaded_bytes as f32 / t as f32).clamp(0.03, 1.0));
-            let bar_w = 240.0;
-            col()
-                .key("browser-installing")
-                .grow(1.0)
-                .w_full()
-                .center()
-                .padding(28.0)
-                .gap(10.0)
-                .child(
-                    row()
-                        .w(bar_w)
-                        .center_y()
-                        .child(
-                            text("Downloading browser…")
-                                .font(UI_SMALL)
-                                .color(p.muted)
-                                .grow(1.0)
-                                .shrink()
-                                .min_w(0.0)
-                                .truncate_fade(),
-                        )
-                        .child(odometer_end("browser-dl-mb", odo_label, done_mb, UI_MED, p.text)),
-                )
-                .child(
-                    el().key("browser-dl-track")
-                        .w(bar_w)
-                        .h(5.0)
-                        .radius(2.5)
-                        .clip_rounded(2.5)
-                        .fill(p.layer3)
-                        .child(
-                            el().key("browser-dl-fill")
-                                .w(bar_w * frac)
-                                .h(5.0)
-                                .radius(2.5)
-                                .fill(p.icon)
-                                .motion(Spring::new(0.25, 0.0)),
-                        ),
-                )
+            progress(p, "Downloading browser…", Some((downloaded_bytes, total_bytes)), frac)
         }
+        EngineStatus::Verifying => progress(p, "Verifying browser…", None, 1.0),
+        EngineStatus::Paused(reason) => progress(p, reason.describe(), None, 0.25),
         EngineStatus::NotInstalled => col()
             .key("browser-download-prompt")
             .grow(1.0)
@@ -277,7 +234,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             .padding(28.0)
             .gap(14.0)
             .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
-            .child(text(msg).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+            .child(text(msg.message).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
             .child(
                 el().key("browser-retry-btn")
                     .role("button")
@@ -294,7 +251,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                     .on_press(|s: &mut App| s.start_browser_install())
                     .child(text("Retry").font(UI_MED).color(p.text)),
             ),
-        EngineStatus::Connecting | EngineStatus::Ready => {
+        EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             if let Some(id) = tab_id
                 && let Some(tab) = s.browser.host.tab(id)
             {
@@ -339,6 +296,61 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             }
         }
     }
+}
+
+/// The engine download's progress: a label, the megabytes so far (rolling) when known, and a bar
+/// filled to `frac`.
+fn progress(p: &Pal, label: &str, bytes: Option<(u64, Option<u64>)>, frac: f32) -> El {
+    let bar_w = 240.0;
+    let odometer = bytes.map(|(downloaded_bytes, total_bytes)| {
+        let done_mb = (downloaded_bytes as f64 / 1_000_000.0).floor();
+        let tot_mb = total_bytes
+            .filter(|&t| t > 0)
+            .map(|t| (t as f64 / 1_000_000.0).round().max(1.0));
+        let odo_label = match tot_mb {
+            Some(tot) => format!("{done_mb:.0} / {tot:.0} MB"),
+            None => format!("{done_mb:.0} MB"),
+        };
+        odometer_end("browser-dl-mb", odo_label, done_mb, UI_MED, p.text)
+    });
+    col()
+        .key("browser-installing")
+        .grow(1.0)
+        .w_full()
+        .center()
+        .padding(28.0)
+        .gap(10.0)
+        .child(
+            row()
+                .w(bar_w)
+                .center_y()
+                .child(
+                    text(label.to_owned())
+                        .font(UI_SMALL)
+                        .color(p.muted)
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0)
+                        .truncate_fade(),
+                )
+                .children(odometer),
+        )
+        .child(
+            el().key("browser-dl-track")
+                .w(bar_w)
+                .h(5.0)
+                .radius(2.5)
+                .clip_rounded(2.5)
+                .fill(p.layer3)
+                .child(
+                    el().key("browser-dl-fill")
+                        .w(bar_w * frac)
+                        .h(5.0)
+                        .radius(2.5)
+                        .fill(p.icon)
+                        .motion(Spring::new(0.25, 0.0)),
+                ),
+        )
 }
 
 /// This build has no browser engine for its platform: no address bar, nothing to download.

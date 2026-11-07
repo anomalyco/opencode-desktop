@@ -63,6 +63,8 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
+    /// Download the browser engine while the app is idle (`browser::prefetch`); on by default.
+    pub prefetch_browser: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +85,7 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: Default::default(),
             new_question_ui: false,
+            prefetch_browser: true,
         }
     }
 }
@@ -104,6 +107,7 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
+            "browser": { "prefetch": self.prefetch_browser },
         })
     }
 
@@ -126,6 +130,7 @@ impl Settings {
             // `appearance`, which here is the colour scheme.
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
+            prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
         }
     }
 }
@@ -239,7 +244,7 @@ pub fn page(s: &App, p: &Pal) -> El {
         ("auto-accept", "Auto-accept permissions", "Permission requests will be automatically approved",
             switch(p, "auto-accept-switch", s.settings.auto_accept).on_press(|s: &mut App| s.set_auto_accept(!s.settings.auto_accept))),
         ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
-    ]);
+    ].map(|(key, title, about, control)| (key, title, about.to_owned(), control)).into_iter().chain(browser_prefetch_row(s, p)));
     let body = col()
         .key("settings")
         .role("region")
@@ -305,6 +310,17 @@ fn back_button(p: &Pal) -> El {
 
 pub(crate) fn section(p: &Pal, title: &'static str, list: El) -> El {
     col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list)
+}
+
+/// Download browser in the background, with what that download is doing; only where the app
+/// has a browser engine.
+fn browser_prefetch_row(s: &App, p: &Pal) -> Option<(&'static str, &'static str, String, El)> {
+    if s.browser_unsupported() {
+        return None;
+    }
+    let on = s.settings.prefetch_browser;
+    let control = switch(p, "prefetch-browser-switch", on).on_press(|s: &mut App| s.set_prefetch_browser(!s.settings.prefetch_browser));
+    Some(("prefetch-browser", "Download browser in the background", crate::browser::prefetch::describe(&s.browser.host.status()), control))
 }
 
 /// Desktop's three notification switches, with its titles and descriptions.
@@ -526,7 +542,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default(), new_question_ui: false };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default(), new_question_ui: false, prefetch_browser: true };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

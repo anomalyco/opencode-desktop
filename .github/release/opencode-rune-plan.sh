@@ -16,6 +16,9 @@ crate_version=$(awk '/^\[package\]/ { package = 1; next } /^\[/ { package = 0 } 
 
 engine_version=$(sed -n 's/^pub const ENGINE_VERSION: &str = "\([^"]*\)";/\1/p' crates/browser-pane/src/installer.rs | head -1)
 engine_release_version=$(printf '%s' "$engine_version" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+)\.(.+)$/\1-\2/')
+# The macOS SHA-256 (the first after ENGINE_DEFAULT_SHA256).
+# TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
+# (Then read the windows-x64 SHA-256 here too and publish it as its own target.)
 engine_sha256=$(awk '/ENGINE_DEFAULT_SHA256/ { want = 1 } want && match($0, /[0-9a-fA-F]{64}/) { print tolower(substr($0, RSTART, RLENGTH)); exit }' crates/browser-pane/src/installer.rs)
 [[ "$engine_version" =~ ^[0-9]+\.[0-9]+ ]] || die "Could not parse ENGINE_VERSION from crates/browser-pane/src/installer.rs."
 [[ "$engine_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Could not parse ENGINE_DEFAULT_SHA256 from crates/browser-pane/src/installer.rs."

@@ -17,22 +17,17 @@ static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 impl BrowserHost {
     pub(crate) fn initial_status() -> EngineStatus {
         if installer::resolve_installed_executable().is_some() {
-            EngineStatus::Ready
+            EngineStatus::Installed
         } else {
             EngineStatus::NotInstalled
         }
     }
 
-    /// Starts (or retries) downloading and installing the browser engine off the main thread,
-    /// then spawns it and opens any queued tabs as soon as it is ready.
+    /// Starts (or retries) downloading and installing the browser engine off the main thread; a
+    /// download already running (the background prefetch) goes on at full speed instead. Queued
+    /// tabs open once it lands (`poll`).
     pub fn start_install(&mut self) {
-        if self.is_connected() {
-            return;
-        }
-        if matches!(
-            self.status(),
-            EngineStatus::Downloading { .. } | EngineStatus::Connecting
-        ) {
+        if self.is_connected() || self.status() == EngineStatus::Connecting {
             return;
         }
         let mach_service = self.ensure_mach_receiver();
@@ -48,39 +43,23 @@ impl BrowserHost {
             self.spawn_and_connect(bin, sock, mach_service);
             return;
         }
-        let status = self.status.clone();
-        let waker = self.waker.clone();
-        let outbox = self.outbox.clone();
-        let inbox_tx = self.inbox_tx.clone();
-        let surfaces = self.surfaces.clone();
-        let profile = profile::for_spawn(self.profile_dir.as_deref());
-        installer::start_download(
-            status.clone(),
-            waker.clone(),
-            Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, surfaces, waker);
-            }),
-        );
+        self.prefetch.start(true, self.status.clone(), self.waker.clone());
     }
 
     /// Downloads the engine in the background when it isn't installed, without starting it, so
-    /// the first page opens without a wait. A tab opened meanwhile starts once the download lands.
+    /// the first page opens without a wait: at low priority, throttled, pausing on a metered
+    /// connection or battery power, retrying with backoff. Nothing shows unless the pane opens,
+    /// which then shows this download's progress. Does nothing without a download source.
     pub fn prefetch(&mut self) {
         if self.status() != EngineStatus::NotInstalled {
             return;
         }
-        let status = self.status.clone();
-        let waker = self.waker.clone();
-        installer::start_download(
-            status.clone(),
-            waker.clone(),
-            Box::new(move |_bin| {
-                *status.lock().unwrap() = EngineStatus::Ready;
-                if let Some(w) = waker {
-                    w();
-                }
-            }),
-        );
+        self.prefetch.start(false, self.status.clone(), self.waker.clone());
+    }
+
+    /// Stops the background download (its bytes stay for later); one the pane asked for goes on.
+    pub fn stop_prefetch(&mut self) {
+        self.prefetch.cancel_background();
     }
 
     fn ensure_mach_receiver(&mut self) -> Option<String> {
@@ -103,7 +82,12 @@ impl BrowserHost {
             return;
         }
         let cur_status = self.status();
-        if matches!(cur_status, EngineStatus::Downloading { .. } | EngineStatus::Connecting) {
+        if cur_status == EngineStatus::Connecting {
+            return;
+        }
+        // A tab waits for the download running in the background: let it finish, at full speed.
+        if matches!(cur_status, EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_)) {
+            self.prefetch.hurry();
             return;
         }
 

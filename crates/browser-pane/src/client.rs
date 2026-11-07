@@ -72,6 +72,9 @@ pub struct BrowserHost {
     pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(all(feature = "engine", target_os = "macos"))]
     pub(crate) mach: Option<MachReceiver>,
+    /// The engine download job, background or asked for.
+    #[cfg(feature = "engine")]
+    pub(crate) prefetch: Arc<crate::prefetch::Prefetch>,
 }
 
 impl Default for BrowserHost {
@@ -107,6 +110,8 @@ impl BrowserHost {
             last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
+            #[cfg(feature = "engine")]
+            prefetch: Arc::default(),
         }
     }
 
@@ -468,8 +473,18 @@ impl BrowserHost {
                 }
             }
         }
-        // A background download finished while a tab waited for it.
-        if !self.pending_opens.is_empty() && !self.is_connected() && self.status() == EngineStatus::Ready {
+        // A download finished while a tab waited for it (and one still running hurries).
+        if !self.pending_opens.is_empty()
+            && !self.is_connected()
+            && matches!(
+                self.status(),
+                EngineStatus::Installed
+                    | EngineStatus::Ready
+                    | EngineStatus::Downloading { .. }
+                    | EngineStatus::Verifying
+                    | EngineStatus::Paused(_)
+            )
+        {
             self.ensure_connected();
         }
         {
@@ -627,6 +642,8 @@ impl BrowserHost {
     pub fn start_install(&mut self) {}
 
     pub fn prefetch(&mut self) {}
+
+    pub fn stop_prefetch(&mut self) {}
 
     pub(crate) fn ensure_connected(&mut self) {}
 }

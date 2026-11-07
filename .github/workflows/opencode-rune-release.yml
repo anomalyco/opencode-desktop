@@ -287,6 +287,9 @@ jobs:
           { echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Publish Browser Engine: public download on https://anoma.ly/release ---
+  # TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
+  # (Here: a windows-x64 target beside macos-arm64 below, and the constants in
+  # crates/browser-pane/src/installer.rs, which this workflow and opencode-rune-plan.sh read.)
 
   fetch-browser-engine:
     needs: plan
