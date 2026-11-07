@@ -1013,6 +1013,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= turn_errors::poll(s, tx);
+    changed |= session_view::turns::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     changed |= s.poll_sends();

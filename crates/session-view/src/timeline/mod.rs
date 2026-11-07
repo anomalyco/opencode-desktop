@@ -135,7 +135,10 @@ impl RowSpec {
                     if self.key.starts_with("c-") && !s.expanded().contains(&self.key) && !crate::disclosure::is_shutting(s, &self.key) =>
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, fold);
+                    // A live Thinking group's time ticks: the row rebuilds once a second, and not
+                    // at all once the turn ends.
+                    let tick = if *live { thinking_tick(s, t, *start, *end, *block) } else { None };
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
@@ -255,6 +258,18 @@ impl RowSpec {
             }
         };
         self.wrap(s, el)
+    }
+}
+
+/// The seconds a live turn's group `block` has been thinking, when it reads Thinking.
+fn thinking_tick<S: TimelineHost>(s: &S, t: &Transcript, start: usize, end: usize, block: usize) -> Option<i64> {
+    let steps: Vec<&Assistant> = t.messages[start..end].iter().filter_map(|m| match m {
+        Message::Assistant(a) => Some(a), _ => None,
+    }).collect();
+    let blocks = turns::fold(&steps, true);
+    match blocks.get(block)? {
+        Block::Group { steps, .. } => turns::thinking_since(steps, block + 1 == blocks.len()).map(|at| turns::thinking_secs(at, s.now_ms())),
+        _ => None,
     }
 }
 

@@ -20,7 +20,7 @@ use crate::style::{HOVER_FADE, UI, UI_MED, arrow, reasoning};
 /// One step inside a group.
 #[derive(Debug)]
 pub enum Step<'a> {
-    Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64> },
+    Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64>, started: i64 },
     Tool { id: &'a str, name: &'a str, title: &'a str, status: &'a ToolStatus, files: &'a [Attachment], input: &'a serde_json::Value, metadata: &'a serde_json::Value },
 }
 
@@ -83,7 +83,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                         continue;
                     }
                     let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64);
-                    fold_in(&mut group, (&a.id, Some(n)), Step::Thought { msg: &a.id, index: n, body: text, secs });
+                    fold_in(&mut group, (&a.id, Some(n)), Step::Thought { msg: &a.id, index: n, body: text, secs, started: *started });
                 }
                 Part::Tool { id, name, title, status, input, files, metadata } => match name.as_str() {
                     "todowrite" => {}
@@ -172,6 +172,71 @@ pub fn label(steps: &[Step], busy: bool) -> Label {
     Label { count: Some(tools), title: names.join(", ") }
 }
 
+/// When the first thought of a group that reads Thinking started (ms), for its ticking time.
+pub fn thinking_since(steps: &[Step], busy: bool) -> Option<i64> {
+    if label(steps, busy).count.is_some() {
+        return None;
+    }
+    steps.iter().find_map(|st| match st {
+        Step::Thought { started, .. } => Some(*started),
+        Step::Tool { .. } => None,
+    })
+}
+
+/// When the live turn's Thinking group started thinking (ms): the transcript is busy and its
+/// last group is thoughts alone.
+pub fn live_thinking_since(t: &opencode_kit::model::Transcript) -> Option<i64> {
+    if !t.busy() {
+        return None;
+    }
+    let steps: Vec<&Assistant> = t.messages.iter().rev()
+        .map_while(|m| match m { opencode_kit::model::Message::Assistant(a) => Some(a), _ => None })
+        .collect::<Vec<_>>().into_iter().rev().collect();
+    match fold(&steps, true).last()? {
+        Block::Group { steps, .. } => thinking_since(steps, true),
+        _ => None,
+    }
+}
+
+/// How long a group has been thinking, as Desktop counts it (`ui.message.duration.*`): "3s",
+/// "1m 5s", "1h 2m".
+pub fn elapsed(ms: i64) -> String {
+    let total = (ms / 1000).max(0);
+    if total < 60 {
+        return format!("{total}s");
+    }
+    if total < 3600 {
+        return format!("{}m {}s", total / 60, total % 60);
+    }
+    format!("{}h {}m", total / 3600, total / 60 % 60)
+}
+
+/// Whole seconds a group started at `since` has been thinking at `now_ms`.
+pub fn thinking_secs(since: i64, now_ms: i64) -> i64 {
+    ((now_ms - since) / 1000).max(0)
+}
+
+thread_local! {
+    /// The open session's thinking time last drawn: (session, start, seconds).
+    static TICKED: std::cell::RefCell<Option<(String, i64, i64)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Redraws the open session's Thinking time when its second changes and wakes for the next
+/// one; nothing wakes once the turn stops thinking.
+pub fn poll<S: TimelineHost>(s: &S, tx: &mut rune::Tx) -> bool {
+    let now_ms = s.now_ms();
+    let live = s.active_session_id().filter(|id| !s.is_session_stopped(id) && s.session_revert(id).is_none()).and_then(|id| {
+        let since = s.with_transcript(id, live_thinking_since).flatten()?;
+        Some((id.to_owned(), since, thinking_secs(since, now_ms)))
+    });
+    if let Some((_, since, secs)) = &live {
+        // Just past the next whole second.
+        let next = since + (secs + 1) * 1000 - now_ms;
+        tx.wake_after(std::time::Duration::from_millis(next.max(1) as u64));
+    }
+    TICKED.with_borrow_mut(|shown| (shown.as_ref() != live.as_ref()).then(|| *shown = live).is_some())
+}
+
 /// Step `st` as a tool call, when it is one.
 fn call<'a>(st: &Step<'a>) -> Option<crate::tools::Call<'a>> {
     match st {
@@ -230,7 +295,10 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
             .child(odometer(format!("{key}-count"), n.to_string(), n as f64, UI, p.text))
             .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()),
         // Thoughts alone, still live: Thinking shimmers in the title's 13/530 (`tool-renderer.tsx:634-636`).
-        None => trigger.child(crate::working::shimmer(s, p, &l.title, UI_MED, 0.0).key("thinking")),
+        // Its time ticks beside it in the subtitle's muted 13/440 (`tool-renderer.tsx:640`).
+        None => trigger.child(crate::working::shimmer(s, p, &l.title, UI_MED, 0.0).key("thinking")).children(
+            thinking_since(steps, busy).map(|at| text(elapsed(s.now_ms() - at)).key("elapsed").font(UI.features("'tnum' 1")).color(p.muted)),
+        ),
     };
     // The arrow shows while the pointer is over the label, and always while open.
     let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
@@ -247,7 +315,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         while i < steps.len() {
             let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
             let (n, item) = match &steps[i] {
-                Step::Thought { msg, index, body, secs } => {
+                Step::Thought { msg, index, body, secs, .. } => {
                     let key = format!("r-{msg}-{index}");
                     (1, reasoning::<S>(s, p, &key, body, *secs, live, s.expanded().contains(&key), fade).key(key))
                 }

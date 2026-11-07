@@ -325,6 +325,7 @@ pub fn overlays<S: TimelineHost>(s: &S, p: &palette::Pal, cx: &mut Cx<S>) -> Vec
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= turn_errors::poll(s, tx);
+    changed |= turns::poll(s, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     changed |= disclosure::poll(s, now, tx);
