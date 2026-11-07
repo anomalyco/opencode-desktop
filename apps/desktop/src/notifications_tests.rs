@@ -133,7 +133,7 @@ fn a_permission_notifies_once_for_its_root() {
     asked(&mut app, "child", "per_1");
     asked(&mut app, "child", "per_1");
     asked(&mut app, "closed", "per_2");
-    assert_eq!(posted(&fake), [("Permission required", "Fix the build".to_owned(), "root".to_owned())]);
+    assert_eq!(posted(&fake), [("Permission required", "Explore".to_owned(), "root".to_owned())]);
     app.settings.notify.permissions = false;
     asked(&mut app, "root", "per_3");
     assert_eq!(posted(&fake).len(), 1);

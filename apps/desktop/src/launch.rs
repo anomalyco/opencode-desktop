@@ -30,8 +30,19 @@ pub fn window_title() -> &'static str {
     option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
 }
 
+/// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow).
+#[cfg(target_os = "windows")]
+pub const WINDOWS_ICON: &[u8] = include_bytes!("../assets/icon/art-512.png");
+
+/// Windows: the windows' title bar, taskbar and Alt+Tab icon.
+#[cfg(target_os = "windows")]
+pub fn apply_app_icon() {
+    let _ = rune::set_app_icon(WINDOWS_ICON);
+}
+
 /// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
 /// icon badges) when bundled, or the embedded default icon during `cargo run`.
+#[cfg(not(target_os = "windows"))]
 pub fn apply_app_icon() {
     let bundled = std::env::current_exe()
         .ok()

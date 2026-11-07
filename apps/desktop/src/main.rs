@@ -1295,6 +1295,7 @@ fn main() {
     telemetry::launched();
     opencode_kit::client::set_download_dir(dirs::downloads());
     rune_mac::launch();
+    notifications::identify();
     rune::prewarm_gpu();
     launch::apply_app_icon();
     #[cfg(feature = "hot")]
