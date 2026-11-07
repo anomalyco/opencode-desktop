@@ -1265,7 +1265,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.persists() {
         s.poll_restore();
         s.poll_window();
-        if !s.framed {
+        // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
+        // name can't tell windows apart.
+        if !s.framed && s.window.id.is_empty() {
             s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
     }
