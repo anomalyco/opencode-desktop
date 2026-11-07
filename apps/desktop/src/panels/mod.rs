@@ -234,6 +234,23 @@ pub struct PanelLauncherDesc {
     pub opened: bool,
 }
 
+/// How a launcher entry opens: its panel's one launcher, or a provider's shared opener given
+/// the entry's id (a provider with several entries, such as native plugins' panels).
+#[derive(Clone, Copy)]
+pub enum Launch {
+    Pane(fn(&mut App, SessionPane, &mut Tx)),
+    Entry(fn(&mut App, &str, SessionPane, &mut Tx)),
+}
+
+impl Launch {
+    pub fn run(self, s: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {
+        match self {
+            Self::Pane(open) => open(s, pane, tx),
+            Self::Entry(open) => open(s, id, pane, tx),
+        }
+    }
+}
+
 /// Metadata saved when a user closes a tab so `⌘⇧T` and `"Recently closed"` can bring it back.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClosedPanelTab {
@@ -315,6 +332,10 @@ pub struct PanelRegistration {
     pub launcher: Option<fn(&App, &PanelSessionCtx) -> Option<PanelLauncherDesc>>,
     /// Invoked when the user triggers the launcher or global command.
     pub open_launcher: Option<fn(&mut App, SessionPane, &mut Tx)>,
+    /// Several `+` / `"New tab"` entries, each opened by `open_entry` with its id (a provider
+    /// whose tabs come and go at run time, such as native plugins' panels).
+    pub launchers: Option<fn(&App, &PanelSessionCtx) -> Vec<PanelLauncherDesc>>,
+    pub open_entry: Option<fn(&mut App, &str, SessionPane, &mut Tx)>,
     /// Lists this panel's tabs for the routed session.
     pub list: fn(&App, &PanelSessionCtx) -> Vec<PanelTabDesc>,
     /// Renders `ctx.tab` inside its pane.
@@ -358,6 +379,8 @@ impl PanelRegistration {
             extra_shortcuts: &[],
             launcher: None,
             open_launcher: None,
+            launchers: None,
+            open_entry: None,
             list,
             render,
             on_close_tab: None,
@@ -440,6 +463,16 @@ impl PanelRegistration {
     ) -> Self {
         self.launcher = Some(launcher);
         self.open_launcher = Some(open);
+        self
+    }
+
+    pub const fn launchers(
+        mut self,
+        list: fn(&App, &PanelSessionCtx) -> Vec<PanelLauncherDesc>,
+        open: fn(&mut App, &str, SessionPane, &mut Tx),
+    ) -> Self {
+        self.launchers = Some(list);
+        self.open_entry = Some(open);
         self
     }
 

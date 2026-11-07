@@ -15,10 +15,11 @@ const INSTANT: Anim = Anim::INSTANT;
 pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: SessionPane) -> El {
     let mut list = col().key("side-launchers").w_full().max_w(520.0).pt(28.0).pb(24.0).gap(8.0);
 
-    for &(plugin, ref desc, open_fn) in &reg.launchers {
+    for &(plugin, ref desc, launch) in &reg.launchers {
         if desc.opened {
             continue;
         }
+        let id = desc.id;
         let mut left = row().gap(8.0).center_y().grow(1.0).min_w(0.0);
         left = left
             .child(icon(desc.icon, 15.0).color(p.icon_muted))
@@ -50,7 +51,7 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                open_fn(s, pane, tx);
+                launch.run(s, id, pane, tx);
             })
             .child(left);
         let keys = keymap::first_label(desc.shortcut);
@@ -198,12 +199,13 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
     if let Some((pane, x, y)) = s.side.add_menu {
         let reg = s.resolve_side_region()?;
         let mut rows = col().key("side-add-menu-rows").w_full().padding(MENU.inset);
-        for &(_pl, ref desc, open_fn) in &reg.launchers {
+        for &(_pl, ref desc, launch) in &reg.launchers {
             let key = format!("side-add-menu-{}", desc.id);
+            let id = desc.id;
             rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &keymap::first_label(desc.shortcut), move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.add_menu = None;
-                open_fn(s, pane, tx);
+                launch.run(s, id, pane, tx);
             }));
         }
         let menu = popover::surface::<App>(p, MENU, "side-add-menu", "New tab").w(220.0).child(rows);

@@ -140,7 +140,7 @@ pub struct ResolvedRegion {
     pub active: Option<String>,
     pub active_pane: SessionPane,
     pub wide: bool,
-    pub launchers: Vec<(&'static str, PanelLauncherDesc, fn(&mut App, SessionPane, &mut Tx))>,
+    pub launchers: Vec<(&'static str, PanelLauncherDesc, super::Launch)>,
 }
 
 impl ResolvedRegion {
@@ -340,7 +340,12 @@ impl App {
                 && let Some(open_fn) = p.open_launcher
                 && let Some(desc) = launcher_fn(self, &ctx)
             {
-                launchers.push((p.plugin, desc, open_fn));
+                launchers.push((p.plugin, desc, super::Launch::Pane(open_fn)));
+            }
+            if let Some(list) = p.launchers
+                && let Some(open) = p.open_entry
+            {
+                launchers.extend(list(self, &ctx).into_iter().map(|desc| (p.plugin, desc, super::Launch::Entry(open))));
             }
             if p.region != PanelRegion::Side {
                 continue;
