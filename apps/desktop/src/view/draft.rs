@@ -9,22 +9,29 @@ pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
         .w_full()
         .max_w(880.0)
         .child(wordmark(p, width))
-        .child(col().key("draft-composer").w_full().mt(32.0).gap(4.0).child(composer(s, p).max_w(880.0)).child(location(s, p)));
+        .child(col().key("draft-composer").w_full().mt(32.0).gap(4.0).child(composer(s, p).max_w(880.0)).child(super::draft_location::location(s, p, width)));
+    // The wordmark's top is 25.375% down the panel (`view.tsx:105`), under the 48 pt header;
+    // before the first layout, flex shares put it near there.
+    let above = match rune::memo::layout_with("draft", |r| r[3]) {
+        Some(h) => el().key("above").h((0.25375 * h - 48.0).max(0.0)).shrink(),
+        None => el().key("above").grow(0.3),
+    };
     col()
         .key("draft")
         .grow(1.0)
         .w_full()
         .child(row().key("header").h(48.0).pl(14.0).center_y().window_drag().child(collapsed_slot(s)))
-        // Flex shares that put the wordmark near Desktop's 25.375% from the top at usual sizes.
-        .child(el().key("above").grow(0.3))
+        .child(above)
         .child(col().key("draft-column").w_full().px(24.0).center().child(content))
         .child(el().key("below").grow(0.7))
         .children(s.debug.then(|| status_bar(s, p, None)))
 }
 
 /// OpenCode's wordmark (`ui/logo.tsx`) as Desktop's new-session page draws it at rest: every
-/// letter in the icon colour at 16%, the counters fainter still. It spans 80% of up to 720 pt,
-/// scaled so its 6-unit grid lands on whole points.
+/// letter in `--icon-base` at 16%, the counters in 30% of it (`wordmark.tsx:240-242`,
+/// `wordmark.css:44-46`). Its box spans 80% of up to 720 pt at the logo's 234:42
+/// (`wordmark.tsx:170-178`); the logo inside is 78 × 14 whole-point pitches, the pitch
+/// `max(3, round(box / 78))`, centred in it (`fitStage`, `wordmark.tsx:410-428`).
 pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
     // x, y, w, h in the logo's 234×42 units; `true` for a counter's lower half.
     const RECTS: [(f32, f32, f32, f32, bool); 40] = [
@@ -38,47 +45,15 @@ pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
         (210., 6., 24., 6., false), (210., 12., 6., 24., false), (228., 12., 6., 12., false), (216., 18., 12., 6., false), (216., 30., 18., 6., false), (216., 24., 18., 6., true),
     ];
     let span = 0.8 * if width > 0.0 { (width - 48.0).min(720.0) } else { 720.0 };
-    let k = ((span / 39.0).round().max(2.0)) / 6.0;
-    let (stem, weak) = (p.icon.alpha(0.16), p.icon.alpha(0.16 * 0.3));
-    let mut logo = el().key("wordmark").size(234.0 * k, 42.0 * k);
+    let pitch = (span / 78.0).round().max(3.0);
+    // A pitch is 3 of the logo's units.
+    let k = pitch / 3.0;
+    let icon = p.standard.icon;
+    let (stem, weak) = (icon.alpha(icon.a * 0.16), icon.alpha(icon.a * 0.16 * 0.3));
+    let mut logo = el().key("wordmark").size(78.0 * pitch, 14.0 * pitch);
     for (x, y, w, h, counter) in RECTS {
         logo = logo.child(el().absolute(x * k, y * k).size(w * k, h * k).fill(if counter { weak } else { stem }));
     }
-    row().key("wordmark-row").w_full().justify_center().child(logo)
-}
-
-/// Where the new session starts: the project's avatar and name, which open the project
-/// picker, and its folder, faint at the end.
-pub(in crate::view) fn location(s: &App, p: &Pal) -> El {
-    let project = s.draft_project();
-    let name = project_or_dir(project, s.draft_dir());
-    let dir = s.tilde(s.draft_dir());
-    let open = s.pickers.open == Some(Kind::Project);
-    let button = row()
-        .key("project")
-        .role("button")
-        .label("Choose a project")
-        .h(28.0)
-        .pl(6.0)
-        .pr(8.0)
-        .gap(6.0)
-        .center_y()
-        .radius(4.0)
-        .fill(if open { p.hover } else { Color::TRANSPARENT })
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| { s.open_picker(Kind::Project); if s.pickers.open.is_some() { crate::popover::motion::opening(&s.knobs, tx); } })
-        .child(crate::icons::badge(s, p, project, &name))
-        .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).truncate_fade());
-    row()
-        .key("location")
-        .w_full()
-        .min_h(36.0)
-        .pl(8.0)
-        .pr(6.0)
-        .gap(12.0)
-        .center_y()
-        .child(button)
-        .child(spacer())
-        .child(text(dir).font(UI).color(p.faint).truncate_fade().pr(6.0))
+    let boxed = row().key("wordmark-box").w(span).h(span * 42.0 / 234.0).center().child(logo);
+    row().key("wordmark-row").w_full().justify_center().child(boxed)
 }

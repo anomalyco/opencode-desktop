@@ -10,7 +10,7 @@ use std::cell::Cell;
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{
-    Color, El, Key, KeyEvent, MotionIntent, ScrollSpec, Spring, SpringPair, TextEdit, TextStyle,
+    Color, El, Key, KeyEvent, MotionIntent, ScrollSpec, Shadow, Spring, SpringPair, TextEdit, TextStyle,
     Transition, Tx, col, el, icon, row, spacer, text, text_input,
 };
 use rune_theme_opencode::icons as ic;
@@ -82,24 +82,40 @@ pub fn is_stop_shortcut(ev: &KeyEvent) -> bool {
 
 /// Ghost toolbar button shared by Desktop's agent/model/effort pickers.
 pub fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color) -> El {
-    let mut r = row()
+    ghost_with(p, key, text(label.to_owned()).font(UI).color(color).truncate_fade(), chevron, false)
+}
+
+/// [`ghost`] around any label: `button-v2` ghost-muted at size normal (`button.css:41-44,
+/// 247-283`), 28 tall with 6 pt corners and 11 in from its start. The chevron
+/// (`editor.tsx:1108`, `-ms-0.5 -me-1` on the 6 pt gap) sits 4 after the label and 7 in
+/// from the end, in `icon-icon-muted`, or `icon-icon-base` while its menu is `open`.
+pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> El {
+    row()
         .key(key)
         .role("button")
         .h(28.0)
-        .px(8.0)
-        .gap(2.0)
+        .pl(11.0)
+        .pr(if chevron { 7.0 } else { 11.0 })
+        .gap(4.0)
         .center_y()
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .child(text(label.to_owned()).font(UI).color(color).truncate_fade());
-    if chevron {
-        r = r.child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_faint));
-    }
-    r
+        .child(label)
+        .children(chevron.then(|| icon(&ic::CHEVRON_DOWN, 16.0).key("chevron").color(if open { p.icon } else { p.icon_muted })))
 }
 
-/// Default `+` attach button at the start of the toolbar (`⌘U`).
+/// The `/` between a provider and its model (`slash.css`): the neighbouring text's size in
+/// its regular weight, `icon-icon-faint`, 6 pt of space to its ink on each side.
+pub fn slash(p: &Pal, gap: f32) -> El {
+    // The margins less the glyph's side bearings (`margin-inline: -0.25px -0.34px`).
+    text("/").font(SLASH).color(p.icon_faint).ml((gap - 0.5).max(0.0) - 0.25).mr((gap - 0.5).max(0.0) - 0.34)
+}
+
+const SLASH: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
+
+/// Default `+` attach button at the start of the toolbar (`⌘U`). The pickers start 4 after it
+/// (`ms-1`), the toolbar's 2 pt gap and its own 2.
 pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
     el()
         .key("add")
@@ -107,6 +123,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .label("Add images and files")
         .help(format!("Add images and files {}", crate::keymap::Bind::Attach.label()))
         .size(28.0, 28.0)
+        .mr(2.0)
         .radius(6.0)
         .center()
         .hover(p.hover)
@@ -277,6 +294,42 @@ pub fn submit_or_stop<S: ComposerHost>(s: &mut S, tx: &mut Tx) {
     }
 }
 
+/// Desktop's composer submit (`editor.tsx:1483-1497`): `icon-button-v2` in the `submit`
+/// variant at `size-7 rounded-md`, as `submit.css` paints it. `bg-icon-button-contrast` under
+/// the top-lit `--submit-highlight` (white at 20%, 60% on dark's light fill), ringed and
+/// lifted by `--v2-elevation-button-contrast` (`theme.css:358-361,507-510`); hover and press
+/// lay `--submit-hover` and `overlay-contrast-pressed` over it. Without anything to send it
+/// is disabled: the same button at 40% (`submit.css:74-80`), with no hover.
+pub fn submit_button(p: &Pal, live: bool) -> El {
+    let shadow = |y: f32, blur: f32, spread: f32, color: Color, inset: bool| Shadow { y, blur, spread, color, inset, ..Shadow::default() };
+    let (white, black) = (Color::WHITE, Color::BLACK);
+    let elevation = if p.dark {
+        vec![
+            shadow(1.0, 2.0, 0.0, black.alpha(0.4), false),
+            shadow(0.0, 0.0, 0.5, p.q.submit_ring, false),
+            shadow(-0.5, 0.0, 0.0, white.alpha(0.3), false),
+        ]
+    } else {
+        vec![
+            shadow(1.0, 1.5, 0.0, black.alpha(0.2), false),
+            shadow(0.0, 0.0, 0.5, p.q.submit_ring, false),
+            shadow(1.0, 2.0, 0.0, white.alpha(0.14), true),
+            shadow(-1.0, 2.0, 0.0, black.alpha(0.06), true),
+        ]
+    };
+    let b = elevation
+        .into_iter()
+        .fold(el().key("submit").role("button").size(28.0, 28.0).radius(6.0).center().fill(p.q.submit), El::box_shadow)
+        .gradient(white.alpha(if p.dark { 0.6 } else { 0.2 }), white.alpha(0.0))
+        .motion(Spring::NONE)
+        .motion_intent(MotionIntent::CUT);
+    if !live {
+        return b.opacity(0.4);
+    }
+    let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
+    b.hover(hover).press(pressed)
+}
+
 /// Renders the shared composer (`key("composer")`).
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
     composer_in(s, p, "")
@@ -292,17 +345,14 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     let ready = ready(s);
     let busy = s.composer_busy();
     let stop = stopping(s);
-    let submit = el()
-        .key("submit")
-        .role("button")
-        .label("Send")
-        .size(28.0, 28.0)
-        .radius(6.0)
-        .center()
-        .fill(if ready { p.contrast } else { p.layer2 })
-        .hover(p.hover)
-        .motion(Spring::NONE)
-        .motion_intent(MotionIntent::CUT)
+    let glyph = match (stop, s.composer_shell_mode()) {
+        (true, _) => icon(&ic::STOP, 16.0).key("stop-glyph"),
+        (false, true) => icon(&ic::ARROW_UNDO_DOWN, 16.0).key("send-glyph"),
+        (false, false) => icon(&ic::ARROW_UP, 16.0).key("send-glyph"),
+    };
+    // Send finishes a dictation and sends its words, so it stays live while one runs.
+    let submit = submit_button(p, ready || stop || s.composer_dictating())
+        .label(if stop { "Stop" } else { "Send" })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             if stop {
                 s.composer_stop(tx);
@@ -310,31 +360,29 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                 s.composer_send(tx);
             }
         })
-        .child(
-            if stop {
-                el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text)
-            } else {
-                icon(&ic::ARROW_UP, 16.0).key("send-glyph").color(match (ready, p.dark) {
-                    (false, _) => p.icon_faint,
-                    (true, true) => p.text,
-                    (true, false) => p.q.contrast_text,
-                })
-            }
-            .transition(stop_glyph_swap()),
-        );
-    let submit = if stop { submit.label("Stop").fill(p.contrast) } else { submit };
+        .child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
     let key = if scope.is_empty() {
         "composer".to_owned()
     } else {
         format!("{scope}-composer")
     };
     let face = s.composer_face(p);
-    let box_el = col().key(key).w_full().max_w(DOCK_W).min_h(88.0).corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] });
+    // A hover group: the default effort shows only while the pointer is over the composer
+    // (`editor.css:75-80`), at once both ways.
+    let box_el = col()
+        .key(key)
+        .w_full()
+        .max_w(DOCK_W)
+        .min_h(88.0)
+        .corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
+        .hover_group()
+        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
+    // Otherwise `--v2-elevation-raised` (`editor.tsx:248-251`): two drops and a 0.5 pt ring.
     let box_el = if face.is_some() && s.composer_face_bare() {
         box_el
     } else {
-        box_el.fill(composer_fill(p)).border(0.5, p.ring).shadow(1.0, 2.0, p.shadow).clip_soft(0.0)
+        p.raised.into_iter().fold(box_el.fill(composer_fill(p)), El::box_shadow).clip_soft(0.0)
     };
     match face {
         Some(face) => box_el.children(face),
@@ -357,7 +405,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                             .scroll_edge_fade(16.0)
                             .scroll_margin(16.0)
                             .child(
-                                col().key("editor-pad").w_full().px(16.0).pt(16.0).child(
+                                // `ps-4 pt-4`, and 12 at the end (`editor.css:29-34`).
+                                col().key("editor-pad").w_full().pl(16.0).pr(12.0).pt(16.0).child(
                                     text_input(
                                         s.composer_edit(),
                                         if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
@@ -383,9 +432,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                 row()
                     .key("toolbar")
                     .transition(s.composer_face_transition())
+                    // `editor.tsx:424-462`: 44 tall, 8 in, the pickers 2 apart.
                     .h(44.0)
                     .px(8.0)
-                    .gap(4.0)
+                    .gap(2.0)
                     .center_y()
                     .children(s.composer_toolbar_items(p, scope, busy && ready))
                     .child(submit),

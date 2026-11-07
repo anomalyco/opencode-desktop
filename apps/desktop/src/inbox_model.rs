@@ -394,8 +394,13 @@ impl SidebarInbox {
 /// and the shown rows' branches load. True when the sidebar should draw again.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
+    // The new-session page names its folder's branch the same way (`NewSessionBranch`).
+    let draft = matches!(s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
     if s.tab_layout() != TabLayout::Inbox {
-        return false;
+        let Some(dir) = draft else { return false };
+        s.sidebar_inbox.branches.enqueue([dir]);
+        let waker = s.waker.clone();
+        return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
     // The list can arrive before the requests a running session waits on: read those first, so
     // a run waiting on a person shows in Needs attention rather than Working (`inbox-settle-machine`).
@@ -421,7 +426,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let tick = s.now_ms.div_euclid(step);
     changed |= std::mem::replace(&mut s.sidebar_inbox.tick, tick) != tick;
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.enqueue(dirs);
+    s.sidebar_inbox.branches.enqueue(dirs.into_iter().chain(draft));
     let waker = s.waker.clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed

@@ -263,7 +263,10 @@ impl App {
     }
 }
 
-/// The + button at the start of the toolbar.
+/// The + button at the start of the toolbar: `icon-button-v2` ghost-muted at size large
+/// (`editor.tsx:977-987`, `icon-button.css:36-39,115-142`), pressed with its icon in
+/// `icon-icon-base` while the menu is open, at half strength in shell mode. The pickers start
+/// 4 after it (`ms-1`): the toolbar's 2 pt gap and its own 2.
 pub fn trigger(s: &App, p: &Pal) -> El {
     let disabled = s.add.shell;
     let mut b = el()
@@ -272,13 +275,16 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .label("Add images and files")
         .help(crate::keymap::Bind::Attach.hint("Add images and files"))
         .size(28.0, 28.0)
+        .mr(2.0)
         .radius(6.0)
         .center()
-        .child(icon(&ic::PLUS, 16.0).color(if disabled { p.icon_faint } else { p.icon_muted }));
+        .child(icon(&ic::PLUS, 16.0).color(if s.add.open { p.icon } else { p.icon_muted }));
     if s.add.open {
-        b = b.fill(p.hover);
+        b = b.fill(p.pressed);
     }
-    if !disabled {
+    if disabled {
+        b = b.opacity(0.5);
+    } else {
         b = b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
             if s.add.open { s.close_add_menu() } else { s.open_add_menu() }
             crate::popover::motion::toggled(&s.knobs, tx, s.add.open);
@@ -292,6 +298,9 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
     if !s.add.open {
         return None;
     }
+    // `menu-v2-content` (`menu.css:6-21`): layer 1, a 2 pt inset, 6 pt corners and
+    // `--v2-elevation-floating`'s two drops over the raised 0.5 pt ring (`theme.css:346-348,495-497`).
+    let drop = |y: f32, blur: f32, a: f32| rune::Shadow { y, blur, color: Color::BLACK.alpha(if p.dark { 0.3 } else { a }), ..rune::Shadow::default() };
     let mut menu = col()
         .key("add-menu")
         .role("menu")
@@ -301,8 +310,9 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         .padding(2.0)
         .radius(6.0)
         .fill(p.layer1)
-        .border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow)
+        .box_shadow(drop(8.0, 16.0, 0.04))
+        .box_shadow(drop(4.0, 8.0, 0.08))
+        .box_shadow(p.raised[2])
         .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
         // What it holds comes in with it, not on fades of its own.
         .instant_changes()

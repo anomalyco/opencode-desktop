@@ -217,6 +217,15 @@ impl Pickers {
     pub fn model_name(&self, m: &ModelRef) -> String {
         self.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone())
     }
+
+    /// The provider before the model's name in the composer (`composerProviderName`): its
+    /// name, or its id when the server doesn't name it; none for OpenCode's own models.
+    pub fn provider_label(&self, m: &ModelRef) -> Option<String> {
+        if m.provider.is_empty() || m.provider == "opencode" {
+            return None;
+        }
+        Some(self.providers.get(&m.provider).cloned().unwrap_or_else(|| m.provider.clone()))
+    }
 }
 
 /// OpenCode's models that cost nothing (Desktop's `isFreeModel`): the untiered cost's input is 0.

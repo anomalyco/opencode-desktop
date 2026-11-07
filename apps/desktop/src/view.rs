@@ -18,6 +18,7 @@ use crate::pickers::Kind;
 mod chrome;
 mod composer;
 mod draft;
+pub(crate) mod draft_location;
 mod header;
 mod home;
 mod inbox;

@@ -71,6 +71,7 @@ impl App {
 
     /// Picks the folder for the open draft (Desktop's `updateDraft`), and for drafts to come.
     pub fn set_draft_dir(&mut self, dir: String) {
+        crate::view::draft_location::picked(self, &dir);
         let open = match &self.route {
             Route::Draft(id) => self.tabs.iter_mut().find(|t| t.id == *id && t.directory != dir),
             _ => None,

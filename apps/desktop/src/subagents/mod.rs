@@ -149,28 +149,41 @@ pub fn sync(s: &mut App) -> bool {
     true
 }
 
-/// The capsule every pill over the composer shares (`[data-composer-pill]`), pressed while its
-/// list is `open`.
+/// The capsule every pill over the composer shares (`[data-composer-pill]`,
+/// `composer-lane.css:2-56`): 32 tall, 10 in, 8 between its parts, 8 pt corners (the Capsule
+/// radius knob), filled like the composer and raised (`--v2-elevation-raised`); hover and
+/// press lay their overlays on it. While its list is `open` it steps onto the list's layer
+/// (layer 1, layer 2 in dark) with no overlay. The Capsule fill and ring knobs thin its
+/// surface and hairline.
 pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
-    let bg = crate::view::composer_fill(p);
+    let solid = s.knobs.get(&crate::knobs::CAPSULE_FILL);
+    let bg = match (open, p.dark) {
+        (false, _) => crate::view::composer_fill(p),
+        (true, false) => p.layer1,
+        (true, true) => p.layer2,
+    };
+    let [far, near, ring] = p.raised;
+    let thin = |sh: rune::Shadow| rune::Shadow { color: sh.color.alpha(sh.color.a * solid), ..sh };
+    let ring = rune::Shadow { color: p.border_muted.mix(ring.color, s.knobs.get(&crate::knobs::CAPSULE_RING)), ..ring };
     let chip = row()
         .key(key)
         .role("button")
         .label(label)
-        .h(28.0)
+        .h(CHIP_H)
         .px(10.0)
         .gap(8.0)
         .center_y()
         .radius(s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
-        .fill(bg.alpha(s.knobs.get(&crate::knobs::CAPSULE_FILL)))
-        // Desktop's `--v2-elevation-raised` rings the muted border with the composer's hairline.
-        .border(0.5, p.border_muted.mix(p.ring, s.knobs.get(&crate::knobs::CAPSULE_RING)))
-        .shadow(1.0, 2.0, p.shadow.alpha(p.shadow.a * s.knobs.get(&crate::knobs::CAPSULE_FILL)))
-        .hover(p.hover)
-        .press(p.pressed)
+        .fill(bg.alpha(bg.a * solid))
+        .box_shadow(thin(far))
+        .box_shadow(thin(near))
+        .box_shadow(ring)
         .hover_motion(INSTANT, INSTANT);
-    if open { chip.fill(p.pressed) } else { chip }
+    if open { chip } else { chip.hover(p.hover).press(p.pressed) }
 }
+
+/// A composer pill's height (`composer-lane.css:7`).
+pub const CHIP_H: f32 = session_view::jump::CHIP_H;
 
 /// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start
 /// edges aligned, one 28pt row per running subagent with the spinner, the agent in medium, its

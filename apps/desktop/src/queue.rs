@@ -334,7 +334,7 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
     // The two keycaps and the gap between them, its padding and its right margin.
     let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
     let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
-    let keys = caps + 6.0 * labels.len().saturating_sub(1) as f32 + 12.0 + 4.0;
+    let keys = caps + 6.0 * labels.len().saturating_sub(1) as f32 + 12.0 + 10.0;
     let word = rune::text::measure("Queue", &[], UI_MED, None).0 + 6.0;
     if room < keys {
         return None;
@@ -343,12 +343,14 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
         .key("alternate-delivery")
         .role("button")
         .label("Queue")
-        .h(28.0)
+        // `button-v2` ghost-faint at size small (`editor.tsx:1448-1455`, `button.css:46-50`):
+        // 24 tall, 6 in, 4 pt corners, 12 before Send (`me-3`, the toolbar's 2 pt gap and 10).
+        .h(24.0)
         .px(6.0)
-        .mr(4.0)
+        .mr(10.0)
         .gap(6.0)
         .center_y()
-        .radius(6.0)
+        .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
         .transition(rune::Transition::opacity())

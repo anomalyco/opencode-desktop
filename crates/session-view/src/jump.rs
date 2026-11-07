@@ -14,10 +14,13 @@ use crate::style::{DOCK_SIDE, DOCK_W, activity_ring};
 const THRESHOLD: f32 = 400.0;
 /// Centred, its bottom edge sits this far above the timeline's (`bottom: inset + 32px`).
 const LIFT: f32 = 32.0;
-/// At the right, the gap the jump button and the subagent capsule leave above the composer.
-pub const GAP: f32 = 8.0;
-/// The capsule's lane: its 28 pt chip and that gap, kept clear under the timeline's last row.
-pub const CAPSULE_LANE: f32 = 28.0 + GAP;
+/// At the right, the gap the jump button and the subagent capsule leave above the composer
+/// (the pill lane's `pb-2.5`, `composer-lane.tsx:36`).
+pub const GAP: f32 = 10.0;
+/// A composer pill's height (`[data-composer-pill]`, `composer-lane.css:7`).
+pub const CHIP_H: f32 = 32.0;
+/// The capsule's lane: its chip and that gap, kept clear under the timeline's last row.
+pub const CAPSULE_LANE: f32 = CHIP_H + GAP;
 
 /// The room the pills take over the composer: their lane while any shows.
 pub fn lane(pills: bool) -> f32 {
@@ -97,7 +100,8 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .key("jump-latest")
         .role("button")
         .label("Jump to latest")
-        .size(28.0, 28.0)
+        // `w-8 h-7 rounded-lg` (`virtualizer.tsx:1141`).
+        .size(32.0, 28.0)
         .radius(radius)
         .center()
         .backdrop_blur(2.0)

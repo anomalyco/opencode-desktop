@@ -26,11 +26,32 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
 
 /// A toolbar button that opens the `kind` list, labelled with what's picked.
 pub fn trigger<S: PickerHost>(s: &S, p: &Pal, kind: Kind, label: &str, color: Color, chevron: bool) -> El {
+    let open = s.pickers().open == Some(kind);
+    let label = text(label.to_owned()).font(UI).color(if open { p.text } else { color }).truncate_fade();
+    wrap(s, p, kind, crate::composer::ghost_with(p, kind.key(), label, chevron, open))
+}
+
+/// The model's button, as Desktop's chip (`composer.tsx:158-176`): its provider in
+/// `text-faint`, a slash, then the model, unless the model needs no provider (OpenCode's own).
+pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, model: &str, chevron: bool) -> El {
+    let open = s.pickers().open == Some(Kind::Model);
+    let name = text(model.to_owned()).key("model-name").font(UI).color(if open { p.text } else { p.muted }).shrink().truncate_fade();
+    let label = row().key("model-label").shrink().min_w(0.0).center_y().children(provider.map(|provider| {
+        text(provider.to_owned()).key("model-provider").font(UI).color(p.faint).shrink().truncate_fade()
+    }));
+    let label = if provider.is_some() { label.child(crate::composer::slash(p, 6.0)) } else { label };
+    wrap(s, p, Kind::Model, crate::composer::ghost_with(p, Kind::Model.key(), label.child(name), chevron, open))
+}
+
+/// A trigger's states: lit while the keyboard is on it, pressed while its list is open (the
+/// ghost's `[data-expanded]`, `button.css:259-278`, which drops the hover), and opening its
+/// list on a press.
+fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
-    let mut button = crate::composer::ghost(p, kind.key(), label, chevron, color)
-        .label(format!("Choose {}", kind.key()))
-        .motion(Spring::NONE);
-    if !s.composer_edit().focused && s.pickers().toolbar_focus == Some(kind) {
+    let mut button = button.label(format!("Choose {}", kind.key())).motion(Spring::NONE);
+    if s.pickers().open == Some(kind) {
+        button = button.fill(p.pressed).hover(Color::TRANSPARENT);
+    } else if !s.composer_edit().focused && s.pickers().toolbar_focus == Some(kind) {
         button = button.fill(p.hover);
     }
     button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx))
@@ -73,13 +94,24 @@ pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         out.push(trigger(s, p, Kind::Agent, &capitalize(&selected.agent), p.muted, true));
     }
     let name = s.pickers().model_name(&model);
-    out.push(trigger(s, p, Kind::Model, &name, p.muted, true).shrink().min_w(0.0));
-    // "Default" is the absence of a choice, so it reads fainter than a picked effort.
+    let provider = s.pickers().provider_label(&model);
+    out.push(model_trigger(s, p, provider.as_deref(), &name, true).shrink().min_w(0.0));
     if s.has_effort() {
-        let (label, color) = if model.variant.is_empty() { ("Default".to_owned(), p.faint) } else { (capitalize(&model.variant), p.muted) };
-        out.push(trigger(s, p, Kind::Effort, &label, color, true));
+        out.push(effort_trigger(s, p, &model.variant, true));
     }
     out
+}
+
+/// The effort's button. "Default", the absence of a choice, shows only while the pointer is
+/// over the composer, the keyboard is on it or its list is open (`editor.css:75-80`); it keeps
+/// its room meanwhile.
+pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: bool) -> El {
+    let default = variant.is_empty() || variant == "default";
+    let label = if default { "Default".to_owned() } else { capitalize(variant) };
+    let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
+    let focused = !s.composer_edit().focused && s.pickers().toolbar_focus == Some(Kind::Effort);
+    let shown = !default || s.pickers().open == Some(Kind::Effort) || focused;
+    if shown { button } else { button.group_opacity(0.0, 1.0) }
 }
 
 /// The open list, above its trigger.

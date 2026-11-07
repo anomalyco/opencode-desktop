@@ -124,9 +124,14 @@ impl ComposerHost for App {
     fn composer_has_extra_payload(&self) -> bool {
         self.quote.any()
     }
+    /// Desktop's (`composer/model.ts:113-120`): a shell example, a follow-up while the session
+    /// works or has prompts queued, else the question.
     fn composer_placeholder(&self) -> String {
+        let queued = matches!(&self.route, Route::Session(id) if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
         if self.add.shell {
-            "Enter shell command…".into()
+            "Enter shell command… git status".into()
+        } else if self.composer_busy() || queued {
+            "Add follow-up, / for commands, @ for context…".into()
         } else {
             "Ask anything, / for commands, @ for context…".into()
         }
@@ -198,13 +203,19 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     };
     let agent = (s.settings.show_agent || s.subagent_page().is_some()).then(|| model::capitalize(&selected.agent));
     let model_name = s.pickers.model_name(&model);
+    let provider = s.pickers.provider_label(&model);
+    // What the model's button measures to: the provider, its slash's 6 pt either side, the name.
+    let model_label = match &provider {
+        Some(provider) => format!("{provider} / {model_name}"),
+        None => model_name.clone(),
+    };
     let mic = crate::dictation::toolbar(s, p);
     let dictating = s.dictation.active();
     let fold = folds(
         s,
         scope,
         agent.as_deref(),
-        &model_name,
+        &model_label,
         s.has_effort().then_some(effort.as_str()),
         mic.is_some(),
         dictating,
@@ -217,17 +228,9 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     });
     let mut out = vec![crate::add_menu::trigger(s, p)];
     out.extend(agent);
-    out.push(picker_trigger(s, p, Kind::Model, &model_name, p.muted, fold.chevrons).shrink().min_w(0.0));
-    // "Default" is the absence of a choice, so it reads fainter than a picked effort.
+    out.push(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0));
     if s.has_effort() && fold.effort {
-        out.push(picker_trigger(
-            s,
-            p,
-            Kind::Effort,
-            &effort,
-            if model.variant.is_empty() { p.faint } else { p.muted },
-            fold.chevrons,
-        ));
+        out.push(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons));
     }
     out.push(
         spacer()
@@ -261,11 +264,12 @@ fn folds(
     dictating: bool,
 ) -> narrow::Toolbar {
     let room = rune::memo::layout_with(&super::header::scoped(scope, "composer"), |r| r[2] - 16.0);
-    let label = |text: &str, chevron: bool| 16.0 + narrow::text_w(text, UI) + if chevron { 18.0 } else { 0.0 };
+    // A ghost button: 11 in, then the chevron 4 after the label and 7 from the end, or 11.
+    let label = |text: &str, chevron: bool| 11.0 + narrow::text_w(text, UI) + if chevron { 27.0 } else { 11.0 };
     let need = |k: usize| {
         let t = narrow::Toolbar::after(k);
-        // The add button, the room, Send, and auto-accept's mark when it's on.
-        let mut items = vec![28.0, 0.0, 28.0];
+        // The add button and its 2 pt margin, the room, Send, and auto-accept's mark when it's on.
+        let mut items = vec![30.0, 0.0, 28.0];
         if s.settings.auto_accept {
             items.push(28.0);
         }
@@ -277,12 +281,13 @@ fn folds(
             (Some(_), Agent::Icon) => items.push(28.0),
             _ => {}
         }
-        let whole = label(model, t.chevrons);
+        // The slash takes its 6 pt either side, a little more than the spaces measured.
+        let whole = label(model, t.chevrons) + if model.contains(" / ") { 4.0 } else { 0.0 };
         items.push(if t.model_whole { whole } else { whole.min(narrow::MODEL_FLOOR) });
         if let Some(effort) = effort.filter(|_| t.effort) {
             items.push(label(effort, t.chevrons));
         }
-        items.iter().sum::<f32>() + 4.0 * (items.len() - 1) as f32
+        items.iter().sum::<f32>() + 2.0 * (items.len() - 1) as f32
     };
     narrow::Toolbar::after(narrow::steps(room, narrow::Toolbar::FOLDS, need))
 }
