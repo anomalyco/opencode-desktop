@@ -178,6 +178,9 @@ pub struct Ready {
 #[derive(Default)]
 pub struct Launch {
     started: bool,
+    /// A quiet poll for network deliveries; unlike an image completion, the inbox
+    /// often contains nothing that changes this window.
+    pub inbox_wake: Option<rune::Waker>,
     /// The `on_ready` probe, Beta tab read and first server reads, on their way.
     first: Option<Receiver<Ready>>,
     /// The first reads wait for `on_ready` (a windowed live run).
@@ -235,6 +238,23 @@ pub fn setup(s: &mut App) {
     if !s.launch.waiting && !s.launch.offline {
         start(s, &mut Tx::default());
     }
+}
+
+/// Coalesce a burst into one quiet poll. An ordinary window wake requests a drawable even
+/// when the batch only updated a background session; a timer lets Rune skip that present.
+#[cfg(not(feature = "hot"))]
+pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    let pending = Arc::new(AtomicBool::new(false));
+    Arc::new(move || {
+        if pending.swap(true, Ordering::AcqRel) { return; }
+        let pending = pending.clone();
+        handle.update_if(move |_, tx| {
+            pending.store(false, Ordering::Release);
+            tx.wake_after(Duration::ZERO);
+            false
+        });
+    })
 }
 
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
@@ -475,7 +495,8 @@ fn connect(s: &mut App, tx: &mut Tx) {
     s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut s.source, s.waker.clone()) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
-        let (r, w, inbox) = crate::windows::connect(server, waker);
+        let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
+        let (r, w, inbox) = crate::windows::connect(server, inbox_wake);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {

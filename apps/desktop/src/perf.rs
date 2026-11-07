@@ -3,6 +3,9 @@ use crate::{App, Route, view};
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus, Transcript};
 use rune::{Env, Runtime};
 
+#[path = "perf/sidebar_tests.rs"]
+mod sidebar_tests;
+
 pub fn fixture() -> App {
     let mut app = App::empty();
     let mut messages = Vec::new();

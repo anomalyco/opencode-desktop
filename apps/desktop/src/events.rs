@@ -138,10 +138,15 @@ impl App {
             changed |= t.apply(ty, data, now) && self.shows_transcript(&sid);
         }
         if ty.starts_with("session.") && !sid.is_empty() {
+            // A plain session page with side/top tabs shows neither the age nor the
+            // recency order of unrelated sessions. Still keep their metadata current.
+            let shows_age = !matches!(self.route, Route::Session(_)) || self.shows_transcript(&sid)
+                || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
+                || self.mentions.open || self.side_open() || self.settings.open;
             if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                 if s.updated < now - 1000 || ty == "session.step.ended" {
                     s.updated = now;
-                    changed = true;
+                    changed |= shows_age;
                 }
                 if ty == "session.renamed"
                     && let Some(t) = data["title"].as_str()
