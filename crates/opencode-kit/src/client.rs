@@ -16,11 +16,13 @@ use serde_json::Value;
 use crate::model::{self, Delivery, Pending, SessionInfo};
 
 mod downloads;
+mod hub;
 mod ids;
 mod wire;
 mod worker;
 
 pub use downloads::{export_filename, save_download, set_download_dir};
+pub use hub::{EventHub, connect_shared};
 pub use ids::{message_id, session_id};
 #[cfg(test)]
 use ids::{id_at, message_id_at};

@@ -26,6 +26,37 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
 /// accepts but never answers) is noticed sooner.
 pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
     let (inbox_tx, inbox) = channel();
+    let (req_tx, write_tx) = spawn_workers(&server, &inbox_tx, &wake);
+    std::thread::Builder::new()
+        .name("opencode-events".into())
+        .spawn(move || read_events(&server, idle, &inbox_tx, &wake))
+        .expect("spawn event thread");
+    (req_tx, write_tx, inbox)
+}
+
+/// The event stream, reopened with backoff after each drop, until `inbox` closes.
+pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Incoming>, wake: &Waker) {
+    let mut backoff = 2;
+    let mut resumed = false;
+    loop {
+        let mut opened = false;
+        if let Err(e) = server.events(idle, inbox_tx, wake, resumed, &mut opened) {
+            if inbox_tx.send(Incoming::Status(e)).is_err() {
+                return;
+            }
+            wake();
+        }
+        if opened {
+            backoff = 1;
+        }
+        resumed = true;
+        std::thread::sleep(Duration::from_secs(backoff));
+        backoff = (backoff * 2).min(30);
+    }
+}
+
+/// The fetch and write threads, answering into `inbox_tx`.
+pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: &Waker) -> (Sender<Request>, Sender<Write>) {
     let (req_tx, req_rx) = channel::<Request>();
     let (write_tx, write_rx) = channel::<Write>();
 
@@ -222,28 +253,5 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
             .expect("spawn fetch thread");
     }
 
-    std::thread::Builder::new()
-        .name("opencode-events".into())
-        .spawn(move || {
-            let mut backoff = 2;
-            let mut resumed = false;
-            loop {
-                let mut opened = false;
-                if let Err(e) = server.events(idle, &inbox_tx, &wake, resumed, &mut opened) {
-                    if inbox_tx.send(Incoming::Status(e)).is_err() {
-                        return;
-                    }
-                    wake();
-                }
-                if opened {
-                    backoff = 1;
-                }
-                resumed = true;
-                std::thread::sleep(Duration::from_secs(backoff));
-                backoff = (backoff * 2).min(30);
-            }
-        })
-        .expect("spawn event thread");
-
-    (req_tx, write_tx, inbox)
+    (req_tx, write_tx)
 }

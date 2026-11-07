@@ -6,6 +6,7 @@ use serde_json::Value;
 use super::Prompt;
 use crate::model::{self, Delivery, Message, Pending, SessionInfo};
 
+#[derive(Clone)]
 pub enum Incoming {
     Sessions(Vec<SessionInfo>),
     Info(SessionInfo),
