@@ -172,10 +172,13 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // they overlap it.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
             .child(scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)).on_at_bottom(at_end::<S>(id))
-                .scroll_bar_styled(crate::palette::scroll_bar(p))))
+                .scroll_bar_styled(crate::palette::scroll_bar(p).hover_target())))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
         .children(s.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(12.0), Some(0.0), None).center()
             .child(activity_ring(p))))
+        // The thumb follows the hover of the whole area, Jump to latest included, as Desktop's
+        // `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1157-1161`).
+        .scroll_bar_hover(&format!("scroll-{id}"))
 }

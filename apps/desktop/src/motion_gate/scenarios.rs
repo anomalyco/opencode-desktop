@@ -102,7 +102,6 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/picker-model", "model-efforts", "Esc closes the list in its frame, as every popover closes by default (popover::motion CLOSE, t1150)"),
     ("jump", "timeline-fade", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "-scroll-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
-    ("flicker", "-scroll-area/scroll-bar", "jump-latest/", "the pointer leaves the timeline's scroll area for Jump to latest, so the ScrollView thumb fades, and is over the timeline again once the button goes; Desktop's thumb follows the hover of a root that also holds the button (virtualizer.tsx:1157-1161) (rune_kit::ScrollBarStyle::scroll_view)"),
     ("jump", "th/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r0/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r1/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
