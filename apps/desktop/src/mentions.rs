@@ -29,9 +29,8 @@ use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
 #[cfg(test)]
 use wire::{absolute, encode_path, filename};
 
-/// Session rows: Desktop shows 8 for a query and 5 without.
-const SESSIONS_QUERY: usize = 8;
-const SESSIONS_EMPTY: usize = 5;
+/// Session rows: Desktop shows at most 5 (`composer/model.ts:405`).
+const SESSIONS: usize = 5;
 /// Desktop waits this long after the last keystroke before searching files.
 const FILE_DEBOUNCE: Duration = Duration::from_millis(150);
 /// And before searching sessions.
@@ -227,6 +226,18 @@ fn subagents(v: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
+/// A found path as a row and its pill say it: the server's relative path with `/` between its
+/// parts, and a folder's trailing `/`. On Windows `/api/fs/find` ends a folder with `\` after
+/// `/`-joined parts (`src/util\`).
+fn shown_path(path: &str) -> String {
+    use opencode_kit::path::{SEPARATORS, is_absolute, trim};
+    if is_absolute(path) {
+        return path.to_owned();
+    }
+    let joined = trim(path).split(SEPARATORS).collect::<Vec<_>>().join("/");
+    if path.ends_with(SEPARATORS) && !joined.is_empty() { format!("{joined}/") } else { joined }
+}
+
 /// `/api/fs/find`'s paths.
 fn found_paths(v: &Value) -> Vec<String> {
     data_list(v).filter_map(|f| f["path"].as_str().or(f.as_str()).map(str::to_owned)).collect()
@@ -260,11 +271,22 @@ pub fn trigger(before: &str, open: bool) -> Option<(usize, &str)> {
 
 /// `matchesSessionTitle`: each query word starts consecutive title words, ignoring case. A
 /// trailing space asks for one more title word.
+#[cfg(test)]
 pub fn matches_session_title(title: &str, query: &str) -> bool {
+    rank_session_title(title, query).is_some()
+}
+
+/// `rankSessionTitle` (`composer/session-match.ts:6-18`): 0 for the whole title, 1 when the
+/// query's words start the title's first words, 2 when they start later ones; none otherwise.
+pub fn rank_session_title(title: &str, query: &str) -> Option<u8> {
+    if title.to_lowercase() == query.to_lowercase() {
+        return Some(0);
+    }
     let words: Vec<String> = query.to_lowercase().split(' ').map(str::to_owned).collect();
     let title = title.to_lowercase();
     let titles: Vec<&str> = title.split_whitespace().collect();
-    (0..titles.len()).any(|start| words.iter().enumerate().all(|(i, w)| titles.get(start + i).is_some_and(|t| t.starts_with(w.as_str()))))
+    let start = (0..titles.len()).find(|start| words.iter().enumerate().all(|(i, w)| titles.get(start + i).is_some_and(|t| t.starts_with(w.as_str()))))?;
+    Some(if start == 0 { 1 } else { 2 })
 }
 
 /// A fuzzy match of `needle` (lowercase) in `hay`, higher is better: a substring beats a
@@ -370,12 +392,29 @@ impl App {
     /// titles match. A query with a space only lists sessions.
     pub fn mention_items(&self) -> Vec<Item> {
         let Some(query) = self.mention_query() else { return Vec::new() };
-        let sessions: Vec<Item> = self
+        // `searchSessions` (`composer/model.ts:360-407`): this project's sessions first, then by
+        // how well the title matches, then those open in a tab, then the newest. A bare `@`
+        // offers only this project's.
+        let project = self.project_at(&self.composer_directory()).map(|p| p.id.clone());
+        let directory = self.composer_directory();
+        let mut ranked: Vec<(bool, u8, bool, &SessionInfo)> = self
             .mention_sessions()
             .into_iter()
-            .filter(|s| query.is_empty() || matches_session_title(&title_of(s), &query))
-            .take(if query.is_empty() { SESSIONS_EMPTY } else { SESSIONS_QUERY })
-            .map(|s| {
+            .filter_map(|s| {
+                let local = project.as_ref().is_none_or(|id| *id == s.project) || s.directory == directory;
+                if query.is_empty() && !local {
+                    return None;
+                }
+                let rank = if query.is_empty() { 0 } else { rank_session_title(&title_of(s), &query)? };
+                Some((local, rank, self.tabs.iter().any(|t| t.id == s.id), s))
+            })
+            .collect();
+        // Stable on the newest-first order `mention_sessions` keeps.
+        ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(b.2.cmp(&a.2)));
+        let sessions: Vec<Item> = ranked
+            .into_iter()
+            .take(SESSIONS)
+            .map(|(_, _, _, s)| {
                 let title = title_of(s);
                 Item {
                     key: format!("session:{}", s.id),
@@ -406,12 +445,9 @@ impl App {
         let mut out = fuzzy_rank(&query, skills, |i| &i.label);
         out.extend(fuzzy_rank(&query, agents, |i| &i.label));
         out.extend(sessions);
-        out.extend(self.mention_files(&query).into_iter().map(|path| Item {
-            key: format!("file:{path}"),
-            kind: Kind::File,
-            label: path.clone(),
-            description: String::new(),
-            content: format!("@{path}"),
+        out.extend(self.mention_files(&query).into_iter().map(|path| {
+            let shown = shown_path(&path);
+            Item { key: format!("file:{path}"), kind: Kind::File, content: format!("@{shown}"), label: shown, description: String::new() }
         }));
         out
     }
@@ -541,11 +577,16 @@ impl App {
 
 use session_view::user_parts::SESSION as SPEECH_BUBBLE;
 
+/// A row's mark (`editor.tsx:1671-1686`): the small (14 pt) speech bubble, brain and skill
+/// icons, which take the row button's own ink (`buttontext`: black, or white in dark), the
+/// brain in `icon-info-active`; a file's 16 pt colour badge.
 fn row_icon(p: &Pal, kind: Kind, label: &str) -> El {
+    let ink = if p.dark { rune::Color::WHITE } else { rune::Color::BLACK };
+    let info = rune::color::hex(if p.dark { "#fabbff" } else { "#912a9a" }).unwrap_or(p.info);
     match kind {
-        Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(p.icon),
-        Kind::Agent => icon(&ic::BRAIN, 16.0).color(badge::ink(p).info),
-        Kind::Skill => icon(&ic::POST_SKILL, 16.0).color(p.icon),
+        Kind::Session => icon(&SPEECH_BUBBLE, 14.0).color(ink),
+        Kind::Agent => icon(&ic::BRAIN, 14.0).color(info),
+        Kind::Skill => icon(&ic::POST_SKILL, 14.0).color(ink),
         Kind::File => icon(rune_theme_opencode::file_icons::file(label), 16.0).color(p.text),
     }
 }
@@ -563,7 +604,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .iter()
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind, &i.label)), description: i.description.clone(), trail: None })
         .collect();
-    let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
+    let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width, boundary: list::boundary(cx) };
     Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key, _| s.pick_mention(key)))
 }
 

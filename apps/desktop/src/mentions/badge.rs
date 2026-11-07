@@ -16,9 +16,11 @@ use crate::App;
 use crate::view::title_of;
 
 pub use session_view::user_parts::{
-    mention_bubble as bubble, mention_ink as ink, mention_kind_of as kind_of,
+    mention_bubble as bubble, mention_kind_of as kind_of,
     mention_pill_style as pill_style,
 };
+#[cfg(test)]
+use session_view::user_parts::mention_ink as ink;
 #[cfg(test)]
 use session_view::user_parts::{mention_neutral as neutral, mention_tint as tint};
 

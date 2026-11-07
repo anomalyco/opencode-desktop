@@ -106,7 +106,7 @@ impl App {
             Some(Command {
                 id: p.plugin,
                 title: p.command_title?,
-                description: "",
+                description: p.command_description,
                 slash: p.slash,
                 keys: p.shortcut,
                 chord: None,
@@ -191,6 +191,21 @@ fn has_tabs(s: &App) -> bool {
     s.tabs.len() > 1
 }
 
+fn agent_shown(s: &App) -> bool {
+    s.has_composer() && s.picker_show_agent()
+}
+
+fn is_live(s: &App) -> bool {
+    matches!(s.source, crate::Source::Live { .. })
+}
+
+/// `/reload` (`composer/commands.tsx:45-84`): the server rebuilds every location, and the app
+/// says so while it does and once it has.
+fn reload(s: &mut App, _: &mut Tx) {
+    s.status = "Reloading configuration.".into();
+    s.write(Write::Reload);
+}
+
 fn compact(s: &mut App, _: &mut Tx) {
     let Some(id) = s.open_root() else { return };
     s.write(Write::Compact(id));
@@ -227,15 +242,20 @@ rune_register::register!(COMMANDS: Cmd = [
         .slash("model")
         .keys(Bind::Model)
         .when(App::has_composer),
+    // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
     Cmd::new("agent", "Cycle agent", |s, tx| s.cycle_picker(Kind::Agent, false, tx))
         .describe("Switch to the next agent")
         .slash("agent")
         .keys(Bind::Agent)
-        .when(App::has_composer),
+        .when(agent_shown),
     Cmd::new("agent-back", "Cycle agent backwards", |s, tx| s.cycle_picker(Kind::Agent, true, tx))
         .describe("Switch to the previous agent")
         .keys(Bind::AgentBack)
-        .when(App::has_composer),
+        .when(agent_shown),
+    Cmd::new("reload", "Reload configuration", reload)
+        .describe("Reload agents, commands, skills, MCP servers and plugins from your config")
+        .slash("reload")
+        .when(is_live),
     Cmd::new("variant", "Cycle model variant", |s, tx| s.cycle_picker(Kind::Effort, false, tx))
         .describe("Switch to the next model variant")
         .keys(Bind::Variant)
@@ -262,13 +282,13 @@ rune_register::register!(COMMANDS: Cmd = [
     .describe("Create a new session from a previous message")
     .slash("fork")
     .when(App::can_fork_session),
+    // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
     Cmd::new("background", "Move to background", |s, tx| {
         s.move_to_background(tx);
     })
-    .slash("background")
     .keys(Bind::Background)
     .when(can_background),
-    Cmd::new("rename", "Rename session", rename).slash("rename").keys(Bind::Rename).when(in_session),
+    Cmd::new("rename", "Rename session", rename).keys(Bind::Rename).when(in_session),
     Cmd::new("export", "Export session", export)
         .describe("Export the full session transcript as JSON")
         .slash("export")

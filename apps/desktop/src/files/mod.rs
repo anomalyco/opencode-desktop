@@ -154,6 +154,8 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .order(15)
         .legacy(&[("open-file", OPEN_TAB_ID)])
         .command("Open file", Bind::FileOpen)
+        // `palette.search.placeholder`, as Desktop's `file.open` says (`use-session-commands.tsx:515-522`).
+        .describe("Search files, commands, and sessions")
         .shortcuts(&[(Bind::FileBrowse, browse_files)])
         .slash("open")
         .launcher(launcher_desc, open_files_launcher)

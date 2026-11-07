@@ -130,6 +130,8 @@ pub enum Write {
     Background { session: String, quiet: bool },
     /// Summarizes the session to shrink its context (`POST …/compact`, Desktop's Compact session).
     Compact(String),
+    /// Rebuilds every location from its config (`POST /api/location/reload`, Desktop's `/reload`).
+    Reload,
     /// Resolves `directory` (`/api/location`, registering its project on the server), reloads
     /// `/api/project`, and when `start_session` is set creates a session in `directory`.
     OpenProject { directory: String, start_session: bool },
@@ -778,6 +780,10 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
                         }),
                         Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
                         Write::Compact(session) => server.compact(&session),
+                        // `command.config.reload.done` and `.failed` (`composer/commands.tsx:75-82`).
+                        Write::Reload => server.write("POST", "/api/location/reload", None)
+                            .map(|_| { let _ = inbox_tx.send(Incoming::Status("Configuration reloaded".into())); })
+                            .map_err(|e| format!("Couldn't reload configuration: {e}")),
                         Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
                             let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
                             let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });

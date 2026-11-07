@@ -4,18 +4,40 @@
 use std::rc::Rc;
 
 use opencode_kit::model::SessionInfo;
-use rune::{Color, El, Tx, col, row, text};
+use rune::{Color, Cx, El, Tx, col, row, text};
 use serde_json::Value;
 
 use crate::App;
 use crate::palette::Pal;
 use crate::view::UI;
 
-/// `composerSuggestionMaxHeight` at full height: 8 px of padding, whole 28 px rows, and an
-/// 18 px peek of the next.
+/// Desktop's composer suggestions (`composer/editor/editor.tsx:72-82`): 28 pt rows in 6 pt of
+/// padding, at most 320 pt tall less some of the timeline kept in view.
 const ROW_H: f32 = 28.0;
 const PAD: f32 = 6.0;
-const MAX_H: f32 = 306.0;
+const MAX_H: f32 = 320.0;
+/// How much of the next row shows under the last whole one.
+const PEEK: f32 = 18.0;
+/// How much of the timeline above stays in view, at most a quarter of it.
+const RESERVE: f32 = 80.0;
+/// The empty state's line (`editor.tsx:1376`: `px-2 py-1` on a 24 pt line).
+const EMPTY_H: f32 = 32.0;
+
+/// The timeline's height over the composer, which the popover keeps some of in view
+/// (`editor.tsx:1271-1279`); none without one.
+pub fn boundary(cx: &mut Cx<App>) -> Option<f32> {
+    cx.layout_size("timeline-area").map(|[_, h]| h).filter(|h| *h > 0.0)
+}
+
+/// `composerSuggestionMaxHeight` (`editor.tsx:1412-1423`): whole rows and a peek of the next,
+/// under the top padding, inside what the timeline (`boundary` tall) can spare.
+fn max_height(boundary: f32) -> f32 {
+    let limit = MAX_H.min(boundary - RESERVE.min(boundary / 4.0));
+    if limit < PAD + ROW_H + PEEK {
+        return limit;
+    }
+    PAD + ((limit - PAD - PEEK) / ROW_H).floor() * ROW_H + PEEK
+}
 
 /// The array under a response's `data`, or the value itself when it is one (the fixture's).
 pub fn data_list(v: &Value) -> impl Iterator<Item = &Value> {
@@ -55,6 +77,9 @@ pub struct Spec {
     pub label: &'static str,
     pub empty: &'static str,
     pub width: f32,
+    /// The timeline's height above the composer, which the popover leaves some of in view;
+    /// none where there is no timeline (a new session).
+    pub boundary: Option<f32>,
 }
 
 pub struct Row {
@@ -64,12 +89,13 @@ pub struct Row {
     pub label: String,
     pub lead: Option<El>,
     pub description: String,
-    /// Drawn at the row's end: a command's keys.
-    pub trail: Option<El>,
+    /// Drawn at the row's end, muted: a command's keys as Desktop writes them ("Ctrl+P").
+    pub trail: Option<String>,
 }
 
-/// The popover over the composer, 8 points up: rows of an optional lead, a label and a muted
-/// description. It appears and goes at once, and so does its highlight.
+/// The popover over the composer, 8 points up and as wide (`editor.tsx:1281-1289`): rows of an
+/// optional lead, a label and a muted description (`:1378-1404`). It appears and goes at once,
+/// and so does its highlight.
 pub fn popup(
     p: &Pal,
     spec: Spec,
@@ -86,10 +112,11 @@ pub fn popup(
         let (id, id_hover) = (r.id.clone(), r.id.clone());
         let (hover, pick) = (hover.clone(), pick.clone());
         let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(r.lead);
-        words = words.child(text(r.label.clone()).font(UI).color(p.text));
+        words = words.child(text(r.label.clone()).key("label").font(UI).color(p.text));
         if !r.description.is_empty() {
-            words = words.child(text(r.description).font(UI).color(p.muted).truncate_fade());
+            words = words.child(text(r.description).key("description").font(UI).color(p.muted).truncate());
         }
+        let trail = r.trail.map(|keys| text(keys).key("keys").font(UI).color(p.muted));
         list = list.child(
             row()
                 .key(r.key)
@@ -98,6 +125,7 @@ pub fn popup(
                 .w_full()
                 .h(ROW_H)
                 .px(8.0)
+                .gap(8.0)
                 .center_y()
                 .radius(6.0)
                 .fill(if active == Some(id.as_str()) { p.hover } else { Color::TRANSPARENT })
@@ -113,30 +141,31 @@ pub fn popup(
                     pick(s, &id, tx);
                 })
                 .child(words)
-                .children(r.trail),
+                .children(trail),
         );
     }
     let scroll = format!("{}-scroll", spec.key);
     let body = if empty {
-        col().key(scroll).w_full().padding(PAD).child(text(spec.empty).font(UI).color(p.muted).px(8.0).py(4.0))
+        col().key(scroll).w_full().padding(PAD)
+            .child(row().key("empty").h(EMPTY_H).px(8.0).center_y().child(text(spec.empty).font(UI).color(p.muted)))
     } else {
-        // Edge to edge: rows scroll under the popover's border, fading only while hidden there.
-        let h = (count as f32 * ROW_H + 2.0 * PAD).min(MAX_H);
-        col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_edge_fade(16.0).scroll_margin(PAD).child(list)
+        // Rows scroll under the padding with no fade and no bar (`no-scrollbar`), cut where the
+        // height ends as Desktop's are.
+        let h = (count as f32 * ROW_H + 2.0 * PAD).min(max_height(spec.boundary.unwrap_or(2.0 * MAX_H)));
+        col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_margin(PAD).child(list)
     };
-    let popover = col()
+    // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`: 10 pt
+    // corners and the raised ring and drops, no border of its own.
+    p.raised.into_iter().fold(col(), El::box_shadow)
         .key(spec.key)
         .role("listbox")
         .label(spec.label)
         .above("composer", 8.0)
         .w(spec.width)
-        .radius(12.0)
+        .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
-        .shadow(4.0, 12.0, p.shadow)
         .clip_soft(0.0)
         .transition(rune::Transition::none())
         .on_press(|_: &mut App| {})
-        .child(body);
-    popover
+        .child(body)
 }

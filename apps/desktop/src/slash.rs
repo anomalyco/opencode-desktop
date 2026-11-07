@@ -16,12 +16,20 @@ pub struct Command {
     pub description: String,
 }
 
+/// The app's `/` commands in the order Desktop registers them: the session's
+/// (`use-session-commands.tsx:445-500`), Open file (`:515-522`), the terminal plugin after it
+/// (`gui-plugins/src/terminal/renderer.tsx:90`), MCPs (`:655-664`), then the composer's
+/// (`composer/commands.tsx:109-162`) and BTW (`gui-plugins/src/btw/renderer.tsx:47`).
+const ORDER: [&str; 14] = ["new", "undo", "redo", "compact", "fork", "export", "open", "terminal", "mcp", "model", "connect", "reload", "agent", "btw"];
+
 /// One row of the popover: a server command, or an app command (`builtin`, its id).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     /// The row's id: the server command's name, or `builtin.<id>`.
     pub id: String,
     pub name: String,
+    /// What the query matches besides the name: an app command's title.
+    pub title: String,
     pub description: String,
     pub keys: Option<crate::keymap::Bind>,
     pub builtin: Option<&'static str>,
@@ -86,26 +94,37 @@ impl App {
         self.add.slash.shown = shown;
     }
 
-    /// Every `/` command: the server's, then the app's.
+    /// Every `/` command, as Desktop lists them (`composer/model.ts:261-291`): the server's, then
+    /// the app's in Desktop's order ([`ORDER`]), each with its description only (none for
+    /// `/new` and `/terminal`) and its keys.
     pub fn slash_list(&self) -> Vec<Item> {
         let server = self.add.slash.commands.iter().map(|c| Item {
             id: c.name.clone(),
             name: c.name.clone(),
+            title: c.name.clone(),
             description: c.description.clone(),
             keys: None,
             builtin: None,
         });
-        let own = self.commands().into_iter().filter_map(|c| {
+        let mut own: Vec<Item> = self.commands().into_iter().filter_map(|c| {
             let name = c.slash?;
-            let description = if c.description.is_empty() { c.title } else { c.description };
-            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), description: description.into(), keys: c.keys, builtin: Some(c.id) })
-        });
+            // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
+            let keys = c.keys.filter(|_| name != "new");
+            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), title: c.title.into(), description: c.description.into(), keys, builtin: Some(c.id) })
+        }).collect();
+        own.sort_by_key(|c| ORDER.iter().position(|n| *n == c.name).unwrap_or(ORDER.len()));
         server.chain(own).collect()
     }
 
+    /// The commands the query finds by name or title (`editor/interaction.ts:336-340`), best first.
     pub fn slash_items(&self) -> Vec<Item> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        crate::mentions::fuzzy_rank(&query, self.slash_list(), |c| &c.name)
+        let needle = query.to_lowercase();
+        let mut scored: Vec<(i64, Item)> = self.slash_list().into_iter()
+            .filter_map(|c| Some((crate::mentions::fuzzy(&needle, &c.name).max(crate::mentions::fuzzy(&needle, &c.title))?, c)))
+            .collect();
+        scored.sort_by_key(|(s, _)| -s);
+        scored.into_iter().map(|(_, c)| c).collect()
     }
 
     pub fn slash_active(&self) -> Option<String> {
@@ -211,7 +230,8 @@ impl App {
     }
 }
 
-/// The `/` popover over the composer: each command's `/name` and description.
+/// The `/` popover over the composer: each command's `/name`, its description, and its keys
+/// in words at the end (`editor.tsx:1400-1402`: `keybind.join("+")`, muted).
 pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     s.slash_query()?;
     let width = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
@@ -225,9 +245,9 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             label: format!("/{}", c.name),
             lead: None,
             description: c.description.clone(),
-            trail: c.keys.filter(|b| b.chord().is_some()).map(|b| crate::keymap::keycaps(p, b)),
+            trail: c.keys.filter(|b| b.chord().is_some()).map(|b| b.keycaps().join("+")),
         })
         .collect();
-    let spec = Spec { key: "commands", label: "Commands", empty: "No matching commands", width };
+    let spec = Spec { key: "commands", label: "Commands", empty: "No matching items", width, boundary: crate::mentions::list::boundary(cx) };
     Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name, tx| s.pick_command(name, tx)))
 }
