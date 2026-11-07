@@ -234,6 +234,7 @@ mod tool_open_tests;
 mod turn_errors_stories;
 mod updater;
 mod view;
+mod web_fetch;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};

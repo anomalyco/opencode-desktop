@@ -364,6 +364,16 @@ fn connect(s: &mut App, tx: &mut Tx) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
         let media = server.clone();
         s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
+        // Markdown images read through the server as Desktop's `readLocalImage` does; web
+        // images and link favicons come from the web, as the browser fetches them for Desktop.
+        let files = server.clone();
+        s.attach.markdown.set_fetch(
+            std::sync::Arc::new(move |directory: &str, path: &str| {
+                let encoded = crate::review::data::encode_fs_path(path);
+                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))
+            }),
+            std::sync::Arc::new(crate::web_fetch::get),
+        );
         let (r, w, inbox) = opencode_kit::client::connect_with_idle(server.clone(), waker, crate::reconnect::STREAM_IDLE);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.

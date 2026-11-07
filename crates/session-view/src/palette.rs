@@ -117,6 +117,8 @@ pub struct Code {
     pub constant: Color,
     pub punctuation: Color,
     pub variable: Color,
+    /// `variable.parameter`: the v1 `text-base`.
+    pub parameter: Color,
 }
 
 impl Code {
@@ -135,6 +137,7 @@ impl Code {
             (K::Punctuation, self.punctuation),
             (K::Inserted, add),
             (K::Deleted, del),
+            (K::Parameter, self.parameter),
         ]
         .into_iter()
         .fold(base, |t, (k, c)| t.with(k, c))
@@ -182,6 +185,7 @@ fn build(theme: usize, dark: bool) -> Pal {
         constant: c("syntax-constant"),
         punctuation: c("syntax-punctuation"),
         variable: c("syntax-variable"),
+        parameter: c("text-base"),
     };
     let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
     Pal {

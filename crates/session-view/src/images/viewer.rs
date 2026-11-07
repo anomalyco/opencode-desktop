@@ -12,14 +12,14 @@ use crate::palette::Pal;
 
 pub struct Viewing {
     /// The thumbnail's `El::matched` id.
-    id: String,
-    name: String,
-    image: Image,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) image: Image,
 }
 
 /// Desktop flies on a 0.3 s spring launched with a push, as a spring from rest starts slowly;
 /// from rest, 0.25 s lands on the same shape (the Timeline knob's default).
-fn flight<S: TimelineHost>(s: &S) -> Spring {
+pub(crate) fn flight<S: TimelineHost>(s: &S) -> Spring {
     Spring::new(s.knobs().get(&crate::knobs::IMAGE_FLIGHT), 0.0)
 }
 

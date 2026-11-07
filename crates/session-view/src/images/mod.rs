@@ -2,6 +2,7 @@
 //! prepared-image cache behind a transcript's thumbnails.
 
 pub mod bento;
+pub mod markdown;
 pub mod viewer;
 
 use std::cell::RefCell;
@@ -39,6 +40,8 @@ pub struct MediaStore {
     ref_sizes: RefCell<HashMap<String, [u32; 2]>>,
     /// SHA-256 (a ref's hash) of inline images, by image id, computed only when a ref misses.
     shas: RefCell<HashMap<rune::ImageId, String>>,
+    /// Pictures for markdown in replies: images and link favicons.
+    pub markdown: std::rc::Rc<markdown::MdStore>,
 }
 
 /// Header dimensions are available before decode; the same handle crosses from prefetch to view.
@@ -202,13 +205,14 @@ pub fn decodable(mime: &str) -> bool {
 
 impl MediaStore {
     pub fn set_waker(&mut self, waker: Waker) {
+        self.markdown.set_waker(waker.clone());
         self.waker = Some(waker);
     }
 
     /// Whether a ref's bytes landed since the last call. The host's `poll` returns it, so a ref
     /// still showing its loading box turns into its image without waiting for input.
     pub fn poll(&self) -> bool {
-        self.media.landed.swap(false, Ordering::AcqRel)
+        self.media.landed.swap(false, Ordering::AcqRel) | self.markdown.poll()
     }
 
     /// A story controls byte arrival with the replay clock, then uses the real decoder.
@@ -342,6 +346,38 @@ impl MediaStore {
 pub fn fit(w: f32, h: f32, max_w: f32, max_h: f32) -> (f32, f32) {
     let k = (max_w / w.max(1.0)).min(max_h / h.max(1.0)).min(1.0);
     ((w * k).max(24.0), (h * k).max(24.0))
+}
+
+/// What a reply's markdown in `s`'s open session needs to show its pictures.
+pub fn md_media<S: TimelineHost>(s: &S) -> markdown::MdMedia {
+    let store = s.media_store();
+    markdown::MdMedia {
+        store: store.markdown.clone(),
+        directory: s.active_session_id().and_then(|id| s.session_directory(id)).map(std::rc::Rc::from),
+        viewing: store.viewing.as_ref().map(|v| v.id.clone()),
+        flight: viewer::flight(s),
+    }
+}
+
+/// `md` showing its images and link favicons from `m`, an image opening the viewer on a press
+/// as Desktop's markdown images do (`image-preview.tsx`): a button named by its alt text that
+/// flies into the viewer and back.
+pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::MdMedia) -> rune_kit::Markdown {
+    let (images, favicons) = (m.clone(), m.store.clone());
+    md.images(move |src| images.store.image(images.directory.as_deref(), src))
+        .link_favicon(move |url| favicons.favicon(url))
+        .image_frame(move |img, f| {
+            let id = format!("md-image:{}:{}", f.src, f.alt);
+            // While the viewer shows it, its place holds empty, keyed apart so the image flies.
+            if m.viewing.as_deref() == Some(id.as_str()) {
+                return img.key("held").opacity(0.0);
+            }
+            let name = if f.alt.is_empty() { "Image preview".to_owned() } else { f.alt.to_owned() };
+            let image = f.image.clone();
+            img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press(move |s: &mut S| {
+                s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
+            })
+        })
 }
 
 /// Whether `gallery` shows anything for `files`, without loading them.

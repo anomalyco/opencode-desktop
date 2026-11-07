@@ -141,6 +141,12 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .table_header_text(p.muted)
         .table_header_weight(530.0)
         .table_column_align(false)
+        // Wide tables and code scroll sideways (`overflow: auto`): code at a hard edge with
+        // its bar hidden, a table with `scrollbar.css`'s thumb in a strip under its rows.
+        .text_width(width)
+        .wide_fade(0.0)
+        .table_scroll_bar(p.border_muted, p.q.border_strong)
+        .link_icons(14.0, 4.0)
         .code_block_font(CODE)
         .selection(p.selection)
         .diagram_max_width(width)
@@ -179,24 +185,29 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     style: MarkdownStyle,
     highlights: Vec<H>,
     copied: Option<String>,
+    media: Option<crate::images::markdown::MdMedia>,
 ) -> El {
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     let full = std::rc::Rc::new(style.clone());
     let pal = *p;
     let rewritten = S::rewrite_markdown(src);
-    Markdown::new(rewritten.as_deref().unwrap_or(src))
+    let md = Markdown::new(rewritten.as_deref().unwrap_or(src))
         .style(style)
         .highlights(highlights)
         .reveal(fade)
         .streaming(streaming)
         .selectable(true)
+        .scroll_wide(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame(move |card, c| code_card::<S>(&pal, card, c, copied.as_deref()))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| s.open_link(url, tx))
-        .link_help(S::reply_link_help)
-        .build(crate::palette::kit(p))
-        .selection_group(false)
+        .link_help(S::reply_link_help);
+    let md = match media {
+        Some(m) => crate::images::markdown_pictures::<S>(md, m),
+        None => md,
+    };
+    md.build(crate::palette::kit(p)).selection_group(false)
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
@@ -215,6 +226,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         .role("button")
         .label(label)
         .help(label)
+        .help_above()
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
@@ -236,7 +248,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None)
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -249,8 +261,9 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     width: f32,
     highlights: Vec<(&[Range<usize>], rune_kit::Highlight)>,
     copied: Option<String>,
+    media: Option<crate::images::markdown::MdMedia>,
 ) -> El {
-    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied)
+    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media)
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
