@@ -132,7 +132,9 @@ impl App {
             Run::Panel("file") => self.open_file_search(tx),
             Run::Panel(plugin) => {
                 if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
-                    if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
+                    if let Some(run) = p.run {
+                        run(self, tx);
+                    } else if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
                         self.toggle_dock(tx);
                     } else if let Some(open) = p.open_launcher {
                         open(self, p.default_pane, tx);

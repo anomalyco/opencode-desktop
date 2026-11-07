@@ -141,6 +141,10 @@ impl App {
             if let Some(sc) = p.shortcut
                 && sc.matches_tx(ev, tx)
             {
+                if let Some(run) = p.run {
+                    run(self, tx);
+                    return true;
+                }
                 if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
                     self.toggle_dock(tx);
                     return true;

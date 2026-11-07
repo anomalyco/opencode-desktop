@@ -616,6 +616,37 @@ impl App {
         }
     }
 
+    /// The tab pane `pane` of the routed session shows, if any.
+    pub fn pane_shown_tab(&self, pane: SessionPane) -> Option<String> {
+        let reg = self.resolve_side_region()?;
+        let empty = SessionTabs::default();
+        let stored = self.side.sessions.get(&reg.session_id).map_or(&empty, |s| &s.tab_state.tabs);
+        reg.pane_active(pane, stored)
+    }
+
+    /// Whether `key` is its pane's shown tab and that pane is on screen (Desktop's `"visible"`).
+    pub fn side_tab_visible(&self, key: &str) -> bool {
+        let Some(sid) = self.active_session_id() else { return false };
+        let Some(st) = self.side.sessions.get(sid) else { return false };
+        let pane = session_tab_pane(&st.tab_state.tabs, key);
+        let open = if pane == SessionPane::Bottom { st.bottom_open } else { st.open };
+        open && self.pane_shown_tab(pane).as_deref() == Some(key)
+    }
+
+    /// Hides the pane showing `key` (Desktop's `layout.hide`): the bottom pane, or the side region.
+    pub fn hide_side_tab(&mut self, key: &str, tx: &mut Tx) {
+        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        if session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, key) == SessionPane::Bottom {
+            tx.instant();
+            self.session_side_mut(&sid).bottom_open = false;
+            self.side.focused = false;
+            return;
+        }
+        if self.side_open() {
+            self.toggle_side_region(tx);
+        }
+    }
+
     /// Desktop's `layout.open(key, session, { tab: "select" })`: adds `key` at the strip's end
     /// when it isn't there, without replacing a preview tab, selects it, and shows its pane. A
     /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
@@ -623,7 +654,7 @@ impl App {
     pub fn show_side_tab(&mut self, session_id: &str, key: &str, target: Option<SessionPane>) {
         let fallback = split_panel_key(key)
             .and_then(|(pl, _)| self.all_panels().into_iter().find(|p| p.plugin == pl))
-            .map(|p| p.default_pane);
+            .map(|p| p.home_pane(self));
         let st = self.session_side_mut(session_id);
         let prefix = split_panel_key(key).map(|(pl, _)| format!("{pl}:")).unwrap_or_default();
         let sibling = st.tab_state.tabs.all.iter().any(|k| k.starts_with(&prefix));

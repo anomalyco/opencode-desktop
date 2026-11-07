@@ -132,7 +132,7 @@ pub fn terminal_dock(r: &mut Run) {
     };
     r.act("seed terminal open", |rt| {
         rt.update(|s, tx| {
-            s.toggle_dock(tx);
+            s.toggle_terminal(tx);
             tx.settle();
         });
     });

@@ -205,6 +205,12 @@ impl PanelTabDesc {
         self
     }
 
+    /// Listed but not drawn: holds a restored selection until the panel can show it.
+    pub fn hidden(mut self) -> Self {
+        self.hidden = true;
+        self
+    }
+
     pub fn missing(mut self, missing: bool) -> Self {
         self.missing = missing;
         self
@@ -315,6 +321,8 @@ pub struct PanelRegistration {
     pub region: PanelRegion,
     /// Default pane when opening a new tab of this plugin (`Side` by default; `Bottom` for a bottom-docked panel).
     pub default_pane: SessionPane,
+    /// The default pane read from the app's settings, overriding `default_pane`.
+    pub placed: Option<fn(&App) -> SessionPane>,
     /// Asks for a wider side region minimum (e.g. split diff).
     pub wide: fn(&App) -> bool,
     /// Stored tab keys leave the strip automatically once `list` stops returning them.
@@ -324,6 +332,8 @@ pub struct PanelRegistration {
     /// Optional global shortcut & `⌘K` palette title for launching/toggling this panel.
     pub shortcut: Option<Bind>,
     pub command_title: Option<&'static str>,
+    /// What the command runs when it isn't the launcher (a toggle, such as the terminal's).
+    pub run: Option<fn(&mut App, &mut Tx)>,
     /// What the command's row says after its name in the palette and the `/` list.
     pub command_description: &'static str,
     /// The `/name` that runs the command from the composer.
@@ -374,11 +384,13 @@ impl PanelRegistration {
             order: 0,
             region: PanelRegion::Side,
             default_pane: SessionPane::Side,
+            placed: None,
             wide: no_wide,
             transient: false,
             legacy: &[],
             shortcut: None,
             command_title: None,
+            run: None,
             command_description: "",
             slash: None,
             extra_shortcuts: &[],
@@ -428,6 +440,16 @@ impl PanelRegistration {
         self
     }
 
+    pub const fn placed(mut self, placed: fn(&App) -> SessionPane) -> Self {
+        self.placed = Some(placed);
+        self
+    }
+
+    /// The pane a new tab of this panel opens in beside none of its others.
+    pub fn home_pane(&self, s: &App) -> SessionPane {
+        self.placed.map_or(self.default_pane, |f| f(s))
+    }
+
     pub const fn wide(mut self, wide: fn(&App) -> bool) -> Self {
         self.wide = wide;
         self
@@ -446,6 +468,11 @@ impl PanelRegistration {
     pub const fn command(mut self, title: &'static str, shortcut: Bind) -> Self {
         self.command_title = Some(title);
         self.shortcut = Some(shortcut);
+        self
+    }
+
+    pub const fn runs(mut self, run: fn(&mut App, &mut Tx)) -> Self {
+        self.run = Some(run);
         self
     }
 

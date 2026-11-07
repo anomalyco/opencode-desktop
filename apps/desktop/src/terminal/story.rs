@@ -183,11 +183,10 @@ pub fn view_card(s: &App, p: &Pal) -> El {
         s,
         p,
         STORY_WS,
+        None,
         (card_w, card_h),
         2.0,
         s.terminal.story_focused,
-        false,
-        false,
     );
     col()
         .key("story-terminal")

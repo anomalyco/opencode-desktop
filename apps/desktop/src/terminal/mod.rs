@@ -3,11 +3,11 @@
 
 #[cfg(test)]
 mod bench;
-mod dock_ops;
 mod draw;
 pub mod grid;
 pub mod input;
 pub mod persist;
+mod side_ops;
 pub mod story;
 pub mod streams;
 #[cfg(test)]
@@ -58,19 +58,24 @@ rune_register::register!(crate::knobs::GROUP_LIST: Group = [
     Group::new("Terminal", "terminal", TERMINAL_KNOBS),
 ]);
 
-const EXTRA_SHORTCUTS: &[(Bind, fn(&mut App, &mut Tx))] = &[(Bind::TerminalNew, dock_ops::shortcut_new_terminal)];
+const EXTRA_SHORTCUTS: &[(Bind, fn(&mut App, &mut Tx))] = &[(Bind::TerminalNew, side_ops::shortcut_new_terminal)];
 
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::dock("terminal", dock_ops::list_dock_tabs, dock_ops::render_dock)
+    PanelRegistration::new(side_ops::PLUGIN, side_ops::list_tabs, side_ops::render)
         .order(20)
+        .transient(true)
+        .placed(side_ops::placed)
         .command("Toggle terminal", Bind::DockToggle)
+        .runs(App::toggle_terminal)
         .slash("terminal")
         .shortcuts(EXTRA_SHORTCUTS)
-        .launcher(dock_ops::launcher_desc, dock_ops::open_from_launcher)
-        .on_enter(dock_ops::on_enter_dock)
-        .poll(dock_ops::poll_panel)
-        .on_key(dock_ops::key_terminal)
-        .on_ime(dock_ops::ime_terminal),
+        .launcher(side_ops::launcher_desc, side_ops::open_from_launcher)
+        .on_focus(side_ops::on_focus)
+        .on_enter(side_ops::on_enter)
+        .on_close(side_ops::on_close)
+        .poll(side_ops::poll_panel)
+        .on_key(side_ops::key_terminal)
+        .on_ime(side_ops::ime_terminal),
 ]);
 
 pub struct TerminalTab {
@@ -294,8 +299,10 @@ impl App {
         }
     }
 
+    /// Opens session `sid`'s terminal tab (a new terminal when `new_tab` or it has none), leaving
+    /// the keyboard where it was.
     pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused, self.side.active_pane_focus);
         let ws_key = self.terminal_workspace_key_for_session(sid);
         if new_tab {
             self.ensure_terminal_workspace_hydrated(&ws_key);
@@ -303,20 +310,23 @@ impl App {
         } else {
             self.ensure_workspace_ready(&ws_key);
         }
-        self.side.mounted = true;
-        self.side.dock_mounted = true;
-        if self.active_session_id() == Some(sid) {
-            self.side.dock_last_solo = !self.side_open();
-        }
-        self.session_side_mut(sid).dock_open = true;
-        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
-        self.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())
+        let id = self.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())?;
+        self.show_side_tab(sid, &crate::panels::panel_key(side_ops::PLUGIN, &id), None);
+        (self.composer.focused, self.side.focused, self.side.active_pane_focus) = saved_focus;
+        Some(id)
     }
 
+    /// The keyboard goes to the routed session's active terminal, in the pane showing its tab.
     pub fn focus_terminal_surface(&mut self) {
         self.composer.focused = false;
-        self.side.focused = false;
-        self.side.dock_focused = true;
+        self.side.focused = true;
+        self.side.dock_focused = false;
+        if let Some(sid) = self.active_session_id().map(str::to_owned)
+            && let Some(id) = self.terminal.workspaces.get(&self.terminal_workspace_key_for_session(&sid)).and_then(|ws| ws.active.clone())
+        {
+            let key = crate::panels::panel_key(side_ops::PLUGIN, &id);
+            self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, &key);
+        }
         self.terminal.story_focused = true;
         self.terminal.reset_blink(self.clock);
     }
@@ -361,8 +371,8 @@ impl App {
         false
     }
 
+    /// Removes terminal `tab_id` and ends its shell; its tab has left, or leaves, the strip.
     pub fn close_terminal_tab(&mut self, ws_key: &str, tab_id: &str, tx: &mut Tx) {
-        let mut became_empty = false;
         if let Some(ws) = self.terminal.workspaces.get_mut(ws_key) {
             if let Some(idx) = ws.tabs.iter().position(|t| t.id == tab_id) {
                 ws.tabs.remove(idx);
@@ -374,7 +384,6 @@ impl App {
                     };
                 }
             }
-            became_empty = ws.tabs.is_empty();
         }
 
         // Closing a tab ends its shell on the server, as Desktop's close does.
@@ -387,12 +396,7 @@ impl App {
             });
         }
 
-        if became_empty && self.stage.is_none() && self.dock_open() {
-            self.side.emptied_guard = true;
-            self.close_dock(tx);
-        } else {
-            tx.instant();
-        }
+        tx.instant();
         self.queue_terminal_save();
     }
 
@@ -479,12 +483,8 @@ impl App {
         let (font_choice, style) = grid::terminal_font_style(&self.knobs);
         let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
         let est_w = (self.side_width(self.side.laid_w.get()) - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
-        let est_bar = if self.side_open() { grid::BAR_H } else { 48.0 };
-        let est_pane_h = if self.side_open() || self.dock_placement() == crate::panels::DockPlacement::Bottom {
-            self.side.dock_height
-        } else {
-            804.0 / self.zoom
-        };
+        let est_bar = grid::BAR_H;
+        let est_pane_h = if self.dock_placement() == crate::panels::DockPlacement::Bottom { self.bottom_height() } else { 744.0 / self.zoom };
         let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
         (((est_w / cell_w).floor() as u16).clamp(10, 500), ((est_h / cell_h).floor() as u16).clamp(2, 240))
     }
@@ -570,17 +570,17 @@ impl App {
             return true;
         }
 
-        // Hydrate / spawn initial terminal when a session starts with `dock_open == true` (zero alloc when closed).
-        let dock_open_in_session = self.stage.is_none()
+        // A session whose strip holds terminal tabs loads its terminals, so the tabs can show.
+        let stored_tabs = self.stage.is_none()
             && self
                 .active_session_id()
                 .and_then(|id| self.side.sessions.get(id))
-                .is_some_and(|st| st.dock_open);
-        if dock_open_in_session
+                .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")));
+        if stored_tabs
             && let Some(wk) = self.active_terminal_workspace_key()
             && !self.terminal.workspaces.contains_key(&wk)
         {
-            self.ensure_workspace_ready(&wk);
+            self.ensure_terminal_workspace_hydrated(&wk);
             return true;
         }
 
@@ -650,7 +650,7 @@ impl App {
         } else if self.stage.is_some() {
             self.terminal.story_focused
         } else {
-            self.side.dock_focused && !self.composer.focused && dock_open_in_session
+            self.terminal_focus().is_some()
         };
 
         if visible_and_focused {

@@ -230,7 +230,7 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::ToggleSidebar => {
             s.toggle_sidebar(tx);
         }
-        Act::ToggleTerminal => s.toggle_dock(tx),
+        Act::ToggleTerminal => s.toggle_terminal(tx),
         Act::Reload => s.resync(),
         Act::DevTools => {
             tx.instant();

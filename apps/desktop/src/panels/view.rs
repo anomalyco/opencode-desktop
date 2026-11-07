@@ -440,8 +440,7 @@ fn tab_bar(
                 text("New tab")
                     .font(UI)
                     .color(if active && focused { p.text } else { p.muted })
-                    .truncate_fade()
-                    .grow(1.0),
+                    .truncate_fade(),
             )
             .child(close_button(p, format!("side-new-close-{close_nid}"), active, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -589,7 +588,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
 
     if entry.tab.can_close() {
         let always_visible = entry.tab.closable == CloseButtonMode::Standard || active;
-        pill = pill.child(el().grow(1.0)).child(close_button(p, format!("side-tab-close-{safe_id}"), always_visible, move |s: &mut App, tx: &mut Tx| {
+        pill = pill.child(close_button(p, format!("side-tab-close-{safe_id}"), always_visible, move |s: &mut App, tx: &mut Tx| {
             s.close_side_tab(&close_key, tx);
         }));
     }

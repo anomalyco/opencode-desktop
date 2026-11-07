@@ -204,10 +204,10 @@ fn table() -> Vec<Binding> {
         // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
         row(FileBrowse, "file.browse", "Browse files", Session, on("ctrl+alt+p").on(Mac, "ctrl+mod+p")),
         row(BrowserOpen, "browser.open", "Open browser", Session, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
-        row(ReviewOpen, "review.open", "Review changes", Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
+        row(ReviewOpen, "review.open", "Open review", Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
         // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
         // macOS, as it always has here, and Ctrl+` elsewhere, as Desktop's does.
-        row(DockToggle, "terminal.toggle", "Toggle terminal", Terminal, on("mod+j, ctrl+`").on(Windows, "ctrl+`, mod+j").on(Linux, "ctrl+`, mod+j")),
+        row(DockToggle, "terminal.toggle", "Toggle terminal", Terminal, on("ctrl+`")),
         row(BottomToggle, "bottom.toggle", "Toggle bottom panel", Session, on("mod+j")),
         row(TerminalNew, "terminal.new", "New terminal", Terminal, on("ctrl+alt+t")),
         hidden(PaneTabNew, "file.tab.new", "New tab in the pane", Navigation, on("mod+t")),
