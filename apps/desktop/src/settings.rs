@@ -432,6 +432,10 @@ mod shell;
 mod stories;
 #[cfg(test)]
 pub(crate) mod leave_tests;
+#[cfg(test)]
+mod scroll_tests;
+#[cfg(test)]
+mod switch_bench;
 
 #[cfg(test)]
 mod tests {
