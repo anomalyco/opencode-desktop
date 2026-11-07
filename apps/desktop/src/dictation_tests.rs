@@ -121,6 +121,7 @@ fn until(rt: &mut Runtime<App>, t: &mut f64, done: impl Fn(&App) -> bool) {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "Windows dictates over Hex's streams from its own microphone")]
 fn the_mic_records_and_a_second_press_puts_the_words_at_the_caret() {
     let (file, seen) = fake_hex("words", happy);
     let mut rt = app(Dictation::at(file));
@@ -152,6 +153,7 @@ fn the_mic_records_and_a_second_press_puts_the_words_at_the_caret() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "Windows dictates over Hex's streams from its own microphone")]
 fn escape_throws_the_recording_away() {
     let (file, seen) = fake_hex("cancel", happy);
     let mut rt = app(Dictation::at(file));
@@ -176,6 +178,7 @@ fn escape_throws_the_recording_away() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "Windows dictates over Hex's streams from its own microphone")]
 fn hex_refusing_says_why_under_the_toolbar() {
     for (name, reply, why) in [
         ("busy", (|_: &str| (409, r#"{"code":"dictation-busy"}"#)) as fn(&str) -> (u16, &'static str), hex_client::BUSY),
@@ -212,6 +215,7 @@ fn hex_refusing_says_why_under_the_toolbar() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "Windows dictates over Hex's streams from its own microphone")]
 fn without_hex_s_endpoint_file_there_is_no_mic() {
     let mut rt = app(Dictation::at(PathBuf::from("/nonexistent/local-api.json")));
     let mut t = 0.0;
@@ -274,6 +278,7 @@ fn send_while_listening_finishes_and_sends_with_the_words() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "Windows dictates over Hex's streams from its own microphone")]
 fn a_slow_hex_says_preparing_under_the_toolbar() {
     let slow = |path: &str| {
         if path == "/dictations" {

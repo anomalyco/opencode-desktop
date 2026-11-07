@@ -6,13 +6,22 @@
 //!
 //! For live text, `stream` is the other way round: the app records and pushes the audio, and
 //! Hex sends partials, segments, and the final (`stream.rs`).
+//!
+//! `dictate` (`session/`) runs a whole dictation on whichever of the two this OS's Hex offers,
+//! and `install.rs` finds, starts, and offers to download Hex.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
+mod install;
+#[cfg(windows)]
+mod mic;
+mod session;
 mod stream;
+pub use install::*;
+pub use session::*;
 pub use stream::*;
 
 /// Why a capture Hex has already ended can't be finished, from the code Hex answers a
