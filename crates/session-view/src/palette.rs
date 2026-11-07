@@ -279,10 +279,11 @@ pub fn kit(p: &Pal) -> &'static Kit {
     k
 }
 
-/// The timeline's and Settings' scroll bar thumb, as OpenCode Desktop draws it: `border_muted`
-/// and 4 points wide at rest, `border_strong` and 8 points under the pointer.
+/// The timeline's and Settings' scroll bar thumb, as OpenCode Desktop's ScrollView draws it
+/// (scroll-view.css): an overlay hidden at rest and shown while the pointer is over the area or it
+/// scrolls, a 4 point `border_muted` pill that turns `border_strong` under the pointer.
 pub fn scroll_bar(p: &Pal) -> ScrollBarStyle {
-    ScrollBarStyle::from_kit(kit(p)).thumb(p.border_muted).thumb_hover(p.q.border_strong).width(4.0).hover_width(8.0)
+    ScrollBarStyle::scroll_view(kit(p)).thumb(p.border_muted).thumb_hover(p.q.border_strong)
 }
 
 fn kit_from(p: &Pal) -> Kit {

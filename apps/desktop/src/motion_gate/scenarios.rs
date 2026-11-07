@@ -99,7 +99,7 @@ const ALLOW: &[Allow] = &[
     ("jump", "timeline-fade", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "-scroll-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "timeline/t-msg_", "send-from-up/scrolled-up/long/narrow|fold/scrolled-up/long/narrow", "read further up, a send cuts the timeline to its end in one frame (App::land); the rows mounted above the window unmount with the cut, so what's on screen doesn't ride the list's top"),
-    ("flicker", "-scroll-area/scroll-bar", "fold/pinned/empty", "Show less, pressed while the scroll bar fades after a swipe, moves the timeline under it, so the bar shows again (rune_kit::ScrollBar)"),
+    ("flicker", "-scroll-area/scroll-bar", "jump-latest/", "the pointer leaves the timeline's scroll area for Jump to latest, so the ScrollView thumb fades, and is over the timeline again once the button goes; Desktop's thumb follows the hover of a root that also holds the button (virtualizer.tsx:1157-1161) (rune_kit::ScrollBarStyle::scroll_view)"),
     ("jump", "time-call_", "demo/", "a run time that gains a digit widens at once, as Desktop's plain text does (subagents::run_time)"),
     ("jump", "t-msg_zzzzzdemo01005-0/#0/#0/b1", "demo/pinned/long/", "the summary's table widens at once as each row lands: a streaming table sizes its columns to each finished row (rune_kit markdown tables)"),
     ("jump", "b1/", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),

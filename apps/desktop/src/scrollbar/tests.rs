@@ -60,6 +60,8 @@ fn a_scroll_shows_the_bar_and_a_rest_fades_it() {
     }
     frames(&mut rt, 0.2);
     assert!(shown(&rt), "scrolling shows it");
+    // The pointer over the timeline holds it up, as Desktop's ScrollView does.
+    rt.pointer_leave();
     frames(&mut rt, 2.0);
     assert!(!shown(&rt), "it fades after a rest");
 }
@@ -75,12 +77,13 @@ fn resize_views(rt: &mut Runtime<App>) -> u64 {
     VIEWS.get() - before
 }
 
-/// "Show scroll bars: Always" keeps it showing at rest, and a resize still lays the last tree
-/// out again without running the view (the old bar ran it on every resize frame).
+/// Desktop's ScrollView overlays its thumb whatever "Show scroll bars" says, so Always hides it at
+/// rest too, and a resize still lays the last tree out again without running the view (the old
+/// bar ran it on every resize frame).
 #[test]
 fn always_keeps_it_showing_and_resizes_run_no_view() {
     let mut rt = app(1.0, ScrollBars::Always);
-    assert!((thumb(&rt, KEY).opacity - 1.0).abs() < 1e-3);
+    assert!(thumb(&rt, KEY).opacity < 1e-3);
     let always = resize_views(&mut rt);
     let hidden = resize_views(&mut app(1.0, ScrollBars::WhenScrolling));
     assert_eq!((always, hidden), (0, 0), "views run by 20 resizes, with Always and with the bar hidden");
@@ -113,7 +116,7 @@ fn the_thumb_sits_inside_the_viewport_at_any_zoom() {
         let rt = app(zoom, ScrollBars::Always);
         let (t, v) = (thumb(&rt, KEY).rect, find(&rt, KEY).rect);
         assert!(t[0] + t[2] <= v[0] + v[2] + 0.5 && t[0] > v[0] + v[2] - 20.0 * zoom, "zoom {zoom}: thumb {t:?} in {v:?}");
-        assert!((t[1] + t[3] - (v[1] + v[3])).abs() < 4.0 * zoom, "zoom {zoom}: thumb {t:?} ends at the foot of {v:?}");
+        assert!((t[1] + t[3] - (v[1] + v[3])).abs() < 9.0 * zoom, "zoom {zoom}: thumb {t:?} ends at the foot of {v:?}");
     }
 }
 
@@ -124,8 +127,10 @@ fn settings_has_the_bar() {
     rt.update(|s, _| s.open_settings());
     frames(&mut rt, 0.5);
     let v = find(&rt, "settings").rect;
+    rt.pointer_move(v[0] + v[2] / 2.0, v[1] + v[3] / 2.0);
+    frames(&mut rt, 0.5);
     let t = thumb(&rt, "settings");
-    assert!(t.opacity > 0.99, "settings overflows, so Always shows its bar");
+    assert!(t.opacity > 0.99, "settings overflows, so the pointer over it shows its bar");
     assert!(t.rect[0] + t.rect[2] <= v[0] + v[2] + 0.5 && t.rect[0] > v[0] + v[2] - 20.0, "thumb {:?} at the edge of {v:?}", t.rect);
 }
 

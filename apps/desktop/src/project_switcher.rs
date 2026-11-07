@@ -501,6 +501,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .grow(1.0)
                 .shrink()
                 .h(20.0)
+                .color(p.text)
                 .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.project_switcher.search)

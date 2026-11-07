@@ -19,6 +19,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
     Some(
         input
+            .color(p.text)
             .caret(p.text, p.selection)
             .on_edit(|s: &mut App| &mut s.menus.edit)
             .on_input_key(|s: &mut App, ev, tx: &mut Tx| crate::session_menu::key(s, ev, tx))

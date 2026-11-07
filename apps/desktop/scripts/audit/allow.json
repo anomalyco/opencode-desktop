@@ -1,4 +1,6 @@
 [
+  {"element": "-scroll-area/scroll-bar", "kind": "not-instant",
+   "reason": "the timeline's ScrollView thumb fades in over 200 ms while the pointer is over the timeline and out as it leaves for a picker, popover or chip, as Desktop's hover-revealed thumb does (scroll-view.css:33,37,97-99; rune_kit::ScrollBarStyle::scroll_view)"},
   {"trace": "send-receipts", "element": "/actions/send-status", "kind": "pop-out",
    "reason": "server confirmation clears the delivery label immediately, leaving the bubble and its existing actions row in place; status changes do not fade (docs/kit-design.md)"},
   {"trace": "send-receipts", "element": "/actions/send-status", "kind": "jump",

@@ -47,6 +47,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     set_chrome(cx.chrome_insets(), s.zoom);
     cx.caption_color(caption_color(p.bg_deep));
+    // Text and fields left uncoloured take the theme's text, and focusable controls without a
+    // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
+    cx.foreground(p.text);
+    cx.focus_ring(2.0, 2.5, crate::palette::kit(p).c.border_focus);
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);

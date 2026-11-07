@@ -135,6 +135,7 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
         .shrink()
         .min_w(0.0)
         .animate_edit_layout()
+        .color(p.text)
         .placeholder(placeholder.to_owned(), p.faint)
         .caret(p.text, p.selection)
 }

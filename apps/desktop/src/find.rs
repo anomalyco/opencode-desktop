@@ -583,6 +583,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                     .shrink()
                     .min_w(0.0)
                     .h(20.0)
+                    .color(p.text)
                     .placeholder("Find...", p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.find.input)

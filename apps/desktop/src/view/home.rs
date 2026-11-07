@@ -96,6 +96,7 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
                 .grow(1.0)
                 .shrink()
                 .h(20.0)
+                .color(p.text)
                 .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.search)
