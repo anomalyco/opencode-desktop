@@ -40,12 +40,35 @@ thread_local! {
     static METRIC_CACHE: RefCell<HashMap<(u8, u32, u64), (f32, f32)>> = RefCell::new(HashMap::new());
 }
 
+thread_local! {
+    /// Settings › Appearance › Terminal Font's installed family, before the default face, as a
+    /// family list; `None` for one of the knob's faces.
+    static CUSTOM: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// Puts installed family `name` (empty for none) before the terminal's default face. Each
+/// distinct name is kept for the app's life, as a text style names its family.
+pub fn set_custom_font(name: &str) {
+    thread_local! {
+        static KEPT: RefCell<HashMap<String, &'static str>> = RefCell::new(HashMap::new());
+    }
+    let list = (!name.is_empty()).then(|| {
+        KEPT.with_borrow_mut(|kept| *kept.entry(name.to_owned()).or_insert_with(|| {
+            Box::leak(format!("{}, JetBrainsMono Nerd Font Mono", crate::appearance::css_family(name)).into_boxed_str())
+        }))
+    });
+    CUSTOM.set(list);
+}
+
 pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
-    let choice = knobs.get(&TERM_FONT).round() as u8;
+    let custom = CUSTOM.get();
+    // A typed family measures apart from the knob's faces.
+    let choice = if custom.is_some() { 200 } else { knobs.get(&TERM_FONT).round() as u8 };
     let size = knobs.get(&TERM_SIZE).clamp(10.0, 22.0);
     // ghostty-web's cell: the face's ascent and descent, 18 px at Desktop's 14 px.
     let lh = (size * 1.3).round();
     let family = match choice {
+        _ if custom.is_some() => Family::Named(custom.unwrap_or_default()),
         // By name, so the code font (the mono slot) doesn't change the terminal's.
         1 => Family::Named("IBM Plex Mono"),
         2 => Family::SystemMono,
@@ -61,7 +84,9 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
 
 pub fn cell_metrics(choice: u8, style: TextStyle) -> (f32, f32) {
     // A font switch (Settings › Appearance) can change what a style's family resolves to.
-    let key = (choice, style.size.to_bits(), rune::text::font_epoch());
+    // A typed family measures apart from the knob's faces and from another typed family.
+    let family = match style.family { Family::Named(list) => list.as_ptr() as u64, _ => 0 };
+    let key = (choice, style.size.to_bits(), rune::text::font_epoch() ^ family);
     METRIC_CACHE.with(|c| {
         if let Some(&m) = c.borrow().get(&key) {
             return m;

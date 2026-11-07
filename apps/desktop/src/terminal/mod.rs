@@ -28,6 +28,7 @@ use terminal::{
 };
 
 use crate::palette::{Pal, pal};
+pub use grid::set_custom_font;
 use crate::keymap::Bind;
 use crate::panels::PanelRegistration;
 use crate::{App, Route, Source};

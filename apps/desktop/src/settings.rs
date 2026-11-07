@@ -66,6 +66,11 @@ pub struct Settings {
     /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
     pub ui_font: usize,
     pub code_font: usize,
+    /// An installed family typed into a font field that none of its choices is (Desktop's font
+    /// rows take any name), which then stands before the default; empty for a choice.
+    pub ui_font_name: String,
+    pub code_font_name: String,
+    pub terminal_font_name: String,
     /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
     pub record_glitches: bool,
     /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
@@ -123,6 +128,9 @@ impl Default for Settings {
             terminal_font: 3,
             ui_font: 0,
             code_font: 0,
+            ui_font_name: String::new(),
+            code_font_name: String::new(),
+            terminal_font_name: String::new(),
             record_glitches: true,
             tab_layout: Default::default(),
             new_question_ui: false,
@@ -158,8 +166,9 @@ impl Settings {
             "theme": self.theme,
             "reduceMotion": self.reduce_motion.name(),
             "terminalFont": self.terminal_font,
-            "uiFont": crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name,
-            "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
+            "uiFont": if self.ui_font_name.is_empty() { crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name } else { self.ui_font_name.as_str() },
+            "codeFont": if self.code_font_name.is_empty() { crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name } else { self.code_font_name.as_str() },
+            "terminalFontName": self.terminal_font_name,
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
@@ -197,6 +206,9 @@ impl Settings {
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
+            ui_font_name: crate::appearance::custom_name(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
+            code_font_name: crate::appearance::custom_name(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
+            terminal_font_name: v["terminalFontName"].as_str().map(str::trim).unwrap_or("").to_owned(),
             record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.

@@ -29,11 +29,11 @@ pub struct Fields {
 impl Fields {
     /// The fields for the saved fonts: empty for a default, its name otherwise.
     pub fn from(s: &settings::Settings) -> Fields {
-        let named = |name: &str, default: bool| TextEdit::new(if default { "" } else { name });
+        let named = |custom: &str, name: &str, default: bool| TextEdit::new(if !custom.is_empty() { custom } else if default { "" } else { name });
         Fields {
-            ui: named(UI_FONTS[s.ui_font.min(UI_FONTS.len() - 1)].name, s.ui_font == 0),
-            code: named(CODE_FONTS[s.code_font.min(CODE_FONTS.len() - 1)].name, s.code_font == 0),
-            terminal: named(TERMINAL_FONTS[s.terminal_font.min(TERMINAL_FONTS.len() - 1)], s.terminal_font == 3),
+            ui: named(&s.ui_font_name, UI_FONTS[s.ui_font.min(UI_FONTS.len() - 1)].name, s.ui_font == 0),
+            code: named(&s.code_font_name, CODE_FONTS[s.code_font.min(CODE_FONTS.len() - 1)].name, s.code_font == 0),
+            terminal: named(&s.terminal_font_name, TERMINAL_FONTS[s.terminal_font.min(TERMINAL_FONTS.len() - 1)], s.terminal_font == 3),
         }
     }
 
@@ -44,7 +44,8 @@ impl Fields {
     }
 }
 
-/// The face a typed name is, if Rune has it: matched without case or spaces.
+/// The bundled face a typed name is: matched without case or spaces. Any other name is an
+/// installed family's, which stands before the default.
 fn find(names: &[&str], typed: &str) -> Option<usize> {
     let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
     let typed = squash(typed);
@@ -54,24 +55,27 @@ fn find(names: &[&str], typed: &str) -> Option<usize> {
 fn ui_changed(s: &mut App, tx: &mut Tx) {
     let typed = s.settings_pages.fonts.ui.text.trim().to_owned();
     let names: Vec<&str> = UI_FONTS.iter().map(|f| f.name).collect();
-    if let Some(i) = if typed.is_empty() { Some(0) } else { find(&names, &typed) } {
-        s.set_ui_font(i, tx);
+    match if typed.is_empty() { Some(0) } else { find(&names, &typed) } {
+        Some(i) => s.set_ui_font(i, tx),
+        None => s.set_ui_font_named(0, &typed, tx),
     }
 }
 
 fn code_changed(s: &mut App, tx: &mut Tx) {
     let typed = s.settings_pages.fonts.code.text.trim().to_owned();
     let names: Vec<&str> = CODE_FONTS.iter().map(|f| f.name).collect();
-    if let Some(i) = if typed.is_empty() { Some(0) } else { find(&names, &typed) } {
-        s.set_code_font(i, tx);
+    match if typed.is_empty() { Some(0) } else { find(&names, &typed) } {
+        Some(i) => s.set_code_font(i, tx),
+        None => s.set_code_font_named(0, &typed, tx),
     }
 }
 
 fn terminal_changed(s: &mut App, tx: &mut Tx) {
     let typed = s.settings_pages.fonts.terminal.text.trim().to_owned();
     let found = if typed.is_empty() { Some(3) } else { find(&TERMINAL_FONTS, &typed).or_else(|| find(&[TERMINAL_DEFAULT, "CommitMono"], &typed).map(|i| [3, 0][i])) };
-    if let Some(i) = found {
-        s.set_terminal_font(i, tx);
+    match found {
+        Some(i) => s.set_terminal_font(i, "", tx),
+        None => s.set_terminal_font(3, &typed, tx),
     }
 }
 

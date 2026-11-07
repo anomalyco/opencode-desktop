@@ -105,7 +105,7 @@ fn reduce_motion_follows_the_setting_the_flag_and_the_system() {
 #[test]
 fn the_terminal_font_row_sets_the_terminal_font() {
     let mut rt = runtime();
-    rt.state.set_terminal_font(2, &mut Tx::default());
+    rt.state.set_terminal_font(2, "", &mut Tx::default());
     assert_eq!(rt.state.knobs.get(&crate::terminal::TERM_FONT), 2.0);
     assert_eq!(rt.state.settings.terminal_font, 2);
     assert_eq!(ReduceMotion::parse(Some("on")), ReduceMotion::On);

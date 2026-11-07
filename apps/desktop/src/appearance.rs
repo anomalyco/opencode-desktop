@@ -1,7 +1,8 @@
 //! Settings › Appearance, as Desktop has it (`settings/appearance/appearance.tsx`): colour
 //! scheme, theme (`themes.rs`), the UI, code and terminal fonts, interface zoom and Reduce
-//! motion (System / On / Off). Desktop's font rows take any family name; here they pick from
-//! the faces the app bundles or macOS always has, since Rune loads only those.
+//! motion (System / On / Off). The font rows take any family name, as Desktop's do: one of the
+//! faces the app bundles picks it, and any other installed family stands before the default,
+//! which Rune loads from the system by name.
 
 use std::cell::Cell;
 
@@ -88,10 +89,30 @@ pub fn font_index(fonts: &[Font], name: Option<&str>) -> usize {
     fonts.iter().position(|f| Some(f.name) == name).unwrap_or(0)
 }
 
+/// The name typed for a font row when it isn't one of `fonts` (an installed family); empty
+/// for one of them or none.
+pub fn custom_name(fonts: &[Font], name: Option<&str>) -> String {
+    let name = name.map(str::trim).unwrap_or("");
+    if fonts.iter().any(|f| f.name == name) { String::new() } else { name.to_owned() }
+}
+
+/// `name` in a CSS family list (Desktop's settings `family`): bare when it is one word,
+/// quoted otherwise.
+pub fn css_family(name: &str) -> String {
+    if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return name.to_owned();
+    }
+    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 /// The sans and mono families `settings` picks, as `AppSpec::families` and
-/// `Tx::set_font_families` take them.
-pub fn families(settings: &crate::settings::Settings) -> (&'static str, &'static str) {
-    (UI_FONTS[settings.ui_font.min(UI_FONTS.len() - 1)].family, CODE_FONTS[settings.code_font.min(CODE_FONTS.len() - 1)].family)
+/// `Tx::set_font_families` take them: a typed family before the default (`sansFontFamily`).
+pub fn families(settings: &crate::settings::Settings) -> (String, String) {
+    let pick = |custom: &str, chosen: &Font, base: &Font| if custom.is_empty() { chosen.family.to_owned() } else { format!("{}, {}", css_family(custom), base.family) };
+    (
+        pick(&settings.ui_font_name, &UI_FONTS[settings.ui_font.min(UI_FONTS.len() - 1)], &UI_FONTS[0]),
+        pick(&settings.code_font_name, &CODE_FONTS[settings.code_font.min(CODE_FONTS.len() - 1)], &CODE_FONTS[0]),
+    )
 }
 
 /// The families a window opens with: the saved settings (a fixture run's are the defaults),
@@ -99,7 +120,9 @@ pub fn families(settings: &crate::settings::Settings) -> (&'static str, &'static
 pub fn launch_families() -> (&'static str, &'static str) {
     let mut settings = if crate::arg("--fixture").is_some() { Default::default() } else { crate::settings::load() };
     apply_font_args(&mut settings);
-    families(&settings)
+    let (sans, mono) = families(&settings);
+    // Once per launch: the window's spec keeps them for the app's life.
+    (Box::leak(sans.into_boxed_str()), Box::leak(mono.into_boxed_str()))
 }
 
 /// `--ui-font <name>` and `--code-font <name>` pick a row's font by name ("SF Pro").
@@ -144,26 +167,51 @@ impl App {
         crate::keymap::overrides::apply(&self.settings.keybinds);
         self.apply_reduce_motion();
         self.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
+        crate::terminal::set_custom_font(&self.settings.terminal_font_name);
     }
 
-    pub fn set_terminal_font(&mut self, i: usize, tx: &mut Tx) {
+    /// The terminal's font: choice `i`, or `name`, an installed family, before the default.
+    pub fn set_terminal_font(&mut self, i: usize, name: &str, tx: &mut Tx) {
         tx.instant();
-        self.change_settings(|s| s.terminal_font = i);
+        let name = name.to_owned();
+        crate::terminal::set_custom_font(&name);
+        self.change_settings(|s| {
+            s.terminal_font = i;
+            s.terminal_font_name = name;
+        });
         self.knobs.set(&crate::terminal::TERM_FONT, i as f32);
     }
 
     /// Switches the UI font in this frame: every window lays its text out again in it.
     pub fn set_ui_font(&mut self, i: usize, tx: &mut Tx) {
+        self.set_ui_font_named(i, "", tx);
+    }
+
+    /// The UI font: choice `i`, or `name`, an installed family, before the default.
+    pub fn set_ui_font_named(&mut self, i: usize, name: &str, tx: &mut Tx) {
         tx.instant();
-        self.change_settings(|s| s.ui_font = i.min(UI_FONTS.len() - 1));
+        let name = name.to_owned();
+        self.change_settings(|s| {
+            s.ui_font = i.min(UI_FONTS.len() - 1);
+            s.ui_font_name = name;
+        });
         let (sans, mono) = families(&self.settings);
         tx.set_font_families(sans, mono);
     }
 
     /// Switches the code font in this frame.
     pub fn set_code_font(&mut self, i: usize, tx: &mut Tx) {
+        self.set_code_font_named(i, "", tx);
+    }
+
+    /// The code font: choice `i`, or `name`, an installed family, before the default.
+    pub fn set_code_font_named(&mut self, i: usize, name: &str, tx: &mut Tx) {
         tx.instant();
-        self.change_settings(|s| s.code_font = i.min(CODE_FONTS.len() - 1));
+        let name = name.to_owned();
+        self.change_settings(|s| {
+            s.code_font = i.min(CODE_FONTS.len() - 1);
+            s.code_font_name = name;
+        });
         let (sans, mono) = families(&self.settings);
         tx.set_font_families(sans, mono);
     }
