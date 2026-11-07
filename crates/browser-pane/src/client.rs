@@ -53,13 +53,13 @@ pub struct BrowserHost {
     pub(crate) status: Arc<Mutex<EngineStatus>>,
     last_polled_status: EngineStatus,
     pub(crate) outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
-    #[cfg_attr(not(all(feature = "engine", unix)), allow(dead_code))]
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
     pub(crate) waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     pub(crate) socket_override: Option<PathBuf>,
-    #[cfg_attr(not(all(feature = "engine", unix)), allow(dead_code))]
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) profile_dir: Option<PathBuf>,
     next_tab_id: u64,
     next_req_id: u64,
@@ -448,6 +448,8 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpEvent { .. } => {}
+                // Windows pushes these to the tab's surface on the socket's reader thread.
+                EngineMsg::SharedFrame { .. } => {}
                 EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } => {
                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(bgra_b64) {
                         if let Some(surface) = self.surfaces.lock().unwrap().get(&tab_id).cloned() {
@@ -615,7 +617,7 @@ impl BrowserHost {
     }
 }
 
-#[cfg(not(all(feature = "engine", unix)))]
+#[cfg(not(feature = "engine"))]
 impl BrowserHost {
     pub(crate) fn initial_status() -> EngineStatus {
         EngineStatus::Unsupported

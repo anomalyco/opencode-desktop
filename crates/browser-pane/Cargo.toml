@@ -8,10 +8,10 @@ license.workspace = true
 [features]
 # Off by default, so `--workspace` builds don't turn it on for the app where no engine ships.
 default = []
-# Download, start and talk to the CEF engine over a Unix socket (Unix hosts only). Without it, the
-# pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS;
-# test it on its own with `cargo test -p browser-pane --features engine`.
-engine = ["dep:libc", "dep:sha2", "dep:ureq"]
+# Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
+# the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
+# and Windows; test it on its own with `cargo test -p browser-pane --features engine`.
+engine = ["dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows"]
 
 [dependencies]
 base64 = "0.22"
@@ -23,6 +23,10 @@ ureq = { workspace = true, features = ["rustls"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
+
+# The engine's socket: AF_UNIX, in Windows 10 1803 and later.
+[target.'cfg(windows)'.dependencies]
+uds_windows = { version = "1.1", optional = true }
 
 [lints]
 workspace = true

@@ -353,7 +353,7 @@ fn unsupported(p: &Pal) -> El {
         .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
         .child(text("Browser isn't available on this platform yet").font(UI_MED).color(p.text).truncate_fade())
         .child(
-            text("The built-in browser runs on macOS for now.")
+            text("The built-in browser runs on macOS and Windows for now.")
                 .font(UI_SMALL)
                 .color(p.muted)
                 .wrap()

@@ -1,6 +1,5 @@
 //! Finding, downloading, starting and connecting to the engine over its Unix socket.
 
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -10,7 +9,7 @@ use crate::installer::{self, EngineStatus};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
 use crate::profile;
-use crate::transport::{spawn_and_attach_bg, wire_stream};
+use crate::transport::{UnixStream, spawn_and_attach_bg, wire_stream};
 
 #[cfg(target_os = "macos")]
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
@@ -53,12 +52,13 @@ impl BrowserHost {
         let waker = self.waker.clone();
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
+        let surfaces = self.surfaces.clone();
         let profile = profile::for_spawn(self.profile_dir.as_deref());
         installer::start_download(
             status.clone(),
             waker.clone(),
             Box::new(move |bin| {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, surfaces, waker);
             }),
         );
     }
@@ -137,12 +137,13 @@ impl BrowserHost {
         let status = self.status.clone();
         let outbox = self.outbox.clone();
         let inbox_tx = self.inbox_tx.clone();
+        let surfaces = self.surfaces.clone();
         let waker = self.waker.clone();
         let profile = profile::for_spawn(self.profile_dir.as_deref());
         std::thread::Builder::new()
             .name("opencode-browser-connect".into())
             .spawn(move || {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, waker);
+                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, surfaces, waker);
             })
             .ok();
     }
@@ -154,6 +155,7 @@ impl BrowserHost {
             &self.status,
             &self.outbox,
             self.inbox_tx.clone(),
+            self.surfaces.clone(),
             self.waker.clone(),
         );
     }

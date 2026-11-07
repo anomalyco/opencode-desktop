@@ -7,7 +7,6 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -60,14 +59,11 @@ pub(crate) fn wait_until_free(dir: &Path, timeout: Duration) -> bool {
     }
 }
 
-/// Whether no engine holds `dir/engine.lock` (the engine's `flock`).
+/// Whether no engine holds `dir/engine.lock` (the engine's `File::lock`: `flock` on Unix,
+/// `LockFileEx` on Windows).
 pub(crate) fn is_free(dir: &Path) -> bool {
     let Ok(file) = File::open(dir.join("engine.lock")) else {
         return true;
     };
-    let ok = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
-    if ok {
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-    }
-    ok
+    file.try_lock().is_ok()
 }

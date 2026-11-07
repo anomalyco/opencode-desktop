@@ -255,4 +255,14 @@ pub enum EngineMsg {
         height: u32,
         bgra_b64: String,
     },
+    /// Windows: a finished BGRA frame in the named D3D11 shared texture. The app signals the
+    /// named shared fence to `frame_id` once it has read it (`rune::native_surface::windows`).
+    SharedFrame {
+        tab_id: u64,
+        frame_id: u64,
+        width: u32,
+        height: u32,
+        texture: String,
+        release_fence: String,
+    },
 }
