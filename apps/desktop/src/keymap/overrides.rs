@@ -60,6 +60,7 @@ pub fn apply(map: &BTreeMap<String, String>) {
     let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str())).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
+    crate::menubar::refresh();
 }
 
 /// The keybind Settings gave table row `b`, if it changed it.

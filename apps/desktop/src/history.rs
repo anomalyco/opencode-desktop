@@ -2,20 +2,30 @@
 //! (`shell/titlebar/history.ts`). Every move to another page is an entry (a session, a subagent,
 //! Home, a new draft, Settings); a new move drops what was ahead. Back and forward open the
 //! entry at once, with no animation. Closing a tab or deleting a session drops its entries.
+//! Settings is one entry whose page follows the page shown (Desktop navigates between its pages
+//! with `replace`), so going back into Settings reopens the page it was left on.
 
 use crate::pickers::PickerHost as _;
 use rune::{Key, KeyEvent, MenuItem, PhysicalKeyCode, Tx};
 
 use crate::keymap::Bind;
+use crate::settings::pages::Page;
 use crate::{App, Route};
 
 const MAX: usize = 100;
 
-/// One entry: the page, and whether Settings is over it.
+/// One entry: the page, and the Settings page over it, if any.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Place {
     pub route: Route,
-    pub settings: bool,
+    pub settings: Option<Page>,
+}
+
+impl Place {
+    /// The same entry, whichever Settings page it shows.
+    fn same(&self, other: &Place) -> bool {
+        self.route == other.route && self.settings.is_some() == other.settings.is_some()
+    }
 }
 
 #[derive(Default)]
@@ -36,15 +46,15 @@ impl History {
     }
 
     /// Where the app is now. The first call starts the stack with Home behind it.
-    fn observe(&mut self, route: &Route, settings: bool, opening: bool) {
+    fn observe(&mut self, route: &Route, settings: Option<Page>, opening: bool) {
+        let now = Place { route: route.clone(), settings };
         if self.expect.is_none()
-            && let Some(cur) = self.stack.get(self.index)
-            && cur.route == *route
-            && cur.settings == settings
+            && let Some(cur) = self.stack.get_mut(self.index)
+            && cur.same(&now)
         {
+            cur.settings = now.settings;
             return;
         }
-        let now = Place { route: route.clone(), settings };
         if let Some(want) = &self.expect {
             if *want == now {
                 self.expect = None;
@@ -56,7 +66,7 @@ impl History {
             self.expect = None;
         }
         if self.stack.is_empty() {
-            let home = Place { route: Route::Home, settings: false };
+            let home = Place { route: Route::Home, settings: None };
             if now != home {
                 self.stack.push(home);
             }
@@ -64,7 +74,8 @@ impl History {
             self.index = self.stack.len() - 1;
             return;
         }
-        if self.stack[self.index] == now {
+        if self.stack[self.index].same(&now) {
+            self.stack[self.index].settings = now.settings;
             return;
         }
         self.stack.truncate(self.index + 1);
@@ -91,7 +102,7 @@ impl History {
             if gone(&place) {
                 continue;
             }
-            if kept.last() != Some(&place) {
+            if !kept.last().is_some_and(|k| k.same(&place)) {
                 kept.push(place);
             }
             if i <= self.index {
@@ -120,7 +131,8 @@ pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool>
 impl App {
     /// Notes where the app is, so a move made since the last look joins the history.
     pub fn sync_history(&mut self) {
-        self.nav.observe(&self.route, self.settings.open, self.opening.is_some());
+        let page = self.settings.open.then(|| self.settings_pages.page.clone());
+        self.nav.observe(&self.route, page, self.opening.is_some());
     }
 
     /// Opens the entry before (or after) this one. False when there's nowhere to go.
@@ -135,9 +147,12 @@ impl App {
             route => self.route = route,
         }
         match (to.settings, self.settings.open) {
-            (true, false) => self.open_settings(),
-            (false, true) => self.close_settings(),
-            _ => {}
+            (Some(page), _) => {
+                tx.scroll_to_instant("settings", 0.0, 0.0);
+                self.open_settings_at(page);
+            }
+            (None, true) => self.close_settings(),
+            (None, false) => {}
         }
         tx.settle();
         true
@@ -162,24 +177,15 @@ impl App {
 /// The Go menu's Back and Forward (`keys_first`, so focused fields, modals and `on_key` see
 /// ⌘[ and ⌘] before the menu item).
 pub fn menu_items() -> Vec<MenuItem<App>> {
+    use crate::menubar::keyed;
     vec![
-        MenuItem::new("Back", |s: &mut App, tx: &mut Tx| {
+        keyed(MenuItem::new("Back", |s: &mut App, tx: &mut Tx| {
             s.navigate(false, tx);
-        })
-        .id("Go/Back")
-        .menu("Go")
-        .key_equivalent(Bind::GoBack.shortcut().expect("bound"))
+        }).id("Go/Back").menu("Go"), Bind::GoBack)
         .keys_first(),
-        MenuItem::new("Forward", |s: &mut App, tx: &mut Tx| {
+        keyed(MenuItem::new("Forward", |s: &mut App, tx: &mut Tx| {
             s.navigate(true, tx);
-        })
-        .id("Go/Forward")
-        .menu("Go")
-        .key_equivalent(Bind::GoForward.shortcut().expect("bound"))
+        }).id("Go/Forward").menu("Go"), Bind::GoForward)
         .keys_first(),
     ]
-}
-
-pub fn install(app: rune::App<App>) -> rune::App<App> {
-    menu_items().into_iter().fold(app, |a, i| a.menu_item(i))
 }

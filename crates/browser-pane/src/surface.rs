@@ -1,6 +1,6 @@
 //! The one-line Rune element that shows a tab's frames and forwards its input.
 
-use rune::{Align, Drag, El, KeyEvent, Phase, PointerButton, PointerEvent, SurfaceFit, WheelEvent, el};
+use rune::{Align, Drag, El, KeyEvent, MagnifyEvent, Phase, PointerButton, PointerEvent, SurfaceFit, WheelEvent, el};
 
 use crate::client::BrowserHost;
 use crate::protocol::{HostMsg, PointerBtn, pack_mods};
@@ -136,6 +136,16 @@ impl BrowserHost {
                     dy: w.dy,
                     mods: pack_mods(w.mods),
                 });
+                true
+            })
+            // Off macOS a pinch or Ctrl + wheel reaches Rune as a pinch; the page gets it back as
+            // the Ctrl + wheel it was (Rune's -dy / 200), so the window's own pinch zoom leaves it.
+            .on_magnify(move |s: &mut S, m: MagnifyEvent, _tx| {
+                if cfg!(target_os = "macos") {
+                    return false;
+                }
+                let mods = rune::Mods { ctrl: true, ..rune::Mods::default() };
+                access(s).send(HostMsg::Wheel { tab_id, x: m.x * z, y: m.y * z, dx: 0.0, dy: -m.delta * 200.0, mods: pack_mods(mods) });
                 true
             })
             .on_key(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, true))

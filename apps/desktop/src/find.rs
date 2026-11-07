@@ -609,10 +609,11 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
     )
 }
 
-/// Native macOS Edit menu items (`keys_first` so focused fields and `on_key` see them first).
-pub fn install(app: rune::App<App>) -> rune::App<App> {
+/// Native macOS Edit menu items (`keys_first` so focused fields and `on_key` see them first),
+/// with the keys their commands have now.
+pub fn menu_items() -> Vec<MenuItem<App>> {
     let item = |title, id, key: Bind, f: fn(&mut App, &mut Tx)| {
-        MenuItem::new(title, f).id(id).menu("Edit").key_equivalent(key.shortcut().expect("bound")).keys_first()
+        crate::menubar::keyed(MenuItem::new(title, f).id(id).menu("Edit"), key).keys_first()
     };
     [
         item("Find…", "Edit/Find", Bind::Find, |s, tx| match s.route {
@@ -623,6 +624,5 @@ pub fn install(app: rune::App<App>) -> rune::App<App> {
         item("Find Next", "Edit/FindNext", Bind::FindNext, |s, tx| s.step_find(1, tx)),
         item("Find Previous", "Edit/FindPrevious", Bind::FindPrev, |s, tx| s.step_find(-1, tx)),
     ]
-    .into_iter()
-    .fold(app, |a, i| a.menu_item(i))
+    .into()
 }

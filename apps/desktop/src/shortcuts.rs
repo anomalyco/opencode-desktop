@@ -84,13 +84,20 @@ pub fn adjacent(order: &[&str], current: Option<&str>, offset: i32, include: imp
 pub const ZOOM_MIN: f32 = 0.5;
 pub const ZOOM_MAX: f32 = 3.0;
 
-/// One 10% step, clamped to 50%–300%; `dir` 0 resets.
+/// Desktop's zoom levels (`desktopZoomLevels`, Chromium's from 50% to 200%): the zoom keys and
+/// Appearance › Zoom each pick one.
+pub const ZOOM_LEVELS: [f32; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+/// The level after `zoom` in `dir`'s direction (`nextDesktopZoomLevel`), from wherever a pinch
+/// left it; `dir` 0 resets.
 pub fn step_zoom(zoom: f32, dir: i32) -> f32 {
     if dir == 0 {
         return 1.0;
     }
-    let percent = (zoom * 100.0).round() as i32 + dir.signum() * 10;
-    (percent as f32 / 100.0).clamp(ZOOM_MIN, ZOOM_MAX)
+    if dir > 0 {
+        return ZOOM_LEVELS.into_iter().find(|l| *l > zoom + 0.01).unwrap_or(ZOOM_LEVELS[ZOOM_LEVELS.len() - 1]);
+    }
+    ZOOM_LEVELS.into_iter().rev().find(|l| *l < zoom - 0.01).unwrap_or(ZOOM_LEVELS[0])
 }
 
 #[cfg(test)]
@@ -148,12 +155,12 @@ mod tests {
         assert_eq!(step_zoom(1.0, 1), 1.1);
         assert_eq!(step_zoom(1.1, -1), 1.0);
         assert_eq!(step_zoom(0.5, -1), 0.5);
-        assert_eq!(step_zoom(3.0, 1), 3.0);
+        assert_eq!(step_zoom(2.0, 1), 2.0);
         assert_eq!(step_zoom(2.3, 0), 1.0);
         let mut z = 1.0;
         for _ in 0..30 {
             z = step_zoom(z, 1);
         }
-        assert_eq!(z, 3.0);
+        assert_eq!(z, 2.0);
     }
 }

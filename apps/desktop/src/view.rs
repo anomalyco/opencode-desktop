@@ -142,6 +142,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     };
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
+        .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         .w_full()
         .h_full()
         .center()

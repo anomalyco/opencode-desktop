@@ -16,8 +16,7 @@ const UI_DEFAULT: &str = "Inter";
 const CODE_DEFAULT: &str = "IBM Plex Mono";
 const TERMINAL_DEFAULT: &str = "JetBrainsMono Nerd Font Mono";
 
-/// Desktop's zoom levels (`desktopZoomLevels`).
-const ZOOM_LEVELS: [f32; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+use crate::shortcuts::ZOOM_LEVELS;
 
 /// The three font fields as typed.
 #[derive(Default)]
@@ -126,6 +125,7 @@ impl App {
     /// Sets the window's zoom to `level` (Appearance › Zoom), clamped as the zoom keys clamp it.
     pub fn set_zoom_level(&mut self, level: f32) {
         self.zoom = level.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX);
+        self.zoom_pinch.leveled();
         if self.persists() {
             crate::tabs::save_zoom(self.zoom);
         }

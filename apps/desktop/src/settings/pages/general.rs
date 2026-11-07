@@ -33,7 +33,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         ("settings-follow-up-behavior", setting(p, "settings-follow-up-behavior", "Follow-up behavior", &format!("Choose whether to queue follow-ups or steer the current turn. Use {alternate} to switch."),
             choice(s, p, "settings-follow-up-behavior-select", "Follow-up behavior", st.follow_up, |s, id, _| s.change_settings(|x| x.follow_up = FollowUp::parse(Some(id)))))),
         ("settings-pinch-zoom", setting(p, "settings-pinch-zoom", "Pinch to zoom", "Allow trackpad pinch and Ctrl-scroll gestures to zoom",
-            switch(p, "pinch-zoom-switch", st.pinch_zoom).on_press(|s: &mut App| s.change_settings(|x| x.pinch_zoom = !x.pinch_zoom)))),
+            switch(p, "pinch-zoom-switch", st.pinch_zoom).on_press_tx(|s: &mut App, tx: &mut Tx| s.set_pinch_zoom(!s.settings.pinch_zoom, tx)))),
         ("settings-spellcheck", setting(p, "settings-spellcheck", "Spellcheck", "Underline misspelled words while typing",
             switch(p, "spellcheck-switch", st.spellcheck).on_press(|s: &mut App| s.change_settings(|x| x.spellcheck = !x.spellcheck)))),
         ("terminal-placement", setting(p, "terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement(s, p))),

@@ -195,6 +195,8 @@ pub fn setup(s: &mut App) {
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) {
+    // The menu bar was built before the saved shortcuts loaded.
+    crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
     start(s, tx);
 }

@@ -136,6 +136,7 @@ mod mcp;
 mod mention_stories;
 mod mentions;
 mod menu_stories;
+mod menubar;
 mod model_picker;
 mod model_prefs;
 #[cfg(test)]
@@ -161,6 +162,7 @@ pub mod panels;
 mod perf;
 mod permission;
 mod pickers;
+mod pinch;
 mod plugin_host;
 mod popover;
 mod popup;
@@ -319,6 +321,8 @@ pub struct App {
     pub sidebar_inbox: inbox_model::SidebarInbox,
     /// UI zoom, 1.0 = 100% (see `view::app`).
     pub zoom: f32,
+    /// A pinch's zoom gesture (`pinch.rs`).
+    pub zoom_pinch: pinch::Pinch,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
@@ -877,6 +881,7 @@ impl App {
 
     pub fn set_zoom(&mut self, dir: i32) {
         self.zoom = shortcuts::step_zoom(self.zoom, dir);
+        self.zoom_pinch.leveled();
         if self.persists() {
             tabs::save_zoom(self.zoom);
         }
@@ -1276,7 +1281,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 /// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native
 /// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
-    find::install(history::install(
+    menubar::install(
         rune::App::new(spec)
             .gpu_backend(rune::GpuBackend::Metal)
             .playground(stories::playground())
@@ -1287,7 +1292,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
                 traffic_lights: Some((25.0, 25.0)),
                 drag_regions: true,
             }),
-    ))
+    )
 }
 
 fn main() {
