@@ -11,7 +11,6 @@ use rune::{
 use rune_kit::diff::{
     DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side,
 };
-use rune_theme_opencode::icons as ic;
 
 use super::diff_state::{DiffDocState, DiffRow};
 use super::{
@@ -101,7 +100,7 @@ impl<S: 'static> DiffViewer<S> {
             st.set_viewport(r);
         }
         let sticky_on = self.sticky_headers;
-        let inner = Rc::new(Inner { look, d: self });
+        let inner = Rc::new(Inner { look, pal: *p, d: self });
         let count = st.rows.len();
         let mut list = col()
             .key("rows")
@@ -183,6 +182,7 @@ impl CellData<'_> {
 
 struct Inner<S> {
     look: CodeLook,
+    pal: Pal,
     d: DiffViewer<S>,
 }
 
@@ -672,23 +672,18 @@ impl<S: 'static> Inner<S> {
         row().w_full().h(NOTE_H).fill(l.bg).role("note").label(msg).child(inner)
     }
 
+    /// A file's header, as Review's (`review::chrome::file_header`); pressed, it folds the file.
     fn file_header(&self, s: &S, st: &DiffDocState, f: usize, sticky: bool) -> El {
-        let l = &self.look;
         let file = &st.files()[f];
         let collapsed = st.collapsed(f);
         let get_mut = self.d.get_mut.clone();
-        let chevron = if collapsed { &ic::CHEVRON_RIGHT } else { &ic::CHEVRON_DOWN };
-        let toggle = row()
-            .key("toggle")
-            .size(22.0, 22.0)
-            .center()
-            .radius(5.0)
-            .hover(l.hover)
-            .hover_motion(INSTANT, INSTANT)
-            .cursor(Cursor::Pointer)
+        let full_path = file.path();
+        let (adds, dels) = (file.additions(), file.deletions());
+        let mut inner = crate::review::chrome::file_header(&self.pal, full_path, file.status, adds as usize, dels as usize)
+            .key("inner")
             .role("button")
             .label(if collapsed { "Expand file" } else { "Collapse file" })
-            .child(icon(chevron, 13.0).color(l.muted))
+            .expanded(!collapsed)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 let st = get_mut(s);
@@ -698,88 +693,21 @@ impl<S: 'static> Inner<S> {
                     st.scroll_to_file(f, tx);
                 }
             });
-
-        let full_path = file.path();
-        let (dir_part, base_name) = opencode_kit::path::split(full_path);
-        let dir_part = Some(dir_part.to_owned()).filter(|d| !d.is_empty());
-        let mut path_row = row().key("path").grow(1.0).shrink().min_w(0.0).center_y().gap(4.0);
-        if let Some(d) = dir_part {
-            path_row = path_row.child(
-                text(d)
-                    .key("dir")
-                    .font(l.label)
-                    .color(l.muted)
-                    .shrink()
-                    .min_w(0.0)
-                    .truncate_fade(),
-            );
-        }
-        path_row = path_row.child(
-            text(base_name.to_owned())
-                .key("name")
-                .font(l.label_med)
-                .color(l.text)
-                .shrink()
-                .min_w(0.0)
-                .truncate_fade(),
-        );
-
-        let status = match file.status {
-            FileStatus::Added => Some(("A", l.add.count)),
-            FileStatus::Deleted => Some(("D", l.del.count)),
-            FileStatus::Renamed => Some(("R", l.muted)),
-            FileStatus::Copied => Some(("C", l.muted)),
-            FileStatus::Modified => None,
-        };
-
-        let mut inner = row()
-            .key("inner")
-            .w_full()
-            .grow(1.0)
-            .px(10.0)
-            .gap(6.0)
-            .center_y()
-            .child(toggle)
-            .child(icon(rune_theme_opencode::file_icons::file(full_path), 16.0).key("file-icon").color(l.text))
-            .child(path_row);
-
-        if let Some((badge, color)) = status {
-            inner = inner.child(text(badge).key("status").font(l.mono_small).color(color));
-        }
-        let (adds, dels) = (file.additions(), file.deletions());
-        if adds > 0 {
-            inner = inner.child(
-                text(format!("+{adds}"))
-                    .key("adds")
-                    .font(l.mono_small)
-                    .color(l.add.count),
-            );
-        }
-        if dels > 0 {
-            inner = inner.child(
-                text(format!("−{dels}"))
-                    .key("dels")
-                    .font(l.mono_small)
-                    .color(l.del.count),
-            );
-        }
         if let Some(actions) = &self.d.header_actions {
             inner = inner.child(actions(s, f).key("actions"));
         }
-
         let mut h = col()
             .w_full()
             .h(HEADER_H)
-            .fill(l.header_bg)
             .role("heading")
             .label(format!("{full_path}, {adds} added, {dels} removed"));
         if let (false, Some(w)) = (sticky, self.view_w(st)) {
             h = h.w(w).sticky_left(0.0);
         }
+        // Stacked under the file before it, a rule as its own bottom one parts them.
         if f > 0 && !sticky {
-            h = h.child(el().key("top-rule").w_full().h(0.5).fill(l.border_muted));
+            h = h.child(el().key("top-rule").w_full().h(1.0).fill(self.pal.border));
         }
         h.child(inner)
-            .child(el().key("bottom-rule").w_full().h(0.5).fill(l.border_muted))
     }
 }

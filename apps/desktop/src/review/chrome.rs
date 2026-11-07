@@ -182,3 +182,50 @@ pub fn change_letter(p: &Pal, status: rune_kit::diff::FileStatus) -> El {
 }
 
 const CHANGE: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).features("'tnum' 1, 'lnum' 1");
+
+/// A diff's file header (`session-review-v2-file-header`): its status letter, the file's
+/// coloured icon, its name and its folder, 6 apart, then its `+N -M` 8 past them, 8 by 16 in;
+/// a 1 px `border-base` rule under it.
+pub fn file_header(p: &Pal, path: &str, status: rune_kit::diff::FileStatus, adds: usize, dels: usize) -> El {
+    use rune_kit::diff::FileStatus;
+    let (letter, color) = match status {
+        FileStatus::Added => ("A", p.diff.add_text),
+        FileStatus::Deleted => ("D", p.diff.del_text),
+        _ => ("M", p.info),
+    };
+    let (dir, name) = opencode_kit::path::split(path);
+    let title = row()
+        .key("title")
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(6.0)
+        .center_y()
+        .child(el().key("status").size(16.0, 16.0).center().child(text(letter).font(STATUS).color(color)))
+        .child(icon(rune_theme_opencode::file_icons::file(path), 16.0).key("file-icon"))
+        .child(text(name.to_owned()).key("name").font(FILE_NAME).color(p.text))
+        .children((!dir.is_empty()).then(|| text(dir.to_owned()).key("dir").font(FILE_PATH).color(p.muted).shrink().min_w(0.0).truncate_fade()));
+    // `DiffChanges` compact: both counts, 8 apart, in 11 px.
+    let counts = row()
+        .key("counts")
+        .gap(8.0)
+        .center_y()
+        .children((adds + dels > 0).then(|| text(format!("+{adds}")).key("adds").font(COUNT).color(p.success)))
+        .children((adds + dels > 0).then(|| text(format!("-{dels}")).key("dels").font(COUNT).color(p.danger)));
+    row()
+        .key("file-header")
+        .w_full()
+        .px(16.0)
+        .py(8.0)
+        .gap(8.0)
+        .center_y()
+        .fill(p.bg_base)
+        .border_sides([0.0, 0.0, 1.0, 0.0], p.border)
+        .child(title)
+        .child(counts)
+}
+
+const STATUS: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
+const FILE_NAME: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
+const FILE_PATH: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
+const COUNT: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(11.0).tracking(0.05);
