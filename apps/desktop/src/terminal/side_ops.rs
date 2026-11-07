@@ -4,7 +4,7 @@
 //! `pty.*` events.
 
 use opencode_kit::persistent_pty::parse_persistent_pty_info;
-use rune::{El, Ime, KeyEvent, Tx};
+use rune::{El, Ime, KeyEvent, Tx, icon, row, text};
 use serde_json::Value;
 
 use super::{grid, input, workspace_key};
@@ -58,6 +58,18 @@ pub(super) fn open_from_launcher(s: &mut App, pane: SessionPane, tx: &mut Tx) {
 /// `terminal.new` (⌃⌥T): a new terminal, its tab selected.
 pub(super) fn shortcut_new_terminal(s: &mut App, tx: &mut Tx) {
     s.create_terminal_tab(None, tx);
+}
+
+/// A terminal's label (`TerminalTabLabel`): Desktop's prompt glyph, then its title, at most 160 wide.
+pub(super) fn tab_lead(_s: &App, p: &Pal, tab: &PanelTabDesc, active: bool) -> Option<El> {
+    Some(
+        row()
+            .gap(6.0)
+            .center_y()
+            .min_w(0.0)
+            .child(icon(&grid::TERMINAL_ICON, 16.0).color(if active { p.icon } else { p.icon_muted }))
+            .child(text(tab.title.clone()).font(crate::view::UI).color(if active { p.text } else { p.muted }).truncate().max_w(160.0).shrink()),
+    )
 }
 
 pub(super) fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {

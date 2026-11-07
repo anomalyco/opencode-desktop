@@ -143,6 +143,8 @@ pub struct PanelTabDesc {
     pub group: Option<&'static str>,
     /// Close button style.
     pub closable: CloseButtonMode,
+    /// Drags between panes (Desktop's `draggable`, true unless a launcher says not).
+    pub draggable: bool,
 }
 
 impl PanelTabDesc {
@@ -160,7 +162,8 @@ impl PanelTabDesc {
             hidden: false,
             file: None,
             group: None,
-            closable: CloseButtonMode::Hover,
+            closable: CloseButtonMode::Standard,
+            draggable: true,
         }
     }
 
@@ -197,6 +200,12 @@ impl PanelTabDesc {
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self.closable = CloseButtonMode::None;
+        self
+    }
+
+    /// Stays where it is: a launcher tab, such as Open file, doesn't drag.
+    pub fn undraggable(mut self) -> Self {
+        self.draggable = false;
         self
     }
 

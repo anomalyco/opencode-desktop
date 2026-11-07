@@ -30,7 +30,7 @@ use rune_theme_opencode::icons as ic;
 use crate::keymap::Bind;
 use crate::code_view::CodeDocState;
 use crate::panels::{
-    CloseButtonMode, PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc,
+    PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc,
     SessionPane, panel_key,
 };
 use crate::{App, Source};
@@ -199,7 +199,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
                     .icon(&ic::FILE_TREE)
                     .group("browser")
                     .transient()
-                    .closable(CloseButtonMode::Hover),
+                    .undraggable(),
             );
             continue;
         }
@@ -217,8 +217,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             .icon(file_icon(name))
             .file(path)
             .group("browser")
-            .fallback()
-            .closable(CloseButtonMode::Hover);
+            .fallback();
         if missing {
             desc = desc.missing(true);
         }

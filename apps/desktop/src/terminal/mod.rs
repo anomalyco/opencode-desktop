@@ -75,7 +75,8 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .on_close(side_ops::on_close)
         .poll(side_ops::poll_panel)
         .on_key(side_ops::key_terminal)
-        .on_ime(side_ops::ime_terminal),
+        .on_ime(side_ops::ime_terminal)
+        .tab_lead(side_ops::tab_lead),
 ]);
 
 pub struct TerminalTab {
