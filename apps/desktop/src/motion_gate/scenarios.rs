@@ -895,7 +895,8 @@ fn answer_question(r: &mut Run, v: usize) {
     send(r, st::asked(v));
     r.play(0.8);
     send(r, st::answered(v));
-    r.play_out(1.0);
+    // Classic's taller dock closing settles in about a second, as the long question's does.
+    r.play_out(1.5);
 }
 
 /// Opening a session through the real gate: cold (ready at 100 ms), prefetched, slow.

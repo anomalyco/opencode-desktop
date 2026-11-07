@@ -961,8 +961,9 @@ fn place(parts: &mut Vec<Part>, at: Option<usize>, part: Part) {
 /// Something a session is waiting on a person for.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
-    /// A tool wants to run: `action` on `resources`.
-    Permission { id: String, session: String, action: String, resources: Vec<String>, message: String },
+    /// A tool wants to run: `action` on `resources`. `input` is the tool's arguments as
+    /// `key: value` lines, when the request carries them (`metadata.input`, an MCP tool's).
+    Permission { id: String, session: String, action: String, resources: Vec<String>, message: String, input: Vec<String> },
     /// A form, such as the question tool's: one field per question.
     Form { id: String, session: String, title: String, fields: Vec<Field> },
 }
@@ -1020,6 +1021,12 @@ pub fn parse_permission(v: &Value) -> Option<Pending> {
         action: s(&v["action"]),
         resources: v["resources"].as_array().into_iter().flatten().filter_map(|r| r.as_str().map(str::to_owned)).collect(),
         message: s(&v["message"]),
+        input: v["metadata"]["input"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, item)| format!("{k}: {}", item.as_str().map_or_else(|| item.to_string(), str::to_owned)))
+            .collect(),
     })
 }
 

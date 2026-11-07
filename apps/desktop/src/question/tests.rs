@@ -55,6 +55,8 @@ fn keys_map_as_desktops() {
 /// to a channel, never a server; a fixture run polls its own playback instead.
 fn asked(live: bool) -> (Runtime<App>, Option<Receiver<Write>>) {
     let mut app = App::fixture_session();
+    // These cover the keyboard-first dock; Classic is the default.
+    app.settings.new_question_ui = true;
     app.composer = TextEdit::new("half a thought");
     let q = app.fixture["question"].clone();
     app.apply_event("form.created", &q);

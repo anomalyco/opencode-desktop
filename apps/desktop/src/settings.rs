@@ -60,6 +60,9 @@ pub struct Settings {
     pub record_glitches: bool,
     /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
     pub tab_layout: crate::layout_state::TabLayout,
+    /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
+    /// Settings › Experimental › New question UI). Off unless turned on, as there.
+    pub new_question_ui: bool,
 }
 
 impl Default for Settings {
@@ -79,6 +82,7 @@ impl Default for Settings {
             code_font: 0,
             record_glitches: true,
             tab_layout: Default::default(),
+            new_question_ui: false,
         }
     }
 }
@@ -99,6 +103,7 @@ impl Settings {
             "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
+            "newQuestionUI": self.new_question_ui,
         })
     }
 
@@ -120,6 +125,7 @@ impl Settings {
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
+            new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
         }
     }
 }
@@ -256,6 +262,10 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section(p, "Notifications", notification_list(s, p)))
                 .child(crate::keymap::settings_section(s, p))
+                .child(section(p, "Experimental", settings_card(p, "experimental-list", [
+                    ("new-question-ui", "New question UI", "Preview the keyboard-first question dock",
+                        switch(p, "new-question-ui-switch", s.settings.new_question_ui).on_press(|s: &mut App| s.change_settings(|x| x.new_question_ui = !x.new_question_ui))),
+                ])))
                 .child(crate::glitch::settings_section(s, p))
                 .children(crate::plugin_host::settings_section(s, p)),
         );
@@ -516,7 +526,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default() };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default(), new_question_ui: false };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

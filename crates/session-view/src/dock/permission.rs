@@ -1,29 +1,35 @@
 //! The permission dock: Desktop's `session-permission-dock.tsx` in the composer's place. When the
 //! open page's session (or a subagent under it) waits on a permission, the composer's surface
 //! morphs into it the way it does for a question: a warning and "Permission required", what the
-//! tool does when Desktop names it, the patterns it asks for, then Deny, Allow always and Allow
-//! once. Several wait one at a time, the page's own first, then oldest first. With auto-accept on
-//! it never shows.
+//! tool does when Desktop names it (else the tool's own name, `shell` for a command), the
+//! request's message, the tool's arguments when it sends them, the patterns it asks for, then
+//! Deny, Allow always and Allow once. Several wait one at a time, the page's own first, then
+//! oldest first. With auto-accept on it never shows.
 //!
 //! A press answers at once: the dock goes and the composer comes back with its draft.
 
 use opencode_kit::model::Pending;
-use rune::{El, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune::{El, Shadow, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{DockHost, Variant, button, face_transition, morph};
 use crate::palette::Pal;
 
-const TITLE: TextStyle = TextStyle::new(14.0, 500.0).lh(21.0);
-const HINT: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
-const PATTERN: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
+/// `permission-header-title`: 13 px medium on the base line height.
+const TITLE: TextStyle = TextStyle::new(13.0, 500.0).lh(20.0);
+const HINT: TextStyle = TextStyle::new(13.0, 400.0).lh(20.0);
+/// `permission-action`, `permission-input code` and `permission-patterns code`.
+const CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
 /// The icon's column; the title and everything under it start past it and the gap.
 const ICON_W: f32 = 20.0;
 const INDENT: f32 = ICON_W + 8.0;
 /// A long list of patterns scrolls inside the dock past this height.
 const PATTERNS_MAX_H: f32 = 320.0;
+/// The tool's arguments scroll past this (`permission-input`'s `max-height`).
+const INPUT_MAX_H: f32 = 160.0;
 
 /// What the tool does, in Desktop's words (`settings.permissions.tool.<action>.description`).
+/// Desktop has none for `shell` (its key is still `bash`), so a command shows the tool's name.
 pub fn description(action: &str) -> Option<&'static str> {
     Some(match action {
         "read" => "Reading a file (matches the file path)",
@@ -83,16 +89,33 @@ pub fn decide<S: DockHost>(s: &mut S, id: &str, decision: &str, tx: &mut Tx) {
 
 /// The permission's face of the composer surface: header and patterns, then the answers.
 pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
-    let Pending::Permission { id, action, resources, .. } = asked(s)? else { return None };
+    let Pending::Permission { id, action, resources, message, input, .. } = asked(s)? else { return None };
     let fade = || face_transition(s.knobs());
     let header = row()
         .key("permission-header")
         .w_full()
         .gap(8.0)
         .center_y()
-        .child(el().key("permission-icon").size(ICON_W, 21.0).center().child(icon(&ic::WARNING, 16.0).color(p.warning)))
+        .child(el().key("permission-icon").size(ICON_W, 20.0).center().child(icon(&ic::WARNING, 16.0).color(p.v1_icon_warning)))
         .child(text("Permission required").key("permission-title").font(TITLE).color(p.text).shrink());
-    let hint = description(&action).map(|d| text(d).key("permission-hint").font(HINT).color(p.muted).wrap());
+    // What the tool does, else its name in code.
+    let what = match description(&action) {
+        Some(d) => text(d).key("permission-hint").font(HINT).color(p.muted).wrap(),
+        None => text(action.clone()).key("permission-action").font(CODE).color(p.text).wrap_anywhere(),
+    };
+    let message = (!message.is_empty()).then(|| text(message.clone()).key("permission-message").font(HINT).color(p.muted).wrap());
+    // The arguments scroll rather than truncate: all of what's approved must be reachable.
+    let input = (!input.is_empty()).then(|| {
+        col()
+            .key("permission-input")
+            .w_full()
+            .max_h(INPUT_MAX_H)
+            .scroll(rune::ScrollSpec { stick_bottom: false })
+            .mt(8.0)
+            .child(col().key("permission-input-list").w_full().gap(2.0).children(input.iter().enumerate().map(|(i, line)| {
+                text(line.clone()).key(format!("input-{i}")).font(CODE).color(p.v1_text_weak).wrap_anywhere()
+            })))
+    });
     let patterns = (!resources.is_empty()).then(|| {
         col()
             .key("permission-patterns")
@@ -103,7 +126,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             .mt(8.0)
             .mb(16.0)
             .child(col().key("permission-pattern-list").w_full().gap(6.0).pt(1.0).pb(8.0).children(resources.iter().enumerate().map(|(i, r)| {
-                text(r.clone()).key(format!("pattern-{i}")).font(PATTERN).color(p.text).wrap_anywhere()
+                text(r.clone()).key(format!("pattern-{i}")).font(CODE).color(p.v1_text_base).wrap_anywhere()
             })))
     });
     let body = col()
@@ -112,12 +135,9 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .px(12.0)
         .pt(12.0)
         .gap(16.0)
-        .transition(fade())
         .child(header)
         // Keyed by request: the next one's words fade in over the last's instead of swapping.
-        .children((hint.is_some() || patterns.is_some()).then(|| {
-            col().key(format!("permission-{id}")).w_full().pl(INDENT).gap(4.0).transition(fade()).children(hint).children(patterns)
-        }));
+        .child(col().key(format!("permission-{id}")).w_full().pl(INDENT).gap(4.0).transition(fade()).child(what).children(message).children(input).children(patterns));
     let answer = |key: &str, label: &str, variant: Variant, decision: &'static str| {
         let id = id.clone();
         button(p, key, label, variant, None, true).h(28.0).px(12.0).on_press_tx(move |s: &mut S, tx: &mut Tx| decide(s, &id, decision, tx))
@@ -127,7 +147,6 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .w_full()
         .padding(8.0)
         .center_y()
-        .transition(fade())
         .child(spacer())
         .child(
             row()
@@ -137,5 +156,21 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .child(answer("perm-always", "Allow always", Variant::Neutral, "always"))
                 .child(answer("perm-once", "Allow once", Variant::Submit, "once")),
         );
-    Some(vec![body, footer])
+    // Its own card (`dock-prompt[data-kind="permission"]`): the raised elevation outside the
+    // box over a `bg-base` hairline that masks what's behind, where the composer's card has
+    // its hairline inside.
+    let raised = p.raised;
+    let ring = Shadow { spread: 0.5, color: super::flat(raised[2].color, p.bg_base), ..Shadow::default() };
+    let card = col()
+        .key("permission-card")
+        .w_full()
+        .radius(12.0)
+        .fill(crate::composer::composer_fill(p))
+        .box_shadow(raised[0])
+        .box_shadow(raised[1])
+        .box_shadow(ring)
+        .transition(fade())
+        .child(body)
+        .child(footer);
+    Some(vec![card])
 }

@@ -233,8 +233,11 @@ const SINK: f32 = 6.0;
 /// and only its fill tucks under, inset clear of the composer's ring. It casts the composer's
 /// shadow too, so both rings sit over the same backdrop. The two read as one outline, with the
 /// composer's top edge as the one divider.
+///
+/// A question or permission in the composer's place closes it, as Desktop hides its queue while
+/// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
-    let queued: Vec<&InboxItem> = s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default();
+    let queued: Vec<&InboxItem> = if s.dock_shown() { Vec::new() } else { s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default() };
     let shadow = if queued.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
     let shell = col().key("queue").w_full().max_w(crate::view::DOCK_W).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
     let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).border(0.5, p.ring);
@@ -268,7 +271,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
 
 /// Whether the open session has prompts in the queue, which squares the composer's top corners.
 pub fn docked(s: &App) -> bool {
-    matches!(&s.route, crate::Route::Session(id) if s.inbox_for(id).is_some_and(|i| i.queued().next().is_some()))
+    !s.dock_shown() && matches!(&s.route, crate::Route::Session(id) if s.inbox_for(id).is_some_and(|i| i.queued().next().is_some()))
 }
 
 fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool) -> El {

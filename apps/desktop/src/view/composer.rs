@@ -57,6 +57,9 @@ impl session_view::dock::DockHost for App {
     fn dock_auto_accept(&self) -> bool {
         self.settings.auto_accept
     }
+    fn dock_new_question_ui(&self) -> bool {
+        self.settings.new_question_ui
+    }
     fn dock_reply_permission(&mut self, id: &str, decision: &str) {
         self.reply_permission(id, decision);
     }
@@ -142,6 +145,9 @@ impl ComposerHost for App {
     }
     fn composer_face_transition(&self) -> Transition {
         crate::question::face_transition(self)
+    }
+    fn composer_face_bare(&self) -> bool {
+        session_view::dock::bare(self)
     }
     fn composer_toolbar_items(&self, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         toolbar_items(self, p, scope, queues)

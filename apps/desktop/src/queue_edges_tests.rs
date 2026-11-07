@@ -135,7 +135,8 @@ fn deliver_oldest(rt: &mut Runtime<App>) {
 
 #[test]
 fn a_settled_queue_shares_one_outline_with_the_composer_or_the_question() {
-    for (n, ask) in [(1, false), (3, false), (6, false), (1, true), (3, true), (6, true)] {
+    // A question in the composer's place closes the queue, as Desktop's does.
+    for (n, ask) in [(1, false), (3, false), (6, false)] {
         let mut app = App::empty();
         app.load_fixture(crate::FIXTURE);
         crate::queue::scene(&mut app, n, ask);

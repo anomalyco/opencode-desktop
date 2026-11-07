@@ -148,6 +148,8 @@ mod question {
         let mut rt = rt();
         let q = rt.state.fixture["question"].clone();
         rt.update(|s, _| {
+            // The keyboard-first dock's ⌘[; Classic's is Alt+← off a Mac, as Desktop's.
+            s.settings.new_question_ui = true;
             s.apply_event("form.created", &q);
         });
         rt.frame(1.0 / 60.0);

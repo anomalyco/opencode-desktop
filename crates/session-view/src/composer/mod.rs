@@ -232,6 +232,11 @@ pub trait ComposerHost: TimelineHost {
     fn composer_face_transition(&self) -> Transition {
         Transition::none()
     }
+    /// Whether the face draws its own surfaces (the Classic question's raised body over its
+    /// footer tray), so the composer's card steps back while it shows.
+    fn composer_face_bare(&self) -> bool {
+        false
+    }
     fn composer_toolbar_items(&self, p: &Pal, _scope: &str, _queues: bool) -> Vec<El> {
         vec![
             attach_button::<Self>(p),
@@ -323,17 +328,15 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     } else {
         format!("{scope}-composer")
     };
-    let box_el = col()
-        .key(key)
-        .w_full()
-        .max_w(DOCK_W)
-        .min_h(88.0)
-        .corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
-        .fill(composer_fill(p))
-        .border(0.5, p.ring)
-        .shadow(1.0, 2.0, p.shadow)
-        .clip_soft(0.0);
-    match s.composer_face(p) {
+    let face = s.composer_face(p);
+    let box_el = col().key(key).w_full().max_w(DOCK_W).min_h(88.0).corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] });
+    // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
+    let box_el = if face.is_some() && s.composer_face_bare() {
+        box_el
+    } else {
+        box_el.fill(composer_fill(p)).border(0.5, p.ring).shadow(1.0, 2.0, p.shadow).clip_soft(0.0)
+    };
+    match face {
         Some(face) => box_el.children(face),
         None => box_el
             .children(attachments::chips(s, p))

@@ -15,7 +15,7 @@ pub mod question;
 
 pub use question::Dock;
 
-const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
+pub(crate) const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 
 /// A host that shows the dock: its open requests and where their replies go.
 pub trait DockHost: ComposerHost {
@@ -27,6 +27,11 @@ pub trait DockHost: ComposerHost {
     fn dock_parent(&self, id: &str) -> Option<String>;
     /// Whether permissions are answered without asking.
     fn dock_auto_accept(&self) -> bool {
+        false
+    }
+    /// Whether questions take the new keyboard-first dock (Desktop's Settings › Experimental ›
+    /// New question UI) instead of its default Classic one.
+    fn dock_new_question_ui(&self) -> bool {
         false
     }
     /// Answers permission `id` with `decision` (`once`, `always`, `reject`).
@@ -55,6 +60,26 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     question::face(s, p).or_else(|| permission::face(s, p))
 }
 
+/// Whether the face draws its own surfaces instead of the composer's card: the Classic question
+/// (a raised body over its footer tray) and the permission (a raised card).
+pub fn bare<S: DockHost>(s: &S) -> bool {
+    match question::id(s) {
+        Some(_) => question::classic(s),
+        None => permission::asked(s).is_some(),
+    }
+}
+
+/// `top` over the opaque `bottom`, blended in sRGB as a browser does, as one opaque colour.
+pub(crate) fn flat(top: Color, bottom: Color) -> Color {
+    let srgb = |c: Color| {
+        let h = c.hex();
+        [1, 3, 5].map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0) as f32)
+    };
+    let (t, b) = (srgb(top), srgb(bottom));
+    let m = |i: usize| (t[i] * top.a + b[i] * (1.0 - top.a)).round() as u8;
+    rune::color::hex(&format!("#{:02x}{:02x}{:02x}", m(0), m(1), m(2))).unwrap_or(bottom)
+}
+
 /// What stands in the composer's place, by id: the question's form, else a permission.
 pub fn shown<S: DockHost>(s: &S) -> Option<String> {
     question::id(s).or_else(|| permission::asked(s).map(|p| p.id().to_owned()))
@@ -81,16 +106,26 @@ pub fn face_transition(k: &rune_knobs::Knobs) -> Transition {
 #[derive(Clone, Copy, PartialEq)]
 pub enum Variant {
     Ghost,
+    /// A ghost button in a question's footer, which mutes it (`question-footer > ghost`).
+    GhostMuted,
     Neutral,
     Submit,
+    /// `contrast`: the Classic question's Submit, on `bg-contrast` rather than Submit's
+    /// `bg-icon-button-contrast` (the two differ in dark).
+    Contrast,
 }
 
 /// `button-v2` at size large.
 pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&str>, live: bool) -> El {
     let (fill, fg) = match variant {
-        Variant::Ghost => (Color::TRANSPARENT, p.muted),
+        Variant::Ghost => (Color::TRANSPARENT, p.text),
+        Variant::GhostMuted => (Color::TRANSPARENT, p.muted),
+        // Dark's neutral fill is translucent (`alpha-light-6`), and the theme flattens it over
+        // `bg-base`; the docks it sits on are `layer-01`, so it's laid over that instead.
+        Variant::Neutral if p.dark && p.theme == 0 => (flat(Color::WHITE.alpha(0.06), p.layer1), p.text),
         Variant::Neutral => (p.q.neutral, p.text),
         Variant::Submit => (p.q.submit, p.q.submit_text),
+        Variant::Contrast => (p.contrast, p.q.contrast_text),
     };
     let mut b = row()
         .key(key)
@@ -107,9 +142,15 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         .children(hint.map(|h| text(h.to_owned()).key("hint").font(BUTTON).color(fg).opacity(0.6)));
     b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(0.4) };
     match variant {
-        Variant::Ghost => {}
+        Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.border(0.5, p.q.neutral_ring).shadow(1.0, 1.5, p.q.neutral_shadow),
-        Variant::Submit => b = b.border(0.5, p.q.submit_ring).shadow(1.0, 1.5, p.q.neutral_shadow),
+        // `--v2-elevation-button-contrast` under the top-lit highlight (`--submit-highlight`,
+        // brighter on dark's light Submit fill).
+        Variant::Submit | Variant::Contrast => {
+            let lit = if variant == Variant::Submit && p.dark { 0.6 } else { 0.2 };
+            let (y, blur, drop) = if p.dark { (1.0, 2.0, 0.4) } else { (1.0, 1.5, 0.2) };
+            b = b.gradient(Color::WHITE.alpha(lit), Color::WHITE.alpha(0.0)).border(0.5, p.q.submit_ring).shadow(y, blur, Color::BLACK.alpha(drop))
+        }
     }
     b
 }

@@ -27,6 +27,8 @@ fn txt(s: &str) -> KeyEvent {
 /// channel, never a server.
 fn asked_with(edit: impl FnOnce(&mut Value)) -> (Runtime<App>, Receiver<Write>) {
     let mut app = App::fixture_session();
+    // These cover the keyboard-first dock; Classic is the default.
+    app.settings.new_question_ui = true;
     app.composer = TextEdit::new("half a thought");
     let mut q = app.fixture["question"].clone();
     edit(&mut q);

@@ -1,0 +1,478 @@
+//! Desktop's default question dock, Classic (`session-question-dock-classic.tsx`,
+//! `question-prompt.css`): a raised body with the question and its answers as bordered cards,
+//! each with its mark and its number key, over a footer tray with Dismiss, Back and Next or
+//! Submit. The header's chevron folds the dock down to its question.
+//!
+//! Keys: 1–9 pick, ↑/↓ (←/→, Home/End) move between answers, Space or ↵ picks the one moved to,
+//! ⌘↵ (Ctrl+↵) goes on or submits, ⌘[ (Alt+← off a Mac) goes back, Esc dismisses. In "Type your
+//! own answer", keys type, ↵ and Esc leave the field.
+
+use std::f32::consts::PI;
+
+use rune::{Color, El, Key, KeyEvent, ScrollSpec, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
+use rune_theme_opencode::icons as ic;
+
+use super::*;
+use crate::dock::{BUTTON, Variant, button, face_transition};
+use crate::palette::Pal;
+use crate::style::readable;
+
+/// `question-header-title`: 13 px on the compact line height.
+const HEAD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
+const QUESTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
+const HINT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+const LABEL: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+/// `option-description`: 12 px on the tight line height.
+const DESC: TextStyle = TextStyle::new(12.0, 440.0).lh(12.0).tracking(0.05);
+const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
+/// A number key's cap (`keybind-v2` at the shortcut's 10 px, regular).
+const KEY: TextStyle = TextStyle::new(10.0, 400.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
+const CUSTOM: &str = "Type your own answer…";
+/// The footer tray's height: 0.5 pt borders, 16 pt over and 8 pt under the 32 pt buttons.
+const TRAY_H: f32 = 57.0;
+/// How far the tray tucks up under the body (`margin-block-start: -9px`).
+const TUCK: f32 = 9.0;
+/// The gap the dock keeps from the top of the pane (`measure`'s `gap`), and its floor.
+const PANE_GAP: f32 = 8.0;
+const MIN_H: f32 = 240.0;
+/// The fold's spring (`useSpring`, 0.3 s without bounce).
+const FOLD: Spring = Spring::new(0.3, 0.0);
+const MAC: bool = cfg!(target_os = "macos");
+
+pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
+    let f = asking(s)?;
+    let (tab, focus) = place(s, &f);
+    let field = &f.fields[tab];
+    let multi = f.multi(tab);
+    let k = f.key(tab);
+    let editing = editing(s, &f, tab);
+    let list = rows(field);
+    let picks = s.dock().picks.get(&k).cloned().unwrap_or_default();
+    let total = f.fields.len();
+    let d = s.dock();
+    let minimized = d.minimized;
+    let ring = d.keyboard && !editing;
+    let fade = || face_transition(s.knobs());
+    let max = s.dock_pane_h().map(|h| (h - PANE_GAP).max(MIN_H));
+
+    let title = if total == 1 { "Question".to_owned() } else { format!("{} of {total} questions", tab + 1) };
+    let top = row()
+        .key("q-top")
+        .w_full()
+        .min_h(28.0)
+        .gap(12.0)
+        .center_y()
+        .child(text(title).key("q-title").font(HEAD).color(p.muted).wrap_anywhere().shrink())
+        .child(spacer())
+        .child(row().key("q-header-actions").gap(8.0).center_y().children((total > 1).then(|| progress(s, p, &f, tab))).child(chevron::<S>(p, minimized)));
+    let text_of = if field.description.is_empty() { &field.title } else { &field.description };
+    let question = text(text_of.clone()).key("q-text").font(QUESTION).color(p.text).wrap_anywhere();
+    let question = readable(p, if minimized { question.max_lines(3) } else { question });
+    let hint = if multi { "Select all answers that apply" } else { "Select one answer" };
+    let details = col()
+        .key(format!("q-details-{tab}"))
+        .w_full()
+        .gap(8.0)
+        .shrink()
+        .min_h(0.0)
+        .scroll(ScrollSpec { stick_bottom: false })
+        .child(question)
+        .children((!minimized).then(|| text(hint).key("q-hint").font(HINT).color(p.faint).wrap()));
+    let details = match max {
+        Some(m) => details.max_h(((m - 120.0) * 0.45).max(48.0)),
+        None => details,
+    };
+    let header = col().key("q-header").w_full().gap(4.0).child(top).child(details);
+
+    // Folded, the answers close to nothing but keep their place, and the body's gap above them.
+    let folded = minimized.then(|| el().key("q-folded").w_full().h(0.0));
+    let options = (!minimized).then(|| {
+        let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(6.0).role(if multi { "group" } else { "radiogroup" });
+        for (i, (value, label, desc)) in list.iter().enumerate() {
+            let picked = picks.contains(value);
+            let card = card(p, picked, d.hover == Some(i), ring && focus == i)
+                .key(format!("q-opt-{i}"))
+                .role(if multi { "checkbox" } else { "radio" })
+                .label(label.clone())
+                .items_start()
+                .padding(10.0)
+                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| hover(s, i, inside, tx))
+                .on_press_tx(move |s: &mut S, _: &mut Tx| {
+                    let Some(f) = asking(s) else { return };
+                    let (tab, _) = place(s, &f);
+                    select(s, &f, tab, i);
+                    let d = dock(s, &f);
+                    (d.focus, d.keyboard) = (i, false);
+                })
+                .child(mark(p, multi, picked))
+                .child(
+                    col()
+                        .key("main")
+                        .grow(1.0)
+                        .shrink()
+                        .gap(6.0)
+                        .child(text(label.clone()).key("label").font(LABEL).color(p.text).wrap_anywhere())
+                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
+                )
+                .children((i < 9).then(|| shortcut(p, i + 1, picked)));
+            answers = answers.child(card);
+        }
+        if has_custom(field) {
+            answers = answers.child(custom(s, p, &f, tab, multi, editing, ring && focus >= list.len()));
+        }
+        col().key(format!("q-scroll-{tab}")).w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).transition(fade()).child(answers)
+    });
+
+    let body = col()
+        .key("question")
+        .w_full()
+        .pt(8.0)
+        .px(12.0)
+        .pb(12.0)
+        .gap(16.0)
+        .radius(10.0)
+        .fill(p.bg_base)
+        .transition(fade())
+        .child(header)
+        .children(options)
+        .children(folded);
+    let body = p.raised.into_iter().fold(body, El::box_shadow);
+    let body = match max {
+        Some(m) => body.max_h((m - (TRAY_H - TUCK)).max(0.0)),
+        None => body,
+    };
+
+    let last = f.last(tab);
+    // Both labels keep their room so the button doesn't change width between Next and Submit.
+    let advance_w = ["Next", "Submit"].map(|l| rune::text::measure(l, &[], BUTTON, None).0).into_iter().fold(0.0, f32::max) + 30.0;
+    let (submit, back) = if MAC { ("⌘⏎", "⌘[") } else { ("Ctrl+⏎", "Alt+←") };
+    let footer = row()
+        .key("question-footer")
+        .w_full()
+        .mt(-TUCK)
+        .pt(16.5)
+        .pb(8.5)
+        .px(8.5)
+        .center_y()
+        .transition(fade())
+        .child(button(p, "q-dismiss", "Dismiss", Variant::GhostMuted, None, true).help("Dismiss Esc").on_press_tx(|s: &mut S, tx: &mut Tx| {
+            if let Some(f) = asking(s) {
+                dismiss(s, &f, tx)
+            }
+        }))
+        .child(spacer())
+        .child(
+            row()
+                .key("q-actions")
+                .gap(8.0)
+                .children((tab > 0).then(|| {
+                    button(p, "q-back", "Back", Variant::Neutral, None, true).help(format!("Back {back}")).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                        let Some(f) = asking(s) else { return };
+                        let (tab, _) = place(s, &f);
+                        jump(s, &f, tab.saturating_sub(1), tx);
+                    })
+                }))
+                .child({
+                    let label = if last { "Submit" } else { "Next" };
+                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, true)
+                        .w(advance_w)
+                        .justify_center()
+                        .help(format!("{label} {submit}"))
+                        .on_press_tx(|s: &mut S, tx: &mut Tx| {
+                            if let Some(f) = asking(s) {
+                                next(s, &f, tx)
+                            }
+                        })
+                }),
+        );
+    // The tray sits under the body's bottom edge, so the body's shadow falls on it.
+    let tray = el()
+        .key("question-tray")
+        .pin(Some(0.0), None, Some(0.0), Some(0.0))
+        .h(TRAY_H)
+        .corners([0.0, 0.0, 10.0, 10.0])
+        .fill(p.layer1)
+        // A 0.5 px CSS border lands on a 1x screen as about three quarters of a pixel, darker
+        // than the cards' 0.5 px box-shadow rings.
+        .box_shadow(Shadow { spread: 0.75, color: p.border, inset: true, ..Shadow::default() })
+        .transition(fade());
+    Some(vec![tray, body, footer])
+}
+
+/// An answer's card (`question-option`): `layer-01` under a hairline; picked, the focus colour's
+/// wash and no hairline; under the pointer, `layer-02`; moved to by key, the focus ring.
+fn card(p: &Pal, picked: bool, hovered: bool, ring: bool) -> El {
+    let c = row().w_full().gap(8.0).radius(6.0).fill(if hovered && !picked { p.layer2 } else { p.layer1 });
+    let c = if picked {
+        let wash = p.q.focus.alpha(0.15);
+        c.gradient(wash, wash)
+    } else {
+        c.box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
+    };
+    if ring { c.box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c }
+}
+
+/// The header's progress: a bar per question, accent once answered, muted on the current one.
+fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
+    row().key("q-progress").gap(2.0).center_y().children((0..f.fields.len()).map(|i| {
+        let color = if i == tab { p.icon_muted } else if answered(s, f, i) { p.bg_accent } else { p.q.layer4 };
+        el().key(format!("q-seg-{i}"))
+            .role("button")
+            .label(format!("Question {}", i + 1))
+            .size(20.0, 20.0)
+            .radius(4.0)
+            .center()
+            .hover(p.hover)
+            .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                if let Some(f) = asking(s) {
+                    jump(s, &f, i, tx)
+                }
+            })
+            .child(el().key("bar").size(14.0, 2.0).fill(color))
+    }))
+}
+
+/// The header's chevron (`icon-button-v2`, ghost, large): folds the dock to its question and back,
+/// turning over as it does.
+fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
+    el().key("q-minimize")
+        .role("button")
+        .label(if minimized { "Restore question" } else { "Minimize question" })
+        .size(28.0, 28.0)
+        .radius(6.0)
+        .center()
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(|s: &mut S, tx: &mut Tx| {
+            let Some(f) = asking(s) else { return };
+            tx.motion_curve(FOLD);
+            let (tab, _) = place(s, &f);
+            stop_typing(s, &f, tab);
+            let focus = pick_focus(s, &f, tab);
+            let d = dock(s, &f);
+            d.minimized = !d.minimized;
+            d.focus = focus;
+            d.keyboard = false;
+        })
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD))
+}
+
+/// An answer's mark (`question-option-check`): a circle for one answer, a square for many,
+/// accent with a dot or a tick once picked.
+fn mark(p: &Pal, multi: bool, picked: bool) -> El {
+    let b = el().key("box").size(16.0, 16.0).center().radius(if multi { 4.0 } else { 8.0 });
+    let b = if picked {
+        b.fill(p.bg_accent).gradient(Color::WHITE.alpha(0.2), Color::WHITE.alpha(0.0))
+    } else {
+        b.fill(p.bg_base).gradient(Color::WHITE.alpha(0.06), Color::WHITE.alpha(0.0))
+    };
+    // A picked circle drops its hairline; a picked square keeps it.
+    let b = if picked && !multi { b } else { b.box_shadow(Shadow { spread: 0.5, color: p.q.border_strong, inset: true, ..Shadow::default() }) };
+    // The dot and the tick are always there, shown once picked, as Desktop fades them.
+    let inner = if multi {
+        icon(&ic::CHECK, 16.0).key("check").color(p.icon_contrast)
+    } else {
+        el().key("dot").size(6.0, 6.0).radius(3.0).fill(p.q.dot).box_shadow(Shadow { y: 0.5, blur: 0.5, color: Color::BLACK.alpha(0.4), ..Shadow::default() })
+    };
+    el().key("mark").size(16.0, 20.0).center().child(b.child(inner.opacity(if picked { 1.0 } else { 0.0 })))
+}
+
+/// An answer's number key (`keybind-v2`): filled, or outlined once picked.
+fn shortcut(p: &Pal, n: usize, picked: bool) -> El {
+    let cap = row().key("cap").h(14.0).min_w(14.0).px(4.0).center().radius(2.0);
+    let cap = if picked { cap.box_shadow(Shadow { spread: 1.0, color: p.q.border_strong, inset: true, ..Shadow::default() }) } else { cap.fill(p.layer3) };
+    row().key("shortcut").h(20.0).self_center().center_y().child(cap.child(text(n.to_string()).font(KEY).color(p.muted)))
+}
+
+/// "Type your own answer" (`question-option[data-custom]`): its mark, the field in an answer's
+/// place, and its number key.
+fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editing: bool, ring: bool) -> El {
+    let field = &f.fields[tab];
+    let k = f.key(tab);
+    let i = rows(field).len();
+    let on = s.dock().custom_on(&k);
+    let edit = s.dock().typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""));
+    let (id, field_key) = (f.id.clone(), field.key.clone());
+    let input = text_input(&edit, INPUT)
+        .key("q-input")
+        .label(CUSTOM)
+        .single_line()
+        .grow(1.0)
+        .min_w(0.0)
+        .color(p.text)
+        .placeholder(CUSTOM, if editing { p.faint } else { p.text })
+        .caret(p.text, p.selection)
+        .on_edit(move |s: &mut S| s.dock_mut().typed_mut(&id, &field_key))
+        .on_input_change(|s: &mut S, _| {
+            let Some(f) = asking(s) else { return };
+            let (tab, _) = place(s, &f);
+            let k = f.key(tab);
+            let d = s.dock_mut();
+            d.custom.insert(k.clone());
+            if !f.multi(tab) {
+                d.picks.remove(&k);
+            }
+        })
+        .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
+    // Open, the field gets a box of its own with the focus ring.
+    let input = if editing {
+        let lit = Color::WHITE.alpha(0.02);
+        row()
+            .key("q-field")
+            .grow(1.0)
+            .min_w(0.0)
+            .h(28.0)
+            .px(8.0)
+            .center_y()
+            .radius(6.0)
+            .fill(p.bg_base)
+            .gradient(lit, Color::WHITE.alpha(0.0))
+            .box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() })
+            .child(input)
+    } else {
+        row().key("q-field").grow(1.0).min_w(0.0).h(28.0).center_y().child(input)
+    };
+    card(p, on, s.dock().hover == Some(i), ring)
+        .key("q-custom")
+        .h(40.0)
+        .px(10.0)
+        .center_y()
+        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| hover(s, i, inside, tx))
+        .on_press_tx(|s: &mut S, _: &mut Tx| {
+            let Some(f) = asking(s) else { return };
+            let (tab, _) = place(s, &f);
+            start_typing(s, &f, tab);
+            dock(s, &f).keyboard = false;
+        })
+        .child(mark(p, multi, on).role(if multi { "checkbox" } else { "radio" }).label(CUSTOM).on_press_tx(|s: &mut S, _: &mut Tx| {
+            let Some(f) = asking(s) else { return };
+            let (tab, _) = place(s, &f);
+            toggle_custom(s, &f, tab);
+            dock(s, &f).keyboard = false;
+        }))
+        .child(input)
+        .children((i < 9).then(|| shortcut(p, i + 1, on)))
+}
+
+fn hover<S: DockHost>(s: &mut S, i: usize, inside: bool, tx: &mut Tx) {
+    let Some(f) = asking(s) else { return };
+    tx.instant();
+    let d = dock(s, &f);
+    if inside {
+        d.hover = Some(i);
+    } else if d.hover == Some(i) {
+        d.hover = None;
+    }
+}
+
+/// Back: ⌘[ on a Mac, Alt+← elsewhere.
+fn back(ev: &KeyEvent) -> bool {
+    let m = ev.mods;
+    if MAC {
+        return matches!(ev.key, Key::Command('[')) && !m.ctrl && !m.alt;
+    }
+    ev.key == Key::Left && m.alt && !m.ctrl && !m.cmd
+}
+
+fn advance(ev: &KeyEvent) -> bool {
+    ev.key == Key::Enter && (ev.mods.cmd || ev.mods.ctrl) && !ev.mods.alt
+}
+
+/// A key while the Classic dock shows (its `nav`); false when it isn't the dock's.
+pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let Some(f) = asking(s) else { return false };
+    let (tab, focus) = place(s, &f);
+    let field = &f.fields[tab];
+    let n = rows(field).len();
+    let count = count(field);
+    let minimized = s.dock().minimized;
+    dock(s, &f).keyboard = true;
+    if ev.key == Key::Escape {
+        dismiss(s, &f, tx);
+        return true;
+    }
+    if back(ev) {
+        if tab > 0 {
+            jump(s, &f, tab - 1, tx);
+        }
+        return true;
+    }
+    if advance(ev) {
+        next(s, &f, tx);
+        return true;
+    }
+    let m = ev.mods;
+    if editing(s, &f, tab) || m.alt || m.ctrl || m.cmd || matches!(ev.key, Key::Command(_)) {
+        return false;
+    }
+    let digit = match &ev.key {
+        Key::Text(t) if t.chars().count() == 1 => t.chars().next().and_then(|c| c.to_digit(10)).filter(|d| *d >= 1).map(|d| d as usize - 1),
+        _ => None,
+    };
+    if let Some(i) = digit {
+        if minimized || i >= count {
+            return false;
+        }
+        // A pick's mark fades in, and opening the typed answer's field moves its words in by the
+        // field's padding, on the springs rather than at once.
+        if i == n {
+            toggle_custom(s, &f, tab);
+        } else {
+            select(s, &f, tab, i);
+            dock(s, &f).focus = i;
+        }
+        reveal(s, tx);
+        return true;
+    }
+    // The rest move and pick among the answers, which a folded dock hides.
+    if minimized {
+        return false;
+    }
+    let to = match &ev.key {
+        Key::Down | Key::Right => Some((focus + 1).min(count - 1)),
+        Key::Up | Key::Left => Some(focus.saturating_sub(1)),
+        Key::Home => Some(0),
+        Key::End => Some(count - 1),
+        _ => None,
+    };
+    if let Some(to) = to {
+        tx.instant();
+        dock(s, &f).focus = to;
+        reveal(s, tx);
+        return true;
+    }
+    if matches!(&ev.key, Key::Text(t) if t == " ") || (ev.key == Key::Enter && !m.shift) {
+        if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+        return true;
+    }
+    false
+}
+
+/// Keys in the open "Type your own answer": ↵ and Esc leave the field for its card, ⌘↵ and Back
+/// as anywhere; everything else types.
+fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let Some(f) = asking(s) else { return false };
+    let (tab, _) = place(s, &f);
+    let n = rows(&f.fields[tab]).len();
+    let m = ev.mods;
+    if ev.key == Key::Escape || (ev.key == Key::Enter && !m.cmd && !m.ctrl && !m.alt) {
+        stop_typing(s, &f, tab);
+        let d = dock(s, &f);
+        (d.focus, d.keyboard) = (n, true);
+        return true;
+    }
+    if advance(ev) || back(ev) {
+        stop_typing(s, &f, tab);
+        return key(s, ev, tx);
+    }
+    s.dock_shortcut(ev, tx)
+}
+
+/// Brings the highlighted answer into sight in the answers' scroller.
+fn reveal<S: DockHost>(s: &S, tx: &mut Tx) {
+    let Some(f) = asking(s) else { return };
+    let (tab, focus) = place(s, &f);
+    let field = &f.fields[tab];
+    let key = if focus >= rows(field).len() && has_custom(field) { "q-custom".to_owned() } else { format!("q-opt-{focus}") };
+    tx.scroll_into_view_in(format!("q-scroll-{tab}"), key);
+}

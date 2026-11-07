@@ -9,6 +9,8 @@ use crate::fixture_ids::MAIN as SESSION;
 /// The long question asked on the fixture session, zoomed in, in a `size` window.
 fn asked(size: (f32, f32)) -> Runtime<App> {
     let mut app = App::fixture_session();
+    // These cover the keyboard-first dock; Classic is the default.
+    app.settings.new_question_ui = true;
     app.zoom = 1.6;
     let q = super::form(&app);
     app.apply_event("form.created", &q);

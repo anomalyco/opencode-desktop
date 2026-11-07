@@ -56,6 +56,12 @@ pub struct Pal {
     pub avatars: [(Color, Color); 9],
     /// The question dock's tokens (`question-prompt.css`, `button.css`).
     pub q: Question,
+    /// Desktop's v1 tokens the permission dock still paints with (`theme.css`): `--text-base`
+    /// for its patterns, `--text-weak` for a tool's arguments, `--icon-warning-base` for its
+    /// warning. A chosen theme, which carries only v2 tokens here, gets its nearest v2 ones.
+    pub v1_text_base: Color,
+    pub v1_text_weak: Color,
+    pub v1_icon_warning: Color,
     /// The terminal's text: Desktop's `text-stronger`; the default theme keeps `text`.
     pub term_fg: Color,
     /// A diff's added and removed colour: `syntax-diff-add`/`-delete`; the default keeps
@@ -131,6 +137,10 @@ pub struct Question {
     pub submit_ring: Color,
     pub submit_text: Color,
     pub contrast_text: Color,
+    /// `border-border-focus` (`blue-500`): Classic's picked wash and keyboard ring.
+    pub focus: Color,
+    /// `grey-300`: the dot in a picked Classic radio.
+    pub dot: Color,
 }
 
 const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
@@ -156,6 +166,7 @@ fn build(theme: usize, dark: bool) -> Pal {
         punctuation: c("syntax-punctuation"),
         variable: c("syntax-variable"),
     };
+    let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
     Pal {
         dark,
         theme,
@@ -170,6 +181,21 @@ fn build(theme: usize, dark: bool) -> Pal {
         code_bg: c("background-stronger"),
         code: themed.then_some(syntax),
         syntax,
+        v1_text_base: match (themed, dark) {
+            (true, _) => c("text-text-muted"),
+            (false, true) => Color::WHITE.alpha(0.618),
+            (false, false) => hex("#6f6f6f"),
+        },
+        v1_text_weak: match (themed, dark) {
+            (true, _) => c("text-text-faint"),
+            (false, true) => Color::WHITE.alpha(0.422),
+            (false, false) => hex("#8f8f8f"),
+        },
+        v1_icon_warning: match (themed, dark) {
+            (true, _) => c("state-fg-warning"),
+            (false, true) => hex("#fbb73c"),
+            (false, false) => hex("#ebb76e"),
+        },
         bg_base: c("background-bg-base"),
         bg_deep: c("background-bg-deep"),
         layer1: c("background-bg-layer-01"),
@@ -242,6 +268,8 @@ fn build(theme: usize, dark: bool) -> Pal {
             submit_ring: if dark { c("alpha-light-40") } else { c("grey-800") },
             submit_text: if dark { c("text-text-inverse") } else { c("text-text-contrast") },
             contrast_text: c("text-text-contrast"),
+            focus: c("blue-500"),
+            dot: c("grey-300"),
         },
     }
 }

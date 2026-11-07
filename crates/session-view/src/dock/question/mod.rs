@@ -23,8 +23,19 @@ use serde_json::Value;
 use super::{DockHost, knobs, morph};
 use crate::keymap::Bind;
 
+mod classic;
 mod face;
-pub use face::face;
+
+/// Whether the dock is Desktop's default Classic one (Settings › New question UI off) rather
+/// than the keyboard-first one this module's keys describe.
+pub fn classic<S: DockHost>(s: &S) -> bool {
+    !s.dock_new_question_ui()
+}
+
+/// The question's face of the composer surface, Classic or the new one.
+pub fn face<S: DockHost>(s: &S, p: &crate::palette::Pal) -> Option<Vec<rune::El>> {
+    if classic(s) { classic::face(s, p) } else { face::face(s, p) }
+}
 
 pub(super) const LINE: f32 = 20.0;
 /// The footer's height: its padding and the 32 pt buttons.
@@ -49,6 +60,12 @@ pub struct Dock {
     custom: HashSet<String>,
     /// The typed answer's laid-out width, to tell which wrapped line its caret is on.
     input_w: f32,
+    /// The Classic dock folded down to its question (the header's chevron).
+    pub minimized: bool,
+    /// The Classic dock's last input was a key, so the highlighted answer shows its focus ring.
+    keyboard: bool,
+    /// The Classic dock's answer under the pointer.
+    hover: Option<usize>,
 }
 
 impl Dock {
@@ -229,6 +246,7 @@ fn dock<'a, S: DockHost>(s: &'a mut S, f: &Form) -> &'a mut Dock {
         let focus = pick_focus(s, f, 0);
         let d = s.dock_mut();
         (d.form, d.tab, d.focus, d.step) = (f.id.clone(), 0, focus, 0);
+        (d.minimized, d.keyboard, d.hover) = (false, false, None);
     }
     s.dock_mut()
 }
@@ -252,7 +270,8 @@ fn editing<S: DockHost>(s: &S, f: &Form, tab: usize) -> bool {
 pub fn takes_text<S: DockHost>(s: &S) -> bool {
     let Some(f) = asking(s) else { return false };
     let (tab, focus) = place(s, &f);
-    editing(s, &f, tab) || (focus >= rows(&f.fields[tab]).len() && has_custom(&f.fields[tab]))
+    // Classic's "Type your own answer" is a field only once it's open.
+    editing(s, &f, tab) || (!classic(s) && focus >= rows(&f.fields[tab]).len() && has_custom(&f.fields[tab]))
 }
 
 /// Opens the current question's typed answer with `text` in it (the storybook's typing stories).
@@ -403,6 +422,9 @@ fn commit<S: DockHost>(s: &mut S, f: &Form, tx: &mut Tx) {
 
 /// A key while the dock shows; false when it isn't the dock's.
 pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if classic(s) {
+        return classic::key(s, ev, tx);
+    }
     let Some(f) = asking(s) else { return false };
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];

@@ -27,6 +27,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
         action: "bash".into(),
         resources: vec!["bun run test".into()],
         message: String::new(),
+        input: Vec::new(),
     });
     s.settings.auto_accept = s.variant == 1;
     if s.settings.auto_accept {

@@ -207,7 +207,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", "Dismiss", Variant::Ghost, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", "Dismiss", Variant::GhostMuted, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
             if let Some(f) = asking(s) {
                 dismiss(s, &f, tx)
             }
