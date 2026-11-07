@@ -11,7 +11,11 @@ use opencode_plugin::abi::PluginEntryFn;
 /// Each linked built-in: its `plugin.toml` and its entry point.
 #[cfg(feature = "static-builtins")]
 pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
-    vec![(include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry)]
+    vec![
+        (include_str!("../../../../plugins/context/plugin.toml"), opencode_plugin_context_impl::__opencode_plugin_entry),
+        (include_str!("../../../../plugins/details/plugin.toml"), opencode_plugin_details_impl::__opencode_plugin_entry),
+        (include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry),
+    ]
 }
 
 #[cfg(not(feature = "static-builtins"))]

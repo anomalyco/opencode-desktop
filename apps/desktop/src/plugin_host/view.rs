@@ -3,7 +3,9 @@
 //! `session.panel` menu items beside them, and Settings › Plugins (each plugin's state, trust,
 //! Reload, its switch, the contracts it provides, and the settings rows it registered).
 
-use opencode_plugin::abi::{SURFACE_PANEL, SURFACE_SETTING, contrib as kinds};
+use opencode_plugin::abi::{
+    PANEL_FALLBACK, PANEL_FIRST, PANEL_NO_LAUNCHER, RENDER_ACTIVE, RENDER_SELECTED, SURFACE_PANEL, SURFACE_SETTING, SURFACE_TAB, contrib as kinds,
+};
 use rune::{El, Tx, col, row, text};
 
 use super::icons::{intern, resolve};
@@ -20,7 +22,7 @@ use crate::view::UI;
 pub const PANEL: &str = "plugin";
 
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::new(PANEL, list, render).order(40).launchers(launchers, open_entry).poll(super::run::poll),
+    PanelRegistration::new(PANEL, list, render).order(40).launchers(launchers, open_entry).poll(super::run::poll).tab_lead(tab_lead),
 ]);
 
 fn panels(host: &PluginHost) -> impl Iterator<Item = (usize, &super::instance::PanelRec)> {
@@ -29,7 +31,11 @@ fn panels(host: &PluginHost) -> impl Iterator<Item = (usize, &super::instance::P
 
 fn list(app: &App, _ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     let host = &app.plugins;
-    let running = panels(host).map(|(i, p)| PanelTabDesc::new(p.tab, p.title.clone()).icon(resolve(&host.slots[i].manifest.id, &p.icon)));
+    let running = panels(host).map(|(i, p)| {
+        let tab = PanelTabDesc::new(p.tab, p.title.clone()).icon(resolve(&host.slots[i].manifest.id, &p.icon));
+        let tab = if p.flags & PANEL_FIRST != 0 { tab.first() } else { tab };
+        if p.flags & PANEL_FALLBACK != 0 { tab.fallback() } else { tab }
+    });
     let failed = host.slots.iter().filter(|s| s.state == PluginState::Failed).flat_map(|s| &s.tabs);
     running.chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).collect()
 }
@@ -37,7 +43,7 @@ fn list(app: &App, _ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
 /// A launcher card per plugin panel, and one per `session.panel` menu item.
 fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     let host = &app.plugins;
-    let panels = panels(host).map(|(i, p)| {
+    let panels = panels(host).filter(|(_, p)| p.flags & PANEL_NO_LAUNCHER == 0).map(|(i, p)| {
         let slot = &host.slots[i];
         let description = if p.description.is_empty() { slot.manifest.description.clone() } else { p.description.clone() };
         PanelLauncherDesc {
@@ -60,6 +66,18 @@ fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
         opened: false,
     });
     panels.chain(items).collect()
+}
+
+/// A plugin panel's own tab lead (`PanelSpec` `label`), drawn for the routed session.
+fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
+    let host = &app.plugins;
+    let (i, rec) = panels(host).find(|(_, p)| p.tab == tab.id)?;
+    let label = rec.label.as_ref()?;
+    let session = app.active_session_id().unwrap_or_default();
+    let directory = app.session(session).map_or("", |s| s.directory.as_str());
+    let flags = RENDER_ACTIVE | if selected { RENDER_SELECTED } else { 0 };
+    let props = Props { session, directory, flags, ..Props::new(SURFACE_TAB, &rec.id) };
+    render::surface(app, i, label, &props, pal).ok().flatten()
 }
 
 fn open_entry(app: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {

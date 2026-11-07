@@ -88,9 +88,16 @@ pub struct Contribution {
     icon: Text,
     target: Text,
     order: i32,
+    flags: u32,
 }
 
 impl Contribution {
+    /// A popover the host places on `side` of its anchor (`abi::SIDE_BOTTOM` …), aligned along
+    /// it (`abi::ALIGN_END` …), `gap` points away; opened with `ActionCx::toggle_popover`.
+    pub fn popover(id: impl Into<Text>, label: impl Into<Text>, side: u32, align: u32, gap: i32) -> Self {
+        Contribution { order: gap, flags: crate::abi::popover_flags(side, align), ..Self::new(contrib::POPOVER, id, label) }
+    }
+
     fn new(kind: u32, id: impl Into<Text>, title: impl Into<Text>) -> Self {
         Contribution {
             kind,
@@ -101,6 +108,7 @@ impl Contribution {
             icon: Text::Borrowed(""),
             target: Text::Borrowed(""),
             order: 0,
+            flags: 0,
         }
     }
 
@@ -239,7 +247,7 @@ impl Contribution {
     fn add(&self, run: Callback, render: RenderCallback, query: QueryCallback) -> bool {
         let abi = ContributionAbi {
             kind: self.kind,
-            flags: 0,
+            flags: self.flags,
             order: self.order,
             _pad: 0,
             id: AbiStr::new(&self.id),
@@ -300,6 +308,11 @@ impl<P: 'static> WindowSetupCx<P> {
 
     /// A [`Contribution::code_block`]: `render` draws `props.text` in language `props.path`.
     pub fn add_code_block(&mut self, spec: Contribution, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
+        spec.add(Callback::NONE, render_callback::<P, _>(render), QueryCallback::NONE);
+    }
+
+    /// A [`Contribution::popover`]: `render` draws its content for the session in `props`.
+    pub fn add_popover(&mut self, spec: Contribution, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
         spec.add(Callback::NONE, render_callback::<P, _>(render), QueryCallback::NONE);
     }
 

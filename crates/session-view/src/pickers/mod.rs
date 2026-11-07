@@ -114,6 +114,8 @@ pub struct Pickers {
     pub providers: HashMap<String, String>,
     /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
     pub limits: HashMap<String, u64>,
+    /// The `provider:id` of models whose tokens cost money (any `cost` tier above 0).
+    pub paid: HashSet<String>,
     pub agents: Vec<String>,
     /// Each agent's configured model (`/api/agent`'s `model`), which it switches to when picked.
     pub agent_models: HashMap<String, ModelRef>,
@@ -221,6 +223,12 @@ impl Pickers {
             let provider = m["providerID"].as_str().or(m["provider"].as_str()).unwrap_or("");
             if let (Some(id), Some(n)) = (m["id"].as_str(), m["limit"]["context"].as_u64()) {
                 self.limits.insert(format!("{provider}:{id}"), n);
+            }
+            // Desktop's `showCost`: any tier's input, output or cache costs something.
+            let costs = m["cost"].as_array().cloned().unwrap_or_else(|| vec![m["cost"].clone()]);
+            let paid = costs.iter().any(|c| [&c["input"], &c["output"], &c["cache"]["read"], &c["cache"]["write"]].iter().any(|v| v.as_f64().is_some_and(|x| x > 0.0)));
+            if let (Some(id), true) = (m["id"].as_str(), paid) {
+                self.paid.insert(format!("{provider}:{id}"));
             }
         }
     }

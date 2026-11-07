@@ -109,7 +109,11 @@ pub struct PanelRec {
     pub description: String,
     pub icon: String,
     pub order: i32,
+    /// `PANEL_*` flags.
+    pub flags: u32,
     pub render: RenderEnv,
+    /// Draws what leads the tab's title, in place of `icon`.
+    pub label: Option<RenderEnv>,
 }
 
 pub struct SettingRec {
@@ -133,6 +137,7 @@ pub struct ContribRec {
     pub icon: String,
     pub target: String,
     pub order: i32,
+    pub flags: u32,
     pub run: Option<CallbackEnv>,
     pub render: Option<RenderEnv>,
     pub query: Option<QueryEnv>,

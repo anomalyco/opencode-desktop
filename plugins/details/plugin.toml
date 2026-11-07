@@ -1,0 +1,6 @@
+id = "details"
+name = "Session details"
+version = "0.1.0"
+description = "The session header's details popover: the server's MCP servers with their switches, its plugins and its skills"
+api = "0.1-experimental"
+library = "opencode_plugin_details"

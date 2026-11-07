@@ -291,6 +291,7 @@ pub(super) fn pane_box(
     let entries = reg.pane_entries(pane);
 
     let bar = tab_bar(
+        s,
         p,
         pane,
         &entries,
@@ -357,6 +358,7 @@ pub(super) fn pane_box(
 
 #[allow(clippy::too_many_arguments)]
 fn tab_bar(
+    s: &App,
     p: &Pal,
     pane: SessionPane,
     entries: &[&ResolvedEntry],
@@ -379,7 +381,7 @@ fn tab_bar(
         let key = entry.key.clone();
         let active = shown_new_id.is_none() && pane_active == Some(key.as_str());
         let is_preview = preview_key == Some(key.as_str());
-        strip = strip.child(tab_trigger(p, entry, active, is_preview));
+        strip = strip.child(tab_trigger(s, p, entry, active, is_preview));
     }
 
     for nt in live_new {
@@ -489,7 +491,7 @@ fn tab_bar(
     bar
 }
 
-fn tab_trigger(p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -> El {
+fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -> El {
     let key = entry.key.clone();
     let select_key = entry.key.clone();
     let promote_key = entry.key.clone();
@@ -533,7 +535,9 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -
             s.side.tab_menu = Some((menu_key.clone(), ev.x / s.zoom, ev.y / s.zoom));
         });
 
-    if let Some(glyph) = entry.tab.icon {
+    if let Some(lead) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
+        pill = pill.child(lead);
+    } else if let Some(glyph) = entry.tab.icon {
         pill = pill.child(
             icon(glyph, 14.0).color(if active { p.icon } else { p.icon_muted }),
         );

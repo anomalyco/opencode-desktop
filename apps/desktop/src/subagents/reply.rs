@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use rune::{El, Key, KeyEvent, Tx, col, el, icon, row, spacer, text};
+use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -18,7 +18,7 @@ use opencode_kit::model::{Message, SessionInfo};
 
 use super::run_time;
 use crate::palette::Pal;
-use crate::view::{INSTANT, UI_SMALL, activity_ring};
+use crate::view::{INSTANT, activity_ring};
 use crate::{App, Route};
 
 /// Replies on their way, by session: the prompt's id and the words typed.
@@ -88,8 +88,16 @@ pub fn failed(s: &mut App, e: &str) {
     }
 }
 
-/// Under a subagent's composer: "✓ Done · 26m 53s", then the way back to the main session.
-/// Its agent and model are the composer's pickers.
+/// The bar's words (`subagent-bar.tsx`): 12 on 16 at 440, tabular, faint.
+const BAR: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).tracking(-0.04).features("\"tnum\"");
+/// The back button's label (`Button size="small"`): 13 on 20 at 530.
+const BACK: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
+/// A keycap's label (`keybind-v2`): 11 at 530, upper case.
+const KEY: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);
+
+/// Under a subagent's composer (Desktop's `SubagentBar`): "✓ Done · 26m 53s · Explore ·
+/// Provider / Model", then Main session with its Esc keycap. Only what's known shows, one
+/// separator between neighbours.
 pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
     let info = s.session(id).filter(|i| i.parent.is_some())?;
     let running = s.subtree_running(id);
@@ -97,27 +105,48 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
         (None, Some("Running"))
     } else {
         match info.outcome.as_deref() {
-            Some("succeeded") => (Some(&ic::CHECK_SMALL), Some("Done")),
-            Some("failed") => (Some(&ic::CIRCLE_X), Some("Failed")),
-            Some("interrupted") => (Some(&ic::XMARK_SMALL), Some("Interrupted")),
+            Some("succeeded") => (Some(&ic::CHECK), Some("Done")),
+            Some("failed") => (Some(&ic::CIRCLE_XMARK), Some("Failed")),
+            Some("interrupted") => (Some(&ic::OUTLINE_XMARK), Some("Interrupted")),
             _ => (None, None),
         }
     };
-    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::DOCK_W).h(36.0).pl(12.0).pr(6.0).gap(8.0).center_y();
+    let words = |t: String| text(t).font(BAR).color(p.faint).single_line();
+    let mut parts: Vec<El> = Vec::new();
     if let Some(st) = status {
+        parts.push(words(st.to_owned()).key("status"));
+        let end = if running { s.run_clock() } else { info.idle.unwrap_or(info.updated) };
+        parts.push(run_time(format!("bar-time-{id}"), end - info.created.min(end), BAR, p.faint));
+    }
+    if !info.agent.is_empty() {
+        parts.push(words(opencode_kit::model::capitalize(&info.agent)).key("agent"));
+    }
+    if !info.model.id.is_empty() {
+        let mut model = row().key("subagent-model").shrink().min_w(0.0).center_y();
+        if let Some(provider) = s.pickers.provider_label(&info.model) {
+            // `Slash gap={4}`: 4 of space each side of the `/`, less its side bearing.
+            model = model.child(words(provider)).child(words("/".to_owned()).color(p.icon_faint).mx(3.5));
+        }
+        model = model.child(text(s.pickers.model_name(&info.model)).font(BAR).color(p.faint).truncate().shrink());
+        if !info.model.variant.is_empty() && info.model.variant != "default" {
+            model = model.child(words(opencode_kit::model::capitalize(&info.model.variant)).opacity(0.66).ml(4.0));
+        }
+        parts.push(model);
+    }
+    let mut summary = row().key("summary").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
+    for (n, part) in parts.into_iter().enumerate() {
+        if n > 0 {
+            summary = summary.child(words("\u{b7}".to_owned()).key(format!("dot-{n}")));
+        }
+        summary = summary.child(part);
+    }
+    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::DOCK_W).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
+    if status.is_some() {
         let mark = el().key("status-icon").size(16.0, 16.0).center();
         line = line.child(match glyph {
-            Some(g) => mark.child(icon(g, 16.0).color(p.icon_faint)),
+            Some(g) => mark.child(icon(g, 14.0).color(p.icon_faint)),
             None => mark.child(activity_ring(p)),
         });
-        let mut summary = row().key("summary").shrink().min_w(0.0).center_y().child(text(st.to_owned()).key("status").font(UI_SMALL).color(p.faint));
-        if info.created > 0 {
-            let end = if running { s.run_clock() } else { info.idle.unwrap_or(info.updated) };
-            summary = summary
-                .child(text(" · ").key("dot").font(UI_SMALL).color(p.faint))
-                .child(run_time(format!("bar-time-{id}"), end - info.created, UI_SMALL, p.faint));
-        }
-        line = line.child(summary);
     }
     let back = row()
         .key("back")
@@ -127,7 +156,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
         .px(6.0)
         .gap(6.0)
         .center_y()
-        .radius(6.0)
+        .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -135,7 +164,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
             tx.instant();
             s.open_parent(tx);
         })
-        .child(text("Main session").font(UI_SMALL).color(p.faint))
-        .child(row().key("esc").h(16.0).px(4.0).center().radius(4.0).fill(p.layer2).child(text("esc").font(UI_SMALL).color(p.faint)));
-    Some(col().key("subagent-status").w_full().center().child(line.child(spacer()).child(back)))
+        .child(text("Main session").font(BACK).color(p.faint))
+        .child(row().key("esc").h(14.0).min_w(14.0).px(4.0).center().radius(2.0).fill(p.layer3).child(text("ESC").font(KEY).color(p.muted)));
+    Some(col().key("subagent-status").w_full().center().child(line.child(summary).child(back)))
 }

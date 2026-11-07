@@ -1,6 +1,7 @@
 //! OpenCode's v2 tokens, resolved once per appearance from `assets/theme.json`
 //! (generated from `@opencode/ui` by `tools/theme.py`).
 
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use rune::{Color, El, Shadow, Theme};
@@ -235,6 +236,25 @@ pub struct Question {
 }
 
 const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
+
+/// Token `name` of the active theme in this appearance (a Desktop CSS variable without its
+/// `--`: `text-strong`, `background-bg-layer-04`), for what draws by name rather than through
+/// [`Pal`] (native plugins). Each theme is read once.
+pub fn token(dark: bool, name: &str) -> Option<Color> {
+    thread_local! {
+        static THEMES: std::cell::RefCell<HashMap<(usize, bool, bool), Theme>> = std::cell::RefCell::new(HashMap::new());
+    }
+    let theme = crate::themes::active();
+    let key = (theme, dark, rune::theme::blends_srgb());
+    THEMES.with(|t| {
+        let mut t = t.borrow_mut();
+        if !t.contains_key(&key) {
+            let src = crate::themes::json(theme, THEME);
+            t.insert(key, Theme::from_json(src.as_deref().unwrap_or(THEME), dark).ok()?);
+        }
+        t.get(&key)?.try_color(name)
+    })
+}
 
 fn build(theme: usize, dark: bool) -> Pal {
     let src = crate::themes::json(theme, THEME);

@@ -2381,6 +2381,8 @@ dependencies = [
  "notify",
  "opencode-kit",
  "opencode-plugin",
+ "opencode-plugin-context-impl",
+ "opencode-plugin-details-impl",
  "opencode-plugin-hello-impl",
  "otlp-lite",
  "png 0.18.1",
@@ -2416,6 +2418,38 @@ dependencies = [
 [[package]]
 name = "opencode-plugin"
 version = "0.1.0-experimental"
+
+[[package]]
+name = "opencode-plugin-context"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-context-impl",
+]
+
+[[package]]
+name = "opencode-plugin-context-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "serde_json",
+]
+
+[[package]]
+name = "opencode-plugin-details"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-details-impl",
+]
+
+[[package]]
+name = "opencode-plugin-details-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "serde_json",
+]
 
 [[package]]
 name = "opencode-plugin-echo"

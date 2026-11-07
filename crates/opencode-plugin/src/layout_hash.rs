@@ -44,18 +44,25 @@ pub const ABI_LAYOUT_HASH: u64 = {
     layout!(h, RenderCallback, func, data, drop_data);
     layout!(h, QueryCallback, func, data, drop_data);
     layout!(h, AbiEvent, kind, mods, x, y, text, extra);
-    layout!(h, RenderProps<'static>, surface, id, session_id, directory, path, text, width, height, visible, focused, dark);
+    layout!(h, RenderProps<'static>, surface, id, session_id, directory, path, text, width, height, visible, focused, dark, flags);
     layout!(
         h, AbiPalette, dark, theme, bg_base, layer1, layer2, layer3, text, muted, faint, accent, bg_accent, on_fill, icon, icon_muted,
-        border, border_muted, hover, pressed, success, warning, danger, switch_thumb
+        border, border_muted, hover, pressed, success, warning, danger, switch_thumb, icon_faint, layer4, border_strong
     );
     layout!(
         h, ElSpec<'static>, kind, key, role, label, help, text, icon_id, surface, editor, width, height, min_w, min_h, max_w, max_h, grow,
         shrink, pad, margin, gap, radius, border_w, fill, hover_fill, press_fill, border_color, text_color, font_size, font_weight,
-        line_height, opacity, flags, press
+        line_height, opacity, flags, press, tracking, shadow, value, group_color, pin, anchor, anchor_side, anchor_align, anchor_gap, hover
     );
     layout!(h, CommandSpecAbi<'static>, id, title, description, keywords, slash, bind_windows, bind_macos, bind_linux, section, flags, run);
-    layout!(h, PanelSpecAbi<'static>, id, title, description, icon, order, flags, render);
+    layout!(h, PanelSpecAbi<'static>, id, title, description, icon, order, flags, render, label);
+    layout!(h, TokensAbi, input, output, reasoning, cache_read, cache_write);
+    layout!(
+        h, SessionAbi<'static>, id, title, directory, project_id, parent_id, provider_id, model_id, usage_provider_id, usage_model_id,
+        created_ms, updated_ms, cost, usage, version, messages, flags
+    );
+    layout!(h, ModelAbi<'static>, provider_name, name, context_limit, flags);
+    layout!(h, ResourceAbi<'static>, state, generation, body);
     layout!(h, SettingSpecAbi<'static>, id, title, description, keywords, render);
     layout!(h, ContributionAbi<'static>, kind, flags, order, id, title, description, keywords, icon, target, run, render, query);
     layout!(h, IconSpecAbi<'static>, name, body, view);
@@ -66,7 +73,8 @@ pub const ABI_LAYOUT_HASH: u64 = {
     layout!(
         h, HostApiVtable, log, add_command, add_panel, add_setting, create_editor, waker, editor_text, editor_version, editor_set_text,
         instant, wake_after, copy_text, open_panel, toast, palette, el_build, el_apply, el_child, memo, add_contribution, provide, consume,
-        intern_icon, live, store_get, store_set, spawn, set_servers, request
+        intern_icon, live, store_get, store_set, spawn, set_servers, request, session, model, resource, token, host_state, server_request,
+        save_file
     );
     layout!(h, PluginVtable, app_setup, app_drop_state, app_poll, window_setup, drop_state, poll, save_hot_state, load_hot_state);
     layout!(h, HostHandshake, magic, endian, abi_epoch, abi_minor, abi_layout_hash, pointer_width, os, arch, host_vtable_size, host_vtable, host_alloc);

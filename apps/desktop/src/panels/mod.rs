@@ -356,6 +356,9 @@ pub struct PanelRegistration {
     pub on_key: Option<fn(&mut App, &KeyEvent, &mut Tx) -> bool>,
     /// Optional IME composition/commit hook when this panel is active.
     pub on_ime: Option<fn(&mut App, &Ime) -> bool>,
+    /// What leads a tab's title in the strip in place of its icon (`PanelTab.label`), given
+    /// whether the tab is selected; `None` keeps the icon.
+    pub tab_lead: Option<fn(&App, &Pal, &PanelTabDesc, bool) -> Option<El>>,
 }
 
 impl PanelRegistration {
@@ -391,7 +394,13 @@ impl PanelRegistration {
             poll: None,
             on_key: None,
             on_ime: None,
+            tab_lead: None,
         }
+    }
+
+    pub const fn tab_lead(mut self, f: fn(&App, &Pal, &PanelTabDesc, bool) -> Option<El>) -> Self {
+        self.tab_lead = Some(f);
+        self
     }
 
     pub const fn order(mut self, order: i32) -> Self {

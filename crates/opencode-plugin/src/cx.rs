@@ -68,7 +68,22 @@ impl<P: 'static> WindowSetupCx<P> {
     /// A tab in the session side region, with its own New tab launcher card.
     pub fn add_panel(&mut self, spec: PanelSpec, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
         let render = render_callback::<P, _>(render);
-        spec.with_abi(render, |abi| {
+        spec.with_abi(render, RenderCallback::NONE, |abi| {
+            // SAFETY: as `add_command`.
+            unsafe { (host().add_panel)(ctx(), abi) }
+        });
+    }
+
+    /// [`Self::add_panel`] with `label` drawing what leads the tab's title in the strip
+    /// (`BuiltinPanelTab.label`), in place of its icon.
+    pub fn add_panel_with_label(
+        &mut self,
+        spec: PanelSpec,
+        render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static,
+        label: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static,
+    ) {
+        let (render, label) = (render_callback::<P, _>(render), render_callback::<P, _>(label));
+        spec.with_abi(render, label, |abi| {
             // SAFETY: as `add_command`.
             unsafe { (host().add_panel)(ctx(), abi) }
         });
@@ -138,6 +153,12 @@ pub struct Props {
     pub height: f32,
     pub visible: bool,
     pub focused: bool,
+    /// A slot's session view is the one on screen (`active`).
+    pub active: bool,
+    /// The header needs the room: draw the compact form (`compact`).
+    pub compact: bool,
+    /// A tab label's tab is the selected one.
+    pub selected: bool,
 }
 
 /// The theme tokens of the render running on this thread.
@@ -392,6 +413,9 @@ pub(crate) fn render_callback<S: 'static, F: Fn(&S, &mut ViewCx<S>, &Props) -> E
                         height: p.height,
                         visible: p.visible != 0,
                         focused: p.focused != 0,
+                        active: p.flags & crate::abi::RENDER_ACTIVE != 0,
+                        compact: p.flags & crate::abi::RENDER_COMPACT != 0,
+                        selected: p.flags & crate::abi::RENDER_SELECTED != 0,
                     }
                 });
                 let props = props.unwrap_or(Props {
@@ -404,6 +428,9 @@ pub(crate) fn render_callback<S: 'static, F: Fn(&S, &mut ViewCx<S>, &Props) -> E
                     height: 0.0,
                     visible: true,
                     focused: false,
+                    active: true,
+                    compact: false,
+                    selected: false,
                 });
                 f(state, &mut ViewCx { _p: PhantomData }, &props).finish()
             })

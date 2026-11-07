@@ -73,8 +73,12 @@ pub fn icon(id: u32) -> Option<&'static Icon> {
     guard.as_ref()?.icons.get(id.checked_sub(1)? as usize).copied()
 }
 
-/// Plugin `plugin`'s icon `name`, else the host icon by that name.
+/// Plugin `plugin`'s icon `name`, else Desktop's icon by that name (`window-analytics`,
+/// `chevron-right` …), else the host's panel icon by that name.
 pub fn resolve(plugin: &str, name: &str) -> &'static Icon {
     let own = intern_icon(plugin, name, "", 0.0);
-    icon(own).unwrap_or_else(|| crate::panels::icon_by_name(Some(name)))
+    let panel_names = ["globe", "terminal", "console", "review", "code", "file-tree", "folder"];
+    icon(own)
+        .or_else(|| (!panel_names.contains(&name)).then(|| rune_theme_opencode::icons::ALL.iter().copied().find(|i| i.name == name)).flatten())
+        .unwrap_or_else(|| crate::panels::icon_by_name(Some(name)))
 }

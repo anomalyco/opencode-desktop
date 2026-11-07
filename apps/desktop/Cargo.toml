@@ -13,7 +13,7 @@ hot = ["rune/hot"]
 # Built-in plugins linked into the binary through their own entry points, for headless and
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
 # rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports.
-static-builtins = ["dep:opencode-plugin-hello-impl"]
+static-builtins = ["dep:opencode-plugin-hello-impl", "dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl"]
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -26,6 +26,8 @@ notify = "8"
 rune-mac.workspace = true
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
+opencode-plugin-context-impl = { path = "../../plugins/context/impl", optional = true }
+opencode-plugin-details-impl = { path = "../../plugins/details/impl", optional = true }
 opencode-plugin-hello-impl = { path = "../../plugins/hello/impl", optional = true }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }

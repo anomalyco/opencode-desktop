@@ -3,7 +3,7 @@
 //! panics draws nothing there (and shows on the plugin's Settings row), the rest of the shell
 //! carries on.
 
-use opencode_plugin::abi::{SURFACE_FILE, SURFACE_PILL, SURFACE_SETTINGS_PAGE, SURFACE_SLOT, SURFACE_TITLEBAR, contrib as kinds};
+use opencode_plugin::abi::{RENDER_ACTIVE, SURFACE_FILE, SURFACE_PILL, SURFACE_SETTINGS_PAGE, SURFACE_SLOT, SURFACE_TITLEBAR, contrib as kinds};
 use rune::{El, Tx, col, row};
 
 use super::contrib::active;
@@ -68,11 +68,16 @@ pub fn composer_pills(app: &App, p: &Pal, session: &str) -> Option<El> {
 /// What plugins put in shell slot `name` (`window.bottom`, `session.header`; `session.panel.end`
 /// and `session.location.menu` once those menus exist), for session `session`.
 pub fn slot(app: &App, p: &Pal, name: &str, session: &str) -> Vec<El> {
+    slot_with(app, p, name, session, RENDER_ACTIVE)
+}
+
+/// [`slot`] with the slot's `RENDER_*` flags (`session.header`'s `active` and `compact`).
+pub fn slot_with(app: &App, p: &Pal, name: &str, session: &str, flags: u32) -> Vec<El> {
     let directory = app.session(session).map_or("", |i| i.directory.as_str());
     sorted(app, kinds::SLOT)
         .into_iter()
         .filter(|(_, c)| c.target == name)
-        .filter_map(|(i, c)| draw(app, p, i, c, &Props { session, directory, ..Props::new(SURFACE_SLOT, &c.id) }, false))
+        .filter_map(|(i, c)| draw(app, p, i, c, &Props { session, directory, flags, ..Props::new(SURFACE_SLOT, &c.id) }, false))
         .collect()
 }
 

@@ -128,6 +128,18 @@ pub(super) unsafe extern "C" fn request(ctx: *mut c_void, kind: u32, arg: AbiStr
         REQUEST_RUN_COMMAND => Request::RunCommand(arg),
         REQUEST_OPEN_LINK => Request::OpenLink(arg),
         REQUEST_OPEN_SETTINGS => Request::OpenSettings,
+        REQUEST_TOGGLE_PANEL => Request::TogglePanel(arg),
+        REQUEST_TOGGLE_POPOVER => {
+            let (id, anchor) = arg.split_once('\n').unwrap_or((&arg, ""));
+            Request::TogglePopover { id: id.to_owned(), anchor: anchor.to_owned() }
+        }
+        REQUEST_CLOSE_POPOVER => Request::ClosePopover,
+        REQUEST_TOAST_ERROR => Request::ToastError(arg),
+        REQUEST_INVALIDATE => Request::Invalidate(arg),
+        REQUEST_NEW_DRAFT => {
+            let (directory, prompt) = arg.split_once('\n').unwrap_or((&arg, ""));
+            Request::NewDraft { directory: directory.to_owned(), prompt: prompt.to_owned() }
+        }
         _ => return,
     });
 }

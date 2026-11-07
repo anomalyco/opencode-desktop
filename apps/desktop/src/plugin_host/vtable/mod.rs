@@ -8,8 +8,11 @@
 //! - `setup.rs`: what a setup registers (commands, panels, settings, every other contribution);
 //! - `shared.rs`: what any callback shares (contracts, stores, icons, jobs, servers, requests).
 
+mod services;
 mod setup;
 mod shared;
+
+pub use services::{HostView, Resources, panel_state};
 
 use std::alloc::Layout;
 use std::cell::RefCell;
@@ -66,6 +69,8 @@ pub struct RenderCtx<'a> {
     pub salt: u64,
     pub panicked: RefCell<Option<String>>,
     pub shared: &'a Shared,
+    /// What the render may read of the app: its sessions, the model catalog, the side region.
+    pub app: &'a crate::App,
 }
 
 #[repr(C)]
@@ -78,17 +83,27 @@ pub struct ActionCtx<'a> {
     pub tx: &'a mut Tx,
     pub requests: Vec<Request>,
     pub wake_after: Option<u64>,
+    /// What a handler may ask of the app's state, read before it ran.
+    pub view: HostView,
 }
 
 /// What a handler asked for that needs the whole app, carried out once it returns.
 pub enum Request {
     OpenPanel(String),
     Toast(String),
+    ToastError(String),
     RunCommand(String),
     OpenLink(String),
     /// Settings is one column for now, so every page opens it at the top.
     OpenSettings,
     SetServers(String, Vec<ServerRec>),
+    TogglePanel(String),
+    TogglePopover { id: String, anchor: String },
+    ClosePopover,
+    Invalidate(String),
+    NewDraft { directory: String, prompt: String },
+    ServerRequest { method: String, path: String, body: String, done: super::instance::CallbackEnv },
+    SaveFile { name: String, content: String, done: super::instance::CallbackEnv },
 }
 
 /// Wakes the event loop for plugins: one bit per slot in `dirty`, which `PluginHost::poll`
@@ -283,8 +298,8 @@ unsafe extern "C" fn el_build(ctx: *mut c_void, spec: *const ElSpec) -> ElHandle
     let (Some(r), Some(spec)) = (unsafe { render(ctx) }, unsafe { spec.as_ref() }) else { return ElHandle::NONE };
     // SAFETY: as above.
     let el = unsafe { arena::build(&r.build, spec) };
-    let press = arena::press(&r.build, spec);
-    r.arena.borrow_mut().push(el, press)
+    let handlers = arena::handlers(&r.build, spec);
+    r.arena.borrow_mut().push(el, handlers)
 }
 
 unsafe extern "C" fn el_apply(ctx: *mut c_void, h: ElHandle, spec: *const ElSpec) {
@@ -292,8 +307,8 @@ unsafe extern "C" fn el_apply(ctx: *mut c_void, h: ElHandle, spec: *const ElSpec
     let (Some(r), Some(spec)) = (unsafe { render(ctx) }, unsafe { spec.as_ref() }) else { return };
     // SAFETY: as above.
     let el = unsafe { arena::build(&r.build, spec) };
-    let press = arena::press(&r.build, spec);
-    r.arena.borrow_mut().replace(h, el, press);
+    let handlers = arena::handlers(&r.build, spec);
+    r.arena.borrow_mut().replace(h, el, handlers);
 }
 
 unsafe extern "C" fn el_child(ctx: *mut c_void, parent: ElHandle, child: ElHandle) {
@@ -317,7 +332,7 @@ unsafe extern "C" fn memo(ctx: *mut c_void, key: AbiStr, version: u64, build: Bu
             }
         }
     });
-    r.arena.borrow_mut().push(el, None)
+    r.arena.borrow_mut().push(el, (None, None))
 }
 
 pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
@@ -350,6 +365,13 @@ pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
     spawn: shared::spawn,
     set_servers: shared::set_servers,
     request: shared::request,
+    session: services::session,
+    model: services::model,
+    resource: services::resource,
+    token: services::token,
+    host_state: services::host_state,
+    server_request: services::server_request,
+    save_file: services::save_file,
 };
 
 unsafe extern "C" fn host_alloc(size: usize, align: usize) -> *mut u8 {

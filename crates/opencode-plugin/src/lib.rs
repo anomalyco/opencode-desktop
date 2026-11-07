@@ -42,6 +42,7 @@ mod cx;
 mod el;
 #[doc(hidden)]
 pub mod export;
+pub mod host;
 mod layout_hash;
 mod registry;
 pub mod shared;
@@ -50,7 +51,8 @@ pub use abi::{EditorHandle, ElHandle, Rgba};
 pub use app::{AppPlugin, AppSetupCx};
 pub use contrib::{Contribution, HostPage, Menu, Menubar, ServerEntry, ServerState, SlotName};
 pub use cx::{ActionCx, FxHasher, Palette, PluginError, PluginWaker, PollCx, Props, ViewCx, WindowPlugin, WindowSetupCx};
-pub use el::{El, Handler, col, el, icon, icon_id, row, spacer, text, text_input, ui};
+pub use el::{El, Handler, col, el, icon, icon_id, odometer, row, spacer, text, text_input, ui};
+pub use host::{ModelInfo, PanelState, Resource, Session};
 pub use registry::{CommandSection, CommandSpec, PanelSpec, SettingSpec};
 pub use shared::{Contract, IconId, Inactive, LatestTask, Live, LiveState, Service, Store, StoreValue, intern_icon, spawn_after};
 
@@ -58,7 +60,8 @@ pub use shared::{Contract, IconId, Inactive, LatestTask, Live, LiveState, Servic
 pub mod prelude {
     pub use crate::{
         ActionCx, AppPlugin, AppSetupCx, CommandSection, CommandSpec, Contract, Contribution, EditorHandle, El, HostPage, Inactive, LatestTask, Live,
-        LiveState, Menu, Menubar, PanelSpec, PluginError, PluginWaker, PollCx, Props, Rgba, ServerEntry, ServerState, Service, SettingSpec, SlotName,
-        Store, StoreValue, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id, row, spacer, text, text_input, ui,
+        LiveState, Menu, Menubar, ModelInfo, Palette, PanelSpec, PanelState, PluginError, PluginWaker, PollCx, Props, Resource, Rgba, ServerEntry,
+        ServerState, Service, Session, SettingSpec, SlotName, Store, StoreValue, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id,
+        intern_icon, odometer, row, spacer, text, text_input, ui,
     };
 }

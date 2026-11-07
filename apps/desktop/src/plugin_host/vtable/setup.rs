@@ -60,7 +60,9 @@ pub(super) unsafe extern "C" fn add_panel(ctx: *mut c_void, spec: *const PanelSp
         description: text(spec.description).to_owned(),
         icon: text(spec.icon).to_owned(),
         order: spec.order,
+        flags: spec.flags,
         render: RenderEnv::new(spec.render, s.lib.clone()),
+        label: spec.label.func.is_some().then(|| RenderEnv::new(spec.label, s.lib.clone())),
     });
     AbiStatus::Ok
 }
@@ -89,7 +91,7 @@ pub(super) unsafe extern "C" fn add_contribution(ctx: *mut c_void, spec: *const 
     let needs = match spec.kind {
         contrib::MENU_ITEM | contrib::MENUBAR_ITEM | contrib::CODE_BLOCK_ACTION => spec.run.func.is_some(),
         contrib::SETTINGS_PAGE | contrib::SLOT | contrib::FILE_VIEWER | contrib::CODE_BLOCK => spec.render.func.is_some(),
-        contrib::TITLEBAR_ITEM | contrib::COMPOSER_PILL => spec.render.func.is_some(),
+        contrib::TITLEBAR_ITEM | contrib::COMPOSER_PILL | contrib::POPOVER => spec.render.func.is_some(),
         contrib::LINK_HANDLER => spec.run.func.is_some() && spec.query.func.is_some(),
         contrib::MCP_TOOL => spec.query.func.is_some(),
         contrib::THEME | contrib::SERVER => true,
@@ -114,6 +116,7 @@ pub(super) unsafe extern "C" fn add_contribution(ctx: *mut c_void, spec: *const 
         icon: text(spec.icon).to_owned(),
         target: text(spec.target).to_owned(),
         order: spec.order,
+        flags: spec.flags,
         run: spec.run.func.is_some().then(|| CallbackEnv::new(spec.run, lib.clone())),
         render: spec.render.func.is_some().then(|| RenderEnv::new(spec.render, lib.clone())),
         query: spec.query.func.is_some().then(|| QueryEnv::new(spec.query, lib.clone())),

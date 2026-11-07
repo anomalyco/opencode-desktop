@@ -21,6 +21,7 @@ mod draft;
 pub(crate) mod draft_location;
 mod header;
 mod home;
+pub(crate) mod location;
 mod inbox;
 mod narrow;
 mod narrow_story;
@@ -113,6 +114,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
     inner = inner.children(crate::popup::view(s, p));
+    inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {

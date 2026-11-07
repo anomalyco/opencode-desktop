@@ -38,7 +38,9 @@ mod lifecycle;
 mod loader;
 mod manifest;
 mod motw;
+mod popover;
 mod render;
+mod requests;
 mod run;
 mod shared;
 mod surfaces;
@@ -58,8 +60,9 @@ use rune::Waker;
 
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, menubar_items, open_link, run_menubar};
 pub use editors::PluginEditors;
+pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command};
-pub use surfaces::{composer_pills, file_viewer, settings_pages, slot, titlebar_items};
+pub use surfaces::{composer_pills, file_viewer, settings_pages, slot, slot_with, titlebar_items};
 pub use trust::dialog as trust_dialog;
 pub use view::settings_section;
 
@@ -91,6 +94,13 @@ pub struct PluginHost {
     /// Trust prompts put off for this launch.
     trust_later: BTreeSet<String>,
     started: bool,
+    /// The plugin popover on screen.
+    popover: Option<popover::Open>,
+    /// Plugins' cached server reads (`resource`).
+    resources: vtable::Resources,
+    /// Server requests and saves in flight, by id: whose callback runs when they answer.
+    pending: std::collections::HashMap<u64, requests::Pending>,
+    next_pending: u64,
 }
 
 pub enum Source {

@@ -7,7 +7,7 @@ use opencode_plugin::abi::{AbiEvent, AbiOutcome, AbiStatus, AbiStr, Callback, EV
 use rune::{KeyEvent, Tx};
 
 use super::instance::{Press, Scope};
-use super::vtable::{ActionCtx, Kind, Request, slot_bit};
+use super::vtable::{ActionCtx, HostView, Kind, Request, slot_bit};
 use super::{Slot, swap};
 use crate::App;
 
@@ -22,6 +22,10 @@ pub(super) enum Ran<T> {
 /// Runs a callback of slot `i`'s `scope` half (generation `generation`, when it must match)
 /// with a handler context, then carries out what it asked for. A panic fails the plugin.
 pub(super) fn act<T>(app: &mut App, tx: &mut Tx, i: usize, scope: Scope, generation: Option<u32>, call: impl FnOnce(*mut c_void, *mut c_void) -> AbiOutcome<T>) -> Ran<T> {
+    if app.plugins.slots.get(i).is_none() {
+        return Ran::Gone;
+    }
+    let view = HostView::read(app, i);
     let host = &mut app.plugins;
     let Some(slot) = host.slots.get(i) else { return Ran::Gone };
     let Some(inst) = slot.active().filter(|inst| generation.is_none_or(|g| g == inst.generation)) else { return Ran::Gone };
@@ -38,6 +42,7 @@ pub(super) fn act<T>(app: &mut App, tx: &mut Tx, i: usize, scope: Scope, generat
         tx,
         requests: Vec::new(),
         wake_after: None,
+        view,
     };
     let out = call(state, (&raw mut ctx).cast());
     let (requests, wake_after) = (std::mem::take(&mut ctx.requests), ctx.wake_after);
@@ -100,7 +105,30 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
                 let key = crate::panels::panel_key(super::view::PANEL, &format!("{id}.{panel}"));
                 app.open_side_tab(&key, None, false, false, tx);
             }
-            Request::Toast(text) => crate::status_toast::say(app, text, ""),
+            Request::Toast(text) => {
+                let (title, description) = text.split_once('\n').unwrap_or((&text, ""));
+                crate::status_toast::say(app, title, description);
+            }
+            Request::ToastError(text) => {
+                let (title, description) = text.split_once('\n').unwrap_or((&text, ""));
+                crate::status_toast::fail(app, title, description);
+            }
+            Request::TogglePanel(panel) => super::requests::toggle_panel(app, i, &panel, tx),
+            Request::TogglePopover { id: popover, anchor } => super::popover::toggle(app, i, &popover, &anchor, tx),
+            Request::ClosePopover => super::popover::close(app, tx),
+            Request::Invalidate(prefix) => app.plugins.resources.invalidate(&id, &prefix),
+            Request::NewDraft { directory, prompt } => {
+                tx.instant();
+                if !directory.is_empty() {
+                    app.default_dir = directory;
+                }
+                app.close_settings();
+                app.open_draft_tab();
+                app.composer.replace_text(prompt);
+                tx.settle();
+            }
+            Request::ServerRequest { method, path, body, done } => super::requests::server(app, i, method, path, body, done),
+            Request::SaveFile { name, content, done } => super::requests::save(app, i, &name, &content, done, tx),
             Request::RunCommand(command) => app.run_command(&command, tx),
             Request::OpenLink(href) => app.open_reply_link(&href, tx),
             Request::OpenSettings => {
@@ -124,6 +152,18 @@ pub(crate) fn press(app: &mut App, tx: &mut Tx, press: &Press) {
     let event = AbiEvent { kind: EVENT_PRESS, ..AbiEvent::default() };
     // SAFETY: the plugin's handler with its own data, on its instance's state.
     let ran = act(app, tx, press.slot, Scope::Window, Some(press.generation), |state, ctx| unsafe { func(state, ctx, cb.data, &event) });
+    if matches!(ran, Ran::Done(_, false) | Ran::Gone) {
+        tx.live_only();
+    }
+}
+
+/// An element's hover handler, from a plugin's render: the pointer entered (`on`) or left.
+pub(crate) fn hover(app: &mut App, tx: &mut Tx, hover: &Press, on: bool) {
+    let cb = hover.env.cb;
+    let Some(func) = cb.func else { return };
+    let event = AbiEvent { kind: opencode_plugin::abi::EVENT_HOVER, x: if on { 1.0 } else { 0.0 }, ..AbiEvent::default() };
+    // SAFETY: as `press`.
+    let ran = act(app, tx, hover.slot, Scope::Window, Some(hover.generation), |state, ctx| unsafe { func(state, ctx, cb.data, &event) });
     if matches!(ran, Ran::Done(_, false) | Ran::Gone) {
         tx.live_only();
     }

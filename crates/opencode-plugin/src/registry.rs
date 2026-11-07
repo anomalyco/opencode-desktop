@@ -3,7 +3,8 @@
 use std::borrow::Cow;
 
 use crate::abi::{
-    AbiStatus, AbiStr, COMMAND_EDITABLE, COMMAND_HIDDEN, Callback, CommandSpecAbi, PANEL_TRANSIENT, PanelSpecAbi, RenderCallback, SettingSpecAbi,
+    AbiStatus, AbiStr, COMMAND_EDITABLE, COMMAND_HIDDEN, Callback, CommandSpecAbi, PANEL_FALLBACK, PANEL_FIRST, PANEL_FIXED, PANEL_NO_LAUNCHER,
+    PANEL_TRANSIENT, PanelSpecAbi, RenderCallback, SettingSpecAbi,
 };
 use crate::boundary::drop_packed;
 
@@ -127,12 +128,38 @@ pub struct PanelSpec {
     description: Text,
     icon: Text,
     order: i32,
-    transient: bool,
+    flags: u32,
 }
 
 impl PanelSpec {
     pub fn new(id: impl Into<Text>, title: impl Into<Text>) -> Self {
-        PanelSpec { id: id.into(), title: title.into(), description: Text::Borrowed(""), icon: Text::Borrowed(""), order: 0, transient: false }
+        PanelSpec { id: id.into(), title: title.into(), description: Text::Borrowed(""), icon: Text::Borrowed(""), order: 0, flags: 0 }
+    }
+
+    fn flag(mut self, flag: u32, on: bool) -> Self {
+        self.flags = if on { self.flags | flag } else { self.flags & !flag };
+        self
+    }
+
+    /// No New tab card or `+` row: something else opens it, as Desktop's panels without a
+    /// `MenuItem` (Context opens from its header ring).
+    pub fn launcher(self, on: bool) -> Self {
+        self.flag(PANEL_NO_LAUNCHER, !on)
+    }
+
+    /// Stored at the front of the strip (`first`).
+    pub fn first(self, on: bool) -> Self {
+        self.flag(PANEL_FIRST, on)
+    }
+
+    /// Selected when the active tab closes (`fallback`).
+    pub fn fallback(self, on: bool) -> Self {
+        self.flag(PANEL_FALLBACK, on)
+    }
+
+    /// Can't be dragged to another pane (`draggable: false`).
+    pub fn fixed(self, on: bool) -> Self {
+        self.flag(PANEL_FIXED, on)
     }
 
     /// The launcher card's line under the title (the manifest's description when empty).
@@ -155,23 +182,24 @@ impl PanelSpec {
     }
 
     /// Closing the tab forgets it rather than keeping it in Recently closed.
-    pub fn transient(mut self, transient: bool) -> Self {
-        self.transient = transient;
-        self
+    pub fn transient(self, transient: bool) -> Self {
+        self.flag(PANEL_TRANSIENT, transient)
     }
 
-    pub(crate) fn with_abi(&self, render: RenderCallback, f: impl FnOnce(&PanelSpecAbi) -> AbiStatus) {
+    pub(crate) fn with_abi(&self, render: RenderCallback, label: RenderCallback, f: impl FnOnce(&PanelSpecAbi) -> AbiStatus) {
         let abi = PanelSpecAbi {
             id: AbiStr::new(&self.id),
             title: AbiStr::new(&self.title),
             description: AbiStr::new(&self.description),
             icon: AbiStr::new(&self.icon),
             order: self.order,
-            flags: if self.transient { PANEL_TRANSIENT } else { 0 },
+            flags: self.flags,
             render,
+            label,
         };
         if f(&abi) != AbiStatus::Ok {
             drop_packed(render.data, render.drop_data);
+            drop_packed(label.data, label.drop_data);
         }
     }
 }

@@ -440,6 +440,8 @@ pub struct App {
     pub rune_mcp: rune_mcp::WindowMcp,
     /// Native plugins over the C ABI: their panels, commands and settings rows (`plugin_host`).
     pub plugins: plugin_host::PluginHost,
+    /// The session header's location card: each folder's branch once read.
+    pub location: view::location::Location,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).

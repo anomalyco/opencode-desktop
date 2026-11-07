@@ -24,10 +24,8 @@ pub(super) fn steps(room: Option<f32>, last: usize, need: impl Fn(usize) -> f32)
 pub(crate) enum HeaderDrop {
     /// The project's name and the slash after it (its badge stays).
     Name,
-    /// The context's token count beside its ring.
+    /// The actions' details: plugins' header slots draw compact (the context ring alone).
     Tokens,
-    /// The context ring.
-    Ring,
     /// A subagent's parent crumb.
     Parent,
     /// The ⋯ button (the title's right-click still opens its menu).
@@ -36,7 +34,7 @@ pub(crate) enum HeaderDrop {
     Badge,
 }
 
-pub(crate) const HEADER_DROPS: [HeaderDrop; 6] = [HeaderDrop::Name, HeaderDrop::Tokens, HeaderDrop::Ring, HeaderDrop::Parent, HeaderDrop::More, HeaderDrop::Badge];
+pub(crate) const HEADER_DROPS: [HeaderDrop; 5] = [HeaderDrop::Name, HeaderDrop::Tokens, HeaderDrop::Parent, HeaderDrop::More, HeaderDrop::Badge];
 
 /// How much of the title must show before the header drops anything else for it.
 pub(super) const TITLE_FLOOR: f32 = 96.0;

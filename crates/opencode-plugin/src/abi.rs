@@ -18,9 +18,10 @@ use core::mem::MaybeUninit;
 /// "OCRUNEPL".
 pub const ABI_MAGIC: u64 = 0x4F43_5255_4E45_504C;
 pub const ABI_ENDIAN: u32 = 0x0102_0304;
-/// Experimental epoch 2 (every contribution type, app plugins, services, stores, tasks and
-/// icons); bumped on any breaking layout change.
-pub const ABI_EPOCH: u16 = 2;
+/// Experimental epoch 3 (epoch 2's contribution types, app plugins, services, stores, tasks and
+/// icons, plus session reads, server requests, popovers, theme tokens and richer elements);
+/// bumped on any breaking layout change.
+pub const ABI_EPOCH: u16 = 3;
 /// Additive tail extensions to the vtables within an epoch.
 pub const ABI_MINOR: u16 = 0;
 /// What `plugin.toml`'s `api` names for this epoch.
@@ -242,6 +243,9 @@ pub enum ElKind {
     NativeSurface = 6,
     /// A text field bound to `editor`; `text` is its placeholder.
     TextInput = 7,
+    /// A number whose changed digits roll (the app's odometer): `text` is what it reads, `value`
+    /// the number it stands for, `key` its identity across renders.
+    Odometer = 8,
 }
 
 /// [`ElSpec::flags`].
@@ -259,7 +263,38 @@ pub mod flags {
     pub const JUSTIFY_BETWEEN: u64 = 1 << 10;
     pub const SELECTABLE: u64 = 1 << 11;
     pub const SHRINK: u64 = 1 << 12;
+    /// Scrolls its overflow vertically.
+    pub const SCROLL: u64 = 1 << 13;
+    /// Tabular figures (`font-variant-numeric: tabular-nums`).
+    pub const TABULAR: u64 = 1 << 14;
+    /// Children that set a group colour take it while this element is hovered.
+    pub const HOVER_GROUP: u64 = 1 << 15;
+    /// Its hover and press fills land at once rather than fading.
+    pub const INSTANT_HOVER: u64 = 1 << 16;
+    /// Lays out after its siblings without taking room (`El::absolute` at `pin`).
+    pub const ABSOLUTE: u64 = 1 << 17;
+    /// Tooltip shows above rather than below.
+    pub const HELP_ABOVE: u64 = 1 << 18;
+    /// Text that doesn't break.
+    pub const NO_WRAP: u64 = 1 << 19;
 }
+
+/// [`ElSpec::shadow`]: Desktop's elevation tokens.
+pub const SHADOW_NONE: u32 = 0;
+pub const SHADOW_RAISED: u32 = 1;
+pub const SHADOW_FLOATING: u32 = 2;
+pub const SHADOW_OVERLAY: u32 = 3;
+
+/// [`ElSpec::anchor_side`]: which side of the element keyed `anchor` an overlay sits on.
+pub const SIDE_NONE: u32 = 0;
+pub const SIDE_TOP: u32 = 1;
+pub const SIDE_BOTTOM: u32 = 2;
+pub const SIDE_LEFT: u32 = 3;
+pub const SIDE_RIGHT: u32 = 4;
+/// [`ElSpec::anchor_align`].
+pub const ALIGN_START: u32 = 0;
+pub const ALIGN_CENTER: u32 = 1;
+pub const ALIGN_END: u32 = 2;
 
 /// The plugin's handler for a press, a command or a change.
 pub type ActionFn = unsafe extern "C" fn(state: *mut c_void, ctx: *mut c_void, data: usize, event: *const AbiEvent) -> AbiOutcome<bool>;
@@ -323,6 +358,13 @@ pub const EVENT_CODE_BLOCK: u32 = 4;
 pub const EVENT_MENU: u32 = 5;
 /// A job running on a host worker thread (`HostApiVtable::spawn`).
 pub const EVENT_JOB: u32 = 6;
+/// The pointer entered (`x` 1) or left (`x` 0) an element with a hover handler.
+pub const EVENT_HOVER: u32 = 7;
+/// A server request's answer (`HostApiVtable::server_request`): `text` is the body, `extra`
+/// the error ("" on success), `mods` 0 on success and 1 on failure.
+pub const EVENT_RESPONSE: u32 = 8;
+/// A file the host saved (`HostApiVtable::save_file`): `text` is its path, `extra` the error.
+pub const EVENT_SAVED: u32 = 9;
 
 /// What ran a callback. The strings are views valid for the call.
 #[repr(C)]
@@ -356,6 +398,17 @@ pub const SURFACE_PILL: u32 = 4;
 pub const SURFACE_FILE: u32 = 5;
 pub const SURFACE_SETTINGS_PAGE: u32 = 6;
 pub const SURFACE_CODE_BLOCK: u32 = 7;
+pub const SURFACE_POPOVER: u32 = 8;
+/// A panel tab's label in the side region's strip (`PanelSpec::label`).
+pub const SURFACE_TAB: u32 = 9;
+
+/// [`RenderProps::flags`].
+/// The session's view is the one on screen (a slot's `active`).
+pub const RENDER_ACTIVE: u32 = 1 << 0;
+/// The header needs the room: draw the compact form (a slot's `compact`).
+pub const RENDER_COMPACT: u32 = 1 << 1;
+/// The tab is the selected one in its strip (a tab label).
+pub const RENDER_SELECTED: u32 = 1 << 2;
 
 /// What a render call draws for.
 #[repr(C)]
@@ -376,6 +429,7 @@ pub struct RenderProps<'a> {
     pub focused: u8,
     pub dark: u8,
     pub _pad: u8,
+    pub flags: u32,
 }
 
 pub type Rgba = [f32; 4];
@@ -406,6 +460,10 @@ pub struct AbiPalette {
     pub warning: Rgba,
     pub danger: Rgba,
     pub switch_thumb: Rgba,
+    pub icon_faint: Rgba,
+    /// `background-bg-layer-04`.
+    pub layer4: Rgba,
+    pub border_strong: Rgba,
 }
 
 /// Single-call element constructor (one FFI call per element instead of one per setter).
@@ -448,6 +506,24 @@ pub struct ElSpec<'a> {
     pub opacity: f32,
     pub flags: u64,
     pub press: Callback,
+    /// Letter spacing in points.
+    pub tracking: f32,
+    /// [`SHADOW_RAISED`] and the rest: one of Desktop's elevations.
+    pub shadow: u32,
+    /// An odometer's number.
+    pub value: f64,
+    /// A text or icon colour while the nearest [`flags::HOVER_GROUP`] ancestor is hovered.
+    pub group_color: Rgba,
+    /// Left, top, right, bottom offsets with [`flags::ABSOLUTE`] (`NAN` unset).
+    pub pin: [f32; 4],
+    /// An overlay placed beside the element keyed `anchor` ([`SIDE_BOTTOM`] and the rest), and
+    /// aligned along it ([`ALIGN_START`] …), `anchor_gap` points away. Draw it after its anchor.
+    pub anchor: AbiStr<'a>,
+    pub anchor_side: u32,
+    pub anchor_align: u32,
+    pub anchor_gap: f32,
+    /// Runs as the pointer enters and leaves ([`EVENT_HOVER`]).
+    pub hover: Callback,
 }
 
 impl ElSpec<'static> {
@@ -485,6 +561,16 @@ impl ElSpec<'static> {
         opacity: 1.0,
         flags: 0,
         press: Callback::NONE,
+        tracking: 0.0,
+        shadow: SHADOW_NONE,
+        value: 0.0,
+        group_color: [0.0; 4],
+        pin: [f32::NAN; 4],
+        anchor: AbiStr::EMPTY,
+        anchor_side: SIDE_NONE,
+        anchor_align: ALIGN_START,
+        anchor_gap: 0.0,
+        hover: Callback::NONE,
     };
 }
 
@@ -511,6 +597,14 @@ pub struct CommandSpecAbi<'a> {
 
 /// [`PanelSpecAbi::flags`].
 pub const PANEL_TRANSIENT: u32 = 1 << 0;
+/// No New tab card or `+` row: something else opens it (Desktop's panels without a `MenuItem`).
+pub const PANEL_NO_LAUNCHER: u32 = 1 << 1;
+/// Stored at the front of the strip (`BuiltinPanelTab.first`).
+pub const PANEL_FIRST: u32 = 1 << 2;
+/// Selected when the active tab closes (`fallback`).
+pub const PANEL_FALLBACK: u32 = 1 << 3;
+/// Can't be dragged to another pane (`draggable: false`).
+pub const PANEL_FIXED: u32 = 1 << 4;
 
 #[repr(C)]
 pub struct PanelSpecAbi<'a> {
@@ -518,12 +612,14 @@ pub struct PanelSpecAbi<'a> {
     pub title: AbiStr<'a>,
     /// The launcher card's line under the title.
     pub description: AbiStr<'a>,
-    /// An icon the plugin registered (`intern_icon`) or a host icon name (`"code"`, `"globe"`,
-    /// `"console"`, `"file-tree"`, `"folder"`).
+    /// An icon the plugin registered (`intern_icon`) or a host icon by name (any of Desktop's
+    /// icon catalog: `"code"`, `"globe"`, `"window-analytics"` …).
     pub icon: AbiStr<'a>,
     pub order: i32,
     pub flags: u32,
     pub render: RenderCallback,
+    /// Draws what leads the tab's title in the strip ([`SURFACE_TAB`]), in place of `icon`.
+    pub label: RenderCallback,
 }
 
 #[repr(C)]
@@ -570,6 +666,16 @@ pub mod contrib {
     pub const MCP_TOOL: u32 = 12;
     /// Replaces finished fenced code blocks: `target` lists languages; `render` draws one.
     pub const CODE_BLOCK: u32 = 13;
+    /// A popover the host places beside an element and dismisses on a press outside or Esc:
+    /// `render` draws its content ([`super::SURFACE_POPOVER`]), `order` is its gap. Opened
+    /// with [`super::REQUEST_TOGGLE_POPOVER`].
+    pub const POPOVER: u32 = 14;
+}
+
+/// [`ContributionAbi::flags`] of a [`contrib::POPOVER`]: where it sits beside its anchor, as
+/// [`ElSpec::anchor_side`] (low byte) and [`ElSpec::anchor_align`] (second byte) name them.
+pub const fn popover_flags(side: u32, align: u32) -> u32 {
+    (side & 0xff) | ((align & 0xff) << 8)
 }
 
 /// One contribution of any kind in [`contrib`]; fields a kind doesn't use stay empty.
@@ -637,6 +743,161 @@ pub struct ServerEntryAbi<'a> {
 pub const REQUEST_RUN_COMMAND: u32 = 0;
 pub const REQUEST_OPEN_LINK: u32 = 1;
 pub const REQUEST_OPEN_SETTINGS: u32 = 2;
+/// Opens this plugin's panel `arg` in the open session's side region, or closes it when it
+/// shows there (`layout.toggle`).
+pub const REQUEST_TOGGLE_PANEL: u32 = 3;
+/// Opens this plugin's popover `id` beside the element keyed `anchor`, or closes it when it's
+/// open: `arg` is `id\nanchor`.
+pub const REQUEST_TOGGLE_POPOVER: u32 = 4;
+/// Closes this plugin's open popover.
+pub const REQUEST_CLOSE_POPOVER: u32 = 5;
+/// A toast that stays until dismissed, for a failure: `arg` is `title\ndescription`.
+pub const REQUEST_TOAST_ERROR: u32 = 6;
+/// Drops this plugin's cached server reads whose path starts with `arg`, so the next read
+/// fetches them again.
+pub const REQUEST_INVALIDATE: u32 = 7;
+/// Opens a new session's draft in folder `directory` with `prompt` typed (`layout.draft`):
+/// `arg` is `directory\nprompt`.
+pub const REQUEST_NEW_DRAFT: u32 = 8;
+
+/// [`HostApiVtable::host_state`] questions.
+/// This plugin's panel `arg` in session `arg2`: 0 closed, 1 in the strip, 2 selected in its
+/// pane, 3 selected and on screen.
+pub const STATE_PANEL: u32 = 0;
+/// 1 while this plugin's popover `arg` is open.
+pub const STATE_POPOVER: u32 = 1;
+/// How many servers the app knows.
+pub const STATE_SERVERS: u32 = 2;
+/// 1 when the session's server runs on this machine.
+pub const STATE_SERVER_LOCAL: u32 = 3;
+/// The wall clock, in ms since the Unix epoch.
+pub const STATE_NOW_MS: u32 = 4;
+/// 1 when the app may write to its server (live, not read-only).
+pub const STATE_CAN_WRITE: u32 = 5;
+/// The local time zone's offset from UTC in seconds (as an `i64`'s bits) at the instant `arg`
+/// (ms since the Unix epoch, in decimal).
+pub const STATE_UTC_OFFSET: u32 = 6;
+
+/// A step's tokens.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TokensAbi {
+    pub input: u64,
+    pub output: u64,
+    pub reasoning: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+/// [`SessionAbi::flags`].
+/// A step after the last compaction and before a staged revert reported its tokens (`usage`).
+pub const SESSION_HAS_USAGE: u32 = 1 << 0;
+/// It runs now (a subagent of it may be the one running).
+pub const SESSION_BUSY: u32 = 1 << 1;
+/// Its messages have loaded.
+pub const SESSION_LOADED: u32 = 1 << 2;
+
+/// A session as the app holds it ([`HostApiVtable::session`]). The strings are views valid
+/// until the next host call.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SessionAbi<'a> {
+    pub id: AbiStr<'a>,
+    pub title: AbiStr<'a>,
+    pub directory: AbiStr<'a>,
+    pub project_id: AbiStr<'a>,
+    pub parent_id: AbiStr<'a>,
+    /// The model it runs with.
+    pub provider_id: AbiStr<'a>,
+    pub model_id: AbiStr<'a>,
+    /// The model of the step `usage` came from.
+    pub usage_provider_id: AbiStr<'a>,
+    pub usage_model_id: AbiStr<'a>,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+    /// What it cost, its subagents' sessions included.
+    pub cost: f64,
+    /// The last step with tokens, after the last finished compaction and before a staged revert
+    /// (Desktop's `lastAssistantWithUsage`).
+    pub usage: TokensAbi,
+    /// Changes whenever anything here does: a memo's version.
+    pub version: u64,
+    /// How many messages it has loaded.
+    pub messages: u32,
+    pub flags: u32,
+}
+
+impl Default for SessionAbi<'_> {
+    fn default() -> Self {
+        let e = AbiStr::EMPTY;
+        SessionAbi {
+            id: e,
+            title: e,
+            directory: e,
+            project_id: e,
+            parent_id: e,
+            provider_id: e,
+            model_id: e,
+            usage_provider_id: e,
+            usage_model_id: e,
+            created_ms: 0,
+            updated_ms: 0,
+            cost: 0.0,
+            usage: TokensAbi::default(),
+            version: 0,
+            messages: 0,
+            flags: 0,
+        }
+    }
+}
+
+/// [`ModelAbi::flags`].
+/// The catalog lists the model (not deprecated).
+pub const MODEL_KNOWN: u32 = 1 << 0;
+/// The catalog lists its provider.
+pub const MODEL_PROVIDER_KNOWN: u32 = 1 << 1;
+/// Some of its tokens cost money.
+pub const MODEL_PAID: u32 = 1 << 2;
+
+/// A model as the server's catalog names it ([`HostApiVtable::model`]).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ModelAbi<'a> {
+    pub provider_name: AbiStr<'a>,
+    pub name: AbiStr<'a>,
+    /// Its context window in tokens; 0 when the catalog doesn't say.
+    pub context_limit: u64,
+    pub flags: u32,
+    pub _pad: u32,
+}
+
+impl Default for ModelAbi<'_> {
+    fn default() -> Self {
+        ModelAbi { provider_name: AbiStr::EMPTY, name: AbiStr::EMPTY, context_limit: 0, flags: 0, _pad: 0 }
+    }
+}
+
+pub const RESOURCE_LOADING: u32 = 0;
+pub const RESOURCE_READY: u32 = 1;
+pub const RESOURCE_FAILED: u32 = 2;
+
+/// A server read the host caches for a plugin ([`HostApiVtable::resource`]).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ResourceAbi<'a> {
+    pub state: u32,
+    /// Grows each time an answer lands: a memo's version.
+    pub generation: u32,
+    /// The answer's JSON once ready (the last one while a newer read loads), the error once
+    /// failed. Valid until the next host call.
+    pub body: AbiStr<'a>,
+}
+
+impl Default for ResourceAbi<'_> {
+    fn default() -> Self {
+        ResourceAbi { state: RESOURCE_LOADING, generation: 0, body: AbiStr::EMPTY }
+    }
+}
 
 /// The host's heap. `export_plugin!`'s `#[global_allocator]` forwards every plugin allocation
 /// here, so plugins share the host's counting allocator.
@@ -715,6 +976,29 @@ pub struct HostApiVtable {
     pub set_servers: unsafe extern "C" fn(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize),
     /// One of the `REQUEST_*` kinds, carried out after the handler returns.
     pub request: unsafe extern "C" fn(ctx: *mut c_void, kind: u32, arg: AbiStr),
+    // Render.
+    /// Writes session `id` as the app holds it into `out` (views valid until the next host
+    /// call); 0 when the app doesn't know it.
+    pub session: unsafe extern "C" fn(ctx: *mut c_void, id: AbiStr, out: *mut SessionAbi<'static>) -> u8,
+    /// Writes how the server's catalog names model `model` of provider `provider` into `out`.
+    pub model: unsafe extern "C" fn(ctx: *mut c_void, provider: AbiStr, model: AbiStr, out: *mut ModelAbi<'static>) -> u8,
+    /// Reads `GET path` from the session's server, cached for this plugin under `path` until
+    /// `version` changes (or [`REQUEST_INVALIDATE`]); a read that isn't ready starts one and
+    /// redraws when it lands. A run without a server stays loading.
+    pub resource: unsafe extern "C" fn(ctx: *mut c_void, path: AbiStr, version: u64, out: *mut ResourceAbi<'static>),
+    /// Writes theme token `name` (Desktop's CSS name without `--`, such as `text-strong` or
+    /// `background-bg-layer-04`) of the theme being drawn into `out`; 0 when it has none.
+    pub token: unsafe extern "C" fn(ctx: *mut c_void, name: AbiStr, out: *mut Rgba) -> u8,
+    // Render, handlers and poll.
+    /// Answers one of the `STATE_*` questions.
+    pub host_state: unsafe extern "C" fn(ctx: *mut c_void, what: u32, arg: AbiStr, arg2: AbiStr) -> u64,
+    // Handlers and poll.
+    /// Sends `method path` (with a JSON `body`, or none when empty) to the server off the
+    /// app's thread; `done` runs on it with [`EVENT_RESPONSE`] once it answers.
+    pub server_request: unsafe extern "C" fn(ctx: *mut c_void, method: AbiStr, path: AbiStr, body: AbiStr, done: Callback) -> AbiStatus,
+    /// Saves `content` as `name` where the app saves downloads (`system.save`); `done` runs
+    /// with [`EVENT_SAVED`] once it's written.
+    pub save_file: unsafe extern "C" fn(ctx: *mut c_void, name: AbiStr, content: AbiStr, done: Callback) -> AbiStatus,
 }
 
 pub type SetupFn = unsafe extern "C" fn(ctx: *mut c_void) -> AbiOutcome<*mut c_void>;

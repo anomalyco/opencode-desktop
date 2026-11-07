@@ -11,6 +11,10 @@ members = [
     "crates/rune-parts",
     "crates/session-view",
     "crates/terminal",
+    "plugins/context",
+    "plugins/context/impl",
+    "plugins/details",
+    "plugins/details/impl",
     "plugins/echo",
     "plugins/hello",
     "plugins/hello/api",
@@ -67,6 +71,24 @@ opt-level = "s"
 codegen-units = 1
 opt-level = "s"
 strip = "symbols"
+
+[profile.release.package.opencode-plugin-context]
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
+[profile.release.package.opencode-plugin-context-impl]
+codegen-units = 1
+opt-level = "s"
+
+[profile.release.package.opencode-plugin-details]
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
+[profile.release.package.opencode-plugin-details-impl]
+codegen-units = 1
+opt-level = "s"
 
 [profile.release.package.opencode-plugin]
 codegen-units = 1

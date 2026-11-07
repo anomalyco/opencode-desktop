@@ -5,7 +5,7 @@
 
 use std::rc::Rc;
 
-use opencode_plugin::abi::{ElKind, ElSpec, flags};
+use opencode_plugin::abi::{ALIGN_CENTER, ALIGN_END, ElKind, ElSpec, SHADOW_FLOATING, SHADOW_OVERLAY, SHADOW_RAISED, SIDE_LEFT, SIDE_NONE, SIDE_RIGHT, SIDE_TOP, flags};
 use opencode_plugin::{EditorHandle, ElHandle};
 use rune::{Color, El, TextStyle};
 
@@ -19,6 +19,7 @@ const NONE: u32 = u32::MAX;
 struct Node {
     el: Option<El>,
     press: Option<Rc<Press>>,
+    hover: Option<Rc<Press>>,
     first: u32,
     last: u32,
     next: u32,
@@ -38,17 +39,20 @@ impl PluginRenderArena {
         self.nodes.truncate(mark);
     }
 
-    pub fn push(&mut self, el: El, press: Option<Rc<Press>>) -> ElHandle {
-        self.nodes.push(Node { el: Some(el), press, first: NONE, last: NONE, next: NONE });
+    pub fn push(&mut self, el: El, (press, hover): Handlers) -> ElHandle {
+        self.nodes.push(Node { el: Some(el), press, hover, first: NONE, last: NONE, next: NONE });
         ElHandle(self.nodes.len() as u32 - 1)
     }
 
-    /// Restyles `h`, keeping its children, and its press handler unless `press` replaces it.
-    pub fn replace(&mut self, h: ElHandle, el: El, press: Option<Rc<Press>>) {
+    /// Restyles `h`, keeping its children, and its handlers unless new ones replace them.
+    pub fn replace(&mut self, h: ElHandle, el: El, (press, hover): Handlers) {
         if let Some(n) = self.nodes.get_mut(h.0 as usize) {
             n.el = Some(el);
             if press.is_some() {
                 n.press = press;
+            }
+            if hover.is_some() {
+                n.hover = hover;
             }
         }
     }
@@ -72,6 +76,9 @@ impl PluginRenderArena {
         if let Some(press) = node.press.take() {
             el = el.on_press_tx(move |app: &mut App, tx: &mut rune::Tx| super::run::press(app, tx, &press));
         }
+        if let Some(hover) = node.hover.take() {
+            el = el.on_hover_change(move |app: &mut App, on: bool, tx: &mut rune::Tx| super::run::hover(app, tx, &hover, on));
+        }
         let mut child = std::mem::replace(&mut node.first, NONE);
         while child != NONE {
             let next = self.nodes[child as usize].next;
@@ -85,6 +92,7 @@ impl PluginRenderArena {
 /// What turning an `ElSpec` into an `El` needs from the render.
 pub struct Build<'a> {
     pub editors: &'a PluginEditors,
+    pub pal: &'a crate::palette::Pal,
     pub faint: Color,
     /// The plugin's id: its icons are looked up under it.
     pub plugin: &'a str,
@@ -109,6 +117,8 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
         let weight = if spec.font_weight > 0.0 { spec.font_weight } else { 440.0 };
         let style = TextStyle::new(size, weight);
         let style = if spec.line_height > 0.0 { style.lh(spec.line_height) } else { style };
+        let style = if spec.tracking != 0.0 { style.tracking(spec.tracking) } else { style };
+        let style = if spec.flags & flags::TABULAR != 0 { style.features("\"tnum\"") } else { style };
         if spec.flags & flags::MONO != 0 { style.mono() } else { style }
     };
     let mut el = match spec.kind {
@@ -121,6 +131,10 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
             rune::icon(icon, if spec.font_size > 0.0 { spec.font_size } else { 16.0 })
         }
         ElKind::TextInput => text_input(b, spec.editor, s(spec.text), style()),
+        ElKind::Odometer => {
+            let key = format!("p:{}:{}", b.plugin, s(spec.key));
+            session_view::odometer::odometer_end(key, s(spec.text).to_owned(), spec.value, style(), color(spec.text_color))
+        }
         ElKind::Box | ElKind::NativeSurface => rune::el(),
     };
     let set = |v: f32| !v.is_nan();
@@ -171,16 +185,44 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
     if f & flags::ITEMS_END != 0 { el = el.items_end(); }
     if f & flags::JUSTIFY_BETWEEN != 0 { el = el.justify_between(); }
     if f & flags::SELECTABLE != 0 { el = el.selectable(true); }
-    if !spec.key.is_empty() { el = el.key(s(spec.key).to_owned()); }
+    if f & flags::SCROLL != 0 { el = el.scroll(rune::ScrollSpec { stick_bottom: false }); }
+    if f & flags::HOVER_GROUP != 0 { el = el.hover_group(); }
+    if f & flags::INSTANT_HOVER != 0 { el = el.hover_motion(crate::view::INSTANT, crate::view::INSTANT); }
+    if f & flags::NO_WRAP != 0 { el = el.single_line(); }
+    if spec.group_color[3] > 0.0 { el = el.group_color(color(spec.group_color)); }
+    el = match spec.shadow {
+        SHADOW_RAISED | SHADOW_FLOATING | SHADOW_OVERLAY => {
+            let p = b.pal;
+            let tokens = match spec.shadow { SHADOW_RAISED => p.raised, SHADOW_FLOATING => p.floating, _ => p.overlay };
+            session_view::palette::Elevate::elevate(el, tokens)
+        }
+        _ => el,
+    };
+    if f & flags::ABSOLUTE != 0 {
+        let at = |v: f32| (!v.is_nan()).then_some(v);
+        let [l, t, r, bt] = spec.pin;
+        el = el.pin(at(l), at(t), at(r), at(bt));
+    }
+    if spec.anchor_side != SIDE_NONE && !spec.anchor.is_empty() {
+        let side = match spec.anchor_side { SIDE_TOP => rune::Side::Top, SIDE_LEFT => rune::Side::Left, SIDE_RIGHT => rune::Side::Right, _ => rune::Side::Bottom };
+        let align = match spec.anchor_align { ALIGN_CENTER => rune::Align::Center, ALIGN_END => rune::Align::End, _ => rune::Align::Start };
+        el = el.anchored(s(spec.anchor).to_owned(), side, align, spec.anchor_gap);
+    }
+    if !spec.key.is_empty() && spec.kind != ElKind::Odometer { el = el.key(s(spec.key).to_owned()); }
     if !spec.role.is_empty() { el = el.role(intern(s(spec.role))); }
     if !spec.label.is_empty() { el = el.label(s(spec.label).to_owned()); }
     if !spec.help.is_empty() { el = el.help(s(spec.help).to_owned()); }
+    if f & flags::HELP_ABOVE != 0 { el = el.help_above(); }
     el
 }
 
-/// The press handler `spec` hands over, if any; the host owns its captures from here on.
-pub fn press(b: &Build, spec: &ElSpec) -> Option<Rc<Press>> {
-    spec.press.func.is_some().then(|| Rc::new(Press { slot: b.slot, generation: b.generation, env: CallbackEnv::new(spec.press, b.lib.clone()) }))
+/// An element's press and hover handlers.
+pub type Handlers = (Option<Rc<Press>>, Option<Rc<Press>>);
+
+/// The handlers `spec` hands over, if any; the host owns their captures from here on.
+pub fn handlers(b: &Build, spec: &ElSpec) -> Handlers {
+    let take = |cb: opencode_plugin::abi::Callback| cb.func.is_some().then(|| Rc::new(Press { slot: b.slot, generation: b.generation, env: CallbackEnv::new(cb, b.lib.clone()) }));
+    (take(spec.press), take(spec.hover))
 }
 
 fn text_input(b: &Build, editor: EditorHandle, placeholder: &str, style: TextStyle) -> El {

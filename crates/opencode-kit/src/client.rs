@@ -342,6 +342,16 @@ impl Server {
         self.get_timed(path, capabilities).map(|(v, _)| v)
     }
 
+    /// `GET path`'s body as the server wrote it, unparsed (its keys in the server's order).
+    pub fn get_text(&self, path: &str) -> Result<String, String> {
+        let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));
+        if let Some(a) = &self.auth {
+            req = req.header("Authorization", a);
+        }
+        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
+        resp.body_mut().with_config().limit(64 << 20).read_to_string().map_err(|e| format!("GET {path}: {e}"))
+    }
+
     /// `read`, with when its response started, its body size and when parsing started.
     pub fn read_timed(&self, path: &str) -> Result<(Value, ReadTiming), String> {
         self.get_timed(path, self.media_refs.then_some(MEDIA_CAPABILITY))
@@ -1000,7 +1010,8 @@ pub fn set_download_dir(dir: Option<std::path::PathBuf>) {
     let _ = DOWNLOADS.set(dir);
 }
 
-fn save_download(name: &str, json: &str) -> Result<String, String> {
+/// Writes `json` as `name` in the Downloads folder [`set_download_dir`] named; returns its path.
+pub fn save_download(name: &str, json: &str) -> Result<String, String> {
     let dir = DOWNLOADS.get().cloned().flatten().ok_or("No Downloads folder")?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);

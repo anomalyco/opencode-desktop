@@ -20,6 +20,8 @@ pub struct El {
     help: Cow<'static, str>,
     text: Cow<'static, str>,
     press: Option<Handler>,
+    hover: Option<Handler>,
+    anchor: Cow<'static, str>,
     handle: Option<ElHandle>,
     dirty: bool,
     /// Built by the host (a memo's subtree): setters no longer reach it.
@@ -44,10 +46,22 @@ fn new(kind: ElKind) -> El {
         help: Cow::Borrowed(""),
         text: Cow::Borrowed(""),
         press: None,
+        hover: None,
+        anchor: Cow::Borrowed(""),
         handle: None,
         dirty: false,
         sealed: false,
     }
+}
+
+/// A number whose changed digits roll as it changes (the app's odometer): `text` is what it
+/// reads, `value` the number it stands for, `key` its identity across renders.
+pub fn odometer(key: impl Into<Cow<'static, str>>, label: impl Into<Cow<'static, str>>, value: f64) -> El {
+    let mut e = new(ElKind::Odometer);
+    e.key = key.into();
+    e.text = label.into();
+    e.spec.value = value;
+    e
 }
 
 /// A horizontal stack.
@@ -141,6 +155,8 @@ impl El {
         mr(v: f32) => |s| s.margin[1] = v;
         mb(v: f32) => |s| s.margin[2] = v;
         ml(v: f32) => |s| s.margin[3] = v;
+        mx(v: f32) => |s| (s.margin[1], s.margin[3]) = (v, v);
+        my(v: f32) => |s| (s.margin[0], s.margin[2]) = (v, v);
         gap(v: f32) => |s| s.gap = v;
         radius(v: f32) => |s| s.radius = [v; 4];
         /// Top-left, top-right, bottom-right, bottom-left.
@@ -165,6 +181,45 @@ impl El {
         items_end() => |s| s.flags |= flags::ITEMS_END;
         justify_between() => |s| s.flags |= flags::JUSTIFY_BETWEEN;
         selectable() => |s| s.flags |= flags::SELECTABLE;
+        /// Scrolls its overflow vertically.
+        scroll_y() => |s| s.flags |= flags::SCROLL;
+        /// Tabular figures.
+        tabular() => |s| s.flags |= flags::TABULAR;
+        /// Children's [`El::group_color`] applies while this is hovered.
+        hover_group() => |s| s.flags |= flags::HOVER_GROUP;
+        /// Hover and press fills land at once.
+        instant_hover() => |s| s.flags |= flags::INSTANT_HOVER;
+        help_above() => |s| s.flags |= flags::HELP_ABOVE;
+        no_wrap() => |s| s.flags |= flags::NO_WRAP;
+        /// Letter spacing in points.
+        tracking(v: f32) => |s| s.tracking = v;
+        /// One of Desktop's elevations (`abi::SHADOW_RAISED`, `SHADOW_FLOATING`, `SHADOW_OVERLAY`).
+        shadow(v: u32) => |s| s.shadow = v;
+        /// The text or icon colour while the nearest [`El::hover_group`] ancestor is hovered.
+        group_color(c: Rgba) => |s| s.group_color = c;
+        /// Out of flow at these offsets from its parent's edges (any of left, top, right, bottom).
+        pin(left: Option<f32>, top: Option<f32>, right: Option<f32>, bottom: Option<f32>) => |s| {
+            s.flags |= flags::ABSOLUTE;
+            s.pin = [left.unwrap_or(f32::NAN), top.unwrap_or(f32::NAN), right.unwrap_or(f32::NAN), bottom.unwrap_or(f32::NAN)];
+        };
+    }
+
+    /// An overlay beside the element keyed `key` (drawn before it): on `side`
+    /// (`abi::SIDE_BOTTOM` …), aligned along it (`abi::ALIGN_START` …), `gap` points away.
+    pub fn anchored(mut self, key: impl Into<Cow<'static, str>>, side: u32, align: u32, gap: f32) -> Self {
+        self.anchor = key.into();
+        self.spec.anchor_side = side;
+        self.spec.anchor_align = align;
+        self.spec.anchor_gap = gap;
+        self.dirty = true;
+        self
+    }
+
+    /// Runs as the pointer enters (`cx.event().x == 1.0`) and leaves (`0.0`).
+    pub fn on_hover(mut self, handler: Handler) -> Self {
+        self.hover = Some(handler);
+        self.dirty = true;
+        self
     }
 
     /// A key unique among its siblings, for identity across renders (and automation ids).
@@ -241,12 +296,17 @@ impl El {
         spec.label = AbiStr::new(&self.label);
         spec.help = AbiStr::new(&self.help);
         spec.text = AbiStr::new(&self.text);
-        // The host owns the handler's captures from here on.
-        spec.press = self.press.take().map_or(Callback::NONE, |h| {
-            let cb = h.0;
-            core::mem::forget(h);
-            cb
-        });
+        spec.anchor = AbiStr::new(&self.anchor);
+        // The host owns the handlers' captures from here on.
+        let give = |h: Option<Handler>| {
+            h.map_or(Callback::NONE, |h| {
+                let cb = h.0;
+                core::mem::forget(h);
+                cb
+            })
+        };
+        spec.press = give(self.press.take());
+        spec.hover = give(self.hover.take());
         let host = host();
         let handle = match self.handle {
             // SAFETY: `spec`'s strings borrow `self`, alive for the call; `h` is a live slot.

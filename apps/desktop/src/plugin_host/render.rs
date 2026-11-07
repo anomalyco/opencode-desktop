@@ -26,11 +26,13 @@ pub struct Props<'a> {
     pub size: (f32, f32),
     pub visible: bool,
     pub focused: bool,
+    /// `RENDER_ACTIVE` and the rest.
+    pub flags: u32,
 }
 
 impl<'a> Props<'a> {
     pub fn new(surface: u32, id: &'a str) -> Self {
-        Props { surface, id, session: "", directory: "", path: "", text: "", size: (0.0, 0.0), visible: true, focused: false }
+        Props { surface, id, session: "", directory: "", path: "", text: "", size: (0.0, 0.0), visible: true, focused: false, flags: opencode_plugin::abi::RENDER_ACTIVE }
     }
 }
 
@@ -59,6 +61,9 @@ pub fn abi_palette(p: &Pal) -> AbiPalette {
         warning: c(p.warning),
         danger: c(p.danger),
         switch_thumb: c(p.switch_thumb),
+        icon_faint: c(p.icon_faint),
+        layer4: c(p.q.layer4),
+        border_strong: c(p.q.border_strong),
     }
 }
 
@@ -78,12 +83,13 @@ pub fn surface(app: &App, i: usize, render: &RenderEnv, props: &Props, pal: &Pal
     let ctx = RenderCtx {
         kind: Kind::Render,
         pal: pal_abi,
-        build: Build { editors: &host.editors, faint: pal.faint, plugin: &slot.manifest.id, slot: i, generation: inst.generation, lib: &inst.lib },
+        build: Build { editors: &host.editors, pal, faint: pal.faint, plugin: &slot.manifest.id, slot: i, generation: inst.generation, lib: &inst.lib },
         arena: &host.arena,
         prefix: &slot.prefix,
         salt,
         panicked: RefCell::new(None),
         shared: &host.shared,
+        app,
     };
     let abi = RenderProps {
         surface: props.surface,
@@ -98,6 +104,7 @@ pub fn surface(app: &App, i: usize, render: &RenderEnv, props: &Props, pal: &Pal
         focused: u8::from(props.focused),
         dark: u8::from(pal.dark),
         _pad: 0,
+        flags: props.flags,
     };
     // SAFETY: the plugin's render on its own state, with a render context alive for the call.
     let out = unsafe { func(inst.state, (&raw const ctx).cast_mut().cast::<c_void>(), render.cb.data, &abi) };
