@@ -10,8 +10,8 @@ use opencode_plugin::{EditorHandle, ElHandle};
 use rune::{Color, El, TextStyle};
 
 use super::editors::PluginEditors;
+use super::icons::intern;
 use super::instance::{CallbackEnv, Press};
-use super::intern;
 use crate::App;
 
 const NONE: u32 = u32::MAX;
@@ -70,7 +70,7 @@ impl PluginRenderArena {
         let Some(node) = self.nodes.get_mut(h.0 as usize) else { return rune::el() };
         let mut el = node.el.take().unwrap_or_else(rune::el);
         if let Some(press) = node.press.take() {
-            el = el.on_press_tx(move |app: &mut App, tx: &mut rune::Tx| super::press(app, tx, &press));
+            el = el.on_press_tx(move |app: &mut App, tx: &mut rune::Tx| super::run::press(app, tx, &press));
         }
         let mut child = std::mem::replace(&mut node.first, NONE);
         while child != NONE {
@@ -86,6 +86,8 @@ impl PluginRenderArena {
 pub struct Build<'a> {
     pub editors: &'a PluginEditors,
     pub faint: Color,
+    /// The plugin's id: its icons are looked up under it.
+    pub plugin: &'a str,
     pub slot: usize,
     pub generation: u32,
     pub lib: &'a std::sync::Arc<super::loader::LoadedLibrary>,
@@ -115,7 +117,7 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
         ElKind::Text => rune::text(s(spec.text).to_owned()).font(style()),
         ElKind::Spacer => rune::spacer(),
         ElKind::Icon => {
-            let icon = crate::panels::icon_by_name(Some(s(spec.text)));
+            let icon = super::icons::icon(spec.icon_id).unwrap_or_else(|| super::icons::resolve(b.plugin, s(spec.text)));
             rune::icon(icon, if spec.font_size > 0.0 { spec.font_size } else { 16.0 })
         }
         ElKind::TextInput => text_input(b, spec.editor, s(spec.text), style()),

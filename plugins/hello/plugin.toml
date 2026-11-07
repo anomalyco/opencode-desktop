@@ -1,7 +1,16 @@
 id = "hello"
 name = "Hello"
-version = "0.1.0"
-description = "A minimal plugin: a side panel with a counter and a text field, a command with a keybind, and a settings row"
+version = "0.2.0"
+description = "A minimal plugin: a side panel with a counter and a text field, a command with a keybind, a settings row, and the Greeter service other plugins call"
 api = "0.1-experimental"
 library = "opencode_plugin_hello"
 
+[[stores]]
+name = "shout"
+scope = "global"
+
+[[settings_search]]
+id = "shout"
+page = "plugins"
+title = "Shout the greeting"
+keywords = "hello greeting capitals"

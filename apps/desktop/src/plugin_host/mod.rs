@@ -1,17 +1,27 @@
 //! `PluginHost`: native plugins (`crates/opencode-plugin`) loaded over the C ABI and bound to
-//! the app: their panels in the session side region, their commands in the palette and on the
-//! keyboard, their settings rows in Settings.
+//! the app. Built-ins use the same boundary as third-party plugins.
 //!
-//! - **Discovery** reads `plugin.toml` files (`manifest.rs`) without loading a library.
-//! - **Loading** shakes hands over the ABI (`loader.rs`) and runs setup; each slot moves through
-//!   an explicit state machine (`lifecycle.rs`).
+//! - **Discovery** reads `plugin.toml` files (`manifest.rs`) without loading a library; their
+//!   settings search entries are known before any loads.
+//! - **Trust**: a third-party library waits in `PendingTrust` until the user OKs it in a drawn
+//!   prompt (`trust.rs`), which also offers to unblock a file Windows marked as downloaded.
+//! - **Loading** shakes hands over the ABI (`loader.rs`), loads the plugin's stores, then sets up
+//!   its app half (once per process) and its window half; each slot moves through an explicit
+//!   state machine (`lifecycle.rs`, `swap.rs`).
+//! - **Contributions** reach the app's surfaces (`contrib.rs`, `surfaces.rs`, `view.rs`): panels
+//!   with their own launchers, commands with keybinds and `/slash`, menus and the app menu,
+//!   settings pages, link handlers, titlebar items, composer pills, code block actions, shell
+//!   slots, themes, file viewers, server sources and MCP tools.
+//! - **Sharing**: contracts and services, read as `Live` values, and host-kept stores
+//!   (`shared.rs`); background jobs on host workers (`tasks.rs`); icons and strings interned so
+//!   nothing points into a library a reload unmaps (`icons.rs`).
 //! - **Rendering** fills `PluginRenderArena` (`arena.rs`) with real `rune::El`s; memos live in
 //!   the window's own cache under `p:<id>:`, so a reload evicts only that plugin's.
-//! - **Idle**: `poll` swaps one `AtomicU64` of dirty bits and checks one deadline. With every
-//!   plugin at rest it makes no call into any plugin and asks for no frame.
-//! - **Hot reload** (debug builds, or `--plugin-hot`): a watcher thread notices a rebuilt
-//!   library; the host loads a shadow copy of it next to the running one, sets it up, carries
-//!   editors and `save_hot_state` over, and only then drops the old generation.
+//! - **Idle**: `poll` swaps two `AtomicU64`s of bits and checks one deadline. With every plugin
+//!   at rest it makes no call into any plugin and asks for no frame.
+//! - **Hot reload** (debug builds, or `--plugin-hot`): the watcher thread copies and loads a
+//!   rebuilt library (`hot.rs`); the app's thread only swaps instances, carrying editors, stores
+//!   and `save_hot_state` over, and drops the old generation once the new one is set up.
 //! - **Panics** never cross: a render panic shows an error card and the plugin keeps running; a
 //!   handler, poll or setup panic fails that plugin alone and withdraws its contributions.
 // The C ABI boundary is unsafe by nature; each block says what it relies on.
@@ -19,35 +29,45 @@
 
 mod arena;
 mod builtins;
+mod contrib;
 mod editors;
 mod hot;
+mod icons;
 mod instance;
 mod lifecycle;
 mod loader;
 mod manifest;
+mod motw;
+mod render;
+mod run;
+mod shared;
+mod surfaces;
+mod swap;
+mod tasks;
+mod trust;
 mod view;
 mod vtable;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashSet};
-use std::ffi::c_void;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use opencode_plugin::EditorHandle;
-use opencode_plugin::abi::{AbiEvent, AbiOutcome, AbiStatus, AbiStr, EVENT_COMMAND, EVENT_KEY, EVENT_PRESS, PluginEntryFn};
-use rune::{KeyEvent, Tx, Waker};
+use opencode_plugin::abi::PluginEntryFn;
+use rune::Waker;
 
+pub use contrib::{code_block_actions, mcp_call, mcp_tools, menubar_items, open_link, run_menubar};
 pub use editors::PluginEditors;
+pub use run::{commands, key, run_command};
+pub use surfaces::{composer_pills, file_viewer, settings_pages, slot, titlebar_items};
+pub use trust::dialog as trust_dialog;
 pub use view::settings_section;
 
 use arena::PluginRenderArena;
-use instance::{Instance, Press};
+use instance::Instance;
 use lifecycle::{Event, PluginState};
-use loader::Loaded;
 use manifest::{Found, Manifest, Tier};
-use vtable::{ActionCtx, Kind, Request, SetupCtx, WakeShared, slot_bit};
+use vtable::WakeShared;
 
 use crate::App;
 
@@ -59,9 +79,17 @@ pub struct PluginHost {
     wake: Arc<WakeShared>,
     /// The soonest `wake_after` deadline of any plugin, on the app clock.
     next_deadline: Option<f64>,
-    hot: Option<hot::Watcher>,
+    /// The hot-reload watcher; dropping it stops its thread.
+    _watcher: Option<hot::Watcher>,
+    /// Libraries loaded off the app's thread (rebuilt, or just trusted), waiting to swap in.
+    ready: hot::Ready,
     shadow_dir: Option<PathBuf>,
     disabled: BTreeSet<String>,
+    /// Third-party libraries the user OKed: plugin id → the SHA-256 they OKed.
+    trusted: BTreeMap<String, String>,
+    shared: shared::Shared,
+    /// Trust prompts put off for this launch.
+    trust_later: BTreeSet<String>,
     started: bool,
 }
 
@@ -91,48 +119,48 @@ pub struct Slot {
     /// The tabs the last running generation offered (tab id, title, icon), kept so a failed
     /// plugin's open tab stays and shows why, with Reload.
     pub tabs: Vec<(String, String, String)>,
+    /// A third-party library's SHA-256, what trusting it means.
+    pub hash: Option<String>,
+    /// Windows marked the library as downloaded from the internet.
+    pub blocked: bool,
 }
 
 impl Slot {
     fn go(&mut self, event: Event) {
         match self.state.next(event) {
             Some(next) => self.state = next,
-            None => eprintln!("plugin {}: {event:?} doesn't apply in {:?}", self.manifest.id, self.state),
+            None => tasks::log(format!("plugin {}: {event:?} doesn't apply in {:?}", self.manifest.id, self.state)),
         }
     }
 
     fn active(&self) -> Option<&Instance> {
         self.instance.as_ref().filter(|_| self.state == PluginState::Active)
     }
-}
 
-/// `s` as a `&'static str`, leaked once per distinct string: the palette and `rune::El::role`
-/// take static strings, and plugins contribute few distinct ones.
-pub fn intern(s: &str) -> &'static str {
-    static POOL: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
-    let Ok(mut pool) = POOL.lock() else { return "" };
-    if let Some(&s) = pool.get(s) {
-        return s;
+    fn library(&self) -> Option<&std::path::Path> {
+        match &self.source {
+            Source::Library(path) => Some(path),
+            Source::Static(_) => None,
+        }
     }
-    let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
-    pool.insert(leaked);
-    leaked
 }
 
 /// Discovers and loads the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
+    let persists = app.persists();
     let host = &mut app.plugins;
     host.wake.waker.set(waker).ok();
     if host.started || crate::flag("--no-plugins") {
         return;
     }
     host.started = true;
+    host.shared.stores.persist = persists;
     let hot = crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless());
     host.shadow_dir = hot.then(|| crate::dirs::cache().map(|c| c.join("plugin-hot"))).flatten();
     if let Some(dir) = &host.shadow_dir {
         loader::sweep(dir);
     }
-    host.disabled = load_disabled();
+    (host.disabled, host.trusted) = load_state();
     let builtin_ids: HashSet<String> = builtins::all().iter().filter_map(|(src, _)| manifest::parse(src).ok()).map(|m| m.id).collect();
     let mut seen = HashSet::new();
     for (found, source) in discover() {
@@ -142,6 +170,10 @@ pub fn setup(app: &mut App, waker: Waker) {
         if !seen.insert(id.clone()) && !shadows_builtin {
             continue;
         }
+        let library = match &source {
+            Source::Library(path) if found.tier.needs_trust() => Some(path.clone()),
+            _ => None,
+        };
         let mut slot = Slot {
             prefix: format!("p:{id}:"),
             manifest: found.manifest,
@@ -156,6 +188,8 @@ pub fn setup(app: &mut App, waker: Waker) {
             reload_error: None,
             generation: 0,
             salt: Cell::new(0),
+            hash: library.as_deref().and_then(loader::hash),
+            blocked: library.as_deref().is_some_and(motw::blocked),
         };
         let reserved = id == "opencode" || shadows_builtin;
         if slot.error.is_some() {
@@ -167,21 +201,30 @@ pub fn setup(app: &mut App, waker: Waker) {
             slot.go(Event::Reserved);
         } else if host.disabled.contains(&id) {
             slot.go(Event::UserDisabled);
+        } else if slot.tier.needs_trust() && host.trusted.get(&id) != slot.hash.as_ref() {
+            slot.go(Event::NeedsTrust);
         }
         host.slots.push(slot);
     }
+    if !app.plugins.slots.is_empty() {
+        tasks::start();
+    }
     for i in 0..app.plugins.slots.len() {
         if app.plugins.slots[i].state == PluginState::Discovered {
-            load(app, i);
+            swap::load(app, i, None);
         }
     }
+    swap::settle(app);
     let host = &mut app.plugins;
     if hot {
-        let watches = host.slots.iter().enumerate().filter_map(|(i, s)| match &s.source {
-            Source::Library(path) => Some((i, path.clone())),
-            Source::Static(_) => None,
+        // Third-party libraries aren't watched: a changed one waits for the user's OK again.
+        let watches = host.slots.iter().enumerate().filter(|(_, s)| !s.tier.needs_trust()).filter_map(|(i, s)| {
+            s.library().map(|path| hot::Watch { slot: i, path: path.to_owned(), id: s.manifest.id.clone() })
         });
-        host.hot = Some(hot::Watcher::spawn(host.wake.clone(), watches.collect()));
+        host._watcher = hot::Watcher::spawn(host.wake.clone(), host.ready.clone(), watches.collect(), host.shadow_dir.clone());
+    }
+    if crate::flag("--plugin-index") {
+        contrib::print_index(app);
     }
 }
 
@@ -224,373 +267,24 @@ fn state_file() -> Option<PathBuf> {
     crate::dirs::data().map(|d| d.join("plugins-state.json"))
 }
 
-fn load_disabled() -> BTreeSet<String> {
-    let Some(text) = state_file().and_then(|f| std::fs::read_to_string(f).ok()) else { return BTreeSet::new() };
+/// The plugins turned off, and the third-party libraries trusted.
+fn load_state() -> (BTreeSet<String>, BTreeMap<String, String>) {
+    let Some(text) = state_file().and_then(|f| std::fs::read_to_string(f).ok()) else { return Default::default() };
     let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    v["disabled"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect()
+    let disabled = v["disabled"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+    let trusted = v["trusted"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
+    (disabled, trusted)
 }
 
-fn save_disabled(app: &App) {
+fn save_state(app: &App) {
     if !app.persists() {
         return;
     }
     if let Some(file) = state_file() {
-        let v = serde_json::json!({ "disabled": app.plugins.disabled });
+        let v = serde_json::json!({ "disabled": app.plugins.disabled, "trusted": app.plugins.trusted });
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir).ok();
         }
         std::fs::write(file, v.to_string()).ok();
     }
-}
-
-/// Loads slot `i`'s library and sets it up: `LoadingLib → PreparingStores → SettingUp → Active`.
-fn load(app: &mut App, i: usize) {
-    let host = &mut app.plugins;
-    let slot = &mut host.slots[i];
-    slot.go(Event::Load);
-    slot.generation += 1;
-    slot.reload_error = None;
-    *slot.render_error.borrow_mut() = None;
-    let loaded = match &slot.source {
-        Source::Library(path) => loader::load(path, host.shadow_dir.as_deref(), &slot.manifest.id, slot.generation),
-        Source::Static(entry) => loader::load_static(*entry),
-    };
-    let loaded = match loaded {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("plugin {}: {e}", slot.manifest.id);
-            slot.error = Some(e);
-            slot.go(Event::LibFailed);
-            return;
-        }
-    };
-    slot.go(Event::LibLoaded);
-    // Declared stores land here once plugins have them; none load yet.
-    slot.go(Event::StoresReady);
-    let generation = slot.generation;
-    match set_up(host, i, loaded, generation, &[]) {
-        Ok(instance) => {
-            let slot = &mut host.slots[i];
-            slot.tabs = instance.contributions.panels.iter().map(|p| (p.tab.clone(), p.title.clone(), p.icon.clone())).collect();
-            slot.instance = Some(instance);
-            slot.error = None;
-            slot.go(Event::SetupOk);
-        }
-        Err(e) => {
-            let slot = &mut host.slots[i];
-            eprintln!("plugin {}: {e}", slot.manifest.id);
-            slot.error = Some(e);
-            slot.go(Event::SetupFailed);
-        }
-    }
-}
-
-/// Runs a plugin's window setup, collecting what it registers.
-fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reuse: &[EditorHandle]) -> Result<Instance, String> {
-    let id = host.slots[i].manifest.id.clone();
-    let mut ctx = SetupCtx {
-        kind: Kind::Setup,
-        plugin_id: &id,
-        slot: i,
-        lib: &loaded.lib,
-        editors: &mut host.editors,
-        reuse,
-        made: Default::default(),
-        wake: &host.wake,
-    };
-    // SAFETY: the plugin's setup, with a setup context alive for the call.
-    let out = unsafe { (loaded.vtable.window_setup)((&raw mut ctx).cast()) };
-    let made = std::mem::take(&mut ctx.made);
-    match out.into_result() {
-        Ok((_, state)) if !state.is_null() => {
-            Ok(Instance { generation, vtable: loaded.vtable, state, contributions: made, deadline: None, lib: loaded.lib })
-        }
-        failed => {
-            for h in made.editors.iter().filter(|h| !reuse.contains(h)) {
-                host.editors.remove(*h);
-            }
-            Err(match failed {
-                Err((AbiStatus::Panicked, message)) => format!("panicked during setup: {message}"),
-                Err((_, message)) => message,
-                Ok(_) => "setup returned no state".to_owned(),
-            })
-        }
-    }
-}
-
-/// Reloads slot `id`: a hot swap that keeps the running generation until the new one is set
-/// up (`Active → Reloading → Active`), or a fresh load for a failed or turned-off plugin.
-pub fn reload(app: &mut App, id: &str, tx: &mut Tx) {
-    let Some(i) = app.plugins.slots.iter().position(|s| s.manifest.id == id) else { return };
-    reload_slot(app, i, tx);
-}
-
-fn reload_slot(app: &mut App, i: usize, tx: &mut Tx) {
-    tx.instant();
-    let state = app.plugins.slots[i].state;
-    if state == PluginState::Failed || state == PluginState::Disabled {
-        tx.invalidate_memos_by_prefix(app.plugins.slots[i].prefix.clone());
-        load(app, i);
-        return;
-    }
-    if state != PluginState::Active {
-        return;
-    }
-    let host = &mut app.plugins;
-    let slot = &mut host.slots[i];
-    slot.go(Event::Reload);
-    slot.generation += 1;
-    let generation = slot.generation;
-    let loaded = match &slot.source {
-        Source::Library(path) => loader::load(path, host.shadow_dir.as_deref(), &slot.manifest.id, generation),
-        Source::Static(entry) => loader::load_static(*entry),
-    };
-    let Some(old) = slot.instance.as_ref() else { return };
-    let (old_state, old_vtable, reuse) = (old.state, old.vtable, old.contributions.editors.clone());
-    let swapped = loaded.and_then(|loaded| {
-        let mut snapshot = opencode_plugin::abi::AbiOwnedBytes::EMPTY;
-        // SAFETY: the running instance's own state and a valid out pointer.
-        let saved = unsafe { (old_vtable.save_hot_state)(old_state, &mut snapshot) }.into_result().is_ok();
-        let fresh = set_up(host, i, loaded, generation, &reuse)?;
-        if saved {
-            // SAFETY: the new instance's state and bytes alive for the call.
-            let loaded = unsafe { (fresh.vtable.load_hot_state)(fresh.state, AbiStr::from_bytes(snapshot.as_bytes())) };
-            if let Err((_, message)) = loaded.into_result() {
-                eprintln!("plugin: carrying state across the reload failed: {message}");
-            }
-        }
-        Ok(fresh)
-    });
-    let slot = &mut host.slots[i];
-    match swapped {
-        Ok(fresh) => {
-            let kept: Vec<EditorHandle> = fresh.contributions.editors.clone();
-            slot.tabs = fresh.contributions.panels.iter().map(|p| (p.tab.clone(), p.title.clone(), p.icon.clone())).collect();
-            let old = slot.instance.replace(fresh);
-            slot.reload_error = None;
-            *slot.render_error.borrow_mut() = None;
-            slot.salt.set(slot.salt.get() + 1);
-            tx.invalidate_memos_by_prefix(slot.prefix.clone());
-            slot.go(Event::ReloadSettled);
-            let name = slot.manifest.name.clone();
-            if let Some(old) = old {
-                for h in old.contributions.editors.iter().filter(|h| !kept.contains(h)) {
-                    host.editors.remove(*h);
-                }
-            }
-            eprintln!("plugin {name}: reloaded (generation {generation})");
-        }
-        Err(e) => {
-            eprintln!("plugin {}: reload failed, keeping the running one: {e}", slot.manifest.id);
-            slot.reload_error = Some(e.clone());
-            slot.go(Event::ReloadSettled);
-            let name = slot.manifest.name.clone();
-            crate::status_toast::fail(app, format!("Couldn't reload {name}"), e);
-        }
-    }
-}
-
-/// Fails slot `i` (a handler or poll panicked): withdraws everything it contributed.
-fn fail(app: &mut App, i: usize, message: String, tx: &mut Tx) {
-    let host = &mut app.plugins;
-    let slot = &mut host.slots[i];
-    eprintln!("plugin {}: {message}", slot.manifest.id);
-    slot.error = Some(message);
-    slot.go(Event::Fault);
-    slot.salt.set(slot.salt.get() + 1);
-    tx.invalidate_memos_by_prefix(slot.prefix.clone());
-    if let Some(old) = slot.instance.take() {
-        for h in &old.contributions.editors {
-            host.editors.remove(*h);
-        }
-    }
-    let name = host.slots[i].manifest.name.clone();
-    crate::status_toast::fail(app, format!("{name} stopped"), "The plugin crashed. Reload it from Settings › Plugins.");
-}
-
-/// Turns slot `id` on or off, remembering the choice.
-pub fn toggle_enabled(app: &mut App, id: &str, tx: &mut Tx) {
-    let Some(i) = app.plugins.slots.iter().position(|s| s.manifest.id == id) else { return };
-    tx.instant();
-    let host = &mut app.plugins;
-    let slot = &mut host.slots[i];
-    match slot.state {
-        PluginState::Active => {
-            slot.go(Event::Dispose);
-            tx.invalidate_memos_by_prefix(slot.prefix.clone());
-            if let Some(old) = slot.instance.take() {
-                for h in &old.contributions.editors {
-                    host.editors.remove(*h);
-                }
-            }
-            host.slots[i].go(Event::Disposed);
-            host.disabled.insert(id.to_owned());
-        }
-        PluginState::Disabled | PluginState::Failed => {
-            host.disabled.remove(id);
-            load(app, i);
-        }
-        _ => return,
-    }
-    save_disabled(app);
-}
-
-/// The outcome of running a plugin callback.
-enum Ran {
-    Changed(bool),
-    Declined,
-    Gone,
-}
-
-/// Runs a callback of slot `i` (generation `generation`, when it must match) with a handler
-/// context, then carries out what it asked for. A panic fails the plugin.
-fn act(app: &mut App, tx: &mut Tx, i: usize, generation: Option<u32>, call: impl FnOnce(*mut c_void, *mut c_void) -> AbiOutcome<bool>) -> Ran {
-    let host = &mut app.plugins;
-    let Some(state) = host
-        .slots
-        .get(i)
-        .and_then(Slot::active)
-        .filter(|inst| generation.is_none_or(|g| g == inst.generation))
-        .map(|inst| inst.state)
-    else {
-        return Ran::Gone;
-    };
-    let mut ctx = ActionCtx { kind: Kind::Action, editors: &mut host.editors, tx, requests: Vec::new(), wake_after: None };
-    let out = call(state, (&raw mut ctx).cast());
-    let (requests, wake_after) = (std::mem::take(&mut ctx.requests), ctx.wake_after);
-    match out.into_result() {
-        Ok((status, changed)) => {
-            carry_out(app, i, requests, wake_after, tx);
-            if status == AbiStatus::Declined { Ran::Declined } else { Ran::Changed(changed) }
-        }
-        Err((_, message)) => {
-            fail(app, i, message, tx);
-            Ran::Changed(true)
-        }
-    }
-}
-
-fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option<u64>, tx: &mut Tx) {
-    if let Some(ms) = wake_after {
-        let due = app.clock + ms as f64 / 1000.0;
-        if let Some(inst) = app.plugins.slots[i].instance.as_mut() {
-            inst.deadline = Some(inst.deadline.map_or(due, |d| d.min(due)));
-        }
-        app.plugins.next_deadline = Some(app.plugins.next_deadline.map_or(due, |d| d.min(due)));
-        tx.wake_after(std::time::Duration::from_millis(ms));
-    }
-    let id = app.plugins.slots[i].manifest.id.clone();
-    for request in requests {
-        match request {
-            Request::OpenPanel(panel) => {
-                let key = crate::panels::panel_key(view::PANEL, &format!("{id}.{panel}"));
-                app.open_side_tab(&key, None, false, false, tx);
-            }
-            Request::Toast(text) => crate::status_toast::say(app, text, ""),
-        }
-    }
-}
-
-/// An element's press handler, from a plugin's render.
-pub(crate) fn press(app: &mut App, tx: &mut Tx, press: &Press) {
-    let cb = press.env.cb;
-    let Some(func) = cb.func else { return };
-    let event = AbiEvent { kind: EVENT_PRESS, ..AbiEvent::default() };
-    // SAFETY: the plugin's handler with its own data, on its instance's state.
-    let ran = act(app, tx, press.slot, Some(press.generation), |state, ctx| unsafe { func(state, ctx, cb.data, &event) });
-    if matches!(ran, Ran::Changed(false) | Ran::Gone) {
-        tx.live_only();
-    }
-}
-
-/// Runs plugin command `id` (`<plugin>.<command>`); false when it declined or is gone.
-pub fn run_command(app: &mut App, id: &str, tx: &mut Tx) -> bool {
-    run_command_as(app, id, EVENT_COMMAND, tx)
-}
-
-fn run_command_as(app: &mut App, id: &str, kind: u32, tx: &mut Tx) -> bool {
-    let found = app.plugins.slots.iter().enumerate().find_map(|(i, s)| {
-        let cmd = s.active()?.contributions.commands.iter().find(|c| c.id == id)?;
-        Some((i, cmd.run.cb))
-    });
-    let Some((i, cb)) = found else { return false };
-    let Some(func) = cb.func else { return false };
-    let event = AbiEvent { kind, ..AbiEvent::default() };
-    // SAFETY: as `press`.
-    let ran = act(app, tx, i, None, |state, ctx| unsafe { func(state, ctx, cb.data, &event) });
-    !matches!(ran, Ran::Declined | Ran::Gone)
-}
-
-/// A plugin command's keybind. Chords with Ctrl, Alt or ⌘ fire anywhere; a plain key only
-/// outside a focused control, unless the command is `editable`.
-pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
-    let hit = app.plugins.slots.iter().filter_map(Slot::active).flat_map(|inst| &inst.contributions.commands).find(|c| {
-        c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)) && (!plain || c.editable || tx.focused().is_none())
-    });
-    let Some(id) = hit.map(|c| c.id) else { return false };
-    run_command_as(app, id, EVENT_KEY, tx)
-}
-
-/// The palette's plugin commands.
-pub fn commands(app: &App) -> Vec<crate::commands::Command> {
-    app.plugins
-        .slots
-        .iter()
-        .filter_map(Slot::active)
-        .flat_map(|inst| &inst.contributions.commands)
-        .filter(|c| !c.hidden)
-        .map(|c| crate::commands::Command {
-            id: c.id,
-            title: c.title,
-            description: c.description,
-            slash: None,
-            keys: None,
-            chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
-            run: crate::commands::Run::Plugin(c.id),
-        })
-        .collect()
-}
-
-/// Polls the plugins whose waker fired or whose `wake_after` came due, and swaps in rebuilt
-/// libraries. At rest: one atomic swap, one comparison, no call into any plugin.
-pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    let now = app.clock;
-    let host = &mut app.plugins;
-    let dirty = host.wake.dirty.swap(0, Ordering::AcqRel);
-    let hot = host.wake.hot.swap(0, Ordering::AcqRel);
-    let due = host.next_deadline.is_some_and(|d| now >= d);
-    if dirty == 0 && hot == 0 && !due {
-        return false;
-    }
-    let mut changed = false;
-    for i in 0..host_len(app) {
-        if hot & slot_bit(i) != 0 {
-            reload_slot(app, i, tx);
-            changed = true;
-        }
-    }
-    if dirty != 0 || due {
-        for i in 0..host_len(app) {
-            let deadline = app.plugins.slots[i].active().and_then(|inst| inst.deadline);
-            if dirty & slot_bit(i) == 0 && deadline.is_none_or(|d| now < d) {
-                continue;
-            }
-            if let Some(inst) = app.plugins.slots[i].instance.as_mut() {
-                inst.deadline = None;
-            }
-            let Some(vtable) = app.plugins.slots[i].active().map(|inst| inst.vtable) else { continue };
-            // SAFETY: the plugin's poll on its own state.
-            if let Ran::Changed(c) = act(app, tx, i, None, |state, ctx| unsafe { (vtable.poll)(state, ctx) }) {
-                changed |= c;
-            }
-        }
-        app.plugins.next_deadline =
-            app.plugins.slots.iter().filter_map(|s| s.active().and_then(|inst| inst.deadline)).min_by(f64::total_cmp);
-    }
-    changed
-}
-
-fn host_len(app: &App) -> usize {
-    app.plugins.slots.len()
 }

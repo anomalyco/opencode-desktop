@@ -1,7 +1,8 @@
 //! The `rune` client MCP tool definitions and execution on `App` (`tools.rune.*` in Code Mode).
 //!
 //! Exposes OpenCode (Rune)'s own browser pane (porting all capabilities of the retired loopback
-//! browser API) and side-panel openers (`open_file`, `open_diff`, `open_terminal`).
+//! browser API) and side-panel openers (`open_file`, `open_diff`, `open_terminal`), and native
+//! plugins' tools (`plugin_host::mcp_tools`).
 
 use std::time::{Duration, Instant};
 
@@ -284,6 +285,10 @@ pub fn catalog() -> Vec<McpTool> {
             }),
         ),
     ]
+    .into_iter()
+    // Plugins' tools (`McpTool`), `<plugin>_<tool>`.
+    .chain(crate::plugin_host::mcp_tools())
+    .collect()
 }
 
 pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
@@ -548,7 +553,13 @@ pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
                 "placement": s.dock_placement().name(),
             })));
         }
-        other => call.respond(McpResult::error(format!("Unknown tool: {other}"))),
+        // Plugins' tools (`McpTool`), routed to their plugin in this window.
+        other => {
+            let other = other.to_owned();
+            if let Some(call) = crate::plugin_host::mcp_call(s, call, tx) {
+                call.respond(McpResult::error(format!("Unknown tool: {other}")));
+            }
+        }
     }
 }
 

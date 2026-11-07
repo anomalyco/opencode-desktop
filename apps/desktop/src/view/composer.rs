@@ -19,6 +19,11 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         ),
         _ => (None, None),
     };
+    // Plugins' composer pills float over a root session's composer (`ComposerPill`).
+    let pills = match &s.route {
+        Route::Session(id) if s.session(id).is_none_or(|i| i.parent.is_none()) => crate::plugin_host::composer_pills(s, p, id),
+        _ => None,
+    };
     // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
     let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
     col()
@@ -28,6 +33,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         .px(crate::view::DOCK_SIDE)
         .pb(pb)
         .children(queue)
+        .children(pills)
         .child(composer(s, p))
         .children(status)
 }

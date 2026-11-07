@@ -3,6 +3,13 @@
 //!
 //! Every context starts with a [`Kind`] tag; a host function checks it and does nothing when
 //! called from the wrong kind of callback (a render asking to open a panel, say).
+//!
+//! - this file: the contexts, wakers, editors and building elements;
+//! - `setup.rs`: what a setup registers (commands, panels, settings, every other contribution);
+//! - `shared.rs`: what any callback shares (contracts, stores, icons, jobs, servers, requests).
+
+mod setup;
+mod shared;
 
 use std::alloc::Layout;
 use std::cell::RefCell;
@@ -16,9 +23,9 @@ use rune::Tx;
 
 use super::arena::{self, Build, PluginRenderArena};
 use super::editors::PluginEditors;
-use super::instance::{CallbackEnv, CommandRec, Contributions, PanelRec, RenderEnv, SettingRec};
-use super::intern;
+use super::instance::{Contributions, Scope, ServerRec};
 use super::loader::LoadedLibrary;
+use super::shared::Shared;
 
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -31,14 +38,20 @@ pub enum Kind {
 #[repr(C)]
 pub struct SetupCtx<'a> {
     pub kind: Kind,
+    pub scope: Scope,
     pub plugin_id: &'a str,
     pub slot: usize,
+    pub generation: u32,
     pub lib: &'a Arc<LoadedLibrary>,
     pub editors: &'a mut PluginEditors,
     /// The previous generation's editors, handed out again in creation order.
     pub reuse: &'a [EditorHandle],
     pub made: Contributions,
     pub wake: &'a Arc<WakeShared>,
+    pub shared: &'a mut Shared,
+    /// Consumers a publish woke, woken once setup returns.
+    pub woken: u64,
+    pub requests: Vec<Request>,
 }
 
 #[repr(C)]
@@ -52,12 +65,16 @@ pub struct RenderCtx<'a> {
     /// Mixed into every memo version: the generation, the theme, and a count of render panics.
     pub salt: u64,
     pub panicked: RefCell<Option<String>>,
+    pub shared: &'a Shared,
 }
 
 #[repr(C)]
 pub struct ActionCtx<'a> {
     pub kind: Kind,
+    pub plugin_id: &'a str,
+    pub lib: &'a Arc<LoadedLibrary>,
     pub editors: &'a mut PluginEditors,
+    pub shared: &'a mut Shared,
     pub tx: &'a mut Tx,
     pub requests: Vec<Request>,
     pub wake_after: Option<u64>,
@@ -67,6 +84,11 @@ pub struct ActionCtx<'a> {
 pub enum Request {
     OpenPanel(String),
     Toast(String),
+    RunCommand(String),
+    OpenLink(String),
+    /// Settings is one column for now, so every page opens it at the top.
+    OpenSettings,
+    SetServers(String, Vec<ServerRec>),
 }
 
 /// Wakes the event loop for plugins: one bit per slot in `dirty`, which `PluginHost::poll`
@@ -74,13 +96,16 @@ pub enum Request {
 #[derive(Default)]
 pub struct WakeShared {
     pub dirty: AtomicU64,
-    /// Slots whose library changed on disk (hot reload).
+    /// Slots whose library changed on disk and is loaded, ready to swap in (hot reload).
     pub hot: AtomicU64,
     pub waker: OnceLock<rune::Waker>,
 }
 
 impl WakeShared {
     pub fn wake(&self, bits: u64, hot: bool) {
+        if bits == 0 {
+            return;
+        }
         if hot {
             self.hot.fetch_or(bits, Ordering::AcqRel);
         } else {
@@ -153,7 +178,11 @@ unsafe fn editors<'a>(ctx: *mut c_void) -> Option<&'a PluginEditors> {
     }
 }
 
-// SAFETY (for every `as_str` below): a plugin passes strings valid for the call it makes.
+/// A string a plugin passed, valid for the call it made.
+fn text(v: AbiStr<'_>) -> &str {
+    // SAFETY: a plugin passes strings valid for the call it makes.
+    unsafe { v.as_str() }
+}
 
 unsafe extern "C" fn log(level: u32, message: AbiStr) {
     let level = match level {
@@ -162,75 +191,7 @@ unsafe extern "C" fn log(level: u32, message: AbiStr) {
         LOG_INFO => "info",
         _ => "debug",
     };
-    // SAFETY: see above.
-    eprintln!("plugin {level}: {}", unsafe { message.as_str() });
-}
-
-unsafe extern "C" fn add_command(ctx: *mut c_void, spec: *const CommandSpecAbi) -> AbiStatus {
-    // SAFETY: the plugin passes its setup context and a spec valid for the call.
-    let (Some(s), Some(spec)) = (unsafe { cast::<SetupCtx>(ctx, Kind::Setup) }, unsafe { spec.as_ref() }) else { return AbiStatus::Err };
-    fn text(v: AbiStr<'_>) -> &str {
-        // SAFETY: see above.
-        unsafe { v.as_str() }
-    }
-    if text(spec.id).is_empty() || spec.run.func.is_none() {
-        return AbiStatus::Err;
-    }
-    let bind = if cfg!(target_os = "windows") {
-        spec.bind_windows
-    } else if cfg!(target_os = "macos") {
-        spec.bind_macos
-    } else {
-        spec.bind_linux
-    };
-    let keybind = text(bind).parse::<rune::Keybind>().ok().filter(|k| !k.chords().is_empty());
-    s.made.commands.push(CommandRec {
-        id: intern(&format!("{}.{}", s.plugin_id, text(spec.id))),
-        title: intern(text(spec.title)),
-        description: intern(text(spec.description)),
-        keybind,
-        editable: spec.flags & COMMAND_EDITABLE != 0,
-        hidden: spec.flags & COMMAND_HIDDEN != 0,
-        run: CallbackEnv::new(spec.run, s.lib.clone()),
-    });
-    AbiStatus::Ok
-}
-
-unsafe extern "C" fn add_panel(ctx: *mut c_void, spec: *const PanelSpecAbi) -> AbiStatus {
-    // SAFETY: as `add_command`.
-    let (Some(s), Some(spec)) = (unsafe { cast::<SetupCtx>(ctx, Kind::Setup) }, unsafe { spec.as_ref() }) else { return AbiStatus::Err };
-    // SAFETY: see above.
-    let text = |v: AbiStr| unsafe { v.as_str() }.to_owned();
-    let id = text(spec.id);
-    if id.is_empty() || id.contains(':') || spec.render.func.is_none() {
-        return AbiStatus::Err;
-    }
-    s.made.panels.push(PanelRec {
-        tab: format!("{}.{id}", s.plugin_id),
-        id,
-        title: text(spec.title),
-        icon: text(spec.icon),
-        order: spec.order,
-        render: RenderEnv::new(spec.render, s.lib.clone()),
-    });
-    AbiStatus::Ok
-}
-
-unsafe extern "C" fn add_setting(ctx: *mut c_void, spec: *const SettingSpecAbi) -> AbiStatus {
-    // SAFETY: as `add_command`.
-    let (Some(s), Some(spec)) = (unsafe { cast::<SetupCtx>(ctx, Kind::Setup) }, unsafe { spec.as_ref() }) else { return AbiStatus::Err };
-    // SAFETY: see above.
-    let text = |v: AbiStr| unsafe { v.as_str() }.to_owned();
-    if spec.id.is_empty() || spec.render.func.is_none() {
-        return AbiStatus::Err;
-    }
-    s.made.settings.push(SettingRec {
-        id: text(spec.id),
-        title: text(spec.title),
-        description: text(spec.description),
-        render: RenderEnv::new(spec.render, s.lib.clone()),
-    });
-    AbiStatus::Ok
+    super::tasks::log(format!("plugin {level}: {}", text(message)));
 }
 
 unsafe extern "C" fn create_editor(ctx: *mut c_void, initial: AbiStr) -> EditorHandle {
@@ -238,8 +199,7 @@ unsafe extern "C" fn create_editor(ctx: *mut c_void, initial: AbiStr) -> EditorH
     let Some(s) = (unsafe { cast::<SetupCtx>(ctx, Kind::Setup) }) else { return EditorHandle::NONE };
     let h = match s.reuse.get(s.made.editors.len()) {
         Some(&h) => h,
-        // SAFETY: see above.
-        None => s.editors.create(unsafe { initial.as_str() }),
+        None => s.editors.create(text(initial)),
     };
     s.made.editors.push(h);
     h
@@ -269,11 +229,10 @@ unsafe extern "C" fn editor_version(ctx: *mut c_void, editor: EditorHandle) -> u
     unsafe { editors(ctx) }.map_or(0, |e| e.version(editor))
 }
 
-unsafe extern "C" fn editor_set_text(ctx: *mut c_void, editor: EditorHandle, text: AbiStr) {
+unsafe extern "C" fn editor_set_text(ctx: *mut c_void, editor: EditorHandle, value: AbiStr) {
     // SAFETY: the plugin passes its handler context.
     if let Some(a) = unsafe { cast::<ActionCtx>(ctx, Kind::Action) } {
-        // SAFETY: see above.
-        a.editors.get_mut(editor).replace_text(unsafe { text.as_str() });
+        a.editors.get_mut(editor).replace_text(text(value));
     }
 }
 
@@ -291,27 +250,24 @@ unsafe extern "C" fn wake_after(ctx: *mut c_void, millis: u64) {
     }
 }
 
-unsafe extern "C" fn copy_text(ctx: *mut c_void, text: AbiStr) {
+unsafe extern "C" fn copy_text(ctx: *mut c_void, value: AbiStr) {
     // SAFETY: the plugin passes its handler context.
     if let Some(a) = unsafe { cast::<ActionCtx>(ctx, Kind::Action) } {
-        // SAFETY: see above.
-        a.tx.copy(unsafe { text.as_str() });
+        a.tx.copy(text(value));
     }
 }
 
 unsafe extern "C" fn open_panel(ctx: *mut c_void, panel: AbiStr) {
     // SAFETY: the plugin passes its handler context.
     if let Some(a) = unsafe { cast::<ActionCtx>(ctx, Kind::Action) } {
-        // SAFETY: see above.
-        a.requests.push(Request::OpenPanel(unsafe { panel.as_str() }.to_owned()));
+        a.requests.push(Request::OpenPanel(text(panel).to_owned()));
     }
 }
 
-unsafe extern "C" fn toast(ctx: *mut c_void, text: AbiStr) {
+unsafe extern "C" fn toast(ctx: *mut c_void, value: AbiStr) {
     // SAFETY: the plugin passes its handler context.
     if let Some(a) = unsafe { cast::<ActionCtx>(ctx, Kind::Action) } {
-        // SAFETY: see above.
-        a.requests.push(Request::Toast(unsafe { text.as_str() }.to_owned()));
+        a.requests.push(Request::Toast(text(value).to_owned()));
     }
 }
 
@@ -350,8 +306,7 @@ unsafe extern "C" fn el_child(ctx: *mut c_void, parent: ElHandle, child: ElHandl
 unsafe extern "C" fn memo(ctx: *mut c_void, key: AbiStr, version: u64, build: BuildFn, data: *mut c_void) -> ElHandle {
     // SAFETY: the plugin passes its render context.
     let Some(r) = (unsafe { render(ctx) }) else { return ElHandle::NONE };
-    // SAFETY: see above.
-    let id = format!("{}{}", r.prefix, unsafe { key.as_str() });
+    let id = format!("{}{}", r.prefix, text(key));
     let el = rune::memo::memo_with_hash(id, version ^ r.salt, || {
         // SAFETY: the plugin's own builder, with the data it passed, during this call.
         match unsafe { build(data, ctx) }.into_result() {
@@ -367,9 +322,9 @@ unsafe extern "C" fn memo(ctx: *mut c_void, key: AbiStr, version: u64, build: Bu
 
 pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
     log,
-    add_command,
-    add_panel,
-    add_setting,
+    add_command: setup::add_command,
+    add_panel: setup::add_panel,
+    add_setting: setup::add_setting,
     create_editor,
     waker,
     editor_text,
@@ -385,6 +340,16 @@ pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
     el_apply,
     el_child,
     memo,
+    add_contribution: setup::add_contribution,
+    provide: shared::provide,
+    consume: shared::consume,
+    intern_icon: shared::intern_icon,
+    live: shared::live,
+    store_get: shared::store_get,
+    store_set: shared::store_set,
+    spawn: shared::spawn,
+    set_servers: shared::set_servers,
+    request: shared::request,
 };
 
 unsafe extern "C" fn host_alloc(size: usize, align: usize) -> *mut u8 {

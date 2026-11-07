@@ -564,6 +564,9 @@ impl session_view::TimelineHost for App {
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
     }
+    fn code_block_actions(p: &palette::Pal, language: Option<&str>, source: &str) -> Vec<rune::El> {
+        plugin_host::code_block_actions(p, language, source)
+    }
     fn send_request(&self, req: Request) {
         if let Source::Live { requests: Some(r), .. } = &self.source {
             let _ = r.send(req);

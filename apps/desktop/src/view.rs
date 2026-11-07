@@ -111,6 +111,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.children(crate::fork::view(s, p, cx));
     }
     inner = inner.children(crate::popup::view(s, p));
+    inner = inner.children(crate::plugin_host::trust_dialog(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {
         let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
@@ -207,6 +208,16 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     root = root.child(sidebar_toggle(p, open, w));
     if let Some(at) = chrome().menu_at() {
         root = root.child(crate::app_menu::button(s, p, at));
+    }
+    root = root.children(crate::plugin_host::titlebar_items(s, p));
+    // Plugins' `window.bottom` slot (a debug bar) runs across the window's foot.
+    let sid = match &s.route {
+        Route::Session(id) => id.as_str(),
+        _ => "",
+    };
+    let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);
+    if !bottom.is_empty() {
+        root = root.child(row().key("plugin-window-bottom").pin(Some(0.0), None, Some(0.0), Some(0.0)).children(bottom));
     }
     root
 }

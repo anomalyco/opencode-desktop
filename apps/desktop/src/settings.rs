@@ -120,7 +120,7 @@ impl Settings {
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
             auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
-            theme: crate::themes::all()[crate::themes::index(v["theme"].as_str().unwrap_or_default())].id.clone(),
+            theme: theme_id(v["theme"].as_str().unwrap_or_default()),
             reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
@@ -133,6 +133,15 @@ impl Settings {
             prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
         }
     }
+}
+
+/// A saved theme id: one of Desktop's, or a plugin's (`<plugin>:<id>`), kept as written since
+/// plugins register their themes after the settings load.
+fn theme_id(id: &str) -> String {
+    if id.contains(':') {
+        return id.to_owned();
+    }
+    crate::themes::all()[crate::themes::index(id)].id.clone()
 }
 
 fn file() -> Option<PathBuf> {
@@ -264,6 +273,8 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(text("Settings").font(TITLE).color(p.text))
                 .children(crate::updater::settings_section(s, p))
                 .child(section(p, "General", general))
+                // Plugins' sections on General (`SettingsPage` with `page: "general"`).
+                .children(crate::plugin_host::settings_pages(s, p, "general"))
                 .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section(p, "Notifications", notification_list(s, p)))
                 .child(crate::keymap::settings_section(s, p))
@@ -272,7 +283,9 @@ pub fn page(s: &App, p: &Pal) -> El {
                         switch(p, "new-question-ui-switch", s.settings.new_question_ui).on_press(|s: &mut App| s.change_settings(|x| x.new_question_ui = !x.new_question_ui))),
                 ])))
                 .child(crate::glitch::settings_section(s, p))
-                .children(crate::plugin_host::settings_section(s, p)),
+                .children(crate::plugin_host::settings_section(s, p))
+                // Plugins' own pages, until Settings has a page list to put them in.
+                .children(crate::plugin_host::settings_pages(s, p, "")),
         );
     col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar_styled(crate::palette::scroll_bar(p)))
 }

@@ -153,19 +153,31 @@ pub fn button(s: &App, p: &Pal, (x, y): (f32, f32)) -> El {
 /// Opens the menu under its button.
 fn open_menu(s: &mut App, tx: &mut Tx) {
     popup::open_drawn(s, menu(s), KEY, tx, |s: &mut App, picked, tx| {
+        if let Some(key) = picked.and_then(|p| p.strip_prefix(PLUGIN)) {
+            crate::plugin_host::run_menubar(s, key, tx);
+            return;
+        }
         if let Some(act) = picked.and_then(find) {
             run(s, act, tx);
         }
     });
 }
 
-/// The menu as it stands: a command's item is disabled while the command can't run.
+/// The prefix of a plugin's item id (`MenubarItem`): `app-menu-plugin-<plugin>.<id>`.
+const PLUGIN: &str = "app-menu-plugin-";
+
+/// The menu as it stands: a command's item is disabled while the command can't run. Plugins'
+/// items follow each submenu's own, after a separator.
 fn menu(s: &App) -> Menu {
+    let plugin_items = crate::plugin_host::menubar_items(s);
     let menus = MENUS.iter().enumerate().map(|(m, (title, rows))| {
         let sub = rows.iter().enumerate().fold(Menu::new(*title), |menu, (r, row)| match row {
             None => menu.separator(),
             Some((title, act, keys)) => menu.item(Item::new(id(m, r), *title).shortcut(label(*keys)).enabled(enabled(s, *act))),
         });
+        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _)| menu.eq_ignore_ascii_case(title)).collect();
+        let sub = if theirs.is_empty() { sub } else { sub.separator() };
+        let sub = theirs.into_iter().fold(sub, |menu, (_, key, title)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone())));
         (m, *title, sub)
     });
     menus.fold(Menu::new("OpenCode").standard(W).keeps_focus().group("OpenCode"), |menu, (m, title, sub)| {

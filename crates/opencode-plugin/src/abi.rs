@@ -18,8 +18,9 @@ use core::mem::MaybeUninit;
 /// "OCRUNEPL".
 pub const ABI_MAGIC: u64 = 0x4F43_5255_4E45_504C;
 pub const ABI_ENDIAN: u32 = 0x0102_0304;
-/// Experimental epoch 1; bumped on any breaking layout change.
-pub const ABI_EPOCH: u16 = 1;
+/// Experimental epoch 2 (every contribution type, app plugins, services, stores, tasks and
+/// icons); bumped on any breaking layout change.
+pub const ABI_EPOCH: u16 = 2;
 /// Additive tail extensions to the vtables within an epoch.
 pub const ABI_MINOR: u16 = 0;
 /// What `plugin.toml`'s `api` names for this epoch.
@@ -295,31 +296,80 @@ impl RenderCallback {
     pub const NONE: RenderCallback = RenderCallback { func: None, data: 0, drop_data: None };
 }
 
+/// Answers a question the host asks (does this link match, what does this tool return): `input`
+/// in, an answer written to `out`, `Ok(1)` for yes, `Ok(0)` for no, `Err` with a message.
+pub type QueryFn = unsafe extern "C" fn(state: *mut c_void, ctx: *mut c_void, data: usize, input: AbiStr, out: *mut AbiOwnedBytes) -> AbiOutcome<u8>;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct QueryCallback {
+    pub func: Option<QueryFn>,
+    pub data: usize,
+    pub drop_data: Option<DropFn>,
+}
+
+impl QueryCallback {
+    pub const NONE: QueryCallback = QueryCallback { func: None, data: 0, drop_data: None };
+}
+
 pub const EVENT_PRESS: u32 = 0;
 pub const EVENT_COMMAND: u32 = 1;
 pub const EVENT_KEY: u32 = 2;
+/// A link handler opening `text` (the href).
+pub const EVENT_LINK: u32 = 3;
+/// A code block action on `text` (the code) in language `extra`.
+pub const EVENT_CODE_BLOCK: u32 = 4;
+/// A menu item; `text` is its target (a server's id for `server.row`).
+pub const EVENT_MENU: u32 = 5;
+/// A job running on a host worker thread (`HostApiVtable::spawn`).
+pub const EVENT_JOB: u32 = 6;
 
+/// What ran a callback. The strings are views valid for the call.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct AbiEvent {
     pub kind: u32,
     pub mods: u32,
     pub x: f32,
     pub y: f32,
+    pub text: AbiStr<'static>,
+    pub extra: AbiStr<'static>,
+}
+
+impl Default for AbiEvent {
+    fn default() -> Self {
+        AbiEvent { kind: 0, mods: 0, x: 0.0, y: 0.0, text: AbiStr::EMPTY, extra: AbiStr::EMPTY }
+    }
+}
+
+impl core::fmt::Debug for AbiStr<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "AbiStr({} bytes)", self.len)
+    }
 }
 
 pub const SURFACE_PANEL: u32 = 0;
 pub const SURFACE_SETTING: u32 = 1;
+pub const SURFACE_SLOT: u32 = 2;
+pub const SURFACE_TITLEBAR: u32 = 3;
+pub const SURFACE_PILL: u32 = 4;
+pub const SURFACE_FILE: u32 = 5;
+pub const SURFACE_SETTINGS_PAGE: u32 = 6;
+pub const SURFACE_CODE_BLOCK: u32 = 7;
 
 /// What a render call draws for.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RenderProps<'a> {
     pub surface: u32,
-    /// The panel or setting id the plugin registered.
+    /// The panel, setting, slot or viewer id the plugin registered.
     pub id: AbiStr<'a>,
     pub session_id: AbiStr<'a>,
     pub directory: AbiStr<'a>,
+    /// A file viewer's file (absolute), a code block's language.
+    pub path: AbiStr<'a>,
+    /// A code block's source; a file viewer's file as the host loaded it (empty when it didn't).
+    pub text: AbiStr<'a>,
     pub width: f32,
     pub height: f32,
     pub visible: u8,
@@ -466,7 +516,10 @@ pub const PANEL_TRANSIENT: u32 = 1 << 0;
 pub struct PanelSpecAbi<'a> {
     pub id: AbiStr<'a>,
     pub title: AbiStr<'a>,
-    /// A host icon name (`"code"`, `"globe"`, `"console"`, `"file-tree"`, `"folder"`).
+    /// The launcher card's line under the title.
+    pub description: AbiStr<'a>,
+    /// An icon the plugin registered (`intern_icon`) or a host icon name (`"code"`, `"globe"`,
+    /// `"console"`, `"file-tree"`, `"folder"`).
     pub icon: AbiStr<'a>,
     pub order: i32,
     pub flags: u32,
@@ -482,6 +535,108 @@ pub struct SettingSpecAbi<'a> {
     /// Draws the row's control (a switch, a field).
     pub render: RenderCallback,
 }
+
+/// [`ContributionAbi::kind`]: the contribution points beyond commands, panels and settings
+/// rows, as Desktop's plugin API names them.
+pub mod contrib {
+    /// `target`: `session.panel` (the side panel's `+` menu and New tab cards), `server.add`,
+    /// `server.row`. `run` gets the target's id as the event's text.
+    pub const MENU_ITEM: u32 = 1;
+    /// The app menu: `target` is `app`, `file`, `edit`, `view`, `go`, `window` or `help`.
+    pub const MENUBAR_ITEM: u32 = 2;
+    /// A Settings page (`target` empty) or a section on a host page (`general`, `servers`);
+    /// `render` draws its body; `keywords` lines are its search entries (`id|title|keywords`).
+    pub const SETTINGS_PAGE: u32 = 3;
+    /// Opens links: `order` is its priority (highest wins), `query` matches an href, `run`
+    /// opens it (the href is the event's text).
+    pub const LINK_HANDLER: u32 = 4;
+    /// A pill at the titlebar's trailing end: `render` draws it, `run` presses it.
+    pub const TITLEBAR_ITEM: u32 = 5;
+    /// A capsule above the root session's composer; `render` returns `ElHandle::NONE` to hide.
+    pub const COMPOSER_PILL: u32 = 6;
+    /// A hover button beside a code block's Copy; `target` lists languages (empty for all).
+    pub const CODE_BLOCK_ACTION: u32 = 7;
+    /// A fixed shell slot: `target` is `window.bottom`, `session.header`,
+    /// `session.location.menu` or `session.panel.end`.
+    pub const SLOT: u32 = 8;
+    /// A colour theme: `target` is its JSON (`light` and `dark` token maps).
+    pub const THEME: u32 = 9;
+    /// A file viewer: `target` lists file extensions; `render` draws the file at `props.path`.
+    pub const FILE_VIEWER: u32 = 10;
+    /// A source of servers; its entries arrive through `HostApiVtable::set_servers`.
+    pub const SERVER: u32 = 11;
+    /// A tool on the app's client MCP: `target` is its JSON input schema; `query` runs it with
+    /// the arguments' JSON and answers JSON (or text).
+    pub const MCP_TOOL: u32 = 12;
+    /// Replaces finished fenced code blocks: `target` lists languages; `render` draws one.
+    pub const CODE_BLOCK: u32 = 13;
+}
+
+/// One contribution of any kind in [`contrib`]; fields a kind doesn't use stay empty.
+#[repr(C)]
+pub struct ContributionAbi<'a> {
+    pub kind: u32,
+    pub flags: u32,
+    pub order: i32,
+    pub _pad: u32,
+    pub id: AbiStr<'a>,
+    pub title: AbiStr<'a>,
+    pub description: AbiStr<'a>,
+    pub keywords: AbiStr<'a>,
+    pub icon: AbiStr<'a>,
+    pub target: AbiStr<'a>,
+    pub run: Callback,
+    pub render: RenderCallback,
+    pub query: QueryCallback,
+}
+
+/// An SVG icon the host copies into its icon pool, so nothing it draws points into a library a
+/// reload unmaps. `body` is the SVG's inner markup, `view` its square viewBox.
+#[repr(C)]
+pub struct IconSpecAbi<'a> {
+    pub name: AbiStr<'a>,
+    pub body: AbiStr<'a>,
+    pub view: f32,
+}
+
+pub const LIVE_PENDING: u32 = 0;
+pub const LIVE_ACTIVE: u32 = 1;
+pub const LIVE_DISABLED: u32 = 2;
+pub const LIVE_FAILED: u32 = 3;
+/// The provider's type doesn't match the consumer's (its id, version or layout differ).
+pub const LIVE_MISMATCH: u32 = 4;
+
+/// A contract's state as a consumer sees it. `value` is the provider's value while `Active`,
+/// valid until the consumer's callback returns.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LiveAbi {
+    pub state: u32,
+    pub generation: u32,
+    pub value: usize,
+}
+
+pub const SERVER_STOPPED: u32 = 0;
+pub const SERVER_STARTING: u32 = 1;
+pub const SERVER_AUTH: u32 = 2;
+pub const SERVER_READY: u32 = 3;
+pub const SERVER_FAILED: u32 = 4;
+
+/// A server a `contrib::SERVER` source lists.
+#[repr(C)]
+pub struct ServerEntryAbi<'a> {
+    pub id: AbiStr<'a>,
+    pub name: AbiStr<'a>,
+    pub state: u32,
+    pub _pad: u32,
+    /// Its HTTP address once ready.
+    pub url: AbiStr<'a>,
+}
+
+/// [`HostApiVtable::request`]: what a handler asks the app to do once it returns.
+pub const REQUEST_RUN_COMMAND: u32 = 0;
+pub const REQUEST_OPEN_LINK: u32 = 1;
+pub const REQUEST_OPEN_SETTINGS: u32 = 2;
 
 /// The host's heap. `export_plugin!`'s `#[global_allocator]` forwards every plugin allocation
 /// here, so plugins share the host's counting allocator.
@@ -537,21 +692,54 @@ pub struct HostApiVtable {
     pub el_apply: unsafe extern "C" fn(ctx: *mut c_void, el: ElHandle, spec: *const ElSpec),
     pub el_child: unsafe extern "C" fn(ctx: *mut c_void, parent: ElHandle, child: ElHandle),
     pub memo: unsafe extern "C" fn(ctx: *mut c_void, key: AbiStr, version: u64, build: BuildFn, data: *mut c_void) -> ElHandle,
+    // Setup (app or window).
+    pub add_contribution: unsafe extern "C" fn(ctx: *mut c_void, spec: *const ContributionAbi) -> AbiStatus,
+    /// Publishes `value` as contract `id` (only plugin `x` may publish `x` or `x.<name>`); the
+    /// host owns it from here and frees it with `drop_value` (in this library) when replaced.
+    pub provide: unsafe extern "C" fn(ctx: *mut c_void, id: AbiStr, type_hash: u64, value: usize, drop_value: Option<DropFn>) -> AbiStatus,
+    /// A handle to contract `id`, whatever its provider's state; read it with `live`.
+    pub consume: unsafe extern "C" fn(ctx: *mut c_void, id: AbiStr, type_hash: u64) -> u32,
+    // Any callback on the app's thread.
+    /// Copies an SVG icon into the host's pool; the id goes in `ElSpec::icon_id`.
+    pub intern_icon: unsafe extern "C" fn(ctx: *mut c_void, spec: *const IconSpecAbi) -> u32,
+    pub live: unsafe extern "C" fn(ctx: *mut c_void, handle: u32, out: *mut LiveAbi),
+    /// Writes a view of store `name`'s value (for `session`, or global when empty), valid until
+    /// the next host call, into `out`; 0 when unset.
+    pub store_get: unsafe extern "C" fn(ctx: *mut c_void, name: AbiStr, session: AbiStr, out: *mut AbiStr<'static>) -> u8,
+    // Setup, handlers and poll.
+    pub store_set: unsafe extern "C" fn(ctx: *mut c_void, name: AbiStr, session: AbiStr, value: AbiStr) -> AbiStatus,
+    /// Runs `job` on a host worker thread after `delay_ms`, keeping this library mapped until it
+    /// returns. The job runs with a null state and context.
+    pub spawn: unsafe extern "C" fn(ctx: *mut c_void, job: Callback, delay_ms: u64) -> AbiStatus,
+    /// Replaces the entries of this plugin's server source `source`.
+    pub set_servers: unsafe extern "C" fn(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize),
+    /// One of the `REQUEST_*` kinds, carried out after the handler returns.
+    pub request: unsafe extern "C" fn(ctx: *mut c_void, kind: u32, arg: AbiStr),
 }
 
-/// What the host calls in a plugin, besides the callbacks it registered.
+pub type SetupFn = unsafe extern "C" fn(ctx: *mut c_void) -> AbiOutcome<*mut c_void>;
+pub type DropStateFn = unsafe extern "C" fn(state: *mut c_void) -> AbiOutcome<u8>;
+pub type PollFn = unsafe extern "C" fn(state: *mut c_void, ctx: *mut c_void) -> AbiOutcome<bool>;
+
+/// What the host calls in a plugin, besides the callbacks it registered. A plugin has an app
+/// half (one per process: services, workers, the app menu), a window half (one per window: its
+/// UI), or both.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PluginVtable {
-    /// Builds the per-window state; registers commands, panels and settings through `ctx`.
-    pub window_setup: unsafe extern "C" fn(ctx: *mut c_void) -> AbiOutcome<*mut c_void>,
-    pub drop_state: unsafe extern "C" fn(state: *mut c_void) -> AbiOutcome<u8>,
+    /// Builds the process-wide state; publishes services and app menu items through `ctx`.
+    pub app_setup: Option<SetupFn>,
+    pub app_drop_state: Option<DropStateFn>,
+    pub app_poll: Option<PollFn>,
+    /// Builds the per-window state; registers commands, panels and the rest through `ctx`.
+    pub window_setup: Option<SetupFn>,
+    pub drop_state: Option<DropStateFn>,
     /// Runs only when the plugin's waker fired or its `wake_after` came due; `true` when
     /// visible state changed.
-    pub poll: unsafe extern "C" fn(state: *mut c_void, ctx: *mut c_void) -> AbiOutcome<bool>,
-    /// Ephemeral state carried across a hot reload.
-    pub save_hot_state: unsafe extern "C" fn(state: *const c_void, out: *mut AbiOwnedBytes) -> AbiOutcome<u8>,
-    pub load_hot_state: unsafe extern "C" fn(state: *mut c_void, bytes: AbiStr) -> AbiOutcome<u8>,
+    pub poll: Option<PollFn>,
+    /// Ephemeral window state carried across a hot reload.
+    pub save_hot_state: Option<unsafe extern "C" fn(state: *const c_void, out: *mut AbiOwnedBytes) -> AbiOutcome<u8>>,
+    pub load_hot_state: Option<unsafe extern "C" fn(state: *mut c_void, bytes: AbiStr) -> AbiOutcome<u8>>,
 }
 
 #[repr(C)]

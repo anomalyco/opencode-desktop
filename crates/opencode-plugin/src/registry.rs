@@ -124,6 +124,7 @@ impl CommandSpec {
 pub struct PanelSpec {
     id: Text,
     title: Text,
+    description: Text,
     icon: Text,
     order: i32,
     transient: bool,
@@ -131,11 +132,17 @@ pub struct PanelSpec {
 
 impl PanelSpec {
     pub fn new(id: impl Into<Text>, title: impl Into<Text>) -> Self {
-        PanelSpec { id: id.into(), title: title.into(), icon: Text::Borrowed(""), order: 0, transient: false }
+        PanelSpec { id: id.into(), title: title.into(), description: Text::Borrowed(""), icon: Text::Borrowed(""), order: 0, transient: false }
     }
 
-    /// A host icon name for the tab and launcher (`"code"`, `"globe"`, `"console"`,
-    /// `"file-tree"`, `"folder"`).
+    /// The launcher card's line under the title (the manifest's description when empty).
+    pub fn description(mut self, description: impl Into<Text>) -> Self {
+        self.description = description.into();
+        self
+    }
+
+    /// An icon this plugin interned (`cx.icon`), or a host icon name for the tab and launcher
+    /// (`"code"`, `"globe"`, `"console"`, `"file-tree"`, `"folder"`).
     pub fn icon(mut self, icon: impl Into<Text>) -> Self {
         self.icon = icon.into();
         self
@@ -157,6 +164,7 @@ impl PanelSpec {
         let abi = PanelSpecAbi {
             id: AbiStr::new(&self.id),
             title: AbiStr::new(&self.title),
+            description: AbiStr::new(&self.description),
             icon: AbiStr::new(&self.icon),
             order: self.order,
             flags: if self.transient { PANEL_TRANSIENT } else { 0 },

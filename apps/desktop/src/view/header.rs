@@ -81,6 +81,8 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<
         .child(collapsed_slot(s))
         .child(crumbs.mr(if reserve_side { 0.0 } else { 8.0 }))
         .child(spacer())
+        // Plugins' `session.header` slot (`Slot`), before the find bar and the usage numbers.
+        .children(crate::plugin_host::slot(s, p, "session.header", sid).into_iter().map(|e| e.mr(8.0)))
         .children(crate::find::bar(s, p).map(|bar| bar.shrink().min_w(0.0)))
         .children(shows_usage.then_some(usage))
         .children(s.stage.is_none().then(|| {

@@ -209,6 +209,10 @@ impl App {
 
     /// Follows `href` clicked in the open session's timeline (a reply, a note, a card).
     pub fn open_reply_link(&mut self, href: &str, tx: &mut Tx) {
+        // A plugin's link handler (`LinkHandler`) takes the links it matches first.
+        if crate::plugin_host::open_link(self, href, tx) {
+            return;
+        }
         if let Some(sid) = self.active_session_id().map(str::to_owned) {
             return self.open_link(&sid, None, href, tx);
         }
@@ -233,6 +237,9 @@ impl App {
     /// Follows `href` clicked in session `sid`'s timeline, or in its file `from` (`Some`) rendered
     /// in the viewer, whose folder relative links resolve against.
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
+        if from.is_some() && crate::plugin_host::open_link(self, href, tx) {
+            return;
+        }
         let base = from.map_or("", opencode_kit::path::parent);
         match classify(href, base, &self.link_directory(sid), &self.home) {
             Link::Web(url) => self.open_web(&url, tx),

@@ -156,6 +156,11 @@ pub(super) fn files_main(
         out = out.child(file_find_bar(p, session_id, path, d, total, active)).child(el().w_full().h(0.5).fill(p.border_muted));
     }
 
+    // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
+    let text = doc.filter(|d| d.ready && !d.missing && !d.binary).map_or("", |d| d.text());
+    if let Some(view) = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text) {
+        return out.child(view);
+    }
     if rendered && let Some(d) = doc {
         return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path)));
     }

@@ -76,10 +76,19 @@ pub fn text(s: impl Into<Cow<'static, str>>) -> El {
     e
 }
 
-/// A host icon by name (`"code"`, `"globe"`, `"console"`, `"file-tree"`, `"folder"`).
+/// An icon by name: one this plugin interned (`cx.icon`), or a host icon (`"code"`, `"globe"`,
+/// `"console"`, `"file-tree"`, `"folder"`).
 pub fn icon(name: &'static str, size: f32) -> El {
     let mut e = new(ElKind::Icon);
     e.text = Cow::Borrowed(name);
+    e.spec.font_size = size;
+    e
+}
+
+/// An icon this plugin interned, by id.
+pub fn icon_id(id: crate::shared::IconId, size: f32) -> El {
+    let mut e = new(ElKind::Icon);
+    e.spec.icon_id = id.0;
     e.spec.font_size = size;
     e
 }
@@ -274,6 +283,29 @@ pub mod ui {
             .hover(p.hover)
             .press(p.pressed)
             .child(text(label).font(13.0, 500.0).color(p.text))
+    }
+
+    /// A status capsule (a titlebar item or a composer pill): an optional icon and a label,
+    /// 24 high, fully rounded, on the raised layer.
+    pub fn pill(icon_name: &'static str, label: impl Into<Cow<'static, str>>) -> El {
+        let p = palette();
+        let label = label.into();
+        let mut r = row()
+            .role("button")
+            .label(label.clone())
+            .h(24.0)
+            .px(9.0)
+            .gap(5.0)
+            .center_y()
+            .radius(12.0)
+            .fill(p.layer1)
+            .border(0.5, p.border_muted)
+            .hover(p.hover)
+            .press(p.pressed);
+        if !icon_name.is_empty() {
+            r = r.child(icon(icon_name, 14.0).color(p.icon_muted));
+        }
+        r.child(text(label).font(12.0, 500.0).line_height(16.0).color(p.text))
     }
 
     /// Desktop's switch: 24 × 16, the thumb 12 × 12, accent when on.

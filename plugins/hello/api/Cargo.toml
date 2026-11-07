@@ -1,0 +1,13 @@
+[package]
+name = "opencode-plugin-hello-api"
+version = "0.1.0"
+description = "The Greeter service Hello publishes: its repr(C) type and contract id, for plugins that use it"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-plugin = { path = "../../../crates/opencode-plugin" }
+
+[lints]
+workspace = true

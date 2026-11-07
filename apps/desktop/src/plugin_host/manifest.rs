@@ -23,6 +23,20 @@ pub struct Manifest {
     pub os: Vec<String>,
     /// `opencode_plugin_review` → `opencode_plugin_review.dll`, `libopencode_plugin_review.dylib`, `.so`.
     pub library: String,
+    /// `[[stores]]`: the stores loaded before setup.
+    pub stores: Vec<String>,
+    /// `[[settings_search]]`: rows settings search finds without loading the library.
+    pub search: Vec<SearchEntry>,
+}
+
+/// A settings search row a manifest declares.
+#[derive(Clone, Debug, Default)]
+pub struct SearchEntry {
+    pub id: String,
+    pub page: String,
+    pub title: String,
+    pub description: String,
+    pub keywords: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -34,6 +48,12 @@ pub enum Tier {
 }
 
 impl Tier {
+    /// Whether its libraries wait for the user's OK before they first load: anything that isn't
+    /// shipped with the app or named on the command line.
+    pub fn needs_trust(self) -> bool {
+        matches!(self, Self::Override | Self::User)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Dev => "Dev",
@@ -55,6 +75,8 @@ pub struct Found {
 pub fn parse(src: &str) -> Result<Manifest, String> {
     let doc: toml_edit::DocumentMut = src.parse().map_err(|e: toml_edit::TomlError| e.message().to_owned())?;
     let s = |key: &str| doc.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
+    let tables = |key: &str| doc.get(key).and_then(|v| v.as_array_of_tables()).into_iter().flat_map(|a| a.iter());
+    let field = |t: &toml_edit::Table, key: &str| t.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_owned();
     let m = Manifest {
         id: s("id"),
         name: s("name"),
@@ -63,6 +85,11 @@ pub fn parse(src: &str) -> Result<Manifest, String> {
         api: s("api"),
         os: doc.get("os").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         library: s("library"),
+        stores: tables("stores").map(|t| field(t, "name")).filter(|n| !n.is_empty()).collect(),
+        search: tables("settings_search")
+            .map(|t| SearchEntry { id: field(t, "id"), page: field(t, "page"), title: field(t, "title"), description: field(t, "description"), keywords: field(t, "keywords") })
+            .filter(|e| !e.title.is_empty())
+            .collect(),
     };
     if m.id.is_empty() || m.id.contains([':', '/', '\\']) {
         return Err(format!("`id` must be set and contain no `:`, `/` or `\\` (got {:?})", m.id));

@@ -1,11 +1,14 @@
-//! The contexts a plugin's code runs with: setup, render, handlers and poll.
+//! The contexts a plugin's code runs with: setup (app and window), render, handlers and poll.
 
 use core::ffi::c_void;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 
-use crate::abi::{AbiEvent, AbiOutcome, AbiPalette, AbiStr, Callback, EditorHandle, ElHandle, RenderCallback, RenderProps, WakerAbi};
-use crate::boundary::{ctx, host, outcome, pack, unpack, with_ctx};
+use crate::abi::{
+    AbiEvent, AbiOutcome, AbiOwnedBytes, AbiPalette, AbiStr, Callback, EVENT_JOB, EditorHandle, ElHandle, QueryCallback, RenderCallback, RenderProps,
+    ServerEntryAbi, WakerAbi,
+};
+use crate::boundary::{ctx, guard, host, outcome, pack, unpack, with_ctx};
 use crate::el::{El, Handler};
 use crate::registry::{CommandSpec, PanelSpec, SettingSpec};
 
@@ -19,8 +22,8 @@ pub trait WindowPlugin: Sized + 'static {
         false
     }
 
-    /// Ephemeral state to carry across a hot reload (host-owned state such as editors and
-    /// open tabs survives on its own).
+    /// Ephemeral state to carry across a hot reload (host-owned state such as editors, stores
+    /// and open tabs survives on its own).
     fn save_hot_state(&self) -> Vec<u8> {
         Vec::new()
     }
@@ -44,14 +47,16 @@ impl core::fmt::Display for PluginError {
     }
 }
 
-/// Registers this window's contributions. Each is withdrawn when the plugin unloads.
+/// Registers this window's contributions. Each is withdrawn when the plugin unloads. The
+/// methods every setup shares (stores, contracts, icons, wakers, tasks) are in
+/// [`crate::shared`]; the contribution points beyond these three in [`crate::contrib`].
 pub struct WindowSetupCx<P> {
     pub(crate) _p: PhantomData<fn(&mut P)>,
 }
 
-impl<P: WindowPlugin> WindowSetupCx<P> {
-    /// A command in the palette (and its keybind). `run` may call `cx.decline()` to let the
-    /// key event through.
+impl<P: 'static> WindowSetupCx<P> {
+    /// A command in the palette, on its keybind and as `/slash` in the composer. `run` may call
+    /// `cx.decline()` to let the key event through.
     pub fn add_command(&mut self, spec: CommandSpec, run: impl Fn(&mut P, &mut ActionCx) + 'static) {
         let run = action_callback::<P, _>(run);
         spec.with_abi(run, |abi| {
@@ -60,7 +65,7 @@ impl<P: WindowPlugin> WindowSetupCx<P> {
         });
     }
 
-    /// A tab in the session side region.
+    /// A tab in the session side region, with its own New tab launcher card.
     pub fn add_panel(&mut self, spec: PanelSpec, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
         let render = render_callback::<P, _>(render);
         spec.with_abi(render, |abi| {
@@ -84,16 +89,10 @@ impl<P: WindowPlugin> WindowSetupCx<P> {
         // SAFETY: `initial` is alive for the call.
         unsafe { (host().create_editor)(ctx(), AbiStr::new(initial)) }
     }
-
-    /// Wakes this plugin's `poll` from any thread.
-    pub fn waker(&mut self) -> PluginWaker {
-        // SAFETY: called inside setup, whose context the host accepts.
-        PluginWaker(unsafe { (host().waker)(ctx()) })
-    }
 }
 
 /// Wakes the host's event loop and marks this plugin's poll dirty. `Send + Sync`.
-pub struct PluginWaker(WakerAbi);
+pub struct PluginWaker(pub(crate) WakerAbi);
 
 // SAFETY: the host's waker data is an `Arc` of atomics and a thread-safe event-loop handle.
 unsafe impl Send for PluginWaker {}
@@ -131,6 +130,10 @@ pub struct Props {
     pub id: String,
     pub session_id: String,
     pub directory: String,
+    /// A file viewer's file, a code block's language.
+    pub path: String,
+    /// A code block's source.
+    pub text: String,
     pub width: f32,
     pub height: f32,
     pub visible: bool,
@@ -152,7 +155,7 @@ pub struct ViewCx<P> {
     _p: PhantomData<fn(&P)>,
 }
 
-impl<P: WindowPlugin> ViewCx<P> {
+impl<P: 'static> ViewCx<P> {
     pub fn pal(&self) -> Palette {
         palette()
     }
@@ -169,7 +172,7 @@ impl<P: WindowPlugin> ViewCx<P> {
         let mut h = FxHasher::default();
         version.hash(&mut h);
         let mut slot = Some(build);
-        unsafe extern "C" fn tramp<P: WindowPlugin, F: FnOnce(&mut ViewCx<P>) -> El>(data: *mut c_void, ctx: *mut c_void) -> AbiOutcome<ElHandle> {
+        unsafe extern "C" fn tramp<P: 'static, F: FnOnce(&mut ViewCx<P>) -> El>(data: *mut c_void, ctx: *mut c_void) -> AbiOutcome<ElHandle> {
             // SAFETY: `data` is the `slot` below, alive for the duration of the host's `memo` call.
             let slot = unsafe { &mut *data.cast::<Option<F>>() };
             with_ctx(ctx, || outcome(|| slot.take().map_or(ElHandle::NONE, |build| build(&mut ViewCx { _p: PhantomData }).finish())))
@@ -195,6 +198,11 @@ impl<P: WindowPlugin> ViewCx<P> {
         // SAFETY: any context accepts it.
         unsafe { (host().editor_version)(ctx(), editor) }
     }
+
+    /// Draw nothing (a composer pill or a slot with nothing to show).
+    pub fn nothing(&self) -> El {
+        El::from_handle(ElHandle::NONE)
+    }
 }
 
 fn editor_text(editor: EditorHandle) -> String {
@@ -216,13 +224,26 @@ pub struct ActionCx {
     pub(crate) event: AbiEvent,
 }
 
-/// Passed to `WindowPlugin::poll`.
+/// Passed to `WindowPlugin::poll` and `AppPlugin::poll`.
 pub type PollCx = ActionCx;
 
 impl ActionCx {
     /// The press or command that ran this.
     pub fn event(&self) -> AbiEvent {
         self.event
+    }
+
+    /// What the event carries: a link handler's href, a code block action's code, a menu
+    /// item's target (a server's id).
+    pub fn input(&self) -> &str {
+        // SAFETY: the host's event strings are valid for the call this context lives in.
+        unsafe { self.event.text.as_str() }
+    }
+
+    /// A code block action's language.
+    pub fn input_extra(&self) -> &str {
+        // SAFETY: as `input`.
+        unsafe { self.event.extra.as_str() }
     }
 
     /// Lands this change without animation.
@@ -253,6 +274,34 @@ impl ActionCx {
         unsafe { (host().toast)(ctx(), AbiStr::new(text)) };
     }
 
+    /// Runs any command by id (`<plugin>.<command>` for a plugin's), after this returns.
+    pub fn run_command(&mut self, id: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_RUN_COMMAND, AbiStr::new(id)) };
+    }
+
+    /// Follows a link as the timeline would.
+    pub fn open_link(&mut self, href: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_OPEN_LINK, AbiStr::new(href)) };
+    }
+
+    /// Opens Settings (at this plugin's page `page`, or the top when empty).
+    pub fn open_settings(&mut self, page: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_OPEN_SETTINGS, AbiStr::new(page)) };
+    }
+
+    /// Replaces the entries of this plugin's server source `source`.
+    pub fn set_servers(&mut self, source: &str, entries: &[crate::contrib::ServerEntry]) {
+        let abi: Vec<ServerEntryAbi> = entries
+            .iter()
+            .map(|e| ServerEntryAbi { id: AbiStr::new(&e.id), name: AbiStr::new(&e.name), state: e.state as u32, _pad: 0, url: AbiStr::new(&e.url) })
+            .collect();
+        // SAFETY: `abi` and the strings it views are alive for the call.
+        unsafe { (host().set_servers)(ctx(), AbiStr::new(source), abi.as_ptr(), abi.len()) };
+    }
+
     pub fn editor_text(&self, editor: EditorHandle) -> String {
         editor_text(editor)
     }
@@ -274,17 +323,17 @@ impl ActionCx {
     }
 }
 
-pub(crate) fn action_callback<P: WindowPlugin, F: Fn(&mut P, &mut ActionCx) + 'static>(f: F) -> Callback {
-    unsafe extern "C" fn tramp<P: WindowPlugin, F: Fn(&mut P, &mut ActionCx) + 'static>(
+pub(crate) fn action_callback<S: 'static, F: Fn(&mut S, &mut ActionCx) + 'static>(f: F) -> Callback {
+    unsafe extern "C" fn tramp<S: 'static, F: Fn(&mut S, &mut ActionCx) + 'static>(
         state: *mut c_void,
         ctx: *mut c_void,
         data: usize,
         event: *const AbiEvent,
     ) -> AbiOutcome<bool> {
         let r = with_ctx(ctx, || {
-            crate::boundary::guard(|| {
+            guard(|| {
                 // SAFETY: the host passes this plugin instance's state and the data `pack` made for `F`.
-                let (state, f) = unsafe { (&mut *state.cast::<P>(), unpack::<F>(&data)) };
+                let (state, f) = unsafe { (&mut *state.cast::<S>(), unpack::<F>(&data)) };
                 // SAFETY: `event` is null or valid for the call.
                 let event = unsafe { event.as_ref() }.copied().unwrap_or_default();
                 let mut cx = ActionCx { changed: true, declined: false, event };
@@ -299,11 +348,29 @@ pub(crate) fn action_callback<P: WindowPlugin, F: Fn(&mut P, &mut ActionCx) + 's
         }
     }
     let (data, drop_data) = pack(f);
-    Callback { func: Some(tramp::<P, F>), data, drop_data }
+    Callback { func: Some(tramp::<S, F>), data, drop_data }
 }
 
-pub(crate) fn render_callback<P: WindowPlugin, F: Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static>(f: F) -> RenderCallback {
-    unsafe extern "C" fn tramp<P: WindowPlugin, F: Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static>(
+/// A job for a host worker thread: runs once, with no state and no context.
+pub(crate) fn job_callback<F: FnOnce() + Send + 'static>(f: F) -> Callback {
+    unsafe extern "C" fn tramp<F: FnOnce() + Send + 'static>(_: *mut c_void, _: *mut c_void, data: usize, event: *const AbiEvent) -> AbiOutcome<bool> {
+        // SAFETY: `event` is null or valid for the call.
+        if unsafe { event.as_ref() }.is_none_or(|e| e.kind != EVENT_JOB) {
+            return AbiOutcome::ok(false);
+        }
+        // SAFETY: the host passes the data `pack` made for `Cell<Option<F>>`, from one thread at a time.
+        let slot = unsafe { unpack::<core::cell::Cell<Option<F>>>(&data) };
+        match guard(|| slot.take().map(|f| f())) {
+            Ok(_) => AbiOutcome::ok(false),
+            Err(message) => AbiOutcome::panicked(message),
+        }
+    }
+    let (data, drop_data) = pack(core::cell::Cell::new(Some(f)));
+    Callback { func: Some(tramp::<F>), data, drop_data }
+}
+
+pub(crate) fn render_callback<S: 'static, F: Fn(&S, &mut ViewCx<S>, &Props) -> El + 'static>(f: F) -> RenderCallback {
+    unsafe extern "C" fn tramp<S: 'static, F: Fn(&S, &mut ViewCx<S>, &Props) -> El + 'static>(
         state: *const c_void,
         ctx: *mut c_void,
         data: usize,
@@ -312,26 +379,72 @@ pub(crate) fn render_callback<P: WindowPlugin, F: Fn(&P, &mut ViewCx<P>, &Props)
         with_ctx(ctx, || {
             outcome(|| {
                 // SAFETY: the host passes this plugin instance's state and the data `pack` made for `F`.
-                let (state, f) = unsafe { (&*state.cast::<P>(), unpack::<F>(&data)) };
+                let (state, f) = unsafe { (&*state.cast::<S>(), unpack::<F>(&data)) };
                 // SAFETY: `props` is valid for the call, its strings too.
                 let props = unsafe { props.as_ref() }.map(|p| unsafe {
                     Props {
                         id: p.id.as_str().to_owned(),
                         session_id: p.session_id.as_str().to_owned(),
                         directory: p.directory.as_str().to_owned(),
+                        path: p.path.as_str().to_owned(),
+                        text: p.text.as_str().to_owned(),
                         width: p.width,
                         height: p.height,
                         visible: p.visible != 0,
                         focused: p.focused != 0,
                     }
                 });
-                let props = props.unwrap_or(Props { id: String::new(), session_id: String::new(), directory: String::new(), width: 0.0, height: 0.0, visible: true, focused: false });
+                let props = props.unwrap_or(Props {
+                    id: String::new(),
+                    session_id: String::new(),
+                    directory: String::new(),
+                    path: String::new(),
+                    text: String::new(),
+                    width: 0.0,
+                    height: 0.0,
+                    visible: true,
+                    focused: false,
+                });
                 f(state, &mut ViewCx { _p: PhantomData }, &props).finish()
             })
         })
     }
     let (data, drop_data) = pack(f);
-    RenderCallback { func: Some(tramp::<P, F>), data, drop_data }
+    RenderCallback { func: Some(tramp::<S, F>), data, drop_data }
+}
+
+/// A query: `Ok(Some(answer))` answers yes (with `answer`), `Ok(None)` no, `Err` fails.
+pub(crate) fn query_callback<S: 'static, F: Fn(&mut S, &mut ActionCx, &str) -> Result<Option<String>, String> + 'static>(f: F) -> QueryCallback {
+    unsafe extern "C" fn tramp<S: 'static, F: Fn(&mut S, &mut ActionCx, &str) -> Result<Option<String>, String> + 'static>(
+        state: *mut c_void,
+        ctx: *mut c_void,
+        data: usize,
+        input: AbiStr,
+        out: *mut AbiOwnedBytes,
+    ) -> AbiOutcome<u8> {
+        let r = with_ctx(ctx, || {
+            guard(|| {
+                // SAFETY: as `action_callback`; `input` is valid for the call.
+                let (state, f, input) = unsafe { (&mut *state.cast::<S>(), unpack::<F>(&data), input.as_str()) };
+                let mut cx = ActionCx { changed: false, declined: false, event: AbiEvent::default() };
+                f(state, &mut cx, input)
+            })
+        });
+        match r {
+            Ok(Ok(Some(answer))) => {
+                if !out.is_null() {
+                    // SAFETY: the host passes a valid out pointer holding nothing it still needs.
+                    unsafe { out.write(AbiOwnedBytes::from_string(answer)) };
+                }
+                AbiOutcome::ok(1)
+            }
+            Ok(Ok(None)) => AbiOutcome::ok(0),
+            Ok(Err(message)) => AbiOutcome::err(message),
+            Err(message) => AbiOutcome::panicked(message),
+        }
+    }
+    let (data, drop_data) = pack(f);
+    QueryCallback { func: Some(tramp::<S, F>), data, drop_data }
 }
 
 /// FxHash, for memo versions: fast, and stable within a process.

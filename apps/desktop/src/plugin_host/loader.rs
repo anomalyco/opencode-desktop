@@ -1,12 +1,13 @@
 //! Loading a plugin library and the C ABI handshake.
 //!
-//! With hot reload on, the host loads a shadow copy (`<cache>/plugin-hot/<id>-gen<N>.<ext>`),
+//! With hot reload on, the host loads a shadow copy (`<cache>/plugin-hot/<id>-<pid>-<n>.<ext>`),
 //! so the file `cargo build` writes is never locked (Windows' `LNK1104`). A `LoadedLibrary` is
 //! reference-counted by every callback and handler that points into it; the library unloads
 //! only once the last one drops, so nothing can call into unmapped code.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use opencode_plugin::abi::*;
 
@@ -41,8 +42,10 @@ pub struct Loaded {
     pub vtable: PluginVtable,
 }
 
-/// Loads `path` (through a shadow copy in `shadow_dir` when given) and shakes hands.
-pub fn load(path: &Path, shadow_dir: Option<&Path>, id: &str, generation: u32) -> Result<Loaded, String> {
+/// Loads `path` (through a shadow copy in `shadow_dir` when given) and shakes hands. Safe off
+/// the app's thread: it touches no host state, so the hot-reload watcher runs it.
+pub fn load(path: &Path, shadow_dir: Option<&Path>, id: &str) -> Result<Loaded, String> {
+    static COPIES: AtomicU32 = AtomicU32::new(0);
     if !path.is_file() {
         return Err(format!("library not found: {}", path.display()));
     }
@@ -50,7 +53,8 @@ pub fn load(path: &Path, shadow_dir: Option<&Path>, id: &str, generation: u32) -
         Some(dir) => {
             std::fs::create_dir_all(dir).ok();
             let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
-            let copy = dir.join(format!("{id}-gen{generation}.{ext}"));
+            let n = COPIES.fetch_add(1, Ordering::Relaxed) + 1;
+            let copy = dir.join(format!("{id}-{}-{n}.{ext}", std::process::id()));
             std::fs::copy(path, &copy).map_err(|e| format!("couldn't copy the library for hot reload: {e}"))?;
             Some(copy)
         }
@@ -87,7 +91,10 @@ fn open_library(path: &Path) -> Result<libloading::Library, String> {
     let library = unsafe {
         libloading::os::unix::Library::open(Some(path), libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_LOCAL).map(Into::into)
     };
-    library.map_err(|e| format!("couldn't load {}: {e}", path.display()))
+    library.map_err(|e| {
+        let blocked = if super::motw::blocked(path) { " Windows blocked this file because it came from another computer; unblock it from Settings › Plugins." } else { "" };
+        format!("couldn't load {}: {e}.{blocked}", path.display())
+    })
 }
 
 fn shake(entry: PluginEntryFn, lib: Arc<LoadedLibrary>) -> Result<Loaded, String> {
@@ -135,10 +142,18 @@ fn shake(entry: PluginEntryFn, lib: Arc<LoadedLibrary>) -> Result<Loaded, String
     Ok(Loaded { lib, vtable })
 }
 
-/// Deletes shadow copies an earlier run left (a crash, or a copy still locked then).
+/// Deletes shadow copies an earlier run left (a crash, or a copy still locked then). A copy
+/// another running app has loaded stays locked, so it survives the sweep.
 pub fn sweep(shadow_dir: &Path) {
     let Ok(entries) = std::fs::read_dir(shadow_dir) else { return };
     for e in entries.filter_map(Result::ok) {
         std::fs::remove_file(e.path()).ok();
     }
+}
+
+/// The SHA-256 of the file at `path`, in hex: what a trust decision is about.
+pub fn hash(path: &Path) -> Option<String> {
+    use sha2::Digest;
+    let bytes = std::fs::read(path).ok()?;
+    Some(sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect())
 }

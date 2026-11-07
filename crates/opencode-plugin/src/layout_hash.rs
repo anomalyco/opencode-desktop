@@ -42,8 +42,9 @@ pub const ABI_LAYOUT_HASH: u64 = {
     layout!(h, AbiStatus);
     layout!(h, Callback, func, data, drop_data);
     layout!(h, RenderCallback, func, data, drop_data);
-    layout!(h, AbiEvent, kind, mods, x, y);
-    layout!(h, RenderProps<'static>, surface, id, session_id, directory, width, height, visible, focused, dark);
+    layout!(h, QueryCallback, func, data, drop_data);
+    layout!(h, AbiEvent, kind, mods, x, y, text, extra);
+    layout!(h, RenderProps<'static>, surface, id, session_id, directory, path, text, width, height, visible, focused, dark);
     layout!(
         h, AbiPalette, dark, theme, bg_base, layer1, layer2, layer3, text, muted, faint, accent, bg_accent, on_fill, icon, icon_muted,
         border, border_muted, hover, pressed, success, warning, danger, switch_thumb
@@ -54,15 +55,20 @@ pub const ABI_LAYOUT_HASH: u64 = {
         line_height, opacity, flags, press
     );
     layout!(h, CommandSpecAbi<'static>, id, title, description, keywords, slash, bind_windows, bind_macos, bind_linux, section, flags, run);
-    layout!(h, PanelSpecAbi<'static>, id, title, icon, order, flags, render);
+    layout!(h, PanelSpecAbi<'static>, id, title, description, icon, order, flags, render);
     layout!(h, SettingSpecAbi<'static>, id, title, description, keywords, render);
+    layout!(h, ContributionAbi<'static>, kind, flags, order, id, title, description, keywords, icon, target, run, render, query);
+    layout!(h, IconSpecAbi<'static>, name, body, view);
+    layout!(h, LiveAbi, state, generation, value);
+    layout!(h, ServerEntryAbi<'static>, id, name, state, url);
     layout!(h, HostAllocVtable, alloc, alloc_zeroed, dealloc, realloc);
     layout!(h, WakerAbi, data, wake, clone, drop);
     layout!(
         h, HostApiVtable, log, add_command, add_panel, add_setting, create_editor, waker, editor_text, editor_version, editor_set_text,
-        instant, wake_after, copy_text, open_panel, toast, palette, el_build, el_apply, el_child, memo
+        instant, wake_after, copy_text, open_panel, toast, palette, el_build, el_apply, el_child, memo, add_contribution, provide, consume,
+        intern_icon, live, store_get, store_set, spawn, set_servers, request
     );
-    layout!(h, PluginVtable, window_setup, drop_state, poll, save_hot_state, load_hot_state);
+    layout!(h, PluginVtable, app_setup, app_drop_state, app_poll, window_setup, drop_state, poll, save_hot_state, load_hot_state);
     layout!(h, HostHandshake, magic, endian, abi_epoch, abi_minor, abi_layout_hash, pointer_width, os, arch, host_vtable_size, host_vtable, host_alloc);
     layout!(h, PluginDescriptor, magic, endian, abi_epoch, abi_minor, abi_layout_hash, sdk_version, plugin_vtable_size, plugin_vtable);
     h

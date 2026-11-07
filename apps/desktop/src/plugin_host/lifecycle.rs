@@ -2,8 +2,9 @@
 //!
 //! ```text
 //! Discovered ─┬─ UnsupportedOs / ReservedId
-//!             ├─ Disabled ──enable──┐
-//!             └─ LoadingLib ◄───────┴──── Failed (retry)
+//!             ├─ PendingTrust ──trust──┐      (a third-party library not yet trusted)
+//!             ├─ Disabled ──enable─────┤
+//!             └─ LoadingLib ◄──────────┴──── Failed (retry)
 //!                  ├─ Failed (dlopen, ABI magic/epoch/layout mismatch)
 //!                  └─ PreparingStores ─ SettingUp ─┬─ Active ─┬─ Reloading ─ Active
 //!                                                  └─ Failed  ├─ Disposing ─ Disabled
@@ -18,6 +19,8 @@ pub enum PluginState {
     Discovered,
     UnsupportedOs,
     ReservedId,
+    /// Quarantined until the user trusts this library in the first-load prompt.
+    PendingTrust,
     Disabled,
     LoadingLib,
     PreparingStores,
@@ -32,6 +35,7 @@ pub enum PluginState {
 pub enum Event {
     WrongOs,
     Reserved,
+    NeedsTrust,
     UserDisabled,
     Load,
     LibFailed,
@@ -54,8 +58,9 @@ impl PluginState {
         Some(match (self, event) {
             (S::Discovered, E::WrongOs) => S::UnsupportedOs,
             (S::Discovered, E::Reserved) => S::ReservedId,
+            (S::Discovered | S::Disabled | S::Failed, E::NeedsTrust) => S::PendingTrust,
             (S::Discovered | S::Failed, E::UserDisabled) => S::Disabled,
-            (S::Discovered | S::Disabled | S::Failed, E::Load) => S::LoadingLib,
+            (S::Discovered | S::Disabled | S::Failed | S::PendingTrust, E::Load) => S::LoadingLib,
             (S::LoadingLib, E::LibFailed) => S::Failed,
             (S::LoadingLib, E::LibLoaded) => S::PreparingStores,
             (S::PreparingStores, E::StoresReady) => S::SettingUp,
@@ -76,6 +81,7 @@ impl PluginState {
             Self::Discovered => "Found",
             Self::UnsupportedOs => "Not for this OS",
             Self::ReservedId => "Reserved id",
+            Self::PendingTrust => "Waiting for your OK",
             Self::Disabled => "Off",
             Self::LoadingLib | Self::PreparingStores | Self::SettingUp => "Loading",
             Self::Active => "On",

@@ -24,29 +24,41 @@
 //! opencode_plugin::export_plugin!(window = Hello);
 //! ```
 //!
+//! A plugin has a window half ([`WindowPlugin`], one per window: its UI), an app half
+//! ([`AppPlugin`], one per process: workers and [`Service`]s), or both. Plugins share typed
+//! values in-process through [`Contract`]s read as [`Live`] values, keep state in host [`Store`]s,
+//! and run background work as [`LatestTask`]s.
+//!
 //! Every entry point runs under `catch_unwind`: a panic reaches the host as a status, never as
 //! an unwind across the boundary. Everything here is experimental (`api = "0.1-experimental"`).
 #![allow(unsafe_code)]
 
 pub mod abi;
 pub mod alloc;
+mod app;
 mod boundary;
+pub mod contrib;
 mod cx;
 mod el;
 #[doc(hidden)]
 pub mod export;
 mod layout_hash;
 mod registry;
+pub mod shared;
 
 pub use abi::{EditorHandle, ElHandle, Rgba};
+pub use app::{AppPlugin, AppSetupCx};
+pub use contrib::{Contribution, HostPage, Menu, Menubar, ServerEntry, ServerState, SlotName};
 pub use cx::{ActionCx, FxHasher, Palette, PluginError, PluginWaker, PollCx, Props, ViewCx, WindowPlugin, WindowSetupCx};
-pub use el::{El, Handler, col, el, icon, row, spacer, text, text_input, ui};
+pub use el::{El, Handler, col, el, icon, icon_id, row, spacer, text, text_input, ui};
 pub use registry::{CommandSection, CommandSpec, PanelSpec, SettingSpec};
+pub use shared::{Contract, IconId, Inactive, LatestTask, Live, LiveState, Service, Store, StoreValue, intern_icon, spawn_after};
 
 /// Everything a plugin usually needs.
 pub mod prelude {
     pub use crate::{
-        ActionCx, CommandSection, CommandSpec, EditorHandle, El, PanelSpec, PluginError, PluginWaker, PollCx, Props, Rgba, SettingSpec, ViewCx,
-        WindowPlugin, WindowSetupCx, col, el, icon, row, spacer, text, text_input, ui,
+        ActionCx, AppPlugin, AppSetupCx, CommandSection, CommandSpec, Contract, Contribution, EditorHandle, El, HostPage, Inactive, LatestTask, Live,
+        LiveState, Menu, Menubar, PanelSpec, PluginError, PluginWaker, PollCx, Props, Rgba, ServerEntry, ServerState, Service, SettingSpec, SlotName,
+        Store, StoreValue, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id, row, spacer, text, text_input, ui,
     };
 }
