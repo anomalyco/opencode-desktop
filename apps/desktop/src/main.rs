@@ -73,6 +73,7 @@ mod app_menu;
 mod appearance;
 mod appearance_stories;
 mod arrivals;
+mod askpass;
 mod attachments;
 mod auto_accept;
 mod glitch;
@@ -1300,6 +1301,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    askpass::run_if_asked();
     launch::print_version_if_asked();
     if genui::skill::maybe_cli() {
         return;

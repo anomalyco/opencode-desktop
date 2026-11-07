@@ -2386,6 +2386,8 @@ dependencies = [
  "opencode-plugin-context-impl",
  "opencode-plugin-details-impl",
  "opencode-plugin-hello-impl",
+ "opencode-plugin-ssh-impl",
+ "opencode-plugin-wsl-impl",
  "otlp-lite",
  "png 0.18.1",
  "procwatch",
@@ -2406,6 +2408,7 @@ dependencies = [
  "toml_edit",
  "tungstenite",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2483,6 +2486,38 @@ version = "0.1.0"
 dependencies = [
  "opencode-plugin",
  "opencode-plugin-hello-api",
+]
+
+[[package]]
+name = "opencode-plugin-ssh"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-ssh-impl",
+]
+
+[[package]]
+name = "opencode-plugin-ssh-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "serde_json",
+]
+
+[[package]]
+name = "opencode-plugin-wsl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-wsl-impl",
+]
+
+[[package]]
+name = "opencode-plugin-wsl-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "serde_json",
 ]
 
 [[package]]

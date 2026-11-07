@@ -17,7 +17,8 @@ use opencode_plugin::abi::{AbiEvent, Callback, EVENT_JOB};
 use super::instance::CallbackEnv;
 use super::loader::LoadedLibrary;
 
-const WORKERS: usize = 2;
+/// Four: a plugin's long job (the SSH plugin's sign-in listener) leaves the others free.
+const WORKERS: usize = 4;
 
 enum Job {
     Plugin { env: CallbackEnv, delay: Duration },

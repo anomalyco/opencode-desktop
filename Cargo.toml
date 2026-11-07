@@ -19,6 +19,8 @@ members = [
     "plugins/hello",
     "plugins/hello/api",
     "plugins/hello/impl",
+    "plugins/ssh",
+    "plugins/ssh/impl",
     "plugins/wsl",
     "plugins/wsl/impl",
 ]
@@ -101,6 +103,15 @@ opt-level = "s"
 strip = "symbols"
 
 [profile.release.package.opencode-plugin-wsl-impl]
+codegen-units = 1
+opt-level = "s"
+
+[profile.release.package.opencode-plugin-ssh]
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
+[profile.release.package.opencode-plugin-ssh-impl]
 codegen-units = 1
 opt-level = "s"
 

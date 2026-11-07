@@ -18,10 +18,11 @@ pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
         (include_str!("../../../../plugins/details/plugin.toml"), opencode_plugin_details_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry),
     ];
-    // The server plugins run wsl.exe: the app's own tests leave them out.
+    // The server plugins run wsl.exe and ssh: the app's own tests leave them out.
     #[cfg(feature = "static-builtins")]
     all.extend([
-        (include_str!("../../../../plugins/wsl/plugin.toml"), opencode_plugin_wsl_impl::__opencode_plugin_entry as PluginEntryFn),
+        (include_str!("../../../../plugins/ssh/plugin.toml"), opencode_plugin_ssh_impl::__opencode_plugin_entry as PluginEntryFn),
+        (include_str!("../../../../plugins/wsl/plugin.toml"), opencode_plugin_wsl_impl::__opencode_plugin_entry),
     ]);
     all
 }
