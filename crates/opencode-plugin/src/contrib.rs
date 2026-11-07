@@ -65,16 +65,24 @@ pub enum ServerState {
     Auth = 2,
     Ready = 3,
     Failed = 4,
+    /// It answers, but runs a version this app can't use.
+    Incompatible = 5,
 }
 
-/// One server a server source lists (`ActionCx::set_servers`).
-#[derive(Clone, Debug)]
+/// One server a server source lists (`ActionCx::set_servers`), keyed `<plugin>:<id>` in the app.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerEntry {
     pub id: String,
     pub name: String,
+    /// Its kind's badge (`WSL`, `SSH`).
+    pub label: String,
     pub state: ServerState,
-    /// Its HTTP address once ready.
+    /// Its HTTP address and password once ready.
     pub url: String,
+    pub password: String,
+    /// It joins the app's servers (the window can connect to it) rather than only showing in
+    /// Settings.
+    pub listed: bool,
 }
 
 /// One contribution: a kind and the fields it uses.
@@ -189,9 +197,15 @@ impl Contribution {
         Contribution { target: Text::Owned(extensions.join(" ")), ..Self::new(contrib::FILE_VIEWER, id, title) }
     }
 
-    /// A source of servers (`Server`); fill it with `ActionCx::set_servers`.
+    /// A source of servers (`Server`); fill it with `ActionCx::set_servers`. [`Self::order`]
+    /// places its servers among the app's.
     pub fn server_source(id: impl Into<Text>, title: impl Into<Text>) -> Self {
         Self::new(contrib::SERVER, id, title)
+    }
+
+    /// A modal dialog (`dialogs.open`), opened with `ActionCx::open_dialog`.
+    pub fn dialog(id: impl Into<Text>, label: impl Into<Text>) -> Self {
+        Self::new(contrib::DIALOG, id, label)
     }
 
     /// A tool on the app's client MCP (`McpTool`), named `<plugin>_<name>` there, with its
@@ -338,9 +352,16 @@ impl<P: 'static> WindowSetupCx<P> {
         spec.add(Callback::NONE, render_callback::<P, _>(render), QueryCallback::NONE);
     }
 
-    /// A [`Contribution::server_source`].
-    pub fn add_server_source(&mut self, spec: Contribution) {
-        spec.add(Callback::NONE, RenderCallback::NONE, QueryCallback::NONE);
+    /// A [`Contribution::server_source`]: `row` draws a server's connection row in Settings ›
+    /// Servers (`props.id` is its id).
+    pub fn add_server_source(&mut self, spec: Contribution, row: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
+        spec.add(Callback::NONE, render_callback::<P, _>(row), QueryCallback::NONE);
+    }
+
+    /// A [`Contribution::dialog`]: `render` draws its card, `dismissed` hears Esc or a press
+    /// outside closing it.
+    pub fn add_dialog(&mut self, spec: Contribution, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static, dismissed: impl Fn(&mut P, &mut ActionCx) + 'static) {
+        spec.add(action_callback::<P, _>(dismissed), render_callback::<P, _>(render), QueryCallback::NONE);
     }
 
     /// A [`Contribution::mcp_tool`]: `call` gets the arguments' JSON and answers JSON or text.

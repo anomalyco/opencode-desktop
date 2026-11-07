@@ -67,14 +67,15 @@ pub const ABI_LAYOUT_HASH: u64 = {
     layout!(h, ContributionAbi<'static>, kind, flags, order, id, title, description, keywords, icon, target, run, render, query);
     layout!(h, IconSpecAbi<'static>, name, body, view);
     layout!(h, LiveAbi, state, generation, value);
-    layout!(h, ServerEntryAbi<'static>, id, name, state, url);
+    layout!(h, ServerEntryAbi<'static>, id, name, label, url, password, state, flags);
+    layout!(h, ProcessSpecAbi<'static>, program, args, env, cwd, stdin, flags, timeout_ms);
     layout!(h, HostAllocVtable, alloc, alloc_zeroed, dealloc, realloc);
     layout!(h, WakerAbi, data, wake, clone, drop);
     layout!(
         h, HostApiVtable, log, add_command, add_panel, add_setting, create_editor, waker, editor_text, editor_version, editor_set_text,
         instant, wake_after, copy_text, open_panel, toast, palette, el_build, el_apply, el_child, memo, add_contribution, provide, consume,
         intern_icon, live, store_get, store_set, spawn, set_servers, request, session, model, resource, token, host_state, server_request,
-        save_file
+        save_file, process_spawn, process_write, process_kill, fetch, host_text, open_menu
     );
     layout!(h, PluginVtable, app_setup, app_drop_state, app_poll, window_setup, drop_state, poll, save_hot_state, load_hot_state);
     layout!(h, HostHandshake, magic, endian, abi_epoch, abi_minor, abi_layout_hash, pointer_width, os, arch, host_vtable_size, host_vtable, host_alloc);

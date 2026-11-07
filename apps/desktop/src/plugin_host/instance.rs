@@ -144,13 +144,19 @@ pub struct ContribRec {
 }
 
 /// One server a server source listed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServerRec {
     pub source: String,
     pub id: String,
     pub name: String,
+    /// Its kind's badge (`WSL`, `SSH`).
+    pub label: String,
+    /// `SERVER_*`.
     pub state: u32,
     pub url: String,
+    pub password: String,
+    /// It joins the app's servers rather than only showing in Settings.
+    pub listed: bool,
 }
 
 /// What a setup registered.
@@ -179,6 +185,8 @@ pub struct Instance {
     pub contributions: Contributions,
     /// What its server sources list now.
     pub servers: Vec<ServerRec>,
+    /// Its server sources that have read what they list (`Server.ready`).
+    pub ready_sources: Vec<String>,
     /// When `poll` is due next (`wake_after`), on the app clock.
     pub deadline: Option<f64>,
     /// Dropped last, after the states and every callback.
@@ -186,6 +194,22 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Replaces what source `source` lists; true when that changed anything.
+    pub fn set_servers(&mut self, source: &str, list: Vec<ServerRec>, ready: bool) -> bool {
+        let before: Vec<&ServerRec> = self.servers.iter().filter(|s| s.source == source).collect();
+        let was_ready = self.ready_sources.iter().any(|s| s == source);
+        if before.len() == list.len() && before.iter().zip(&list).all(|(a, b)| *a == b) && was_ready == ready {
+            return false;
+        }
+        self.servers.retain(|s| s.source != source);
+        self.servers.extend(list);
+        self.ready_sources.retain(|s| s != source);
+        if ready {
+            self.ready_sources.push(source.to_owned());
+        }
+        true
+    }
+
     pub fn state_of(&self, scope: Scope) -> *mut c_void {
         match scope {
             Scope::App => self.app,

@@ -313,14 +313,10 @@ impl ActionCx {
         unsafe { (host().request)(ctx(), crate::abi::REQUEST_OPEN_SETTINGS, AbiStr::new(page)) };
     }
 
-    /// Replaces the entries of this plugin's server source `source`.
-    pub fn set_servers(&mut self, source: &str, entries: &[crate::contrib::ServerEntry]) {
-        let abi: Vec<ServerEntryAbi> = entries
-            .iter()
-            .map(|e| ServerEntryAbi { id: AbiStr::new(&e.id), name: AbiStr::new(&e.name), state: e.state as u32, _pad: 0, url: AbiStr::new(&e.url) })
-            .collect();
-        // SAFETY: `abi` and the strings it views are alive for the call.
-        unsafe { (host().set_servers)(ctx(), AbiStr::new(source), abi.as_ptr(), abi.len()) };
+    /// Replaces the entries of this plugin's server source `source`; `ready` once the source has
+    /// read them (`Server.ready`), so the app may drop servers it no longer lists.
+    pub fn set_servers(&mut self, source: &str, entries: &[crate::contrib::ServerEntry], ready: bool) {
+        set_servers(source, entries, ready);
     }
 
     pub fn editor_text(&self, editor: EditorHandle) -> String {
@@ -342,6 +338,24 @@ impl ActionCx {
         self.declined = true;
         self.changed = false;
     }
+}
+
+pub(crate) fn set_servers(source: &str, entries: &[crate::contrib::ServerEntry], ready: bool) {
+    let abi: Vec<ServerEntryAbi> = entries
+        .iter()
+        .map(|e| ServerEntryAbi {
+            id: AbiStr::new(&e.id),
+            name: AbiStr::new(&e.name),
+            label: AbiStr::new(&e.label),
+            url: AbiStr::new(&e.url),
+            password: AbiStr::new(&e.password),
+            state: e.state as u32,
+            flags: if e.listed { crate::abi::SERVER_LISTED } else { 0 },
+        })
+        .collect();
+    let flags = if ready { crate::abi::SOURCE_READY } else { 0 };
+    // SAFETY: `abi` and the strings it views are alive for the call.
+    unsafe { (host().set_servers)(ctx(), AbiStr::new(source), abi.as_ptr(), abi.len(), flags) };
 }
 
 pub(crate) fn action_callback<S: 'static, F: Fn(&mut S, &mut ActionCx) + 'static>(f: F) -> Callback {

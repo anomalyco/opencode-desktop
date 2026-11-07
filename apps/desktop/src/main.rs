@@ -451,6 +451,10 @@ pub struct App {
     pub rune_mcp: rune_mcp::WindowMcp,
     /// Native plugins over the C ABI: their panels, commands and settings rows (`plugin_host`).
     pub plugins: plugin_host::PluginHost,
+    /// The contributed server (`<plugin>:<id>`) the window is connected to; `None` for its own.
+    pub server_key: Option<String>,
+    /// The app's own server while the window is connected to a contributed one.
+    pub own_server: Option<Server>,
     /// The session header's location card: each folder's branch once read.
     pub location: view::location::Location,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.

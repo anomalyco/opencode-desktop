@@ -83,6 +83,9 @@ pub struct Server {
     pub base: String,
     pub(crate) auth: Option<String>,
     pub(crate) media_refs: bool,
+    /// Its files aren't this machine's even on a loopback address (a WSL distro's server, an SSH
+    /// tunnel), as Desktop treats a contributed server.
+    pub(crate) remote_files: bool,
 }
 
 impl std::fmt::Debug for Server {
@@ -117,12 +120,18 @@ impl Server {
             .map(|p| p.trim().to_owned())
             .filter(|p| !p.is_empty())
             .map(|p| format!("Basic {}", base64(format!("opencode:{p}").as_bytes())));
-        Server { base: clean, auth, media_refs: false }
+        Server { base: clean, auth, media_refs: false, remote_files: false }
     }
 
     /// Uses `password` (a token from a connect link, say) in place of the one `new` found.
     pub fn with_password(mut self, password: &str) -> Server {
         self.auth = Some(format!("Basic {}", base64(format!("opencode:{}", password.trim()).as_bytes())));
+        self
+    }
+
+    /// Marks its files as another machine's though it answers on a loopback address.
+    pub fn with_remote_files(mut self) -> Server {
+        self.remote_files = true;
         self
     }
 
@@ -157,6 +166,9 @@ impl Server {
 
     /// The server shares this machine's filesystem, so a local path means the same file there.
     pub fn is_local(&self) -> bool {
+        if self.remote_files {
+            return false;
+        }
         let host = self.base.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("");
         let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
@@ -692,7 +704,7 @@ mod tests {
         let wake: Waker = std::sync::Arc::new(|| {});
         let mut opened = false;
         let start = std::time::Instant::now();
-        let ended = Server { base, auth: None, media_refs: false }.events(Duration::from_millis(300), &inbox, &wake, false, &mut opened);
+        let ended = Server { base, auth: None, media_refs: false, remote_files: false }.events(Duration::from_millis(300), &inbox, &wake, false, &mut opened);
         assert!(ended.is_err() && opened, "{ended:?}");
         assert!(start.elapsed() < Duration::from_millis(1500), "it gave up after the idle limit, not when the socket closed");
         h.join().unwrap();
@@ -701,7 +713,7 @@ mod tests {
     #[test]
     fn send_posts_prompt_to_mock() {
         let (base, h) = mock_once();
-        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false };
+        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false, remote_files: false };
         server.send_prompt("ses_test", "hello there").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_test/prompt HTTP/1.1"), "{req}");
@@ -712,20 +724,20 @@ mod tests {
     #[test]
     fn rename_patches_the_title_alone_and_delete_removes_the_session() {
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.rename_session("ses_a", "Fix \"the\" jitter").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.rename_session("ses_a", "Fix \"the\" jitter").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("PATCH /api/session/ses_a HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"title":"Fix \"the\" jitter"}"#), "{req}");
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.delete_session("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.delete_session("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a HTTP/1.1"));
     }
 
     #[test]
     fn background_posts_to_the_session() {
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.background("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.background("ses_a").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/background HTTP/1.1"), "{req}");
     }
@@ -733,7 +745,7 @@ mod tests {
     #[test]
     fn compact_posts_to_the_session() {
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.compact("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.compact("ses_a").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/compact HTTP/1.1"), "{req}");
     }
@@ -768,13 +780,13 @@ mod tests {
     #[test]
     fn replies_to_a_permission_and_a_form() {
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.reply_permission("ses_a", "per_b", "once").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.reply_permission("ses_a", "per_b", "once").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/permission/per_b/reply HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"decision":"once"}"#), "{req}");
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.reply_form("ses_a", "frm_c", serde_json::json!({"q0": "dev"})).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.reply_form("ses_a", "frm_c", serde_json::json!({"q0": "dev"})).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/form/frm_c/reply HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"answer":{"q0":"dev"}}"#), "{req}");
@@ -817,7 +829,7 @@ mod tests {
             model: Some(model::ModelRef { id: "opus".into(), provider: "opencode".into(), variant: "high".into() }),
             ..Default::default()
         };
-        let made = Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).unwrap();
+        let made = Server { base, auth: None, media_refs: false, remote_files: false }.start_as("ses_new", "/r", &prompt).unwrap();
         assert_eq!(made.id, "ses_new");
         let reqs = h.join().unwrap();
         let body = |r: &str| serde_json::from_str::<Value>(&r[r.find("\r\n\r\n").unwrap() + 4..]).unwrap();
@@ -833,7 +845,7 @@ mod tests {
         let info = serde_json::json!({ "data": { "id": "ses_new" } }).to_string();
         let (base, h) = mock_replies(vec![("200 OK", info), ("500 Internal Server Error", "{}".into()), ("200 OK", "{}".into())]);
         let prompt = Prompt { id: Some("msg_1".into()), text: "go".into(), ..Default::default() };
-        assert!(Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).is_err());
+        assert!(Server { base, auth: None, media_refs: false, remote_files: false }.start_as("ses_new", "/r", &prompt).is_err());
         let reqs = h.join().unwrap();
         assert!(reqs[2].starts_with("DELETE /api/session/ses_new HTTP/1.1"), "{}", reqs[2]);
     }
@@ -842,7 +854,7 @@ mod tests {
     fn a_refused_start_deletes_nothing() {
         let (base, h) = mock_replies(vec![("400 Bad Request", "{}".into())]);
         let prompt = Prompt { id: Some("msg_1".into()), text: "go".into(), ..Default::default() };
-        let e = Server { base, auth: None, media_refs: false }.start_as("ses_new", "/r", &prompt).unwrap_err();
+        let e = Server { base, auth: None, media_refs: false, remote_files: false }.start_as("ses_new", "/r", &prompt).unwrap_err();
         assert!(crate::plain_error::failed_for_sure(&e), "{e}");
         assert_eq!(h.join().unwrap().len(), 1);
     }
@@ -856,7 +868,7 @@ mod tests {
             files: vec![FileInput { uri: data_url("image/png", b"ab"), name: "shot.png".into(), ..Default::default() }],
             ..Default::default()
         };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{req}");
         let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
@@ -872,19 +884,19 @@ mod tests {
     fn queues_moves_and_withdraws_a_prompt() {
         let (base, h) = mock_once();
         let prompt = Prompt { text: "after this".into(), delivery: Some(Delivery::Queue), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
         let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
         assert_eq!(body, serde_json::json!({"text": "after this", "delivery": "queue"}));
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.set_delivery("ses_a", "msg_1", Delivery::Steer).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.set_delivery("ses_a", "msg_1", Delivery::Steer).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("PATCH /api/session/ses_a/inbox/msg_1 HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"delivery":"steer"}"#), "{req}");
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.cancel_inbox("ses_a", "msg_1").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.cancel_inbox("ses_a", "msg_1").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a/inbox/msg_1 HTTP/1.1"));
     }
 
@@ -936,7 +948,7 @@ mod tests {
 
         let hash = "a".repeat(64);
         let (base, h) = mock_once();
-        assert_eq!(Server { base, auth: None, media_refs: false }.media(&hash).unwrap(), b"{}");
+        assert_eq!(Server { base, auth: None, media_refs: false, remote_files: false }.media(&hash).unwrap(), b"{}");
         assert!(h.join().unwrap().starts_with(&format!("GET /api/experimental/media/{hash} HTTP/1.1")));
     }
 
@@ -981,14 +993,14 @@ mod tests {
 
         let (base, h) = mock_once();
         let prompt = Prompt { id: Some("msg_x".into()), text: "HEAD~1".into(), command: Some("review".into()), delivery: Some(Delivery::Queue), ..Default::default() };
-        assert_eq!(Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap(), None);
+        assert_eq!(Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap(), None);
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/command HTTP/1.1"), "{req}");
         let body: Value = serde_json::from_str(&req[req.find("\r\n\r\n").unwrap() + 4..]).unwrap();
         assert_eq!(body, serde_json::json!({"name": "review", "text": "HEAD~1", "delivery": "queue"}));
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.shell("ses_a", Some("msg_y"), "ls -la").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.shell("ses_a", Some("msg_y"), "ls -la").unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/shell HTTP/1.1"), "{req}");
         assert!(req.ends_with(r#"{"command":"ls -la","id":"msg_y"}"#), "{req}");
@@ -996,7 +1008,7 @@ mod tests {
 
     #[test]
     fn local_servers() {
-        let s = |b: &str| Server { base: b.into(), auth: None, media_refs: false };
+        let s = |b: &str| Server { base: b.into(), auth: None, media_refs: false, remote_files: false };
         assert!(s("http://127.0.0.1:4096").is_local());
         assert!(s("http://localhost:4096").is_local());
         assert!(!s("https://host.example.ts.net:4096").is_local());
@@ -1012,7 +1024,7 @@ mod tests {
         let (base, h) = mock(3);
         let model = model::ModelRef { id: "gpt-6-astra".into(), provider: "openai".into(), variant: "high".into() };
         let prompt = Prompt { id: Some("msg_a".into()), text: "go".into(), agent: Some("plan".into()), model: Some(model), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let reqs = h.join().unwrap();
         assert!(reqs[0].starts_with("POST /api/session/ses_a/agent HTTP/1.1"), "{}", reqs[0]);
         assert_eq!(body_of(&reqs[0]), serde_json::json!({"agent": "plan"}));
@@ -1031,7 +1043,7 @@ mod tests {
         let (base, h) = mock(2);
         let model = model::ModelRef { id: "claude-sonnet-5-5".into(), provider: "anthropic".into(), variant: String::new() };
         let prompt = Prompt { text: "go".into(), display_text: Some("go!".into()), model: Some(model), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let reqs = h.join().unwrap();
         assert!(reqs[0].starts_with("POST /api/session/ses_a/model HTTP/1.1"), "{}", reqs[0]);
         assert_eq!(body_of(&reqs[0]), serde_json::json!({"model": {"id": "claude-sonnet-5-5", "providerID": "anthropic"}}));
@@ -1046,7 +1058,7 @@ mod tests {
     fn a_queued_prompt_only_records_its_choice_and_no_choice_sends_nothing_extra() {
         let (base, h) = mock_once();
         let prompt = Prompt { text: "later".into(), delivery: Some(Delivery::Queue), agent: Some("plan".into()), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/prompt HTTP/1.1"), "{req}");
         assert_eq!(body_of(&req), serde_json::json!({"text": "later", "delivery": "queue", "metadata": {"agent": "plan"}}));
@@ -1059,7 +1071,7 @@ mod tests {
     fn a_steered_command_switches_first() {
         let (base, h) = mock(2);
         let prompt = Prompt { text: "HEAD".into(), command: Some("review".into()), delivery: Some(Delivery::Steer), agent: Some("plan".into()), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send("ses_a", &prompt).unwrap();
         let reqs = h.join().unwrap();
         assert!(reqs[0].starts_with("POST /api/session/ses_a/agent HTTP/1.1"), "{}", reqs[0]);
         assert!(reqs[1].starts_with("POST /api/session/ses_a/command HTTP/1.1"), "{}", reqs[1]);
@@ -1069,7 +1081,7 @@ mod tests {
     #[test]
     fn interrupts() {
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.interrupt("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.interrupt("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("POST /api/session/ses_a/interrupt HTTP/1.1"));
     }
 
@@ -1097,7 +1109,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         });
-        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false };
+        let server = Server { base, auth: Some("Basic dGVzdA==".into()), media_refs: false, remote_files: false };
         let (loc, projects) = server.open_project("/Users/demo/code/my repo").unwrap();
         let created = server.create_session(&loc.directory).unwrap();
         let reqs = h.join().unwrap();

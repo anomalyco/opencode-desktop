@@ -268,8 +268,12 @@ pub(super) fn print_index(app: &App) {
         for c in &inst.contributions.commands {
             eprintln!("plugin index: command: {} {} [{}]", c.id, c.title, c.keybind.as_ref().map(|k| format!("{k:?}")).unwrap_or_default());
         }
-        for c in inst.contributions.contribs.iter().filter(|c| matches!(c.kind, kinds::SLOT | kinds::POPOVER)) {
-            let kind = if c.kind == kinds::SLOT { "slot" } else { "popover" };
+        for c in inst.contributions.contribs.iter().filter(|c| matches!(c.kind, kinds::SLOT | kinds::POPOVER | kinds::DIALOG)) {
+            let kind = match c.kind {
+                kinds::SLOT => "slot",
+                kinds::POPOVER => "popover",
+                _ => "dialog",
+            };
             eprintln!("plugin index: {kind}: {} {} (order {})", c.key, c.target, c.order);
         }
     }

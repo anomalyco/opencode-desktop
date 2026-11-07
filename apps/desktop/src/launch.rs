@@ -324,6 +324,50 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 impl App {
+    /// Connects the window to `server` in place of the one it has: what it held of the old one
+    /// goes, its own saved tabs come, and Home shows its projects. `key` is a
+    /// contributed server's (`<plugin>:<id>`), `None` for the app's own. The app holds one server
+    /// at a time; Desktop keeps them all connected at once.
+    pub(crate) fn switch_server(&mut self, server: Server, key: Option<String>, tx: &mut Tx) {
+        if !self.live() {
+            return;
+        }
+        if let Source::Live { server: old, .. } = &self.source {
+            if self.persists() {
+                crate::tabs::save(&old.base, &self.tabs);
+            }
+            if self.server_key.is_none() {
+                self.own_server = Some(old.clone());
+            }
+        }
+        tx.instant();
+        self.close_settings();
+        self.opening = None;
+        self.route = Route::Home;
+        self.tabs = crate::tabs::load(&server.base).unwrap_or_default();
+        self.sessions.clear();
+        self.transcripts.clear();
+        self.projects.clear();
+        self.running.clear();
+        self.requests.clear();
+        self.inbox = None;
+        self.server_key = key;
+        self.plugins.forget_reads();
+        if let Source::Live { server: s, requests, writes, .. } = &mut self.source {
+            *s = server;
+            *requests = None;
+            *writes = None;
+        }
+        self.launch.cold_transcript = None;
+        self.launch.held_tabs.clear();
+        self.launch.offline = false;
+        // Desktop Beta's saved tabs are the app's own server's.
+        self.launch.beta_tabs = false;
+        self.launch.started = false;
+        self.launch.waiting = true;
+        start(self, tx);
+    }
+
     pub(crate) fn apply_first(&mut self, f: First) {
         self.projects = opencode_kit::model::parse_projects(&f.projects);
         if let Some(sessions) = &f.sessions {

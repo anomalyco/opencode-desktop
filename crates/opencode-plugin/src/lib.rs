@@ -46,6 +46,7 @@ pub mod host;
 mod layout_hash;
 mod registry;
 pub mod shared;
+pub mod system;
 
 pub use abi::{EditorHandle, ElHandle, Rgba};
 pub use app::{AppPlugin, AppSetupCx};
@@ -55,13 +56,14 @@ pub use el::{El, Handler, col, el, icon, icon_id, odometer, row, spacer, text, t
 pub use host::{ModelInfo, PanelState, Resource, Session};
 pub use registry::{CommandSection, CommandSpec, PanelSpec, SettingSpec};
 pub use shared::{Contract, IconId, Inactive, LatestTask, Live, LiveState, Service, Store, StoreValue, intern_icon, spawn_after};
+pub use system::{Fetch, FetchResult, MenuSpec, Process, ProcessEvent, ProcessExit, ProcessOutput, ProcessSpec, Stream};
 
 /// Everything a plugin usually needs.
 pub mod prelude {
     pub use crate::{
-        ActionCx, AppPlugin, AppSetupCx, CommandSection, CommandSpec, Contract, Contribution, EditorHandle, El, HostPage, Inactive, LatestTask, Live,
-        LiveState, Menu, Menubar, ModelInfo, Palette, PanelSpec, PanelState, PluginError, PluginWaker, PollCx, Props, Resource, Rgba, ServerEntry,
-        ServerState, Service, Session, SettingSpec, SlotName, Store, StoreValue, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id,
-        intern_icon, odometer, row, spacer, text, text_input, ui,
+        ActionCx, AppPlugin, AppSetupCx, CommandSection, CommandSpec, Contract, Contribution, EditorHandle, El, Fetch, FetchResult, HostPage, Inactive,
+        LatestTask, Live, LiveState, Menu, MenuSpec, Menubar, ModelInfo, Palette, PanelSpec, PanelState, PluginError, PluginWaker, PollCx, Process,
+        ProcessEvent, ProcessExit, ProcessOutput, ProcessSpec, Props, Resource, Rgba, ServerEntry, ServerState, Service, Session, SettingSpec, SlotName,
+        Store, StoreValue, Stream, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id, intern_icon, odometer, row, spacer, text, text_input, ui,
     };
 }

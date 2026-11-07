@@ -96,6 +96,7 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
         state: std::ptr::null_mut(),
         contributions: Default::default(),
         servers: Vec::new(),
+        ready_sources: Vec::new(),
         deadline: None,
         lib: loaded.lib.clone(),
     };
@@ -125,6 +126,7 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
     }
     instance.contributions = made;
     if let Some(e) = failed {
+        host.shared.processes.reap(i, |g| g == generation);
         let woken = host.shared.contracts.settle_swap(i, generation, false);
         host.wake.wake(woken, false);
         for h in instance.contributions.editors.iter().filter(|h| !reuse.contains(h)) {
@@ -134,9 +136,8 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
     }
     host.wake.wake(woken, false);
     for request in requests {
-        if let Request::SetServers(source, list) = request {
-            instance.servers.retain(|s| s.source != source);
-            instance.servers.extend(list);
+        if let Request::SetServers { source, list, ready } = request {
+            instance.set_servers(&source, list, ready);
         }
     }
     Ok(instance)
@@ -230,6 +231,7 @@ pub(super) fn reload_slot(app: &mut App, i: usize, prepared: Option<super::hot::
             tx.invalidate_memos_by_prefix(slot.prefix.clone());
             slot.go(Event::ReloadSettled);
             let name = slot.manifest.name.clone();
+            host.shared.processes.reap(i, |g| g != generation);
             if let Some(old) = old {
                 for h in old.contributions.editors.iter().filter(|h| !kept.contains(h)) {
                     host.editors.remove(*h);
@@ -279,6 +281,10 @@ fn stop(app: &mut App, i: usize, live: Live) {
     let woken = host.shared.contracts.withdraw(i, live);
     host.wake.wake(woken, false);
     host.shared.contracts.forget_consumer(i);
+    host.shared.processes.reap(i, |_| true);
+    if host.dialog.as_ref().is_some_and(|d| d.slot == i) {
+        host.dialog = None;
+    }
     if let Some(old) = host.slots[i].instance.take() {
         for h in &old.contributions.editors {
             host.editors.remove(*h);

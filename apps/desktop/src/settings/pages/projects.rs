@@ -39,7 +39,12 @@ pub fn view(s: &App, p: &Pal) -> El {
     let added: Vec<&Project> = used.iter().copied().filter(hit).collect();
     let rest: Vec<&Project> = others.iter().copied().filter(hit).collect();
     let add = (!(used.is_empty() && others.is_empty())).then(|| ghost_button(p, "settings-add-project", "Add project", Some(&ic::PLUS), true, true, |s, tx| s.open_project_dialog(tx)));
-    let mut head = col().w_full().gap(24.0).child(header_with(p, "Projects", "Manage projects and their settings", add));
+    // Add project, then the server switcher (`settings-tab-header-actions`).
+    let actions = match (add, super::servers::switcher(s, p)) {
+        (Some(a), Some(sw)) => Some(row().gap(8.0).center_y().child(a).child(sw)),
+        (a, sw) => a.or(sw),
+    };
+    let mut head = col().w_full().gap(24.0).child(header_with(p, "Projects", "Manage projects and their settings", actions));
     if searchable {
         head = head.child(filter_field(s, p, "settings-projects-search", "Search projects", &s.settings_pages.projects.filter, |s| &mut s.settings_pages.projects.filter));
     }

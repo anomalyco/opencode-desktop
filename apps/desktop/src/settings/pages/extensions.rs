@@ -51,7 +51,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(tabs(p, tab))
         .child(col().w_full().pt(24.0).gap(16.0).child(heading).children(content))
         .children((tab == ExtensionsTab::Plugins).then(|| crate::plugin_host::settings_section(s, p)).flatten().map(|e| e.mt(32.0)));
-    page(p, "settings-extensions-page", header(p, "Extensions", "Manage extensions available on this server"), body)
+    page(p, "settings-extensions-page", super::header_with(p, "Extensions", "Manage extensions available on this server", super::servers::switcher(s, p)), body)
 }
 
 /// Pill tabs (`tabs-v2` pill in `.settings-subtabs`): 24 pt pills 6 apart, the picked one on

@@ -202,6 +202,18 @@ impl El {
             s.flags |= flags::ABSOLUTE;
             s.pin = [left.unwrap_or(f32::NAN), top.unwrap_or(f32::NAN), right.unwrap_or(f32::NAN), bottom.unwrap_or(f32::NAN)];
         };
+        /// A button, radio or field that takes no presses or typing.
+        disabled(on: bool) => |s| if on { s.flags |= flags::DISABLED } else { s.flags &= !flags::DISABLED };
+        /// A button showing Desktop's loader.
+        loading(on: bool) => |s| if on { s.flags |= flags::LOADING } else { s.flags &= !flags::LOADING };
+        /// A button at `size="small"`.
+        small() => |s| s.flags |= flags::SMALL;
+        /// A field at `appearance="large"`.
+        large() => |s| s.flags |= flags::LARGE;
+        /// A field drawn as invalid.
+        invalid(on: bool) => |s| if on { s.flags |= flags::INVALID } else { s.flags &= !flags::INVALID };
+        /// A field whose text is hidden.
+        secure() => |s| s.flags |= flags::SECURE;
     }
 
     /// An overlay beside the element keyed `key` (drawn before it): on `side`
@@ -330,19 +342,45 @@ pub mod ui {
 
     /// A ghost button with a label (Desktop's `Button variant="ghost"`).
     pub fn button(label: impl Into<Cow<'static, str>>) -> El {
-        let p = palette();
-        let label = label.into();
-        row()
-            .role("button")
-            .label(label.clone())
-            .h(28.0)
-            .px(10.0)
-            .center()
-            .radius(6.0)
-            .border(0.5, p.border)
-            .hover(p.hover)
-            .press(p.pressed)
-            .child(text(label).font(13.0, 500.0).color(p.text))
+        button_with(label, crate::abi::BUTTON_GHOST)
+    }
+
+    /// Desktop's `Button` in variant `variant` (`abi::BUTTON_NEUTRAL` …), the host's own: give it
+    /// `on_press`, and `disabled`, `loading` or `small` as it needs.
+    pub fn button_with(label: impl Into<Cow<'static, str>>, variant: f64) -> El {
+        let mut e = new(ElKind::Button);
+        e.text = label.into();
+        e.spec.value = variant;
+        e
+    }
+
+    /// Desktop's `Loader`, `size` points across.
+    pub fn loader(size: f32) -> El {
+        let mut e = new(ElKind::Loader);
+        e.spec.font_size = size;
+        e
+    }
+
+    /// A `radio-v2` item: its control, `label` and (when not empty) `description`, coloured
+    /// `tone` when given. The press goes on its row.
+    pub fn radio(label: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, checked: bool, tone: Option<crate::Rgba>) -> El {
+        let mut e = new(ElKind::Radio);
+        e.text = label.into();
+        e.help = description.into();
+        e.spec.value = if checked { 1.0 } else { 0.0 };
+        if let Some(c) = tone {
+            e.spec.text_color = c;
+        }
+        e
+    }
+
+    /// Desktop's `TextInput` over a host-owned editor; `placeholder` shows while it's empty.
+    /// Its `on_press` runs on Enter.
+    pub fn field(editor: EditorHandle, placeholder: impl Into<Cow<'static, str>>) -> El {
+        let mut e = new(ElKind::Field);
+        e.spec.editor = editor;
+        e.text = placeholder.into();
+        e
     }
 
     /// A status capsule (a titlebar item or a composer pill): an optional icon and a label,

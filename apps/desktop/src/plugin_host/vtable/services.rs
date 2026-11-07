@@ -50,6 +50,9 @@ impl Resources {
 #[derive(Default)]
 pub struct HostView {
     pub popover: Option<String>,
+    pub dialog: Option<String>,
+    /// The contributed server the window is connected to, as this plugin names it.
+    pub current_server: Option<String>,
     pub can_write: bool,
     pub servers: u64,
     pub local: bool,
@@ -69,8 +72,10 @@ impl HostView {
             .unwrap_or_default();
         HostView {
             popover: host.popover.as_ref().filter(|o| o.slot == slot).map(|o| o.id.clone()),
+            dialog: host.dialog.as_ref().filter(|o| o.slot == slot).map(|o| o.id.clone()),
+            current_server: app.server_key.as_deref().and_then(|k| k.strip_prefix(plugin.as_str())?.strip_prefix(':')).map(str::to_owned),
             can_write: app.can_write(),
-            servers: 1,
+            servers: servers(app),
             local: local(app),
             now_ms: app.now_ms,
             panels,
@@ -85,9 +90,16 @@ impl HostView {
             STATE_SERVER_LOCAL => u64::from(self.local),
             STATE_NOW_MS => self.now_ms.max(0) as u64,
             STATE_CAN_WRITE => u64::from(self.can_write),
+            STATE_DIALOG => u64::from(self.dialog.as_deref() == Some(arg)),
+            STATE_SERVER_CURRENT => u64::from(self.current_server.as_deref() == Some(arg)),
             _ => 0,
         }
     }
+}
+
+/// How many servers the app knows: its own and the contributed ones it lists.
+fn servers(app: &App) -> u64 {
+    1 + super::super::servers::all(app).iter().filter(|s| s.rec.listed).count() as u64
 }
 
 fn local(app: &App) -> bool {
@@ -224,10 +236,12 @@ pub(super) unsafe extern "C" fn host_state(ctx: *mut c_void, what: u32, arg: Abi
         return match what {
             STATE_PANEL => panel_state(app, r.build.plugin, arg, arg2),
             STATE_POPOVER => u64::from(app.plugins.popover.as_ref().is_some_and(|o| o.slot == r.build.slot && o.id == arg)),
-            STATE_SERVERS => 1,
+            STATE_SERVERS => servers(app),
             STATE_SERVER_LOCAL => u64::from(local(app)),
             STATE_NOW_MS => app.now_ms.max(0) as u64,
             STATE_CAN_WRITE => u64::from(app.can_write()),
+            STATE_DIALOG => u64::from(app.plugins.dialog.as_ref().is_some_and(|o| o.slot == r.build.slot && o.id == arg)),
+            STATE_SERVER_CURRENT => u64::from(app.server_key.as_deref() == Some(format!("{}:{arg}", r.build.plugin).as_str())),
             _ => 0,
         };
     }

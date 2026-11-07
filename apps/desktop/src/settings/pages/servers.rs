@@ -1,10 +1,12 @@
 //! Settings › Server (`settings/servers/servers.tsx`): the server's connection (its health,
 //! name and address, and its row menu) and its preferences (Terminal shell, from the server's
 //! shells, written to its global config). The servers plugins' server sources list (WSL, SSH)
-//! join it as rows of their own, the page becoming Servers; Add server offers the plugins'
-//! `server.add` items.
+//! join it, each row drawn by its plugin (`ServerEntry.row`), the page becoming Servers; Add
+//! server offers the plugins' `server.add` items. [`switcher`] is Desktop's
+//! `SettingsServerSwitcher` on the pages that show one server's settings.
 
-use rune::{Color, El, Tx, col, el, icon, row, text};
+use rune::{Align, Color, El, Tx, col, el, icon, row, text};
+use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
 
@@ -120,19 +122,20 @@ fn set_shell(s: &mut App, value: &str, _: &mut Tx) {
 
 pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings_pages.servers;
-    let plugin_servers = crate::plugin_host::servers(s);
+    let plugin_servers = crate::plugin_host::contributed_servers(s);
     let add_items = crate::plugin_host::server_menu_items(s, "server.add");
+    // `AddServerMenu`: Desktop's own Add server (not ported, so disabled), then the plugins' kinds.
     let add = ghost_button(p, "settings-add-server", "Add server", Some(&ic::PLUS), true, !add_items.is_empty(), |s, tx| {
         let items = crate::plugin_host::server_menu_items(s, "server.add");
-        let menu = Menu::new("Add server").align(rune::Align::End).items(items.into_iter().map(|(key, title)| Item::new(key, title)));
+        let menu = Menu::new("Add server").align(Align::End).min_width(160.0).item(Item::new("", "Add server").enabled(false)).items(items.into_iter().map(|(key, title)| Item::new(key, title)));
         popup::open(s, menu, "settings-add-server", tx, |s: &mut App, picked, tx| {
-            if let Some(key) = picked {
+            if let Some(key) = picked.filter(|k| !k.is_empty()) {
                 crate::plugin_host::run_menu_item(s, key, "", tx);
             }
         });
     });
     let health = if !s.live() { p.icon_faint } else if st.reached == Some(false) { p.danger } else { p.success };
-    let own = connection_row(p, "settings-server-local", health, &name(s), s.server_base());
+    let own = connection_row(p, "settings-server-local", health, &name(s), &own_address(s));
     let shell = super::rows(s, p, 20.0, vec![("settings-shell", setting(p, "settings-shell", "Terminal shell", "Shell used by the terminal and agent tools", select(s, p, "settings-shell-select", "Terminal shell", options(st), &st.shell, set_shell)))]);
     let title = if plugin_servers.is_empty() { "Server" } else { "Servers" };
     let mut body = col().w_full().gap(32.0);
@@ -142,13 +145,9 @@ pub fn view(s: &App, p: &Pal) -> El {
             .child(super::section(p, "settings-server-preferences", Some("Preferences"), settings::list(p, "settings-server-preferences-list", shell)));
     } else {
         body = body.child(super::section(p, "settings-server-connection", None, connection_list(p, vec![own]).child(el().w_full().h(0.5).fill(p.border)).children(shell)));
-        for srv in &plugin_servers {
-            let ink = match srv.state {
-                3 => p.success,
-                4 => p.danger,
-                _ => p.icon_faint,
-            };
-            body = body.child(super::section(p, &format!("settings-server-{}", srv.id), None, connection_list(p, vec![connection_row(p, &format!("settings-server-row-{}", srv.id), ink, &srv.name, &srv.url)])));
+        for c in &plugin_servers {
+            let drawn = crate::plugin_host::server_row(s, p, c).unwrap_or_else(|| text(c.rec.name.clone()).font(BODY_MED.lh(16.0)).color(p.text));
+            body = body.child(super::section(p, &format!("settings-server-{}", c.key), None, connection_list(p, vec![col().key(format!("settings-server-row-{}", c.key)).w_full().py(20.0).child(drawn)])));
         }
     }
     body = body.children(crate::plugin_host::settings_pages(s, p, "servers"));
@@ -165,8 +164,8 @@ fn connection_row(p: &Pal, key: &str, health: Color, name: &str, url: &str) -> E
     let dots = row().key("settings-server-menu").role("button").label("More options").size(24.0, 24.0).center().radius(4.0)
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            let url = s.server_base().to_owned();
-            let menu = Menu::new("Server").align(rune::Align::End).group("Server")
+            let url = own_address(s);
+            let menu = Menu::new("Server").align(Align::End).group("Server")
                 .item(Item::new("edit", "Edit").enabled(false))
                 .item(Item::new("copy", "Copy address").enabled(!url.is_empty()))
                 .item(Item::new("remove", "Remove").enabled(false));
@@ -184,4 +183,57 @@ fn connection_row(p: &Pal, key: &str, health: Color, name: &str, url: &str) -> E
                 .child(text(name.to_owned()).font(BODY_MED.lh(16.0)).color(p.text).truncate())
                 .children((!url.is_empty()).then(|| text(url.to_owned()).font(META).color(p.muted).truncate()))))
         .child(dots)
+}
+
+/// The app's own server's address, also while the window works with a contributed one.
+fn own_address(s: &App) -> String {
+    s.own_server.as_ref().map_or_else(|| s.server_base().to_owned(), |own| own.base.clone())
+}
+
+/// Desktop's `SettingsServerSwitcher` on the pages that show one server's settings (Providers,
+/// Models, Extensions, Projects, Worktrees): "Server name", choosing which server the window
+/// works with. Nothing while no other server is listed.
+#[allow(deprecated)]
+pub fn switcher(s: &App, p: &Pal) -> Option<El> {
+    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed).collect();
+    if listed.is_empty() {
+        return None;
+    }
+    let current = match &s.server_key {
+        Some(key) => listed.iter().find(|c| &c.key == key).map_or_else(|| key.clone(), |c| c.rec.name.clone()),
+        None => name(s),
+    };
+    let ink = p.muted;
+    let dot = el().size(6.0, 6.0).radius(3.0).fill(p.success);
+    // `size="small"`: 24 tall, as rune-kit's older `Small` keeps it.
+    let trigger = crate::widgets::button(format!("Server {current}"), ButtonVariant::Outline)
+        .size(rune_kit::ButtonSize::Small)
+        .label_with(move |font, color| {
+            row().gap(6.0).center_y().child(el().size(16.0, 16.0).center().child(dot)).child(text("Server").font(font).color(ink)).child(text(current).font(font).color(color).truncate()).child(icon(&ic::CHEVRON_DOWN, 16.0).color(ink))
+        })
+        .on_press_tx(|s: &mut App, tx: &mut Tx| open_switcher(s, tx))
+        .build(crate::palette::kit(p))
+        .key("settings-server-switcher");
+    Some(trigger)
+}
+
+fn open_switcher(s: &mut App, tx: &mut Tx) {
+    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed).collect();
+    let current = s.server_key.clone().unwrap_or_default();
+    let mut menu = Menu::new("Server").item(Item::new("", name(s)).checked(current.is_empty()));
+    for c in &listed {
+        menu = menu.item(Item::new(c.key.clone(), c.rec.name.clone()).checked(current == c.key));
+    }
+    // `.settings-server-switcher-menu`: 220 wide at least.
+    let menu = menu.separator().item(Item::new("manage", "Manage servers")).align(Align::End).min_width(220.0);
+    popup::open(s, menu, "settings-server-switcher", tx, |s: &mut App, picked: Option<&str>, tx: &mut Tx| match picked {
+        None => {}
+        Some("manage") => s.open_settings_page(super::Page::Servers, tx),
+        Some("") => {
+            if let Some(own) = s.own_server.clone() {
+                s.switch_server(own, None, tx);
+            }
+        }
+        Some(key) => crate::plugin_host::connect_server(s, key, tx),
+    });
 }

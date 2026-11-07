@@ -145,7 +145,10 @@ impl WindowPlugin for Echo {
                     .child(text(body.to_uppercase()).font(13.0, 440.0).wrap().color(p.muted))
             })
         });
-        cx.add_server_source(Contribution::server_source("loopback", "Echo loopback"));
+        cx.add_server_source(Contribution::server_source("loopback", "Echo loopback"), |_, cx, props| {
+            let p = cx.pal();
+            text(format!("Echo loopback ({})", props.id)).font(13.0, 530.0).color(p.text)
+        });
         cx.add_mcp_tool(
             Contribution::mcp_tool("greet", "Ask Hello's Greeter service (through the Echo plugin) to greet someone.", r#"{"type":"object","properties":{"name":{"type":"string"}},"additionalProperties":false}"#),
             |s, _, args| {
@@ -172,7 +175,11 @@ impl Echo {
         self.word_count = None;
         let answer = self.answer.clone();
         self.words.request(move || answer.split_whitespace().count());
-        cx.set_servers("loopback", &[ServerEntry { id: "echo".into(), name: "Echo loopback".into(), state: ServerState::Stopped, url: String::new() }]);
+        cx.set_servers(
+            "loopback",
+            &[ServerEntry { id: "echo".into(), name: "Echo loopback".into(), label: "Echo".into(), state: ServerState::Stopped, url: String::new(), password: String::new(), listed: false }],
+            true,
+        );
     }
 
     fn state_line(&self) -> (String, bool) {

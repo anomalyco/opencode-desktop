@@ -130,6 +130,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
     inner = inner.children(crate::settings::pages::pairing::layer(s, p));
+    inner = inner.children(crate::plugin_host::dialog_view(s, p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));

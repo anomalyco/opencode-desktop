@@ -107,7 +107,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         body = body.child(group(s, p, provider, models, open, searching));
     }
     let head = col().w_full().gap(24.0)
-        .child(header(p, "Models", "Choose which models appear in model picker"))
+        .child(super::header_with(p, "Models", "Choose which models appear in model picker", super::servers::switcher(s, p)))
         .child(search(s, p));
     page(p, "settings-models-page", head, body)
 }

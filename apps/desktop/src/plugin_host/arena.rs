@@ -136,7 +136,10 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
             session_view::odometer::odometer_end(key, s(spec.text).to_owned(), spec.value, style(), color(spec.text_color))
         }
         ElKind::Box | ElKind::NativeSurface => rune::el(),
+        ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field => super::widgets::build(b, spec, s(spec.text), s(spec.help)).unwrap_or_else(rune::el),
     };
+    // A control's own label, colours and description are its; the rest still applies.
+    let control = matches!(spec.kind, ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field);
     let set = |v: f32| !v.is_nan();
     el = match spec.width {
         w if w < 0.0 => el.w_full(),
@@ -171,7 +174,7 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
     if spec.fill[3] > 0.0 { el = el.fill(color(spec.fill)); }
     if spec.hover_fill[3] > 0.0 { el = el.hover(color(spec.hover_fill)); }
     if spec.press_fill[3] > 0.0 { el = el.press(color(spec.press_fill)); }
-    if spec.text_color[3] > 0.0 { el = el.color(color(spec.text_color)); }
+    if spec.text_color[3] > 0.0 && !control { el = el.color(color(spec.text_color)); }
     if spec.opacity < 1.0 { el = el.opacity(spec.opacity.max(0.0)); }
     let f = spec.flags;
     if f & flags::WRAP != 0 { el = el.wrap(); }
@@ -211,7 +214,7 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
     if !spec.key.is_empty() && spec.kind != ElKind::Odometer { el = el.key(s(spec.key).to_owned()); }
     if !spec.role.is_empty() { el = el.role(intern(s(spec.role))); }
     if !spec.label.is_empty() { el = el.label(s(spec.label).to_owned()); }
-    if !spec.help.is_empty() { el = el.help(s(spec.help).to_owned()); }
+    if !spec.help.is_empty() && spec.kind != ElKind::Radio { el = el.help(s(spec.help).to_owned()); }
     if f & flags::HELP_ABOVE != 0 { el = el.help_above(); }
     el
 }
@@ -222,7 +225,17 @@ pub type Handlers = (Option<Rc<Press>>, Option<Rc<Press>>);
 /// The handlers `spec` hands over, if any; the host owns their captures from here on.
 pub fn handlers(b: &Build, spec: &ElSpec) -> Handlers {
     let take = |cb: opencode_plugin::abi::Callback| cb.func.is_some().then(|| Rc::new(Press { slot: b.slot, generation: b.generation, env: CallbackEnv::new(cb, b.lib.clone()) }));
-    (take(spec.press), take(spec.hover))
+    // A field runs its press on Enter itself (`widgets::field`); a button that's off or busy takes
+    // none, its captures freed here.
+    let press = match spec.kind {
+        ElKind::Field => None,
+        ElKind::Button if spec.flags & (flags::DISABLED | flags::LOADING) != 0 => {
+            drop(take(spec.press));
+            None
+        }
+        _ => take(spec.press),
+    };
+    (press, take(spec.hover))
 }
 
 fn text_input(b: &Build, editor: EditorHandle, placeholder: &str, style: TextStyle) -> El {

@@ -65,6 +65,17 @@ impl App {
         }
     }
 
+    /// Hands what a worker thread finished back to the app's thread: the next poll applies it.
+    pub(crate) fn deliverer(&self) -> impl Fn(Apply) + Send + 'static {
+        let (out, wake) = (self.jobs.tx.clone(), self.waker.clone());
+        move |apply| {
+            let _ = out.send(apply);
+            if let Some(w) = &wake {
+                w();
+            }
+        }
+    }
+
     /// Whether this window may change the server: live, with a person at it, not read-only.
     pub(crate) fn can_write(&self) -> bool {
         matches!(self.source, Source::Live { allow_send: true, .. }) && self.stage.is_none()

@@ -83,7 +83,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(col().w_full()
             .child(section(p, "popular-providers-section", Some("Popular providers"), catalog(p, "popular-providers", popular.iter().map(|(id, name)| popular_row(p, id, name)).collect())))
             .child(more));
-    page(p, "settings-providers-page", header(p, "Providers", "Connect and manage model providers"), body)
+    page(p, "settings-providers-page", super::header_with(p, "Providers", "Connect and manage model providers", super::servers::switcher(s, p)), body)
 }
 
 /// A connected provider: its mark, name and how it connects; then its accounts, Disconnect, or

@@ -180,7 +180,7 @@ fn handshake_readiness_ping_and_tools_list() {
 fn tools_call_routes_session_id_images_errors_and_concurrent_requests() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = Server { base, auth: None, media_refs: false };
+    let server = Server { base, auth: None, media_refs: false, remote_files: false };
 
     let opts = ClientMcpOptions::new(
         "rune",
@@ -305,7 +305,7 @@ fn tools_call_routes_session_id_images_errors_and_concurrent_requests() {
 fn reconnects_after_drop_and_resets_backoff_on_initialized() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = Server { base, auth: None, media_refs: false };
+    let server = Server { base, auth: None, media_refs: false, remote_files: false };
 
     let mut opts = ClientMcpOptions::new(
         "rune",
@@ -346,7 +346,7 @@ fn reconnects_after_drop_and_resets_backoff_on_initialized() {
 fn server_without_route_marks_unsupported_quietly_and_retries_later() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = Server { base, auth: None, media_refs: false };
+    let server = Server { base, auth: None, media_refs: false, remote_files: false };
 
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_srv = attempts.clone();

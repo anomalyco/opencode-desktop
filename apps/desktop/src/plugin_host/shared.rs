@@ -20,6 +20,18 @@ use super::vtable::slot_bit;
 pub struct Shared {
     pub contracts: Contracts,
     pub stores: Stores,
+    /// The processes plugins started (`process.rs`).
+    pub processes: super::process::Processes,
+    pub facts: Facts,
+}
+
+/// What the app knows that plugins ask about (`HostApiVtable::host_text`).
+#[derive(Default)]
+pub struct Facts {
+    /// The app's own server's version, once it answered.
+    pub server_version: Option<String>,
+    /// Contributed servers' versions once they answered healthy, by `<plugin>:<id>`.
+    pub health: std::collections::HashMap<String, String>,
 }
 
 /// A published value, freed by its provider's own destructor while its library is mapped.

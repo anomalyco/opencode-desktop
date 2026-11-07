@@ -30,6 +30,7 @@
 mod arena;
 mod builtins;
 mod contrib;
+mod dialog;
 mod editors;
 mod hot;
 mod icons;
@@ -39,9 +40,11 @@ mod loader;
 mod manifest;
 mod motw;
 mod popover;
+mod process;
 mod render;
 mod requests;
 mod run;
+mod servers;
 mod shared;
 mod surfaces;
 mod swap;
@@ -49,6 +52,7 @@ mod tasks;
 mod trust;
 mod view;
 mod vtable;
+mod widgets;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -59,6 +63,8 @@ use opencode_plugin::abi::PluginEntryFn;
 use rune::Waker;
 
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
+pub use dialog::{key as dialog_key, view as dialog_view};
+pub use servers::{all as contributed_servers, connect as connect_server, row as server_row};
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command};
@@ -102,6 +108,22 @@ pub struct PluginHost {
     /// Server requests and saves in flight, by id: whose callback runs when they answer.
     pending: std::collections::HashMap<u64, requests::Pending>,
     next_pending: u64,
+    /// The plugin dialog on screen.
+    dialog: Option<dialog::Open>,
+    /// Contributed servers whose health check is on its way.
+    checking: HashSet<String>,
+}
+
+impl PluginHost {
+    /// Forgets every cached server read, as the window moves to another server.
+    pub fn forget_reads(&mut self) {
+        self.resources = vtable::Resources::default();
+    }
+
+    /// Whether a plugin dialog is open.
+    pub fn dialog_open(&self) -> bool {
+        self.dialog.is_some()
+    }
 }
 
 pub enum Source {
@@ -224,6 +246,8 @@ pub fn setup(app: &mut App, waker: Waker) {
     }
     if !app.plugins.slots.is_empty() {
         tasks::start();
+        process::warm();
+        servers::read_own_version(app);
     }
     for i in 0..app.plugins.slots.len() {
         if app.plugins.slots[i].state == PluginState::Discovered {

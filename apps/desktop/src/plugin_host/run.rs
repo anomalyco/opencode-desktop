@@ -35,6 +35,10 @@ pub(super) fn act<T>(app: &mut App, tx: &mut Tx, i: usize, scope: Scope, generat
     }
     let mut ctx = ActionCtx {
         kind: Kind::Action,
+        scope,
+        slot: i,
+        generation: inst.generation,
+        wake: &host.wake,
         plugin_id: &slot.manifest.id,
         lib: &inst.lib,
         editors: &mut host.editors,
@@ -131,16 +135,23 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
             Request::SaveFile { name, content, done } => super::requests::save(app, i, &name, &content, done, tx),
             Request::RunCommand(command) => app.run_command(&command, tx),
             Request::OpenLink(href) => app.open_reply_link(&href, tx),
-            Request::OpenSettings => {
+            Request::OpenSettings(page) => {
                 tx.instant();
                 app.open_settings();
-            }
-            Request::SetServers(source, list) => {
-                if let Some(inst) = app.plugins.slots[i].instance.as_mut() {
-                    inst.servers.retain(|s| s.source != source);
-                    inst.servers.extend(list);
+                if page == "servers" {
+                    app.open_settings_page(crate::settings::pages::Page::Servers, tx);
                 }
             }
+            Request::SetServers { source, list, ready } => {
+                if app.plugins.slots[i].instance.as_mut().is_some_and(|inst| inst.set_servers(&source, list, ready)) {
+                    super::servers::changed(app, tx);
+                }
+            }
+            Request::Fetch { request, done, scope } => super::requests::fetch(app, i, scope, request, done),
+            Request::OpenMenu { anchor, spec, done, scope } => super::requests::menu(app, i, scope, &anchor, &spec, done, tx),
+            Request::OpenDialog(dialog) => super::dialog::open(app, i, &dialog, tx),
+            Request::CloseDialog => super::dialog::close(app, i, tx),
+            Request::ConnectServer(server) => super::servers::connect(app, &format!("{id}:{server}"), tx),
         }
     }
 }
@@ -226,7 +237,8 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     if dirty == 0 && hot == 0 && !due {
         return false;
     }
-    let mut changed = false;
+    // Processes' output and exits first: their wake set the same bits.
+    let mut changed = super::process::drain(app, tx);
     for i in 0..app.plugins.slots.len() {
         if hot & slot_bit(i) != 0 {
             let prepared = super::hot::take(&app.plugins.ready, i);

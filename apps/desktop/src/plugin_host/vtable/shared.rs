@@ -103,7 +103,7 @@ pub(super) unsafe extern "C" fn spawn(ctx: *mut c_void, job: Callback, delay_ms:
     AbiStatus::Ok
 }
 
-pub(super) unsafe extern "C" fn set_servers(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize) {
+pub(super) unsafe extern "C" fn set_servers(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize, flags: u32) {
     // SAFETY: the plugin passes its setup or handler context.
     let Some((_, _, _, requests)) = (unsafe { writer(ctx) }) else { return };
     let entries = if entries.is_null() || len == 0 {
@@ -115,9 +115,18 @@ pub(super) unsafe extern "C" fn set_servers(ctx: *mut c_void, source: AbiStr, en
     let source = text(source).to_owned();
     let list = entries
         .iter()
-        .map(|e| ServerRec { source: source.clone(), id: text(e.id).to_owned(), name: text(e.name).to_owned(), state: e.state, url: text(e.url).to_owned() })
+        .map(|e| ServerRec {
+            source: source.clone(),
+            id: text(e.id).to_owned(),
+            name: text(e.name).to_owned(),
+            label: text(e.label).to_owned(),
+            state: e.state,
+            url: text(e.url).to_owned(),
+            password: text(e.password).to_owned(),
+            listed: e.flags & SERVER_LISTED != 0,
+        })
         .collect();
-    requests.push(Request::SetServers(source, list));
+    requests.push(Request::SetServers { source, list, ready: flags & SOURCE_READY != 0 });
 }
 
 pub(super) unsafe extern "C" fn request(ctx: *mut c_void, kind: u32, arg: AbiStr) {
@@ -127,7 +136,10 @@ pub(super) unsafe extern "C" fn request(ctx: *mut c_void, kind: u32, arg: AbiStr
     a.requests.push(match kind {
         REQUEST_RUN_COMMAND => Request::RunCommand(arg),
         REQUEST_OPEN_LINK => Request::OpenLink(arg),
-        REQUEST_OPEN_SETTINGS => Request::OpenSettings,
+        REQUEST_OPEN_SETTINGS => Request::OpenSettings(arg),
+        REQUEST_OPEN_DIALOG => Request::OpenDialog(arg),
+        REQUEST_CLOSE_DIALOG => Request::CloseDialog,
+        REQUEST_CONNECT_SERVER => Request::ConnectServer(arg),
         REQUEST_TOGGLE_PANEL => Request::TogglePanel(arg),
         REQUEST_TOGGLE_POPOVER => {
             let (id, anchor) = arg.split_once('\n').unwrap_or((&arg, ""));

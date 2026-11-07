@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn revert_stages_clears_commits_and_sends_in_desktop_order() {
         let (base, h) = mock(3);
-        Server { base, auth: None, media_refs: false }.revert_to("ses_a", "msg_2").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.revert_to("ses_a", "msg_2").unwrap();
         let reqs = h.join().unwrap();
         assert!(reqs[0].starts_with("POST /api/session/ses_a/interrupt HTTP/1.1"), "{}", reqs[0]);
         assert!(reqs[1].starts_with("POST /api/experimental/session/ses_a/wait HTTP/1.1"), "{}", reqs[1]);
@@ -112,13 +112,13 @@ mod tests {
         assert_eq!(body_of(&reqs[2]), serde_json::json!({ "messageID": "msg_2" }));
 
         let (base, h) = mock_once();
-        Server { base, auth: None, media_refs: false }.revert_clear("ses_a").unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.revert_clear("ses_a").unwrap();
         assert!(h.join().unwrap().starts_with("DELETE /api/session/ses_a/revert HTTP/1.1"));
 
         let (base, h) = mock(4);
         let model = model::ModelRef { id: "claude-sonnet-5-5".into(), provider: "anthropic".into(), variant: "medium".into() };
         let prompt = Prompt { id: Some("msg_3".into()), text: "retry".into(), agent: Some("plan".into()), model: Some(model), ..Default::default() };
-        Server { base, auth: None, media_refs: false }.send_from_revert("ses_a", &prompt).unwrap();
+        Server { base, auth: None, media_refs: false, remote_files: false }.send_from_revert("ses_a", &prompt).unwrap();
         let reqs = h.join().unwrap();
         assert!(reqs[0].starts_with("POST /api/session/ses_a/agent HTTP/1.1"), "{}", reqs[0]);
         assert!(reqs[1].starts_with("POST /api/session/ses_a/revert/commit HTTP/1.1"), "{}", reqs[1]);
@@ -149,7 +149,7 @@ mod tests {
             let _ = s.write_all(head.as_bytes());
             String::from_utf8_lossy(&buf).into_owned()
         });
-        let forked = Server { base, auth: None, media_refs: false }.fork_session("ses_a", Some("msg_2")).unwrap();
+        let forked = Server { base, auth: None, media_refs: false, remote_files: false }.fork_session("ses_a", Some("msg_2")).unwrap();
         let req = h.join().unwrap();
         assert!(req.starts_with("POST /api/session/ses_a/fork HTTP/1.1"), "{req}");
         assert_eq!(body_of(&req), serde_json::json!({ "before": "msg_2" }));

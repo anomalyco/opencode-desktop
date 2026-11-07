@@ -91,7 +91,7 @@ pub(super) unsafe extern "C" fn add_contribution(ctx: *mut c_void, spec: *const 
     let needs = match spec.kind {
         contrib::MENU_ITEM | contrib::MENUBAR_ITEM | contrib::CODE_BLOCK_ACTION => spec.run.func.is_some(),
         contrib::SETTINGS_PAGE | contrib::SLOT | contrib::FILE_VIEWER | contrib::CODE_BLOCK => spec.render.func.is_some(),
-        contrib::TITLEBAR_ITEM | contrib::COMPOSER_PILL | contrib::POPOVER => spec.render.func.is_some(),
+        contrib::TITLEBAR_ITEM | contrib::COMPOSER_PILL | contrib::POPOVER | contrib::DIALOG => spec.render.func.is_some(),
         contrib::LINK_HANDLER => spec.run.func.is_some() && spec.query.func.is_some(),
         contrib::MCP_TOOL => spec.query.func.is_some(),
         contrib::THEME | contrib::SERVER => true,

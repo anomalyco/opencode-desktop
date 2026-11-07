@@ -18,10 +18,11 @@ use core::mem::MaybeUninit;
 /// "OCRUNEPL".
 pub const ABI_MAGIC: u64 = 0x4F43_5255_4E45_504C;
 pub const ABI_ENDIAN: u32 = 0x0102_0304;
-/// Experimental epoch 3 (epoch 2's contribution types, app plugins, services, stores, tasks and
-/// icons, plus session reads, server requests, popovers, theme tokens and richer elements);
-/// bumped on any breaking layout change.
-pub const ABI_EPOCH: u16 = 3;
+/// Experimental epoch 4 (epoch 3's session reads, server requests, popovers, theme tokens and
+/// richer elements, plus supervised processes, HTTP fetches, host menus and dialogs, Desktop's
+/// buttons, fields, radios and loader, and server sources the app connects to); bumped on any
+/// breaking layout change.
+pub const ABI_EPOCH: u16 = 4;
 /// Additive tail extensions to the vtables within an epoch.
 pub const ABI_MINOR: u16 = 0;
 /// What `plugin.toml`'s `api` names for this epoch.
@@ -246,7 +247,27 @@ pub enum ElKind {
     /// A number whose changed digits roll (the app's odometer): `text` is what it reads, `value`
     /// the number it stands for, `key` its identity across renders.
     Odometer = 8,
+    /// Desktop's `Button` (`button-v2`): `text` is its label, `value` its variant (`BUTTON_*`),
+    /// `press` what it does; [`flags::DISABLED`], [`flags::LOADING`] and [`flags::SMALL`] apply.
+    Button = 9,
+    /// Desktop's `Loader`: `font_size` is its size (16 when unset).
+    Loader = 10,
+    /// A `radio-v2` item: `text` is its label, `help` its description (in `text_color` when set),
+    /// `value` 1 when checked; [`flags::DISABLED`] applies. The press goes on its row.
+    Radio = 11,
+    /// Desktop's `TextInput` over `editor`: `text` is its placeholder; [`flags::LARGE`],
+    /// [`flags::DISABLED`], [`flags::INVALID`] and [`flags::SECURE`] apply, and `press` runs on
+    /// Enter.
+    Field = 12,
 }
+
+/// [`ElSpec::value`] of an [`ElKind::Button`].
+pub const BUTTON_NEUTRAL: f64 = 0.0;
+pub const BUTTON_CONTRAST: f64 = 1.0;
+pub const BUTTON_GHOST: f64 = 2.0;
+pub const BUTTON_GHOST_MUTED: f64 = 3.0;
+pub const BUTTON_OUTLINE: f64 = 4.0;
+pub const BUTTON_DANGER: f64 = 5.0;
 
 /// [`ElSpec::flags`].
 pub mod flags {
@@ -277,6 +298,18 @@ pub mod flags {
     pub const HELP_ABOVE: u64 = 1 << 18;
     /// Text that doesn't break.
     pub const NO_WRAP: u64 = 1 << 19;
+    /// A button, radio or field that doesn't take presses or typing.
+    pub const DISABLED: u64 = 1 << 20;
+    /// A button showing Desktop's loader: in place of its label, or before it on a small one.
+    pub const LOADING: u64 = 1 << 21;
+    /// A button at `size="small"`.
+    pub const SMALL: u64 = 1 << 22;
+    /// A field at `appearance="large"`.
+    pub const LARGE: u64 = 1 << 23;
+    /// A field drawn as invalid.
+    pub const INVALID: u64 = 1 << 24;
+    /// A field whose text is hidden (a password).
+    pub const SECURE: u64 = 1 << 25;
 }
 
 /// [`ElSpec::shadow`]: Desktop's elevation tokens.
@@ -365,6 +398,18 @@ pub const EVENT_HOVER: u32 = 7;
 pub const EVENT_RESPONSE: u32 = 8;
 /// A file the host saved (`HostApiVtable::save_file`): `text` is its path, `extra` the error.
 pub const EVENT_SAVED: u32 = 9;
+/// Output of a process (`HostApiVtable::process_spawn`): `mods` is its handle, `x` 1 for stdout
+/// and 2 for stderr, `text` the chunk, decoded (UTF-16LE when it starts as such, else UTF-8).
+pub const EVENT_PROCESS_OUTPUT: u32 = 10;
+/// A process ended: `mods` is its handle, `text` its exit code in decimal ("" when it has
+/// none), `extra` why it couldn't start, `y` 1 when its timeout killed it and 2 when a kill did.
+/// Its last output arrives first.
+pub const EVENT_PROCESS_EXIT: u32 = 11;
+/// An HTTP answer (`HostApiVtable::fetch`): `mods` is its status (0 when none came), `text` the
+/// body, `extra` the error.
+pub const EVENT_FETCH: u32 = 12;
+/// A dialog closed by Esc or a press outside it (`contrib::DIALOG`'s `run`).
+pub const EVENT_DISMISS: u32 = 13;
 
 /// What ran a callback. The strings are views valid for the call.
 #[repr(C)]
@@ -401,6 +446,10 @@ pub const SURFACE_CODE_BLOCK: u32 = 7;
 pub const SURFACE_POPOVER: u32 = 8;
 /// A panel tab's label in the side region's strip (`PanelSpec::label`).
 pub const SURFACE_TAB: u32 = 9;
+/// A plugin dialog's card (`contrib::DIALOG`).
+pub const SURFACE_DIALOG: u32 = 10;
+/// A contributed server's connection row in Settings › Servers: `id` is the server's id.
+pub const SURFACE_SERVER_ROW: u32 = 11;
 
 /// [`RenderProps::flags`].
 /// The session's view is the one on screen (a slot's `active`).
@@ -663,7 +712,9 @@ pub mod contrib {
     pub const THEME: u32 = 9;
     /// A file viewer: `target` lists file extensions; `render` draws the file at `props.path`.
     pub const FILE_VIEWER: u32 = 10;
-    /// A source of servers; its entries arrive through `HostApiVtable::set_servers`.
+    /// A source of servers (`Server`); its entries arrive through `HostApiVtable::set_servers`.
+    /// `order` places its servers among the others; `render` draws each one's connection row in
+    /// Settings › Servers ([`super::SURFACE_SERVER_ROW`]).
     pub const SERVER: u32 = 11;
     /// A tool on the app's client MCP: `target` is its JSON input schema; `query` runs it with
     /// the arguments' JSON and answers JSON (or text).
@@ -674,6 +725,10 @@ pub mod contrib {
     /// `render` draws its content ([`super::SURFACE_POPOVER`]), `order` is its gap. Opened
     /// with [`super::REQUEST_TOGGLE_POPOVER`].
     pub const POPOVER: u32 = 14;
+    /// A modal dialog over a scrim, centred: `render` draws its card ([`super::SURFACE_DIALOG`]),
+    /// `run` hears Esc or a press outside closing it ([`super::EVENT_DISMISS`]). Opened with
+    /// [`super::REQUEST_OPEN_DIALOG`].
+    pub const DIALOG: u32 = 15;
 }
 
 /// [`ContributionAbi::flags`] of a [`contrib::POPOVER`]: where it sits beside its anchor, as
@@ -731,17 +786,52 @@ pub const SERVER_STARTING: u32 = 1;
 pub const SERVER_AUTH: u32 = 2;
 pub const SERVER_READY: u32 = 3;
 pub const SERVER_FAILED: u32 = 4;
+pub const SERVER_INCOMPATIBLE: u32 = 5;
 
-/// A server a `contrib::SERVER` source lists.
+/// [`ServerEntryAbi::flags`]: the server joins the app's servers (it can be connected to) rather
+/// than only showing in Settings.
+pub const SERVER_LISTED: u32 = 1 << 0;
+/// `set_servers`' flags: the source has read what it lists (`ready`), so the app may drop
+/// servers it no longer lists.
+pub const SOURCE_READY: u32 = 1 << 0;
+
+/// A server a `contrib::SERVER` source lists (`ServerEntry`), keyed `<plugin>:<id>` in the app.
 #[repr(C)]
 pub struct ServerEntryAbi<'a> {
     pub id: AbiStr<'a>,
     pub name: AbiStr<'a>,
-    pub state: u32,
-    pub _pad: u32,
-    /// Its HTTP address once ready.
+    /// Its kind's badge (`WSL`, `SSH`).
+    pub label: AbiStr<'a>,
+    /// Its HTTP address and password once ready.
     pub url: AbiStr<'a>,
+    pub password: AbiStr<'a>,
+    /// One of the `SERVER_*` states.
+    pub state: u32,
+    /// [`SERVER_LISTED`].
+    pub flags: u32,
 }
+
+/// What a process to spawn is (`HostApiVtable::process_spawn`). `args` and `env` hold their
+/// items separated by NUL (`env` as `KEY=value`, added to the app's environment).
+#[repr(C)]
+pub struct ProcessSpecAbi<'a> {
+    pub program: AbiStr<'a>,
+    pub args: AbiStr<'a>,
+    pub env: AbiStr<'a>,
+    /// Its working folder; the app's when empty.
+    pub cwd: AbiStr<'a>,
+    /// Written to its stdin first.
+    pub stdin: AbiStr<'a>,
+    /// [`PROCESS_KEEP_STDIN`].
+    pub flags: u32,
+    pub _pad: u32,
+    /// Killed after this long (0 for never), reported with `y` 1.
+    pub timeout_ms: u64,
+}
+
+/// [`ProcessSpecAbi::flags`]: stdin stays open after `stdin` is written, for `process_write`;
+/// otherwise it closes.
+pub const PROCESS_KEEP_STDIN: u32 = 1 << 0;
 
 /// [`HostApiVtable::request`]: what a handler asks the app to do once it returns.
 pub const REQUEST_RUN_COMMAND: u32 = 0;
@@ -763,6 +853,13 @@ pub const REQUEST_INVALIDATE: u32 = 7;
 /// Opens a new session's draft in folder `directory` with `prompt` typed (`layout.draft`):
 /// `arg` is `directory\nprompt`.
 pub const REQUEST_NEW_DRAFT: u32 = 8;
+/// Opens this plugin's dialog `arg` (closing any other).
+pub const REQUEST_OPEN_DIALOG: u32 = 9;
+/// Closes this plugin's open dialog.
+pub const REQUEST_CLOSE_DIALOG: u32 = 10;
+/// Connects the window to this plugin's server `arg` (it must be ready and listed) and goes to
+/// its Home.
+pub const REQUEST_CONNECT_SERVER: u32 = 11;
 
 /// [`HostApiVtable::host_state`] questions.
 /// This plugin's panel `arg` in session `arg2`: 0 closed, 1 in the strip, 2 selected in its
@@ -781,6 +878,20 @@ pub const STATE_CAN_WRITE: u32 = 5;
 /// The local time zone's offset from UTC in seconds (as an `i64`'s bits) at the instant `arg`
 /// (ms since the Unix epoch, in decimal).
 pub const STATE_UTC_OFFSET: u32 = 6;
+/// 1 while this plugin's dialog `arg` is open.
+pub const STATE_DIALOG: u32 = 7;
+/// 1 when this plugin's server `arg` is the one the window is connected to.
+pub const STATE_SERVER_CURRENT: u32 = 8;
+
+/// [`HostApiVtable::host_text`] questions.
+/// The value of command-line option `arg` (`--name value`), or nothing.
+pub const TEXT_ARG: u32 = 0;
+/// The version of the app's own (local) server, once it answered.
+pub const TEXT_SERVER_VERSION: u32 = 1;
+/// This plugin's server `arg`'s version once it answered healthy; nothing otherwise.
+pub const TEXT_SERVER_HEALTH: u32 = 2;
+/// The app's executable.
+pub const TEXT_EXE: u32 = 3;
 
 /// A step's tokens.
 #[repr(C)]
@@ -976,8 +1087,9 @@ pub struct HostApiVtable {
     /// Runs `job` on a host worker thread after `delay_ms`, keeping this library mapped until it
     /// returns. The job runs with a null state and context.
     pub spawn: unsafe extern "C" fn(ctx: *mut c_void, job: Callback, delay_ms: u64) -> AbiStatus,
-    /// Replaces the entries of this plugin's server source `source`.
-    pub set_servers: unsafe extern "C" fn(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize),
+    /// Replaces the entries of this plugin's server source `source`; `flags` is [`SOURCE_READY`]
+    /// once it has read them.
+    pub set_servers: unsafe extern "C" fn(ctx: *mut c_void, source: AbiStr, entries: *const ServerEntryAbi, len: usize, flags: u32),
     /// One of the `REQUEST_*` kinds, carried out after the handler returns.
     pub request: unsafe extern "C" fn(ctx: *mut c_void, kind: u32, arg: AbiStr),
     // Render.
@@ -1003,6 +1115,28 @@ pub struct HostApiVtable {
     /// Saves `content` as `name` where the app saves downloads (`system.save`); `done` runs
     /// with [`EVENT_SAVED`] once it's written.
     pub save_file: unsafe extern "C" fn(ctx: *mut c_void, name: AbiStr, content: AbiStr, done: Callback) -> AbiStatus,
+    // Setup, handlers and poll.
+    /// Starts a process the host supervises: its window hidden, killed when this plugin
+    /// unloads, and on Windows when the app exits however it does. `events` runs on the half
+    /// that spawned it with [`EVENT_PROCESS_OUTPUT`] and, once, [`EVENT_PROCESS_EXIT`]. Returns
+    /// its handle (0 when refused); a program that can't start ends with an exit event.
+    pub process_spawn: unsafe extern "C" fn(ctx: *mut c_void, spec: *const ProcessSpecAbi, events: Callback) -> u32,
+    /// Writes to process `handle`'s stdin, then closes it when `close` is 1.
+    pub process_write: unsafe extern "C" fn(ctx: *mut c_void, handle: u32, bytes: AbiStr, close: u8) -> AbiStatus,
+    /// Kills process `handle` (its exit event follows with `y` 2).
+    pub process_kill: unsafe extern "C" fn(ctx: *mut c_void, handle: u32) -> AbiStatus,
+    /// Sends an HTTP request off the app's thread after `delay_ms`: `headers` are `Name: value`
+    /// lines, `body` none when empty. `done` runs with [`EVENT_FETCH`].
+    pub fetch: unsafe extern "C" fn(ctx: *mut c_void, method: AbiStr, url: AbiStr, headers: AbiStr, body: AbiStr, timeout_ms: u64, delay_ms: u64, done: Callback) -> AbiStatus,
+    // Any callback.
+    /// Answers one of the `TEXT_*` questions into `out`; 0 when there's no answer.
+    pub host_text: unsafe extern "C" fn(ctx: *mut c_void, what: u32, arg: AbiStr, out: *mut AbiOwnedBytes) -> u8,
+    // Handlers.
+    /// Opens Desktop's menu beside the element keyed `anchor`. `spec` holds a line per row:
+    /// `item\t<id>\t<title>\t<flags>` (`d` disabled, `c` checked, `x` destructive), `group\t<title>`
+    /// or `sep`, after an optional `menu\t<label>\t<start|end>\t<min width>`. `done` runs once it
+    /// closes with [`EVENT_MENU`], `text` the picked id ("" when dismissed).
+    pub open_menu: unsafe extern "C" fn(ctx: *mut c_void, anchor: AbiStr, spec: AbiStr, done: Callback) -> AbiStatus,
 }
 
 pub type SetupFn = unsafe extern "C" fn(ctx: *mut c_void) -> AbiOutcome<*mut c_void>;

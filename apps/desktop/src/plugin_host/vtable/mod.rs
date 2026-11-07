@@ -11,6 +11,7 @@
 mod services;
 mod setup;
 mod shared;
+mod system;
 
 pub use services::{HostView, Resources, panel_state};
 
@@ -76,6 +77,11 @@ pub struct RenderCtx<'a> {
 #[repr(C)]
 pub struct ActionCtx<'a> {
     pub kind: Kind,
+    /// The half the callback runs on, which the processes it starts report to.
+    pub scope: Scope,
+    pub slot: usize,
+    pub generation: u32,
+    pub wake: &'a Arc<WakeShared>,
     pub plugin_id: &'a str,
     pub lib: &'a Arc<LoadedLibrary>,
     pub editors: &'a mut PluginEditors,
@@ -94,9 +100,9 @@ pub enum Request {
     ToastError(String),
     RunCommand(String),
     OpenLink(String),
-    /// Settings is one column for now, so every page opens it at the top.
-    OpenSettings,
-    SetServers(String, Vec<ServerRec>),
+    /// Settings at a host page (`servers`), or its first page.
+    OpenSettings(String),
+    SetServers { source: String, list: Vec<ServerRec>, ready: bool },
     TogglePanel(String),
     TogglePopover { id: String, anchor: String },
     ClosePopover,
@@ -104,6 +110,11 @@ pub enum Request {
     NewDraft { directory: String, prompt: String },
     ServerRequest { method: String, path: String, body: String, done: super::instance::CallbackEnv },
     SaveFile { name: String, content: String, done: super::instance::CallbackEnv },
+    Fetch { request: super::requests::FetchRequest, done: super::instance::CallbackEnv, scope: Scope },
+    OpenMenu { anchor: String, spec: String, done: super::instance::CallbackEnv, scope: Scope },
+    OpenDialog(String),
+    CloseDialog,
+    ConnectServer(String),
 }
 
 /// Wakes the event loop for plugins: one bit per slot in `dirty`, which `PluginHost::poll`
@@ -372,6 +383,12 @@ pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
     host_state: services::host_state,
     server_request: services::server_request,
     save_file: services::save_file,
+    process_spawn: system::process_spawn,
+    process_write: system::process_write,
+    process_kill: system::process_kill,
+    fetch: system::fetch,
+    host_text: system::host_text,
+    open_menu: system::open_menu,
 };
 
 unsafe extern "C" fn host_alloc(size: usize, align: usize) -> *mut u8 {

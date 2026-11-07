@@ -53,8 +53,12 @@ ureq = { workspace = true, features = ["rustls"] }
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 libc = "0.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 # The built-ins the tests link in (`plugin_host::builtins`), so the motion gate covers what they draw.
