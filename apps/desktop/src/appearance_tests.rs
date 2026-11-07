@@ -219,7 +219,7 @@ fn the_font_rows_sit_after_theme_and_pick_by_name() {
     assert_eq!(font_index(&CODE_FONTS, Some("SF Mono")), 2);
     assert_eq!(font_index(&CODE_FONTS, Some("Comic Sans")), 0, "an unknown name is the default");
     let s = crate::settings::Settings { ui_font: 1, code_font: 2, ..Default::default() };
-    assert_eq!(families(&s), ("System Font, Inter", "ui-monospace, IBM Plex Mono"));
+    assert_eq!(families(&s), ("System Font, Inter".to_owned(), "ui-monospace, IBM Plex Mono".to_owned()));
 }
 
 #[test]
