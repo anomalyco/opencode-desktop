@@ -13,6 +13,7 @@ use rune::{Align, Color, El, Key, KeyEvent, ScrollSpec, Side, TextEdit, Transiti
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
+use crate::keymap::Bind;
 use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 use crate::{App, Route, Source};
@@ -24,21 +25,60 @@ pub struct NewWorktree {
     drafts: HashMap<String, Option<String>>,
     /// Each project's worktree inventory (`/api/worktree`), its own checkout left out.
     listed: HashMap<String, Vec<String>>,
+    /// The existing worktree a draft of each project last ran in, where Cycle session location
+    /// goes after New worktree (`state.existing` in `workspace/controller.ts`).
+    existing: HashMap<String, String>,
     pub picker: BranchPicker,
 }
 
+/// Where the open draft's session starts, as `cycleNewSessionWorktree` steps through it.
+#[derive(Clone, Debug, PartialEq)]
+enum Place {
+    /// The project's own checkout (`main`).
+    Local,
+    /// A new worktree (`create`).
+    New,
+    Existing(String),
+}
+
 /// The branch a new worktree starts from: Desktop's `Typeahead` in a popover under the
-/// `from <branch>` trigger.
+/// `from <branch>` trigger. Each query asks the server (`GET /api/vcs/branch`, 50 at most),
+/// so a branch past the first 50 is found by typing; while one is on its way the rows
+/// narrow to what's typed, or stay dimmed when none would remain (`typeahead/machine.ts`).
 #[derive(Default)]
 pub struct BranchPicker {
     pub open: bool,
     pub search: TextEdit,
     /// The checkout whose branches it lists.
     directory: String,
-    /// What the server listed, and the search it listed them for.
-    listed: (String, Vec<String>),
+    /// The rows of the last answer for the query typed then.
+    shown: Vec<String>,
+    /// Each query's answer while the picker is open: a query typed again answers at once.
+    cache: HashMap<String, Vec<String>>,
     failed: bool,
     active: Option<String>,
+}
+
+impl BranchPicker {
+    /// The query: what's typed, trimmed.
+    fn query(&self) -> &str {
+        self.search.text.trim()
+    }
+
+    /// The rows, and whether they are stale: the query's answer, else the last answer
+    /// narrowed to the query, else the last answer dimmed.
+    fn rows(&self) -> (Vec<String>, bool) {
+        let q = self.query();
+        if self.failed {
+            return (Vec::new(), false);
+        }
+        if let Some(rows) = self.cache.get(q) {
+            return (rows.clone(), false);
+        }
+        let lower = q.to_lowercase();
+        let narrowed: Vec<String> = self.shown.iter().filter(|b| b.to_lowercase().contains(&lower)).cloned().collect();
+        if narrowed.is_empty() { (self.shown.clone(), !self.shown.is_empty()) } else { (narrowed, false) }
+    }
 }
 
 const TRIGGER: &str = "location-branch";
@@ -64,6 +104,80 @@ impl App {
             self.new_worktree.drafts.insert(id.clone(), None);
         }
         self.touch_project(project);
+    }
+
+    /// The new-session page's location keys, while a draft is open and no dialog is:
+    /// Choose base branch (`selector.tsx`, a new worktree's), Choose worktree (`view.tsx`)
+    /// and Cycle session location (`new-session/commands.tsx`), each only where Desktop
+    /// enables it.
+    pub(crate) fn draft_location_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        if !matches!(self.route, Route::Draft(_)) || self.settings.open || self.project_switcher.open {
+            return false;
+        }
+        if Bind::BranchChoose.matches_tx(ev, tx) {
+            if !self.draft_creates() || self.sidebar_inbox.branches.get(self.draft_dir()).is_none() {
+                return false;
+            }
+            if self.new_worktree.picker.open { self.close_branch_picker(tx) } else { self.open_branch_picker(tx) }
+            return true;
+        }
+        let Some(project) = self.draft_project().filter(|p| project_git(&p.id)).map(|p| (p.id.clone(), p.directory.clone())) else {
+            return false;
+        };
+        if Bind::LocationSelect.matches_tx(ev, tx) {
+            tx.instant();
+            self.close_branch_picker(tx);
+            self.open_project_switcher();
+            self.drill_project_worktrees(&project.0, tx);
+            return true;
+        }
+        if Bind::LocationCycle.matches_tx(ev, tx) {
+            tx.instant();
+            self.cycle_location(&project.0, project.1);
+            return true;
+        }
+        false
+    }
+
+    /// Local, then New worktree, then the worktree last used if the inventory still has it,
+    /// then Local again (`cycleNewSessionWorktree`).
+    fn cycle_location(&mut self, project: &str, root: String) {
+        let place = self.draft_place(project, &root);
+        if let Place::Existing(dir) = &place {
+            self.note_existing_worktree(project, dir.clone());
+        }
+        let existing = self
+            .new_worktree
+            .existing
+            .get(project)
+            .filter(|d| self.project_worktrees(project, &root).iter().any(|w| path::trim(w) == path::trim(d)))
+            .cloned();
+        if self.new_worktree.picker.open {
+            self.new_worktree.picker.open = false;
+            self.new_worktree.picker.search.focused = false;
+        }
+        match (place, existing) {
+            (Place::Local, _) => self.choose_new_worktree(project, root),
+            (Place::New, Some(dir)) => self.set_draft_dir(dir),
+            (Place::New, None) | (Place::Existing(_), _) => self.set_draft_dir(root),
+        }
+    }
+
+    fn draft_place(&self, project: &str, root: &str) -> Place {
+        let dir = self.draft_dir();
+        if self.draft_creates() {
+            return Place::New;
+        }
+        if self.project_worktrees(project, root).iter().any(|w| path::trim(w) == path::trim(dir)) {
+            return Place::Existing(dir.to_owned());
+        }
+        Place::Local
+    }
+
+    /// A draft of `project` runs in its existing worktree `dir`: Cycle session location comes
+    /// back to it after New worktree.
+    pub(crate) fn note_existing_worktree(&mut self, project: &str, dir: String) {
+        self.new_worktree.existing.insert(project.to_owned(), dir);
     }
 
     /// The open draft goes back to starting where its folder is.
@@ -135,13 +249,23 @@ impl App {
             }
             "vcs.branch.listed" => {
                 let picker = &mut self.new_worktree.picker;
-                if data["directory"].as_str() != Some(picker.directory.as_str()) || data["search"].as_str() != Some(picker.search.text.as_str()) {
+                let search = data["search"].as_str().unwrap_or_default();
+                if data["directory"].as_str() != Some(picker.directory.as_str()) {
                     return false;
                 }
-                picker.failed = data["failed"].as_bool() == Some(true);
-                let branches = data["branches"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-                picker.listed = (picker.search.text.clone(), branches);
-                picker.open
+                let failed = data["failed"].as_bool() == Some(true);
+                let current = search == picker.query();
+                if !failed {
+                    let branches: Vec<String> = data["branches"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+                    picker.cache.insert(search.to_owned(), branches.clone());
+                    if current {
+                        picker.shown = branches;
+                    }
+                }
+                if current {
+                    picker.failed = failed;
+                }
+                picker.open && current
             }
             _ => false,
         }
@@ -157,8 +281,10 @@ impl App {
         picker.search.focused = true;
         picker.failed = false;
         picker.active = None;
+        // Every open asks again (`branch-machine.ts`), keeping the last list on screen meanwhile.
+        picker.cache.clear();
         if picker.directory != directory {
-            picker.listed = (String::new(), Vec::new());
+            picker.shown.clear();
             picker.directory = directory;
         }
         self.composer.focused = false;
@@ -175,18 +301,21 @@ impl App {
         }
     }
 
-    fn ask_branches(&self) {
-        let picker = &self.new_worktree.picker;
+    /// Asks the server for the query's branches, unless this open already has them.
+    fn ask_branches(&mut self) {
+        let picker = &mut self.new_worktree.picker;
+        picker.failed = false;
+        if let Some(rows) = picker.cache.get(picker.query()) {
+            picker.shown = rows.clone();
+            return;
+        }
         if let Source::Live { requests: Some(r), .. } = &self.source {
-            let _ = r.send(Request::Branches { directory: picker.directory.clone(), search: picker.search.text.clone() });
+            let _ = r.send(Request::Branches { directory: picker.directory.clone(), search: picker.query().to_owned() });
         }
     }
 
-    /// The branches shown: the latest listing, narrowed by what's typed since (`match`).
     fn branch_rows(&self) -> Vec<String> {
-        let picker = &self.new_worktree.picker;
-        let q = picker.search.text.to_lowercase();
-        picker.listed.1.iter().filter(|b| b.to_lowercase().contains(&q)).cloned().collect()
+        self.new_worktree.picker.rows().0
     }
 
     fn active_branch(&self, rows: &[String]) -> Option<String> {
@@ -240,6 +369,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
         .key(TRIGGER)
         .role("button")
         .label("Choose branch")
+        .help(Bind::BranchChoose.hint("Choose base branch"))
         .hover_group()
         .h(28.0)
         .max_w(220.0)
@@ -263,7 +393,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         return None;
     }
     let picker = &s.new_worktree.picker;
-    let rows = s.branch_rows();
+    let (rows, stale) = picker.rows();
     let active = s.active_branch(&rows);
     let selected = s.draft_base().map(str::to_owned).or_else(|| s.sidebar_inbox.branches.get(s.draft_dir()).map(str::to_owned));
     // The search row: 32 tall, 12 in and 8 from the end, the glyph 8 before the field.
@@ -323,6 +453,8 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                 .center_y()
                 .radius(4.0)
                 .fill(if active.as_deref() == Some(b.as_str()) { p.hover } else { Color::TRANSPARENT })
+                // Rows the pending query hasn't confirmed (`opacity-50`).
+                .opacity(if stale { 0.5 } else { 1.0 })
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
                     if inside {
                         tx.instant();

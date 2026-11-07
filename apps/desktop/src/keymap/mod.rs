@@ -95,6 +95,9 @@ pub enum Bind {
     WindowNew,
     WindowClose,
     McpToggle,
+    BranchChoose,
+    LocationSelect,
+    LocationCycle,
 }
 
 /// Settings > Shortcuts' groups (Desktop's `CommandSection`).
@@ -234,6 +237,11 @@ fn table() -> Vec<Binding> {
         hidden(WindowNew, "window.new", "New window", General, on("ctrl+shift+n").on(Mac, "none")),
         hidden(WindowClose, "window.close", "Close window", General, on("ctrl+shift+w").on(Mac, "none")),
         row(McpToggle, "mcp.toggle", "Toggle MCPs", Session, on("mod+semicolon")),
+        // The new-session page's (`new-session/{workspace/selector,view,commands}.tsx`). Off macOS
+        // Ctrl+Alt+B is also the Browser's launcher, which only a session has.
+        row(BranchChoose, "session.branch.choose", "Choose base branch", Session, on("mod+alt+b")),
+        row(LocationSelect, "session.location.select", "Choose worktree", Session, on("mod+alt+o")),
+        row(LocationCycle, "session.location.cycle", "Cycle session location", Session, on("mod+alt+l")),
     ];
     assert!(rows.iter().enumerate().all(|(i, r)| r.bind as usize == i), "keymap rows follow `Bind`'s order");
     rows

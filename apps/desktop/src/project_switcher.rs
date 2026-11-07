@@ -257,6 +257,7 @@ impl App {
 
     pub fn project_switcher_choose(&mut self, key: &str, tx: &mut Tx) {
         let Some(row) = self.project_switcher_rows().into_iter().find(|r| r.key == key) else { return };
+        let worktree = matches!(row.kind, RowKind::Worktree { main: false, .. });
         match row.kind {
             RowKind::Other { .. } => {
                 tx.instant();
@@ -282,6 +283,9 @@ impl App {
             }
             RowKind::Project { id, directory, .. } | RowKind::Worktree { project_id: id, directory, .. } => {
                 tx.instant();
+                if worktree {
+                    self.note_existing_worktree(&id, directory.clone());
+                }
                 self.touch_project(&id);
                 self.sort_projects();
                 self.close_project_switcher(false);

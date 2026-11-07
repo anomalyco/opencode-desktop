@@ -337,10 +337,14 @@ impl Branches {
             let (server, landed, wake) = (server.clone(), Arc::clone(&self.landed), waker.cloned());
             let spawned = std::thread::Builder::new().name("inbox-branch".into()).spawn(move || {
                 let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
-                let result = server
-                    .get(&path)
-                    .map(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()).map(str::to_owned))
-                    .map_err(|_| ());
+                // A folder the server hasn't loaded yet (a worktree just picked, say) answers before
+                // its VCS provider has, with neither provider nor branch: that read is retried, as
+                // Desktop reads the folder again once `vcs.branch.updated` says it loaded.
+                let result = server.get(&path).map_err(|_| ()).and_then(|v| {
+                    let data = v.get("data").unwrap_or(&v);
+                    let branch = data["branch"]["current"].as_str().map(str::to_owned);
+                    if branch.is_none() && data["provider"].is_null() { Err(()) } else { Ok(branch) }
+                });
                 landed.lock().unwrap_or_else(|e| e.into_inner()).push((dir, result));
                 if let Some(w) = wake {
                     w();
