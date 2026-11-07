@@ -181,7 +181,13 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
         keyed.push(owner.id);
         card = card.child(file_item(s, p, cx, first.id, item, row_key, i == 0, i + 1 == n));
     }
-    card
+    // A file's errors sit flush under the card, as Desktop's `DiagnosticsDisplay` follows its
+    // file's accordion.
+    let errors = items.iter().filter_map(|item| {
+        let owner = item.entries[0].call;
+        diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path))
+    });
+    col().w_full().child(card).children(errors)
 }
 
 /// One row of the card, and under it the change while open, and the file's errors.
@@ -191,8 +197,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     let k = sub_key(group, format!("file:{shown}"));
     let open = s.expanded().contains(&k);
     let owner = item.entries[0].call;
-    let diagnostics = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path), last);
-    let closed_bottom = last && !open && diagnostics.is_none();
+    let closed_bottom = last && !open;
     let top = if first { RADIUS } else { 0.0 };
     let bottom = if closed_bottom { RADIUS } else { 0.0 };
     let (dir, name) = match shown.rfind(['/', '\\']) {
@@ -251,7 +256,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         out = out.mt(-1.0);
     }
     if open {
-        let corner = if last && diagnostics.is_none() { RADIUS } else { 0.0 };
+        let corner = if last { RADIUS } else { 0.0 };
         let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
         // border is the content's top, which has none of its own (`border-top: 0`).
@@ -269,7 +274,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .child(readable(p, views)),
         );
     }
-    out.children(diagnostics)
+    out
 }
 
 /// "Created", "Deleted" (13 px medium) or `+N -M`.
@@ -289,26 +294,23 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
     }
 }
 /// A file's errors after the change (severity 1, the first three), as Desktop's
-/// `DiagnosticsDisplay` lists them: flush in the card on the danger fill under a hairline.
-fn diagnostics(p: &Pal, metadata: &Value, file: &str, last: bool) -> Option<El> {
+/// `DiagnosticsDisplay` lists them (`[data-component="diagnostics"]`): on the danger fill, 8 by
+/// 12 in, under a 0.5 pt `state-border-danger` top border, square and without sides.
+fn diagnostics(p: &Pal, metadata: &Value, file: &str) -> Option<El> {
     let list: Vec<&Value> = metadata["diagnostics"][file].as_array()?.iter().filter(|d| d["severity"] == 1).take(3).collect();
     if list.is_empty() {
         return None;
     }
     let font = rune::TextStyle::new(13.0, 400.0).mono().lh(19.5);
     let label = rune::TextStyle::new(13.0, 530.0).mono().lh(19.5).tracking(-0.5);
-    let corner = if last { RADIUS } else { 0.0 };
     let mut box_ = col()
-        .key("diagnostics")
+        .key(format!("diagnostics-{}", file.replace(['/', '\\'], ":")))
         .w_full()
-        .mt(-1.0)
         .gap(4.0)
-        .px(13.0)
-        .py(9.0)
-        .border(1.0, p.border)
+        .px(12.0)
+        .py(8.0)
         .fill(p.danger_bg)
-        .corners([0.0, 0.0, corner, corner])
-        .child(el().key("rule").absolute(0.0, 1.0).w_full().h(0.5).fill(p.danger_border));
+        .border_sides([0.5, 0.0, 0.0, 0.0], p.danger_border);
     for d in list {
         let start = &d["range"]["start"];
         let at = format!("[{}:{}]", start["line"].as_u64().unwrap_or(0) + 1, start["character"].as_u64().unwrap_or(0) + 1);
