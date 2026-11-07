@@ -5,6 +5,17 @@ use crate::session_menu::{Spot, Target};
 // Home: projects (Desktop's `home/projects/view.tsx`) and recent sessions by day (`home/sessions`).
 
 const WIDE_HOME_MIN_W: f32 = 860.0;
+/// From the search field to the first group: the sticky header's `md:pb-3` and the list's `md:pt-3`.
+const LIST_TOP: f32 = 24.0;
+/// The projects column's top, below the sessions column's 48pt: `lg:mt-14 lg:pt-[52px]`.
+const PROJECTS_TOP: f32 = 56.0 + 52.0 - 48.0;
+
+/// Desktop's `folder-add-left` (`icons/catalog.ts`).
+static FOLDER_ADD_LEFT: Icon = Icon {
+    name: "folder-add-left",
+    view: 16.0,
+    body: r#"<path d="M7.5 13.3333H1.5V2H6.83333L8.83333 4H14.8333V6M10.1667 11.3333H15.5M12.8333 8.66667V14" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>"#,
+};
 
 pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
     if s.launch.offline {
@@ -128,16 +139,17 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
     let wide = effective_w >= WIDE_HOME_MIN_W;
 
     let body = if wide {
+        // `lg:grid-cols-[280px_minmax(0,720px)] lg:gap-8` in `max-w-[1080px]` less its 24pt sides.
         row()
             .key("home-grid")
             .w_full()
-            .max_w(1000.0)
+            .max_w(1032.0)
             .gap(32.0)
             .child(projects_column(s, p, selected))
-            .child(col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(search).child(list.mt(12.0)))
+            .child(col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(search).child(list.mt(LIST_TOP)))
     } else {
         let top = row().key("home-bar").w_full().gap(8.0).center_y().child(projects_dropdown_trigger(s, p, selected)).child(search);
-        col().key("home-column").w_full().max_w(720.0).child(top).child(list.mt(12.0))
+        col().key("home-column").w_full().max_w(720.0).child(top).child(list.mt(LIST_TOP))
     };
 
     col()
@@ -169,9 +181,9 @@ fn projects_column(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
     let header = row()
         .key("home-projects-header")
         .w_full()
-        .h(36.0)
+        .h(28.0)
         .pl(6.0)
-        .pr(2.0)
+        .pr(12.0)
         .center_y()
         .child(text("Projects").font(UI_MED).color(p.muted))
         .child(spacer())
@@ -185,33 +197,55 @@ fn projects_column(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
                 .hover(p.hover)
                 .press(p.pressed)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
-                .child(icon(&ic::PLUS, 16.0).color(p.icon_muted)),
+                .child(icon(&FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)),
         );
 
-    let mut rows = col().key("home-projects-list").w_full().gap(2.0).mt(12.0);
+    let mut rows = col().key("home-projects-list").w_full().pr(12.0).gap(4.0).mt(16.0);
     if used.is_empty() {
         rows = rows.child(
-            row()
-                .key("home-add-project-empty")
-                .role("button")
-                .label("Add project")
-                .w_full()
-                .h(28.0)
-                .px(6.0)
-                .gap(8.0)
-                .center_y()
-                .radius(6.0)
-                .hover(p.hover)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
-                .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
-                .child(text("Add project").font(UI).color(p.muted)),
+            nav_row(p, "home-add-project-empty", &FOLDER_ADD_LEFT, "Add project", p.muted)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)),
         );
     } else {
         for proj in used {
             rows = rows.child(home_project_row(s, p, proj, selected.is_some_and(|sel| sel.id == proj.id)));
         }
     }
-    col().key("home-projects").w(216.0).child(header).child(rows)
+    // `HomeUtilityNav`, under the list: `gap-4` and `mt-4`.
+    let utility = col()
+        .key("home-utility")
+        .w_full()
+        .pr(12.0)
+        .gap(4.0)
+        .mt(32.0)
+        .child(nav_row(p, "home-settings", &ic::SETTINGS_GEAR, "Settings", p.muted).on_press_tx(|s: &mut App, tx: &mut Tx| {
+            if !s.settings.open {
+                s.toggle_settings(tx);
+            }
+        }))
+        .child(nav_row(p, "home-help", &ic::HELP, "Help", p.muted).on_press_tx(|_: &mut App, tx: &mut Tx| {
+            let _ = tx.open_url("https://opencode.ai/desktop-feedback");
+        }));
+    col().key("home-projects").w(280.0).pt(PROJECTS_TOP).child(header).child(rows).child(utility)
+}
+
+/// `HomeProjectNavButton`: 28pt, the 14pt icon in icon-muted, `ink` text going to the text
+/// colour over the layer-01 hover.
+fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, ink: Color) -> El {
+    row()
+        .key(key)
+        .role("button")
+        .label(label)
+        .w_full()
+        .h(28.0)
+        .px(6.0)
+        .gap(8.0)
+        .center_y()
+        .radius(6.0)
+        .hover_group()
+        .hover(p.layer1)
+        .child(el().key("icon").size(16.0, 16.0).center().child(icon(glyph, 14.0).color(p.icon_muted)))
+        .child(text(label).font(UI).color(ink).group_color(p.text).grow(1.0).shrink().truncate())
 }
 
 fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El {
@@ -231,8 +265,7 @@ fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El
         .center_y()
         .radius(6.0)
         .hover_group()
-        .hover(if active { p.pressed } else { p.hover })
-        .press(p.pressed)
+        .hover(if active { p.layer3 } else { p.layer1 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
             let menu = crate::popup::Menu::new("Project")
@@ -250,8 +283,9 @@ fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
         .child(
             text(proj.name.clone())
-                .font(if active { UI_MED } else { UI })
+                .font(UI)
                 .color(if active { p.text } else { p.muted })
+                .group_color(p.text)
                 .grow(1.0)
                 .shrink()
                 .truncate_fade(),
@@ -269,7 +303,7 @@ fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El
                 .child(icon(&ic::EDIT, 14.0).color(p.icon_muted)),
         );
     if active {
-        r = r.fill(p.pressed);
+        r = r.fill(p.layer3);
     }
     r
 }
