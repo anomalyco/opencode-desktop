@@ -9,11 +9,14 @@ use serde_json::Value;
 
 mod compaction;
 mod notice;
+mod tool;
 #[cfg(test)]
 mod compaction_tests;
 
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use notice::{Notice, NoticeKind, Retry, StepError, is_notice_event};
+pub use tool::{tool_error, tool_output, tool_ran};
+use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use crate::project::{LocationInfo, parse_location, parse_project, project_sandboxes, set_project_sandboxes};
 pub use crate::quote::{Quote, set_user_quotes, user_quotes};
 
@@ -186,72 +189,6 @@ pub enum Part {
     /// A failed call keeps its error there too: see [`tool_error`]; and when it began running:
     /// see [`tool_ran`].
     Tool { id: String, name: String, status: ToolStatus, title: String, input: Value, files: Vec<Attachment>, metadata: Value },
-}
-
-/// Where a failed tool call's error message is kept in its `metadata`.
-const TOOL_ERROR: &str = "opencode-kit.error";
-
-/// A failed tool call's error message, from its `metadata`.
-pub fn tool_error(metadata: &Value) -> Option<&str> {
-    metadata[TOOL_ERROR].as_str()
-}
-
-/// Keeps `error`'s message (an `{ message }` object or a string) in `metadata`.
-fn keep_tool_error(metadata: &mut Value, error: &Value) {
-    let Some(message) = error["message"].as_str().or(error.as_str()) else { return };
-    if !metadata.is_object() {
-        *metadata = Value::Object(Default::default());
-    }
-    metadata[TOOL_ERROR] = message.into();
-}
-
-/// Where a tool call's start, in Unix milliseconds, is kept in its `metadata`.
-const TOOL_RAN: &str = "opencode-kit.ran";
-
-/// When a tool call began running (`time.ran`, else `time.created`), once a read has said.
-pub fn tool_ran(metadata: &Value) -> Option<i64> {
-    metadata[TOOL_RAN].as_i64()
-}
-
-fn keep_tool_ran(metadata: &mut Value, time: &Value) {
-    let Some(ran) = time["ran"].as_i64().or(time["created"].as_i64()) else { return };
-    if !metadata.is_object() {
-        *metadata = Value::Object(Default::default());
-    }
-    metadata[TOOL_RAN] = ran.into();
-}
-
-/// Where a finished tool call's text result is kept in its `metadata`.
-const TOOL_OUTPUT: &str = "opencode-kit.output";
-
-/// A tool call's text result: what a running call has streamed so far (`metadata.output`), or
-/// the text items of what a finished one returned.
-pub fn tool_output<'a>(status: &ToolStatus, metadata: &'a Value) -> Option<&'a str> {
-    match status {
-        ToolStatus::Running => metadata["output"].as_str(),
-        _ => metadata[TOOL_OUTPUT].as_str(),
-    }
-}
-
-/// Keeps the text items of a tool result's `content` in `metadata`.
-fn keep_tool_output(metadata: &mut Value, content: &Value) {
-    let texts: Vec<&str> = content.as_array().into_iter().flatten().filter(|c| c["type"] == "text").filter_map(|c| c["text"].as_str()).collect();
-    if texts.is_empty() {
-        return;
-    }
-    if !metadata.is_object() {
-        *metadata = Value::Object(Default::default());
-    }
-    metadata[TOOL_OUTPUT] = texts.join("\n").into();
-}
-
-/// Swaps in the server's newer `metadata`, keeping when the call began running.
-fn replace_tool_metadata(metadata: &mut Value, new: &Value) {
-    let ran = metadata[TOOL_RAN].clone();
-    *metadata = new.clone();
-    if !ran.is_null() {
-        metadata[TOOL_RAN] = ran;
-    }
 }
 
 /// The child session a subagent call runs in, once the call names it.
