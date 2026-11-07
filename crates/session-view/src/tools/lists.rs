@@ -126,13 +126,14 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
         .role("link")
         .label(url.to_owned())
         .help(url.to_owned())
+        .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
             s.open_link(&to, tx);
         })
         .child(text(url.to_owned()).font(UI).color(p.muted).truncate_fade().shrink().min_w(0.0))
-        .child(icon(&ic::ARROW_UP, 12.0).color(p.icon_faint).rotate(std::f32::consts::FRAC_PI_4))
+        .child(icon(&ic::OUTLINE_SQUARE_ARROW, 16.0).color(p.accent).group_opacity(0.0, 1.0))
 }
 
 /// A web search: "{Provider} Web Search" and its query; open, the links it found.

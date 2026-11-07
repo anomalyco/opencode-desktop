@@ -26,7 +26,7 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, id))
-        .child(icon(&ic::WARNING, 16.0).key("icon").color(p.danger))
+        .child(icon(&ic::OUTLINE_HEXAGONAL_WARNING, 16.0).key("icon").color(p.danger))
         .child(text(name(c)).key("title").font(UI_MED).color(p.text));
     if let Some(sub) = subtitle(s, c) {
         let font = if matches!(c.name, "shell" | "bash") { CODE.lh(16.0) } else { UI };

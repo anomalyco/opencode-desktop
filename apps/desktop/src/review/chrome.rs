@@ -4,6 +4,7 @@
 
 use rune::{Anim, Color, Cursor, El, Icon, TextEdit, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
+use rune_theme_opencode::tree_icons::TreeIcon;
 
 use crate::App;
 use crate::palette::{Pal, kit};
@@ -132,12 +133,15 @@ pub fn filter_field(
     col().w_full().px(8.0).pb(4.0).child(field)
 }
 
-/// A tree row (`file-tree-v2-row`): a folder shows only its chevron, a file its icon; the
-/// selected row takes the pressed overlay and the base text colour.
-pub fn tree_row(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file_glyph: Option<&'static Icon>, selected: bool) -> El {
+/// A tree row (`file-tree-v2-row`): a folder shows only its chevron, 1 px low, a file its
+/// `@pierre/trees` icon, in its type's colour on the selected row; the selected row takes the
+/// pressed overlay and the base text colour.
+pub fn tree_row(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file_glyph: Option<TreeIcon>, selected: bool) -> El {
     let lead = match (expanded, file_glyph) {
-        (Some(open), _) => icon(if open { &CHEVRON_DOWN } else { &CHEVRON_RIGHT }, 16.0).color(p.icon_muted),
-        (None, Some(glyph)) => icon(glyph, 16.0).color(if selected { p.icon } else { p.icon_muted }),
+        (Some(open), _) => icon(if open { &CHEVRON_DOWN } else { &CHEVRON_RIGHT }, 16.0)
+            .color(if selected { p.text } else { p.icon_muted })
+            .offset(0.0, 1.0),
+        (None, Some(t)) => icon(t.icon(), 16.0).color(if selected { t.color(p.dark) } else { p.icon_muted }),
         (None, None) => el().size(16.0, 16.0),
     };
     row()

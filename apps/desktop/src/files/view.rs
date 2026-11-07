@@ -7,7 +7,7 @@ use rune::{
     Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, TextEdit, Tx, col,
     el, icon, row, text,
 };
-use rune_kit::file_icon;
+use rune_theme_opencode::tree_icons;
 
 use super::data::{OPEN_TAB_ID, file_tab_path};
 use super::{
@@ -199,7 +199,7 @@ fn workspace_tree_view(
                 let id_click = tr.id.to_owned();
                 let id_dbl = tr.id.to_owned();
                 let id_ctx = tr.id.to_owned();
-                let glyph = (!is_dir).then(|| file_icon(&node.name));
+                let glyph = (!is_dir).then(|| tree_icons::file(&node.name));
                 let expanded = if is_dir { Some(tr.expanded.unwrap_or(false)) } else { None };
                 let mut r = chrome::tree_row(&pal, &node.name, tr.depth, expanded, glyph, active)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -290,7 +290,10 @@ fn filtered_files_view(
                     .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
                         s.open_workspace_file(&dbl_p, false, None, tx);
                     })
-                    .child(icon(file_icon(name), 14.0).color(pal.icon_muted))
+                    .child({
+                        let t = tree_icons::file(name);
+                        icon(t.icon(), 16.0).color(if active || highlighted { t.color(pal.dark) } else { pal.icon_muted })
+                    })
                     .child(
                         text(name.to_owned())
                             .font(UI_SMALL)

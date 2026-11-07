@@ -740,6 +740,7 @@ impl<S: 'static> Inner<S> {
             .gap(6.0)
             .center_y()
             .child(toggle)
+            .child(icon(rune_theme_opencode::file_icons::file(full_path), 16.0).key("file-icon").color(l.text))
             .child(path_row);
 
         if let Some((badge, color)) = status {

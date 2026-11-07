@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::{Call, Display, Press, Title, Trigger, body, field, files_count, path, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CODE, INSTANT, UI, UI_SMALL, chevron, readable};
+use crate::style::{CODE, INSTANT, UI, UI_SMALL, readable};
 
 /// A file row's change words: Desktop's 12 px medium.
 const SMALL_MED: rune::TextStyle = rune::TextStyle::new(12.0, 530.0).lh(16.0);
@@ -155,10 +155,11 @@ fn file_row<S: TimelineHost>(s: &S, p: &Pal, c: &Call, n: usize, path: &str, cha
         .center_y()
         .role("button")
         .label(path.to_owned())
+        .expanded(open)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, row_key))
-        .child(icon(rune_kit::file_icon(name), 16.0).key("icon").color(p.icon_muted))
+        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
         .child(words)
         .child(el().key("spacer").grow(1.0));
     r = match change {
@@ -176,8 +177,7 @@ fn file_row<S: TimelineHost>(s: &S, p: &Pal, c: &Call, n: usize, path: &str, cha
     {
         r = r.child(row().key("action").group_opacity(0.0, 1.0).child(action));
     }
-    let arrow = icon(chevron(open), 14.0).key("chevron").color(p.icon_faint);
-    r.child(if open { arrow } else { arrow.group_opacity(0.0, 1.0) })
+    r.child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("chevron").color(p.icon_faint))
 }
 
 /// A file's errors after the change (severity 1, the first three), as Desktop's

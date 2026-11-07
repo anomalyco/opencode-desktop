@@ -102,7 +102,7 @@ fn call_row<S: TimelineHost>(s: &S, p: &Pal, id: &str, n: usize, call: Option<&V
     let k = sub_key(id, format!("call-{n}"));
     let open = opens && s.expanded().contains(&k);
     let marker = if failed {
-        icon(&ic::WARNING, 14.0).color(p.danger)
+        icon(&ic::OUTLINE_HEXAGONAL_WARNING, 14.0).color(p.danger)
     } else {
         text("›").font(CODE.lh(20.0)).color(p.faint)
     };

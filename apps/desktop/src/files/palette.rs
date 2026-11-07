@@ -9,7 +9,7 @@ use rune::{
     Waker, col, el, icon, row, text, text_input,
 };
 use rune_kit::diff::FileStatus;
-use rune_kit::file_icon;
+use rune_theme_opencode::file_icons;
 use rune_theme_opencode::icons as ic;
 
 use super::data::{fetch_live_find, parse_path_and_line, rank_file_query};
@@ -371,7 +371,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                             s.close_file_palette(false);
                             s.open_workspace_file(&click_path, false, line, tx);
                         })
-                        .child(icon(file_icon(name), 15.0).color(if active { pal.icon } else { pal.icon_muted }))
+                        .child(icon(file_icons::file(name), 16.0).color(pal.text))
                         .child(
                             text(name.to_owned())
                                 .font(if active { UI_MED } else { UI })

@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use rune::{Cx, El, Icon, Key, KeyEvent, Latest, Tx, Waker, icon};
+use rune::{Cx, El, Key, KeyEvent, Latest, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -540,25 +540,13 @@ impl App {
 // View
 
 use session_view::user_parts::SESSION as SPEECH_BUBBLE;
-/// Desktop's `post-skill` (`ui/src/icons/icon/additional-icons.ts`).
-static POST_SKILL: Icon = Icon {
-    name: "post-skill",
-    view: 20.0,
-    body: r#"<rect x="2.5" y="3.5" width="15" height="13" rx="1.5" stroke="currentColor"/><path d="M5.5 7.5H10.5M5.5 10.5H14.5" stroke="currentColor"/>"#,
-};
 
-static FILE_DOCUMENT: Icon = Icon {
-    name: "file-document",
-    view: 14.0,
-    body: r#"<path d="M7.58331 2.33333V5.25H10.5M2.91664 1.75H7.58331L11.0833 5.25V12.25H2.91664V1.75Z" stroke="currentColor" stroke-linecap="square"/>"#,
-};
-
-fn row_icon(p: &Pal, kind: Kind) -> El {
+fn row_icon(p: &Pal, kind: Kind, label: &str) -> El {
     match kind {
         Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(p.icon),
         Kind::Agent => icon(&ic::BRAIN, 16.0).color(badge::ink(p).info),
-        Kind::Skill => icon(&POST_SKILL, 16.0).color(p.icon),
-        Kind::File => icon(&FILE_DOCUMENT, 16.0).color(p.icon),
+        Kind::Skill => icon(&ic::POST_SKILL, 16.0).color(p.icon),
+        Kind::File => icon(rune_theme_opencode::file_icons::file(label), 16.0).color(p.text),
     }
 }
 
@@ -573,7 +561,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let active = s.mention_active(&items);
     let rows = items
         .iter()
-        .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind)), description: i.description.clone(), trail: None })
+        .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind, &i.label)), description: i.description.clone(), trail: None })
         .collect();
     let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width };
     Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key, _| s.pick_mention(key)))

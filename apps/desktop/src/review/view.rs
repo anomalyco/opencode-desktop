@@ -7,7 +7,7 @@ use rune::{
     col, el, icon, row, text,
 };
 use rune_kit::diff::{DiffMode, Expand, FileStatus};
-use rune_kit::file_icon;
+use rune_theme_opencode::tree_icons;
 use rune_theme_opencode::icons as ic;
 
 use super::chrome;
@@ -283,7 +283,7 @@ fn tree_row_el(
     active: bool,
 ) -> El {
     let id_owned = node_id.to_owned();
-    let glyph = (!is_dir).then(|| file_icon(name));
+    let glyph = (!is_dir).then(|| tree_icons::file(name));
     let r = chrome::tree_row(p, name, depth, expanded.filter(|_| is_dir), glyph, active)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -355,7 +355,10 @@ fn filtered_list_view(s: &App, p: &Pal, session_id: &str, sr: &SessionReview) ->
                         tx.instant();
                         s.focus_review_file(&path_click, tx);
                     })
-                    .child(icon(file_icon(name), 14.0).color(pal.icon_muted))
+                    .child({
+                        let t = tree_icons::file(name);
+                        icon(t.icon(), 16.0).color(if active || highlighted { t.color(pal.dark) } else { pal.icon_muted })
+                    })
                     .child(
                         text(name.to_owned())
                             .font(UI_SMALL)

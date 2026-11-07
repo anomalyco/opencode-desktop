@@ -9,18 +9,11 @@
 use std::cell::Cell;
 
 use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, capitalize};
-use rune::{El, Icon, Link, LinkPaint, LocalTime, Span, Tx, col, icon, row, text};
+use rune::{El, Link, LinkPaint, LocalTime, Span, Tx, col, icon, row, text};
 
 use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{UI, UI_MED, readable};
-
-/// Desktop's `outline-hexagonal-warning`.
-static HEX_WARNING: Icon = Icon {
-    name: "outline-hexagonal-warning",
-    view: 16.0,
-    body: r#"<path d="M10.6667 1.33325H5.33272L1.33334 5.33325L1.33342 10.6917L5.3327 14.691L10.6667 14.6909L14.6911 10.6917V5.33255L10.6667 1.33325Z" stroke="currentColor"/><path d="M8 10.6667H8.00667" stroke="currentColor" stroke-linecap="square"/><path d="M8 7.99992V5.33325" stroke="currentColor" stroke-linecap="square"/>"#,
-};
 
 /// Desktop drops a provider's wait past a week as bogus.
 const MAX_RETRY_AFTER_MS: i64 = 7 * 86_400_000;
@@ -192,7 +185,7 @@ fn titled(p: &Pal, message: &str, wrap: bool) -> El {
 
 fn mark(p: &Pal) -> El {
     // On the first line's middle, as `items-start` puts it beside 16 pt lines.
-    icon(&HEX_WARNING, 16.0).key("mark").color(p.danger)
+    icon(&rune_theme_opencode::icons::OUTLINE_HEXAGONAL_WARNING, 16.0).key("mark").color(p.danger)
 }
 
 /// The turn's error row: a limit's notice, or the warning mark and the error.
