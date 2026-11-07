@@ -156,7 +156,7 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         return build();
     }
     let mut h = std::hash::DefaultHasher::new();
-    (cx.session, cx.live, p.theme, p.dark, s.reduced_motion(), s.session_directory(cx.session)).hash(&mut h);
+    (cx.session, cx.live, p.theme, p.generation, p.dark, s.reduced_motion(), s.session_directory(cx.session)).hash(&mut h);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);

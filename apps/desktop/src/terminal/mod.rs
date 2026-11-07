@@ -147,7 +147,7 @@ pub struct TerminalPane {
     pub bell_until: f64,
     pub last_blink_lit: bool,
     /// The appearance and theme (`Pal::theme`) the open terminals were last painted in.
-    pub last_dark: Option<(bool, usize)>,
+    pub last_dark: Option<(bool, usize, u64)>,
     /// The appearance the window last drew in, resolved from the System setting; state
     /// updates have no `Cx` to ask.
     pub painted_dark: Cell<Option<bool>>,
@@ -586,7 +586,7 @@ impl App {
 
         if !self.terminal.workspaces.is_empty() {
             let dark = self.terminal_dark();
-            let painted = Some((dark, crate::themes::active()));
+            let painted = Some((dark, crate::themes::active(), crate::themes::generation()));
             if self.terminal.last_dark != painted {
                 self.terminal.last_dark = painted;
                 let theme = theme_from_pal(pal(dark));

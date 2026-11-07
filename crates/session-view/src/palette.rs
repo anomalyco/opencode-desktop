@@ -13,6 +13,9 @@ pub struct Pal {
     pub dark: bool,
     /// The theme painted, as an index into `themes::all` (0 is OpenCode's default).
     pub theme: usize,
+    /// `themes::generation` when it was built: a plugin theme reloaded under the same index
+    /// builds a new palette, and what memoizes on the theme keys on both.
+    pub generation: u64,
     pub bg_base: Color,
     pub bg_deep: Color,
     pub layer1: Color,
@@ -242,10 +245,10 @@ const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
 /// [`Pal`] (native plugins). Each theme is read once.
 pub fn token(dark: bool, name: &str) -> Option<Color> {
     thread_local! {
-        static THEMES: std::cell::RefCell<HashMap<(usize, bool, bool), Theme>> = std::cell::RefCell::new(HashMap::new());
+        static THEMES: std::cell::RefCell<HashMap<(usize, u64, bool, bool), Theme>> = std::cell::RefCell::new(HashMap::new());
     }
     let theme = crate::themes::active();
-    let key = (theme, dark, rune::theme::blends_srgb());
+    let key = (theme, crate::themes::generation(), dark, rune::theme::blends_srgb());
     THEMES.with(|t| {
         let mut t = t.borrow_mut();
         let read = match t.entry(key) {
@@ -288,6 +291,7 @@ fn build(theme: usize, dark: bool) -> Pal {
     Pal {
         dark,
         theme,
+        generation: crate::themes::generation(),
         on_fill: Color::WHITE,
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },
         switch_thumb: if dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE },
@@ -486,13 +490,13 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
 /// The tokens for an appearance in this thread's theme (`themes::active`), built once each.
 pub fn pal(dark: bool) -> &'static Pal {
     static PALS: [[OnceLock<Pal>; 2]; 2] = [const { [const { OnceLock::new() }; 2] }; 2];
-    static THEMED: Mutex<Vec<((usize, bool, bool), &'static Pal)>> = Mutex::new(Vec::new());
+    static THEMED: Mutex<Vec<((usize, u64, bool, bool), &'static Pal)>> = Mutex::new(Vec::new());
     let srgb = rune::theme::blends_srgb();
     let theme = crate::themes::active();
     if theme == 0 {
         return PALS[dark as usize][srgb as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(0, dark)));
     }
-    let key = (theme, dark, srgb);
+    let key = (theme, crate::themes::generation(), dark, srgb);
     let mut themed = THEMED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, p)) = themed.iter().find(|(k, _)| *k == key) {
         return p;
@@ -505,8 +509,8 @@ pub fn pal(dark: bool) -> &'static Pal {
 /// The one rune-kit Kit, for markdown, code, diffs and the odometer: OpenCode's kit, its
 /// colours taken from `p` in a chosen theme so it follows the theme (the default keeps it as is). Built once per theme, appearance and blend.
 pub fn kit(p: &Pal) -> &'static Kit {
-    static KITS: Mutex<Vec<((usize, bool, bool), &'static Kit)>> = Mutex::new(Vec::new());
-    let key = (p.theme, p.dark, rune::theme::blends_srgb());
+    static KITS: Mutex<Vec<((usize, u64, bool, bool), &'static Kit)>> = Mutex::new(Vec::new());
+    let key = (p.theme, p.generation, p.dark, rune::theme::blends_srgb());
     let mut kits = KITS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, k)) = kits.iter().find(|(k, _)| *k == key) {
         return k;

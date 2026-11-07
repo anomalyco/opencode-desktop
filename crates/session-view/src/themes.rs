@@ -7,6 +7,7 @@
 //! `palette::pal`, and tests on other threads keep the default.
 
 use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 use serde_json::{Map, Value};
@@ -56,8 +57,8 @@ pub fn all() -> &'static [&'static Info] {
 
 /// Adds theme `id` (or replaces the one with that id, keeping its place, so its index stays
 /// put) with `light` and `dark` tokens laid over OpenCode's own, so a theme may set only the
-/// tokens it changes. A theme's colours are built once per index, so a replaced theme repaints
-/// on the next launch.
+/// tokens it changes. A change moves [`generation`], so the colours built for the old tokens
+/// go and a hot-reloaded theme repaints at once.
 pub fn register(id: &str, name: &str, tokens: [Map<String, Value>; 2]) {
     let [light, dark] = tokens;
     // Only colours: a token that doesn't read as one keeps OpenCode's, so a theme can't break
@@ -79,6 +80,15 @@ pub fn register(id: &str, name: &str, tokens: [Map<String, Value>; 2]) {
         None => list.push(info),
     }
     *LIST.write().unwrap_or_else(|e| e.into_inner()) = Some(Box::leak(list.into_boxed_slice()));
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Which registration of the themes is current: it moves each time [`register`] adds or
+/// changes one. Caches of a theme's colours key on it with the theme's index.
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
 }
 
 /// The index of `id` in [`all`], or the default's (0) for an unknown id.

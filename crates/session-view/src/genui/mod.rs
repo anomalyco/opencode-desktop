@@ -148,7 +148,7 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
             Seg::Ui { at, src_at, line, nodes } => {
                 let marks: Vec<inline::Mark> = hits_in(hits, &at).into_iter().map(|(i, m, on)| (i, shift(m, at.start), on)).collect();
                 let lines: Vec<(usize, u64)> = nodes_lines(&nodes);
-                let ver = (lines, src_at, width.to_bits(), fade.to_bits(), p.dark, p.theme, &marks);
+                let ver = (lines, src_at, width.to_bits(), fade.to_bits(), p.dark, (p.theme, p.generation), &marks);
                 let outline = rune::memo(format!("outline-{line}"), ver, || inline::outline::<S>(p, src, src_at, &nodes, width, fade, marks.clone()));
                 // A pane that gains a sibling while it streams springs to its new width.
                 (col().key(format!("ui-{line}")).w_full().animate_layout().child(outline), UI_EDGES)

@@ -106,7 +106,7 @@ impl CodeLook {
         for c in [bg, p.text, p.diff_add, p.diff_del, p.info, p.layer1] {
             [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(&mut h);
         }
-        p.theme.hash(&mut h);
+        (p.theme, p.generation).hash(&mut h);
         mono.size.to_bits().hash(&mut h);
 
         Self {
