@@ -1,0 +1,312 @@
+//! Windows: a per-user install that replaces itself folder by folder.
+//!
+//! The install model, which the Windows installer lays out:
+//!
+//! ```text
+//! %LOCALAPPDATA%\Programs\OpenCode Rune\            the install root: Start menu shortcut,
+//!   opencode-desktop.exe                            taskbar pin, toast activator and
+//!   plugins\<id>\plugin.toml, <library>.dll         uninstall entry all point in here
+//! %LOCALAPPDATA%\Programs\.OpenCode Rune.staged\    the next version, verified, beside it
+//! %LOCALAPPDATA%\Programs\.OpenCode Rune.old-<pid>\ the previous one while the swap runs
+//! %LOCALAPPDATA%\rune-opencode\Cache\Updates\       downloads, the helper's copy and its log
+//! %LOCALAPPDATA%\rune-opencode\Cache\Updates\ready  the version staged, so a restart knows it
+//! ```
+//!
+//! Why: a per-user folder needs no administrator to replace, as Hex's and VS Code's user
+//! installs; Windows locks a running program's files, so the swap waits for the app to exit;
+//! renaming a folder is atomic within a volume, and staging beside the root keeps it on the same
+//! volume; the root's path never changes, so nothing that points into it needs updating; and
+//! the previous folder stays until the new one is in place, so a failed swap puts it back.
+//!
+//! A check reads the feed's `windows-x64` (or `windows-arm64`) target: a zip of the install
+//! folder. The download's size and SHA-256 must match the manifest's, every program and library
+//! in it must carry a trusted Authenticode signature from [`EXPECTED_PUBLISHER`], and it unpacks
+//! beside the root. Restart to update (or quitting with an update ready) copies the staged
+//! version's own executable into the updates folder and starts it as the helper
+//! (`--apply-update`, see `apply.rs`), which waits for this process to exit, swaps the folders
+//! and, for a restart, starts the new version with the same arguments.
+
+use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::authenticode;
+use super::engine::{Engine, Facts};
+use super::feed;
+use super::platform::Platform;
+
+pub const EXE: &str = "opencode-desktop.exe";
+
+// TODO(IMPORTANT before release): publish signed Windows builds to the release feed (a zip of the install folder as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json, its exe and DLLs Authenticode-signed), then set WINDOWS_SERVICE_URL to DEFAULT_SERVICE_URL and EXPECTED_PUBLISHER in updater/windows.rs.
+// The signing certificate's subject name, as `CertGetNameStringW` reads it.
+pub const EXPECTED_PUBLISHER: Option<&str> = None;
+
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+static SEQ: AtomicU64 = AtomicU64::new(1);
+
+struct Staged {
+    version: String,
+    sha256: String,
+    dir: PathBuf,
+}
+
+pub struct Windows {
+    engine: Engine,
+    version: String,
+    root: PathBuf,
+    /// A debug build on a local feed installs unsigned builds, since local builds aren't signed.
+    allow_unsigned: bool,
+    staged: Mutex<Option<Staged>>,
+    /// The arguments to start the new version with.
+    args: Vec<String>,
+}
+
+/// The updater for the install `exe` runs from: on with a release feed (none yet, see
+/// [`feed::WINDOWS_SERVICE_URL`]) in a release build, or with `OPENCODE_RUNE_UPDATE_FEED` in a
+/// debug build. A development build (channel `local`) never reads the release feed.
+pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Windows> {
+    let debug = feed::debug_feed();
+    let service = debug.clone().or_else(|| feed::WINDOWS_SERVICE_URL.filter(|_| build_channel != "local").map(str::to_owned))?;
+    let root = exe.parent()?.to_path_buf();
+    let allow_unsigned = debug.as_deref().is_some_and(feed::loopback);
+    sweep(&root, &updates);
+    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
+    #[allow(clippy::disallowed_methods)]
+    let args = std::env::args().skip(1).collect();
+    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, allow_unsigned, staged: Mutex::new(None), args })
+}
+
+impl Platform for Windows {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn check(&self) -> Result<Option<String>, String> {
+        self.engine.check()
+    }
+
+    fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
+        let found = self.engine.found().ok_or_else(|| "No update to download".to_owned())?;
+        let staged_dir = beside(&self.root, "staged");
+        if let Ok(staged) = self.staged.lock()
+            && let Some(st) = staged.as_ref()
+            && st.sha256 == found.target.sha256
+            && st.dir.join(EXE).is_file()
+        {
+            return Ok(());
+        }
+        check_replaceable(&self.root)?;
+        let updates = &self.engine.facts.updates;
+        std::fs::create_dir_all(updates).map_err(|e| format!("could not create update dir: {e}"))?;
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let download = updates.join(format!("download-{}-{seq}", std::process::id()));
+        let unpack = beside(&self.root, &format!("staging-{}-{seq}", std::process::id()));
+        let result: Result<Staged, String> = (|| {
+            std::fs::create_dir_all(&download).map_err(|e| format!("could not create download dir: {e}"))?;
+            let zip = download.join("update.zip");
+            let found = self.engine.download(&zip, progress)?;
+            log(&format!("updater: downloaded {} ({} bytes, SHA-256 {} matches)", found.version, found.target.size, found.target.sha256));
+            std::fs::create_dir_all(&unpack).map_err(|e| format!("could not create unpack dir: {e}"))?;
+            unpack_zip(&zip, &unpack)?;
+            let app = locate(&unpack)?;
+            self.verify(&app)?;
+            std::fs::remove_dir_all(&staged_dir).ok();
+            std::fs::rename(&app, &staged_dir).map_err(|e| format!("could not stage the update: {e}"))?;
+            Ok(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir.clone() })
+        })();
+        std::fs::remove_dir_all(&download).ok();
+        std::fs::remove_dir_all(&unpack).ok();
+        let staged = result?;
+        log(&format!("updater: {} staged in {}", staged.version, staged.dir.display()));
+        if let Ok(mut slot) = self.staged.lock() {
+            *slot = Some(staged);
+        }
+        Ok(())
+    }
+
+    fn install(&self) -> Result<(), String> {
+        self.hand_off(true)
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.hand_off(false) {
+            log(&format!("updater: couldn't install on quit: {e}"));
+        }
+    }
+}
+
+impl Windows {
+    /// Every program and library in `app` must be signed by the release's publisher (or, from a
+    /// local feed in a debug build, may be unsigned).
+    fn verify(&self, app: &Path) -> Result<(), String> {
+        if !app.join(EXE).is_file() {
+            return Err(format!("the update has no {EXE}"));
+        }
+        if EXPECTED_PUBLISHER.is_none() && !self.allow_unsigned {
+            return Err("this build has no release publisher to check updates against".into());
+        }
+        let mut files = Vec::new();
+        binaries(app, &mut files);
+        for file in &files {
+            let name = file.strip_prefix(app).unwrap_or(file).display().to_string();
+            match authenticode::signer(file) {
+                Ok(signer) if EXPECTED_PUBLISHER.is_none_or(|p| p == signer) => {}
+                Ok(signer) if self.allow_unsigned => log(&format!("updater: {name} is signed by {signer}; allowed from a local feed")),
+                Ok(signer) => return Err(format!("{name} is signed by {signer}, not the release's publisher")),
+                Err(e) if self.allow_unsigned => log(&format!("updater: {name}: {e}; allowed from a local feed")),
+                Err(e) => return Err(format!("the update couldn't be verified: {name}: {e}")),
+            }
+        }
+        log(&format!("updater: checked the signatures of {} files", files.len()));
+        Ok(())
+    }
+
+    /// Starts the staged version's executable as the helper, which swaps the folders once this
+    /// process exits.
+    fn hand_off(&self, relaunch: bool) -> Result<(), String> {
+        let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone(), s.dir.clone()))).ok_or_else(|| "No staged update ready to install.".to_owned())?;
+        let (version, sha256, dir) = staged;
+        self.verify_quick(&dir)?;
+        let updates = &self.engine.facts.updates;
+        let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
+        std::fs::copy(dir.join(EXE), &helper).map_err(|e| format!("could not prepare the update: {e}"))?;
+        let mut cmd = Command::new(&helper);
+        cmd.arg("--apply-update")
+            .arg("--wait")
+            .arg(std::process::id().to_string())
+            .arg("--root")
+            .arg(&self.root)
+            .arg("--staged")
+            .arg(&dir)
+            .arg("--exe")
+            .arg(EXE)
+            .arg("--version")
+            .arg(&version)
+            .arg("--sha256")
+            .arg(&sha256)
+            .arg("--updates")
+            .arg(updates)
+            .arg("--cwd")
+            .arg(std::env::current_dir().unwrap_or_else(|_| self.root.clone()));
+        if relaunch {
+            cmd.arg("--relaunch");
+        }
+        // A working folder inside the install would hold it open against the swap.
+        cmd.arg("--").args(&self.args).current_dir(updates).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // Out of any job the app runs in, so the helper outlives it.
+        let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
+        let child = cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).map_err(|e| format!("could not start the update: {e}"))?;
+        log(&format!("updater: helper {} (pid {}) installs {version} after this process exits{}", helper.display(), child.id(), if relaunch { ", then restarts" } else { "" }));
+        Ok(())
+    }
+
+    /// The staged executable, which runs as the helper, is still there and still trusted.
+    fn verify_quick(&self, dir: &Path) -> Result<(), String> {
+        let exe = dir.join(EXE);
+        if !exe.is_file() {
+            return Err(format!("the staged update lost {}", exe.display()));
+        }
+        match authenticode::signer(&exe) {
+            Err(e) if !self.allow_unsigned => Err(format!("the staged update couldn't be verified: {e}")),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// `<root's parent>\.<root's name>.<what>`: beside the install, on its volume.
+pub fn beside(root: &Path, what: &str) -> PathBuf {
+    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
+}
+
+fn check_replaceable(root: &Path) -> Result<(), String> {
+    let parent = root.parent().ok_or_else(|| "The install folder has no parent folder.".to_owned())?;
+    let probe = parent.join(format!(".opencode-rune-update-probe-{}", std::process::id()));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map(drop)
+        .and_then(|()| std::fs::remove_file(&probe))
+        .map_err(|_| format!("{} is not writable, so OpenCode can't update itself there.", parent.display()))
+}
+
+/// Windows' own bsdtar reads zip archives (a GNU tar earlier on PATH doesn't).
+fn unpack_zip(zip: &Path, into: &Path) -> Result<(), String> {
+    #[allow(clippy::disallowed_methods)]
+    let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    let out = Command::new(system.join("System32").join("tar.exe"))
+        .arg("-xf")
+        .arg(zip)
+        .arg("-C")
+        .arg(into)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("failed to run tar: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("could not unpack update archive: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(())
+}
+
+/// The unpacked install folder: the archive's root, or its one folder.
+fn locate(unpacked: &Path) -> Result<PathBuf, String> {
+    if unpacked.join(EXE).is_file() {
+        return Ok(unpacked.to_path_buf());
+    }
+    let dirs: Vec<PathBuf> = std::fs::read_dir(unpacked).map_err(|e| format!("could not read unpacked dir: {e}"))?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    match dirs.as_slice() {
+        [one] if one.join(EXE).is_file() => Ok(one.clone()),
+        _ => Err(format!("the update archive has no {EXE}")),
+    }
+}
+
+/// Every `.exe` and `.dll` under `dir`.
+fn binaries(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            binaries(&p, out);
+        } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe") || x.eq_ignore_ascii_case("dll")) {
+            out.push(p);
+        }
+    }
+}
+
+/// Clears what an earlier update left: the previous version's folder, unfinished unpacks and
+/// downloads, and the helper's copies.
+fn sweep(root: &Path, updates: &Path) {
+    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if let Some(parent) = root.parent()
+        && let Ok(entries) = std::fs::read_dir(parent)
+    {
+        for e in entries.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            let ours = n.strip_prefix(&format!(".{name}.")).is_some_and(|rest| rest.starts_with("old-") || rest.starts_with("staging-") || rest == "staged");
+            if ours {
+                std::fs::remove_dir_all(e.path()).ok();
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(updates) {
+        for e in entries.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if n.starts_with("download-") {
+                std::fs::remove_dir_all(e.path()).ok();
+            } else if n.starts_with("opencode-update-helper-") {
+                std::fs::remove_file(e.path()).ok();
+            }
+        }
+    }
+}
+
+fn log(message: &str) {
+    eprintln!("{message}");
+}

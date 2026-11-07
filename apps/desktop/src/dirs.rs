@@ -5,7 +5,7 @@
 //! | Settings, tabs, drafts, prompt history, model prefs, perf | `~/Library/Application Support/rune-opencode` | `%APPDATA%\rune-opencode` |
 //! | Session page cache | `~/Library/Caches/rune-opencode` | `%LOCALAPPDATA%\rune-opencode\Cache` |
 //! | Motion log | `~/Library/Logs/opencode-rune` | `%LOCALAPPDATA%\rune-opencode\Logs` |
-//! | Update downloads (macOS only) | `~/Library/Caches/<team bundle id>/Updates` | |
+//! | Update downloads and records | `~/Library/Caches/<team bundle id>/Updates` | `%LOCALAPPDATA%\rune-opencode\Cache\Updates` |
 //!
 //! Linux follows XDG. The folder names differ from OpenCode Desktop's (`ai.opencode.desktop*`),
 //! so the two apps never share files. `RUNE_DIRS_ROOT=<root>` moves every folder this app writes
@@ -47,10 +47,12 @@ pub fn motion_log() -> Option<PathBuf> {
     Some(logs.join("motion.jsonl"))
 }
 
-/// Where the updater downloads a release for the bundle `bundle_id`.
-#[cfg(target_os = "macos")]
-pub fn updates(bundle_id: &str) -> Option<PathBuf> {
-    Some(app()?.sibling(bundle_id).cache().join("Updates"))
+/// Where the updater downloads a release and keeps its records: the team bundle's caches on
+/// macOS (the folder it always had), the app's cache folder elsewhere.
+pub fn updates() -> Option<PathBuf> {
+    let app = app()?;
+    let cache = if cfg!(target_os = "macos") { app.sibling("anomaly.opencode-rune").cache().to_owned() } else { app.cache().to_owned() };
+    Some(cache.join("Updates"))
 }
 
 /// OpenCode Desktop Beta's drafts database (in its Electron `userData`), read to import its tabs.

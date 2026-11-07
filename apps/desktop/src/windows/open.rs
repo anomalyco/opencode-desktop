@@ -151,7 +151,10 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             }
             motion_log.frame(rt);
         })
-        .on_close(|s, _| s.save_on_close());
+        .on_close(|s, _| {
+            s.updater.closing();
+            s.save_on_close();
+        });
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
     if let Some(f) = frame {
         spec.options.position = Some((f.x, f.y));

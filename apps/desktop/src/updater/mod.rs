@@ -1,34 +1,54 @@
-//! Keeps team builds (`anomaly.opencode-rune`) current from `https://anoma.ly/release`.
+//! Keeps OpenCode (Rune) current from Anomaly's release feed.
 //!
-//! On macOS, checks 10 seconds after launch and hourly afterwards, downloads and verifies updates
-//! in a private folder under `~/Library/Caches/anomaly.opencode-rune/Updates`, and swaps the bundle
-//! atomically when the user presses Restart to update. Local dev builds
-//! (`anomaly.opencode-rune.dev`) and bare `cargo` binaries never run this updater. Other platforms
-//! have no updater yet.
+//! The update engine is a host service ([`service::UpdaterService`]: a state machine, download
+//! progress, and check and install actions) over a platform updater:
+//!
+//! - **macOS** (`mac.rs`): team builds (`anomaly.opencode-rune`) download and verify a signed
+//!   bundle (code signature, signing team, Gatekeeper) into a private folder under
+//!   `~/Library/Caches/anomaly.opencode-rune/Updates`, and swap it in atomically on Restart to
+//!   update. Local dev bundles and bare `cargo` binaries never update.
+//! - **Windows** (`windows.rs`): a per-user install verifies the download (size, SHA-256,
+//!   Authenticode), stages it beside the install folder, and swaps the folders once the app exits
+//!   (`apply.rs`, the app's own executable as the helper), on Restart to update or on quit.
+//!
+//! Both check ten seconds after launch and every ten minutes. This module draws the service's
+//! state: the Updates section in Settings, the sidebar's Update ready pill, and the Check for
+//! updates command.
 
+#[cfg(windows)]
+pub mod apply;
+#[cfg(windows)]
+mod authenticode;
+mod engine;
+mod feed;
 #[cfg(target_os = "macos")]
 pub mod mac;
-// The worker is macOS-only; elsewhere only the protocol's tests build it.
-#[cfg(any(target_os = "macos", test))]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod machine;
+mod platform;
 pub mod protocol;
-#[cfg(target_os = "macos")]
-mod worker;
+pub mod service;
+#[cfg(windows)]
+mod windows;
 
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use rune::{Color, El, Play, TextStyle, Tx, col, el, row, text};
 
+use self::machine::View;
+use self::service::UpdaterService;
 use crate::App;
 use crate::commands::Cmd;
 use crate::palette::Pal;
 use crate::stories::{Story, Trigger, replay, stage};
 use crate::view::{INSTANT, UI, UI_MED};
 
+/// What the UI shows of the service's state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum UpdateState {
-    /// No updater runs in this build (unpackaged or dev bundles), so Settings has no Updates section.
-    #[cfg_attr(target_os = "macos", default)]
+    /// No updater runs in this build (a development build, or no release feed for it yet), so
+    /// Settings has no Updates section.
+    #[default]
     Hidden,
     Idle,
     Checking,
@@ -38,16 +58,26 @@ pub enum UpdateState {
     Ready {
         version: String,
     },
+    Installing {
+        version: String,
+    },
     UpToDate,
     Failed(String),
-    /// No updater for this platform yet; Settings says so instead of offering a check.
-    #[cfg_attr(not(target_os = "macos"), default)]
-    Unsupported,
 }
 
-enum WorkerCmd {
-    Check,
-    Install,
+impl From<&View> for UpdateState {
+    fn from(view: &View) -> Self {
+        match view {
+            View::Disabled => UpdateState::Hidden,
+            View::Idle => UpdateState::Idle,
+            View::Checking => UpdateState::Checking,
+            View::Downloading(version) => UpdateState::Downloading { version: version.clone() },
+            View::UpToDate => UpdateState::UpToDate,
+            View::Ready(version) => UpdateState::Ready { version: version.clone() },
+            View::Installing(version) => UpdateState::Installing { version: version.clone() },
+            View::Error(message) => UpdateState::Failed(message.clone()),
+        }
+    }
 }
 
 /// What carries out a check or an install.
@@ -56,9 +86,8 @@ enum Driver {
     /// Nothing: no updater runs in this build.
     #[default]
     None,
-    /// The background worker of a packaged macOS build.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    Worker(Sender<WorkerCmd>),
+    /// The update service of an installed build, which every window shares.
+    Service(Rc<RefCell<UpdaterService>>),
     /// The Settings/Updates story, which plays each step itself.
     Story,
 }
@@ -69,20 +98,38 @@ pub struct Updater {
     pub channel: String,
     pub state: UpdateState,
     driver: Driver,
-    rx: Option<Receiver<UpdateState>>,
+    /// The service's revision this window last showed.
+    seen: u64,
+}
+
+thread_local! {
+    /// The one update service of the app (its windows share the app's thread), started by the
+    /// first window, and how many windows use it.
+    static SHARED: RefCell<Option<Rc<RefCell<UpdaterService>>>> = const { RefCell::new(None) };
+    static WINDOWS: Cell<usize> = const { Cell::new(0) };
 }
 
 impl Updater {
     pub fn supported(&self) -> bool {
-        matches!(self.driver, Driver::Worker(_))
+        matches!(self.driver, Driver::Service(_))
+    }
+
+    /// The update service, while one runs: the interface a UI drives (state, progress, check,
+    /// install).
+    pub fn service(&self) -> Option<Rc<RefCell<UpdaterService>>> {
+        match &self.driver {
+            Driver::Service(s) => Some(s.clone()),
+            _ => None,
+        }
     }
 
     pub fn check(&mut self, tx: &mut Tx) {
-        match &self.driver {
-            Driver::Worker(cmd) => {
+        match &mut self.driver {
+            Driver::Service(service) => {
                 tx.instant();
-                self.state = UpdateState::Checking;
-                let _ = cmd.send(WorkerCmd::Check);
+                let mut service = service.borrow_mut();
+                service.check();
+                self.state = UpdateState::from(&service.snapshot().state);
             }
             Driver::Story => {
                 tx.instant();
@@ -93,16 +140,30 @@ impl Updater {
     }
 
     pub fn install(&mut self, tx: &mut Tx) {
-        match &self.driver {
-            Driver::Worker(cmd) => {
+        match &mut self.driver {
+            Driver::Service(service) => {
                 tx.instant();
-                let _ = cmd.send(WorkerCmd::Install);
+                let mut service = service.borrow_mut();
+                service.install();
+                self.state = UpdateState::from(&service.snapshot().state);
             }
             Driver::Story => {
                 tx.instant();
                 self.state = UpdateState::UpToDate;
             }
             Driver::None => {}
+        }
+    }
+
+    /// This window closes. When it's the last, the app quits, and a ready update installs on the
+    /// way out (Windows).
+    pub fn closing(&mut self) {
+        let Driver::Service(service) = std::mem::take(&mut self.driver) else { return };
+        let left = WINDOWS.get().saturating_sub(1);
+        WINDOWS.set(left);
+        if left == 0 {
+            service.borrow_mut().quitting();
+            SHARED.with(|s| s.borrow_mut().take());
         }
     }
 }
@@ -114,42 +175,70 @@ pub fn build_channel() -> &'static str {
     }
 }
 
-/// Starts the background updater when running inside `anomaly.opencode-rune`.
-#[cfg(target_os = "macos")]
-pub fn start_if_packaged(s: &mut App) {
-    if !crate::headless() && !cfg!(test) && !s.updater.supported() {
-        worker::start(s);
+/// This build's version: `OPENCODE_RUNE_VERSION` when the build set it (a release build sets the
+/// crate's version to it too), else the crate's.
+pub fn build_version() -> &'static str {
+    match option_env!("OPENCODE_RUNE_VERSION") {
+        Some(v) if !v.is_empty() => v,
+        _ => env!("CARGO_PKG_VERSION"),
     }
 }
 
-/// Other platforms have no updater yet: their state stays `Unsupported`, and Settings says so.
-#[cfg(not(target_os = "macos"))]
-pub fn start_if_packaged(_: &mut App) {}
-
-/// Drains updater status updates on the UI thread; zero allocations when idle.
-pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let Some(rx) = &s.updater.rx else { return false };
-    let mut next = None;
-    loop {
-        match rx.try_recv() {
-            Ok(st) => next = Some(st),
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => {
-                s.updater.rx = None;
-                s.updater.driver = Driver::None;
-                break;
-            }
-        }
+/// Starts the update service when this build has an updater (`platform::make`), or joins this
+/// window to the one the first window started.
+pub fn start_if_packaged(s: &mut App) {
+    if crate::headless() || cfg!(test) || s.updater.supported() {
+        return;
     }
-    let Some(st) = next else { return false };
-    if s.updater.state == st {
+    let service = SHARED.with(|shared| {
+        if let Some(service) = shared.borrow().as_ref() {
+            return Some(service.clone());
+        }
+        let (exe, updates) = (std::env::current_exe().ok()?, crate::dirs::updates()?);
+        let platform = platform::make(&exe, build_version(), build_channel(), updates.clone())?;
+        let service = Rc::new(RefCell::new(UpdaterService::start(platform, feed::feed_channel(build_channel()), updates)));
+        *shared.borrow_mut() = Some(service.clone());
+        Some(service)
+    });
+    let Some(service) = service else { return };
+    WINDOWS.set(WINDOWS.get() + 1);
+    {
+        let service = service.borrow();
+        if let Some(waker) = s.waker.clone() {
+            service.add_waker(waker);
+        }
+        s.updater.version = service.snapshot().version.clone();
+        s.updater.channel = service.snapshot().channel.clone();
+        s.updater.state = UpdateState::from(&service.snapshot().state);
+        s.updater.seen = service.revision();
+    }
+    s.updater.driver = Driver::Service(service);
+}
+
+/// Feeds the service's results to this window on the app's thread; zero allocations when idle.
+/// An install that handed off quits the app (saving what this window keeps first).
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let Driver::Service(service) = &s.updater.driver else { return false };
+    let (quit, state, revision) = {
+        let mut service = service.borrow_mut();
+        service.poll();
+        if service.revision() == s.updater.seen && !service.quit_pending() {
+            return false;
+        }
+        (service.take_quit(), UpdateState::from(&service.snapshot().state), service.revision())
+    };
+    s.updater.seen = revision;
+    if quit {
+        s.save_on_close();
+        tx.quit();
+    }
+    if s.updater.state == state {
         return false;
     }
     tx.instant();
-    s.updater.state = st;
+    s.updater.state = state;
     true
 }
-
 // ---------------------------------------------------------------------------------------------
 // Views, Command, and Storybook story
 
@@ -184,20 +273,19 @@ pub fn sidebar_pill(s: &App, p: &Pal) -> Option<El> {
     )
 }
 
-/// Settings section shown on packaged team builds (`anomaly.opencode-rune`), in its story, and on
-/// platforms without an updater yet.
+/// Settings section shown while the update service runs, and in its story.
 pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
-    let ver = if s.updater.version.is_empty() { env!("CARGO_PKG_VERSION") } else { &s.updater.version };
+    let ver = if s.updater.version.is_empty() { build_version() } else { &s.updater.version };
     let ch = if s.updater.channel.is_empty() { build_channel() } else { &s.updater.channel };
     let (about, action) = match &s.updater.state {
         UpdateState::Hidden => return None,
-        UpdateState::Idle => (format!("Version {ver} ({ch}). Checks automatically every hour."), Some(("Check for updates", false, false))),
+        UpdateState::Idle => (format!("Version {ver} ({ch}). Checks automatically every 10 minutes."), Some(("Check for updates", false, false))),
         UpdateState::Checking => (format!("Version {ver} ({ch}). Checking for updates…"), Some(("Checking…", false, true))),
         UpdateState::Downloading { version } => (format!("Downloading {version}…"), Some(("Downloading…", false, true))),
         UpdateState::Ready { version } => (format!("{version} is verified and ready to install."), Some(("Restart to update", true, false))),
         UpdateState::UpToDate => (format!("Version {ver} ({ch}) is up to date."), Some(("Check for updates", false, false))),
         UpdateState::Failed(err) => (format!("Version {ver} ({ch}). {err}"), Some(("Try again", false, false))),
-        UpdateState::Unsupported => (format!("Version {ver} ({ch}). Automatic updates aren't available on this platform yet."), None),
+        UpdateState::Installing { version } => (format!("Installing {version}…"), Some(("Installing…", false, true))),
     };
     let btn = action.map(|(btn_label, is_ready, busy)| {
         let btn = row()

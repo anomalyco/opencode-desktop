@@ -20,7 +20,7 @@ static DEFERRED: AtomicBool = AtomicBool::new(false);
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("opencode-rune {} ({})", env!("CARGO_PKG_VERSION"), crate::updater::build_channel());
+        println!("opencode-rune {} ({})", crate::updater::build_version(), crate::updater::build_channel());
         std::process::exit(0);
     }
 }

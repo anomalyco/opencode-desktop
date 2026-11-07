@@ -69,7 +69,7 @@ fn list(items: &[String]) -> String {
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
-    let version = if s.updater.version.is_empty() { env!("CARGO_PKG_VERSION").to_owned() } else { s.updater.version.clone() };
+    let version = if s.updater.version.is_empty() { crate::updater::build_version().to_owned() } else { s.updater.version.clone() };
     let label = format!("Version {version}");
     let copied = session_view::copied::is_copied(s, "settings-about-version");
     let line = |key: &str, words: &str, faint: bool| text(words.to_owned()).key(key.to_owned()).font(BODY).color(if faint { p.faint } else { p.muted }).wrap().align(rune::Align::Center);

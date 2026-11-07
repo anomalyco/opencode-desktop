@@ -6,8 +6,6 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
-#[cfg(target_os = "macos")]
-use std::time::Duration;
 
 use rune::Tx;
 use serde_json::json;
@@ -18,9 +16,9 @@ use sha2::{Digest as _, Sha256};
 use super::mac::{self, BundleInfo, LOCAL_DEV_BUNDLE_ID, TEAM_BUNDLE_ID};
 use super::protocol::{self, Decision, TARGET_MACOS_ARM64};
 #[cfg(target_os = "macos")]
-use super::UpdateState;
+use super::engine::Facts;
 #[cfg(target_os = "macos")]
-use super::worker::{Engine, WorkerConfig, hex_lower};
+use super::platform::Platform as _;
 use crate::App;
 
 #[test]
@@ -128,8 +126,6 @@ fn kit_local_bundle_is_never_touched_by_team_updater() {
 #[test]
 fn idle_updater_poll_allocates_nothing() {
     let mut app = App::empty();
-    let (_tx, rx) = std::sync::mpsc::channel();
-    app.updater.rx = Some(rx);
     let before = procwatch::alloc::thread_allocations();
     assert!(!super::poll(&mut app, &mut Tx::default()));
     let after = procwatch::alloc::thread_allocations();
@@ -184,7 +180,7 @@ fn downloads_verifies_and_swaps_signed_bundle_end_to_end() {
         .unwrap();
     assert!(st.success());
     let zip_bytes = std::fs::read(&zip_path).unwrap();
-    let sha = hex_lower(&Sha256::digest(&zip_bytes));
+    let sha: String = Sha256::digest(&zip_bytes).iter().map(|b| format!("{b:02x}")).collect();
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -232,29 +228,12 @@ fn downloads_verifies_and_swaps_signed_bundle_end_to_end() {
         }
     });
 
-    let cfg = WorkerConfig {
-        service: format!("http://{addr}/release"),
-        channel: "dev".into(),
-        bundle: BundleInfo { path: installed_app.clone(), id: TEAM_BUNDLE_ID.into(), version: "0.0.0-dev-1".into(), team: None },
-        cache_root: cache_dir,
-        initial_delay: Duration::ZERO,
-        auto_install: false,
-    };
-    let mut engine = Engine {
-        cfg,
-        rollout_bucket: 0,
-        etag: None,
-        staged: None,
-        check_team: None,
-        check_gatekeeper: false,
-    };
-    let mut seen = Vec::new();
-    let out = engine.check_once(&mut |s| seen.push(s));
-    assert_eq!(out, UpdateState::Ready { version: "0.0.0-dev-2".into() });
-    assert!(seen.contains(&UpdateState::Checking));
-    assert!(seen.contains(&UpdateState::Downloading { version: "0.0.0-dev-2".into() }));
-
-    engine.apply_staged(false).unwrap();
+    let facts = Facts { version: "0.0.0-dev-1".into(), channel: "dev".into(), service: format!("http://{addr}/release"), updates: cache_dir };
+    let bundle = BundleInfo { path: installed_app.clone(), id: TEAM_BUNDLE_ID.into(), version: "0.0.0-dev-1".into(), team: None };
+    let platform = mac::Mac::new(facts, bundle, None, false);
+    assert_eq!(platform.check().unwrap(), Some("0.0.0-dev-2".into()));
+    platform.stage(&|_, _| {}).unwrap();
+    platform.apply().unwrap();
     let updated = mac::bundle_info(&installed_app).unwrap();
     assert_eq!(updated.version, "0.0.0-dev-2");
     server_thread.join().unwrap();

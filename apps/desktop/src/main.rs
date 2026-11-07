@@ -1349,6 +1349,8 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 
 fn main() {
     askpass::run_if_asked();
+    #[cfg(windows)]
+    updater::apply::run_if_asked();
     launch::print_version_if_asked();
     if genui::skill::maybe_cli() {
         return;
@@ -1386,7 +1388,10 @@ fn main() {
                 if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
                 motion_log.frame(rt);
             })
-            .on_close(|s, _| s.save_on_close())
+            .on_close(|s, _| {
+                s.updater.closing();
+                s.save_on_close();
+            })
             .run();
         disk::flush();
         diagnostics.shutdown();
