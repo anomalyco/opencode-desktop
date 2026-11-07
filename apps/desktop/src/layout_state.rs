@@ -288,6 +288,15 @@ impl App {
         matches!(self.layout.motion, LayoutMotionState::Switching { .. })
     }
 
+    /// The spring a layout switch flies the active session's tab or card on: Side tabs and
+    /// the Inbox swap in place on `SETTLE` (`layouts-design.md` 4: B ↔ C), any switch with Top
+    /// tabs glides on `GLIDE`. None at rest.
+    pub fn switch_spring(&self) -> Option<rune::Spring> {
+        let LayoutMotionState::Switching { from, to, .. } = self.layout.motion else { return None };
+        let in_sidebar = from.has_sidebar() && to.has_sidebar();
+        Some(if in_sidebar { rune::tok::motion::SETTLE } else { rune::tok::motion::GLIDE })
+    }
+
     /// Hands the peek `event`, applied on the next poll at its clock: handlers don't see the
     /// clock, and a dwell must count from now.
     pub fn queue_peek(&mut self, event: PeekEvent, tx: &mut Tx) {

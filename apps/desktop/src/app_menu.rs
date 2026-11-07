@@ -224,8 +224,10 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
             tx.instant();
             s.open_settings();
         }
-        Act::NewWindow => new_window(),
-        Act::CloseWindow => tx.close_window(),
+        Act::NewWindow => {
+            crate::windows::new_window(s);
+        }
+        Act::CloseWindow => s.close_window(tx),
         Act::Edit(key) => tx.send_key(edit_key(key)),
         Act::ToggleSidebar => {
             s.toggle_sidebar(tx);
@@ -275,20 +277,14 @@ fn edit_key(key: EditKey) -> KeyEvent {
 
 /// Ctrl+Shift+N and Ctrl+Shift+W, the menu's accelerators that no command binds; true when
 /// `ev` was one.
-pub fn accelerator(ev: &KeyEvent, tx: &mut Tx) -> bool {
+pub fn accelerator(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if Bind::WindowNew.matches_tx(ev, tx) {
-        new_window();
+        crate::windows::new_window(s);
         return true;
     }
     if Bind::WindowClose.matches_tx(ev, tx) {
-        tx.close_window();
+        s.close_window(tx);
         return true;
     }
     false
-}
-
-/// Another window: this app again, on the same server.
-fn new_window() {
-    let Ok(exe) = std::env::current_exe() else { return };
-    let _ = std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn();
 }

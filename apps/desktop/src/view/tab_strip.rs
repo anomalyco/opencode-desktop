@@ -3,13 +3,15 @@
 //! over one tab store, so a tab is the same element in either place and flies between them
 //! when the layout changes (`El::matched`, `shell-tab-{id}`).
 
-use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabStrip};
+use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabStrip, TearOutSpec};
 
 use super::*;
 use crate::session_menu::{Spot, Target};
 
 /// The matched-flight prefix every tab shares across layouts.
 pub(crate) const MATCHED: &str = "shell-tab";
+/// The active session's tab or Inbox card, the same element in every layout.
+pub(crate) const ACTIVE: &str = "shell-active";
 
 /// A draft tab's pencil, drawn inline in `DraftTabItem` (not the catalog's `edit`).
 static DRAFT_PENCIL: Icon = Icon {
@@ -46,16 +48,29 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
             s.begin_rename(&Target::new(id, Spot::Tab));
         })
         .on_hover(|s: &mut App, id, inside, tx| {
-            tx.live_only();
             if inside {
                 s.prefetch_session(id);
             }
+            // The hover preview (`tab_preview`).
+            s.preview_hover(id, inside, tx);
         })
         .on_reorder(|s: &mut App, r, _| s.move_tab(r.from, r.to));
+    // A tab pulled off the strip opens in a window of its own (`windows::tear`): 36 across a
+    // horizontal strip, 48 out of a vertical one.
+    if s.persists() && s.tabs.len() > 1 {
+        let detach_distance = if vertical { 48.0 } else { 36.0 };
+        strip = strip
+            .tear_out(Some(TearOutSpec { detach_distance, ..TearOutSpec::default() }))
+            .on_tear_move(|s: &mut App, m, tx| s.tear_move(m, tx))
+            .on_tear_out(|s: &mut App, t, tx| s.tear_release(t, tx));
+    }
     if let Some(t) = trailing {
         strip = strip.trailing_action(t);
     }
-    strip.build(crate::palette::kit(p))
+    strip.build(crate::palette::kit(p)).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+        tx.live_only();
+        s.strip_laid_out(r);
+    })
 }
 
 fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids: std::rc::Rc<Vec<String>>) -> TabItem<'a, App> {
@@ -80,11 +95,32 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids:
         item = item.editor(field);
     }
     let switching = s.switching_layout();
+    let spring = s.switch_spring();
+    let vertical = s.tab_layout().has_sidebar();
+    let active = match &s.route {
+        Route::Session(r) if !s.settings.open => s.root_of(r) == t.id,
+        _ => false,
+    };
+    let id = t.id.clone();
     item.decorate(move |slot, _| {
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
+        // Down the side tabs, the preview card follows the pointer's height.
+        let slot = if vertical {
+            let id = id.clone();
+            slot.on_pointer_move_local(move |s: &mut App, p: rune::PointerEvent, tx: &mut Tx| s.preview_pointer(&id, p.y, p.window_y, tx))
+        } else {
+            slot
+        };
         // A layout switch flies the tab between the titlebar and the sidebar on GLIDE.
         let slot = if switching { slot.motion(GLIDE) } else { slot };
+        // The active tab is the session's place in every layout: it flies into its Inbox card,
+        // and back, as one element (`shell-active-{id}`), on SETTLE between the sidebar's two.
+        let slot = match (active, spring) {
+            (true, Some(spring)) => slot.matched(format!("{ACTIVE}-{id}")).motion(spring),
+            (true, None) => slot.matched(format!("{ACTIVE}-{id}")),
+            (false, _) => slot,
+        };
         crate::session_menu::on(slot, target)
     })
 }

@@ -22,6 +22,9 @@ pub fn draft_key(route: &Route) -> Option<String> {
 /// The key the one new-session page kept its words under before drafts were tabs.
 const LEGACY_DRAFT: &str = "new";
 
+/// What a window keeps in its own file rather than `ui.json`.
+const WINDOW_KEYS: [&str; 4] = ["route", "drafts", "side", "closedTabs"];
+
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
 /// showing its first ten.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -125,11 +128,13 @@ fn route_from(v: &Value) -> Option<Saved> {
 impl App {
     /// Puts back the saved route and drafts for `server` (live mode, before the first frame).
     pub fn restore_ui(&mut self, server: &str) {
-        let v = &read()[server];
+        let global = &read()[server];
+        let own = (!self.window.id.is_empty()).then(|| crate::windows::store::load(&self.window, server));
+        let v = own.as_ref().unwrap_or(global);
         self.restore.drafts =
             v["drafts"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.clone(), t.as_str()?.to_owned()))).collect();
         self.closed = crate::tabs::Closed::from_json(&v["closedTabs"]);
-        self.restore.inbox = InboxUi::from_json(&v["inbox"]);
+        self.restore.inbox = InboxUi::from_json(&global["inbox"]);
         let saved = match route_from(&v["route"]) {
             Some(Saved::LegacyDraft) => Some(self.migrate_legacy_draft(server)),
             Some(Saved::Route(route)) => Some(route),
@@ -159,10 +164,10 @@ impl App {
                 self.route = route;
             }
         }
-        if let Some(sidebar) = v["sidebar"].as_bool() {
+        if let Some(sidebar) = global["sidebar"].as_bool() {
             self.sidebar_open = sidebar;
         }
-        if let Some(w) = v["sidebarWidth"].as_f64() {
+        if let Some(w) = global["sidebarWidth"].as_f64() {
             self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
         }
         self.side.restore_json(&v["side"]);
@@ -190,7 +195,7 @@ impl App {
         // The source isn't live yet, so `save_tabs` would skip it: written here, once, unless
         // the tabs still come from Beta.
         if !crate::headless() && !cfg!(test) && !self.launch.offline && !self.launch.beta_tabs {
-            crate::tabs::save(server, &self.tabs);
+            crate::tabs::save(&self.window, server, &self.tabs);
         }
         Route::Draft(id)
     }
@@ -202,6 +207,7 @@ impl App {
             self.poll_restore();
             self.queue_terminal_save();
         }
+        self.window_closed();
         crate::disk::flush();
     }
 
@@ -271,9 +277,27 @@ impl App {
         let Some(path) = file() else { return };
         let server = server.base.clone();
         self.restore.saved = Some(v.clone());
+        if self.window.id.is_empty() {
+            crate::disk::later("ui", move || {
+                let mut all = read();
+                all[server] = v;
+                crate::disk::replace(&path, all.to_string().as_bytes());
+            });
+            return;
+        }
+        // The page, drafts, panes and closed tabs are the window's own (Desktop's
+        // `opencode.window.<id>.dat`); the sidebar and the inbox's disclosures are every window's.
+        for key in WINDOW_KEYS {
+            crate::windows::store::save(&self.window, &server, key, v[key].clone());
+        }
         crate::disk::later("ui", move || {
             let mut all = read();
-            all[server] = v;
+            if !all[&server].is_object() {
+                all[&server] = json!({});
+            }
+            for key in ["sidebar", "sidebarWidth", "inbox"] {
+                all[&server][key] = v[key].clone();
+            }
             crate::disk::replace(&path, all.to_string().as_bytes());
         });
     }

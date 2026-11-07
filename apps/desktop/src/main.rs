@@ -247,6 +247,7 @@ mod updater;
 mod view;
 mod web_fetch;
 mod widgets;
+mod windows;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};
@@ -315,6 +316,8 @@ pub struct App {
     pub tabs: Vec<Tab>,
     /// The tab strip's gestures: a press, a drag to a new place, the width a close holds.
     pub tab_drag: rune_kit::shell::TabDragState,
+    /// The card a resting pointer shows over a tab (`view::tab_preview`).
+    pub tab_preview: view::tab_preview::Preview,
     /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
     pub closed: tabs::Closed,
     /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
@@ -465,6 +468,10 @@ pub struct App {
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
     pub variant: usize,
+    /// Which window this is, and what it keeps of itself (`windows`).
+    pub window: windows::Window,
+    /// The frame diagnostics every window reports to.
+    pub diagnostics: diagnostics::Diagnostics,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -777,8 +784,9 @@ impl App {
         tx.settle();
     }
 
-    fn load() -> App {
+    fn load(window: windows::Window) -> App {
         let mut app = Self::empty();
+        app.window = window;
         let fixture_path = arg("--fixture");
         let server = launch::initial_server();
         let deferred = fixture_path.is_none() && launch::deferred();
@@ -797,7 +805,12 @@ impl App {
     }
 
     fn new() -> App {
-        let mut app = Self::load();
+        Self::new_window(windows::Window::unsaved())
+    }
+
+    /// `new`, for window `window`: its own tabs and page.
+    fn new_window(window: windows::Window) -> App {
+        let mut app = Self::load(window);
         appearance::apply_args(&mut app);
         if let Some(layout) = arg("--tab-layout") {
             app.settings.tab_layout = layout_state::TabLayout::parse(Some(&layout));
@@ -863,11 +876,11 @@ impl App {
                 Err(_) => { self.launch.offline = true; None }
             }
         };
-        match tabs::load(&server.base).or_else(|| {
-            (!self.launch.waiting && server.base == DEFAULT_SERVER).then(tabs::from_beta).flatten()
-        }) {
+        // Desktop Beta's tabs come into the profile's first window only.
+        let beta = self.window.legacy && server.base == DEFAULT_SERVER;
+        match tabs::load(&self.window, &server.base).or_else(|| (beta && !self.launch.waiting).then(tabs::from_beta).flatten()) {
             Some(tabs) => self.tabs = tabs,
-            None => self.launch.beta_tabs = self.launch.waiting && server.base == DEFAULT_SERVER,
+            None => self.launch.beta_tabs = beta && self.launch.waiting,
         }
         if let Some(first) = first {
             self.apply_first(first);
@@ -1247,9 +1260,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
     changed |= inbox_model::poll(s, now, tx);
+    changed |= view::tab_preview::poll(s, now, tx);
     changed |= session_status::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
+        s.poll_window();
         if !s.framed {
             s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
@@ -1345,13 +1360,18 @@ fn main() {
     rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
     #[cfg(not(feature = "hot"))]
     {
+        let diagnostics = diagnostics::Diagnostics::default();
         if !headless() {
             launch::defer();
+            // Every window saved at the last quit, each with its own tabs (`windows`).
+            windows::launch(diagnostics.clone());
+            disk::flush();
+            diagnostics.shutdown();
+            return;
         }
         let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
         let handle = app.handle();
         let mut motion_log = motion_log::Log::default();
-        let diagnostics = diagnostics::Diagnostics::default();
         let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
         app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
             .on_frame_encoded(move |f| {

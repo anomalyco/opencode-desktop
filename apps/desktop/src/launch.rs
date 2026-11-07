@@ -334,7 +334,7 @@ impl App {
         }
         if let Source::Live { server: old, .. } = &self.source {
             if self.persists() {
-                crate::tabs::save(&old.base, &self.tabs);
+                crate::tabs::save(&self.window, &old.base, &self.tabs);
             }
             if self.server_key.is_none() {
                 self.own_server = Some(old.clone());
@@ -344,7 +344,7 @@ impl App {
         self.close_settings();
         self.opening = None;
         self.route = Route::Home;
-        self.tabs = crate::tabs::load(&server.base).unwrap_or_default();
+        self.tabs = crate::tabs::load(&self.window, &server.base).unwrap_or_default();
         self.sessions.clear();
         self.transcripts.clear();
         self.projects.clear();
@@ -366,6 +366,24 @@ impl App {
         self.launch.started = false;
         self.launch.waiting = true;
         start(self, tx);
+    }
+
+    /// Attachments and markdown images read through the server, so a window that opens with
+    /// a transcript (a torn-out tab's) shows its images before it connects.
+    pub(crate) fn set_media_fetch(&mut self) {
+        let Source::Live { server, .. } = &self.source else { return };
+        let media = server.clone();
+        self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
+        // Markdown images read through the server as Desktop's `readLocalImage` does; web
+        // images and link favicons come from the web, as the browser fetches them for Desktop.
+        let files = server.clone();
+        self.attach.markdown.set_fetch(
+            std::sync::Arc::new(move |directory: &str, path: &str| {
+                let encoded = crate::review::data::encode_fs_path(path);
+                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))
+            }),
+            std::sync::Arc::new(crate::web_fetch::get),
+        );
     }
 
     pub(crate) fn apply_first(&mut self, f: First) {
@@ -409,21 +427,10 @@ fn connect(s: &mut App, tx: &mut Tx) {
     let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
     missing.sort();
     missing.dedup();
+    s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut s.source, s.waker.clone()) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
-        let media = server.clone();
-        s.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
-        // Markdown images read through the server as Desktop's `readLocalImage` does; web
-        // images and link favicons come from the web, as the browser fetches them for Desktop.
-        let files = server.clone();
-        s.attach.markdown.set_fetch(
-            std::sync::Arc::new(move |directory: &str, path: &str| {
-                let encoded = crate::review::data::encode_fs_path(path);
-                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))
-            }),
-            std::sync::Arc::new(crate::web_fetch::get),
-        );
-        let (r, w, inbox) = opencode_kit::client::connect_with_idle(server.clone(), waker, crate::reconnect::STREAM_IDLE);
+        let (r, w, inbox) = crate::windows::connect(server, waker);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {

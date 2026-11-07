@@ -178,10 +178,14 @@ fn parse(list: &Value) -> Vec<Tab> {
         .collect()
 }
 
-/// This example's saved list for `server`, if you've changed tabs here before.
-pub fn load(server: &str) -> Option<Vec<Tab>> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
-    saved(&v, server)
+/// Window `w`'s saved list for `server`, if you've changed tabs there before.
+pub fn load(w: &crate::windows::Window, server: &str) -> Option<Vec<Tab>> {
+    if w.id.is_empty() {
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
+        return saved(&v, server);
+    }
+    let v = crate::windows::store::load(w, server);
+    v.get("tabs").filter(|t| t.is_array()).map(parse)
 }
 
 /// `server`'s list in the file's JSON; none when only other keys (such as `zoom`) are there.
@@ -204,7 +208,8 @@ mod tests {
     }
 }
 
-pub fn save(server: &str, tabs: &[Tab]) {
+/// Saves window `w`'s list for `server`: in its own file, or `tabs.json` for a window without one.
+pub fn save(w: &crate::windows::Window, server: &str, tabs: &[Tab]) {
     // Tests record what they would save in `SAVED`; they never touch the saved file.
     if cfg!(test) {
         return;
@@ -216,7 +221,11 @@ pub fn save(server: &str, tabs: &[Tab]) {
             json!({ "id": t.id, "title": t.title, "directory": t.directory, "kind": kind })
         })
         .collect();
-    update("tabs", server.to_owned(), list);
+    if w.id.is_empty() {
+        update("tabs", server.to_owned(), list);
+    } else {
+        crate::windows::store::save(w, server, "tabs", list);
+    }
 }
 
 /// Sets `key` in the tabs file, off the UI thread. Tabs and zoom share the file, so each read

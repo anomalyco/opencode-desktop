@@ -30,6 +30,7 @@ mod narrow_story;
 mod session;
 mod sidebar;
 mod tab_strip;
+pub(crate) mod tab_preview;
 mod titlebar;
 
 pub(crate) use chrome::*;
@@ -134,6 +135,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
     inner = inner.children(crate::plugin_host::dialog_view(s, p));
+    inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));

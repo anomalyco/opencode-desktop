@@ -19,7 +19,7 @@ impl App {
         if let Source::Live { server, .. } = &self.source
             && self.persists()
         {
-            tabs::save(&server.base, &self.tabs);
+            tabs::save(&self.window, &server.base, &self.tabs);
         }
     }
 
