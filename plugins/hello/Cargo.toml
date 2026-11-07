@@ -1,0 +1,22 @@
+[package]
+name = "opencode-plugin-hello"
+version = "0.1.0"
+description = "Minimal OpenCode (Rune) plugin: a side panel with a counter and a text field, a command with a keybind, and a settings row"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "opencode_plugin_hello"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Linked into the app (`opencode-desktop --features static-builtins`): no exported symbol and
+# no allocator of its own; the host calls `__opencode_plugin_entry` directly.
+static-builtin = []
+
+[dependencies]
+opencode-plugin = { path = "../../crates/opencode-plugin" }
+
+[lints]
+workspace = true

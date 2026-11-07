@@ -2297,7 +2297,10 @@ dependencies = [
  "hex-client",
  "image",
  "libc",
+ "libloading",
  "opencode-kit",
+ "opencode-plugin",
+ "opencode-plugin-hello",
  "otlp-lite",
  "png 0.18.1",
  "procwatch",
@@ -2314,6 +2317,7 @@ dependencies = [
  "session-view",
  "sha2",
  "terminal",
+ "toml_edit",
  "tungstenite",
  "ureq",
 ]
@@ -2326,6 +2330,17 @@ dependencies = [
  "serde_json",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "opencode-plugin"
+version = "0.1.0-experimental"
+
+[[package]]
+name = "opencode-plugin-hello"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
 ]
 
 [[package]]

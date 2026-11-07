@@ -1,0 +1,7 @@
+id = "hello"
+name = "Hello"
+version = "0.1.0"
+description = "A minimal plugin: a side panel with a counter and a text field, a command with a keybind, and a settings row"
+api = "0.1-experimental"
+library = "opencode_plugin_hello"
+
