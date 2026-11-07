@@ -22,8 +22,13 @@ pub(crate) struct Found {
     sessions: Vec<SessionInfo>,
 }
 
+/// Home lists at most this many sessions (`HOME_SESSION_LIMIT`, `home/sessions/index.ts`).
+const HOME_SESSION_LIMIT: usize = 64;
+
 pub struct HomeSearch {
     active: Highlight,
+    /// The Home row under the pointer: it shows its worktree and branch (`HomeSessionLocation`).
+    pub(crate) hovered: Option<String>,
     /// Sessions fetched from the server while searching on Home.
     pub(crate) loaded: Vec<SessionInfo>,
     searched: String,
@@ -34,6 +39,7 @@ impl Default for HomeSearch {
     fn default() -> Self {
         HomeSearch {
             active: Highlight::default(),
+            hovered: None,
             loaded: Vec::new(),
             searched: String::new(),
             fetch: Latest::default().debounce(Duration::from_millis(100)),
@@ -76,31 +82,44 @@ impl App {
         tx.instant();
     }
 
-    /// Root sessions shown on Home for `selected` project and the current `s.search` query.
+    /// Root sessions Home lists for `selected` project, newest first: at most
+    /// `HOME_SESSION_LIMIT` (64, `home/sessions/index.ts`). Search never narrows them; it shows its
+    /// matches in its own panel.
     pub fn home_sessions<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
+        self.home_roots(selected).take(HOME_SESSION_LIMIT).collect()
+    }
+
+    /// The search panel's results (`search.ts`): sessions whose `"{title} {project}"` holds the
+    /// trimmed query, or whose id it is.
+    pub fn home_search_results<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
         let q = self.search.text.trim().to_lowercase();
-        self.merged_roots(&self.home_search.loaded)
-            .into_iter()
-            .filter(|ses| selected.is_none_or(|proj| self.project_for_session(ses).is_some_and(|p| p.id == proj.id)))
-            .filter(|ses| {
-                if q.is_empty() {
-                    return true;
-                }
-                let title = title_of(ses).to_lowercase();
-                let proj = self.project_label(ses).to_lowercase();
-                let id = ses.id.to_lowercase();
-                title.contains(&q) || proj.contains(&q) || id.contains(&q)
-            })
-            .take(60)
+        if q.is_empty() {
+            return vec![];
+        }
+        self.home_roots(selected)
+            .filter(|ses| ses.id.to_lowercase() == q || format!("{} {}", title_of(ses), self.project_label(ses)).to_lowercase().contains(&q))
             .collect()
     }
 
-    /// Highlighted session ID on Home while searching (`None` when the search field is empty).
-    pub fn home_search_active(&self, nav_ids: &[String]) -> Option<String> {
-        if self.search.text.trim().is_empty() || nav_ids.is_empty() {
+    fn home_roots<'a>(&'a self, selected: Option<&Project>) -> impl Iterator<Item = &'a SessionInfo> {
+        let selected = selected.map(|p| p.id.clone());
+        self.merged_roots(&self.home_search.loaded)
+            .into_iter()
+            .filter(move |ses| selected.as_ref().is_none_or(|id| self.project_for_session(ses).is_some_and(|p| &p.id == id)))
+    }
+
+    /// Whether the results panel shows: while the field has focus and text (`selectSearchOpen`).
+    pub fn home_search_open(&self) -> bool {
+        self.search.focused && !self.search.text.trim().is_empty()
+    }
+
+    /// The highlighted result while the panel shows: the one last pointed or stepped to, else
+    /// the first (`search.ts`'s `active`).
+    pub fn home_search_active(&self, ids: &[String]) -> Option<String> {
+        if !self.home_search_open() || ids.is_empty() {
             return None;
         }
-        self.home_search.active.resolve(&self.search.text, nav_ids.iter().map(String::as_str))
+        self.home_search.active.resolve(&self.search.text, ids.iter().map(String::as_str))
     }
 
     pub fn home_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -112,9 +131,9 @@ impl App {
             return true;
         }
         let m = ev.mods;
-        if !m.alt && !m.cmd && !m.ctrl && !self.search.text.trim().is_empty() {
+        if !m.alt && !m.cmd && !m.ctrl && self.home_search_open() {
             let selected = self.project_state.home_selected.as_deref().and_then(|id| self.project(id)).cloned();
-            let ids: Vec<String> = self.home_sessions(selected.as_ref()).into_iter().map(|s| s.id.clone()).collect();
+            let ids: Vec<String> = self.home_search_results(selected.as_ref()).into_iter().map(|s| s.id.clone()).collect();
             match ev.key {
                 Key::Down | Key::Up if !m.shift && !ids.is_empty() => {
                     let active = self.home_search_active(&ids);
@@ -125,7 +144,7 @@ impl App {
                     self.home_search.activate(picked.clone(), &query);
                     self.prefetch_session(&picked);
                     tx.instant();
-                    tx.scroll_into_view_in("home", format!("r-{picked}"));
+                    tx.scroll_into_view_in("home-search-list", format!("sr-{picked}"));
                     return true;
                 }
                 Key::Enter if !m.shift => {
@@ -198,7 +217,7 @@ fn home_story_view(s: &App, p: &Pal) -> El {
         .box_shadow(Pal::ring_out(p.ring))
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
-        .child(crate::view::home(s, p, 920.0))
+        .child(crate::view::home(s, p, 920.0, [0.0, 0.0]))
 }
 
 const STORY_KEYS: &[Trigger] = &[
@@ -217,7 +236,7 @@ fn story_open(s: &mut App, tx: &mut Play<App>) {
         _ => "reconnect",
     };
     s.search = TextEdit::new(q);
-    s.search.focused = false;
+    s.search.focused = true;
     s.composer.focused = false;
     tx.instant();
 }
@@ -225,7 +244,7 @@ fn story_open(s: &mut App, tx: &mut Play<App>) {
 fn story_toggle(s: &mut App, tx: &mut Play<App>) {
     if s.search.text.is_empty() {
         s.search = TextEdit::new("reconnect");
-        s.search.focused = false;
+        s.search.focused = true;
         tx.instant();
     } else {
         s.clear_home_search(false, tx);

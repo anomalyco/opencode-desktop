@@ -43,7 +43,7 @@ fn cmd_f_on_home_focuses_search_filters_by_title_and_project_steps_and_opens_on_
 
     // Filtering by project name ("harbor") matches Harbor sessions even when their titles lack "harbor".
     type_str(&mut rt, "harbor");
-    let matches = rt.state.home_sessions(None);
+    let matches = rt.state.home_search_results(None);
     assert!(matches.len() >= 2, "matched Harbor project sessions: {}", matches.len());
     assert!(rt.find("search-clear").is_some(), "clear button shows while query is non-empty");
 
@@ -127,7 +127,7 @@ fn home_search_merges_server_results_and_exact_session_id_lookups() {
     assert!(app.poll_home_search(&mut Tx::default()));
     let _ = handle.join();
 
-    let found: Vec<&SessionInfo> = app.home_sessions(None);
+    let found: Vec<&SessionInfo> = app.home_search_results(None);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, remote_id);
     assert_eq!(found[0].title, "Exact ID lookup needle", "newest metadata wins across exact + list");

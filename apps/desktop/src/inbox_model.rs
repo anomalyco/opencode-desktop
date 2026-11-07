@@ -371,6 +371,12 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
     // The new-session page names its folder's branch the same way (`NewSessionBranch`).
     let draft = matches!(s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
+    // So does a Home row under the pointer, as Desktop syncs a row's location on hover.
+    let hovered = (s.route == crate::Route::Home)
+        .then(|| s.home_search.hovered.as_deref().and_then(|id| s.session(id).or_else(|| s.home_search.loaded.iter().find(|x| x.id == id))))
+        .flatten()
+        .map(|i| i.directory.clone());
+    let draft: Option<String> = draft.or(hovered);
     if s.tab_layout() != TabLayout::Inbox {
         let Some(dir) = draft else { return false };
         s.sidebar_inbox.branches.enqueue([dir]);

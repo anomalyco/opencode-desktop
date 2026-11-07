@@ -202,7 +202,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .on_drop_files(crate::dropzone::drop)
                 .on_drop_hover(crate::dropzone::hover)
                 .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
-                    Route::Home => home(s, p, panel_sz.0),
+                    Route::Home => home(s, p, panel_sz.0, cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w / s.zoom, h / s.zoom])),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft(_) => draft_page(s, p, panel_sz.0),
                 } })

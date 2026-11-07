@@ -1,555 +1,383 @@
 use super::*;
 use crate::session_menu::{Spot, Target};
+use rune_kit::{ScrollBar, ScrollBarStyle};
+
+mod projects;
+mod search;
+
+pub(crate) use projects::home_projects_popover;
 
 // ---------------------------------------------------------------------------------------------
-// Home: projects (Desktop's `home/projects/view.tsx`) and recent sessions by day (`home/sessions`).
+// Home (`home/route.tsx`): projects (`home/projects/view.tsx`) beside recent sessions by day
+// (`home/sessions/view.tsx`), in a centred `max-w-[1080px]` grid that scrolls as one.
 
-const WIDE_HOME_MIN_W: f32 = 860.0;
-/// From the search field to the first group: the sticky header's `md:pb-3` and the list's `md:pt-3`.
-const LIST_TOP: f32 = 24.0;
-/// The projects column's top, below the sessions column's 48pt: `lg:mt-14 lg:pt-[52px]`.
-const PROJECTS_TOP: f32 = 56.0 + 52.0 - 48.0;
+/// Tailwind's `lg` and `md` breakpoints, on the window's width as Desktop's media queries are.
+const LG: f32 = 1024.0;
+const MD: f32 = 768.0;
 
-/// Desktop's `folder-add-left` (`icons/catalog.ts`).
-static FOLDER_ADD_LEFT: Icon = Icon {
-    name: "folder-add-left",
-    view: 16.0,
-    body: r#"<path d="M7.5 13.3333H1.5V2H6.83333L8.83333 4H14.8333V6M10.1667 11.3333H15.5M12.8333 8.66667V14" stroke="currentColor" stroke-miterlimit="10" stroke-linecap="square"/>"#,
-};
+/// Which of Desktop's three Home layouts the window's width picks (`route.tsx`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tier {
+    /// Under 768: the projects as a dropdown above the sessions.
+    Narrow,
+    /// 768 to 1023: the projects stacked above the sessions, Settings and Help along the foot.
+    Medium,
+    /// 1024 and up: `grid-cols-[280px_minmax(0,720px)]`, Settings and Help under the projects.
+    Wide,
+}
 
-pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
+impl Tier {
+    fn of(window_w: f32) -> Tier {
+        if window_w >= LG {
+            Tier::Wide
+        } else if window_w >= MD {
+            Tier::Medium
+        } else {
+            Tier::Narrow
+        }
+    }
+
+    /// The sticky search header's height plus the list's top padding, where the group headers
+    /// stick and the New session button sits (`top-[68px] md:top-[84px] lg:top-[108px]`).
+    fn header_top(self) -> f32 {
+        match self {
+            Tier::Narrow => 68.0,
+            Tier::Medium => 84.0,
+            Tier::Wide => 108.0,
+        }
+    }
+}
+
+/// `max-w-[1080px]`, and the 280 pt projects column 32 from the sessions (`lg:gap-8`).
+const GRID_MAX: f32 = 1080.0;
+const PROJECTS_W: f32 = 280.0;
+const GRID_GAP: f32 = 32.0;
+const SESSIONS_MAX: f32 = 720.0;
+
+/// Home in the panel `panel_w` wide, in a window `window` big (zeros when unknown: a story).
+pub(crate) fn home(s: &App, p: &Pal, panel_w: f32, window: [f32; 2]) -> El {
     if s.launch.offline {
         return no_server_home(s, p);
     }
-    let selected_id = s.project_state.home_selected.as_deref();
-    let selected = selected_id.and_then(|id| s.project(id));
-    let show_project_name = selected.is_none();
-
-    let q = s.search.text.trim().to_lowercase();
-    let matched = s.home_sessions(selected);
-    let mut groups: Vec<(&str, Vec<&SessionInfo>)> = vec![("Today", vec![]), ("Yesterday", vec![]), ("Older", vec![])];
-    let day = |ms: i64| ms.div_euclid(86_400_000);
-    for ses in matched {
-        let d = day(s.now_ms) - day(ses.updated);
-        groups[if d <= 0 { 0 } else if d == 1 { 1 } else { 2 }].1.push(ses);
-    }
-    let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|(_, items)| items.iter().map(|s| s.id.clone())).collect::<Vec<_>>());
-    let active_id = s.home_search_active(&nav_ids);
-    let mut list = col().key("groups").role("list").focus_group().w_full().pr(12.0).pb(64.0);
-    let mut first = true;
-    for (title, items) in groups.into_iter().filter(|g| !g.1.is_empty()) {
-        let mut header = row().key(format!("h-{title}")).h(28.0).pl(12.0).center_y().child(text(title).font(UI).color(p.muted));
-        if first {
-            header = header.child(spacer()).child(new_session_button(p));
-        }
-        let mut rows = col().key(format!("g-{title}")).gap(1.0).pt(16.0).mb(24.0);
-        for ses in items {
-            let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
-            let active = active_id.as_deref() == Some(ses.id.as_str());
-            rows = rows.child(session_row_inner(s, p, ses, &nav_ids, index, show_project_name, active, &q));
-        }
-        list = list.child(header).child(rows);
-        first = false;
-    }
-    if first {
-        if !q.is_empty() {
-            list = list.child(
-                row()
-                    .key("no-results")
-                    .h(40.0)
-                    .pl(12.0)
-                    .center_y()
-                    .child(text(format!("No sessions found for {}", s.search.text)).font(UI).color(p.muted)),
-            );
-        } else if let Some(proj) = selected {
-            list = list.child(
-                row()
-                    .key("no-project-sessions")
-                    .h(40.0)
-                    .pl(12.0)
-                    .center_y()
-                    .child(text(format!("No sessions in {} yet", proj.name)).font(UI).color(p.muted))
-                    .child(spacer())
-                    .child(new_session_button(p)),
-            );
-        } else if !s.launch.waiting {
-            list = list.child(
-                row()
-                    .key("no-sessions-yet")
-                    .h(40.0)
-                    .pl(12.0)
-                    .center_y()
-                    .child(text("No sessions yet").font(UI).color(p.muted))
-                    .child(spacer())
-                    .child(new_session_button(p)),
-            );
-        }
-    }
-
-    let placeholder = selected.map_or_else(|| "Search sessions".into(), |proj| format!("Search sessions in {}", proj.name));
-    let mut search = row()
-        .key("search")
-        .grow(1.0)
-        .shrink()
-        .h(36.0)
-        .pl(12.0)
-        .pr(8.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .fill(p.search_bg)
-        .hover(p.layer2)
-        .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-        .child(
-            text_input(&s.search, UI.lh(20.0))
-                .key("search-input")
-                .single_line()
-                .grow(1.0)
-                .shrink()
-                .h(20.0)
-                .color(p.text)
-                .placeholder(placeholder, p.faint)
-                .caret(p.text, p.selection)
-                .on_edit(|s: &mut App| &mut s.search)
-                .on_input_key(|s: &mut App, ev, tx| s.home_search_key(ev, tx)),
-        );
-    if !s.search.text.is_empty() {
-        search = search.child(
-            row()
-                .key("search-clear")
-                .role("button")
-                .label("Clear search")
-                .help("Clear search")
-                .size(22.0, 22.0)
-                .center()
-                .radius(4.0)
-                .hover(p.hover)
-                .press(p.pressed)
-                .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_search(true, tx))
-                .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted)),
-        );
-    }
-
-    let effective_w = if panel_w > 0.0 {
-        panel_w
-    } else {
-        1280.0 / s.zoom.max(1e-3) - s.sidebar_shown_w() - 16.0
+    let selected = s.project_state.home_selected.as_deref().and_then(|id| s.project(id));
+    let panel = if panel_w > 0.0 { panel_w } else { 1280.0 / s.zoom.max(1e-3) - s.sidebar_shown_w() - 16.0 };
+    let window_w = if window[0] > 0.0 { window[0] } else { panel + s.sidebar_shown_w() + 16.0 };
+    let window_h = if window[1] > 0.0 { window[1] } else { 800.0 };
+    let tier = Tier::of(window_w);
+    // `px-3 lg:px-6`.
+    let pad = if tier == Tier::Wide { 24.0 } else { 12.0 };
+    let grid_w = panel.min(GRID_MAX) - 2.0 * pad;
+    let column_w = if tier == Tier::Wide { (grid_w - PROJECTS_W - GRID_GAP).min(SESSIONS_MAX) } else { grid_w };
+    let sessions = sessions_column(s, p, selected, tier, column_w, window_h);
+    let grid = match tier {
+        Tier::Wide => row().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(GRID_GAP).child(projects::column(s, p, selected, true)).child(sessions),
+        Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false)).child(sessions),
+        Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
-    let wide = effective_w >= WIDE_HOME_MIN_W;
-
-    let body = if wide {
-        // `lg:grid-cols-[280px_minmax(0,720px)] lg:gap-8` in `max-w-[1080px]` less its 24pt sides.
-        row()
-            .key("home-grid")
-            .w_full()
-            .max_w(1032.0)
-            .gap(32.0)
-            .child(projects_column(s, p, selected))
-            .child(col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(search).child(list.mt(LIST_TOP)))
-    } else {
-        let top = row().key("home-bar").w_full().gap(8.0).center_y().child(projects_dropdown_trigger(s, p, selected)).child(search);
-        col().key("home-column").w_full().max_w(720.0).child(top).child(list.mt(LIST_TOP))
-    };
-
-    col()
+    let scroller = col()
         .key("home")
-        .grow(1.0)
         .w_full()
+        .shrink()
+        .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: false })
         .clip_soft(0.0)
-        .child(col().key("home-content").w_full().center().px(24.0).pt(48.0).child(body))
+        .child(col().key("home-content").w_full().items_center().child(grid))
+        .scroll_bar_styled(ScrollBarStyle::scroll_view(&crate::palette::kit(p)))
+        .grow(1.0);
+    let mut page = col().key("home-page").grow(1.0).w_full().h_full();
+    if tier == Tier::Narrow {
+        // `relative z-40 -mb-3 shrink-0 px-3 pt-3`.
+        page = page.child(row().key("home-projects-bar").w_full().px(12.0).pt(12.0).mb(-12.0).child(projects::dropdown_trigger(s, p, selected)).raise());
+    }
+    // The scroller takes what the dropdown and the foot leave.
+    page = page.child(scroller);
+    if tier == Tier::Medium {
+        // `hidden shrink-0 px-3 py-2 md:block lg:hidden`: a row, Settings and Help at its ends.
+        page = page.child(projects::utility(p, false).key("home-utility-foot").px(12.0).py(8.0));
+    }
+    page
 }
 
+/// `HomeSessionsView`: the sticky search header, then the sessions grouped by day.
+fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Tier, width: f32, window_h: f32) -> El {
+    let show_project = selected.is_none();
+    let can_create = selected.is_some() || !s.used_projects().is_empty();
+    let groups = day_groups(s, s.home_sessions(selected));
+    let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|(_, items)| items.iter().map(|s| s.id.clone())).collect::<Vec<_>>());
+    // Each row: `ps-3 pe-3`, the 16 pt avatar and `gap-1.5` before its labels.
+    let labels_w = (width - 12.0 - 12.0 - 16.0 - 6.0).max(0.0);
+
+    // `sticky top-0 bg-base pb-1 pt-6 md:pb-3 lg:pt-12`.
+    let mut header = col()
+        .key("home-sessions-header")
+        .w_full()
+        .pt(if tier == Tier::Wide { 48.0 } else { 24.0 })
+        .pb(if tier == Tier::Narrow { 4.0 } else { 12.0 })
+        .fill(p.bg_base)
+        .sticky_top(0.0);
+    if !groups.is_empty() && can_create {
+        // `absolute right-0 top-[108px] z-20`: on the first group's line, staying while the list
+        // scrolls, under the search's results (`z-30`).
+        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None));
+    }
+    header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow));
+
+    // The groups' `pt-1 md:pt-3 pb-16`; the empty state sits straight in the list.
+    let count = groups.len();
+    let mut list = col().key("groups").role("list").focus_group().w_full();
+    if count > 0 {
+        list = list.pt(if tier == Tier::Narrow { 4.0 } else { 12.0 }).pb(64.0);
+    }
+    for (n, (title, items)) in groups.into_iter().enumerate() {
+        // `sticky h-7 ps-1.5 md:ps-3`, the label `text-muted [font-weight:440]`.
+        let head = row()
+            .key(format!("h-{title}"))
+            .w_full()
+            .h(28.0)
+            .pl(if tier == Tier::Narrow { 6.0 } else { 12.0 })
+            .center_y()
+            .fill(p.bg_base)
+            .sticky_top(tier.header_top())
+            .child(text(title).font(UI).color(p.muted));
+        // `gap-px pt-2 md:pt-4`, `mb-6` but the last.
+        let mut rows = col().key("rows").w_full().gap(1.0).pt(if tier == Tier::Narrow { 8.0 } else { 16.0 });
+        for ses in items {
+            let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
+            rows = rows.child(list_row(s, p, ses, &nav_ids, index, show_project, labels_w, tier));
+        }
+        let group = col().key(format!("g-{title}")).w_full().child(head).child(rows);
+        list = list.child(if n + 1 < count { group.mb(24.0) } else { group });
+    }
+    if count == 0 && !s.launch.waiting {
+        list = list.child(empty(p, can_create));
+    }
+    col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(SESSIONS_MAX).child(header).child(list)
+}
+
+/// `groupSessions`: Today, Yesterday and the rest by the local calendar day each was last
+/// updated, newest first; the rest are "Recent sessions" when nothing is from today or
+/// yesterday, else "Older".
+fn day_groups<'a>(s: &App, sessions: Vec<&'a SessionInfo>) -> Vec<(&'static str, Vec<&'a SessionInfo>)> {
+    let day = |ms: i64| {
+        let t = rune::LocalTime::at(ms);
+        (t.year, t.month, t.day)
+    };
+    let (today, yesterday) = (day(s.now_ms), day(s.now_ms - 86_400_000));
+    let at = |ses: &SessionInfo| day(if ses.updated > 0 { ses.updated } else { ses.created });
+    let (mut now, mut before, mut older) = (vec![], vec![], vec![]);
+    for ses in sessions {
+        match at(ses) {
+            d if d == today => now.push(ses),
+            d if d == yesterday => before.push(ses),
+            _ => older.push(ses),
+        }
+    }
+    let rest = if now.is_empty() && before.is_empty() { "Recent sessions" } else { "Older" };
+    [("Today", now), ("Yesterday", before), (rest, older)].into_iter().filter(|(_, items)| !items.is_empty()).collect()
+}
+
+/// The ghost-muted New session button (`h-7 px-2 [font-weight:530]`, the `edit` icon).
 fn new_session_button(p: &Pal) -> El {
     row()
         .key("new-session")
         .role("button")
+        .label("New session")
         .h(28.0)
         .px(8.0)
         .gap(6.0)
         .center_y()
         .radius(6.0)
         .hover(p.hover)
+        .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .child(icon(&ic::EDIT, 16.0).color(p.icon_muted))
         .child(text("New session").font(UI_MED).color(p.muted))
 }
 
-fn projects_column(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
-    let used = s.used_projects();
-    let header = row()
-        .key("home-projects-header")
+/// `HomeSessionsEmpty`: centred 52 below the list's top, 16 apart: the title, the line under it
+/// and, when a session can start, a neutral New session button.
+fn empty(p: &Pal, can_create: bool) -> El {
+    let mut e = col()
+        .key("home-empty")
         .w_full()
-        .h(28.0)
-        .pl(6.0)
-        .pr(12.0)
-        .center_y()
-        .child(text("Projects").font(UI_MED).color(p.muted))
-        .child(spacer())
-        .child(
-            el().key("home-add-project")
-                .role("button")
-                .label("Add project")
-                .size(28.0, 28.0)
-                .radius(6.0)
-                .center()
-                .hover(p.hover)
-                .press(p.pressed)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
-                .child(icon(&FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)),
-        );
-
-    let mut rows = col().key("home-projects-list").w_full().pr(12.0).gap(4.0).mt(16.0);
-    if used.is_empty() {
-        rows = rows.child(
-            nav_row(p, "home-add-project-empty", &FOLDER_ADD_LEFT, "Add project", p.muted)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)),
-        );
-    } else {
-        for proj in used {
-            rows = rows.child(home_project_row(s, p, proj, selected.is_some_and(|sel| sel.id == proj.id)));
-        }
-    }
-    // `HomeUtilityNav`, under the list: `gap-4` and `mt-4`.
-    let utility = col()
-        .key("home-utility")
-        .w_full()
-        .pr(12.0)
-        .gap(4.0)
-        .mt(32.0)
-        .child(nav_row(p, "home-settings", &ic::SETTINGS_GEAR, "Settings", p.muted).on_press_tx(|s: &mut App, tx: &mut Tx| {
-            if !s.settings.open {
-                s.toggle_settings(tx);
-            }
-        }))
-        .child(nav_row(p, "home-help", &ic::HELP, "Help", p.muted).on_press_tx(|_: &mut App, tx: &mut Tx| {
-            let _ = tx.open_url("https://opencode.ai/desktop-feedback");
-        }));
-    col().key("home-projects").w(280.0).pt(PROJECTS_TOP).child(header).child(rows).child(utility)
-}
-
-/// `HomeProjectNavButton`: 28pt, the 14pt icon in icon-muted, `ink` text going to the text
-/// colour over the layer-01 hover.
-fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, ink: Color) -> El {
-    row()
-        .key(key)
-        .role("button")
-        .label(label)
-        .w_full()
-        .h(28.0)
-        .px(6.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .hover_group()
-        .hover(p.layer1)
-        .child(el().key("icon").size(16.0, 16.0).center().child(icon(glyph, 14.0).color(p.icon_muted)))
-        .child(text(label).font(UI).color(ink).group_color(p.text).grow(1.0).shrink().truncate())
-}
-
-fn home_project_row(s: &App, p: &Pal, proj: &model::Project, active: bool) -> El {
-    let id = proj.id.clone();
-    let menu_id = proj.id.clone();
-    let menu_dir = proj.directory.clone();
-    let new_dir = proj.directory.clone();
-    let mut r = row()
-        .key(format!("hp-{}", proj.id))
-        .role("button")
-        .label(proj.name.clone())
-        .w_full()
-        .h(28.0)
-        .pl(6.0)
-        .pr(4.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .hover_group()
-        .hover(if active { p.layer3 } else { p.layer1 })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
-        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
-            let menu = crate::popup::Menu::new("Project")
-                .item(crate::popup::Item::new("new-session", "New session"))
-                .separator()
-                .item(crate::popup::Item::new("close", "Close"));
-            let pid = menu_id.clone();
-            let dir = menu_dir.clone();
-            crate::popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| match picked {
-                Some("new-session") => s.open_project_dir(&dir, true, tx),
-                Some("close") => s.hide_project(&pid, tx),
-                _ => {}
-            });
-        })
-        .child(crate::icons::badge(s, p, Some(proj), &proj.name))
-        .child(
-            text(proj.name.clone())
-                .font(UI)
-                .color(if active { p.text } else { p.muted })
-                .group_color(p.text)
-                .grow(1.0)
-                .shrink()
-                .truncate_fade(),
-        )
-        .child(
-            el().key(format!("hp-new-{}", proj.id))
+        .px(24.0)
+        .pt(52.0)
+        .gap(16.0)
+        .items_center()
+        .child(text("Nothing here yet").font(UI_MED).color(p.text))
+        .child(text("Create a session to get started").font(UI.lh(20.0)).color(p.muted).mb(4.0));
+    if can_create {
+        e = e.child(
+            row()
+                .key("home-empty-new")
                 .role("button")
                 .label("New session")
-                .size(22.0, 22.0)
-                .radius(4.0)
-                .center()
+                .h(28.0)
+                .px(11.0)
+                .gap(6.0)
+                .center_y()
+                .radius(6.0)
+                .fill(p.q.neutral)
+                .box_shadow(Pal::ring_out(p.q.neutral_ring))
+                .shadow(1.0, 1.5, p.q.neutral_shadow)
                 .hover(p.hover)
-                .group_opacity(0.0, 1.0)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_project_dir(&new_dir, true, tx))
-                .child(icon(&ic::EDIT, 14.0).color(p.icon_muted)),
+                .press(p.pressed)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
+                .child(icon(&ic::EDIT, 16.0).color(p.text))
+                .child(text("New session").font(UI_MED.lh(20.0)).color(p.text)),
         );
-    if active {
-        r = r.fill(p.layer3);
     }
-    r
+    e
 }
 
-fn projects_dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
-    let open = s.project_state.home_menu_open;
-    let lead = match selected {
-        Some(proj) => crate::icons::badge(s, p, Some(proj), &proj.name),
-        None => icon(&ic::FOLDER, 16.0).color(p.icon_muted),
-    };
-    let label = selected.map_or("All projects", |proj| proj.name.as_str());
-    row()
-        .key("home-projects-trigger")
-        .role("button")
-        .label("Projects")
-        .h(36.0)
-        .max_w(180.0)
-        .pl(10.0)
-        .pr(8.0)
-        .gap(6.0)
-        .center_y()
-        .radius(6.0)
-        .fill(if open { p.layer2 } else { p.search_bg })
-        .hover(p.layer2)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.project_state.home_menu_open = !s.project_state.home_menu_open;
-        })
-        .child(lead)
-        .child(text(label.to_owned()).font(UI_MED).color(if selected.is_some() || open { p.text } else { p.muted }).truncate_fade())
-        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_faint))
-}
-
-pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
-    if s.route != Route::Home || !s.project_state.home_menu_open {
-        return None;
-    }
-    let selected_id = s.project_state.home_selected.as_deref();
-    let used = s.used_projects();
-
-    let mut all_row = row()
-        .key("hpm-all")
-        .role("menuitemradio")
-        .label("All projects")
-        .h(28.0)
-        .w_full()
-        .px(10.0)
-        .gap(8.0)
-        .center_y()
-        .radius(4.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx))
-        .child(icon(&ic::FOLDER, 16.0).color(p.icon_muted))
-        .child(text("All projects").font(UI).color(p.text))
-        .child(spacer());
-    if selected_id.is_none() {
-        all_row = all_row.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon));
-    }
-
-    let mut list = col().key("home-projects-options").w_full();
-    let mut height = 0.0_f32;
-    for proj in &used {
-        let id = proj.id.clone();
-        let active = selected_id == Some(proj.id.as_str());
-        let mut item = row()
-            .key(format!("hpm-{}", proj.id))
-            .role("menuitemradio")
-            .label(proj.name.clone())
-            .h(28.0)
-            .w_full()
-            .px(10.0)
-            .gap(8.0)
-            .center_y()
-            .radius(4.0)
-            .hover(p.hover)
-            .press(p.pressed)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
-            .child(crate::icons::badge(s, p, Some(proj), &proj.name))
-            .child(text(proj.name.clone()).font(UI).color(p.text).truncate_fade())
-            .child(spacer());
-        if active {
-            item = item.child(icon(&ic::CHECK_SMALL, 16.0).color(p.icon));
-        }
-        list = list.child(item);
-        height += 28.0;
-    }
-
-    let add_row = row()
-        .key("hpm-add")
-        .role("menuitem")
-        .label("Add project")
-        .h(28.0)
-        .w_full()
-        .px(10.0)
-        .gap(8.0)
-        .center_y()
-        .radius(4.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
-        .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
-        .child(text("Add project").font(UI).color(p.text))
-        .child(spacer())
-        .child(text(crate::keymap::Bind::OpenProject.label()).font(UI).color(p.faint));
-
-    let mut menu = col()
-        .key("home-projects-popover")
-        .role("menu")
-        .label("Projects")
-        .anchored("home-projects-trigger", Side::Bottom, Align::Start, 6.0)
-        .w(232.0)
-        .padding(2.0)
-        .radius(6.0)
-        .fill(p.layer1)
-        .box_shadow(Pal::ring_out(p.border_muted))
-        .shadow(4.0, 12.0, p.shadow)
-        .transition(rune::Transition::none())
-        .motion(Spring::NONE)
-        .on_press(|_: &mut App| {})
-        .child(all_row);
-
-    if height > 0.0 {
-        menu = menu
-            .child(el().h(0.5).w_full().my(2.0).fill(p.border_muted))
-            .child(
-                col()
-                    .key("home-projects-scroll")
-                    .w_full()
-                    .h(height.min(196.0))
-                    .scroll(ScrollSpec { stick_bottom: false })
-                    .clip_fade(0.0, 8.0, 0.0, 8.0)
-                    .child(list),
-            );
-    }
-    menu = menu.child(el().h(0.5).w_full().my(2.0).fill(p.border_muted)).child(add_row);
-
-    let dismiss = el()
-        .key("home-projects-dismiss")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.project_state.home_menu_open = false;
-        });
-
-    Some([dismiss, menu])
-}
-
-/// One session in Home's list: opens on a click, and has Desktop's right-click menu. While it's
-/// being renamed the row is the field, and doesn't open.
-#[allow(dead_code)]
+/// One session in Home's list (`HomeSessionRow`): 40 tall, `ps-3 pe-3`, the overlay hover,
+/// its project avatar (the open-tab bar before it, the unread dot on it), the title, the
+/// project, and its worktree and branch while the pointer is on it; the activity ring at its
+/// end while it works. It opens on a click and has Desktop's right-click menu; while it's being
+/// renamed the title is the field.
+/// [`list_row`] as a wide Home draws it, for the storybook.
 pub(crate) fn session_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize) -> El {
-    session_row_inner(s, p, ses, nav_ids, index, true, false, "")
+    list_row(s, p, ses, nav_ids, index, true, SESSIONS_MAX - 46.0, Tier::Wide)
 }
 
-fn session_row_inner(
-    s: &App,
-    p: &Pal,
-    ses: &SessionInfo,
-    nav_ids: &std::rc::Rc<Vec<String>>,
-    index: usize,
-    show_project: bool,
-    active: bool,
-    query: &str,
-) -> El {
-    let project = s.project_for_session(ses);
-    let proj_name = project_or_dir(project, &ses.directory);
+#[allow(clippy::too_many_arguments)]
+fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<String>>, index: usize, show_project: bool, labels_w: f32, tier: Tier) -> El {
     let id = ses.id.clone();
     let hover_id = id.clone();
     let nav = nav_ids.clone();
     let target = Target::new(&ses.id, Spot::Row);
-    let editing = crate::session_menu_view::field(s, p, &target, UI_MED);
     let marked = s.menus.on.as_ref() == Some(&target);
+    let stacked = tier == Tier::Narrow && show_project;
+    let parts = Parts::of(s, p, ses, labels_w, show_project, marked, stacked);
     let mut r = row()
         .key(format!("r-{}", ses.id))
         .role("button")
         .label(ses.title.clone())
         .focusable(true)
         .focus_selected(index == 0)
-        .h(40.0)
-        .pl(12.0)
-        .pr(16.0)
+        .w_full()
+        .h(if stacked { 48.0 } else { 40.0 })
+        .pl(if tier == Tier::Narrow { 6.0 } else { 12.0 })
+        .pr(12.0)
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .hover_group()
         .hover(p.hover)
         .press(p.pressed)
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if !inside || s.search.text.trim().is_empty() {
-                tx.live_only();
-            }
-            if inside {
-                s.prefetch_session(&hover_id);
-                if !s.search.text.trim().is_empty() {
-                    tx.instant();
-                    let q = s.search.text.clone();
-                    s.home_search.activate(hover_id.clone(), &q);
-                }
-            }
-        })
-        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev));
-    // `HomeSessionIndicators`: the avatar with the open-tab bar and the unread dot, and a busy
-    // session's activity ring at the row's end in place of the dot.
-    let marks = s.marks(&ses.id);
-    let open = s.tabs.iter().any(|t| t.id == ses.id);
-    let fill = if active { Some(p.row_active) } else if marked { Some(p.hover) } else { None };
-    let surface = fill.map_or(p.bg_base, |c| p.bg_base.mix(c.alpha(1.0), c.a));
-    r = r.child(crate::icons::session_avatar(s, p, project, &proj_name, open, marks.unread && !marks.busy, surface));
-    if active {
-        r = r.fill(p.row_active);
-    } else if marked {
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| hover_session(s, &hover_id, inside, tx))
+        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
+        .child(parts.avatar);
+    if marked {
         r = r.fill(p.hover);
     }
-    let title = title_of(ses);
-    let title_el = if query.is_empty() {
-        text(title).font(UI_MED).color(p.text).truncate_fade()
-    } else {
-        crate::switcher::highlighted(&title, query, UI_MED, p.text, p.accent)
-    };
-    r = match editing {
-        Some(field) => r.child(field.grow(1.0)),
-        None => r
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                if s.session(&id).is_none()
-                    && let Some(ses) = s.home_search.loaded.iter().find(|x| x.id == id).cloned()
-                {
-                    s.sessions.push(ses);
-                }
+    let labels = match crate::session_menu_view::field(s, p, &target, UI_MED) {
+        Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(field).children(parts.project),
+        None => {
+            r = r.on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.clear_home_search(false, tx);
                 s.open(&id, tx);
-            })
-            .child(title_el),
+            });
+            parts.labels
+        }
     };
-    if show_project {
-        let proj_el = if query.is_empty() {
-            text(proj_name).font(UI).color(p.faint).truncate_fade()
-        } else {
-            crate::switcher::highlighted(&proj_name, query, UI, p.faint, p.accent)
-        };
-        r = r.child(proj_el);
+    crate::session_menu::on(r.child(labels).children(parts.ring), target)
+}
+
+/// The pointer on a session row or search result: it shows its worktree and branch, and its
+/// page starts loading.
+pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
+    if inside {
+        s.prefetch_session(id);
+        if s.home_search.hovered.as_deref() != Some(id) {
+            s.home_search.hovered = Some(id.to_owned());
+            tx.instant();
+            return;
+        }
+    } else if s.home_search.hovered.as_deref() == Some(id) {
+        s.home_search.hovered = None;
+        tx.instant();
+        return;
     }
-    let end = if marks.busy { activity_ring(p) } else { text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint) };
-    crate::session_menu::on(r.child(spacer()).child(end), target)
+    tx.live_only();
+}
+
+/// What a session row and a search result share.
+pub(super) struct Parts {
+    pub avatar: El,
+    pub labels: El,
+    /// The project name alone, for the rename field to sit before.
+    pub project: Option<El>,
+    pub ring: Option<El>,
+}
+
+impl Parts {
+    /// `ses`'s pieces for labels `labels_w` wide; `lit` when its row shows the hover overlay
+    /// without the pointer (its menu is open, or it's the highlighted result). `stacked` on a
+    /// narrow window: the project under the title, the row 48 tall (`view.css`'s mobile rule).
+    pub fn of(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show_project: bool, lit: bool, stacked: bool) -> Parts {
+        let project = s.project_for_session(ses);
+        let name = project_or_dir(project, &ses.directory);
+        // `HomeSessionIndicators`: a busy session shows its activity ring instead of the dot.
+        let marks = s.marks(&ses.id);
+        let busy = marks.busy;
+        let open = s.tabs.iter().any(|t| t.id == ses.id);
+        let avatar = avatar(s, p, project, &name, open, marks.unread && !busy, lit);
+        // `max-w-[min(70%,480px)] flex-[0_1_auto]` beside the project, else the whole room.
+        let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0);
+        let project_el = show_project.then(|| text(name.clone()).key("project").font(UI).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0));
+        if stacked && show_project {
+            // The labels' column keeps to the row's top; the avatar stays centred.
+            let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().child(title).children(project_el.clone());
+            return Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) };
+        }
+        let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
+        let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title).children(project_el.clone());
+        if s.home_search.hovered.as_deref() == Some(ses.id.as_str()) {
+            labels = labels.child(location(s, p, ses, labels_w));
+        }
+        Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) }
+    }
+}
+
+/// `HomeSessionLocation`: the worktree's folder and its branch, each after its icon, `gap-1.5`,
+/// at most 60% of the labels.
+fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32) -> El {
+    let folder = opencode_kit::path::basename(&ses.directory);
+    let worktree = if folder.is_empty() { ses.directory.clone() } else { folder.to_owned() };
+    let mut l = row()
+        .key("location")
+        .max_w(labels_w * 0.6)
+        .shrink()
+        .min_w(0.0)
+        .gap(6.0)
+        .center_y()
+        .clip_soft(0.0)
+        .child(icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted))
+        .child(text(worktree).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
+    if let Some(branch) = s.sidebar_inbox.branches.get(&ses.directory) {
+        l = l.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(branch.to_owned()).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
+    }
+    l
+}
+
+/// `HomeSessionLeading`: the 16 pt project avatar; the open-tab bar 4 before it (`h-3 w-0.5
+/// rounded-[2px] bg-layer-04`); and the unread dot on its corner (`project-avatar.css`: the
+/// avatar cut clear 4.5 around a 6 pt `bg-accent` dot). The cut takes the row's surface: bg-base,
+/// with the hover overlay while the row is hovered or `lit`.
+pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &str, open: bool, unread: bool, lit: bool) -> El {
+    let mut a = el().key("avatar").size(16.0, 16.0).child(crate::icons::badge(s, p, project, name));
+    if open {
+        a = a.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
+    }
+    if unread {
+        let notch = || el().absolute(11.5, -4.5).size(9.0, 9.0).radius(4.5);
+        a = a
+            .child(notch().key("notch").fill(p.bg_base))
+            .child(if lit { notch().key("notch-lit").fill(p.hover) } else { notch().key("notch-lit").fill(p.hover).group_opacity(0.0, 1.0) })
+            .child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
+    }
+    a
 }
 
 const SERVE_CMD: &str = "opencode serve --port 4096";
@@ -689,7 +517,7 @@ mod no_server_story {
             .fill(p.bg_base)
             .box_shadow(Pal::ring_out(p.ring))
             .clip_soft(0.0)
-            .child(super::home(s, p, 760.0))
+            .child(super::home(s, p, 760.0, [0.0, 0.0]))
     }
 
     rune_register::register!(crate::stories::STORY_LIST: Story = [

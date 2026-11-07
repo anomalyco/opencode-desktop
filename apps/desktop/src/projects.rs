@@ -23,6 +23,10 @@ pub struct ProjectsState {
     pub home_selected: Option<String>,
     /// Whether Home's compact project filter popover is open.
     pub home_menu_open: bool,
+    /// The narrow Home's projects dropdown's width: its popover takes it (`sameWidth`).
+    pub trigger_w: f32,
+    /// An Import session upload is on its way.
+    pub importing: bool,
     /// Counter for sessions opened in fixture mode.
     opened: u32,
 }
@@ -106,18 +110,27 @@ impl App {
         }
     }
 
-    /// Projects this client has used, in recent-use order, one per canonical directory.
+    /// Projects this client has used, in the server's order (most recently active first), one per
+    /// directory: using any project of a folder lists that folder's current one
+    /// (`projects.used()` in `runtime/server/runtime.tsx`).
     pub fn used_projects(&self) -> Vec<&Project> {
+        let used_dirs: HashSet<String> = self
+            .project_state
+            .used
+            .iter()
+            .filter_map(|id| self.projects.iter().find(|p| &p.id == id))
+            .map(|p| clean_dir(&p.directory))
+            .collect();
+        let mut by_activity: Vec<&Project> = self.projects.iter().collect();
+        by_activity.sort_by_key(|p| std::cmp::Reverse(p.active));
         let mut seen_dirs = HashSet::new();
-        let mut out = Vec::new();
-        for id in &self.project_state.used {
-            if let Some(p) = self.projects.iter().find(|p| &p.id == id)
-                && seen_dirs.insert(clean_dir(&p.directory))
-            {
-                out.push(p);
-            }
-        }
-        out
+        by_activity
+            .into_iter()
+            .filter(|p| {
+                let dir = clean_dir(&p.directory);
+                used_dirs.contains(&dir) && seen_dirs.insert(dir)
+            })
+            .collect()
     }
 
     /// Server projects this client hasn't added or has hidden from its used list.

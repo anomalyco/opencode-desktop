@@ -165,12 +165,14 @@ pub struct Menu {
     /// Presses on it leave the focused field focused (`El::keeps_text_selection`).
     keeps_focus: bool,
     search: Option<Search>,
+    /// Its distance from the element it opens beside (Kobalte's `gutter`), when not the default.
+    gap: Option<f32>,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false, search: None }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false, search: None, gap: None }
     }
 
     /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
@@ -219,6 +221,8 @@ impl Menu {
     pub fn min_width(mut self, w: f32) -> Menu { self.min_w = w; self }
     /// Beside an element, which of its edges the drawn menu lines up with (its start by default).
     pub fn align(mut self, align: Align) -> Menu { self.align = align; self }
+    /// Opens `gap` from its element rather than 4 (`gutter={6}`).
+    pub fn gap(mut self, gap: f32) -> Menu { self.gap = Some(gap); self }
     /// Drawn in menu-v2's standard look, at least `min_w` wide, as Desktop's app menu is.
     pub fn standard(mut self, min_w: f32) -> Menu {
         self.look = Look::Standard;
@@ -499,7 +503,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(0.0, 0.0)), Align::Start, Side::Bottom),
     };
     let at_point = point.is_some();
-    let gap = if at_point { GAP } else { 4.0 };
+    let gap = if at_point { GAP } else { shown.menu.gap.unwrap_or(4.0) };
     let mut layer = vec![scrim];
     layer.extend(point);
     if shown.menu.look == Look::Standard {

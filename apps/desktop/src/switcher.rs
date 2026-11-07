@@ -27,7 +27,7 @@ use crate::view::title_of;
 use crate::{App, Route, Source};
 
 mod view;
-pub use view::{dialog, highlighted, view};
+pub use view::{dialog, view};
 
 /// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
 /// recent sessions (`RECENT_LIMIT`); and a query's local session matches (`ENTRY_LIMIT * 10`).
