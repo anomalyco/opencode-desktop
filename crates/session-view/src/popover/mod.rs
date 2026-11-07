@@ -309,11 +309,13 @@ pub struct List {
     /// Where the lit row starts, for the sliding highlight.
     lit: Option<f32>,
     under: Option<El>,
+    /// The headers stick for the whole list over this fill ([`List::stuck_headers`]).
+    stuck: Option<Color>,
 }
 
 impl List {
     pub fn new(key: &str, look: Look) -> List {
-        List { look, key: key.to_owned(), rows: Vec::new(), h: 2.0 * look.inset, lit: None, under: None }
+        List { look, key: key.to_owned(), rows: Vec::new(), h: 2.0 * look.inset, lit: None, under: None, stuck: None }
     }
 
     fn push(&mut self, e: El, h: f32) {
@@ -325,8 +327,26 @@ impl List {
     /// gap below the group above.
     pub fn header(&mut self, p: &Pal, key: impl Into<String>, label: &str) {
         let top = if self.rows.is_empty() { (self.look.head - self.look.inset).max(0.0) } else { self.look.head };
-        let e = group_header(p, self.look, key, label, top);
+        let e = match self.stuck {
+            // Across the list's inset so rows scroll under an opaque band; the label fades out
+            // as the next one comes up, gone just as it would touch it (`select-dialog.tsx:806-807`).
+            Some(fill) => {
+                let inset = self.look.inset;
+                row().key(key).transition(Transition::none()).h(top + HEADER_H).mx(-inset).pl(self.look.label_x() + inset).pr(self.look.pad_r + inset).pt(top).pb(2.0)
+                    .fill(fill).sticky_top(0.0).stuck_fade(top + HEADER_H - 2.0 - self.look.head, 16.0)
+                    .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate_fade())
+            }
+            None => group_header(p, self.look, key, label, top),
+        };
         self.push(e, top + HEADER_H);
+    }
+
+    /// The model dialog's headers (`select-dialog.css:113-175`): every one sticks for the whole
+    /// list on `fill`, the next sliding over it, and the rows fade in a 16 point band under the
+    /// stuck one by how far they've scrolled beneath it.
+    pub fn stuck_headers(mut self, fill: Color) -> Self {
+        self.stuck = Some(fill);
+        self
     }
 
     pub fn row(&mut self, e: El) {
@@ -371,8 +391,10 @@ impl List {
     /// The scroll keyed `key`, at most `max_h` tall.
     pub fn build(self, key: &str, max_h: f32) -> El {
         let list = col().key(self.key).w_full().padding(self.look.inset).gap(self.look.row_gap).children(self.under).children(self.rows);
+        // A stuck header's 16 point eased fade, whole once 16 points are hidden under it.
+        let fade = if self.stuck.is_some() { rune::ScrollFade::strength(16.0).full_at(16.0).below_sticky() } else { rune::ScrollFade::strength(8.0) };
         col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(8.0)
+            .scroll(ScrollSpec { stick_bottom: false }).scroll_fade(fade)
             .child(list)
     }
 }

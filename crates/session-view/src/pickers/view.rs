@@ -136,6 +136,9 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         menu = menu.child(pop::search_row(p, look, "picker-search-row", rail::LEAD, field, trailing));
     }
     let mut list = pop::List::new("picker-options", look);
+    if kind == Kind::Model {
+        list = list.stuck_headers(p.layer1);
+    }
     let mut footer: Option<El> = None;
     let mut group = "";
     let mut stops: Vec<rail::Stop> = Vec::new();
