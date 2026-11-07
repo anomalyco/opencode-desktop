@@ -33,7 +33,11 @@ impl Scheme {
     }
 
     pub fn label(self) -> &'static str {
-        match self { Self::System => "System", Self::Light => "Light", Self::Dark => "Dark" }
+        match self {
+            Self::System => opencode_i18n::t!("theme.scheme.system"),
+            Self::Light => opencode_i18n::t!("theme.scheme.light"),
+            Self::Dark => opencode_i18n::t!("theme.scheme.dark"),
+        }
     }
 
     /// `"system"`, `"light"` or `"dark"`; the system's otherwise.

@@ -9,6 +9,7 @@ use super::{ExtensionsTab, LINE, NAME, catalog, header_with, page};
 use crate::App;
 use crate::jobs::Apply;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 /// A tab's label: 13 on 16 at 440.
 const TAB: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -45,22 +46,22 @@ pub fn view(s: &App, p: &Pal) -> El {
         ExtensionsTab::Skills => (skills_link(p), named_rows(p, "settings-skills", &ic::POST_SKILL, s.settings_pages.skills.as_deref().unwrap_or_default())),
     };
     let heading = row().w_full().h(24.0).center_y()
-        .child(text("Available to all projects").font(LINE).color(p.text).grow(1.0))
+        .child(text(t!("settings.extensions.availableAll")).font(LINE).color(p.text).grow(1.0))
         .child(link);
     let body = col().key("settings-extensions").w_full()
         .child(tabs(p, tab))
         .child(col().w_full().pt(24.0).gap(16.0).child(heading).children(content))
         .children((tab == ExtensionsTab::Plugins).then(|| crate::plugin_host::settings_section(s, p)).flatten().map(|e| e.mt(32.0)));
-    page(p, "settings-extensions-page", header_with(p, "Extensions", "Manage extensions available on this server", super::servers::switcher(s, p)), body)
+    page(p, "settings-extensions-page", header_with(p, t!("settings.tab.extensions"), t!("settings.extensions.description"), super::servers::switcher(s, p)), body)
 }
 
 /// Pill tabs (`tabs-v2` pill in `.settings-subtabs`): 24 pt pills 6 apart, the picked one on
 /// `layer-03` with a hairline ring.
 fn tabs(p: &Pal, on: ExtensionsTab) -> El {
     let mut list = row().key("settings-extensions-tabs").w(280.0).gap(6.0).pb(8.0);
-    for (tab, label) in [(ExtensionsTab::Mcps, "MCPs"), (ExtensionsTab::Plugins, "Plugins"), (ExtensionsTab::Skills, "Skills")] {
+    for (tab, id, label) in [(ExtensionsTab::Mcps, "mcps", t!("settings.extensions.tab.mcps")), (ExtensionsTab::Plugins, "plugins", t!("settings.extensions.tab.plugins")), (ExtensionsTab::Skills, "skills", t!("settings.extensions.tab.skills"))] {
         let picked = tab == on;
-        let mut pill = row().key(format!("settings-extensions-tab-{}", label.to_lowercase())).role("tab").label(label).h(24.0).px(8.0).center().radius(6.0)
+        let mut pill = row().key(format!("settings-extensions-tab-{id}")).role("tab").label(label).h(24.0).px(8.0).center().radius(6.0)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.settings_pages.tab = tab;
@@ -73,16 +74,16 @@ fn tabs(p: &Pal, on: ExtensionsTab) -> El {
 }
 
 fn manage(p: &Pal) -> El {
-    text("Manage in opencode.json").font(LINE).color(p.muted)
+    text(t!("settings.extensions.manageConfig")).font(LINE).color(p.muted)
 }
 
 /// `.settings-extension-link`: underlined in `text-accent`, `text-accent-hover` under the pointer.
 fn skills_link(p: &Pal) -> El {
-    const WORDS: &str = "How to add skills";
+    let words = t!("settings.extensions.addSkills");
     const URL: &str = "https://opencode.ai/v2/docs/skills";
-    text(WORDS).key("settings-extension-link").font(LINE).color(p.accent)
-        .spans(vec![rune::Span::new(0, WORDS.len()).underline(p.accent)])
-        .link(rune::Link::new(0..WORDS.len(), URL).role("link").label(WORDS).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
+    text(words).key("settings-extension-link").font(LINE).color(p.accent)
+        .spans(vec![rune::Span::new(0, words.len()).underline(p.accent)])
+        .link(rune::Link::new(0..words.len(), URL).role("link").label(words).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
         .on_link(|_: &mut App, url: &str, tx: &mut Tx| {
             let _ = tx.open_url(url);
         })

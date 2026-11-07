@@ -122,7 +122,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     }
     let mut folder = Menu::new(dir.clone()).item(Item::new("copy-path", "Copy path").icon(&ic::OUTLINE_COPY));
     if matches!(&s.source, crate::Source::Live { server, .. } if server.is_local()) {
-        folder = folder.item(Item::new("reveal", REVEAL).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+        folder = folder.item(Item::new("reveal", reveal_label()).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     // The file plugin's row (`session.location.path.menu`): Open in the chosen app.
     if s.can_open_in() && s.open_in.current() != crate::open_in::FINDER {
@@ -258,11 +258,17 @@ fn copied(s: &mut App, value: &str, tx: &mut Tx) {
 
 /// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).
 #[cfg(target_os = "windows")]
-pub(crate) const REVEAL: &str = "Reveal in File Explorer";
+pub(crate) fn reveal_label() -> &'static str {
+    opencode_i18n::t!("session.header.reveal.fileExplorer")
+}
 #[cfg(target_os = "macos")]
-pub(crate) const REVEAL: &str = "Reveal in Finder";
+pub(crate) fn reveal_label() -> &'static str {
+    opencode_i18n::t!("session.header.reveal.finder")
+}
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub(crate) const REVEAL: &str = "Open containing folder";
+pub(crate) fn reveal_label() -> &'static str {
+    opencode_i18n::t!("session.header.reveal.containingFolder")
+}
 
 /// Shows folder `dir` in the system's file manager; a headless run opens nothing.
 pub(crate) fn reveal(dir: &str) -> Result<(), String> {

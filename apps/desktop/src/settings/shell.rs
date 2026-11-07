@@ -12,6 +12,7 @@ use super::search;
 use crate::App;
 use crate::palette::Pal;
 use crate::popup::{self, Menu};
+use opencode_i18n::t;
 
 /// `tabs-v2-trigger`: 13 on 16 at 440, -0.04 tracking.
 const TAB: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -36,8 +37,8 @@ pub fn groups(s: &App) -> Vec<Vec<Page>> {
 pub fn label(s: &App, page: &Page) -> String {
     match page {
         Page::Plugin(id) => crate::plugin_host::settings_page_title(s, id).unwrap_or_else(|| id.clone()),
-        Page::Servers if pages::servers::count(s) > 1 => "Servers".to_owned(),
-        other => other.label().to_owned(),
+        Page::Servers if pages::servers::count(s) > 1 => t!("settings.tab.servers").to_owned(),
+        other => other.tab_label().to_owned(),
     }
 }
 
@@ -51,7 +52,7 @@ fn glyph(s: &App, page: &Page) -> &'static rune::Icon {
 /// The screen at `width` points: the rail and the page, or the narrow layout.
 pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     let content = pages::view(s, p);
-    let screen = col().key("settings").role("region").label("Settings").w_full().grow(1.0).shrink().min_h(0.0)
+    let screen = col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
         .scroll(rune::ScrollSpec { stick_bottom: false });
     if width > 0.0 && width < 800.0 {
         return col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
@@ -112,7 +113,7 @@ fn nav_item(s: &App, p: &Pal, page: &Page) -> El {
 /// `.settings-back`: the arrow and "Back to app" ("Back to projects" on a project's pages), muted
 /// until hovered.
 fn back_button(p: &Pal, project: bool) -> El {
-    let words = if project { "Back to projects" } else { "Back to app" };
+    let words = if project { t!("settings.backToProjects") } else { t!("settings.backToApp") };
     row().key("settings-back").role("button").label(words).help(format!("{words} Esc")).h(28.0).px(6.0).gap(6.0).center_y().radius(4.0).self_start()
         .hover_group()
         .hover(p.layer3)
@@ -136,7 +137,7 @@ fn narrow_bar(s: &App, p: &Pal) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             let groups = groups(s);
             let selected = s.settings_pages.page.id().to_owned();
-            let mut menu = Menu::new("Settings").align(rune::Align::End);
+            let mut menu = Menu::new(t!("command.category.settings")).align(rune::Align::End);
             for (g, group) in groups.iter().enumerate() {
                 if g > 0 {
                     menu = menu.separator();

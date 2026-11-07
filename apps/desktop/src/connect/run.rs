@@ -12,7 +12,7 @@ use serde_json::Value;
 use super::dialog::{CLAUDE, CLAUDE_CHECK_TIMEOUT_S, CONSOLE, Effect, Event, Snapshot};
 use super::machine::{Catalog, Effect as SignIn, Event as Answer, Outcome, Signin};
 use crate::App;
-use crate::jobs::{Apply, READ_ONLY};
+use crate::jobs::{Apply, read_only};
 
 /// How long the Console's workspace providers may take to show after a sign-in.
 const CONSOLE_SETTLE_TRIES: u32 = 20;
@@ -81,7 +81,7 @@ impl App {
         then: impl FnOnce(&mut App, &mut Tx, Result<T, String>) + Send + 'static,
     ) {
         if !self.can_write() {
-            return self.later(Box::new(move |s: &mut App, tx: &mut Tx| then(s, tx, Err(READ_ONLY.into()))));
+            return self.later(Box::new(move |s: &mut App, tx: &mut Tx| then(s, tx, Err(read_only().into()))));
         }
         self.job(move |srv| {
             let r = work(srv);

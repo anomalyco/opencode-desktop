@@ -12,6 +12,7 @@ use rune_theme_opencode::icons as ic;
 use super::pages::{ExtensionsTab, Page};
 use crate::App;
 use crate::palette::Pal;
+use opencode_i18n::{key, t};
 
 /// The results' labels and rows: 13 on 16 at 440, -0.04 tracking.
 const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -126,43 +127,45 @@ pub fn index(s: &App) -> Vec<Entry> {
         };
         out.push(entry(&page, &label, &label, None, keywords, "", true));
     }
-    let mut add = |page: Page, target: &str, title: &str, section: Option<&str>, description: &str, keywords: &str| {
-        let label = page.label();
+    let mut add = |page: Page, target: &str, title: opencode_i18n::Key, section: Option<opencode_i18n::Key>, description: Option<opencode_i18n::Key>, keywords: &str| {
+        let text = |key: opencode_i18n::Key| opencode_i18n::I18N.text(key);
         let where_ = match (&page, section) {
-            (Page::General, s) => format!("Preferences / {}", s.unwrap_or("General")),
-            (_, Some(s)) => s.to_owned(),
-            _ => label.to_owned(),
+            (Page::General, s) => format!("{} / {}", Page::General.label(), s.map_or(t!("settings.general.section.general"), text)),
+            (_, Some(s)) => text(s).to_owned(),
+            _ => page.label().to_owned(),
         };
-        out.push(entry(&page, title, &where_, Some(target), keywords, description, false));
+        let mut e = entry(&page, text(title), &where_, Some(target), keywords, description.map_or("", text), false);
+        e.id = format!("{}:{target}", page.id());
+        out.push(e);
     };
     for (page, target, title, section, description, keywords) in ROWS {
-        add(page.clone(), target, title, *section, description, keywords);
+        add(page.clone(), target, *title, *section, *description, keywords);
     }
     if !s.browser_unsupported() {
-        add(Page::General, "prefetch-browser", "Download browser in the background", None, "", "browser engine download cef");
+        add(Page::General, "prefetch-browser", key!("rune.settings.general.row.prefetchBrowser.title"), None, None, "browser engine download cef");
     }
-    add(Page::General, "terminal-placement", "Terminal placement", None, "Choose where the terminal opens in sessions.", "terminal dock side bottom");
-    add(Page::Experimental, "record-glitches", "Rewind", Some("Developer"), "", "glitch record frames developer");
-    for (tab, title, keywords) in [(ExtensionsTab::Mcps, "MCPs", "model context protocol tools"), (ExtensionsTab::Plugins, "Plugins", "extension gui built-in"), (ExtensionsTab::Skills, "Skills", "")] {
-        let mut e = entry(&Page::Extensions, title, "Extensions", None, keywords, "", false);
-        e.id = format!("extensions:{title}");
+    add(Page::General, "terminal-placement", key!("rune.settings.general.row.terminalPlacement.title"), None, Some(key!("rune.settings.general.row.terminalPlacement.description")), "terminal dock side bottom");
+    add(Page::Experimental, "record-glitches", key!("rune.settings.developer.rewind.title"), Some(key!("rune.settings.developer.title")), None, "glitch record frames developer");
+    for (tab, id, title, keywords) in [(ExtensionsTab::Mcps, "mcps", t!("settings.extensions.tab.mcps"), "model context protocol tools"), (ExtensionsTab::Plugins, "plugins", t!("settings.extensions.tab.plugins"), "extension gui built-in"), (ExtensionsTab::Skills, "skills", t!("settings.extensions.tab.skills"), "")] {
+        let mut e = entry(&Page::Extensions, title, Page::Extensions.label(), None, keywords, "", false);
+        e.id = format!("extensions:{id}");
         e.subtab = Some(tab);
         out.push(e);
     }
     for b in crate::keymap::all().iter().filter(|b| !b.hidden) {
-        let mut e = entry(&Page::Shortcuts, b.title, "Shortcuts", Some(&format!("shortcut-{}", b.id)), "shortcut keybind", "", false);
+        let mut e = entry(&Page::Shortcuts, b.title, Page::Shortcuts.label(), Some(&format!("shortcut-{}", b.id)), "shortcut keybind", "", false);
         e.id = format!("shortcut:{}", b.id);
         out.push(e);
     }
     plugin_entries(s, &mut out);
     let server = super::pages::servers::name(s);
-    out.push(Entry { id: format!("server:{server}"), title: server.clone(), where_: "Connection".into(), owner: "Servers".into(), entity: true, ..entry(&Page::Servers, "", "", None, "", "", false) });
+    out.push(Entry { id: format!("server:{server}"), title: server.clone(), where_: t!("settings.server.section.connection").into(), owner: t!("settings.tab.servers").into(), entity: true, ..entry(&Page::Servers, "", "", None, "", "", false) });
     for project in s.projects.iter() {
         let name = super::pages::projects::name(project);
         out.push(Entry {
             id: format!("project:{}", project.directory),
             title: name,
-            where_: "Projects".into(),
+            where_: t!("settings.tab.projects").into(),
             owner: server.clone(),
             entity: true,
             project: Some(project.directory.clone()),
@@ -196,9 +199,9 @@ fn entry(page: &Page, title: &str, where_: &str, target: Option<&str>, keywords:
 fn plugin_entries(s: &App, out: &mut Vec<Entry>) {
     for e in crate::plugin_host::settings_search(s) {
         let (page, where_) = match e.page.as_str() {
-            "general" => (Page::General, format!("Preferences / {}", e.owner)),
-            "plugins" => (Page::Extensions, "Extensions".to_owned()),
-            "servers" => (Page::Servers, "Server".to_owned()),
+            "general" => (Page::General, format!("{} / {}", Page::General.label(), e.owner)),
+            "plugins" => (Page::Extensions, Page::Extensions.label().to_owned()),
+            "servers" => (Page::Servers, Page::Servers.label().to_owned()),
             id => (Page::Plugin(crate::plugin_host::settings_page_key(s, id)), crate::plugin_host::settings_page_title(s, id).unwrap_or_else(|| e.owner.clone())),
         };
         let top = matches!(page, Page::Plugin(_)) && e.id == e.page;
@@ -208,43 +211,48 @@ fn plugin_entries(s: &App, out: &mut Vec<Entry>) {
     }
 }
 
-/// Desktop's rows, by page: `(page, data-action, title, section, description, keywords)`.
-type Row = (Page, &'static str, &'static str, Option<&'static str>, &'static str, &'static str);
+/// Desktop's rows, by page (`search-catalog.ts`): `(page, data-action, title, section,
+/// description, keywords)`, the keywords in English as there.
+type Row = (Page, &'static str, opencode_i18n::Key, Option<opencode_i18n::Key>, Option<opencode_i18n::Key>, &'static str);
+
+const TIMELINE: Option<opencode_i18n::Key> = Some(key!("settings.timeline.title"));
+const NOTIFICATIONS: Option<opencode_i18n::Key> = Some(key!("settings.general.section.notifications"));
+const SOUNDS: Option<opencode_i18n::Key> = Some(key!("settings.general.section.sounds"));
 
 const ROWS: &[Row] = &[
-    (Page::General, "settings-language", "Language", None, "", ""),
-    (Page::General, "settings-tab-layout", "Interface layout", None, "", "top side tabs inbox sidebar mode layout vertical horizontal focus pro"),
-    (Page::General, "settings-workspace-destination", "Default environment", None, "Choose where new sessions start", "worktree workspace default destination"),
-    (Page::General, "settings-auto-accept-permissions", "Auto-accept permissions", None, "Approve permission requests without asking. Projects can override this in their settings.", "permissions approve allow auto accept default"),
-    (Page::General, "settings-timeline-detail", "Timeline detail", Some("Timeline"), "", "thinking reasoning tools timeline summary detailed"),
-    (Page::General, "settings-background-activity", "Background activity", Some("Timeline"), "Show running subagents and shells above the composer", "capsule panel subagent shell background activity position alignment hidden left center right"),
-    (Page::General, "settings-timeline-width", "Timeline width", Some("Timeline"), "Narrower lines are easier to scan. Wider lines show more at once", "column line length measure narrow focused comfortable wide readability"),
-    (Page::General, "settings-show-turn-diffs", "Changed files", Some("Timeline"), "List the files each turn changed when it finishes", ""),
-    (Page::General, "settings-show-custom-agents", "Show agent", Some("General"), "", ""),
-    (Page::General, "settings-follow-up-behavior", "Follow-up behavior", None, "", "queue steer follow up"),
-    (Page::General, "settings-pinch-zoom", "Pinch to zoom", None, "", ""),
-    (Page::General, "settings-spellcheck", "Spellcheck", None, "", "spelling spell check dictionary"),
-    (Page::Experimental, "settings-new-icons", "New icons", None, "Preview the updated icon set", "icons iconography glyphs redesign"),
-    (Page::Experimental, "settings-fold-user-messages", "Fold long messages", None, "Fold your messages past 12 lines behind a Read more button", "fold collapse long messages prompts read more"),
-    (Page::Experimental, "settings-new-question-ui", "New question UI", None, "Preview the keyboard-first question dock", "question answers keyboard dock redesign"),
-    (Page::Experimental, "settings-sidebar-organize", "Organize vertical sidebar", None, "Group side tabs by project or show one list. Only applies to side tabs.", "vertical side tabs projects recents organize sidebar"),
-    (Page::Appearance, "settings-color-scheme", "Color scheme", None, "", "dark mode light mode system"),
-    (Page::Appearance, "settings-theme", "Theme", None, "", ""),
-    (Page::Appearance, "settings-ui-font", "UI Font", None, "", "interface typeface"),
-    (Page::Appearance, "settings-code-font", "Code Font", None, "", "code typeface"),
-    (Page::Appearance, "settings-terminal-font", "Terminal Font", None, "", "terminal typeface"),
-    (Page::Appearance, "settings-zoom", "Zoom", None, "", "scale size text font larger bigger accessibility"),
-    (Page::Appearance, "settings-reduce-motion", "Reduce motion", None, "", "animation accessibility"),
-    (Page::Notifications, "settings-notifications-agent", "Agent", Some("Desktop notifications"), "Show system notification when the agent is complete or needs attention", "desktop notifications agent"),
-    (Page::Notifications, "settings-notifications-permissions", "Permissions", Some("Desktop notifications"), "Show system notification when a permission is required", "desktop notifications permissions"),
-    (Page::Notifications, "settings-notifications-questions", "Questions", Some("Desktop notifications"), "Show system notification when the agent asks a question", "desktop notifications questions mcp elicitation input"),
-    (Page::Notifications, "settings-notifications-errors", "Errors", Some("Desktop notifications"), "Show system notification when an error occurs", "desktop notifications errors"),
-    (Page::Notifications, "settings-sounds-agent", "Agent", Some("Sound effects"), "Play sound when the agent is complete or needs attention", "sound audio agent"),
-    (Page::Notifications, "settings-sounds-permissions", "Permissions", Some("Sound effects"), "Play sound when a permission is required", "sound audio permissions"),
-    (Page::Notifications, "settings-sounds-questions", "Questions", Some("Sound effects"), "Play sound when the agent asks a question", "sound audio questions mcp elicitation input"),
-    (Page::Notifications, "settings-sounds-errors", "Errors", Some("Sound effects"), "Play sound when an error occurs", "sound audio errors"),
-    (Page::Notifications, "settings-sounds-interface", "Interface", Some("Sound effects"), "Play subtle sounds when the wordmark appears and when you play with it", "sound audio interface effects wordmark logo"),
-    (Page::Servers, "settings-shell", "Terminal shell", None, "Shell used by the terminal and agent tools", "bash zsh powershell"),
+    (Page::General, "settings-language", key!("settings.general.row.language.title"), None, None, ""),
+    (Page::General, "settings-tab-layout", key!("settings.general.row.interfaceMode.title"), None, None, "top side tabs inbox sidebar mode layout vertical horizontal focus pro"),
+    (Page::General, "settings-workspace-destination", key!("settings.workspaces.default.title"), None, Some(key!("settings.workspaces.default.description")), "worktree workspace default destination"),
+    (Page::General, "settings-auto-accept-permissions", key!("command.permissions.autoaccept.enable"), None, Some(key!("settings.permissions.autoAccept.default.description")), "permissions approve allow auto accept default"),
+    (Page::General, "settings-timeline-detail", key!("settings.timeline.detail"), TIMELINE, None, "thinking reasoning tools timeline summary detailed"),
+    (Page::General, "settings-background-activity", key!("settings.timeline.row.backgroundActivity.title"), TIMELINE, Some(key!("settings.timeline.row.backgroundActivity.description")), "capsule panel subagent shell background activity position alignment hidden left center right"),
+    (Page::General, "settings-timeline-width", key!("settings.timeline.row.width.title"), TIMELINE, Some(key!("settings.timeline.row.width.description")), "column line length measure narrow focused comfortable wide readability"),
+    (Page::General, "settings-show-turn-diffs", key!("settings.timeline.row.turnDiffs.title"), TIMELINE, Some(key!("settings.timeline.row.turnDiffs.description")), ""),
+    (Page::General, "settings-show-custom-agents", key!("settings.general.row.showCustomAgents.title"), Some(key!("settings.general.section.general")), None, ""),
+    (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
+    (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
+    (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
+    (Page::Experimental, "settings-new-icons", key!("settings.experimental.row.newIcons.title"), None, Some(key!("settings.experimental.row.newIcons.description")), "icons iconography glyphs redesign"),
+    (Page::Experimental, "settings-fold-user-messages", key!("settings.experimental.row.foldUserMessages.title"), None, Some(key!("settings.experimental.row.foldUserMessages.description")), "fold collapse long messages prompts read more"),
+    (Page::Experimental, "settings-new-question-ui", key!("settings.experimental.row.newQuestionUI.title"), None, Some(key!("settings.experimental.row.newQuestionUI.description")), "question answers keyboard dock redesign"),
+    (Page::Experimental, "settings-sidebar-organize", key!("settings.experimental.row.sidebarOrganize.title"), None, Some(key!("settings.experimental.row.sidebarOrganize.description")), "vertical side tabs projects recents organize sidebar"),
+    (Page::Appearance, "settings-color-scheme", key!("settings.general.row.colorScheme.title"), None, None, "dark mode light mode system"),
+    (Page::Appearance, "settings-theme", key!("settings.general.row.theme.title"), None, None, ""),
+    (Page::Appearance, "settings-ui-font", key!("settings.general.row.uiFont.title"), None, None, "interface typeface"),
+    (Page::Appearance, "settings-code-font", key!("settings.general.row.font.title"), None, None, "code typeface"),
+    (Page::Appearance, "settings-terminal-font", key!("settings.general.row.terminalFont.title"), None, None, "terminal typeface"),
+    (Page::Appearance, "settings-zoom", key!("settings.appearance.row.zoom.title"), None, None, "scale size text font larger bigger accessibility"),
+    (Page::Appearance, "settings-reduce-motion", key!("settings.appearance.row.reduceMotion.title"), None, None, "animation accessibility"),
+    (Page::Notifications, "settings-notifications-agent", key!("settings.general.notifications.agent.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.agent.description")), "desktop notifications agent"),
+    (Page::Notifications, "settings-notifications-permissions", key!("settings.general.notifications.permissions.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.permissions.description")), "desktop notifications permissions"),
+    (Page::Notifications, "settings-notifications-questions", key!("settings.general.notifications.questions.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.questions.description")), "desktop notifications questions mcp elicitation input"),
+    (Page::Notifications, "settings-notifications-errors", key!("settings.general.notifications.errors.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.errors.description")), "desktop notifications errors"),
+    (Page::Notifications, "settings-sounds-agent", key!("settings.general.sounds.agent.title"), SOUNDS, Some(key!("settings.general.sounds.agent.description")), "sound audio agent"),
+    (Page::Notifications, "settings-sounds-permissions", key!("settings.general.sounds.permissions.title"), SOUNDS, Some(key!("settings.general.sounds.permissions.description")), "sound audio permissions"),
+    (Page::Notifications, "settings-sounds-questions", key!("settings.general.sounds.questions.title"), SOUNDS, Some(key!("settings.general.sounds.questions.description")), "sound audio questions mcp elicitation input"),
+    (Page::Notifications, "settings-sounds-errors", key!("settings.general.sounds.errors.title"), SOUNDS, Some(key!("settings.general.sounds.errors.description")), "sound audio errors"),
+    (Page::Notifications, "settings-sounds-interface", key!("settings.general.sounds.interface.title"), SOUNDS, Some(key!("settings.general.sounds.interface.description")), "sound audio interface effects wordmark logo"),
+    (Page::Servers, "settings-shell", key!("settings.general.row.shell.title"), None, Some(key!("settings.general.row.shell.description")), "bash zsh powershell"),
 ];
 
 /// `rankSettings`: entries any of whose words the query names, the pages first, then the
@@ -308,6 +316,16 @@ fn category(e: &Entry) -> &'static str {
         "Projects"
     } else {
         "Servers"
+    }
+}
+
+/// A group's header (`settings.search.group.*`).
+fn category_label(group: &str) -> &'static str {
+    match group {
+        "Pages" => t!("settings.search.group.pages"),
+        "Settings" => t!("settings.search.group.settings"),
+        "Projects" => t!("settings.search.group.projects"),
+        _ => t!("settings.search.group.servers"),
     }
 }
 
@@ -419,7 +437,7 @@ pub fn field(s: &App, p: &Pal) -> El {
     let q = &s.settings_pages.find.query;
     let lit = q.focused || !q.text.is_empty();
     let clear_button = (!q.text.is_empty()).then(|| {
-        row().key("settings-search-clear").role("button").label("Clear").size(20.0, 20.0).center().radius(4.0)
+        row().key("settings-search-clear").role("button").label(t!("common.clear")).size(20.0, 20.0).center().radius(4.0)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 clear(s);
@@ -432,7 +450,7 @@ pub fn field(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(rune::text_input(q, ROW).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder("Search", p.faint).caret(p.text, p.selection).label("Search")
+            .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint).caret(p.text, p.selection).label(t!("settings.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
             // Enter opens the lit result, else the first (`search-machine.ts`).
             .on_submit(|s: &mut App, tx: &mut Tx| {
@@ -472,7 +490,7 @@ pub fn results(s: &App, p: &Pal) -> El {
         let icons = entries.iter().any(|e| e.top || e.project.is_some());
         let mut section = col().key(format!("settings-results-{group}")).w_full().gap(1.0).pb(16.0)
             .child(row().key("header").w_full().h(28.0).mx(-6.0).px(18.0).center_y().fill(p.bg_base).sticky_top(0.0)
-                .child(text(group).font(ROW).color(p.muted)));
+                .child(text(category_label(group)).font(ROW).color(p.muted)));
         for e in entries {
             let lit = find.highlighted.as_deref() == Some(&e.id);
             let current = find.selected.as_deref() == Some(&e.id);
@@ -500,7 +518,7 @@ pub fn results(s: &App, p: &Pal) -> El {
         body = body.child(section);
     }
     let footer = more.then(|| row().key("settings-results-footer").w_full().pt(4.0).px(18.0).pb(12.0)
-        .child(text("Narrow your search to see more specific results.").font(ROW).color(p.muted).wrap()));
+        .child(text(t!("settings.search.refine")).font(ROW).color(p.muted).wrap()));
     col().key("settings-results").w_full().min_h(0.0)
         .child(col().key("settings-results-scroll").w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade(0.0, 0.0, 0.0, 24.0).child(body))
         .children(footer)

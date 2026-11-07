@@ -17,6 +17,7 @@ use crate::App;
 use crate::palette::{Pal, kit};
 use crate::pickers::Model;
 use crate::widgets;
+use opencode_i18n::t;
 
 /// The providers folded shut, kept per server as Desktop's `settings-v2.models.providers`
 /// (`collapsed`, by provider) is: read from `settings-models.json` in the app's data folder
@@ -94,11 +95,9 @@ pub fn view(s: &App, p: &Pal) -> El {
     let mut body = col().key("settings-models").w_full().gap(12.0);
     if groups.is_empty() {
         let status = if searching {
-            row().key("settings-models-empty").w_full().py(48.0).gap(4.0).center()
-                .child(text("No results for").font(NAME_REGULAR).color(p.muted))
-                .child(text(format!("\u{201c}{}\u{201d}", s.settings_pages.search.text.trim())).font(NAME_REGULAR).color(p.text))
+            row().key("settings-models-empty").w_full().py(48.0).gap(4.0).center().children(super::no_results_words(p, &s.settings_pages.search.text))
         } else {
-            row().key("settings-models-empty").w_full().py(48.0).center().child(text("No model results").font(NAME_REGULAR).color(p.muted))
+            row().key("settings-models-empty").w_full().py(48.0).center().child(text(t!("dialog.model.empty")).font(NAME_REGULAR).color(p.muted))
         };
         body = body.child(status);
     }
@@ -107,7 +106,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         body = body.child(group(s, p, provider, models, open, searching));
     }
     let head = col().w_full().gap(24.0)
-        .child(header_with(p, "Models", "Choose which models appear in model picker", super::servers::switcher(s, p)))
+        .child(header_with(p, t!("settings.models.title"), t!("settings.models.description"), super::servers::switcher(s, p)))
         .child(search(s, p));
     page(p, "settings-models-page", head, body)
 }
@@ -121,7 +120,7 @@ fn search(s: &App, p: &Pal) -> El {
         .hover(p.layer2)
         .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(rune::text_input(&s.settings_pages.search, NAME_REGULAR).key("settings-models-input").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder("Search models", p.faint).caret(p.text, p.selection).label("Search models")
+            .color(p.text).placeholder(t!("dialog.model.search.placeholder"), p.faint).caret(p.text, p.selection).label(t!("dialog.model.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.search)
             .on_input_change(|_: &mut App, tx: &mut Tx| tx.instant()))
 }

@@ -12,6 +12,7 @@ use super::{filter_field, ghost_button, header_beside, no_results};
 use crate::App;
 use crate::keymap::{Section, all, overrides};
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 /// A command's title and the keys' label: 13 on 16, -0.04 tracking.
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -73,10 +74,10 @@ pub fn view(s: &App, p: &Pal) -> El {
     let query = st.filter.text.trim().to_owned();
     let list = entries(s);
     let changed = !s.settings.keybinds.is_empty();
-    let reset = ghost_button(p, "settings-shortcuts-reset", "Reset to defaults", None, false, changed, |s, _| reset(s));
+    let reset = ghost_button(p, "settings-shortcuts-reset", t!("settings.shortcuts.reset.button"), None, false, changed, |s, _| reset(s));
     let head = col().w_full().gap(24.0)
-        .child(header_beside(p, "Keyboard shortcuts", "Customize shortcuts for common actions", reset))
-        .child(filter_field(s, p, "settings-shortcuts-search", "Search shortcuts", &st.filter, |s| &mut s.settings_pages.shortcuts.filter));
+        .child(header_beside(p, t!("settings.shortcuts.title"), t!("settings.shortcuts.description"), reset))
+        .child(filter_field(s, p, "settings-shortcuts-search", t!("settings.shortcuts.search.placeholder"), &st.filter, |s| &mut s.settings_pages.shortcuts.filter));
     let mut body = col().key("settings-shortcuts").w_full().gap(32.0);
     let mut any = false;
     for section in Section::ALL {
@@ -111,9 +112,9 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
     let recording = s.settings_pages.shortcuts.capture.as_deref() == Some(e.id.as_str());
     let keys = label(&e.keybind);
     let (words, ink, font) = if recording {
-        ("Press keys".to_owned(), p.text, KEYS)
+        (t!("settings.shortcuts.pressKeys").to_owned(), p.text, KEYS)
     } else if keys.is_empty() {
-        ("Unassigned".to_owned(), p.muted, TITLE)
+        (t!("settings.shortcuts.unassigned").to_owned(), p.muted, TITLE)
     } else {
         (keys.clone(), p.text, KEYS)
     };
@@ -132,13 +133,13 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
         .child(text(words).font(font).color(ink));
     let id = e.id.clone();
     let unbind = (recording && !keys.is_empty()).then(|| {
-        row().key("shortcut-unbind").role("button").label("Unbind").h(24.0).px(8.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
+        row().key("shortcut-unbind").role("button").label(t!("settings.shortcuts.unbind")).h(24.0).px(8.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 bind(s, &id, "none");
                 s.settings_pages.shortcuts.capture = None;
             })
-            .child(text("Unbind").font(KEYS).color(p.danger))
+            .child(text(t!("settings.shortcuts.unbind")).font(KEYS).color(p.danger))
     });
     row().gap(4.0).center_y().children(unbind).child(button)
 }
@@ -156,7 +157,7 @@ fn reset(s: &mut App) {
     s.settings_pages.shortcuts.capture = None;
     s.change_settings(|x| x.keybinds.clear());
     overrides::apply(&s.settings.keybinds);
-    crate::status_toast::say(s, "Shortcuts reset", "Keyboard shortcuts have been reset to defaults.");
+    crate::status_toast::say(s, t!("settings.shortcuts.reset.toast.title"), t!("settings.shortcuts.reset.toast.description"));
 }
 
 /// The chord `ev` is, as a keybind names it: `mod` for ⌘ on macOS and Ctrl elsewhere; the key
@@ -233,7 +234,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let platform = KeyPlatform::current();
     let taken: Vec<String> = entries(s).into_iter().filter(|e| e.id != id && e.keybind.chords().iter().any(|c| c.same_keys(&chord, platform))).map(|e| e.title).collect();
     if !taken.is_empty() {
-        crate::status_toast::say(s, "Shortcut already in use", format!("{} is already assigned to {}.", crate::keymap::label(chord), taken.join(", ")));
+        crate::status_toast::say(s, t!("settings.shortcuts.conflict.title"), t!("settings.shortcuts.conflict.description", keybind = crate::keymap::label(chord), titles = taken.join(", ")));
         return true;
     }
     bind(s, &id, &overrides::spec(chord));

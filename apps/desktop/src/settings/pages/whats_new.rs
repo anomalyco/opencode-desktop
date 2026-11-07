@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::{catalog, ghost_button, header_with, page_with};
 use crate::App;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 const SUMMARY: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 const META: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
@@ -28,16 +29,16 @@ pub fn view(s: &App, p: &Pal) -> El {
     let v = notes().unwrap_or_default();
     let all = v["notes"].as_array().cloned().unwrap_or_default();
     let history = v["history"].as_str().unwrap_or("https://github.com/anomalyco/rune-desktop/commits/main").to_owned();
-    let github = ghost_button(p, "settings-whats-new-history", "History on GitHub", None, true, true, move |_, tx: &mut Tx| {
+    let github = ghost_button(p, "settings-whats-new-history", t!("plugin.updater.beta.github"), None, true, true, move |_, tx: &mut Tx| {
         let _ = tx.open_url(&history);
     });
     let added: Vec<&Value> = all.iter().filter(|n| n["type"] == "feat").collect();
     let fixed: Vec<&Value> = all.iter().filter(|n| n["type"] != "feat").collect();
     let body = col().w_full().gap(32.0)
-        .children((!added.is_empty()).then(|| super::section(p, "settings-whats-new-added", Some("New"), catalog(p, "whats-new-added", added.iter().map(|n| note(p, n)).collect()))))
-        .children((!fixed.is_empty()).then(|| super::section(p, "settings-whats-new-fixed", Some("Fixes"), catalog(p, "whats-new-fixed", fixed.iter().map(|n| note(p, n)).collect()))));
+        .children((!added.is_empty()).then(|| super::section(p, "settings-whats-new-added", Some(t!("plugin.updater.beta.added")), catalog(p, "whats-new-added", added.iter().map(|n| note(p, n)).collect()))))
+        .children((!fixed.is_empty()).then(|| super::section(p, "settings-whats-new-fixed", Some(t!("plugin.updater.beta.fixed")), catalog(p, "whats-new-fixed", fixed.iter().map(|n| note(p, n)).collect()))));
     let _ = s;
-    page_with(p, "settings-whats-new-page", header_with(p, "What's new", "Every change in this build.", Some(github)), body, true)
+    page_with(p, "settings-whats-new-page", header_with(p, t!("plugin.updater.beta.title"), t!("plugin.updater.beta.page.description"), Some(github)), body, true)
 }
 
 /// A change: its summary over its author's initial and name, then its pull request.

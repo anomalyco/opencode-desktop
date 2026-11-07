@@ -10,6 +10,7 @@ use rune_theme_opencode::icons as ic;
 use super::{filter_field, ghost_button, header_with, no_results, page};
 use crate::App;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 /// A project's name: 13 on 20 at 530.
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
@@ -37,15 +38,15 @@ pub fn view(s: &App, p: &Pal) -> El {
     let hit = |x: &&Project| query.is_empty() || name(x).to_lowercase().contains(&query) || x.directory.to_lowercase().contains(&query);
     let added: Vec<&Project> = used.iter().copied().filter(hit).collect();
     let rest: Vec<&Project> = others.iter().copied().filter(hit).collect();
-    let add = (!(used.is_empty() && others.is_empty())).then(|| ghost_button(p, "settings-add-project", "Add project", Some(&ic::PLUS), true, true, |s, tx| s.open_project_dialog(tx)));
+    let add = (!(used.is_empty() && others.is_empty())).then(|| ghost_button(p, "settings-add-project", t!("home.project.add"), Some(&ic::PLUS), true, true, |s, tx| s.open_project_dialog(tx)));
     // Add project, then the server switcher (`settings-tab-header-actions`).
     let actions = match (add, super::servers::switcher(s, p)) {
         (Some(a), Some(sw)) => Some(row().gap(8.0).center_y().child(a).child(sw)),
         (a, sw) => a.or(sw),
     };
-    let mut head = col().w_full().gap(24.0).child(header_with(p, "Projects", "Manage projects and their settings", actions));
+    let mut head = col().w_full().gap(24.0).child(header_with(p, t!("settings.projects.title"), t!("settings.projects.description"), actions));
     if searchable {
-        head = head.child(filter_field(s, p, "settings-projects-search", "Search projects", &s.settings_pages.projects.filter, |s| &mut s.settings_pages.projects.filter));
+        head = head.child(filter_field(s, p, "settings-projects-search", t!("settings.projects.search.placeholder"), &s.settings_pages.projects.filter, |s| &mut s.settings_pages.projects.filter));
     }
     let body = if used.is_empty() && others.is_empty() {
         empty(p)
@@ -60,7 +61,7 @@ pub fn view(s: &App, p: &Pal) -> El {
             if query.is_empty() {
                 list = list.child(fold(p, others.len(), s.settings_pages.projects.others));
             } else {
-                list = list.child(text("Other projects").font(FOLD).color(p.muted));
+                list = list.child(text(t!("settings.projects.other")).font(FOLD).color(p.muted));
             }
             if s.settings_pages.projects.others || !query.is_empty() {
                 list = list.child(project_list(s, p, "settings-other-project-list", &rest, true));
@@ -75,14 +76,14 @@ pub fn view(s: &App, p: &Pal) -> El {
 fn empty(p: &Pal) -> El {
     col().key("settings-project-empty-card").w_full().py(96.0).gap(8.0).items_center().radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted))
         .child(icon(&ic::FOLDER, 24.0).color(p.icon_muted).mb(8.0))
-        .child(text("No projects yet").font(FOLD).color(p.text))
-        .child(text("Add a project to get started").font(super::NAME_REGULAR).color(p.muted))
-        .child(el().mt(24.0).child(crate::widgets::button("Add project", rune_kit::ButtonVariant::Neutral).icon(&ic::PLUS).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)).build(crate::palette::kit(p))))
+        .child(text(t!("settings.projects.empty.title")).font(FOLD).color(p.text))
+        .child(text(t!("settings.projects.empty.description")).font(super::NAME_REGULAR).color(p.muted))
+        .child(el().mt(24.0).child(crate::widgets::button(t!("home.project.add"), rune_kit::ButtonVariant::Neutral).icon(&ic::PLUS).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)).build(crate::palette::kit(p))))
 }
 
 /// Other projects' fold: the triangle, its title and the count badge.
 fn fold(p: &Pal, count: usize, open: bool) -> El {
-    row().key("settings-projects-others").role("button").label("Other projects").h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
+    row().key("settings-projects-others").role("button").label(t!("settings.projects.other")).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
         .hover(p.layer2)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -90,7 +91,7 @@ fn fold(p: &Pal, count: usize, open: bool) -> El {
         })
         .child(el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
         .child(row().gap(6.0).center_y()
-            .child(text("Other projects").font(FOLD).color(p.text))
+            .child(text(t!("settings.projects.other")).font(FOLD).color(p.text))
             .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(4.0).fill(p.layer3).child(text(count.to_string()).font(COUNT).color(p.muted))))
 }
 
@@ -121,7 +122,7 @@ fn card(s: &App, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
     let st = &s.settings_pages.project;
     if st.renaming.as_deref() == Some(x.directory.as_str()) {
         let field = rune::text_input(&st.rename, NAME).key("settings-project-rename").spellcheck(s.settings.spellcheck).single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).caret(p.text, p.selection).label("Rename")
+            .color(p.text).caret(p.text, p.selection).label(t!("common.rename"))
             .on_edit(|s: &mut App| &mut s.settings_pages.project.rename)
             .on_submit(|s: &mut App, tx: &mut Tx| s.commit_project_rename(tx))
             .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {

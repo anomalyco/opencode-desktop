@@ -11,6 +11,7 @@ use super::choice;
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
 use crate::settings::{self, BackgroundActivity, Choice as _, TimelineWidth, setting, switch};
+use opencode_i18n::t;
 
 /// The control's text: 13 on 20 at 440, -0.04 tracking (`timeline-detail-control`).
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
@@ -34,15 +35,15 @@ pub fn section(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let rows = vec![
         ("settings-timeline-detail", col().key("setting-settings-timeline-detail").w_full().py(20.0).child(detail(s, p))),
-        ("settings-timeline-width", setting(p, "settings-timeline-width", "Timeline width", "Narrower lines are easier to scan. Wider lines show more at once",
-            choice(s, p, "settings-timeline-width-select", "Timeline width", st.timeline_width, |s, id, _| s.change_settings(|x| x.timeline_width = TimelineWidth::parse(Some(id)))))),
-        ("settings-background-activity", setting(p, "settings-background-activity", "Background activity", "Show running subagents and shells above the composer",
-            choice(s, p, "settings-background-activity-select", "Background activity", st.background_activity, |s, id, _| s.change_settings(|x| x.background_activity = BackgroundActivity::parse(Some(id)))))),
-        ("settings-show-turn-diffs", setting(p, "settings-show-turn-diffs", "Changed files", "List the files each turn changed when it finishes",
+        ("settings-timeline-width", setting(p, "settings-timeline-width", t!("settings.timeline.row.width.title"), t!("settings.timeline.row.width.description"),
+            choice(s, p, "settings-timeline-width-select", t!("settings.timeline.row.width.title"), st.timeline_width, |s, id, _| s.change_settings(|x| x.timeline_width = TimelineWidth::parse(Some(id)))))),
+        ("settings-background-activity", setting(p, "settings-background-activity", t!("settings.timeline.row.backgroundActivity.title"), t!("settings.timeline.row.backgroundActivity.description"),
+            choice(s, p, "settings-background-activity-select", t!("settings.timeline.row.backgroundActivity.title"), st.background_activity, |s, id, _| s.change_settings(|x| x.background_activity = BackgroundActivity::parse(Some(id)))))),
+        ("settings-show-turn-diffs", setting(p, "settings-show-turn-diffs", t!("settings.timeline.row.turnDiffs.title"), t!("settings.timeline.row.turnDiffs.description"),
             switch(p, "turn-diffs-switch", st.turn_diffs).on_press(|s: &mut App| s.change_settings(|x| x.turn_diffs = !x.turn_diffs)))),
     ];
     let rows = super::rows(s, p, 20.0, rows);
-    super::section(p, "settings-timeline-section", Some("Timeline"), settings::list(p, "settings-timeline-list", rows))
+    super::section(p, "settings-timeline-section", Some(t!("settings.timeline.title")), settings::list(p, "settings-timeline-list", rows))
 }
 
 /// The slider's stop for `d`: its preset's, or Compact's for a custom mix.
@@ -54,12 +55,12 @@ fn stop(d: &Detail) -> usize {
 fn detail(s: &App, p: &Pal) -> El {
     let d = s.settings.timeline_detail;
     let preset = d.preset();
-    let (id, name) = preset.map_or(("custom", "Custom"), |i| (PRESETS[i].0, PRESETS[i].1));
+    let (id, name) = preset.map_or(("custom", t!("settings.timeline.custom")), |i| (PRESETS[i].0, opencode_i18n::I18N.text(PRESETS[i].1)));
     let copy = col().w_full().gap(8.0)
-        .child(text("Timeline detail").font(LINE_MED).color(p.text))
-        .child(text("Choose how much detail appears in the session timeline.").font(BODY).color(p.muted).wrap().my(-3.5));
+        .child(text(t!("settings.timeline.detail")).font(LINE_MED).color(p.text))
+        .child(text(t!("settings.timeline.description")).font(BODY).color(p.muted).wrap().my(-3.5));
     let summary = row().key("timeline-detail-summary").w_full()
-        .child(text(format!("{name}: ")).font(BODY).color(p.text))
+        .child(text(format!("{} ", t!("settings.timeline.summary", preset = name))).font(BODY).color(p.text))
         .child(text(preset_description(id)).font(BODY).color(p.muted).wrap().shrink().min_w(0.0));
     col().key("timeline-detail-control").w_full().gap(8.0)
         .child(copy)
@@ -104,7 +105,7 @@ fn scale(p: &Pal, at: usize) -> El {
         let x = ((g.x - 8.0) / (g.w - 16.0).max(1.0)).clamp(0.0, 1.0);
         set_stop(s, (x * (STOPS - 1) as f32).round() as usize);
     };
-    el().key("settings-timeline-detail").role("slider").label("Timeline detail").focusable(true).w_full().h(28.0)
+    el().key("settings-timeline-detail").role("slider").label(t!("settings.timeline.detail")).focusable(true).w_full().h(28.0)
         .on_drag(pick)
         .on_key(|s: &mut App, ev, tx| {
             let at = stop(&s.settings.timeline_detail);
@@ -130,14 +131,14 @@ fn set_stop(s: &mut App, at: usize) {
 /// Advanced (`timeline-detail-advanced`): its trigger, and while open each activity's row.
 fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
     let open = s.settings_pages.timeline.advanced.unwrap_or(custom);
-    let trigger = row().key("timeline-detail-advanced-trigger").role("button").label("Advanced").expanded(open).h(24.0).gap(6.0).center_y().self_start()
+    let trigger = row().key("timeline-detail-advanced-trigger").role("button").label(t!("settings.timeline.advanced")).expanded(open).h(24.0).gap(6.0).center_y().self_start()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.settings_pages.timeline.advanced = Some(!open);
         })
         .hover_group()
         .hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
-        .child(text("Advanced").font(LINE_MED).color(p.text));
+        .child(text(t!("settings.timeline.advanced")).font(LINE_MED).color(p.text));
     // The arrow shows under the pointer, and always while open (`collapsible.css`).
     let arrow = el().w(16.0).h(24.0).center().child(session_view::style::arrow(p, open));
     let trigger = trigger.child(if open { arrow } else { arrow.group_opacity(0.0, 1.0) });
@@ -148,8 +149,8 @@ fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
     // The column names share the trigger's line, the list 8 under them.
     let columns = row().key("timeline-detail-columns").w_full().h(24.0).mt(-24.0).px(12.5).gap(8.0).center_y()
         .child(el().grow(1.0))
-        .child(row().w(72.0).center().child(text("Group").font(LINE).color(p.muted)))
-        .child(row().w(88.0).pl(8.0).center().child(text("Collapse").font(LINE).color(p.muted)));
+        .child(row().w(72.0).center().child(text(t!("settings.timeline.group")).font(LINE).color(p.muted)))
+        .child(row().w(88.0).pl(8.0).center().child(text(t!("settings.timeline.collapse")).font(LINE).color(p.muted)));
     let n = Category::ALL.len();
     let list = Category::ALL.iter().enumerate().fold(
         col().key("timeline-detail-list").w_full().mt(8.0).radius(8.0).fill(p.layer2).border(0.5, p.border),
@@ -163,8 +164,8 @@ fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
 fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
     let v = d.get(c);
     let hidden = v.placement == Placement::Hidden;
-    let eye = row().key(format!("timeline-detail-visibility-{}", c.id())).role("button").label(format!("{} visibility", c.label())).expanded(!hidden)
-        .help(if hidden { "Show" } else { "Hide" })
+    let eye = row().key(format!("timeline-detail-visibility-{}", c.id())).role("button").label(t!("settings.timeline.visibility.label", activity = c.label())).expanded(!hidden)
+        .help(if hidden { t!("settings.timeline.visibility.show") } else { t!("settings.timeline.visibility.hide") })
         .size(20.0, 20.0).center().radius(4.0).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -185,7 +186,7 @@ fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
     let grouped = if hidden {
         unavailable()
     } else {
-        switch(p, &format!("timeline-detail-group-{}", c.id()), v.placement == Placement::Grouped).label(format!("{} grouped", c.label()))
+        switch(p, &format!("timeline-detail-group-{}", c.id()), v.placement == Placement::Grouped).label(t!("settings.timeline.grouped.label", activity = c.label()))
             .on_press(move |s: &mut App| {
                 let v = s.settings.timeline_detail.get(c);
                 let placement = if v.placement == Placement::Grouped { Placement::Separate } else { Placement::Grouped };
@@ -196,7 +197,7 @@ fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
         if hidden {
             return unavailable();
         }
-        switch(p, &format!("timeline-detail-collapse-{}", c.id()), !v.expanded).label(format!("{} collapsed", c.label()))
+        switch(p, &format!("timeline-detail-collapse-{}", c.id()), !v.expanded).label(t!("settings.timeline.collapsed.label", activity = c.label()))
             .on_press(move |s: &mut App| {
                 let v = s.settings.timeline_detail.get(c);
                 s.change_settings(|x| x.timeline_detail.set(c, Activity { expanded: !v.expanded, ..v }));

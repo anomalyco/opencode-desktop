@@ -10,6 +10,7 @@ use rune::{El, Icon, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 /// `.settings-about-content`: 13 on 20 at 440, -0.04 tracking.
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
@@ -58,26 +59,17 @@ fn last_page(link: &str) -> Option<u32> {
     last[at..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
 }
 
-/// "a, b, and c", as `Intl.ListFormat` reads a list.
-fn list(items: &[String]) -> String {
-    match items {
-        [] => String::new(),
-        [one] => one.clone(),
-        [a, b] => format!("{a} and {b}"),
-        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
-    }
-}
 
 pub fn view(s: &App, p: &Pal) -> El {
     let version = if s.updater.version.is_empty() { crate::updater::build_version().to_owned() } else { s.updater.version.clone() };
-    let label = format!("Version {version}");
+    let label = t!("settings.about.version", version = version);
     let copied = session_view::copied::is_copied(s, "settings-about-version");
     let line = |key: &str, words: &str, faint: bool| text(words.to_owned()).key(key.to_owned()).font(BODY).color(if faint { p.faint } else { p.muted }).wrap().align(rune::Align::Center);
     let mut writers: Vec<String> = WRITERS.iter().map(|w| (*w).to_owned()).collect();
     let others = others(s);
-    writers.push(format!("{others} other{}", if others == 1 { "" } else { "s" }));
+    writers.push(opencode_i18n::plural!("settings.about.otherContributor", others));
     let copy = label.clone();
-    let version_button = row().key("settings-about-version").role("button").label(if copied { "Copied" } else { "Copy" }).help(if copied { "Copied" } else { "Copy" })
+    let version_button = row().key("settings-about-version").role("button").label(if copied { t!("common.copied") } else { t!("ui.message.copy") }).help(if copied { t!("common.copied") } else { t!("ui.message.copy") })
         .h(24.0).my(-2.0).px(6.0).mx(-6.0).radius(4.0).center_y()
         .hover_group().hover(p.layer2)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -88,34 +80,34 @@ pub fn view(s: &App, p: &Pal) -> El {
     let ink = p.muted;
     let (stem, weak) = (ink.alpha(ink.a * 0.2), ink.alpha(ink.a * 0.2 * 0.3));
     let wordmark = wordmark(&s.settings_pages.wordmark.letters, 178.0 / 234.0, stem, weak).key("settings-about-wordmark");
-    let site = text("www.opencode.ai").key("settings-about-site").role("link").font(BODY).color(p.faint)
+    let site = text(t!("settings.about.website")).key("settings-about-site").role("link").font(BODY).color(p.faint)
         .on_press_tx(|_: &mut App, tx: &mut Tx| {
             let _ = tx.open_url("https://opencode.ai");
         });
-    let notices = text("Third-party notices").key("settings-about-notices").role("button").font(BODY).color(p.muted)
+    let notices = text(t!("settings.about.notices.title")).key("settings-about-notices").role("button").font(BODY).color(p.muted)
         .on_press_tx(|_: &mut App, tx: &mut Tx| {
             let _ = tx.open_url("https://github.com/anomalyco/opencode/blob/dev/LICENSE");
         });
     let clipped = |key: &str, glyph: &'static Icon, w: f32, h: f32| el().key(key.to_owned()).size(w, h).clip_soft(0.0).child(icon(glyph, w));
     let content = col().key("settings-about-content").w_full().max_w(560.0).pt(80.0).pb(80.0).gap(24.0).items_center()
-        .child(col().key("settings-about-intro").items_center().gap(14.0).child(version_button).child(line("license", "Released under the MIT License", false)))
+        .child(col().key("settings-about-intro").items_center().gap(14.0).child(version_button).child(line("license", t!("settings.about.license"), false)))
         .child(wordmark)
         .child(col().key("settings-about-credits").w_full().items_center().gap(16.0)
-            .child(line("writers", &format!("Written by {}", list(&writers)), true))
-            .child(line("illustrators", &format!("Illustrated by {}", list(&ILLUSTRATORS.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>())), true)))
+            .child(line("writers", &t!("settings.about.writtenByNames", names = opencode_i18n::list(&writers)), true))
+            .child(line("illustrators", &t!("settings.about.illustratedByNames", names = opencode_i18n::list(&ILLUSTRATORS)), true)))
         .child(col().w_full().items_center().gap(16.0)
-            .child(line("published", "First published in Missouri, USA", false))
-            .child(line("illustrated", "First illustrated in London, England", false)))
+            .child(line("published", t!("settings.about.firstPublished"), false))
+            .child(line("illustrated", t!("settings.about.firstIllustrated"), false)))
         .child(site)
         .child(col().key("settings-about-details").w_full().items_center().gap(16.0)
-            .child(line("description", "OpenCode, the open source coding agent", false))
-            .child(line("trademark", "OpenCode is a registered trademark of Anomaly Innovations, Inc.", false))
-            .child(line("typeset", "Typeset in Inter and IBM Plex Mono", false))
+            .child(line("description", t!("settings.about.description"), false))
+            .child(line("trademark", t!("settings.about.trademark"), false))
+            .child(line("typeset", t!("settings.about.typeset"), false))
             .child(notices))
-        .child(line("tagline", "AI can\u{2019}t build great software, without you", false))
+        .child(line("tagline", t!("settings.about.tagline"), false))
         .child(clipped("settings-about-legal", &LEGAL, 109.2, 19.2))
         .child(col().key("settings-about-copyright").w_full().items_center().gap(12.0)
-            .child(line("copyright", "\u{a9} Anomaly Innovations, Inc.", false))
+            .child(line("copyright", t!("settings.about.copyright"), false))
             .child(clipped("settings-about-anomaly-brush", &BRUSH, 126.72, 48.384)));
     col().key("settings-about").w_full().px(24.0).items_center().child(content)
 }

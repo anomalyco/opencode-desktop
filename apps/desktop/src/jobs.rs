@@ -93,4 +93,6 @@ impl App {
 }
 
 /// What a write says in a window that can't write.
-pub const READ_ONLY: &str = "This window is read-only. Relaunch without --read-only to act.";
+pub fn read_only() -> &'static str {
+    opencode_i18n::t!("rune.jobs.readOnly")
+}

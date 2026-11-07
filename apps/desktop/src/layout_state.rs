@@ -36,9 +36,9 @@ impl TabLayout {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Horizontal => "Top tabs",
-            Self::Vertical => "Side tabs",
-            Self::Inbox => "Inbox",
+            Self::Horizontal => opencode_i18n::t!("settings.general.row.interfaceMode.top"),
+            Self::Vertical => opencode_i18n::t!("settings.general.row.interfaceMode.side"),
+            Self::Inbox => opencode_i18n::t!("settings.general.row.interfaceMode.inbox"),
         }
     }
 

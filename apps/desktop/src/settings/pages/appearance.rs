@@ -17,6 +17,7 @@ const CODE_DEFAULT: &str = "IBM Plex Mono";
 const TERMINAL_DEFAULT: &str = "JetBrainsMono Nerd Font Mono";
 
 use crate::shortcuts::ZOOM_LEVELS;
+use opencode_i18n::t;
 
 /// The three font fields as typed.
 #[derive(Default)]
@@ -83,11 +84,11 @@ pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let f = &s.settings_pages.fonts;
     let themes = crate::themes::all();
-    let theme_about = row().child(about(p, "Customise how OpenCode is themed. ")).child(link(p, "settings-theme-docs", "Learn more", "https://opencode.ai/v2/docs/themes"));
+    let theme_about = row().child(about(p, &format!("{} ", t!("settings.general.row.theme.description")))).child(link(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/v2/docs/themes"));
     let zoom = (st.zoom_percent(s.zoom), ZOOM_LEVELS);
-    let mut levels: Vec<(String, String)> = zoom.1.iter().map(|l| (format!("{}", (l * 100.0).round() as i32), format!("{}%", (l * 100.0).round() as i32))).collect();
+    let mut levels: Vec<(String, String)> = zoom.1.iter().map(|l| (format!("{}", (l * 100.0).round() as i32), opencode_i18n::percent(f64::from(*l)))).collect();
     if !levels.iter().any(|(id, _)| *id == zoom.0) {
-        levels.push((zoom.0.clone(), format!("{}%", zoom.0)));
+        levels.push((zoom.0.clone(), opencode_i18n::percent(f64::from(s.zoom))));
         levels.sort_by_key(|(id, _)| id.parse::<i32>().unwrap_or(0));
     }
     let face = |family: Family| {
@@ -96,26 +97,26 @@ pub fn view(s: &App, p: &Pal) -> El {
         t
     };
     let rows = vec![
-        ("settings-color-scheme", setting(p, "settings-color-scheme", "Color scheme", "Choose whether OpenCode follows the system, light, or dark theme",
-            select(s, p, "settings-color-scheme-select", "Color scheme", Scheme::ALL.iter().map(|c| (c.name().to_owned(), c.label().to_owned())).collect(), st.scheme.name(), |s, id, _| s.set_scheme(Scheme::parse(id))))),
-        ("settings-theme", setting_with(p, "settings-theme", "Theme", theme_about,
-            select(s, p, "settings-theme-select", "Theme", themes.iter().map(|t| (t.id.clone(), t.name.clone())).collect(), &themes[crate::themes::index(&st.theme)].id, |s, id, tx| s.set_theme(id, tx)), true)),
-        ("settings-ui-font", setting(p, "settings-ui-font", "UI Font", "Customise the font used throughout the interface",
-            text_field(p, "settings-ui-font-input", "UI Font", UI_DEFAULT, &f.ui, face(Family::Sans), |s| &mut s.settings_pages.fonts.ui, ui_changed))),
-        ("settings-code-font", setting(p, "settings-code-font", "Code Font", "Customise the font used in code blocks",
-            text_field(p, "settings-code-font-input", "Code Font", CODE_DEFAULT, &f.code, face(Family::Mono), |s| &mut s.settings_pages.fonts.code, code_changed))),
-        ("settings-terminal-font", setting(p, "settings-terminal-font", "Terminal Font", "Customise the font used in the terminal",
-            text_field(p, "settings-terminal-font-input", "Terminal Font", TERMINAL_DEFAULT, &f.terminal, face(Family::Named(TERMINAL_DEFAULT)), |s| &mut s.settings_pages.fonts.terminal, terminal_changed))),
-        ("settings-zoom", setting(p, "settings-zoom", "Zoom", "Make text and controls larger across the app",
-            select(s, p, "settings-zoom-select", "Zoom", levels, &zoom.0, |s, id, tx| {
+        ("settings-color-scheme", setting(p, "settings-color-scheme", t!("settings.general.row.colorScheme.title"), t!("settings.general.row.colorScheme.description"),
+            select(s, p, "settings-color-scheme-select", t!("settings.general.row.colorScheme.title"), Scheme::ALL.iter().map(|c| (c.name().to_owned(), c.label().to_owned())).collect(), st.scheme.name(), |s, id, _| s.set_scheme(Scheme::parse(id))))),
+        ("settings-theme", setting_with(p, "settings-theme", t!("settings.general.row.theme.title"), theme_about,
+            select(s, p, "settings-theme-select", t!("settings.general.row.theme.title"), themes.iter().map(|t| (t.id.clone(), t.name.clone())).collect(), &themes[crate::themes::index(&st.theme)].id, |s, id, tx| s.set_theme(id, tx)), true)),
+        ("settings-ui-font", setting(p, "settings-ui-font", t!("settings.general.row.uiFont.title"), t!("settings.general.row.uiFont.description"),
+            text_field(p, "settings-ui-font-input", t!("settings.general.row.uiFont.title"), UI_DEFAULT, &f.ui, face(Family::Sans), |s| &mut s.settings_pages.fonts.ui, ui_changed))),
+        ("settings-code-font", setting(p, "settings-code-font", t!("settings.general.row.font.title"), t!("settings.general.row.font.description"),
+            text_field(p, "settings-code-font-input", t!("settings.general.row.font.title"), CODE_DEFAULT, &f.code, face(Family::Mono), |s| &mut s.settings_pages.fonts.code, code_changed))),
+        ("settings-terminal-font", setting(p, "settings-terminal-font", t!("settings.general.row.terminalFont.title"), t!("settings.general.row.terminalFont.description"),
+            text_field(p, "settings-terminal-font-input", t!("settings.general.row.terminalFont.title"), TERMINAL_DEFAULT, &f.terminal, face(Family::Named(TERMINAL_DEFAULT)), |s| &mut s.settings_pages.fonts.terminal, terminal_changed))),
+        ("settings-zoom", setting(p, "settings-zoom", t!("settings.appearance.row.zoom.title"), t!("settings.appearance.row.zoom.description"),
+            select(s, p, "settings-zoom-select", t!("settings.appearance.row.zoom.title"), levels, &zoom.0, |s, id, tx| {
                 tx.instant();
                 s.set_zoom_level(id.parse::<f32>().unwrap_or(100.0) / 100.0);
             }))),
-        ("settings-reduce-motion", setting(p, "settings-reduce-motion", "Reduce motion", "Reduce animations or match your system",
-            select(s, p, "settings-reduce-motion-select", "Reduce motion", [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off].iter().map(|m| (m.name().to_owned(), m.label().to_owned())).collect(), st.reduce_motion.name(), |s, id, _| s.set_reduce_motion(ReduceMotion::parse(Some(id)))))),
+        ("settings-reduce-motion", setting(p, "settings-reduce-motion", t!("settings.appearance.row.reduceMotion.title"), t!("settings.appearance.row.reduceMotion.description"),
+            select(s, p, "settings-reduce-motion-select", t!("settings.appearance.row.reduceMotion.title"), [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off].iter().map(|m| (m.name().to_owned(), m.label().to_owned())).collect(), st.reduce_motion.name(), |s, id, _| s.set_reduce_motion(ReduceMotion::parse(Some(id)))))),
     ];
     let list = settings::list(p, "appearance-list", super::rows(s, p, 20.0, rows));
-    page(p, "settings-appearance-page", header(p, "Appearance", "Customize theme and fonts"), list)
+    page(p, "settings-appearance-page", header(p, t!("settings.general.section.appearance"), t!("settings.appearance.description")), list)
 }
 
 impl settings::Settings {

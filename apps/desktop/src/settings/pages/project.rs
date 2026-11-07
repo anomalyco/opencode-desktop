@@ -18,6 +18,7 @@ use crate::jobs::Apply;
 use crate::palette::{Elevate as _, Pal};
 use crate::popup::{self, Item, Menu};
 use crate::settings::{self, setting};
+use opencode_i18n::t;
 
 /// A project page's tab (`SettingsProjectTab`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -41,9 +42,9 @@ impl Tab {
 
     pub fn label(self) -> &'static str {
         match self {
-            Tab::General => "General",
-            Tab::Worktrees => "Worktrees",
-            Tab::Extensions => "Extensions",
+            Tab::General => t!("settings.general.section.general"),
+            Tab::Worktrees => t!("settings.tab.workspaces"),
+            Tab::Extensions => t!("settings.tab.extensions"),
         }
     }
 
@@ -112,7 +113,7 @@ pub fn load(s: &mut App, dir: &str, tab: Tab) {
 /// The project's tab `tab`.
 pub fn view(s: &App, p: &Pal, dir: &str, tab: Tab) -> El {
     let Some(x) = project(s, dir) else {
-        return page(p, "settings-project-page", header(p, "Project", ""), el());
+        return page(p, "settings-project-page", header(p, t!("rune.settings.project.menu"), ""), el());
     };
     match tab {
         Tab::General => general(s, p, x),
@@ -130,6 +131,21 @@ const HINT_CODE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).mono();
 
 /// Desktop's avatar colours, in its order (`PROJECT_AVATAR_VARIANTS`).
 const COLORS: [&str; 9] = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple", "gray"];
+
+/// A colour's name, as its swatch's label says it (`common.color.*`).
+fn color_name(name: &str) -> &'static str {
+    match name {
+        "orange" => t!("common.color.orange"),
+        "yellow" => t!("common.color.yellow"),
+        "cyan" => t!("common.color.cyan"),
+        "green" => t!("common.color.green"),
+        "red" => t!("common.color.red"),
+        "pink" => t!("common.color.pink"),
+        "blue" => t!("common.color.blue"),
+        "purple" => t!("common.color.purple"),
+        _ => t!("common.color.gray"),
+    }
+}
 
 /// The colour a project's saved `color` is (`getProjectAvatarVariant`): gray when unset.
 fn variant(color: &str) -> usize {
@@ -173,17 +189,17 @@ fn general(s: &App, p: &Pal, x: &Project) -> El {
         .child(options(s, p, x, "settings-project-options", 28.0));
     let name_field = col().items_end().gap(6.0)
         // `.project-settings-name`: the base text input, as wide as the row leaves it.
-        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label("Project name").width(Some(198.67)).spellcheck(s.settings.spellcheck).text_style(super::NAME_REGULAR).height(28.0)
+        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label(t!("project.settings.name.title")).width(Some(198.67)).spellcheck(s.settings.spellcheck).text_style(super::NAME_REGULAR).height(28.0)
             .invalid(failed(Field::Name)).on_edit(|s: &mut App| &mut s.settings_pages.project.name).build(crate::palette::kit(p)).key("settings-project-name-input"))
         .children(failed(Field::Name).then(|| save_failed(p, Field::Name)));
     let mut rows = vec![
-        ("settings-project-name", setting(p, "settings-project-name", "Project name", "The name shown for this project throughout OpenCode", name_field)),
-        ("settings-project-icon", setting(p, "settings-project-icon", "Icon", "Recommended: 128×128px. Click or drag to upload an image.", icon_button(s, p, x))),
+        ("settings-project-name", setting(p, "settings-project-name", t!("project.settings.name.title"), t!("project.settings.name.description"), name_field)),
+        ("settings-project-icon", setting(p, "settings-project-icon", t!("dialog.project.edit.icon"), t!("project.settings.icon.description"), icon_button(s, p, x))),
     ];
     if x.icon.override_url.is_empty() {
-        rows.push(("settings-project-color", setting(p, "settings-project-color", "Color", "Used for the project icon when no custom image is set", colors(p, x))));
+        rows.push(("settings-project-color", setting(p, "settings-project-color", t!("dialog.project.edit.color"), t!("project.settings.color.description"), colors(p, x))));
     }
-    rows.push(("settings-project-auto-accept-permissions", setting(p, "settings-project-auto-accept-permissions", "Auto-accept permissions", "Approve this project's permission requests without asking", auto_accept(s, p, x))));
+    rows.push(("settings-project-auto-accept-permissions", setting(p, "settings-project-auto-accept-permissions", t!("command.permissions.autoaccept.enable"), t!("project.settings.autoAccept.description"), auto_accept(s, p, x))));
     rows.push(("settings-project-startup", startup(s, p)));
     let list = settings::list(p, "settings-project-list", super::rows(s, p, 20.0, rows));
     let band = col().key("settings-tab-header-band").w_full().pt(48.0).fill(p.bg_base).sticky_top(0.0).child(head);
@@ -203,15 +219,15 @@ pub fn options_with(s: &App, p: &Pal, x: &Project, key: &str, size: f32, row_men
     let used = s.used_projects().iter().any(|u| u.id == x.id);
     let unread = used && s.project_has_unread(x);
     let anchor = key.to_owned();
-    row().key(key.to_owned()).role("button").label("More options").size(size, size).center().radius(if size > 24.0 { 6.0 } else { 4.0 })
+    row().key(key.to_owned()).role("button").label(t!("common.moreOptions")).size(size, size).center().radius(if size > 24.0 { 6.0 } else { 4.0 })
         .hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = Menu::new("Project").align(rune::Align::End)
-                .items((!used).then(|| Item::new("add", "Add project")))
-                .items(row_menu.then(|| Item::new("edit", "Edit")))
-                .items(row_menu.then(|| Item::new("rename", "Rename")))
-                .item(Item::new("reveal", crate::view::location_card::REVEAL))
-                .items(used.then(|| Item::new("clear", "Clear notifications").enabled(unread)))
+            let menu = Menu::new(t!("rune.settings.project.menu")).align(rune::Align::End)
+                .items((!used).then(|| Item::new("add", t!("home.project.add"))))
+                .items(row_menu.then(|| Item::new("edit", t!("common.edit"))))
+                .items(row_menu.then(|| Item::new("rename", t!("common.rename"))))
+                .item(Item::new("reveal", crate::view::location_card::reveal_label()))
+                .items(used.then(|| Item::new("clear", t!("sidebar.project.clearNotifications")).enabled(unread)))
                 .hug();
             let (dir, id) = (dir.clone(), id.clone());
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| match picked {
@@ -232,7 +248,7 @@ pub fn options_with(s: &App, p: &Pal, x: &Project, key: &str, size: f32, row_men
                 }
                 Some("reveal") => {
                     if let Err(e) = crate::view::location_card::reveal(&dir) {
-                        crate::status_toast::say(s, "Couldn't open the folder", &e);
+                        crate::status_toast::say(s, t!("rune.status.openFolderFailed"), &e);
                     }
                 }
                 Some("clear") => {
@@ -255,7 +271,7 @@ fn icon_button(s: &App, p: &Pal, x: &Project) -> El {
         .child(icon(if custom { &ic::XMARK_SMALL } else { &ic::SHARE }, 16.0).color(p.icon_contrast));
     let failed = s.settings_pages.project.failed.contains(&Field::Icon);
     let id = x.id.clone();
-    let button = el().key("settings-project-icon-button").role("button").label("Project icon").size(32.0, 32.0).radius(6.0).clip_rounded(6.0)
+    let button = el().key("settings-project-icon-button").role("button").label(t!("dialog.project.edit.icon.alt")).size(32.0, 32.0).radius(6.0).clip_rounded(6.0)
         .hover_group().hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -285,7 +301,7 @@ fn colors(p: &Pal, x: &Project) -> El {
         let selected = i == chosen;
         let id = x.id.clone();
         let ring = |c: Color| [rune::Shadow { spread: 2.0, color: p.layer1, ..Default::default() }, rune::Shadow { spread: 4.0, color: c, ..Default::default() }];
-        let swatch = el().key(format!("settings-project-color-{name}")).role("button").label(format!("Select {name} color")).expanded(selected)
+        let swatch = el().key(format!("settings-project-color-{name}")).role("button").label(t!("dialog.project.edit.color.select", color = color_name(name))).expanded(selected)
             .size(20.0, 20.0).radius(6.0)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -303,14 +319,14 @@ fn colors(p: &Pal, x: &Project) -> El {
 
 /// The project's own Auto-accept permissions: the default (and what it is), On or Off.
 fn auto_accept(s: &App, p: &Pal, x: &Project) -> El {
-    let default = if s.settings.auto_accept { "Use default (On)" } else { "Use default (Off)" };
-    let options = vec![("default".to_owned(), default.to_owned()), ("on".to_owned(), "On".to_owned()), ("off".to_owned(), "Off".to_owned())];
+    let default = if s.settings.auto_accept { t!("project.settings.autoAccept.default.on") } else { t!("project.settings.autoAccept.default.off") };
+    let options = vec![("default".to_owned(), default.to_owned()), ("on".to_owned(), t!("project.settings.autoAccept.on").to_owned()), ("off".to_owned(), t!("project.settings.autoAccept.off").to_owned())];
     let current = match s.settings.project_auto_accept.get(&x.id) {
         Some(true) => "on",
         Some(false) => "off",
         None => "default",
     };
-    select(s, p, "settings-project-auto-accept-permissions-select", "Auto-accept permissions", options, current, |s, id, _| {
+    select(s, p, "settings-project-auto-accept-permissions-select", t!("command.permissions.autoaccept.enable"), options, current, |s, id, _| {
         let Some(x) = project(s, &s.settings_pages.project.dir.clone()).map(|x| x.id.clone()) else { return };
         s.set_project_auto_accept(&x, match id { "on" => Some(true), "off" => Some(false), _ => None });
     })
@@ -323,32 +339,38 @@ fn startup(s: &App, p: &Pal) -> El {
     // `textarea-v2`: five 17.55 pt mono lines 8 in, on the base fill under the neutral lift.
     let failed = st.failed.contains(&Field::Startup);
     let input = rune::text_input(&st.startup, STARTUP).key("settings-project-startup-input").w_full().min_h(5.0 * 17.55)
-        .color(p.text).placeholder("e.g. bun install", p.faint).caret(p.text, p.selection).label("Worktree startup script")
+        .color(p.text).placeholder(t!("dialog.project.edit.worktree.startup.placeholder"), p.faint).caret(p.text, p.selection).label(t!("dialog.project.edit.worktree.startup"))
         .on_edit(|s: &mut App| &mut s.settings_pages.project.startup);
     let field = col().key("settings-project-startup-field").w_full().padding(8.0).radius(6.0).fill(p.bg_base)
         .elevate(crate::status_toast::neutral_lift(p)).child(input);
     let field = if failed { field.box_shadow(Pal::ring_out(p.danger)) } else { field };
-    let hint = |before: &str, var: &str, after: &str| row().center_y()
-        .child(text(before.to_owned()).font(COPY).color(p.muted))
-        .child(row().px(4.0).radius(4.0).fill(p.layer2).child(text(var.to_owned()).font(HINT_CODE).color(p.text)))
-        .child(text(after.to_owned()).font(COPY).color(p.muted));
+    // `inlineVariables`: the `$NAME` in the sentence set as code.
+    let hint = |sentence: &'static str| {
+        let at = sentence.find('$').unwrap_or(sentence.len());
+        let end = sentence[at..].find(|c: char| !(c == '$' || c == '_' || c.is_ascii_alphanumeric())).map_or(sentence.len(), |n| at + n);
+        let (before, var, after) = (&sentence[..at], &sentence[at..end], &sentence[end..]);
+        row().center_y()
+            .children((!before.is_empty()).then(|| text(before).font(COPY).color(p.muted)))
+            .children((!var.is_empty()).then(|| row().px(4.0).radius(4.0).fill(p.layer2).child(text(var).font(HINT_CODE).color(p.text))))
+            .children((!after.is_empty()).then(|| text(after).font(COPY).color(p.muted)))
+    };
     col().key("setting-settings-project-startup").w_full().py(20.0).gap(12.0)
         .child(col().w_full().gap(8.0)
-            .child(text("Worktree startup script").font(TITLE).color(p.text))
-            .child(text("Runs once after creating a new worktree").font(COPY).color(p.muted)))
+            .child(text(t!("dialog.project.edit.worktree.startup")).font(TITLE).color(p.text))
+            .child(text(t!("project.settings.worktree.startup.description")).font(COPY).color(p.muted)))
         .child(field)
         .children(st.failed.contains(&Field::Startup).then(|| save_failed(p, Field::Startup)))
         .child(col().w_full()
-            .child(hint("Use ", "$OPENCODE_WORKTREE_BASE", " for the base worktree."))
-            .child(hint("Use ", "$OPENCODE_WORKTREE_PATH", " for the new worktree.")))
+            .child(hint(t!("project.settings.worktree.startup.hint.base")))
+            .child(hint(t!("project.settings.worktree.startup.hint.new"))))
 }
 
 /// `project-settings-save-failed`: Request failed, and Retry underlined in the base ink.
 fn save_failed(p: &Pal, field: Field) -> El {
     row().key("project-settings-save-failed").role("alert").gap(8.0).center_y().justify_end()
-        .child(text("Request failed").font(FAILED).color(p.danger))
-        .child(text("Retry").key("project-settings-save-retry").role("button").label("Retry").font(FAILED).color(p.text)
-            .spans(vec![rune::Span::new(0, 5).underline(p.text)])
+        .child(text(t!("common.requestFailed")).font(FAILED).color(p.danger))
+        .child(text(t!("common.retry")).key("project-settings-save-retry").role("button").label(t!("common.retry")).font(FAILED).color(p.text)
+            .spans(vec![rune::Span::new(0, t!("common.retry").len()).underline(p.text)])
             .on_press_tx(move |s: &mut App, tx: &mut Tx| save(s, field, tx)))
 }
 
@@ -403,7 +425,7 @@ fn patch(s: &mut App, id: &str, field: Field, body: Value, tx: &mut Tx) {
                 Some(updated) => s.apply_project(updated),
                 None => {
                     s.settings_pages.project.failed.push(field);
-                    crate::status_toast::say(s, "Request failed", "The project couldn't be saved.");
+                    crate::status_toast::say(s, t!("common.requestFailed"), t!("rune.settings.project.saveFailed"));
                 }
             }
         }) as Apply
@@ -413,7 +435,7 @@ fn patch(s: &mut App, id: &str, field: Field, body: Value, tx: &mut Tx) {
 /// Opens the file dialog for an image, then saves it as the project's icon.
 fn choose_icon(_: &mut App, id: &str, tx: &mut Tx) {
     let id = id.to_owned();
-    let options = rune::FileDialogOptions { title: "Project icon".into(), ..Default::default() }.filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+    let options = rune::FileDialogOptions { title: t!("dialog.project.edit.icon.alt").into(), ..Default::default() }.filter(t!("rune.dialog.images"), &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
     tx.open_file(options, move |s: &mut App, result, tx: &mut Tx| {
         if let Ok(Some(path)) = result {
             read_icon(s, &id, &path, tx);

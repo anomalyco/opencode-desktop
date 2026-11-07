@@ -14,6 +14,7 @@ use super::{catalog, header, page};
 use crate::App;
 use crate::jobs::Apply;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 const TAB: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 /// A section's title (`project-settings-extension-section-header`): 13 on 16 at 530.
@@ -130,22 +131,22 @@ pub fn view(s: &App, p: &Pal, x: &Project) -> El {
         Tab::Mcps => {
             let shared: Vec<String> = names(s.mcp_servers("").unwrap_or_default().iter().map(|m| m.name.clone()).collect());
             let own: Vec<String> = names(s.mcp_servers(&x.directory).unwrap_or_default().iter().map(|m| m.name.clone()).filter(|n| !shared.contains(n)).collect());
-            section(s, p, "mcps", "MCPs", manage(p), &own, &shared, &ic::MCP)
+            section(s, p, "mcps", manage(p), &own, &shared, &ic::MCP)
         }
         Tab::Plugins => {
             let (shared, own) = st.plugins.clone().unwrap_or_default();
             let own: Vec<String> = own.into_iter().filter(|n| !shared.contains(n)).collect();
-            section(s, p, "plugins", "plugins", manage(p), &own, &shared, &ic::CUBE)
+            section(s, p, "plugins", manage(p), &own, &shared, &ic::CUBE)
         }
         Tab::Skills => {
             let (shared, own) = st.skills.clone().unwrap_or_default();
             let own: Vec<String> = own.into_iter().filter(|k| !shared.contains(k)).map(|(n, _)| n).collect();
             let shared: Vec<String> = shared.into_iter().map(|(n, _)| n).collect();
-            section(s, p, "skills", "skills", skills_link(p), &own, &shared, &ic::POST_SKILL)
+            section(s, p, "skills", skills_link(p), &own, &shared, &ic::POST_SKILL)
         }
         Tab::Lsps => lsps(p, st.lsps.as_ref()),
     };
-    page(p, "settings-project-extensions-page", header(p, "Extensions", "View extensions available to this project"),
+    page(p, "settings-project-extensions-page", header(p, t!("settings.tab.extensions"), t!("project.settings.extensions.description")),
         col().key("settings-project-extensions").w_full().child(tabs(p, st.tab)).child(col().w_full().pt(24.0).child(body)))
 }
 
@@ -158,9 +159,9 @@ fn names(mut v: Vec<String>) -> Vec<String> {
 /// Pill tabs, as Extensions' (`tabs-v2` pill).
 fn tabs(p: &Pal, on: Tab) -> El {
     let mut list = row().key("settings-project-extensions-tabs").gap(6.0).pb(8.0);
-    for (tab, label) in [(Tab::Mcps, "MCPs"), (Tab::Plugins, "Plugins"), (Tab::Skills, "Skills"), (Tab::Lsps, "LSPs")] {
+    for (tab, id, label) in [(Tab::Mcps, "mcps", t!("settings.extensions.tab.mcps")), (Tab::Plugins, "plugins", t!("settings.extensions.tab.plugins")), (Tab::Skills, "skills", t!("settings.extensions.tab.skills")), (Tab::Lsps, "lsps", t!("project.settings.extensions.tab.lsps"))] {
         let picked = tab == on;
-        let pill = row().key(format!("settings-project-extensions-tab-{}", label.to_lowercase())).role("tab").label(label).h(24.0).px(8.0).center().radius(6.0)
+        let pill = row().key(format!("settings-project-extensions-tab-{id}")).role("tab").label(label).h(24.0).px(8.0).center().radius(6.0)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.settings_pages.project.extensions.tab = tab;
@@ -173,12 +174,17 @@ fn tabs(p: &Pal, on: Tab) -> El {
 
 /// `ProjectSectionHeader` and its rows, then the shared ones folded under their count.
 #[allow(clippy::too_many_arguments)]
-fn section(s: &App, p: &Pal, kind: &str, plural: &str, action: El, own: &[String], shared: &[String], glyph: &'static rune::Icon) -> El {
+fn section(s: &App, p: &Pal, kind: &str, action: El, own: &[String], shared: &[String], glyph: &'static rune::Icon) -> El {
     let empty = own.is_empty();
-    let title = if empty { format!("No {plural} yet") } else { "Added to this project".to_owned() };
+    let (none, none_about) = match kind {
+        "mcps" => (t!("project.settings.extensions.empty.mcps.title"), t!("project.settings.extensions.empty.mcps.description")),
+        "plugins" => (t!("project.settings.extensions.empty.plugins.title"), t!("project.settings.extensions.empty.plugins.description")),
+        _ => (t!("project.settings.extensions.empty.skills.title"), t!("project.settings.extensions.empty.skills.description")),
+    };
+    let title = if empty { none } else { t!("project.settings.extensions.added") };
     let copy = col().grow(1.0).shrink().min_w(0.0).gap(6.0)
         .child(text(title).font(HEAD).color(p.text))
-        .children(empty.then(|| text(format!("{} available to OpenCode will appear here", capital(plural))).font(BODY).color(p.muted)));
+        .children(empty.then(|| text(none_about).font(BODY).color(p.muted)));
     let head = row().key("project-settings-extension-section-header").w_full().gap(16.0).items_start().child(copy).child(action);
     let rows = |list: &[String], key: &str| catalog(p, key, list.iter().map(|n| row_of(p, &format!("{key}-{n}"), glyph, n)).collect());
     let mut c = col().key(format!("project-settings-extension-{kind}")).w_full().gap(16.0).child(head);
@@ -187,7 +193,7 @@ fn section(s: &App, p: &Pal, kind: &str, plural: &str, action: El, own: &[String
     }
     if !shared.is_empty() {
         let open = s.settings_pages.project.extensions.shared;
-        let trigger = row().key("project-settings-shared-trigger").role("button").label("Shared with all projects").expanded(open).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
+        let trigger = row().key("project-settings-shared-trigger").role("button").label(t!("project.settings.extensions.shared")).expanded(open).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
             .hover(p.layer2)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -196,22 +202,13 @@ fn section(s: &App, p: &Pal, kind: &str, plural: &str, action: El, own: &[String
             })
             .child(rune::el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
             .child(row().gap(6.0).center_y()
-                .child(text("Shared with all projects").font(HEAD).color(p.text))
+                .child(text(t!("project.settings.extensions.shared")).font(HEAD).color(p.text))
                 .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(3.0).fill(p.layer2).child(text(shared.len().to_string()).font(COUNT).color(p.muted))));
         c = c.child(col().w_full().gap(12.0).mt(16.0).child(trigger).children(open.then(|| rows(shared, &format!("settings-project-shared-{kind}")))));
     }
     c
 }
 
-fn capital(s: &str) -> String {
-    match s {
-        "MCPs" => "MCPs".to_owned(),
-        _ => {
-            let mut c = s.chars();
-            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-        }
-    }
-}
 
 fn row_of(p: &Pal, key: &str, glyph: &'static rune::Icon, name: &str) -> El {
     row().key(key.to_owned()).w_full().min_h(56.0).py(16.0).gap(8.0).center_y()
@@ -220,15 +217,15 @@ fn row_of(p: &Pal, key: &str, glyph: &'static rune::Icon, name: &str) -> El {
 }
 
 fn manage(p: &Pal) -> El {
-    text("Manage in opencode.json").font(BODY).color(p.muted)
+    text(t!("settings.extensions.manageConfig")).font(BODY).color(p.muted)
 }
 
 fn skills_link(p: &Pal) -> El {
-    const WORDS: &str = "How to add skills";
+    let words = t!("settings.extensions.addSkills");
     const URL: &str = "https://opencode.ai/v2/docs/skills";
-    text(WORDS).key("settings-extension-link").font(BODY).color(p.accent)
-        .spans(vec![rune::Span::new(0, WORDS.len()).underline(p.accent)])
-        .link(rune::Link::new(0..WORDS.len(), URL).role("link").label(WORDS).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
+    text(words).key("settings-extension-link").font(BODY).color(p.accent)
+        .spans(vec![rune::Span::new(0, words.len()).underline(p.accent)])
+        .link(rune::Link::new(0..words.len(), URL).role("link").label(words).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
         .on_link(|_: &mut App, url: &str, tx: &mut Tx| {
             let _ = tx.open_url(url);
         })
@@ -242,21 +239,21 @@ fn lsps(p: &Pal, read: Option<&Result<(bool, Vec<Lsp>), ()>>) -> El {
     };
     let empty = servers.is_empty();
     let (title, about) = match (empty, disabled) {
-        (true, true) => ("Language servers disabled", Some("LSP is disabled in this project’s configuration")),
-        (true, false) => ("No language servers configured", Some("Language servers configured for this project will appear here")),
-        _ => ("Configured language servers", None),
+        (true, true) => (t!("project.settings.extensions.lsp.disabled.title"), Some(t!("project.settings.extensions.lsp.disabled.description"))),
+        (true, false) => (t!("project.settings.extensions.lsp.empty.title"), Some(t!("project.settings.extensions.lsp.empty.description"))),
+        _ => (t!("project.settings.extensions.lsp.configured"), None),
     };
     let copy = col().grow(1.0).shrink().min_w(0.0).gap(6.0)
         .child(text(title).font(HEAD).color(p.text))
         .children(about.map(|a| text(a).font(BODY).color(p.muted)));
-    let head = row().w_full().gap(16.0).items_start().child(copy).child(text("Auto-detected from file types").font(BODY).color(p.muted));
+    let head = row().w_full().gap(16.0).items_start().child(copy).child(text(t!("project.settings.extensions.lsp.description")).font(BODY).color(p.muted));
     let mut c = col().key("project-settings-extension-lsps").w_full().gap(16.0).child(head);
     match read {
-        None => c = c.child(text("Loading").font(BODY).color(p.muted)),
+        None => c = c.child(text(t!("common.loading")).font(BODY).color(p.muted)),
         Some(Err(())) => {
             c = c.child(row().gap(8.0).center_y()
-                .child(text("Could not load language server configuration").font(BODY).color(p.danger))
-                .child(text("Retry").key("project-lsp-retry").role("button").font(BODY).color(p.text)
+                .child(text(t!("project.settings.extensions.lsp.loadFailed")).font(BODY).color(p.danger))
+                .child(text(t!("project.settings.extensions.lsp.retry")).key("project-lsp-retry").role("button").font(BODY).color(p.text)
                     .on_press_tx(|s: &mut App, tx: &mut Tx| {
                         tx.instant();
                         let dir = s.settings_pages.project.extensions.dir.clone();
@@ -271,7 +268,7 @@ fn lsps(p: &Pal, read: Option<&Result<(bool, Vec<Lsp>), ()>>) -> El {
                     .children((!l.extensions.is_empty()).then(|| text(l.extensions.join(", ")).font(BODY).color(p.muted).wrap()));
                 row().key(format!("settings-project-lsp-{}", l.name)).w_full().min_h(56.0).py(16.0).gap(16.0).center_y()
                     .child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(icon(&ic::CODE, 16.0).color(p.icon_muted)).child(copy))
-                    .child(row().gap(6.0).center_y().child(text(if l.disabled { "Disabled in config" } else { "Enabled in config" }).font(STATUS).color(p.muted)))
+                    .child(row().gap(6.0).center_y().child(text(if l.disabled { t!("project.settings.extensions.lsp.status.disabled") } else { t!("project.settings.extensions.lsp.status.enabled") }).font(STATUS).color(p.muted)))
             }).collect();
             c = c.child(catalog(p, "settings-project-lsps", rows));
         }

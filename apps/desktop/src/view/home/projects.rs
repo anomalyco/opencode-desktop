@@ -185,7 +185,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
         .item(Item::new("import", "Import session").enabled(!s.project_state.importing))
         .item(Item::new("edit", "Edit project"));
     if local {
-        menu = menu.item(Item::new("reveal", super::super::location_card::REVEAL));
+        menu = menu.item(Item::new("reveal", super::super::location_card::reveal_label()));
     }
     menu = menu.item(Item::new("clear", "Clear notifications").enabled(unread)).separator().item(Item::new("close", "Close"));
     tx.instant();
@@ -261,7 +261,7 @@ impl App {
             Err(e) => return crate::status_toast::fail(self, "Request failed", e),
         };
         if !self.can_write() {
-            return crate::status_toast::fail(self, "Request failed", crate::jobs::READ_ONLY.to_owned());
+            return crate::status_toast::fail(self, "Request failed", crate::jobs::read_only().to_owned());
         }
         data.insert("location".into(), serde_json::json!({ "directory": dir }));
         self.project_state.importing = true;

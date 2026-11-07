@@ -26,6 +26,7 @@ use rune_theme_opencode::icons as ic;
 use crate::App;
 use crate::palette::{Pal, kit};
 use crate::popup::{self, Menu};
+use opencode_i18n::t;
 
 /// A page of Settings: Desktop's root tabs (`SettingsRootTab`), a page a plugin adds (by its
 /// id), or one built in here that Desktop's GUI plugins add there (What's new).
@@ -97,24 +98,32 @@ impl Page {
         }
     }
 
-    /// Its name in the rail (`pageLabels`).
+    /// Its name (`pageLabels`), as settings search places a result.
     pub fn label(&self) -> &'static str {
         match self {
-            Page::Providers => "Providers",
-            Page::Models => "Models",
-            Page::Extensions => "Extensions",
-            Page::Projects => "Projects",
-            Page::Worktrees => "Worktrees",
-            Page::General => "Preferences",
-            Page::Appearance => "Appearance",
-            Page::Notifications => "Notifications",
-            Page::Shortcuts => "Shortcuts",
-            Page::Servers => "Server",
-            Page::WhatsNew => "What's new",
-            Page::Experimental => "Experimental",
-            Page::About => "About",
+            Page::Providers => t!("settings.providers.title"),
+            Page::Models => t!("settings.models.title"),
+            Page::Extensions => t!("settings.tab.extensions"),
+            Page::Projects => t!("settings.tab.projects"),
+            Page::Worktrees => t!("settings.tab.workspaces"),
+            Page::General => t!("settings.tab.preferences"),
+            Page::Appearance => t!("settings.general.section.appearance"),
+            Page::Notifications => t!("settings.tab.notifications"),
+            Page::Shortcuts => t!("settings.shortcuts.title"),
+            Page::Servers => t!("settings.section.server"),
+            Page::WhatsNew => t!("plugin.updater.beta.title"),
+            Page::Experimental => t!("settings.tab.experimental"),
+            Page::About => t!("settings.tab.about"),
             Page::Plugin(_) => "",
             Page::Project(_, tab) => tab.label(),
+        }
+    }
+
+    /// Its name in the rail (`rootClientTabs`, `serverTabs`), which calls Shortcuts by its short name.
+    pub fn tab_label(&self) -> &'static str {
+        match self {
+            Page::Shortcuts => t!("settings.tab.shortcuts"),
+            other => other.label(),
         }
     }
 
@@ -328,7 +337,7 @@ pub fn filter_field(s: &App, p: &Pal, key: &str, placeholder: &str, edit: &TextE
     let _ = s;
     let typed = !edit.text.is_empty();
     let clear = typed.then(|| {
-        row().key("clear").role("button").label("Clear").size(20.0, 20.0).center().radius(4.0)
+        row().key("clear").role("button").label(t!("common.clear")).size(20.0, 20.0).center().radius(4.0)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 let e = field(s);
@@ -370,11 +379,19 @@ pub fn ghost_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon
     })
 }
 
-/// `SettingsSearchEmpty`: "No results for" and the query in quotes.
+/// `SettingsSearchEmpty`: "No results for" and the query in quotes (`settings.search.empty`,
+/// the query its own truncating run).
 pub fn no_results(p: &Pal, key: &str, query: &str) -> El {
-    row().key(key.to_owned()).w_full().h(28.0).pl(8.0).pr(6.0).gap(4.0).center_y()
-        .child(text("No results for").font(NAME_REGULAR).color(p.muted))
-        .child(text(format!("\u{201c}{}\u{201d}", query.trim())).font(NAME_REGULAR).color(p.text).truncate())
+    row().key(key.to_owned()).w_full().h(28.0).pl(8.0).pr(6.0).gap(4.0).center_y().children(no_results_words(p, query))
+}
+
+/// `settings.search.empty`'s words, muted, around the query in quotes, which truncates.
+pub fn no_results_words(p: &Pal, query: &str) -> Vec<El> {
+    let quoted = t!("settings.search.empty.query", query = query.trim());
+    opencode_i18n::parts(t!("settings.search.empty")).filter_map(|part| match part {
+        opencode_i18n::Part::Text(words) => (!words.trim().is_empty()).then(|| text(words.trim().to_owned()).font(NAME_REGULAR).color(p.muted)),
+        opencode_i18n::Part::Arg(_) => Some(text(quoted.clone()).font(NAME_REGULAR).color(p.text).truncate()),
+    }).collect()
 }
 
 /// The content of the open page.

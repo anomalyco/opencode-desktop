@@ -5,7 +5,7 @@
 pub trait Choice: Copy + PartialEq + Default + 'static {
     const ALL: &'static [Self];
     fn name(self) -> &'static str;
-    /// What Settings' select shows.
+    /// What Settings' select shows, in the current language.
     fn label(self) -> &'static str;
 
     fn parse(name: Option<&str>) -> Self {
@@ -28,25 +28,25 @@ macro_rules! choice {
         impl Choice for $ty {
             const ALL: &'static [Self] = &[$($ty::$v),+];
             fn name(self) -> &'static str { match self { $($ty::$v => $name),+ } }
-            fn label(self) -> &'static str { match self { $($ty::$v => $label),+ } }
+            fn label(self) -> &'static str { match self { $($ty::$v => opencode_i18n::t!($label)),+ } }
         }
     };
 }
 
 choice! {
     /// Where a new session starts (`workspaces.defaultDestination`).
-    Destination { LastUsed => "last-used", "Last used per project", Local => "local", "Local directory", New => "new", "New worktree" } default LastUsed
+    Destination { LastUsed => "last-used", "settings.workspaces.default.lastUsed", Local => "local", "settings.workspaces.default.local", New => "new", "settings.workspaces.default.new" } default LastUsed
 }
 
 choice! {
     /// What Enter does while the agent works (`general.followUpBehavior`); the alternate chord does
     /// the other.
-    FollowUp { Queue => "queue", "Queue", Steer => "steer", "Steer" } default Steer
+    FollowUp { Queue => "queue", "settings.general.row.followUpBehavior.queue", Steer => "steer", "settings.general.row.followUpBehavior.steer" } default Steer
 }
 
 choice! {
     /// The timeline's column (`general.timelineWidth`).
-    TimelineWidth { Focused => "focused", "Focused", Comfortable => "comfortable", "Comfortable", Wide => "wide", "Wide" } default Comfortable
+    TimelineWidth { Focused => "focused", "settings.timeline.row.width.focused", Comfortable => "comfortable", "settings.timeline.row.width.comfortable", Wide => "wide", "settings.timeline.row.width.wide" } default Comfortable
 }
 
 impl TimelineWidth {
@@ -61,25 +61,25 @@ impl TimelineWidth {
 
 choice! {
     /// Where running subagents and shells show over the composer (`general.backgroundActivity`).
-    BackgroundActivity { Off => "off", "Hidden", Left => "left", "Left", Center => "center", "Center", Right => "right", "Right" } default Left
+    BackgroundActivity { Off => "off", "settings.timeline.row.backgroundActivity.off", Left => "left", "settings.timeline.row.backgroundActivity.left", Center => "center", "settings.timeline.row.backgroundActivity.center", Right => "right", "settings.timeline.row.backgroundActivity.right" } default Left
 }
 
 choice! {
     /// How side tabs list sessions (`general.sidebarOrganize`).
-    Organize { List => "list", "One list", Projects => "projects", "Projects" } default List
+    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects" } default List
 }
 
-/// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label.
-pub const SOUNDS: &[(&str, &str)] = &[
-    ("alert-01", "Alert 01"), ("alert-02", "Alert 02"), ("alert-03", "Alert 03"), ("alert-04", "Alert 04"), ("alert-05", "Alert 05"),
-    ("alert-06", "Alert 06"), ("alert-07", "Alert 07"), ("alert-08", "Alert 08"), ("alert-09", "Alert 09"), ("alert-10", "Alert 10"),
-    ("bip-bop-01", "Bip-bop 01"), ("bip-bop-02", "Bip-bop 02"), ("bip-bop-03", "Bip-bop 03"), ("bip-bop-04", "Bip-bop 04"), ("bip-bop-05", "Bip-bop 05"),
-    ("bip-bop-06", "Bip-bop 06"), ("bip-bop-07", "Bip-bop 07"), ("bip-bop-08", "Bip-bop 08"), ("bip-bop-09", "Bip-bop 09"), ("bip-bop-10", "Bip-bop 10"),
-    ("staplebops-01", "Staplebops 01"), ("staplebops-02", "Staplebops 02"), ("staplebops-03", "Staplebops 03"), ("staplebops-04", "Staplebops 04"),
-    ("staplebops-05", "Staplebops 05"), ("staplebops-06", "Staplebops 06"), ("staplebops-07", "Staplebops 07"),
-    ("nope-01", "Nope 01"), ("nope-02", "Nope 02"), ("nope-03", "Nope 03"), ("nope-04", "Nope 04"), ("nope-05", "Nope 05"), ("nope-06", "Nope 06"),
-    ("nope-07", "Nope 07"), ("nope-08", "Nope 08"), ("nope-09", "Nope 09"), ("nope-10", "Nope 10"), ("nope-11", "Nope 11"), ("nope-12", "Nope 12"),
-    ("yup-01", "Yup 01"), ("yup-02", "Yup 02"), ("yup-03", "Yup 03"), ("yup-04", "Yup 04"), ("yup-05", "Yup 05"), ("yup-06", "Yup 06"),
+/// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.
+pub const SOUNDS: &[(&str, opencode_i18n::Key)] = &[
+    ("alert-01", opencode_i18n::key!("sound.option.alert01")), ("alert-02", opencode_i18n::key!("sound.option.alert02")), ("alert-03", opencode_i18n::key!("sound.option.alert03")), ("alert-04", opencode_i18n::key!("sound.option.alert04")), ("alert-05", opencode_i18n::key!("sound.option.alert05")),
+    ("alert-06", opencode_i18n::key!("sound.option.alert06")), ("alert-07", opencode_i18n::key!("sound.option.alert07")), ("alert-08", opencode_i18n::key!("sound.option.alert08")), ("alert-09", opencode_i18n::key!("sound.option.alert09")), ("alert-10", opencode_i18n::key!("sound.option.alert10")),
+    ("bip-bop-01", opencode_i18n::key!("sound.option.bipbop01")), ("bip-bop-02", opencode_i18n::key!("sound.option.bipbop02")), ("bip-bop-03", opencode_i18n::key!("sound.option.bipbop03")), ("bip-bop-04", opencode_i18n::key!("sound.option.bipbop04")), ("bip-bop-05", opencode_i18n::key!("sound.option.bipbop05")),
+    ("bip-bop-06", opencode_i18n::key!("sound.option.bipbop06")), ("bip-bop-07", opencode_i18n::key!("sound.option.bipbop07")), ("bip-bop-08", opencode_i18n::key!("sound.option.bipbop08")), ("bip-bop-09", opencode_i18n::key!("sound.option.bipbop09")), ("bip-bop-10", opencode_i18n::key!("sound.option.bipbop10")),
+    ("staplebops-01", opencode_i18n::key!("sound.option.staplebops01")), ("staplebops-02", opencode_i18n::key!("sound.option.staplebops02")), ("staplebops-03", opencode_i18n::key!("sound.option.staplebops03")), ("staplebops-04", opencode_i18n::key!("sound.option.staplebops04")),
+    ("staplebops-05", opencode_i18n::key!("sound.option.staplebops05")), ("staplebops-06", opencode_i18n::key!("sound.option.staplebops06")), ("staplebops-07", opencode_i18n::key!("sound.option.staplebops07")),
+    ("nope-01", opencode_i18n::key!("sound.option.nope01")), ("nope-02", opencode_i18n::key!("sound.option.nope02")), ("nope-03", opencode_i18n::key!("sound.option.nope03")), ("nope-04", opencode_i18n::key!("sound.option.nope04")), ("nope-05", opencode_i18n::key!("sound.option.nope05")), ("nope-06", opencode_i18n::key!("sound.option.nope06")),
+    ("nope-07", opencode_i18n::key!("sound.option.nope07")), ("nope-08", opencode_i18n::key!("sound.option.nope08")), ("nope-09", opencode_i18n::key!("sound.option.nope09")), ("nope-10", opencode_i18n::key!("sound.option.nope10")), ("nope-11", opencode_i18n::key!("sound.option.nope11")), ("nope-12", opencode_i18n::key!("sound.option.nope12")),
+    ("yup-01", opencode_i18n::key!("sound.option.yup01")), ("yup-02", opencode_i18n::key!("sound.option.yup02")), ("yup-03", opencode_i18n::key!("sound.option.yup03")), ("yup-04", opencode_i18n::key!("sound.option.yup04")), ("yup-05", opencode_i18n::key!("sound.option.yup05")), ("yup-06", opencode_i18n::key!("sound.option.yup06")),
 ];
 
 /// What each event plays (`sounds`): a sound id, or `None` for none.

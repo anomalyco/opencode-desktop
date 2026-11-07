@@ -27,7 +27,11 @@ impl ReduceMotion {
     }
 
     pub fn label(self) -> &'static str {
-        match self { Self::System => "System", Self::On => "On", Self::Off => "Off" }
+        match self {
+            Self::System => opencode_i18n::t!("settings.appearance.row.reduceMotion.system"),
+            Self::On => opencode_i18n::t!("settings.appearance.row.reduceMotion.on"),
+            Self::Off => opencode_i18n::t!("settings.appearance.row.reduceMotion.off"),
+        }
     }
 
     pub fn parse(s: Option<&str>) -> ReduceMotion {

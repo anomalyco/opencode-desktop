@@ -7,6 +7,7 @@ use rune::{Color, El, Tx, col, el, row, text};
 use crate::App;
 use crate::layout_state::TabLayout;
 use crate::palette::Pal;
+use opencode_i18n::t;
 
 /// The card's name (`interface-mode-name`): 12pt, medium, the compact line height.
 const NAME: rune::TextStyle = rune::TextStyle::new(12.0, 500.0).lh(16.0);
@@ -24,7 +25,7 @@ const INBOX_ROWS: [Dot; 4] = [Dot::Approval, Dot::Done, Dot::Working, Dot::Worki
 /// The row's control: the three cards, 12pt apart.
 pub(super) fn control(s: &App, p: &Pal) -> El {
     let current = s.tab_layout();
-    TabLayout::ALL.into_iter().fold(row().key("interface-mode").role("radiogroup").label("Interface layout").focus_group().gap(12.0), |r, layout| {
+    TabLayout::ALL.into_iter().fold(row().key("interface-mode").role("radiogroup").label(t!("settings.general.row.interfaceMode.title")).focus_group().gap(12.0), |r, layout| {
         r.child(card(p, layout, layout == current))
     })
 }

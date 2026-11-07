@@ -584,7 +584,7 @@ fn rename_account(s: &mut App, credential: &str, tx: &mut Tx) {
         return;
     }
     if !s.can_write() {
-        return crate::status_toast::fail(s, "Request failed", crate::jobs::READ_ONLY);
+        return crate::status_toast::fail(s, "Request failed", crate::jobs::read_only());
     }
     let (credential, dir) = (credential.to_owned(), s.connect_dir().map(str::to_owned));
     s.job(move |srv| {

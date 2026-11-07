@@ -12,7 +12,7 @@ use opencode_kit::integration::{McpServer, McpStatus, MethodKind};
 use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::App;
-use crate::jobs::{Apply, READ_ONLY};
+use crate::jobs::{Apply, read_only};
 use crate::keymap::Bind;
 
 /// How long one connect, disconnect or sign-in may run before it gives up.
@@ -174,7 +174,7 @@ impl App {
         self.mcp.toggles.push((dir.to_owned(), name.to_owned(), attempt));
         let (dir, name) = (dir.to_owned(), name.to_owned());
         if !self.can_write() {
-            let error = READ_ONLY.to_owned();
+            let error = read_only().to_owned();
             return self.later(Box::new(move |s: &mut App, tx: &mut Tx| s.mcp_settled(&dir, &name, attempt, Settled::Failed { error, server: false }, tx)));
         }
         let (d, n) = (dir.clone(), name.clone());

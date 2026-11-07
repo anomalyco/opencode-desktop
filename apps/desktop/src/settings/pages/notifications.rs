@@ -6,6 +6,7 @@ use rune::{El, Tx, col};
 
 use super::{header, page_with, select};
 use crate::App;
+use opencode_i18n::t;
 use crate::notifications::Kind;
 use crate::palette::Pal;
 use crate::settings::{self, prefs, setting, switch};
@@ -13,33 +14,33 @@ use crate::settings::{self, prefs, setting, switch};
 pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let notify = [
-        (Kind::Agent, "settings-notifications-agent", "Agent", "Show system notification when the agent is complete or needs attention"),
-        (Kind::Permission, "settings-notifications-permissions", "Permissions", "Show system notification when a permission is required"),
-        (Kind::Question, "settings-notifications-questions", "Questions", "Show system notification when the agent asks a question"),
-        (Kind::Error, "settings-notifications-errors", "Errors", "Show system notification when an error occurs"),
+        (Kind::Agent, "settings-notifications-agent", t!("settings.general.notifications.agent.title"), t!("settings.general.notifications.agent.description")),
+        (Kind::Permission, "settings-notifications-permissions", t!("settings.general.notifications.permissions.title"), t!("settings.general.notifications.permissions.description")),
+        (Kind::Question, "settings-notifications-questions", t!("settings.general.notifications.questions.title"), t!("settings.general.notifications.questions.description")),
+        (Kind::Error, "settings-notifications-errors", t!("settings.general.notifications.errors.title"), t!("settings.general.notifications.errors.description")),
     ];
     let notify = notify.into_iter().map(|(kind, target, title, about)| {
         let control = switch(p, &format!("notify-{}", kind.name()), st.notify.get(kind)).on_press(move |s: &mut App| s.set_notify(kind, !s.settings.notify.get(kind)));
         (target, setting(p, target, title, about, control))
     }).collect();
-    let options = || std::iter::once(("none".to_owned(), "None".to_owned())).chain(prefs::SOUNDS.iter().map(|(id, l)| ((*id).to_owned(), (*l).to_owned()))).collect::<Vec<_>>();
+    let options = || std::iter::once(("none".to_owned(), t!("sound.option.none").to_owned())).chain(prefs::SOUNDS.iter().map(|(id, l)| ((*id).to_owned(), opencode_i18n::I18N.text(*l).to_owned()))).collect::<Vec<_>>();
     let current = |id: &Option<String>| id.clone().unwrap_or_else(|| "none".to_owned());
     let sounds = vec![
-        ("settings-sounds-agent", setting(p, "settings-sounds-agent", "Agent", "Play sound when the agent is complete or needs attention",
-            select(s, p, "settings-sounds-agent-select", "Agent", options(), &current(&st.sounds.agent), |s, id, tx| set_sound(s, |x| &mut x.agent, id, tx)))),
-        ("settings-sounds-permissions", setting(p, "settings-sounds-permissions", "Permissions", "Play sound when a permission is required",
-            select(s, p, "settings-sounds-permissions-select", "Permissions", options(), &current(&st.sounds.permissions), |s, id, tx| set_sound(s, |x| &mut x.permissions, id, tx)))),
-        ("settings-sounds-questions", setting(p, "settings-sounds-questions", "Questions", "Play sound when the agent asks a question",
-            select(s, p, "settings-sounds-questions-select", "Questions", options(), &current(&st.sounds.questions), |s, id, tx| set_sound(s, |x| &mut x.questions, id, tx)))),
-        ("settings-sounds-errors", setting(p, "settings-sounds-errors", "Errors", "Play sound when an error occurs",
-            select(s, p, "settings-sounds-errors-select", "Errors", options(), &current(&st.sounds.errors), |s, id, tx| set_sound(s, |x| &mut x.errors, id, tx)))),
-        ("settings-sounds-interface", setting(p, "settings-sounds-interface", "Interface", "Play subtle sounds when the wordmark appears and when you play with it",
+        ("settings-sounds-agent", setting(p, "settings-sounds-agent", t!("settings.general.sounds.agent.title"), t!("settings.general.sounds.agent.description"),
+            select(s, p, "settings-sounds-agent-select", t!("settings.general.sounds.agent.title"), options(), &current(&st.sounds.agent), |s, id, tx| set_sound(s, |x| &mut x.agent, id, tx)))),
+        ("settings-sounds-permissions", setting(p, "settings-sounds-permissions", t!("settings.general.sounds.permissions.title"), t!("settings.general.sounds.permissions.description"),
+            select(s, p, "settings-sounds-permissions-select", t!("settings.general.sounds.permissions.title"), options(), &current(&st.sounds.permissions), |s, id, tx| set_sound(s, |x| &mut x.permissions, id, tx)))),
+        ("settings-sounds-questions", setting(p, "settings-sounds-questions", t!("settings.general.sounds.questions.title"), t!("settings.general.sounds.questions.description"),
+            select(s, p, "settings-sounds-questions-select", t!("settings.general.sounds.questions.title"), options(), &current(&st.sounds.questions), |s, id, tx| set_sound(s, |x| &mut x.questions, id, tx)))),
+        ("settings-sounds-errors", setting(p, "settings-sounds-errors", t!("settings.general.sounds.errors.title"), t!("settings.general.sounds.errors.description"),
+            select(s, p, "settings-sounds-errors-select", t!("settings.general.sounds.errors.title"), options(), &current(&st.sounds.errors), |s, id, tx| set_sound(s, |x| &mut x.errors, id, tx)))),
+        ("settings-sounds-interface", setting(p, "settings-sounds-interface", t!("settings.general.sounds.interface.title"), t!("settings.general.sounds.interface.description"),
             switch(p, "sounds-interface-switch", st.sounds.interface).on_press(|s: &mut App| s.change_settings(|x| x.sounds.interface = !x.sounds.interface)))),
     ];
     let body = col().w_full().gap(32.0)
-        .child(super::section(p, "settings-notifications-section", Some("Desktop notifications"), settings::list(p, "notifications-list", super::rows(s, p, 20.0, notify))))
-        .child(super::section(p, "settings-sounds-section", Some("Sound effects"), settings::list(p, "sounds-list", super::rows(s, p, 20.0, sounds))));
-    page_with(p, "settings-notifications-page", header(p, "Notifications", "Choose when to receive notifications and hear sounds"), body, true)
+        .child(super::section(p, "settings-notifications-section", Some(t!("settings.general.section.notifications")), settings::list(p, "notifications-list", super::rows(s, p, 20.0, notify))))
+        .child(super::section(p, "settings-sounds-section", Some(t!("settings.general.section.sounds")), settings::list(p, "sounds-list", super::rows(s, p, 20.0, sounds))));
+    page_with(p, "settings-notifications-page", header(p, t!("settings.tab.notifications"), t!("settings.notifications.description")), body, true)
 }
 
 /// Picks sound `id` (or none) for an event and plays it, as Desktop previews a pick.

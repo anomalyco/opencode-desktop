@@ -117,12 +117,12 @@ impl Section {
 
     pub fn title(self) -> &'static str {
         match self {
-            Self::General => "General",
-            Self::Session => "Session",
-            Self::Navigation => "Navigation",
-            Self::Models => "Model and agent",
-            Self::Terminal => "Terminal",
-            Self::Prompt => "Prompt",
+            Self::General => opencode_i18n::t!("settings.shortcuts.group.general"),
+            Self::Session => opencode_i18n::t!("settings.shortcuts.group.session"),
+            Self::Navigation => opencode_i18n::t!("settings.shortcuts.group.navigation"),
+            Self::Models => opencode_i18n::t!("settings.shortcuts.group.modelAndAgent"),
+            Self::Terminal => opencode_i18n::t!("settings.shortcuts.group.terminal"),
+            Self::Prompt => opencode_i18n::t!("settings.shortcuts.group.prompt"),
         }
     }
 }

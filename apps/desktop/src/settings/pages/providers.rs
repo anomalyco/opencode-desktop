@@ -12,6 +12,7 @@ use crate::App;
 use crate::connect::catalog::ProviderInfo;
 use crate::palette::{Pal, kit};
 use crate::widgets::{self, badge, button};
+use opencode_i18n::t;
 
 /// Desktop's popular providers, in its order (`catalog/order.ts`).
 const POPULAR: [&str; 8] = ["opencode-go", "opencode", "anthropic", "github-copilot", "openai", "google", "openrouter", "vercel"];
@@ -25,15 +26,15 @@ pub enum Menu {
 
 fn note(id: &str) -> Option<&'static str> {
     Some(match id {
-        "opencode" => "Curated models including Claude, GPT, Gemini and more",
-        "opencode-go" => "Low cost subscription for everyone",
-        "anthropic" => "Direct access to Claude models via API key",
-        "claude-agent" => "Use your Claude plan or another Claude Code login",
-        "openai" => "GPT models for fast, capable general AI tasks",
-        "google" => "Gemini models for fast, structured responses",
-        "openrouter" => "Access all supported models from one provider",
-        "vercel" => "Unified access to AI models with smart routing",
-        _ if id.starts_with("github-copilot") => "AI models for coding assistance via GitHub Copilot",
+        "opencode" => t!("dialog.provider.opencode.note"),
+        "opencode-go" => t!("dialog.provider.opencodeGo.tagline"),
+        "anthropic" => t!("dialog.provider.anthropic.note"),
+        "claude-agent" => t!("dialog.provider.claudeAgent.note"),
+        "openai" => t!("dialog.provider.openai.note"),
+        "google" => t!("dialog.provider.google.note"),
+        "openrouter" => t!("dialog.provider.openrouter.note"),
+        "vercel" => t!("dialog.provider.vercel.note"),
+        _ if id.starts_with("github-copilot") => t!("dialog.provider.copilot.note"),
         _ => return None,
     })
 }
@@ -42,12 +43,12 @@ fn note(id: &str) -> Option<&'static str> {
 /// API key or an account, env connections are environment variables, and a connectionless
 /// integration is config.
 fn source(i: Option<&Integration>) -> &'static str {
-    let Some(i) = i else { return "Other" };
+    let Some(i) = i else { return t!("settings.providers.tag.other") };
     match i.connections.iter().find(|c| c.credential) {
-        Some(c) if c.method == "key" => "API key",
-        Some(_) => "Account",
-        None if i.connections.iter().any(|c| !c.credential) => "Environment",
-        None => "Config",
+        Some(c) if c.method == "key" => t!("provider.connect.method.apiKey"),
+        Some(_) => t!("settings.providers.tag.account"),
+        None if i.connections.iter().any(|c| !c.credential) => t!("settings.providers.tag.environment"),
+        None => t!("settings.providers.tag.config"),
     }
 }
 
@@ -64,7 +65,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     connected.sort_by_key(|pi| pi.id != "opencode-go");
     let rows: Vec<El> = connected.iter().map(|pi| connected_row(s, p, pi, integration(pi))).collect();
     let connected_list = if rows.is_empty() {
-        catalog(p, "connected-providers", vec![el().py(16.0).child(text("No connected providers").font(super::NAME_REGULAR).color(p.muted))])
+        catalog(p, "connected-providers", vec![el().py(16.0).child(text(t!("settings.providers.connected.empty")).font(super::NAME_REGULAR).color(p.muted))])
     } else {
         catalog(p, "connected-providers", rows)
     };
@@ -76,14 +77,14 @@ pub fn view(s: &App, p: &Pal) -> El {
         .map(|i| (i.id.clone(), i.name.clone()))
         .collect();
     popular.sort_by_key(|(id, _)| POPULAR.iter().position(|p| p == id));
-    let more = text("Show more providers").key("settings-providers-view-all").role("button").font(NAME).color(p.accent).mt(20.0)
+    let more = text(t!("dialog.provider.viewAll")).key("settings-providers-view-all").role("button").font(NAME).color(p.accent).mt(20.0)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_connect(None, true, tx));
     let body = col().key("settings-providers").w_full().gap(32.0).mt(8.0)
-        .child(section(p, "connected-providers-section", Some("Connected providers"), connected_list))
+        .child(section(p, "connected-providers-section", Some(t!("settings.providers.section.connected")), connected_list))
         .child(col().w_full()
-            .child(section(p, "popular-providers-section", Some("Popular providers"), catalog(p, "popular-providers", popular.iter().map(|(id, name)| popular_row(p, id, name)).collect())))
+            .child(section(p, "popular-providers-section", Some(t!("settings.providers.section.popular")), catalog(p, "popular-providers", popular.iter().map(|(id, name)| popular_row(p, id, name)).collect())))
             .child(more));
-    page(p, "settings-providers-page", header_with(p, "Providers", "Connect and manage model providers", super::servers::switcher(s, p)), body)
+    page(p, "settings-providers-page", header_with(p, t!("settings.providers.title"), t!("settings.providers.description"), super::servers::switcher(s, p)), body)
 }
 
 /// A connected provider: its mark, name and how it connects; then its accounts, Disconnect, or
@@ -100,16 +101,16 @@ fn connected_row(s: &App, p: &Pal, pi: &ProviderInfo, integration: Option<&Integ
         // The active account needs a fresh sign-in: the warning signs in again.
         if accounts[0].status.is_some() {
             let (again, warning) = (id.clone(), p.warning);
-            e = e.child(button("Needs sign-in", ButtonVariant::GhostMuted)
-                .label_with(move |font, _| text("Needs sign-in").font(font).color(warning))
+            e = e.child(button(t!("dialog.provider.needsSignIn"), ButtonVariant::GhostMuted)
+                .label_with(move |font, _| text(t!("dialog.provider.needsSignIn")).font(font).color(warning))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_connect(Some(&again), true, tx)).build(kit(p)).key("settings-provider-sign-in"));
         }
         e.child(account_menu(s, p, &id, &pi.name, integration))
     } else if can_disconnect {
         let (id, name) = (id.clone(), pi.name.clone());
-        button("Disconnect", ButtonVariant::GhostMuted).on_press_tx(move |s: &mut App, tx: &mut Tx| s.disconnect_provider(&id, &name, tx)).build(kit(p))
+        button(t!("common.disconnect"), ButtonVariant::GhostMuted).on_press_tx(move |s: &mut App, tx: &mut Tx| s.disconnect_provider(&id, &name, tx)).build(kit(p))
     } else {
-        text("Connected from your environment variables").key("settings-provider-env-hint").font(super::NAME_REGULAR).color(p.muted).pr(12.0).group_opacity(0.0, 1.0)
+        text(t!("settings.providers.connected.environmentDescription")).key("settings-provider-env-hint").font(super::NAME_REGULAR).color(p.muted).pr(12.0).group_opacity(0.0, 1.0)
     };
     row().key(format!("settings-provider-{}", pi.id)).w_full().min_h(48.0).py(10.0).gap(16.0).center_y().hover_group()
         .child(lead).child(trailing)
@@ -119,7 +120,7 @@ fn connected_row(s: &App, p: &Pal, pi: &ProviderInfo, integration: Option<&Integ
 fn popular_row(p: &Pal, id: &str, name: &str) -> El {
     let mut main = row().gap(8.0).center_y().child(text(name.to_owned()).font(NAME).color(p.text));
     if id == "opencode" || id == "opencode-go" {
-        main = main.child(badge(p, "Recommended"));
+        main = main.child(badge(p, t!("dialog.provider.tag.recommended")));
     }
     let copy = col().grow(1.0).shrink().min_w(0.0).gap(6.0).child(main).children(note(id).map(|n| text(n).font(BODY).color(p.muted).wrap()));
     let open = id.to_owned();
@@ -127,7 +128,7 @@ fn popular_row(p: &Pal, id: &str, name: &str) -> El {
         .child(row().grow(1.0).shrink().min_w(0.0).gap(8.0)
             .child(widgets::provider_mark(id, if id == "opencode" { if p.dark { Color::WHITE } else { Color::BLACK } } else { p.icon }))
             .child(copy))
-        .child(button("Connect", ButtonVariant::Neutral).icon(&ic::PLUS)
+        .child(button(t!("common.connect"), ButtonVariant::Neutral).icon(&ic::PLUS)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_connect(Some(&open), true, tx)).build(kit(p)).key(format!("settings-connect-{id}")))
 }
 
@@ -140,7 +141,7 @@ fn account_menu(s: &App, p: &Pal, id: &str, name: &str, integration: Option<&Int
         && renaming == active_id
     {
         let credential = active_id.clone();
-        return rune_kit::TextInput::new(&s.settings_pages.rename).label("Account name").width(Some(240.0)).spellcheck(s.settings.spellcheck)
+        return rune_kit::TextInput::new(&s.settings_pages.rename).label(t!("settings.providers.account.name")).width(Some(240.0)).spellcheck(s.settings.spellcheck)
             .on_edit(|s: &mut App| &mut s.settings_pages.rename)
             .on_submit(move |s: &mut App, tx: &mut Tx| s.rename_account(&credential, tx))
             // Escape drops the edit and keeps the name (`rename.ts`'s `cancelled`).
@@ -156,12 +157,13 @@ fn account_menu(s: &App, p: &Pal, id: &str, name: &str, integration: Option<&Int
     }
     let (menu_id, options_id) = (id.to_owned(), id.to_owned());
     let label = active.as_ref().map(|a| a.1.clone()).unwrap_or_default();
+    let options = t!("dialog.provider.accounts.options", account = label);
     let trigger = button(label.clone(), ButtonVariant::GhostMuted)
         .label_with(move |font, ink| row().gap(6.0).center_y().child(text(label.clone()).font(font).color(ink).truncate()).child(icon(&ic::CHEVRON_DOWN, 14.0).color(ink)))
         .expanded(open == Some(Menu::Accounts))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_provider_menu(&menu_id, Menu::Accounts, tx))
         .build(kit(p));
-    let dots = el().key("settings-provider-options").role("button").label("Account options").size(32.0, 32.0).radius(6.0).center()
+    let dots = el().key("settings-provider-options").role("button").label(options).size(32.0, 32.0).radius(6.0).center()
         .fill(if open == Some(Menu::Options) { p.pressed } else { Color::TRANSPARENT }).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_provider_menu(&options_id, Menu::Options, tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
@@ -178,7 +180,7 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
     let mut list = col().w_full();
     match which {
         Menu::Accounts => {
-            list = list.child(el().px(8.0).py(4.0).child(text("Accounts").font(super::NAME_REGULAR).color(p.muted)));
+            list = list.child(el().px(8.0).py(4.0).child(text(t!("settings.providers.account.group")).font(super::NAME_REGULAR).color(p.muted)));
             for (at, a) in accounts.iter().enumerate() {
                 let (credential, provider, label) = (a.id.clone(), name.to_owned(), a.label.clone());
                 list = list.child(item(format!("settings-account-{}", a.id), a.label.clone()).child(spacer()).children((at == 0).then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon)))
@@ -186,7 +188,7 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
             }
             let open = id.to_owned();
             list = list.child(el().w_full().h(0.5).my(4.0).fill(p.border))
-                .child(item("settings-account-add".into(), "Add account".into())
+                .child(item("settings-account-add".into(), t!("settings.providers.account.add").into())
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_connect(Some(&open), true, tx)));
         }
         Menu::Options => {
@@ -194,14 +196,14 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
             let (rename, label) = (active.clone(), active.1.clone());
             let (remove, provider, last) = (active.0.clone(), name.to_owned(), accounts.len() == 1);
             list = list
-                .child(item("settings-account-rename".into(), "Rename".into()).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                .child(item("settings-account-rename".into(), t!("common.rename").into()).on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.settings_pages.menu = None;
                     s.settings_pages.renaming = Some(rename.0.clone());
                     s.settings_pages.rename = rune::TextEdit::new(&label);
                     s.settings_pages.rename.focused = true;
                 }))
-                .child(item("settings-account-remove".into(), "Remove".into())
+                .child(item("settings-account-remove".into(), t!("dialog.provider.accounts.remove").into())
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.remove_account(&remove, &provider, last, tx)));
         }
     }
@@ -218,21 +220,21 @@ impl App {
     /// Removes every credential the integration holds (`disconnect.run`).
     fn disconnect_provider(&mut self, id: &str, name: &str, _tx: &mut Tx) {
         if !self.can_write() {
-            return crate::status_toast::fail(self, "Request failed", crate::jobs::READ_ONLY);
+            return crate::status_toast::fail(self, t!("common.requestFailed"), crate::jobs::read_only());
         }
         let (id, name) = (id.to_owned(), name.to_owned());
         self.job(move |srv| {
             let result = srv.integration(&id, None).and_then(|i| {
                 let creds: Vec<String> = i.connections.iter().filter(|c| c.credential).map(|c| c.id.clone()).collect();
                 if creds.is_empty() {
-                    return Err(format!("No removable credentials found for {name}"));
+                    return Err(t!("provider.disconnect.toast.noCredentials.description", provider = name));
                 }
                 creds.iter().try_for_each(|c| srv.credential_remove(c))
             });
             Box::new(move |s: &mut App, _: &mut Tx| {
                 match result {
-                    Ok(()) => crate::status_toast::succeed(s, format!("{name} disconnected"), format!("{name} models are no longer available.")),
-                    Err(e) => crate::status_toast::fail(s, "Request failed", e),
+                    Ok(()) => crate::status_toast::succeed(s, t!("provider.disconnect.toast.disconnected.title", provider = name), t!("provider.disconnect.toast.disconnected.description", provider = name)),
+                    Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
                 }
                 s.sync_catalogs(None, |_, _, _| {});
             }) as crate::jobs::Apply
@@ -243,7 +245,7 @@ impl App {
         tx.instant();
         self.settings_pages.menu = None;
         let (credential, provider, label) = (credential.to_owned(), provider.to_owned(), label.to_owned());
-        self.account_write(move |srv| srv.credential_activate(&credential), format!("{provider} account switched"), format!("Now using {label}."));
+        self.account_write(move |srv| srv.credential_activate(&credential), t!("settings.providers.account.switched.title", provider = provider), t!("settings.providers.account.switched.description", account = label));
     }
 
     fn remove_account(&mut self, credential: &str, provider: &str, _last: bool, tx: &mut Tx) {
@@ -251,7 +253,7 @@ impl App {
         self.settings_pages.menu = None;
         let (credential, provider) = (credential.to_owned(), provider.to_owned());
         let label = self.integrations(None).unwrap_or_default().iter().flat_map(|i| i.connections.iter()).find(|c| c.id == credential).map(|c| c.label.clone()).unwrap_or_default();
-        self.account_write(move |srv| srv.credential_remove(&credential), format!("{label} removed"), format!("{provider} will no longer use this account."));
+        self.account_write(move |srv| srv.credential_remove(&credential), t!("settings.providers.account.removed.title", account = label), t!("settings.providers.account.removed.description", provider = provider));
     }
 
     fn rename_account(&mut self, credential: &str, tx: &mut Tx) {
@@ -267,7 +269,7 @@ impl App {
 
     fn account_write(&mut self, work: impl FnOnce(&opencode_kit::client::Server) -> Result<(), String> + Send + 'static, title: String, description: String) {
         if !self.can_write() {
-            return crate::status_toast::fail(self, "Request failed", crate::jobs::READ_ONLY);
+            return crate::status_toast::fail(self, t!("common.requestFailed"), crate::jobs::read_only());
         }
         self.job(move |srv| {
             let r = work(srv);
@@ -275,7 +277,7 @@ impl App {
                 match r {
                     Ok(()) if !title.is_empty() => crate::status_toast::succeed(s, title, description),
                     Ok(()) => {}
-                    Err(e) => crate::status_toast::fail(s, "Request failed", e),
+                    Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
                 }
                 s.sync_catalogs(None, |_, _, _| {});
             }) as crate::jobs::Apply

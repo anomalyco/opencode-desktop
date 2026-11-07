@@ -35,13 +35,13 @@ impl Category {
     /// Its name in Settings (`settings.timeline.category.*`).
     pub fn label(self) -> &'static str {
         match self {
-            Category::Shell => "Shell",
-            Category::Edit => "Edits",
-            Category::Thinking => "Thinking",
-            Category::Subagents => "Subagents",
-            Category::Notices => "Notices",
-            Category::Tools => "Other tools",
-            Category::Commentary => "Commentary",
+            Category::Shell => opencode_i18n::t!("settings.timeline.category.shell"),
+            Category::Edit => opencode_i18n::t!("settings.timeline.category.edit"),
+            Category::Thinking => opencode_i18n::t!("settings.timeline.category.thinking"),
+            Category::Subagents => opencode_i18n::t!("settings.timeline.category.subagents"),
+            Category::Notices => opencode_i18n::t!("settings.timeline.category.notices"),
+            Category::Tools => opencode_i18n::t!("settings.timeline.category.tools"),
+            Category::Commentary => opencode_i18n::t!("settings.timeline.category.commentary"),
         }
     }
 
@@ -90,23 +90,23 @@ pub struct Detail(pub [Activity; 7]);
 use Placement::{Grouped as G, Hidden as H, Separate as S};
 
 /// The presets, quietest last (`timelinePresets`): Everything, Detailed, Compact, Quiet, Messages only.
-pub const PRESETS: [(&str, &str, Detail); 5] = [
-    ("everything", "Everything", Detail([a(S, true), a(S, true), a(S, true), a(S, false), a(S, false), a(S, false), a(S, false)])),
-    ("detailed", "Detailed", Detail([a(S, true), a(S, true), a(G, false), a(S, false), a(G, false), a(G, false), a(S, false)])),
-    ("compact", "Compact", Detail([a(G, false), a(G, false), a(G, false), a(S, false), a(G, false), a(G, false), a(S, false)])),
-    ("quiet", "Quiet", Detail([a(H, false), a(G, false), a(H, false), a(S, false), a(H, false), a(H, false), a(S, false)])),
-    ("text-only", "Messages only", Detail([a(H, false), a(H, false), a(H, false), a(H, false), a(H, false), a(H, false), a(S, false)])),
+pub const PRESETS: [(&str, opencode_i18n::Key, Detail); 5] = [
+    ("everything", opencode_i18n::key!("settings.timeline.preset.everything"), Detail([a(S, true), a(S, true), a(S, true), a(S, false), a(S, false), a(S, false), a(S, false)])),
+    ("detailed", opencode_i18n::key!("settings.timeline.preset.detailed"), Detail([a(S, true), a(S, true), a(G, false), a(S, false), a(G, false), a(G, false), a(S, false)])),
+    ("compact", opencode_i18n::key!("settings.timeline.preset.compact"), Detail([a(G, false), a(G, false), a(G, false), a(S, false), a(G, false), a(G, false), a(S, false)])),
+    ("quiet", opencode_i18n::key!("settings.timeline.preset.quiet"), Detail([a(H, false), a(G, false), a(H, false), a(S, false), a(H, false), a(H, false), a(S, false)])),
+    ("text-only", opencode_i18n::key!("settings.timeline.preset.text-only"), Detail([a(H, false), a(H, false), a(H, false), a(H, false), a(H, false), a(H, false), a(S, false)])),
 ];
 
 /// What each preset shows, as Settings says it (`settings.timeline.description.*`).
 pub fn preset_description(id: &str) -> &'static str {
     match id {
-        "everything" => "Show all activity separately. Expand shell output, edits, and thinking.",
-        "detailed" => "Expand shell output and edits. Show subagents separately and group other activity.",
-        "compact" => "Show subagents separately. Group other activity with details collapsed.",
-        "quiet" => "Show subagents separately and group edits. Hide other activity.",
-        "text-only" => "Hide all activity.",
-        _ => "Uses advanced settings.",
+        "everything" => opencode_i18n::t!("settings.timeline.description.everything"),
+        "detailed" => opencode_i18n::t!("settings.timeline.description.detailed"),
+        "compact" => opencode_i18n::t!("settings.timeline.description.compact"),
+        "quiet" => opencode_i18n::t!("settings.timeline.description.quiet"),
+        "text-only" => opencode_i18n::t!("settings.timeline.description.text-only"),
+        _ => opencode_i18n::t!("settings.timeline.description.custom"),
     }
 }
 
