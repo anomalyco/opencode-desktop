@@ -23,6 +23,8 @@ members = [
     "plugins/ssh/impl",
     "plugins/wsl",
     "plugins/wsl/impl",
+    "plugins/btw",
+    "plugins/btw/impl",
 ]
 exclude = ["apps/browser-engine"]
 
@@ -116,6 +118,15 @@ codegen-units = 1
 opt-level = "s"
 
 [profile.release.package.opencode-plugin]
+codegen-units = 1
+opt-level = "s"
+
+[profile.release.package.opencode-plugin-btw]
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
+[profile.release.package.opencode-plugin-btw-impl]
 codegen-units = 1
 opt-level = "s"
 
