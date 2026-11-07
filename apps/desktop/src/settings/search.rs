@@ -437,6 +437,14 @@ pub fn field(s: &App, p: &Pal) -> El {
         .child(rune::text_input(q, ROW).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder("Search", p.faint).caret(p.text, p.selection).label("Search")
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
+            // Enter opens the lit result, else the first (`search-machine.ts`).
+            .on_submit(|s: &mut App, tx: &mut Tx| {
+                let (list, _) = shown(s);
+                let lit = s.settings_pages.find.highlighted.as_ref().and_then(|id| list.iter().find(|e| &e.id == id)).or(list.first()).cloned();
+                if let Some(e) = lit {
+                    open(s, &e, tx);
+                }
+            })
             .on_input_change(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.settings_pages.find.highlighted = None;
