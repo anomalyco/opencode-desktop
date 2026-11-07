@@ -56,6 +56,10 @@ libc = "0.2"
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 
 [dev-dependencies]
+# The built-ins the tests link in (`plugin_host::builtins`), so the motion gate covers what they draw.
+opencode-plugin-context-impl = { path = "../../plugins/context/impl" }
+opencode-plugin-details-impl = { path = "../../plugins/details/impl" }
+opencode-plugin-hello-impl = { path = "../../plugins/hello/impl" }
 png = "0.18"
 rune = { workspace = true, features = ["frame-profile"] }
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }

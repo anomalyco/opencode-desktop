@@ -166,15 +166,20 @@ pub fn setup(app: &mut App, waker: Waker) {
     }
     host.started = true;
     host.shared.stores.persist = persists;
-    let hot = crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless());
+    // In-process tests (the motion gate) load the linked built-ins alone: never the user's
+    // folders, saved state or a watcher.
+    let isolated = cfg!(test);
+    let hot = !isolated && (crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless()));
     host.shadow_dir = hot.then(|| crate::dirs::cache().map(|c| c.join("plugin-hot"))).flatten();
     if let Some(dir) = &host.shadow_dir {
         loader::sweep(dir);
     }
-    (host.disabled, host.trusted) = load_state();
+    if !isolated {
+        (host.disabled, host.trusted) = load_state();
+    }
     let builtin_ids: HashSet<String> = builtins::all().iter().filter_map(|(src, _)| manifest::parse(src).ok()).map(|m| m.id).collect();
     let mut seen = HashSet::new();
-    for (found, source) in discover() {
+    for (found, source) in discover(isolated) {
         let id = found.manifest.id.clone();
         // A third-party plugin can't take a built-in's id: it shows, refused, beside it.
         let shadows_builtin = found.tier == Tier::User && (builtin_ids.contains(&id) || seen_bundled(&host.slots, &id));
@@ -244,8 +249,15 @@ fn seen_bundled(slots: &[Slot], id: &str) -> bool {
 }
 
 /// Every plugin folder in tier order, with how to load each; static built-ins join the
-/// bundled tier ahead of its folders.
-fn discover() -> Vec<(Found, Source)> {
+/// bundled tier ahead of its folders; `isolated`, the static built-ins alone.
+fn discover(isolated: bool) -> Vec<(Found, Source)> {
+    let statics = builtins::all().into_iter().filter_map(|(src, entry)| {
+        let manifest = manifest::parse(src).ok()?;
+        Some((Found { manifest, dir: PathBuf::new(), tier: Tier::Bundled, error: None }, Source::Static(entry)))
+    });
+    if isolated {
+        return statics.collect();
+    }
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_owned()));
     let mut tiers = Vec::new();
     if let Some(dir) = crate::arg("--plugin-dir") {
@@ -255,10 +267,6 @@ fn discover() -> Vec<(Found, Source)> {
         tiers.push((Tier::Override, config.join("plugins-override")));
     }
     let first = manifest::scan(&tiers).into_iter().map(with_library);
-    let statics = builtins::all().into_iter().filter_map(|(src, entry)| {
-        let manifest = manifest::parse(src).ok()?;
-        Some((Found { manifest, dir: PathBuf::new(), tier: Tier::Bundled, error: None }, Source::Static(entry)))
-    });
     let mut rest = Vec::new();
     if let Some(exe) = exe_dir {
         rest.push((Tier::Bundled, exe.join("plugins")));

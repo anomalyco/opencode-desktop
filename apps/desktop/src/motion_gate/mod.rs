@@ -205,6 +205,7 @@ impl Run {
                 });
             }
         }
+        load_builtins(&mut app);
         let size = c.size();
         let mut rt = Runtime::new(app, crate::view::app, size, Env::new(true, 1.0));
         rt.poll = Some(crate::poll);
@@ -358,6 +359,12 @@ impl Run {
         self.act("stream starts", |rt| rt.update(|s, _| s.start_stream_if_due(SID)));
     }
 
+}
+
+/// The built-in plugins linked into the tests (Context's header ring and counts among them), as
+/// the app loads them at launch, so the gate covers what they draw.
+pub fn load_builtins(app: &mut App) {
+    crate::plugin_host::setup(app, std::sync::Arc::new(|| {}));
 }
 
 /// A recorder for `rt` on the gate's clock. Live numbers roll here (`odometer.rs`), so one that

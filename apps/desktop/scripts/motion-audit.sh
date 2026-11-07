@@ -39,7 +39,8 @@ cd "$ROOT"
 mkdir -p "$OUT"
 # A debug build: the traces run on the virtual clock, so they match release, and the release
 # build's storybook plays no story (playground scenarios recorded an idle session).
-[[ $BUILD = 1 ]] && cargo build -p opencode-desktop --quiet
+# With the built-in plugins linked in, so what they draw (the header's context ring) is audited.
+[[ $BUILD = 1 ]] && cargo build -p opencode-desktop --features static-builtins --quiet
 # Cargo's own target dir: a worker's synced tree can carry a stale target/ from its seed clone.
 TARGET=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
 BIN="${AUDIT_BIN:-$TARGET/debug/opencode-desktop}"
