@@ -57,7 +57,7 @@ fn new_session_in_the_sidebar_leaves_settings() {
     let mut rt = in_settings(fixture_runtime());
     tap(&mut rt, "new");
     assert!(!rt.state.settings.open);
-    assert_eq!(rt.state.route, Route::Draft);
+    assert!(matches!(rt.state.route, Route::Draft(_)));
 }
 
 #[test]

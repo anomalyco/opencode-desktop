@@ -300,7 +300,7 @@ impl App {
     pub fn composer_directory(&self) -> String {
         match &self.route {
             Route::Session(id) => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
-            _ => self.draft_dir.clone(),
+            _ => self.draft_dir().to_owned(),
         }
     }
 

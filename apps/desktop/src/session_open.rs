@@ -45,7 +45,7 @@ impl App {
         }
         if !self.tabs.iter().any(|t| t.id == root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
-            self.tabs.push(Tab { id: root.clone(), title, directory });
+            self.tabs.push(Tab::session(root.clone(), title, directory));
             self.save_tabs();
         }
         if let Some(pid) = self.session(&root).and_then(|s| self.project_for_session(s)).map(|p| p.id.clone()) {

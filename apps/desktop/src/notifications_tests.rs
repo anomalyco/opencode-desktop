@@ -40,7 +40,7 @@ fn session(id: &str, title: &str, parent: Option<&str>) -> SessionInfo {
 fn app() -> (App, Fake) {
     let mut app = App::empty();
     app.sessions = vec![session("root", "Fix the build", None), session("child", "Explore", Some("root")), session("closed", "Old work", None)];
-    app.tabs = vec![Tab { id: "root".into(), title: "Fix the build".into(), directory: String::new() }];
+    app.tabs = vec![Tab::session("root", "Fix the build", String::new())];
     let fake = Fake::default();
     app.notify = Notifier::with_sink(fake.clone());
     (app, fake)

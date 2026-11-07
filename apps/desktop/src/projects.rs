@@ -230,7 +230,7 @@ impl App {
         if dir.is_empty() {
             return;
         }
-        self.draft_dir = dir.clone();
+        self.set_draft_dir(dir.clone());
         if self.live() && self.stage.is_none() {
             if self.write(Write::OpenProject { directory: dir, start_session }) {
                 self.status = "Opening project…".into();
@@ -272,7 +272,7 @@ impl App {
             self.ensure_local_project(if root == "/" { &dir } else { &root }, Some(&location.project_id))
         };
         if !dir.is_empty() {
-            self.draft_dir = dir.clone();
+            self.set_draft_dir(dir.clone());
         }
         self.touch_project(&project_id);
         let server_label = match &self.source {

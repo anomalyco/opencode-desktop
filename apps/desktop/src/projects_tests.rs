@@ -199,8 +199,8 @@ fn shift_cmd_o_switches_recent_projects_worktrees_and_other_projects() {
     shift_cmd_o(&mut rt);
     key(&mut rt, Key::Text("kiln".into()));
     key(&mut rt, Key::Enter);
-    assert_eq!(rt.state.route, Route::Draft);
-    assert_eq!(rt.state.draft_dir, "/Users/demo/code/kiln");
+    assert!(matches!(rt.state.route, Route::Draft(_)));
+    assert_eq!(rt.state.draft_dir(), "/Users/demo/code/kiln");
     assert_eq!(rt.state.used_projects()[0].name, "kiln", "picking kiln moves it to most-recent used");
 
     // ⌘O inside ⇧⌘O closes the switcher and opens the native folder dialog.
@@ -233,8 +233,8 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
 
     // Clicking "New session" on Home while harbor is selected starts the draft in harbor.
     tap(&mut rt, "new-session");
-    assert_eq!(rt.state.route, Route::Draft);
-    assert_eq!(rt.state.draft_dir, "/Users/demo/code/harbor");
+    assert!(matches!(rt.state.route, Route::Draft(_)));
+    assert_eq!(rt.state.draft_dir(), "/Users/demo/code/harbor");
 
     // At zoom 1.6 (panel ~524pt), Home switches to the compact dropdown whose popover scales with zoom.
     rt.update(|s, tx| {

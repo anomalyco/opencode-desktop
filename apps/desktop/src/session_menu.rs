@@ -80,17 +80,23 @@ fn item(id: &'static str, title: &'static str, enabled: bool) -> Line {
 /// header has no menu.
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
     let known = s.session(&t.id);
+    let draft = s.tabs.iter().any(|tab| tab.id == t.id && tab.is_draft());
     match t.spot {
         Spot::Tab => {
             let at = s.tabs.iter().position(|x| x.id == t.id);
-            vec![
-                item("rename", "Rename", known.is_some()),
+            let close = [
                 item("close", "Close tab", true),
                 item("close-others", "Close other tabs", s.tabs.iter().any(|x| x.id != t.id)),
                 item("close-right", "Close tabs to the right", at.is_some_and(|i| i + 1 < s.tabs.len())),
-                Line::Sep,
-                Line::Item(Item { id: "delete", title: "Delete session…", enabled: known.is_some(), danger: true }),
-            ]
+            ];
+            // A draft has no session to rename or delete: only the close items (`DraftTabItem`).
+            if draft {
+                return close.into();
+            }
+            std::iter::once(item("rename", "Rename", known.is_some()))
+                .chain(close)
+                .chain([Line::Sep, Line::Item(Item { id: "delete", title: "Delete session…", enabled: known.is_some(), danger: true })])
+                .collect()
         }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
         Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), Line::Sep, item("delete", "Delete…", true)],
@@ -227,6 +233,7 @@ impl App {
         let open_gone = matches!(&self.route, Route::Session(open) if gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
         self.tabs.retain(|t| !gone.contains(&t.id));
+        self.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
             self.route = Route::Home;
         }

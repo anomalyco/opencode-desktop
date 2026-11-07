@@ -250,7 +250,7 @@ impl App {
     /// The session a terminal workspace belongs to, and the directory its shells start in.
     fn terminal_session_dir(&self, ws_key: &str) -> (String, String) {
         let sid = ws_key.split_once('\0').map_or("", |(_, s)| s).to_owned();
-        let dir = self.session(&sid).map_or_else(|| self.draft_dir.clone(), |s| s.directory.clone());
+        let dir = self.session(&sid).map_or_else(|| self.draft_dir().to_owned(), |s| s.directory.clone());
         (sid, dir)
     }
 

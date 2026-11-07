@@ -740,7 +740,7 @@ fn session_directory(s: &App, sid: &str, fallback: &str) -> String {
         .map(|i| i.directory.as_str())
         .filter(|d| !d.is_empty())
         .or_else(|| (!fallback.is_empty()).then_some(fallback))
-        .unwrap_or(&s.draft_dir)
+        .unwrap_or(s.draft_dir())
         .to_owned()
 }
 

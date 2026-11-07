@@ -352,7 +352,7 @@ fn cold_session_benchmark() {
             // Fresh transcript/UI state, but the already-running application's text system
             // and the server's DB caches can be warm. No disk or transcript cache shortcut.
             let mut app = App::empty();
-            app.tabs.push(crate::Tab { id: id.into(), title: name.into(), directory: String::new() });
+            app.tabs.push(crate::Tab::session(id, name, ""));
             let (publish, arrivals) = channel();
             app.inbox = Some(arrivals);
             let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
@@ -576,7 +576,7 @@ fn launch_first_frame_benchmark() {
             } else {
                 app.launch.waiting = true;
                 app.launch.beta_tabs = true;
-                app.tabs = vec![crate::tabs::Tab { id: "ses_bench1".into(), title: "Bench".into(), directory: "/w".into() }];
+                app.tabs = vec![crate::tabs::Tab::session("ses_bench1", "Bench", "/w")];
                 app.route = Route::Session("ses_bench1".into());
                 let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&page_file).unwrap()).unwrap();
                 app.transcripts.insert("ses_bench1".into(), Transcript { session: "ses_bench1".into(), messages: opencode_kit::model::parse_messages(&v) });

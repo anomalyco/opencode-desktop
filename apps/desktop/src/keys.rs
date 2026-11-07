@@ -11,7 +11,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         _ if Bind::Home.matches_tx(ev, tx) => {
             if s.route == Route::Home {
                 s.opening = None;
-                s.route = s.tabs.last().map_or(Route::Home, |t| Route::Session(t.id.clone()));
+                s.route = s.tabs.last().map_or(Route::Home, crate::tabs::Tab::route);
                 tx.settle();
             } else {
                 s.go_home(tx);

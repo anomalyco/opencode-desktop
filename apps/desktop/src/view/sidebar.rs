@@ -44,6 +44,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let current = match &s.route {
         Route::Session(id) if !s.settings.open => Some(s.root_of(id)),
+        Route::Draft(id) if !s.settings.open => Some(id.as_str()),
         _ => None,
     };
     // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
@@ -97,9 +98,12 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
                     s.open_session_search(tx)
                 },
             ))
-            .child(action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false).on_press_tx(
-                |s: &mut App, tx: &mut Tx| s.new_session(tx),
-            )),
+            .child(
+                action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false)
+                    .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
+                    // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
+                    .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx)),
+            ),
     )
     .child(el().key("tabs-gap").w_full().h(16.0))
     .child(
@@ -127,6 +131,13 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         .child(inner)
 }
 
+/// A draft tab's pencil, drawn inline in `DraftTabItem` (not the catalog's `edit`).
+static DRAFT_PENCIL: Icon = Icon {
+    name: "draft-pencil",
+    view: 16.0,
+    body: r#"<path d="M9.00002 13.5H14M2.60419 10.9167V13.3958H5.08335L13.3959 5.08333L10.9167 2.60416L2.60419 10.9167Z" stroke="currentColor"/>"#,
+};
+
 pub(super) const TAB_H: f32 = 28.0;
 pub(super) const TAB_GAP: f32 = 4.0;
 /// How far a tab steps aside for a dragged one.
@@ -148,8 +159,13 @@ pub(super) fn over(top: Color, bottom: Color) -> Color {
 /// A tab's hit area spans half the gap to each neighbour, so the pointer is always over one tab
 /// (Beta's "fill vertical tab hover gaps"). Only the 28pt pill inside it paints.
 pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, count: usize) -> El {
+    let draft = t.is_draft();
     let info = s.session(&t.id);
-    let title = info.map(title_of).unwrap_or_else(|| if t.title.is_empty() { "Untitled session".into() } else { t.title.clone() });
+    let title = match info {
+        _ if draft => crate::tabs::tab_title(""),
+        Some(i) => crate::tabs::tab_title(&i.title),
+        None => crate::tabs::tab_title(&t.title),
+    };
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
     let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
     let proj = project_or_dir(project, dir);
@@ -192,7 +208,7 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
             // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
             // tabs don't open on a drag either).
             if !s.tab_drag.was_drag() {
-                s.open(&id, tx);
+                s.select_tab(&id, tx);
             }
         })
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match d.phase {
@@ -235,7 +251,11 @@ pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, acti
                 .gap(6.0)
                 .center_y()
                 .clip_fade(0.0, 0.0, 16.0, 0.0)
-                .child(crate::icons::badge(s, p, project, &proj))
+                .child(if draft {
+                    icon(&DRAFT_PENCIL, 16.0).color(if active { p.icon } else { p.icon_muted })
+                } else {
+                    crate::icons::badge(s, p, project, &proj)
+                })
                 .child(match crate::session_menu_view::field(s, p, &target, UI_MED) {
                     Some(field) => field,
                     None => text(title).font(UI_MED).color(if active { p.text } else { p.faint }),

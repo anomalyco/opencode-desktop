@@ -76,7 +76,7 @@ impl App {
     /// The open page has a composer: a draft, or a session that isn't a subagent's.
     pub fn has_composer(&self) -> bool {
         match &self.route {
-            Route::Draft => true,
+            Route::Draft(_) => true,
             Route::Session(id) => self.session(id).is_none_or(|i| i.parent.is_none()),
             Route::Home => false,
         }
@@ -220,8 +220,8 @@ impl App {
                     self.commit_staged_revert(&id);
                 }
             }
-            Route::Draft if self.live() => {
-                if !self.write(Write::Start { directory: self.draft_dir.clone(), prompt }) {
+            Route::Draft(_) if self.live() => {
+                if !self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
                     return;
                 }
                 self.status = "Starting a session…".into();

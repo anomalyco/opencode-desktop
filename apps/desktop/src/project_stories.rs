@@ -22,7 +22,7 @@ pub const OPEN_KEYS: &[Trigger] = &[
         key: 'p',
         label: "Toggle draft picker",
         run: |s, tx| {
-            s.route = Route::Draft;
+            s.open_draft_tab();
             s.open_picker(Kind::Project);
             tx.instant();
         },
@@ -55,7 +55,7 @@ fn open_story(s: &mut App, _: &mut Play<App>) {
     if s.variant == 1 {
         s.open_project_dir("/Users/demo/code/orbit", true, &mut Tx::default());
     } else {
-        s.route = Route::Draft;
+        s.open_draft_tab();
         s.open_picker(Kind::Project);
     }
 }
@@ -101,7 +101,7 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
 fn story_view(s: &App, p: &Pal) -> El {
     let panel_w = if s.route == Route::Home && s.variant == 3 { 900.0 } else { 720.0 };
     let page = match &s.route {
-        Route::Draft => view::draft_page(s, p, panel_w),
+        Route::Draft(_) => view::draft_page(s, p, panel_w),
         Route::Session(id) => view::session_page(s, p, id),
         Route::Home => view::home(s, p, panel_w),
     };

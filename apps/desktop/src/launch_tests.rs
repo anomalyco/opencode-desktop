@@ -37,7 +37,7 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     app.route = Route::Session("ses_gone".into());
     let (out, rx) = channel();
     app.launch.first = Some(rx);
-    let beta = vec![crate::tabs::Tab { id: crate::fixture_ids::THIRD.into(), title: "Pinned".into(), directory: "/w".into() }];
+    let beta = vec![crate::tabs::Tab::session(crate::fixture_ids::THIRD, "Pinned", "/w")];
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: None };
     out.send(Ready { server: None, beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
@@ -64,7 +64,7 @@ fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
     app.source = Source::Live { server: Server::new("http://127.0.0.1:4096"), requests: None, writes: None, allow_send: false };
     app.launch.waiting = true;
     app.route = Route::Session("ses_restored".into());
-    app.tabs.push(crate::tabs::Tab { id: "ses_restored".into(), title: "Old".into(), directory: "/w".into() });
+    app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let (out, rx) = channel();
     app.launch.first = Some(rx);
     out.send(Ready {

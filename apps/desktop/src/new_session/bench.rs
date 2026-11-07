@@ -22,7 +22,7 @@ fn once(latency: Latency) -> (f64, f64, f64) {
     app.pages.set(crate::session_pages::Pages::new(Arc::new(move |path: &str| fetch.read(path)), None, Arc::new(|| {})));
     app.source = Source::Live { server, requests: Some(requests), writes: Some(writes), allow_send: true };
     app.inbox = Some(inbox);
-    app.draft_dir = "/tmp/bench".into();
+    app.default_dir = "/tmp/bench".into();
     let mut rt = app.into_runtime();
     rt.update(|s, tx| s.new_session(tx));
     rt.frame(0.0);

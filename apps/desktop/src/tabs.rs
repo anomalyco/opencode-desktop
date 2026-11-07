@@ -10,12 +10,146 @@ use std::process::Command;
 
 use serde_json::{Value, json};
 
-#[derive(Clone, Debug, PartialEq)]
+use crate::Route;
+
+/// What a tab holds: a session, or Desktop's "New session" draft (`TabStorage.Draft`), which
+/// becomes a session tab in its place when its first prompt goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TabKind {
+    Session,
+    Draft,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Tab {
+    /// A session's id, or a draft's own `draft_…` id.
     pub id: String,
+    pub kind: TabKind,
     /// The title and directory when the tab was saved, for a session outside the loaded list.
+    /// A draft's directory is where its session will start; its title is unused.
     pub title: String,
     pub directory: String,
+}
+
+impl Tab {
+    pub fn session(id: impl Into<String>, title: impl Into<String>, directory: impl Into<String>) -> Tab {
+        Tab { id: id.into(), kind: TabKind::Session, title: title.into(), directory: directory.into() }
+    }
+
+    pub fn draft(id: impl Into<String>, directory: impl Into<String>) -> Tab {
+        Tab { id: id.into(), kind: TabKind::Draft, title: String::new(), directory: directory.into() }
+    }
+
+    pub fn is_draft(&self) -> bool {
+        self.kind == TabKind::Draft
+    }
+
+    /// The page this tab shows.
+    pub fn route(&self) -> Route {
+        match self.kind {
+            TabKind::Session => Route::Session(self.id.clone()),
+            TabKind::Draft => Route::Draft(self.id.clone()),
+        }
+    }
+}
+
+/// A tab's label: drafts, sessions still starting and untitled sessions all read "Session", as
+/// a missing or timestamped fallback title does (`sessionTabTitle`).
+pub fn tab_title(title: &str) -> String {
+    let fallback = ["New session - ", "Child session - "].iter().any(|p| title.strip_prefix(p).is_some_and(is_iso_stamp));
+    if title.is_empty() || fallback { "Session".into() } else { title.to_owned() }
+}
+
+/// `2026-07-11T09:20:00.000Z`, as JavaScript's `toISOString` writes it.
+fn is_iso_stamp(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 24
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            10 => *c == b'T',
+            13 | 16 => *c == b':',
+            19 => *c == b'.',
+            23 => *c == b'Z',
+            _ => c.is_ascii_digit(),
+        })
+}
+
+/// A fresh draft id, unique as a session id is (Desktop uses a UUID).
+pub fn draft_id() -> String {
+    let id = opencode_kit::client::session_id();
+    format!("draft_{}", id.strip_prefix("ses_").unwrap_or(&id))
+}
+
+/// How many closed tabs Desktop keeps for reopening (`CLOSED_TAB_LIMIT`).
+pub const CLOSED_LIMIT: usize = 100;
+
+/// A closed session tab and the place it had (`TabStorage.ClosedTab`). `prompted`: its session
+/// had a prompt, so "Recently closed" lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClosedTab {
+    pub tab: Tab,
+    pub index: usize,
+    pub prompted: bool,
+}
+
+/// Closed session tabs, oldest first, as Desktop's `tabs.closed`: a session appears once, at
+/// its latest close. Drafts are never recorded; their state goes with them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Closed(Vec<ClosedTab>);
+
+impl Closed {
+    pub fn push(&mut self, entry: ClosedTab) {
+        if entry.tab.is_draft() {
+            return;
+        }
+        self.0.retain(|e| e.tab.id != entry.tab.id);
+        self.0.push(entry);
+        let over = self.0.len().saturating_sub(CLOSED_LIMIT);
+        self.0.drain(..over);
+    }
+
+    /// Takes the newest closed tab that isn't open again (or `target`'s), dropping stale ones
+    /// passed on the way (`takeClosedTab`).
+    pub fn take(&mut self, open: &[Tab], target: Option<&str>) -> Option<ClosedTab> {
+        let is_open = |e: &ClosedTab| open.iter().any(|t| t.kind == TabKind::Session && t.id == e.tab.id);
+        if let Some(id) = target {
+            let at = self.0.iter().rposition(|e| e.tab.id == id)?;
+            return (!is_open(&self.0[at])).then(|| self.0.remove(at));
+        }
+        while let Some(e) = self.0.pop() {
+            if !is_open(&e) {
+                return Some(e);
+            }
+        }
+        None
+    }
+
+    /// Newest first, without tabs open again (`listClosedTabs`).
+    pub fn list<'a>(&'a self, open: &'a [Tab]) -> impl Iterator<Item = &'a ClosedTab> + 'a {
+        self.0.iter().rev().filter(|e| !open.iter().any(|t| t.kind == TabKind::Session && t.id == e.tab.id))
+    }
+
+    /// Sessions that are gone for good leave the list (`removeClosedTabs`).
+    pub fn remove(&mut self, gone: impl Fn(&str) -> bool) {
+        self.0.retain(|e| !gone(&e.tab.id));
+    }
+
+    pub fn to_json(&self) -> Value {
+        self.0
+            .iter()
+            .map(|e| json!({ "index": e.index, "id": e.tab.id, "title": e.tab.title, "directory": e.tab.directory, "prompted": e.prompted }))
+            .collect()
+    }
+
+    pub fn from_json(v: &Value) -> Closed {
+        let list = v.as_array().into_iter().flatten().filter_map(|e| {
+            let tab = Tab::session(e["id"].as_str()?, e["title"].as_str().unwrap_or(""), e["directory"].as_str().unwrap_or(""));
+            Some(ClosedTab { tab, index: e["index"].as_u64().unwrap_or(0) as usize, prompted: e["prompted"].as_bool().unwrap_or(false) })
+        });
+        let mut closed = Closed::default();
+        list.for_each(|e| closed.push(e));
+        closed
+    }
 }
 
 #[cfg(test)]
@@ -107,10 +241,12 @@ fn parse(list: &Value) -> Vec<Tab> {
         .into_iter()
         .flatten()
         .filter_map(|t| {
-            Some(Tab {
-                id: t["id"].as_str()?.to_owned(),
-                title: t["title"].as_str().unwrap_or("").to_owned(),
-                directory: t["directory"].as_str().unwrap_or("").to_owned(),
+            let id = t["id"].as_str()?;
+            let directory = t["directory"].as_str().unwrap_or("");
+            // Lists saved before drafts were tabs have no kind: they're all sessions.
+            Some(match t["kind"].as_str() {
+                Some("draft") => Tab::draft(id, directory),
+                _ => Tab::session(id, t["title"].as_str().unwrap_or(""), directory),
             })
         })
         .collect()
@@ -167,7 +303,13 @@ pub fn save(server: &str, tabs: &[Tab]) {
     if cfg!(test) {
         return;
     }
-    let list: Value = tabs.iter().map(|t| json!({ "id": t.id, "title": t.title, "directory": t.directory })).collect();
+    let list: Value = tabs
+        .iter()
+        .map(|t| {
+            let kind = if t.is_draft() { "draft" } else { "session" };
+            json!({ "id": t.id, "title": t.title, "directory": t.directory, "kind": kind })
+        })
+        .collect();
     update("tabs", server.to_owned(), list);
 }
 
@@ -242,7 +384,7 @@ pub(crate) fn from_beta_db(db: &std::path::Path) -> Option<Vec<Tab>> {
             // tabs.info is keyed "<server>\n/server/<base64 server>/session/<id>".
             let meta = info.as_object().and_then(|m| m.iter().find(|(k, _)| k.ends_with(&format!("/session/{id}"))).map(|e| e.1));
             let field = |k: &str| meta.and_then(|m| m[k].as_str()).unwrap_or("").to_owned();
-            Some(Tab { title: field("title"), directory: field("directory"), id })
+            Some(Tab::session(id, field("title"), field("directory")))
         })
         .collect();
     Some(list)

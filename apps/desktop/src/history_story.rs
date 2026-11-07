@@ -43,7 +43,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         let here = i == s.nav.index();
         let name = match &place.route {
             Route::Home => "Home".to_owned(),
-            Route::Draft => "New session".to_owned(),
+            Route::Draft(_) => "New session".to_owned(),
             Route::Session(id) => s.session(id).map_or(id.clone(), |x| x.title.chars().take(18).collect()),
         };
         let chip = col().px(8.0).py(4.0).radius(6.0).fill(if here { p.layer3 } else { p.layer1 });

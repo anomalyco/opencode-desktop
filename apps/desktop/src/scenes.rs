@@ -77,7 +77,9 @@ rune_register::register!(SCENE_LIST: Scene = [
         let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
         s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
     }),
-    ("draft", |s| s.route = Route::Draft),
+    ("draft", |s| {
+        s.open_draft_tab();
+    }),
     ("settings", |s| {
         open_scene(s);
         s.finish_stream();

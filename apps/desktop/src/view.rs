@@ -134,7 +134,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft | Route::Home)) || s.attach.drop.over;
+    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.over;
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
@@ -176,7 +176,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
                     Route::Home => home(s, p, panel_sz.0),
                     Route::Session(id) => session_page(s, p, id),
-                    Route::Draft => draft_page(s, p, panel_sz.0),
+                    Route::Draft(_) => draft_page(s, p, panel_sz.0),
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )

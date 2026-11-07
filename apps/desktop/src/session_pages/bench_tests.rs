@@ -42,7 +42,7 @@ fn sample(delay: u64, total: usize, child: bool, hover: bool, reopen: bool) -> f
         // Use the real card/sidebar handler, not a direct call to prefetch_session.
         let key = if child { "agent-line".to_owned() } else { format!("t-{TARGET}") };
         if !child {
-            rt.update(|s, _| s.tabs.push(crate::tabs::Tab { id: TARGET.into(), title: "Review the change".into(), directory: String::new() }));
+            rt.update(|s, _| s.tabs.push(crate::tabs::Tab::session(TARGET, "Review the change", String::new())));
             for _ in 0..3 { rt.frame(1.0 / 60.0); }
         }
         let (x, y) = rt.find(&key).unwrap_or_else(|| panic!("missing {key}: {:?}", rt.elements().iter().filter_map(|e| e.key.clone()).collect::<Vec<_>>()));

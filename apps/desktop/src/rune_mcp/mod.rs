@@ -470,7 +470,7 @@ fn sync_stamp(s: &App, active_srv: Option<&Server>) -> u64 {
         None => 0u8.hash(&mut h),
     }
     s.route.hash(&mut h);
-    s.draft_dir.hash(&mut h);
+    s.draft_dir().hash(&mut h);
     s.project_state.used.hash(&mut h);
     s.projects.len().hash(&mut h);
     for p in &s.projects {
@@ -527,8 +527,8 @@ fn sync_window(s: &mut App) {
                 }
             }
         }
-        Route::Draft => {
-            let d = clean_dir(&s.draft_dir);
+        Route::Draft(_) => {
+            let d = clean_dir(s.draft_dir());
             if !d.is_empty() {
                 folders.insert(d);
             }

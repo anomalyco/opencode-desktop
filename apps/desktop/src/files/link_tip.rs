@@ -25,7 +25,7 @@ pub const NOWHERE: &str = "This link doesn't point anywhere";
 /// Before the view builds: the folder links in the open session resolve against.
 pub fn prepare(s: &App) {
     let sid = s.active_session_id();
-    let dir = sid.map_or_else(|| s.draft_dir.clone(), |sid| s.link_directory(sid));
+    let dir = sid.map_or_else(|| s.draft_dir().to_owned(), |sid| s.link_directory(sid));
     let ws = sid.and_then(|sid| s.files.sessions.get(sid)).filter(|w| w.ready);
     let bare = ws.map(|w| w.known_files.iter().filter(|f| is_bare_word(f)).cloned().collect());
     SCOPE.with_borrow_mut(|sc| *sc = Scope { dir, home: s.home.clone(), bare });

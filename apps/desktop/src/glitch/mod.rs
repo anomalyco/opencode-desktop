@@ -110,7 +110,7 @@ fn bundle_dir(s: &App) -> PathBuf {
 fn target(s: &App) -> Option<String> {
     match &s.route {
         Route::Session(id) => Some(id.clone()),
-        _ => s.tabs.last().map(|t| t.id.clone()),
+        _ => s.tabs.iter().rev().find(|t| !t.is_draft()).map(|t| t.id.clone()),
     }
 }
 

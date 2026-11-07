@@ -50,7 +50,7 @@ fn a_query_ranks_open_tabs_then_the_newest_then_commands() {
     let mut a = app();
     a.open_switcher();
     // Only the oldest match is open as a tab.
-    a.tabs = vec![crate::tabs::Tab { id: "ses_fx0012aaaaaaaaaaaaaaaaaa".into(), title: String::new(), directory: String::new() }];
+    a.tabs = vec![crate::tabs::Tab::session("ses_fx0012aaaaaaaaaaaaaaaaaa", String::new(), String::new())];
     query(&mut a, "THE");
     let k = keys(&a);
     assert_eq!(k[0], "session:ses_fx0012aaaaaaaaaaaaaaaaaa");

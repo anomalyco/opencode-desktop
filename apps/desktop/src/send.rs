@@ -83,18 +83,18 @@ impl App {
             return;
         }
         // From the new-session page, the session shows at once under an id chosen here.
-        let starting = self.route == Route::Draft;
+        let starting = matches!(self.route, Route::Draft(_));
         let id = match self.route.clone() {
             Route::Session(id) => id,
-            Route::Draft if self.live() && crate::new_session::before() => {
-                if self.write(Write::Start { directory: self.draft_dir.clone(), prompt }) {
+            Route::Draft(_) if self.live() && crate::new_session::before() => {
+                if self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
                     self.composer.clear();
                     self.attach.files.clear();
                     self.quote.take();
                 }
                 return;
             }
-            Route::Draft => opencode_kit::client::session_id(),
+            Route::Draft(_) => opencode_kit::client::session_id(),
             _ => {
                 crate::status_toast::say(self, "Open a session to send to", "");
                 return;
@@ -106,7 +106,7 @@ impl App {
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let w = if starting {
-                    Write::StartAs { session: id.clone(), directory: self.draft_dir.clone(), prompt }
+                    Write::StartAs { session: id.clone(), directory: self.draft_dir().to_owned(), prompt }
                 } else if staged {
                     Write::SendFromRevert { session: id.clone(), prompt }
                 } else {

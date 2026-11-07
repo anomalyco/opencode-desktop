@@ -90,7 +90,7 @@ fn a_never_reached_server_shows_the_card_only_after_the_grace() {
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     app.launch.waiting = true;
     app.launch.grace = Some(Duration::from_millis(800));
-    app.tabs.push(crate::tabs::Tab { id: "ses_restored".into(), title: "Old".into(), directory: "/w".into() });
+    app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let start = Instant::now();
     crate::launch::start(&mut app, &mut Tx::default());
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
@@ -164,7 +164,7 @@ fn a_failed_launch_never_saves_away_a_tab() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     app.launch.waiting = true;
-    let home = crate::tabs::Tab { id: "ses_home_not_in_list".into(), title: "HOME".into(), directory: "/w".into() };
+    let home = crate::tabs::Tab::session("ses_home_not_in_list", "HOME", "/w");
     app.tabs = vec![home.clone()];
     let (out, rx) = channel();
     app.launch.set_first(rx);

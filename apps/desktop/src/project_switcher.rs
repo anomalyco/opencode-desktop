@@ -2,7 +2,7 @@
 //!
 //! Lists this client's recent/used projects first, then any other server projects (`Other projects`),
 //! existing Git worktrees (`sandboxes`) behind `→`, and `+ Add project` (`⌘O`) at the foot.
-//! Selecting a project updates `draft_dir` on a New Session page, or opens a new session in that
+//! Selecting a project updates the open draft's folder on a New Session page, or opens a new session in that
 //! project from anywhere else.
 
 use crate::pickers::PickerHost as _;
@@ -280,8 +280,8 @@ impl App {
                 self.touch_project(&id);
                 self.sort_projects();
                 self.close_project_switcher(false);
-                if self.route == Route::Draft {
-                    self.draft_dir = directory;
+                if matches!(self.route, Route::Draft(_)) {
+                    self.set_draft_dir(directory);
                     if self.stage.is_none() {
                         self.composer.focused = true;
                     }

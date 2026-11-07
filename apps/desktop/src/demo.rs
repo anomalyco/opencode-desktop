@@ -52,7 +52,7 @@ pub fn start(s: &mut App) {
         ..Default::default()
     });
     s.transcripts.insert(ids.session.clone(), Transcript { session: ids.session.clone(), messages: Vec::new() });
-    s.tabs.push(Tab { id: ids.session.clone(), title: String::new(), directory: from.directory });
+    s.tabs.push(Tab::session(ids.session.clone(), "", from.directory));
     s.route = Route::Session(ids.session.clone());
     s.composer.clear();
     let now = s.clock;

@@ -11,18 +11,25 @@ use rune::Tx;
 use crate::send_failed::Sent;
 use crate::{App, Route, Source};
 
-/// Sessions on screen that the server may not have yet, with the folder each started in.
+/// A session on screen that the server may not have yet: the folder it started in, and the
+/// draft tab it took the place of, to put back if the start fails.
+struct Start {
+    session: String,
+    directory: String,
+    draft: Option<String>,
+}
+
 #[derive(Default)]
-pub struct Starts(Vec<(String, String)>);
+pub struct Starts(Vec<Start>);
 
 impl Starts {
     pub fn has(&self, session: &str) -> bool {
-        self.0.iter().any(|(s, _)| s == session)
+        self.0.iter().any(|s| s.session == session)
     }
 
-    fn take(&mut self, session: &str) -> Option<String> {
-        let at = self.0.iter().position(|(s, _)| s == session)?;
-        Some(self.0.remove(at).1)
+    fn take(&mut self, session: &str) -> Option<Start> {
+        let at = self.0.iter().position(|s| s.session == session)?;
+        Some(self.0.remove(at))
     }
 }
 
@@ -49,9 +56,10 @@ impl App {
     /// it lands, so nothing reads a session that isn't there.
     pub(crate) fn start(&mut self, id: &str, tx: &mut Tx) {
         let selection = self.selection();
+        let directory = self.draft_dir().to_owned();
         let mut info = SessionInfo {
             id: id.into(),
-            directory: self.draft_dir.clone(),
+            directory: directory.clone(),
             agent: selection.agent,
             model: selection.model,
             created: self.now_ms,
@@ -60,8 +68,10 @@ impl App {
         };
         info.project = self.project_for_session(&info).map(|p| p.id.clone()).unwrap_or_default();
         self.sessions.insert(0, info);
+        // The draft's tab becomes the session's, where it stands.
+        let draft = self.promote_draft(id, &directory);
         if self.live() {
-            self.starts.0.push((id.into(), self.draft_dir.clone()));
+            self.starts.0.push(Start { session: id.into(), directory, draft });
         }
         self.open_now(id, tx);
     }
@@ -87,20 +97,19 @@ impl App {
     /// made), and the new-session page comes back with the prompt in its composer. False when
     /// `session` isn't starting.
     pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &str, tx: &mut Tx) -> bool {
-        let Some(directory) = self.starts.take(session) else { return false };
+        let Some(start) = self.starts.take(session) else { return false };
         let sent = self.unsent.take(prompt);
         self.sessions.retain(|s| s.id != session);
         self.transcripts.remove(session);
         self.inboxes.remove(session);
         self.running.remove(session);
-        if self.tabs.iter().any(|t| t.id == session) {
-            self.tabs.retain(|t| t.id != session);
-            self.save_tabs();
-        }
+        let draft = start.draft.unwrap_or_else(crate::tabs::draft_id);
+        self.demote_session(session, &draft, &start.directory);
         self.forget_history(|_, id| id == session);
         if self.route == Route::Session(session.into()) {
-            self.route = Route::Draft;
-            self.draft_dir = directory;
+            self.route = Route::Draft(draft);
+            // The composer swaps to the draft's words now, so the prompt below lands in them.
+            self.show_draft();
             self.composer.focused = true;
             tx.settle();
         }

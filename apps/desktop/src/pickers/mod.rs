@@ -63,7 +63,7 @@ impl PickerHost for App {
             return;
         }
         if let Some(p) = self.projects.iter().find(|p| p.id == key).cloned() {
-            self.draft_dir = p.directory;
+            self.set_draft_dir(p.directory);
             self.touch_project(&p.id);
         }
     }
@@ -104,7 +104,7 @@ impl App {
 
     /// The project a new session would start in: the one whose folder holds the draft's.
     pub fn draft_project(&self) -> Option<&opencode_kit::model::Project> {
-        self.project_at(&self.draft_dir)
+        self.project_at(self.draft_dir())
     }
 }
 
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(rt.state.selection().model.id, "claude-sonnet-5-5");
         assert!(rt.state.selection().model.variant.is_empty());
         let old_route = rt.state.route.clone();
-        rt.state.route = Route::Draft;
+        rt.state.open_draft_tab();
         assert_eq!(rt.state.selection().agent, "build");
         rt.state.route = old_route;
         tap(&mut rt, "model");

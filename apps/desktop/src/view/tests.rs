@@ -61,8 +61,8 @@ fn lazy_timeline_keeps_visible_rows_and_builds_only_the_window() {
 fn the_new_session_page_picks_its_project() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
-    app.draft_dir = "/Users/demo/code/lumen/src".into();
-    app.route = crate::Route::Draft;
+    app.default_dir = "/Users/demo/code/lumen/src".into();
+    app.open_draft_tab();
     let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
     rt.frame(0.0);
     let tap = |rt: &mut Runtime<App>, key: &str| {
@@ -78,7 +78,7 @@ fn the_new_session_page_picks_its_project() {
     assert_eq!(rt.state.pickers.open, Some(crate::pickers::Kind::Project));
     let harbor = rt.state.projects.iter().find(|p| p.name == "harbor").unwrap().id.clone();
     tap(&mut rt, &format!("option-{harbor}"));
-    assert_eq!(rt.state.draft_dir, "/Users/demo/code/harbor");
+    assert_eq!(rt.state.draft_dir(), "/Users/demo/code/harbor");
     assert_eq!(rt.state.pickers.open, None);
 }
 

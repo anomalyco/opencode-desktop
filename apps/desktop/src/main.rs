@@ -126,6 +126,7 @@ mod keymap;
 mod keys;
 mod knobs;
 mod launch;
+mod layout_state;
 mod mention_stories;
 mod mentions;
 mod menu_stories;
@@ -168,6 +169,7 @@ mod quote;
 mod quote_cards;
 #[path = "quote/stories.rs"]
 mod quote_stories;
+mod recently_closed;
 mod restore;
 mod review;
 #[cfg(test)]
@@ -249,8 +251,8 @@ pub enum Route {
     #[default]
     Home,
     Session(String),
-    /// "New session": an empty page with the composer.
-    Draft,
+    /// "New session": an empty page with the composer, shown by the draft tab with this id.
+    Draft(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -295,8 +297,10 @@ pub struct App {
     pub tabs: Vec<Tab>,
     /// A tab being dragged to a new place in the sidebar.
     pub tab_drag: tabs::Reorder,
-    /// Tabs closed this run, newest last, with the index they had (⌘⇧T reopens).
-    closed: Vec<(usize, Tab)>,
+    /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
+    pub closed: tabs::Closed,
+    /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
+    pub layout: layout_state::Shell,
     /// UI zoom, 1.0 = 100% (see `view::app`).
     pub zoom: f32,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
@@ -311,8 +315,9 @@ pub struct App {
     pub inboxes: HashMap<String, Inbox>,
     /// The question dock's place and in-progress answers for the forms it shows.
     pub question: question::Dock,
-    /// Where "New session" creates its session.
-    pub draft_dir: String,
+    /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
+    /// The open draft's own folder is `App::draft_dir`.
+    pub default_dir: String,
     /// The home folder paths show as `~`: the user's, or the fixture's in a fixture run.
     pub home: String,
     pub sidebar_open: bool,
@@ -678,7 +683,7 @@ impl App {
     fn empty() -> App {
         let home = dirs::home();
         App {
-            draft_dir: arg("--directory").unwrap_or_else(|| home.clone()),
+            default_dir: arg("--directory").unwrap_or_else(|| home.clone()),
             home,
             sidebar_open: !flag("--sidebar-closed"),
             sidebar_w: view::SIDEBAR_W,
@@ -746,7 +751,7 @@ impl App {
             }
         }
         let ids: Vec<String> = v["tabs"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
-        self.tabs = ids.iter().map(|id| Tab { id: id.clone(), title: String::new(), directory: String::new() }).collect();
+        self.tabs = ids.iter().map(|id| Tab::session(id.clone(), "", "")).collect();
         self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         for r in v["requests"].as_array().into_iter().flatten() {
             if let (Some(s), Some(id)) = (r["sessionID"].as_str(), r["id"].as_str()) {
@@ -766,7 +771,7 @@ impl App {
         if arg("--directory").is_none()
             && let Some(p) = self.projects.first()
         {
-            self.draft_dir = p.directory.clone();
+            self.default_dir = p.directory.clone();
         }
     }
 
@@ -799,6 +804,7 @@ impl App {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         self.settings = settings::load();
+        self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
         self.load_open_in();
         if self.persists() {
             self.files.wrap = files::markdown::WrapPrefs::load();
@@ -860,7 +866,7 @@ impl App {
             Action::TabAt(i) => {
                 let id = if i == 8 { self.tabs.last() } else { self.tabs.get(i) }.map(|t| t.id.clone());
                 if let Some(id) = id {
-                    self.open(&id, tx);
+                    self.select_tab(&id, tx);
                 }
             }
             Action::NewSession => self.new_session(tx),
@@ -923,33 +929,29 @@ impl App {
         matches!(&self.route, Route::Session(id) if self.busy(id))
     }
 
+    /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's, draft's or
+    /// Home project's folder, as Desktop's `openDraft`.
     pub fn new_session(&mut self, tx: &mut Tx) {
         self.close_settings();
         self.close_picker(false);
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
-        match &self.route {
-            Route::Session(id) => {
-                if let Some(dir) = self.session(id).map(|s| s.directory.clone()).filter(|d| !d.is_empty()) {
-                    self.draft_dir = dir;
-                }
-            }
-            Route::Home => {
-                let dir = self
-                    .project_state
-                    .home_selected
-                    .as_deref()
-                    .and_then(|id| self.project(id))
-                    .or_else(|| self.used_projects().into_iter().next())
-                    .map(|p| p.directory.clone());
-                if let Some(dir) = dir.filter(|d| !d.is_empty()) {
-                    self.draft_dir = dir;
-                }
-            }
-            Route::Draft => {}
+        let dir = match &self.route {
+            Route::Session(id) => self.session(id).map(|s| s.directory.clone()),
+            Route::Home => self
+                .project_state
+                .home_selected
+                .as_deref()
+                .and_then(|id| self.project(id))
+                .or_else(|| self.used_projects().into_iter().next())
+                .map(|p| p.directory.clone()),
+            Route::Draft(_) => Some(self.draft_dir().to_owned()),
+        };
+        if let Some(dir) = dir.filter(|d| !d.is_empty()) {
+            self.default_dir = dir;
         }
         self.opening = None;
-        self.route = Route::Draft;
+        self.open_draft_tab();
         tx.settle();
     }
 
@@ -1086,6 +1088,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Created(info) => {
                         let id = info.id.clone();
+                        // A command sent from a draft started it: the draft's tab becomes its tab.
+                        s.promote_draft(&id, &info.directory);
                         if s.session(&id).is_none() {
                             s.sessions.insert(0, info);
                         }
@@ -1159,6 +1163,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= rune_mcp::poll(s, tx);
     changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
+    changed |= layout_state::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {

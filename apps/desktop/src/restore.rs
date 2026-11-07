@@ -1,6 +1,7 @@
-//! What survives a relaunch beyond the tabs: the open session and every composer draft. The
-//! auto-rebuild restarts the app on each merge, so live mode writes this on every change, to
-//! `ui.json` in the app's data folder (`crate::dirs`), one entry per server.
+//! What survives a relaunch beyond the tabs: the open page, every composer draft, the closed
+//! tabs ⇧⌘T reopens and the inbox's disclosures. The auto-rebuild restarts the app on each
+//! merge, so live mode writes this on every change, to `ui.json` in the app's data folder
+//! (`crate::dirs`), one entry per server.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -10,12 +11,42 @@ use serde_json::{Value, json};
 
 use crate::{App, Route};
 
-/// The draft key for a route: a session's id, or `new` for the new-session page.
+/// The draft key for a route: a session's id, or a draft tab's.
 pub fn draft_key(route: &Route) -> Option<String> {
     match route {
-        Route::Session(id) => Some(id.clone()),
-        Route::Draft => Some("new".into()),
+        Route::Session(id) | Route::Draft(id) => Some(id.clone()),
         Route::Home => None,
+    }
+}
+
+/// The key the one new-session page kept its words under before drafts were tabs.
+const LEGACY_DRAFT: &str = "new";
+
+/// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
+/// showing its first ten.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct InboxUi {
+    pub working_expanded: bool,
+    pub recent_expanded: bool,
+}
+
+impl Default for InboxUi {
+    fn default() -> Self {
+        InboxUi { working_expanded: true, recent_expanded: false }
+    }
+}
+
+impl InboxUi {
+    fn to_json(self) -> Value {
+        json!({ "workingExpanded": self.working_expanded, "recentExpanded": self.recent_expanded })
+    }
+
+    fn from_json(v: &Value) -> InboxUi {
+        let d = InboxUi::default();
+        InboxUi {
+            working_expanded: v["workingExpanded"].as_bool().unwrap_or(d.working_expanded),
+            recent_expanded: v["recentExpanded"].as_bool().unwrap_or(d.recent_expanded),
+        }
     }
 }
 
@@ -25,6 +56,7 @@ pub struct Restore {
     pub drafts: HashMap<String, String>,
     /// Which draft `App::composer` holds.
     pub shown: Option<String>,
+    pub inbox: InboxUi,
     saved: Option<Value>,
     stamp: Option<u64>,
 }
@@ -40,18 +72,29 @@ fn read() -> Value {
 fn route_json(route: &Route) -> Value {
     match route {
         Route::Session(id) => json!({ "session": id }),
-        Route::Draft => json!("new"),
+        Route::Draft(id) => json!({ "draft": id }),
         Route::Home => json!("home"),
     }
 }
 
-fn route_from(v: &Value) -> Option<Route> {
+/// A saved route.
+#[derive(Debug, PartialEq)]
+enum Saved {
+    Route(Route),
+    /// The new-session page, saved before drafts were tabs: it comes back as a draft tab.
+    LegacyDraft,
+}
+
+fn route_from(v: &Value) -> Option<Saved> {
     if let Some(id) = v["session"].as_str() {
-        return Some(Route::Session(id.to_owned()));
+        return Some(Saved::Route(Route::Session(id.to_owned())));
+    }
+    if let Some(id) = v["draft"].as_str() {
+        return Some(Saved::Route(Route::Draft(id.to_owned())));
     }
     match v.as_str()? {
-        "new" => Some(Route::Draft),
-        "home" => Some(Route::Home),
+        "new" => Some(Saved::LegacyDraft),
+        "home" => Some(Saved::Route(Route::Home)),
         _ => None,
     }
 }
@@ -62,9 +105,21 @@ impl App {
         let v = &read()[server];
         self.restore.drafts =
             v["drafts"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.clone(), t.as_str()?.to_owned()))).collect();
-        if let Some(route) = route_from(&v["route"]) {
+        self.closed = crate::tabs::Closed::from_json(&v["closedTabs"]);
+        self.restore.inbox = InboxUi::from_json(&v["inbox"]);
+        let saved = match route_from(&v["route"]) {
+            Some(Saved::LegacyDraft) => Some(self.migrate_legacy_draft(server)),
+            Some(Saved::Route(route)) => Some(route),
+            None => None,
+        };
+        if let Some(route) = saved {
             let known = |id: &str| self.launch.waiting || self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
-            if !matches!(&route, Route::Session(id) if !known(id)) {
+            let lost = match &route {
+                Route::Session(id) => !known(id),
+                Route::Draft(id) => !self.tabs.iter().any(|t| t.id == *id && t.is_draft()),
+                Route::Home => false,
+            };
+            if !lost {
                 if self.launch.waiting
                     && let Route::Session(id) = &route
                     && !self.transcripts.contains_key(id)
@@ -84,6 +139,21 @@ impl App {
         self.show_draft();
         self.restore.saved = Some(self.ui_json());
         self.restore.stamp = Some(self.restore_stamp());
+    }
+
+    /// The new-session page saved before drafts were tabs comes back as a draft tab with its words.
+    fn migrate_legacy_draft(&mut self, server: &str) -> Route {
+        let id = crate::tabs::draft_id();
+        if let Some(text) = self.restore.drafts.remove(LEGACY_DRAFT) {
+            self.restore.drafts.insert(id.clone(), text);
+        }
+        self.tabs.push(crate::tabs::Tab::draft(id.clone(), self.default_dir.clone()));
+        // The source isn't live yet, so `save_tabs` would skip it: written here, once, unless
+        // the tabs still come from Beta or recent sessions.
+        if !crate::headless() && !cfg!(test) && !self.launch.offline && !self.launch.recent_tabs {
+            crate::tabs::save(server, &self.tabs);
+        }
+        Route::Draft(id)
     }
 
     /// When the window closes: the newest draft goes out, and every write waits to land.
@@ -131,12 +201,14 @@ impl App {
             "drafts": drafts,
             "sidebar": self.sidebar_open,
             "side": self.side.to_json(),
+            "closedTabs": self.closed.to_json(),
+            "inbox": self.restore.inbox.to_json(),
         })
     }
 
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (&self.route, self.sidebar_open, &self.composer.text).hash(&mut h);
+        (&self.route, self.sidebar_open, &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
         self.side.stamp_hash(&mut h);
         h.finish()
     }
@@ -172,8 +244,8 @@ mod tests {
 
     #[test]
     fn routes_round_trip() {
-        for r in [Route::Home, Route::Draft, Route::Session("ses_AbC".into())] {
-            assert_eq!(route_from(&route_json(&r)), Some(r));
+        for r in [Route::Home, Route::Draft("draft_AbC".into()), Route::Session("ses_AbC".into())] {
+            assert_eq!(route_from(&route_json(&r)), Some(Saved::Route(r)));
         }
     }
 

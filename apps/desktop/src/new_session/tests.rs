@@ -25,7 +25,7 @@ fn draft() -> Live {
     let mut rt = app.into_runtime();
     rt.update(|s, tx| {
         s.new_session(tx);
-        s.draft_dir = DIR.into();
+        s.set_draft_dir(DIR.into());
     });
     rt.frame(DT);
     rt.update(|s, _| s.composer = rune::TextEdit::new("start"));
@@ -89,8 +89,8 @@ fn a_failed_start_goes_back_to_the_new_session_page_with_the_words() {
     l.server.send(Incoming::SendFailed { session: id.clone(), id: prompt, error: "POST /api/session: Connection refused".into() }).unwrap();
     l.rt.frame(DT);
     let s = &l.rt.state;
-    assert_eq!(s.route, Route::Draft);
-    assert_eq!(s.draft_dir, DIR);
+    assert!(matches!(s.route, Route::Draft(_)));
+    assert_eq!(s.draft_dir(), DIR);
     assert_eq!(s.composer.text, "start", "the prompt is back in the composer");
     assert!(s.session(&id).is_none() && !s.tabs.iter().any(|t| t.id == id) && !s.transcripts.contains_key(&id), "the session is gone");
     assert!(!s.starts.has(&id));

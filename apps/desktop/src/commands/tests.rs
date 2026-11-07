@@ -39,7 +39,7 @@ fn slash_runs_an_app_command_at_once() {
     typed(&mut rt, "/new");
     assert_eq!(rt.state.slash_active().as_deref(), Some("builtin.new"));
     key(&mut rt, Key::Enter);
-    assert_eq!(rt.state.route, Route::Draft);
+    assert!(matches!(rt.state.route, Route::Draft(_)));
     assert!(rt.state.composer.text.is_empty());
 }
 

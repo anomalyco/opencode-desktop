@@ -279,7 +279,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         *server = actual;
     }
     if let Some(tabs) = ready.beta_tabs {
+        let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
         s.tabs = tabs;
+        s.tabs.extend(drafts);
         s.launch.recent_tabs = false;
     }
     match result {
@@ -330,7 +332,10 @@ impl App {
         }
         // Without the session list, recent sessions would be no tabs at all.
         if f.sessions.is_some() && std::mem::take(&mut self.launch.recent_tabs) {
+            // A draft restored from the last run stays, after them.
+            let drafts: Vec<_> = self.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
             self.tabs = self.recent_tabs();
+            self.tabs.extend(drafts);
         }
         let saved_projects = match &self.source {
             Source::Live { server, .. } => crate::tabs::load_projects(&server.base),
@@ -362,7 +367,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
         let (r, w, inbox) = opencode_kit::client::connect_with_idle(server.clone(), waker, crate::reconnect::STREAM_IDLE);
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
-        for t in s.tabs.iter().filter(|t| !s.sessions.iter().any(|x| x.id == t.id)) {
+        for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {
             let _ = r.send(Request::Info(t.id.clone()));
         }
         for id in missing {

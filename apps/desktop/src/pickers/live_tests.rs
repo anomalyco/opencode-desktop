@@ -134,7 +134,9 @@ fn each_agent_brings_back_its_model_and_each_session_keeps_its_own() {
 #[test]
 fn a_new_session_starts_with_what_the_toolbar_shows() {
     let (mut rt, writes) = live();
-    rt.update(|s, _| s.route = Route::Draft);
+    rt.update(|s, _| {
+        s.open_draft_tab();
+    });
     rt.update(|s, tx| {
         s.composer = rune::TextEdit::new("start");
         s.send(tx);

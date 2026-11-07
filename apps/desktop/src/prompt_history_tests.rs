@@ -16,11 +16,11 @@ fn history(texts: &[&str]) -> PromptHistory {
 }
 
 fn up(h: &mut PromptHistory, c: &mut TextEdit) -> bool {
-    h.step(c, &Route::Draft, false, true)
+    h.step(c, &Route::Draft("draft_a".into()), false, true)
 }
 
 fn down(h: &mut PromptHistory, c: &mut TextEdit) -> bool {
-    h.step(c, &Route::Draft, false, false)
+    h.step(c, &Route::Draft("draft_a".into()), false, false)
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn changing_page_or_mode_ends_the_walk() {
     assert!(up(&mut h, &mut c));
     c.set_caret(0);
     assert!(!h.step(&mut c, &Route::Home, false, true));
-    assert!(!h.step(&mut c, &Route::Draft, true, true), "shell mode has its own, empty, list");
+    assert!(!h.step(&mut c, &Route::Draft("draft_a".into()), true, true), "shell mode has its own, empty, list");
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn shell_mode_keeps_its_own_list() {
     let mut h = history(&["prompt"]);
     h.add(entry("ls -la"), true);
     let mut c = TextEdit::new("");
-    assert!(h.step(&mut c, &Route::Draft, true, true));
+    assert!(h.step(&mut c, &Route::Draft("draft_a".into()), true, true));
     assert_eq!(c.text, "ls -la");
 }
 

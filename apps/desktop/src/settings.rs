@@ -58,6 +58,8 @@ pub struct Settings {
     pub code_font: usize,
     /// Rune records the last minute of frames for ⌘⇧⌥R (`glitch`); on by default.
     pub record_glitches: bool,
+    /// Desktop's Interface layout (`appearance.tabLayout`): top tabs unless changed.
+    pub tab_layout: crate::layout_state::TabLayout,
 }
 
 impl Default for Settings {
@@ -76,6 +78,7 @@ impl Default for Settings {
             ui_font: 0,
             code_font: 0,
             record_glitches: true,
+            tab_layout: Default::default(),
         }
     }
 }
@@ -95,6 +98,7 @@ impl Settings {
             "uiFont": crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name,
             "codeFont": crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name,
             "developer": { "rewind": self.record_glitches },
+            "tabLayout": self.tab_layout.name(),
         })
     }
 
@@ -113,6 +117,9 @@ impl Settings {
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),
             record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
+            // Files from before the setting read as Desktop's default; Desktop nests it under
+            // `appearance`, which here is the colour scheme.
+            tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
         }
     }
 }
@@ -508,7 +515,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true };
+        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default() };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

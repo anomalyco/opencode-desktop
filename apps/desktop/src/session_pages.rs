@@ -556,6 +556,8 @@ impl super::App {
     }
 
     pub fn prefetch_session(&self, id: &str) {
+        // A draft tab has no session to read yet.
+        if self.tabs.iter().any(|t| t.id == id && t.is_draft()) { return; }
         if let Some(pages) = &self.pages.pool { pages.request(self.page_key(id), false); }
     }
 

@@ -71,7 +71,7 @@ pub(crate) fn scene(s: &mut App) {
     for (id, title, project, directory) in sessions(&r) {
         let info = json!({ "id": id, "projectID": project, "title": title, "location": { "directory": directory }, "time": { "created": 1, "updated": 1 } });
         s.sessions.push(parse_session(&info));
-        tabs.push(Tab { id: id.into(), title: title.into(), directory });
+        tabs.push(Tab::session(id, title, directory));
     }
     s.tabs = tabs;
 }

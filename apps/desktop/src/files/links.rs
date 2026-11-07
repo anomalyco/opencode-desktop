@@ -204,7 +204,7 @@ pub fn slug(text: &str) -> String {
 impl App {
     /// The folder links in session `sid` resolve against.
     pub fn link_directory(&self, sid: &str) -> String {
-        self.session(sid).map(|i| i.directory.clone()).filter(|d| !d.is_empty()).unwrap_or_else(|| self.draft_dir.clone())
+        self.session(sid).map(|i| i.directory.clone()).filter(|d| !d.is_empty()).unwrap_or_else(|| self.draft_dir().to_owned())
     }
 
     /// Follows `href` clicked in the open session's timeline (a reply, a note, a card).
@@ -213,11 +213,11 @@ impl App {
             return self.open_link(&sid, None, href, tx);
         }
         // A new session's page: no side panel to open a file in.
-        match classify(href, "", &self.draft_dir, &self.home) {
+        match classify(href, "", self.draft_dir(), &self.home) {
             Link::Web(url) => self.open_web(&url, tx),
             Link::Heading(_) => {}
             Link::Inside { path, .. } => {
-                let abs = format!("{}/{path}", self.draft_dir.trim_end_matches('/'));
+                let abs = format!("{}/{path}", self.draft_dir().trim_end_matches('/'));
                 self.open_outside_file(&abs);
             }
             Link::Outside { path } => self.open_outside_file(&path),

@@ -506,7 +506,7 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return match s.route {
             Route::Session(_) => { s.open_find(tx); true }
             Route::Home => { s.focus_home_search(tx); true }
-            Route::Draft => false,
+            Route::Draft(_) => false,
         };
     }
     let step = [(Bind::FindNext, 1), (Bind::FindPrev, -1)].into_iter().find(|(b, _)| b.matches_tx(ev, tx));
@@ -618,7 +618,7 @@ pub fn install(app: rune::App<App>) -> rune::App<App> {
         item("Find…", "Edit/Find", Bind::Find, |s, tx| match s.route {
             Route::Session(_) => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),
-            Route::Draft => {}
+            Route::Draft(_) => {}
         }),
         item("Find Next", "Edit/FindNext", Bind::FindNext, |s, tx| s.step_find(1, tx)),
         item("Find Previous", "Edit/FindPrevious", Bind::FindPrev, |s, tx| s.step_find(-1, tx)),

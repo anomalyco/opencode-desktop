@@ -77,7 +77,7 @@ fn a_new_move_clears_what_was_ahead() {
     assert_eq!(route(&rt), session(MAIN));
     go(&mut rt, |s, tx| s.new_session(tx));
     press(&mut rt, ']');
-    assert_eq!(route(&rt), Route::Draft, "OTHER is no longer ahead");
+    assert!(matches!(route(&rt), Route::Draft(_)), "OTHER is no longer ahead");
     press(&mut rt, '[');
     assert_eq!(route(&rt), session(MAIN));
 }
