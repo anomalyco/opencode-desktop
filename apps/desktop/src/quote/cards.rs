@@ -105,6 +105,7 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .min_h(64.0)
         .placeholder("Add a comment about this quote", p.faint)
         .caret(p.text, p.selection)
+        .spellcheck(s.settings.spellcheck)
         .on_edit(|s: &mut App| &mut s.quote.draft)
         .on_input_key(|s: &mut App, ev, tx| {
             if ev.key == Key::Escape {

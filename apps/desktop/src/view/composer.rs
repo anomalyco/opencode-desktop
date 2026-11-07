@@ -145,6 +145,9 @@ impl ComposerHost for App {
     fn composer_shell_mode(&self) -> bool {
         self.add.shell
     }
+    fn composer_spellcheck(&self) -> bool {
+        self.settings.spellcheck
+    }
     fn composer_dictating(&self) -> bool {
         self.dictation.active()
     }

@@ -149,6 +149,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
+        // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
+        // context menu does (`spellcheck.ts`).
+        .on_spellcheck(s.settings.spellcheck, |s: &mut App, on, _| s.change_settings(|x| x.spellcheck = on))
         .w_full()
         .h_full()
         .center()

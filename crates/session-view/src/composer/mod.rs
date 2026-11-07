@@ -237,6 +237,11 @@ pub trait ComposerHost: TimelineHost {
     fn composer_shell_mode(&self) -> bool {
         false
     }
+    /// The app's spell checking setting (Desktop's `spellcheck`): the prompt marks misspelled
+    /// words while it is on, outside shell mode (`editor.tsx:318`).
+    fn composer_spellcheck(&self) -> bool {
+        false
+    }
     fn composer_dictating(&self) -> bool {
         false
     }
@@ -422,6 +427,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                     .animate_edit_layout()
                                     .placeholder(s.composer_placeholder(), p.faint)
                                     .caret(p.text, p.selection)
+                                    .spellcheck(s.composer_spellcheck() && !s.composer_shell_mode())
                                     .on_edit(S::composer_edit_mut)
                                     .pill_style(mention_pill_style(p))
                                     .on_input_change(S::composer_on_change)
