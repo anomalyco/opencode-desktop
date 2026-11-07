@@ -14,12 +14,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rune::{Align, Color, El, Key, KeyEvent, Side, Spring, TextStyle, Transition, Tx, col, icon, row, spacer, text};
+use rune::{Align, Color, El, Key, KeyEvent, Shadow, Side, Spring, TextStyle, Transition, Tx, col, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::rewind::UndoRewind;
-use crate::view::{INSTANT, UI, UI_MED};
+use crate::view::{INSTANT, UI};
 use crate::App;
 
 /// Desktop's `duration={5000}` on `Toast.Region`.
@@ -235,11 +235,13 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 .role("button")
                 .label(label)
                 .h(24.0)
-                .px(8.0)
-                .radius(5.0)
+                .px(9.0)
+                .radius(4.0)
                 .center()
-                .fill(if p.dark { p.layer2 } else { p.bg_deep })
-                .border(0.5, p.border_muted)
+                // `button-v2` neutral at size small (`button.css`). Dark's fill is `alpha-light-6`
+                // over the toast, which the theme's token flattened over `bg-base` isn't.
+                .fill(if p.dark && p.theme == 0 { Color::WHITE.alpha(0.06) } else { p.q.neutral })
+                .elevate(neutral_lift(p))
                 .hover(p.hover)
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
@@ -253,7 +255,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                         }
                     }
                 })
-                .child(text(label).font(UI_MED).color(p.text))
+                .child(text(label).font(TITLE).color(p.text))
     });
 
     let body = if let Some(desc) = &entry.description {
@@ -286,8 +288,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .py(8.0)
         .radius(8.0)
         .fill(p.layer1)
-        .box_shadow(Pal::ring_out(p.ring))
-        .shadow(4.0, 12.0, p.shadow)
+        .elevate(p.floating)
         .transition(Transition::none())
         .motion(Spring::NONE)
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
@@ -314,4 +315,12 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         card.pin(None, None, Some(28.0), Some(28.0))
     };
     Some(placed.raise())
+}
+
+/// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the
+/// 0.5px lit top edge (`theme.css`).
+fn neutral_lift(p: &Pal) -> [Shadow; 4] {
+    let (y, blur) = if p.dark { (1.0, 2.0) } else { (1.0, 1.5) };
+    let top = if p.dark { Shadow { y: -0.5, color: Color::WHITE.alpha(0.1), ..Shadow::default() } } else { Shadow::default() };
+    [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]
 }

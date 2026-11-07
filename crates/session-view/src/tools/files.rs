@@ -254,16 +254,14 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         let corner = if last && diagnostics.is_none() { RADIUS } else { 0.0 };
         let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
-        // border is the content's top.
+        // border is the content's top, which has none of its own (`border-top: 0`).
         out = out.child(
             col()
                 .key("content")
                 .w_full()
-                .mt(-1.0)
-                .pt(1.0)
                 .px(1.0)
                 .pb(1.0)
-                .border(1.0, p.border)
+                .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
                 .fill(p.layer1)
                 .corners([0.0, 0.0, corner, corner])
                 .clip_corners([0.0, 0.0, corner, corner])

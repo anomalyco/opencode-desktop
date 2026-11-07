@@ -103,7 +103,7 @@ pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
         .filter(|(_, c)| c.target == page)
         .filter_map(|(i, c)| {
             let body = draw(app, p, i, c, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), false)?;
-            let card = col().key(format!("plugin-page-{}", c.key)).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted).child(body);
+            let card = col().key(format!("plugin-page-{}", c.key)).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
             Some(crate::settings::section(p, intern(&c.title), card))
         })
         .collect()

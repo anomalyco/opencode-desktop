@@ -49,9 +49,9 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
                 launch.run(s, id, pane, tx);
             })
             .child(left);
-        let keys = keymap::first_label(desc.shortcut);
-        if !keys.is_empty() {
-            card = card.child(text(keys).font(UI_SMALL).color(p.faint));
+        // Its shortcut as Desktop's neutral `Keybind` chips.
+        if let Some(&bind) = desc.shortcut.iter().find(|b| !b.keycaps().is_empty()) {
+            card = card.child(keymap::keycaps(p, bind));
         }
         list = list.child(card);
     }

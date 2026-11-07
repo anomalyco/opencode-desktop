@@ -97,6 +97,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, words: El, cop
         .child(backdrop)
         .child(button);
     let mut sec = col().key(part.to_owned()).w_full().fill(fill).padding(12.0).child(readable(p, words).w_full()).child(holder);
+    // `border-block-start: 0.5px`, drawn after the copy button's backdrop, which stops below it.
     if rule {
         sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(0.5).fill(p.border));
     }
