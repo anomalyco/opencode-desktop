@@ -287,14 +287,16 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
                 .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate()),
         )
         .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().child(place).child(end));
-    if selected {
-        card = card.fill(p.pressed);
-        // The active session's tab becomes this card as the layout switches (`shell-active-{id}`):
-        // 28 tall in Side tabs, 54 here, on SETTLE; GLIDE from Top tabs.
+    // The routed session's tab becomes this card as the layout switches, Settings open over it or
+    // not (`shell-active-{id}`): 28 tall in Side tabs, 54 here, on SETTLE; GLIDE from Top tabs.
+    if matches!(&s.route, Route::Session(r) if s.root_of(r) == info.id) {
         card = card.matched(format!("{}-{}", super::tab_strip::ACTIVE, info.id)).matched_crop();
         if let Some(spring) = s.switch_spring() {
             card = card.motion(spring);
         }
+    }
+    if selected {
+        card = card.fill(p.pressed);
     } else {
         card = card.hover(p.hover);
     }

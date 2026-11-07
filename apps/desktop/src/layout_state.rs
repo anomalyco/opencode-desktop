@@ -276,6 +276,11 @@ impl App {
         self.tab_drag.cancel();
         self.finish_rename(true);
         self.layout.peek_event(PeekEvent::Disabled, self.clock);
+        // The Inbox shows its cards in the switch's own frame when it can, so the active
+        // session's tab has a card to fly into.
+        if layout == TabLayout::Inbox {
+            crate::inbox_model::settle_now(self, tx);
+        }
         tx.animated();
         // The tabs and Home, Search and New session fly between the titlebar and the sidebar,
         // which clip them at either end; they fly above both.

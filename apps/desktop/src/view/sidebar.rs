@@ -146,8 +146,8 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
 /// The sidebar's list: the side tabs, or the inbox.
 fn list(s: &App, p: &Pal) -> El {
     match s.tab_layout() {
-        // A switch crossfades the whole list: its rows, most out of view, don't each fade in.
-        crate::layout_state::TabLayout::Inbox if s.switching_layout() => super::inbox::inbox(s, p, (INSET_START, INSET_END)).instant_changes(),
+        // A switch crossfades the whole list, and the active session's tab flies into its card
+        // (`shell-active-{id}`), which landing the list's changes at once would keep from flying.
         crate::layout_state::TabLayout::Inbox => super::inbox::inbox(s, p, (INSET_START, INSET_END)),
         _ => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
     }

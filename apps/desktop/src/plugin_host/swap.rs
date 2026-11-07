@@ -146,7 +146,6 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
                     let half = std::rc::Rc::new(half);
                     app_half::publish(&id, &half);
                     instance.app = Some(half);
-                    tasks::log(format!("plugin {id}: app half set up, once for every window"));
                 }
                 Scope::Window => instance.state = state,
             },

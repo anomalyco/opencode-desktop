@@ -438,6 +438,13 @@ impl SidebarInbox {
 
 /// The inbox's clock: ages tick each second while something works and each minute otherwise,
 /// and the shown rows' branches load. True when the sidebar should draw again.
+/// The first load's settling, now rather than at the next poll.
+pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
+    let live = s.live();
+    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.family_busy(&i.id))).map(|i| i.id.clone()).collect();
+    s.sidebar_inbox.settle(live, &working, s.now_ms, tx)
+}
+
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
     // The new-session page names its folder's branch the same way (`NewSessionBranch`).
@@ -464,9 +471,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     // A working root's pending requests load in `session_status::poll`, so a run waiting on a
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
-    let live = s.live();
-    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.family_busy(&i.id))).map(|i| i.id.clone()).collect();
-    let mut changed = s.sidebar_inbox.settle(live, &working, s.now_ms, tx);
+    let mut changed = settle_now(s, tx);
     changed |= load_archived(s);
     let sections = s.inbox_sections();
     let working = sections.rows().any(|e| e.status == InboxStatus::Working);
