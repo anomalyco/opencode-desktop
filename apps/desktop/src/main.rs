@@ -1038,6 +1038,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
                         list.extend(rest);
                         s.sessions = list;
+                        s.sidebar_inbox.heard_sessions();
                         s.sort_projects();
                     }
                     Incoming::Info(mut info) => {
@@ -1093,6 +1094,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         }
                     }
                     Incoming::Pending { session, items } => {
+                        s.sidebar_inbox.heard_pending(&session);
                         s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
                         for p in items {
                             s.add_pending(p);

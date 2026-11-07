@@ -2,9 +2,8 @@
 //! Soft Radar activity spinner.
 
 use std::ops::Range;
-use std::sync::{Mutex, OnceLock};
 
-use rune::{Anim, Color, Curve, Cycle, Easing, El, Icon, TextHighlight, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Curve, Easing, El, Icon, TextHighlight, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{Markdown, MarkdownStyle};
 use rune_theme_opencode::icons as ic;
 
@@ -318,115 +317,19 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media)
 }
 
-/// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise
-/// around each square ring, leaving a fading trail (`spinner-radar.ts`), 14px, icon-muted.
+/// Desktop's activity spinner, Soft Radar (`ActivityRing`, `spinner-radar.ts`): 14px, icon-muted.
 pub fn activity_ring(p: &Pal) -> El {
     activity_ring_sized(p, 14.0)
 }
 
-/// The spinner at `size`: Desktop's dot opacities (0.2 at rest, 1 lit), composited in sRGB.
+/// The spinner at `size`, in `icon_muted`: rune-kit's `Spinner`.
 pub fn activity_ring_sized(p: &Pal, size: f32) -> El {
-    let mut r = el().key("ring").size(size, size);
-    for (k, d) in ring_dots(size).iter().enumerate() {
-        let mut dot = el().key(format!("d{k}")).absolute(d.x, d.y).size(d.size, d.size).radius(d.size * 0.24).fill(p.icon_muted);
-        dot = match d.cycle {
-            Some(c) => dot.cycle(c),
-            None => dot.opacity(d.still),
-        };
-        r = r.child(dot);
-    }
-    r
+    activity_ring_in(p, size, p.icon_muted)
 }
 
-struct RadarDot {
-    x: f32,
-    y: f32,
-    size: f32,
-    still: f32,
-    cycle: Option<Cycle>,
-}
-
-const RADAR_LOOP: f32 = 1.8;
-
-fn ring_dots(size: f32) -> &'static [RadarDot] {
-    static BUILT: Mutex<Vec<(u32, &'static [RadarDot])>> = Mutex::new(Vec::new());
-    let key = size.to_bits();
-    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(&(_, dots)) = built.iter().find(|(k, _)| *k == key) {
-        return dots;
-    }
-    let scale = size / 16.0;
-    let dots: Vec<RadarDot> = radar()
-        .iter()
-        .map(|d| {
-            let (x, y, side) = (d.x * scale, d.y * scale, d.size * scale);
-            let cycle = d.stops.as_ref().map(|(at, stops)| Cycle {
-                period: RADAR_LOOP,
-                phase: *at,
-                stops: Box::leak(stops.clone().into_boxed_slice()),
-                still: d.still,
-                fps: 30.0,
-            });
-            RadarDot { x, y, size: side, still: d.still, cycle }
-        })
-        .collect();
-    let dots: &'static [RadarDot] = Box::leak(dots.into_boxed_slice());
-    built.push((key, dots));
-    dots
-}
-
-struct Dot16 {
-    x: f32,
-    y: f32,
-    size: f32,
-    still: f32,
-    stops: Option<(f32, Vec<(f32, f32)>)>,
-}
-
-fn radar() -> &'static [Dot16] {
-    static DOTS: OnceLock<Vec<Dot16>> = OnceLock::new();
-    DOTS.get_or_init(|| {
-        const SPAN: i32 = 5;
-        const DIM: f32 = 0.2;
-        const EDGE: f32 = 1.5;
-        let r3 = |v: f32| (v * 1000.0).round() / 1000.0;
-        let fade = [1.0, 0.987, 0.934, 0.812, 0.599, 0.384, 0.238, 0.143, 0.081, 0.041, 0.017, 0.004, 0.0];
-        let mut trail: Vec<(f32, f32)> = fade.iter().enumerate().map(|(i, l)| (i as f32 * 4.0, r3(0.55 * l))).collect();
-        trail.push((100.0, 0.0));
-        let level_at = |stops: &[(f32, f32)], pc: f32| -> f32 {
-            let Some(k) = stops.iter().position(|s| s.0 >= pc) else { return stops.last().map_or(0.0, |s| s.1) };
-            if k == 0 {
-                return stops[0].1;
-            }
-            let ((p0, l0), (p1, l1)) = (stops[k - 1], stops[k]);
-            l0 + (l1 - l0) * (pc - p0) / if p1 - p0 == 0.0 { 1.0 } else { p1 - p0 }
-        };
-        let frac = |v: f32| v - v.floor();
-        let cells: Vec<(i32, i32)> = (0..SPAN * SPAN).map(|i| (i % SPAN - SPAN / 2, i / SPAN - SPAN / 2)).collect();
-        let angle = |(gx, gy): (i32, i32)| frac((gx as f32).atan2(-(gy as f32)) / std::f32::consts::TAU);
-        let ring_of = |(gx, gy): (i32, i32)| gx.abs().max(gy.abs());
-        cells
-            .iter()
-            .map(|&c| {
-                let (x, y, size) = (8.0 + c.0 as f32 * 3.0 - 1.0, 8.0 + c.1 as f32 * 3.0 - 1.0, 2.0);
-                if c == (0, 0) {
-                    return Dot16 { x, y, size, still: DIM + (1.0 - DIM) * trail[0].1, stops: None };
-                }
-                let at = r3(angle(c));
-                let others = cells.iter().filter(|&&o| o != c && o != (0, 0) && ring_of(o) == ring_of(c));
-                let behind = others.clone().map(|&o| r3(frac(at - r3(angle(o))))).fold(1.0f32, f32::min) * 100.0;
-                let ahead = others.map(|&o| r3(frac(r3(angle(o)) - at))).fold(1.0f32, f32::min) * 100.0;
-                let off = ahead / 2.0 + EDGE;
-                let on = 100.0 - behind / 2.0;
-                let mut shape = vec![(0.0, 1.0), (ahead / 2.0, 1.0), (off, level_at(&trail, off))];
-                shape.extend(trail.iter().copied().filter(|&(pc, _)| pc > off && pc < 100.0 && pc < on - EDGE));
-                shape.extend([(on - EDGE, 0.0), (on, 1.0), (100.0, 1.0)]);
-                let still = DIM + (1.0 - DIM) * level_at(&shape, frac(0.22 - at) * 100.0);
-                let stops = shape.iter().map(|&(pc, l)| (pc / 100.0, DIM + (1.0 - DIM) * l)).collect();
-                Dot16 { x, y, size, still, stops: Some((at, stops)) }
-            })
-            .collect()
-    })
+/// The spinner at `size` in `ink`.
+pub fn activity_ring_in(p: &Pal, size: f32, ink: Color) -> El {
+    rune_kit::Spinner::new().size(size).color(ink).build(crate::palette::kit(p)).key("ring")
 }
 
 /// A stopped turn's tail: Desktop's quiet Interrupted, the last item of its reply footer

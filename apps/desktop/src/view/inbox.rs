@@ -22,6 +22,12 @@ const TURN: Curve = Curve::tween(0.15, Easing::cubic(0.4, 0.0, 0.2, 1.0));
 /// The inbox in the sidebar's list slot. `inset` is the sidebar's start and end padding, which
 /// the Working shelf's hairline bleeds across to the panel's edge.
 pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
+    if s.sidebar_inbox.loading() {
+        // Until the first load settles: Desktop's `Loader`, centred 8 in (`flex justify-center p-2`).
+        return col().key("sidebar-inbox").role("list").label("Inbox").w_full().grow(1.0).shrink().min_h(0.0).child(
+            row().key("inbox-loading").w_full().padding(8.0).justify_center().child(rune_kit::Loader::new().build(crate::palette::kit(p))),
+        );
+    }
     let sections = s.inbox_sections();
     let mut list = col().key("content").w_full().gap(2.0).pb(4.0);
     if !sections.current.is_empty() {
@@ -123,7 +129,8 @@ fn scroller(s: &App, p: &Pal, key: &str, pane: Pane, content: El) -> El {
                 .pr(if fit.overflows() { SCROLLBAR_GUTTER } else { 0.0 })
                 .on_layout_tx(move |s: &mut App, r: [f32; 4], tx: &mut Tx| measure(s, r[3], tx, true)),
         )
-        .scroll_bar_styled(crate::palette::scroll_bar(p))
+        // `scrollbar.css`: the plain `overflow-y: auto` box's own bar, in the gutter it takes.
+        .scroll_bar_styled(rune_kit::ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside())
 }
 
 /// The width a styled Chromium scroll bar takes from layout (`--scrollbar-size`).

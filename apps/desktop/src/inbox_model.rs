@@ -3,7 +3,7 @@
 //! the sidebar's groups. A plain projection of the one session store (`App::sessions`, and the
 //! family's requests and work from `session_status`); the inbox keeps only its own view state here.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -211,6 +211,33 @@ pub struct SidebarInbox {
     archived_asked: bool,
     archived_landed: Arc<Mutex<Option<Vec<SessionInfo>>>>,
     pub branches: Branches,
+    /// The first load, which shows Desktop's loader in the inbox's place.
+    settle: Settle,
+    heard: Heard,
+}
+
+/// The longest the inbox hides behind its loader on first open, so a stalled server can't hide
+/// it for good (`INBOX_SETTLE_TIMEOUT_MS`).
+const SETTLE_TIMEOUT_MS: i64 = 10_000;
+
+/// The inbox's first load (`inbox-settle-machine.ts`): it settles once the session list is in and
+/// every working root's requests are read, or when the timeout passes; once settled it stays
+/// settled, so a session starting later never blanks it.
+#[derive(Clone, Debug, Default)]
+enum Settle {
+    /// Before the inbox first shows; what's heard counts already.
+    #[default]
+    Idle,
+    Loading { since: i64 },
+    Settled,
+}
+
+/// What the first load waits on, as it arrives: the session list, and which sessions' pending
+/// requests are read.
+#[derive(Clone, Debug, Default)]
+struct Heard {
+    sessions: bool,
+    read: HashSet<String>,
 }
 
 /// A scroll area's viewport and content heights, as laid out.
@@ -363,6 +390,50 @@ impl SidebarInbox {
     pub fn asked(&mut self, id: &str, at: i64) {
         self.asked.entry(id.to_owned()).or_insert(at);
     }
+
+    /// Whether the inbox still shows its loader.
+    pub fn loading(&self) -> bool {
+        matches!(self.settle, Settle::Idle | Settle::Loading { .. })
+    }
+
+    /// The server's session list arrived.
+    pub fn heard_sessions(&mut self) {
+        self.heard.sessions = true;
+    }
+
+    /// A session's pending requests arrived.
+    pub fn heard_pending(&mut self, session: &str) {
+        if !matches!(self.settle, Settle::Settled) {
+            self.heard.read.insert(session.to_owned());
+        }
+    }
+
+    /// Starts or finishes the first load at `now` (wall ms), waiting on the requests of the
+    /// `working` roots: a source with nothing to wait for (a fixture) settles at once. True when
+    /// the loader goes.
+    fn settle(&mut self, live: bool, working: &[String], now: i64, tx: &mut Tx) -> bool {
+        let since = match self.settle {
+            Settle::Settled => return false,
+            Settle::Idle if !live => {
+                self.settle = Settle::Settled;
+                return true;
+            }
+            Settle::Idle => {
+                self.settle = Settle::Loading { since: now };
+                now
+            }
+            Settle::Loading { since } => since,
+        };
+        let h = &self.heard;
+        let ready = h.sessions && working.iter().all(|id| h.read.contains(id));
+        if !ready && now - since < SETTLE_TIMEOUT_MS {
+            tx.wake_after(Duration::from_millis((since + SETTLE_TIMEOUT_MS - now).max(1) as u64));
+            return false;
+        }
+        self.heard = Heard::default();
+        self.settle = Settle::Settled;
+        true
+    }
 }
 
 /// The inbox's clock: ages tick each second while something works and each minute otherwise,
@@ -385,7 +456,10 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     // A working root's pending requests load in `session_status::poll`, so a run waiting on a
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
-    let mut changed = load_archived(s);
+    let live = s.live();
+    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.family_busy(&i.id))).map(|i| i.id.clone()).collect();
+    let mut changed = s.sidebar_inbox.settle(live, &working, s.now_ms, tx);
+    changed |= load_archived(s);
     let sections = s.inbox_sections();
     let working = sections.rows().any(|e| e.status == InboxStatus::Working);
     let dirs: Vec<String> = sections.rows().map(|e| e.session.directory.clone()).collect();

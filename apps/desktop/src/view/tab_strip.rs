@@ -36,7 +36,6 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         .zoom(s.zoom)
         .fill(p.bg_deep)
         .close_icon(&ic::XMARK_SMALL)
-        .busy_indicator(busy_ring)
         .matched_prefix(Some(MATCHED))
         .label(if vertical { "Side tabs" } else { "Tabs" })
         .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
@@ -99,16 +98,4 @@ fn status(s: &App, id: &str) -> Option<TabItemStatus> {
         TabStatus::Unread => TabItemStatus::Unread,
         TabStatus::Failed => TabItemStatus::Failed,
     })
-}
-
-/// Desktop's "Soft Radar" activity ring at 14pt, in the muted icon colour; over a dark tab the
-/// base one, where the muted spinner's dim dots vanish (`tab-nav.css`).
-fn busy_ring(k: &rune_kit::Kit) -> El {
-    let p = crate::palette::pal(k.dark);
-    if !k.dark {
-        return activity_ring(p);
-    }
-    let mut lit = p.clone();
-    lit.icon_muted = p.icon;
-    activity_ring(&lit)
 }

@@ -326,6 +326,7 @@ impl App {
         self.projects = opencode_kit::model::parse_projects(&f.projects);
         if let Some(sessions) = &f.sessions {
             self.sessions = opencode_kit::model::parse_sessions(sessions);
+            self.sidebar_inbox.heard_sessions();
         }
         if let Some(p) = &f.providers {
             self.pickers.load_providers(p.get("data").unwrap_or(p));
