@@ -41,17 +41,17 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "77641c8c8e8d228f8de801e087e22bca09c98e60" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-notify = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "17adeded5ae2e1bed2de03a015eaeaa9e00b93f5" }
 # Objects keep their keys in the order they arrive, as JavaScript's do: a tool's arguments list as
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }
