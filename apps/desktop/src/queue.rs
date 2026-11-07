@@ -226,7 +226,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
         face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), format!("{n} QUEUED"), n as f64, LABEL, p.muted)));
     }
     let list = if n > 4 {
-        col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 12.0).child(list)
+        col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade_linear(0.0, 8.0, 0.0, 12.0).child(list)
     } else {
         list
     };

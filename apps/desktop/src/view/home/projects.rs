@@ -349,7 +349,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         .motion(Spring::NONE)
         .on_press(|_: &mut App| {})
         .child(all)
-        .child(col().key("home-projects-scroll").w_full().max_h(320.0).scroll(ScrollSpec { stick_bottom: false }).clip_fade(0.0, 8.0, 0.0, 8.0).child(list))
+        .child(col().key("home-projects-scroll").w_full().max_h(320.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0)).child(list))
         .child(add);
     let dismiss = el().key("home-projects-dismiss").absolute(0.0, 0.0).w_full().h_full().on_press_tx(|s: &mut App, tx: &mut Tx| {
         tx.instant();

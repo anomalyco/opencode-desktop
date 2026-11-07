@@ -248,7 +248,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     let target = Target::new(&ses.id, Spot::Row);
     let marked = s.menus.on.as_ref() == Some(&target);
     let stacked = tier == Tier::Narrow && show_project;
-    let parts = Parts::of(s, p, ses, labels_w, show_project, marked, stacked);
+    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked);
     let mut r = row()
         .key(format!("r-{}", ses.id))
         .role("button")
@@ -312,17 +312,16 @@ pub(super) struct Parts {
 }
 
 impl Parts {
-    /// `ses`'s pieces for labels `labels_w` wide; `lit` when its row shows the hover overlay
-    /// without the pointer (its menu is open, or it's the highlighted result). `stacked` on a
-    /// narrow window: the project under the title, the row 48 tall (`view.css`'s mobile rule).
-    pub fn of(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show_project: bool, lit: bool, stacked: bool) -> Parts {
+    /// `ses`'s pieces for labels `labels_w` wide. `stacked` on a narrow window: the project
+    /// under the title, the row 48 tall (`view.css`'s mobile rule).
+    pub fn of(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show_project: bool, stacked: bool) -> Parts {
         let project = s.project_for_session(ses);
         let name = project_or_dir(project, &ses.directory);
         // `HomeSessionIndicators`: a busy session shows its activity ring instead of the dot.
         let marks = s.marks(&ses.id);
         let busy = marks.busy;
         let open = s.tabs.iter().any(|t| t.id == ses.id);
-        let avatar = avatar(s, p, project, &name, open, marks.unread && !busy, lit);
+        let avatar = avatar(s, p, project, &name, open, marks.unread && !busy);
         // `max-w-[min(70%,480px)] flex-[0_1_auto]` beside the project, else the whole room.
         let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0);
         let project_el = show_project.then(|| text(name.clone()).key("project").font(UI).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0));
@@ -363,23 +362,22 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32) -> El {
 
 /// `HomeSessionLeading`: the 16 pt project avatar; the open-tab bar 4 before it (`h-3 w-0.5
 /// rounded-[2px] bg-layer-04`); and the unread dot on its corner (`project-avatar.css`: the
-/// avatar cut clear 4.5 around a 6 pt `bg-accent` dot). The cut takes the row's surface: bg-base,
-/// with the hover overlay while the row is hovered or `lit`.
-pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &str, open: bool, unread: bool, lit: bool) -> El {
-    let mut a = el().key("avatar").size(16.0, 16.0).child(crate::icons::badge(s, p, project, name));
+/// avatar cut clear 4.5 around a 6 pt `bg-accent` dot), a real cutout, so it holds over the
+/// row's hover and selection.
+pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &str, open: bool, unread: bool) -> El {
+    let mut face = crate::icons::badge(s, p, project, name);
+    if unread {
+        face = el().key("face").size(16.0, 16.0).cutout_circle([16.0, 0.0], 4.0, 5.0).child(face);
+    }
+    let mut a = el().key("avatar").size(16.0, 16.0).child(face);
     if open {
         a = a.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
     }
     if unread {
-        let notch = || el().absolute(11.5, -4.5).size(9.0, 9.0).radius(4.5);
-        a = a
-            .child(notch().key("notch").fill(p.bg_base))
-            .child(if lit { notch().key("notch-lit").fill(p.hover) } else { notch().key("notch-lit").fill(p.hover).group_opacity(0.0, 1.0) })
-            .child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
+        a = a.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
     }
     a
 }
-
 const SERVE_CMD: &str = "opencode serve --port 4096";
 
 fn no_server_home(s: &App, p: &Pal) -> El {

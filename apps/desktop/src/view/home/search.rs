@@ -111,7 +111,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
 /// `HomeSessionSearchResultRow`: 40 tall, `pl-[18px] pr-6`, the overlay when hovered or
 /// highlighted; the pointer highlights it.
 fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project: bool, labels_w: f32, stacked: bool) -> El {
-    let parts = Parts::of(s, p, ses, labels_w, show_project, selected, stacked);
+    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked);
     let (id, hover_id) = (ses.id.clone(), ses.id.clone());
     let mut r = row()
         .key(format!("sr-{}", ses.id))

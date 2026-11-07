@@ -145,8 +145,10 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 .w_full()
                 .h(scroll_h)
                 .scroll(ScrollSpec { stick_bottom: false })
-                // Rows fade out past the bottom edge only while more follow (search-list.css:63-75).
-                .clip_fade(0.0, 0.0, 0.0, if content_h > scroll_h { 24.0 } else { 0.0 })
+                // `search-list.css:63-92`, `search-list.tsx:141-163`: rows fade out over 24 past the
+                // bottom edge and under the stuck section header, each linear, at full strength
+                // once 15 are hidden.
+                .scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky())
                 .child(results),
         )
 }
@@ -157,9 +159,8 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
     let key = e.key.clone();
     let hover = e.key.clone();
-    let surface = if active { p.bg_base.mix(p.hover.alpha(1.0), p.hover.a) } else { p.bg_base };
     let (lead, trailing) = match &e.action {
-        Action::Session(id) => session_parts(s, p, e, id, surface),
+        Action::Session(id) => session_parts(s, p, e, id),
         Action::Command(_) => (None, command_keys(p, e)),
         Action::File(_) | Action::Setting(_) => (None, None),
     };
@@ -215,11 +216,11 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool) -> El {
 
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
 /// and its age, or the activity ring while it works (`PaletteSessionRow`).
-fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, surface: Color) -> (Option<El>, Option<(El, f32)>) {
+fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(El, f32)>) {
     let marks = s.marks(id);
     // The open session reads itself, so only a request waiting in it marks it.
     let unread = !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::Session(id.to_owned())));
-    let avatar = crate::icons::session_avatar(s, p, s.project(&e.project), &e.description, e.open, unread, surface);
+    let avatar = crate::icons::session_avatar(s, p, s.project(&e.project), &e.description, e.open, unread);
     if marks.busy {
         let ring = row().key("meta").size(14.0, 16.0).center().child(session_view::style::activity_ring(p));
         return (Some(avatar), Some((ring, 14.0)));

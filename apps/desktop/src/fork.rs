@@ -429,9 +429,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .role("listbox")
                 .w_full()
                 .h(scroll_h)
+                // A `MenuScroll` with the app's `.search-list-scroll` (`fork-dialog.tsx:152`): no
+                // edge fades.
                 .scroll(ScrollSpec { stick_bottom: false })
-                // Rows fade out past the bottom edge only while more follow (search-list.css:63-75).
-                .clip_fade(0.0, 0.0, 0.0, if content_h > scroll_h { 24.0 } else { 0.0 })
                 .child(list),
         );
 

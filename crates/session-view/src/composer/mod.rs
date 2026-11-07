@@ -403,7 +403,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                             .shrink()
                             .max_h(COMPOSER_MAX_H - 8.0)
                             .scroll(ScrollSpec { stick_bottom: false })
-                            .scroll_edge_fade(16.0)
+                            // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
+                            // bottom feathering by as much as is left to scroll, up to 16.
+                            .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
+                            .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
                             .scroll_margin(16.0)
                             .child(
                                 // `ps-4 pt-4`, and 12 at the end (`editor.css:29-34`).
