@@ -295,6 +295,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     let (id, field_key) = (f.id.clone(), field.key.clone());
     let input = text_input(&edit, INPUT)
         .key("q-input")
+        .spellcheck(s.composer_spellcheck())
         .label(CUSTOM)
         .single_line()
         .grow(1.0)

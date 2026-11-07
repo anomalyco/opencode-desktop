@@ -80,7 +80,9 @@ pub fn sidebar_header(key: &'static str, title: El, end: Option<El>) -> El {
 }
 
 /// The sidebar's filter (`TextInput` on the invisible surface): 28 px, no fill until hovered or
-/// focused, then the hover overlay and, focused, a 1 px focus ring.
+/// focused, then the hover overlay and, focused, a 1 px focus ring. It marks misspelled words
+/// as Desktop's `TextInput` does, when `spellcheck` (Settings › General › Spellcheck).
+#[allow(clippy::too_many_arguments)]
 pub fn filter_field(
     p: &Pal,
     key: &'static str,
@@ -89,6 +91,7 @@ pub fn filter_field(
     on_edit: fn(&mut App) -> &mut TextEdit,
     on_submit: fn(&mut App, &mut Tx),
     clear: fn(&mut App, &mut Tx),
+    spellcheck: bool,
 ) -> El {
     let focused = edit.focused;
     let field = row()
@@ -110,6 +113,7 @@ pub fn filter_field(
         .child(
             text_input(edit, UI)
                 .key(key)
+                .spellcheck(spellcheck)
                 .placeholder("Filter files", p.faint)
                 .color(p.text)
                 .grow(1.0)

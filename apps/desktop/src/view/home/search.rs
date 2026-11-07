@@ -23,6 +23,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         .child(
             text_input(&s.search, UI.lh(20.0))
                 .key("search-input")
+                .spellcheck(s.settings.spellcheck)
                 .single_line()
                 .grow(1.0)
                 .shrink()

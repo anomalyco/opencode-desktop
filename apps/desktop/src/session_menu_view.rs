@@ -15,7 +15,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     if s.menus.rename.as_ref() != Some(target) {
         return None;
     }
-    let input = text_input(&s.menus.edit, style).key("rename").single_line().truncate_fade().h(16.0);
+    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().truncate_fade().h(16.0);
     let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
     Some(
         input

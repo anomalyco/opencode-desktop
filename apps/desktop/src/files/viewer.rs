@@ -153,7 +153,7 @@ pub(super) fn files_main(
             None if rendered => (0, 0),
             None => (d.match_count(), d.active_match_index()),
         };
-        out = out.child(file_find_bar(p, session_id, path, d, total, active)).child(el().w_full().h(0.5).fill(p.border_muted));
+        out = out.child(file_find_bar(p, session_id, path, d, total, active, s.settings.spellcheck)).child(el().w_full().h(0.5).fill(p.border_muted));
     }
 
     // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
@@ -180,7 +180,7 @@ pub(super) fn files_main(
     out.child(viewer)
 }
 
-fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::CodeDocState, total: usize, active: usize) -> El {
+fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::CodeDocState, total: usize, active: usize, spellcheck: bool) -> El {
     let cur = if total == 0 { 0 } else { active + 1 };
     let (sid_edit, path_edit) = (session_id.to_owned(), path.to_owned());
     let (sid_sub, path_sub) = (session_id.to_owned(), path.to_owned());
@@ -198,6 +198,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
         .child(
             text_input(&doc.find_input, UI_SMALL)
                 .key("files-find-input")
+                .spellcheck(spellcheck)
                 .placeholder("Find in file…", p.faint)
                 .color(p.text)
                 .grow(1.0)

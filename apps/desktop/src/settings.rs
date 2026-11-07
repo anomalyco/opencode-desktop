@@ -93,6 +93,9 @@ pub struct Settings {
     pub pinch_zoom: bool,
     /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
     pub spellcheck: bool,
+    /// The dictionaries a text field's Spellcheck Languages menu chose (Desktop's
+    /// `spellcheckLanguages`); none follows the system languages.
+    pub spellcheck_languages: Vec<String>,
     /// Experimental › New icons (`general.newIcons`).
     pub new_icons: bool,
     /// Experimental › Organize vertical sidebar (`general.sidebarOrganize`).
@@ -142,6 +145,7 @@ impl Default for Settings {
             follow_up: FollowUp::default(),
             pinch_zoom: false,
             spellcheck: true,
+            spellcheck_languages: Vec::new(),
             new_icons: false,
             sidebar_organize: Organize::default(),
             sounds: Sounds::default(),
@@ -179,6 +183,7 @@ impl Settings {
             "followUpBehavior": self.follow_up.name(),
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
+            "spellcheckLanguages": self.spellcheck_languages,
             "newIcons": self.new_icons,
             "sidebarOrganize": self.sidebar_organize.name(),
             "sounds": self.sounds.to_json(),
@@ -222,6 +227,7 @@ impl Settings {
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
+            spellcheck_languages: v["spellcheckLanguages"].as_array().map(|a| a.iter().filter_map(|l| Some(l.as_str()?.to_owned())).collect()).unwrap_or_default(),
             new_icons: v["newIcons"].as_bool().unwrap_or(false),
             sidebar_organize: Organize::parse(v["sidebarOrganize"].as_str()),
             sounds: if v["sounds"].is_object() { Sounds::from_json(&v["sounds"]) } else { Sounds::default() },

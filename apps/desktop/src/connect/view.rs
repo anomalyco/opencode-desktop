@@ -215,6 +215,7 @@ fn picker(s: &App, p: &Pal) -> El {
     let field = TextInput::new(&open.search)
         .placeholder("Search")
         .label("Search providers")
+        .spellcheck(s.settings.spellcheck)
         .leading_icon(&ic::MAGNIFYING_GLASS)
         .width(None)
         .plain()

@@ -176,6 +176,7 @@ impl App {
         self.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
         crate::terminal::set_custom_font(&self.settings.terminal_font_name);
         apply_icons(&self.settings);
+        rune::spell::set_languages(&self.settings.spellcheck_languages);
     }
 
     /// The terminal's font: choice `i`, or `name`, an installed family, before the default.

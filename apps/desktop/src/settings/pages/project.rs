@@ -173,7 +173,7 @@ fn general(s: &App, p: &Pal, x: &Project) -> El {
         .child(options(s, p, x, "settings-project-options", 28.0));
     let name_field = col().items_end().gap(6.0)
         // `.project-settings-name`: the base text input, as wide as the row leaves it.
-        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label("Project name").width(Some(198.67)).text_style(super::NAME_REGULAR).height(28.0)
+        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label("Project name").width(Some(198.67)).spellcheck(s.settings.spellcheck).text_style(super::NAME_REGULAR).height(28.0)
             .invalid(failed(Field::Name)).on_edit(|s: &mut App| &mut s.settings_pages.project.name).build(crate::palette::kit(p)).key("settings-project-name-input"))
         .children(failed(Field::Name).then(|| save_failed(p, Field::Name)));
     let mut rows = vec![

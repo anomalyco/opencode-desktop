@@ -203,6 +203,7 @@ fn review_sidebar(s: &App, p: &Pal, session_id: &str, sr: &SessionReview, width:
             s.review.filter = TextEdit::new("");
             s.review.filter.focused = f;
         },
+        s.settings.spellcheck,
     );
 
     let list_area = if !sr.ready {

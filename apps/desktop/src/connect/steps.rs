@@ -320,7 +320,7 @@ fn multiselect(s: &App, p: &Pal, f: &form::Form, picked: &[String], _custom: &st
     }
     let mut e = col().w_full().gap(16.0).child(boxes);
     if f.step.field.custom {
-        let field = TextInput::new(&open(s).field).placeholder("Type your answer").label("Type your own answer").width(None)
+        let field = TextInput::new(&open(s).field).placeholder("Type your answer").label("Type your own answer").width(None).spellcheck(s.settings.spellcheck)
             .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").field)
             .on_submit(add_custom).build(kit(p)).grow(1.0).shrink();
         e = e.child(row().w_full().gap(8.0).center_y().child(field)
@@ -364,7 +364,7 @@ fn choice(s: &App, p: &Pal, f: &form::Form) -> El {
             .on_select_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::ChoiceSelected("custom".into()), tx)).build(kit(p)));
         if custom {
             let placeholder = f.step.field.placeholder.clone().unwrap_or_else(|| "Type your answer".into());
-            radios = radios.child(col().pl(24.0).child(TextInput::new(&open(s).field).placeholder(placeholder).label("Type your own answer").width(None)
+            radios = radios.child(col().pl(24.0).child(TextInput::new(&open(s).field).placeholder(placeholder).label("Type your own answer").width(None).spellcheck(s.settings.spellcheck)
                 .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").field)
                 .on_change(|s: &mut App, tx: &mut Tx| {
                     let text = s.connect.open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
@@ -523,7 +523,7 @@ fn accounts(s: &App, p: &Pal) -> El {
         }
         if *action == AccountAction::Renaming(a.id.clone()) {
             let credential = a.id.clone();
-            let field = TextInput::new(&o.rename).label("Account name").width(None).plain()
+            let field = TextInput::new(&o.rename).label("Account name").width(None).plain().spellcheck(s.settings.spellcheck)
                 .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").rename)
                 .on_submit(move |s: &mut App, tx: &mut Tx| rename_account(s, &credential, tx))
                 .on_key(|s: &mut App, ev, tx| {

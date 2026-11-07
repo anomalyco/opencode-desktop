@@ -153,6 +153,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
         // context menu does (`spellcheck.ts`).
         .on_spellcheck(s.settings.spellcheck, |s: &mut App, on, _| s.change_settings(|x| x.spellcheck = on))
+        // Off macOS it also picks the dictionaries (Spellcheck Languages).
+        .on_spellcheck_languages(|s: &mut App, tags, _| s.change_settings(|x| x.spellcheck_languages = tags))
         .w_full()
         .h_full()
         .center()

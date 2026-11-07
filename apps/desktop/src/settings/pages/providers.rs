@@ -140,7 +140,7 @@ fn account_menu(s: &App, p: &Pal, id: &str, name: &str, integration: Option<&Int
         && renaming == active_id
     {
         let credential = active_id.clone();
-        return rune_kit::TextInput::new(&s.settings_pages.rename).label("Account name").width(Some(240.0))
+        return rune_kit::TextInput::new(&s.settings_pages.rename).label("Account name").width(Some(240.0)).spellcheck(s.settings.spellcheck)
             .on_edit(|s: &mut App| &mut s.settings_pages.rename)
             .on_submit(move |s: &mut App, tx: &mut Tx| s.rename_account(&credential, tx))
             // Escape drops the edit and keeps the name (`rename.ts`'s `cancelled`).

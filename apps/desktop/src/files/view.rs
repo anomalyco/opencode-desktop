@@ -118,6 +118,7 @@ fn files_sidebar(
             s.files.filter = TextEdit::new("");
             s.files.filter.focused = f;
         },
+        s.settings.spellcheck,
     );
 
     let list_area = if !ws.ready {

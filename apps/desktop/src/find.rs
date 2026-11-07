@@ -577,6 +577,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
             .child(
                 text_input(&s.find.input, UI)
                     .key("find-input")
+                    .spellcheck(s.settings.spellcheck)
                     .single_line()
                     .truncate_fade()
                     .grow(1.0)

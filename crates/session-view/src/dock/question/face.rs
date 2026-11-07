@@ -140,6 +140,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         // own, wrapping inside the row as it grows.
         let input = text_input(&edit, if editing { TITLE } else { STRONG })
             .key("q-input")
+            .spellcheck(s.composer_spellcheck())
             .label(CUSTOM)
             .grow(1.0)
             .min_w(0.0)
