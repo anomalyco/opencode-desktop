@@ -24,7 +24,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
-use rune_kit::{FileNode, TreeModel, file_icon};
+use rune_kit::{FileNode, TreeModel};
 use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
@@ -214,7 +214,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             name.to_owned()
         };
         let mut desc = PanelTabDesc::new(id.clone(), title)
-            .icon(file_icon(name))
+            .icon(rune_theme_opencode::file_icons::file(name))
             .file(path)
             .group("browser")
             .fallback();

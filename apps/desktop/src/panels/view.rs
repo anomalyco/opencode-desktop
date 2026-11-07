@@ -570,8 +570,21 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
     if let Some(label) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
         pill = pill.child(label.shrink().min_w(0.0));
     } else {
-        if let Some(glyph) = entry.tab.icon {
-            pill = pill.child(icon(glyph, 16.0).color(if active { p.icon } else { p.icon_muted }));
+        match entry.tab.icon {
+            // A file's badge in its own colours while selected or under the pointer, else in
+            // the label's one colour (`FileVisual`'s `tab-fileicon-color` and `-mono`, `tabs.css`).
+            Some(glyph) if entry.tab.file.is_some() => {
+                let badge = icon(glyph, 16.0).key("icon").color(label_color);
+                pill = pill.child(if active {
+                    badge
+                } else {
+                    el().key("icon").size(16.0, 16.0)
+                        .child(badge.key("icon-color").absolute(0.0, 0.0).group_opacity(0.0, 1.0))
+                        .child(icon(glyph, 16.0).key("icon-mono").absolute(0.0, 0.0).icon_one_color().color(label_color).group_opacity(1.0, 0.0))
+                });
+            }
+            Some(glyph) => pill = pill.child(icon(glyph, 16.0).color(if active { p.icon } else { p.icon_muted })),
+            None => {}
         }
         pill = pill.child(
             text(entry.tab.title.clone())
