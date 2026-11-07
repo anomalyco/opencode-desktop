@@ -507,8 +507,14 @@ fn session_row_inner(
                 }
             }
         })
-        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
-        .child(crate::icons::badge(s, p, project, &proj_name));
+        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev));
+    // `HomeSessionIndicators`: the avatar with the open-tab bar and the unread dot, and a busy
+    // session's activity ring at the row's end in place of the dot.
+    let marks = s.marks(&ses.id);
+    let open = s.tabs.iter().any(|t| t.id == ses.id);
+    let fill = if active { Some(p.row_active) } else if marked { Some(p.hover) } else { None };
+    let surface = fill.map_or(p.bg_base, |c| p.bg_base.mix(c.alpha(1.0), c.a));
+    r = r.child(crate::icons::session_avatar(s, p, project, &proj_name, open, marks.unread && !marks.busy, surface));
     if active {
         r = r.fill(p.row_active);
     } else if marked {
@@ -542,10 +548,8 @@ fn session_row_inner(
         };
         r = r.child(proj_el);
     }
-    crate::session_menu::on(
-        r.child(spacer()).child(text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint)),
-        target,
-    )
+    let end = if marks.busy { activity_ring(p) } else { text(model::ago(s.now_ms, ses.updated)).font(UI).color(p.faint) };
+    crate::session_menu::on(r.child(spacer()).child(end), target)
 }
 
 const SERVE_CMD: &str = "opencode serve --port 4096";

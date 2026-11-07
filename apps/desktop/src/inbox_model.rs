@@ -1,13 +1,13 @@
 //! Desktop's Inbox layout (`shell/titlebar/inbox-model.ts`, `inbox.tsx`, `inbox-working.ts`,
 //! `inbox-branch-machine.ts`): every root session with the state a person acts on, sorted into
-//! the sidebar's groups. A plain projection of the one session store (`App::sessions`,
-//! `running`, `requests`, `inboxes`); the inbox keeps only its own view state here.
+//! the sidebar's groups. A plain projection of the one session store (`App::sessions`, and the
+//! family's requests and work from `session_status`); the inbox keeps only its own view state here.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use opencode_kit::model::{Pending, SessionInfo};
+use opencode_kit::model::SessionInfo;
 use rune::Tx;
 
 use crate::layout_state::TabLayout;
@@ -90,8 +90,7 @@ impl App {
     fn inbox_entry<'a>(&self, session: &'a SessionInfo) -> Entry<'a> {
         let root = session.id.as_str();
         let (permission, form) = self.family_requests(root);
-        let busy = self.running.iter().any(|id| self.root_of(id) == root)
-            || self.inboxes.iter().any(|(id, inbox)| (!inbox.items.is_empty() || inbox.compaction.is_some()) && self.root_of(id) == root);
+        let busy = self.family_busy(root);
         let status = if permission.is_some() {
             InboxStatus::Approval
         } else if form.is_some() {
@@ -118,32 +117,6 @@ impl App {
             _ => session.idle.or(Some(session.updated)),
         };
         Entry { session, status, since }
-    }
-
-    /// The permission and the form waiting on a person anywhere in `root`'s family, by request
-    /// id. A permission with a reply on its way, or one auto-accept answers, doesn't wait.
-    fn family_requests(&self, root: &str) -> (Option<&str>, Option<&str>) {
-        let mut found: (Option<&str>, Option<&str>) = (None, None);
-        let asked = |id: &str| self.sidebar_inbox.asked.get(id).copied().unwrap_or(i64::MAX);
-        for (session, id) in &self.requests {
-            if self.root_of(session) != root {
-                continue;
-            }
-            let form = match self.pending.iter().find(|p| p.id() == id) {
-                Some(Pending::Form { .. }) => true,
-                Some(Pending::Permission { .. }) => false,
-                None => !id.starts_with("per"),
-            };
-            if !form && (self.permission_sent.0.contains_key(id) || self.settings.auto_accept) {
-                continue;
-            }
-            let slot = if form { &mut found.1 } else { &mut found.0 };
-            // The oldest, so the row's age doesn't depend on the set's order.
-            if slot.is_none_or(|have| (asked(id), id.as_str()) < (asked(have), have)) {
-                *slot = Some(id.as_str());
-            }
-        }
-        found
     }
 
     /// Whether `e` is the open session, or the root of the open subagent.
@@ -232,8 +205,6 @@ pub struct SidebarInbox {
     pub shelf: Fit,
     /// The age labels' last tick: seconds while something works, minutes otherwise.
     tick: i64,
-    /// Sessions whose pending requests have been read.
-    probed: HashSet<String>,
     /// The newest archived root sessions (the list leaves them out): the Archived button shows
     /// while there are any.
     pub archived: Vec<SessionInfo>,
@@ -402,22 +373,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         let waker = s.waker.clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
-    // The list can arrive before the requests a running session waits on: read those first, so
-    // a run waiting on a person shows in Needs attention rather than Working (`inbox-settle-machine`).
-    let unprobed: Vec<String> = s
-        .sessions
-        .iter()
-        .filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.running.iter().any(|r| s.root_of(r) == i.id)))
-        .map(|i| i.id.clone())
-        .chain(s.running.iter().cloned())
-        .filter(|id| !s.sidebar_inbox.probed.contains(id))
-        .collect();
-    if let Source::Live { requests: Some(r), .. } = &s.source {
-        for id in unprobed {
-            let _ = r.send(opencode_kit::client::Request::Pending(id.clone()));
-            s.sidebar_inbox.probed.insert(id);
-        }
-    }
+    // A working root's pending requests load in `session_status::poll`, so a run waiting on a
+    // person shows in Needs attention rather than Working (`inbox-settle-machine`).
     let mut changed = load_archived(s);
     let sections = s.inbox_sections();
     let working = sections.rows().any(|e| e.status == InboxStatus::Working);

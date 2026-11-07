@@ -130,10 +130,9 @@ pub struct Launch {
     pub fallback_fixture: bool,
     /// True while a live launch found no local OpenCode server (Home shows the setup card).
     pub offline: bool,
-    /// Read Desktop Beta's `drafts.sqlite` tabs in `on_ready` before falling back to recent sessions.
+    /// No tabs were saved: read Desktop Beta's `drafts.sqlite` tabs in `on_ready`. Without them a
+    /// first launch has none, and shows Home, as Desktop's does.
     pub beta_tabs: bool,
-    /// No tabs were saved: the first reads' recent sessions become them.
-    pub recent_tabs: bool,
     /// Restored session id whose cached messages painted on frame 0 and settle on first live refresh.
     pub cold_transcript: Option<String>,
     /// Tabs put aside while the setup card shows, back when the server answers.
@@ -204,7 +203,6 @@ fn again(s: &mut App, tx: &mut Tx) {
     }
     s.launch.started = false;
     s.launch.waiting = true;
-    s.launch.recent_tabs = s.tabs.is_empty();
     tx.instant();
     start(s, tx);
 }
@@ -282,14 +280,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
         s.tabs = tabs;
         s.tabs.extend(drafts);
-        s.launch.recent_tabs = false;
     }
     match result {
         Ok(first) => {
             s.launch.offline = false;
             if s.tabs.is_empty() && !s.launch.held_tabs.is_empty() {
                 s.tabs = std::mem::take(&mut s.launch.held_tabs);
-                s.launch.recent_tabs = false;
             }
             s.apply_first(first);
             connect(s, tx);
@@ -330,15 +326,10 @@ impl App {
             let map = a.get("data").unwrap_or(a);
             self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
         }
-        // Without the session list, recent sessions would be no tabs at all.
-        if f.sessions.is_some() && std::mem::take(&mut self.launch.recent_tabs) {
-            // A draft restored from the last run stays, after them.
-            let drafts: Vec<_> = self.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
-            self.tabs = self.recent_tabs();
-            self.tabs.extend(drafts);
-        }
+        // A fresh profile has used no projects yet: Home lists none, as Desktop's
+        // `usedProjectIDs` starts empty.
         let saved_projects = match &self.source {
-            Source::Live { server, .. } => crate::tabs::load_projects(&server.base),
+            Source::Live { server, .. } => Some(crate::tabs::load_projects(&server.base).unwrap_or_default()),
             Source::Fixture => None,
         };
         self.init_used_projects(saved_projects);

@@ -60,8 +60,8 @@ impl App {
             Source::Live { .. } if self.starts.has(id) => {}
             Source::Live { requests: Some(r), .. } => {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
-                let _ = r.send(Request::Pending(id.to_owned()));
                 let _ = r.send(Request::Inbox(id.to_owned()));
+                self.read_open_requests(id);
             }
             Source::Live { .. } => {}
             Source::Fixture => self.start_stream_if_due(id),
@@ -79,15 +79,20 @@ impl App {
             Route::Session(id) => Some(id.clone()),
             _ => None,
         };
+        if let Some(id) = &open {
+            let _ = r.send(Request::Inbox(id.clone()));
+        }
+        // Requests asked while the stream was down never arrive as events: read again what shows
+        // them, as Desktop's store invalidates its syncs on a disconnect.
+        self.forget_request_reads();
         let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
-        asked.extend(open.clone());
         asked.sort();
         asked.dedup();
         for id in asked {
-            let _ = r.send(Request::Pending(id));
+            self.read_requests(&id);
         }
         if let Some(id) = open {
-            let _ = r.send(Request::Inbox(id.clone()));
+            self.read_open_requests(&id);
             self.reload_session(&id);
         }
         crate::reconnect::catch_up(self);

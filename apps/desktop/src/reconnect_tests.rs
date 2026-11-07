@@ -188,7 +188,6 @@ fn a_failed_launch_never_saves_away_a_tab() {
 
     // Without the session list, the tabs aren't replaced by an empty "recent" list.
     let mut cold = App::empty();
-    cold.launch.recent_tabs = true;
     cold.tabs = vec![home.clone()];
     cold.apply_first(First::from_parts(fixture["projects"].clone(), None));
     assert_eq!(cold.tabs, vec![home]);

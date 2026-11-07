@@ -203,6 +203,7 @@ mod session_stall_tests;
 mod send_failed;
 mod session_open;
 mod session_pages;
+mod session_status;
 mod settings;
 mod shortcuts;
 mod side_stories;
@@ -322,6 +323,8 @@ pub struct App {
     pub stops: stop::Stops,
     /// Pending permission and form requests: (session, request id).
     pub requests: HashSet<(String, String)>,
+    /// Which sessions' requests this connection has read (`session_status.rs`).
+    pub request_reads: session_status::RequestReads,
     /// The open permission requests and forms we know the details of.
     pub pending: Vec<Pending>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
@@ -828,13 +831,12 @@ impl App {
             (!self.launch.waiting && server.base == DEFAULT_SERVER).then(tabs::from_beta).flatten()
         }) {
             Some(tabs) => self.tabs = tabs,
-            None => {
-                self.launch.beta_tabs = self.launch.waiting && server.base == DEFAULT_SERVER;
-                self.launch.recent_tabs = true;
-            }
+            None => self.launch.beta_tabs = self.launch.waiting && server.base == DEFAULT_SERVER,
         }
         if let Some(first) = first {
             self.apply_first(first);
+            // Read before the source goes live: this client's used projects, none on a fresh profile.
+            self.init_used_projects(Some(tabs::load_projects(&server.base).unwrap_or_default()));
         }
         if let Some(z) = tabs::load_zoom() {
             self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
@@ -1200,6 +1202,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
     changed |= inbox_model::poll(s, now, tx);
+    changed |= session_status::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {

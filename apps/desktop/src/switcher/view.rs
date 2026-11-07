@@ -5,8 +5,6 @@
 use rune::{Color, Cx, El, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::{file_icons, icons as ic};
 
-use opencode_kit::model;
-
 use super::{Action, Entry, SwitcherMode};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
@@ -218,22 +216,11 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool) -> El {
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
 /// and its age, or the activity ring while it works (`PaletteSessionRow`).
 fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, surface: Color) -> (Option<El>, Option<(El, f32)>) {
-    let attention = s.requests.iter().any(|(r, _)| s.root_of(r) == id);
-    let busy = !attention && s.running.iter().any(|r| s.root_of(r) == id);
-    let unread = attention || (s.route != crate::Route::Session(id.to_owned()) && s.session(id).is_some_and(model::SessionInfo::unread));
-    let mut avatar = el().key("badge").size(16.0, 16.0).child(crate::icons::badge(s, p, s.project(&e.project), &e.description));
-    if e.open {
-        // `h-3 w-0.5 rounded-[2px] bg-v2-background-bg-layer-04`, 6 before the avatar, centred.
-        avatar = avatar.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
-    }
-    if unread {
-        // `project-avatar.css:118-133`: the avatar's corner cut clear 4.5 around a 6 pt
-        // `bg-accent` dot centred on it.
-        avatar = avatar
-            .child(el().key("notch").absolute(11.5, -4.5).size(9.0, 9.0).radius(4.5).fill(surface))
-            .child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
-    }
-    if busy {
+    let marks = s.marks(id);
+    // The open session reads itself, so only a request waiting in it marks it.
+    let unread = !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::Session(id.to_owned())));
+    let avatar = crate::icons::session_avatar(s, p, s.project(&e.project), &e.description, e.open, unread, surface);
+    if marks.busy {
         let ring = row().key("meta").size(14.0, 16.0).center().child(session_view::style::activity_ring(p));
         return (Some(avatar), Some((ring, 14.0)));
     }

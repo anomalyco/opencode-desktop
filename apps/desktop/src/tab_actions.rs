@@ -2,13 +2,6 @@ use super::*;
 use crate::tabs::{ClosedTab, TabKind};
 
 impl App {
-    /// A fresh profile's tabs: the most recent root sessions.
-    pub(crate) fn recent_tabs(&self) -> Vec<Tab> {
-        let mut roots: Vec<&SessionInfo> = self.sessions.iter().filter(|s| s.parent.is_none()).collect();
-        roots.sort_by_key(|s| std::cmp::Reverse(s.updated));
-        roots.iter().take(8).map(|s| Tab::session(s.id.clone(), s.title.clone(), s.directory.clone())).collect()
-    }
-
     pub(crate) fn save_tabs(&mut self) {
         // Behind the setup card the tabs are put aside, not closed: nothing to save.
         if self.launch.offline {
@@ -45,20 +38,21 @@ impl App {
         self.ancestors(id).last().unwrap_or(id)
     }
 
-    /// A tab's mark, as Desktop decides it: busy while anything in the family runs (unless it's
-    /// waiting on you), then nothing for the open tab, then attention before unread.
+    /// A tab's mark, from its family's marks (`session_status`): busy while anything in the
+    /// family works (unless it's waiting on you), then nothing for the open tab, then attention
+    /// before unread.
     pub fn tab_status(&self, id: &str) -> Option<TabStatus> {
-        let attention = self.requests.iter().any(|(s, _)| self.root_of(s) == id);
-        if !attention && self.running.iter().any(|s| self.root_of(s) == id) {
+        let marks = self.marks(id);
+        if marks.busy {
             return Some(TabStatus::Busy);
         }
         if self.route == Route::Session(id.to_owned()) {
             return None;
         }
-        if attention {
+        if marks.attention {
             return Some(TabStatus::Attention);
         }
-        let info = self.session(id).filter(|i| i.unread())?;
+        let info = self.session(id).filter(|_| marks.unread)?;
         // As in the inbox, an unread run that failed gets the danger dot.
         Some(if info.outcome.as_deref() == Some("failed") { TabStatus::Failed } else { TabStatus::Unread })
     }

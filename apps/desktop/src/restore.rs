@@ -152,8 +152,8 @@ impl App {
         }
         self.tabs.push(crate::tabs::Tab::draft(id.clone(), self.default_dir.clone()));
         // The source isn't live yet, so `save_tabs` would skip it: written here, once, unless
-        // the tabs still come from Beta or recent sessions.
-        if !crate::headless() && !cfg!(test) && !self.launch.offline && !self.launch.recent_tabs {
+        // the tabs still come from Beta.
+        if !crate::headless() && !cfg!(test) && !self.launch.offline && !self.launch.beta_tabs {
             crate::tabs::save(server, &self.tabs);
         }
         Route::Draft(id)

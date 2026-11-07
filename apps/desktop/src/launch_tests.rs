@@ -13,7 +13,6 @@ fn first_reads_land_in_one_poll() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     app.launch.waiting = true;
-    app.launch.recent_tabs = true;
     let (out, rx) = channel();
     app.launch.first = Some(rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
@@ -22,7 +21,7 @@ fn first_reads_land_in_one_poll() {
     assert!(poll(&mut app, &mut Tx::default()));
     assert!(!app.launch.waiting && app.launch.first.is_none());
     assert!(!app.projects.is_empty());
-    assert_eq!(app.tabs.first().map(|t| t.id.as_str()), Some(crate::fixture_ids::MAIN), "no saved tabs: the recent sessions");
+    assert!(app.tabs.is_empty(), "no saved tabs: none, as Desktop's first launch");
     assert!(app.running.contains(crate::fixture_ids::SIXTH));
     assert!(!poll(&mut app, &mut Tx::default()), "and then rests");
 }
@@ -33,7 +32,6 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     app.launch.waiting = true;
-    app.launch.recent_tabs = true;
     app.route = Route::Session("ses_gone".into());
     let (out, rx) = channel();
     app.launch.first = Some(rx);
