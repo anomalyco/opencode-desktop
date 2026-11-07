@@ -242,7 +242,7 @@ pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
         .h_full()
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
         .child(body)

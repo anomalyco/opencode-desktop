@@ -117,7 +117,7 @@ fn view_inline_card(s: &App, p: &Pal) -> El {
         .radius(8.0)
         .clip_rounded(8.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .child(
             row()
                 .w_full()

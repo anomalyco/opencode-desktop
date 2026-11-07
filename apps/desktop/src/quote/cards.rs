@@ -135,7 +135,7 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .gap(12.0)
         .radius(6.0)
         .fill(p.layer1)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(2.0, 4.0, p.shadow_far)
         .shadow(1.0, 2.0, p.shadow)
         .transition(Transition::none())

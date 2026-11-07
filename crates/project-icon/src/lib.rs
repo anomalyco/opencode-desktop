@@ -258,11 +258,11 @@ impl Icons {
         let variant = chosen_color(project.color);
         Some(match self.found(&project)? {
             Shown::Tile(img) => {
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, pal.ring);
+                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(pal.ring));
                 el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring)
             }
             Shown::Mark(img) => {
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, pal.ring);
+                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(pal.ring));
                 let inner = el().size(size_pt * 0.75, size_pt * 0.75).pixels_fit(img.pixels(), SurfaceFit::Fit);
                 el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner).child(ring)
             }
@@ -270,7 +270,7 @@ impl Icons {
                 let img = self.vector(&bytes, hash, size_pt);
                 let (bg, border) = pal.avatars[variant.unwrap_or(8)];
                 let pic = el().absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).border(0.5, border);
+                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(border));
                 el().size(size_pt, size_pt).radius(radius).fill(bg).child(pic).child(ring)
             }
         })
@@ -303,7 +303,7 @@ impl Icons {
             el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill)
         } else {
             let (bg, border) = pal.avatars[variant];
-            el().size(size_pt, size_pt).radius(radius).fill(bg).border(0.5, border)
+            el().size(size_pt, size_pt).radius(radius).fill(bg).box_shadow(ring(border))
         };
         if look.style.lettered() {
             // Desktop: the first character of the name (an unnamed project's folder), upper-cased;
@@ -350,6 +350,12 @@ fn settle(found: &Mutex<HashMap<String, Found>>, dir: &str, done: Option<(Key, O
             f.icon = None;
         }
     }
+}
+
+/// Desktop's `box-shadow: inset 0 0 0 0.5px` (`project-avatar.css`): a ring just inside the tile,
+/// at its fractional width.
+fn ring(c: Color) -> rune::Shadow {
+    rune::Shadow { spread: 0.5, color: c, inset: true, ..rune::Shadow::default() }
 }
 
 /// Desktop's avatar colour names, as indices into `Palette::avatars`.

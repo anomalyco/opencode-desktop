@@ -209,7 +209,7 @@ pub fn view_card(s: &App, p: &Pal) -> El {
         .child(
             el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
                 .radius(10.0)
-                .border(0.5, p.ring)
+                .box_shadow(Pal::ring_out(p.ring))
                 .inert(),
         )
 }

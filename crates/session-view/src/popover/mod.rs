@@ -96,7 +96,7 @@ pub fn surface<S: 'static>(p: &Pal, look: Look, key: impl Into<String>, label: i
         .label(label)
         .radius(look.radius())
         .fill(p.layer1)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(4.0, 12.0, p.shadow)
         .transition(Transition::none())
         // Its height and rows follow a filter in the keystroke, and what it holds comes and goes

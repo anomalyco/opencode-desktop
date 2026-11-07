@@ -77,7 +77,7 @@ pub fn view(_: &App, p: &Pal) -> El {
         .gap(4.0)
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .child(place("Header context", odometer_end(format!("story-ctx-{sid}"), model::tokens_short(tokens), tokens as f64, UI_SMALL, p.muted)))
         .child(place("Header cost", odometer_end(format!("story-cost-{sid}"), format!("${}.{:02}", cents / 100, cents % 100), cents as f64, UI_SMALL, p.faint)))
         .child(place("Subagents capsule", odometer(format!("story-chip-{sid}"), format!("{agents} subagent{}", if agents == 1 { "" } else { "s" }), agents as f64, UI, p.text)))

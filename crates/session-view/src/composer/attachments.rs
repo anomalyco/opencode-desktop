@@ -164,7 +164,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
                             .absolute(0.0, 0.0)
                             .size(58.0, 46.0)
                             .radius(6.0)
-                            .border(0.5, p.border),
+                            .box_shadow(Pal::ring_in(p.border)),
                     );
                 opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img)
             }
@@ -260,7 +260,7 @@ fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .gap(6.0)
         .radius(6.0)
         .fill(p.hover)
-        .border(0.5, p.border)
+        .box_shadow(Pal::ring_in(p.border))
         .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
         .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade())
 }

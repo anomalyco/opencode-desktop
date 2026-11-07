@@ -57,7 +57,7 @@ fn page(p: &Pal, key: &str) -> El {
         .size(W, H)
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .clip_rounded(10.0)
         .child(col().w_full().px(16.0).py(12.0).child(text(format!("{WORDS} {WORDS}")).font(BODY).color(p.text).wrap().w_full()))
 }

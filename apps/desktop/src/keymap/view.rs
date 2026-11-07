@@ -23,7 +23,7 @@ pub fn settings_section(_s: &App, p: &Pal) -> El {
             continue;
         }
         let n = rows.len();
-        let mut list = col().key(format!("shortcuts-{}", section.title())).w_full().px(20.0).radius(8.0).fill(p.layer1).border(0.5, p.border_muted);
+        let mut list = col().key(format!("shortcuts-{}", section.title())).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
         for (i, b) in rows.into_iter().enumerate() {
             let keys = b.bind.label();
             let shown = if keys.is_empty() { text("Unassigned").font(UI).color(p.faint) } else { text(keys).font(UI_MED).color(p.text) };

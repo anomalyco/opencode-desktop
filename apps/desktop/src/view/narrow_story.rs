@@ -20,7 +20,7 @@ fn view(s: &App, p: &Pal) -> El {
     for w in WIDTHS {
         let scope = format!("w{}", w as u32);
         widths = widths.child(
-            col().key(format!("{scope}-frame")).w(w).radius(10.0).fill(p.bg_base).border(0.5, p.ring).clip_soft(0.0)
+            col().key(format!("{scope}-frame")).w(w).radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_out(p.ring)).clip_soft(0.0)
                 .child(header_in(s, p, info, t, &scope))
                 .child(col().key(format!("{scope}-dock")).w_full().px(DOCK_SIDE).pb(DOCK_SIDE).child(composer_in(s, p, &scope))),
         );

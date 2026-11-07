@@ -248,7 +248,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
         .gap(6.0)
         .radius(6.0)
         .fill(if p.dark { p.hover } else { p.bg_base })
-        .border(0.5, if active { p.q.border_strong } else { p.border })
+        .box_shadow(Pal::ring_in(if active { p.q.border_strong } else { p.border }))
         .child(title)
         .child(subtitle);
     c = if wide { c.w_full() } else { c.w(160.0) };

@@ -124,7 +124,7 @@ fn story_view(s: &App, p: &Pal) -> El {
                 .mr(8.0)
                 .radius(10.0)
                 .fill(p.bg_base)
-                .border(0.5, p.ring)
+                .box_shadow(Pal::ring_out(p.ring))
                 .clip_soft(0.0)
                 .child(page),
         )

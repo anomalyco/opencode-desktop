@@ -195,7 +195,7 @@ fn home_story_view(s: &App, p: &Pal) -> El {
         .max_h(680.0)
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
         .child(crate::view::home(s, p, 920.0))

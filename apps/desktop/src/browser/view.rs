@@ -221,7 +221,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                     .center()
                     .cursor(Cursor::Pointer)
                     .fill(p.q.submit)
-                    .border(0.5, p.q.submit_ring)
+                    .box_shadow(Pal::ring_out(p.q.submit_ring))
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())
                     .child(text("Download").font(UI_MED).color(p.q.submit_text)),
@@ -245,7 +245,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                     .center()
                     .cursor(Cursor::Pointer)
                     .fill(p.q.neutral)
-                    .border(0.5, p.q.neutral_ring)
+                    .box_shadow(Pal::ring_out(p.q.neutral_ring))
                     .hover(p.hover)
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())

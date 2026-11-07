@@ -101,6 +101,20 @@ pub struct Pal {
     pub v2: V2,
 }
 
+impl Pal {
+    /// `box-shadow: 0 0 0 0.5px c`, the hairline of Desktop's elevations: just outside the box,
+    /// at its fractional width, as Chromium draws a box-shadow. A `border` snaps to whole device
+    /// pixels instead, as a CSS border does.
+    pub fn ring_out(c: Color) -> Shadow {
+        Shadow { spread: 0.5, color: c, ..Shadow::default() }
+    }
+
+    /// `box-shadow: inset 0 0 0 0.5px c`: just inside the box, at its fractional width.
+    pub fn ring_in(c: Color) -> Shadow {
+        Shadow { spread: 0.5, color: c, inset: true, ..Shadow::default() }
+    }
+}
+
 /// Desktop's v2 semantic tokens (`theme.css`, `mapping.ts`) that `Pal` doesn't carry above:
 /// what rune-kit's controls paint with, so in a chosen theme they follow it.
 #[derive(Clone, Copy, Debug)]

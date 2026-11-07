@@ -173,7 +173,7 @@ pub fn sidebar_pill(s: &App, p: &Pal) -> Option<El> {
             .center_y()
             .radius(6.0)
             .fill(p.layer2)
-            .border(0.5, p.ring)
+            .box_shadow(Pal::ring_out(p.ring))
             .hover(p.hover)
             .press(p.pressed)
             .hover_motion(INSTANT, INSTANT)
@@ -209,7 +209,7 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
             .center()
             .radius(6.0)
             .fill(if is_ready { p.bg_accent } else { p.bg_base })
-            .border(0.5, if is_ready { Color::TRANSPARENT } else { p.ring })
+            .box_shadow(Pal::ring_out(if is_ready { Color::TRANSPARENT } else { p.ring }))
             .hover(if busy { p.bg_base } else if is_ready { p.bg_accent } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
             .child(text(btn_label).font(UI_MED).color(if is_ready { p.switch_thumb } else if busy { p.faint } else { p.text }));
@@ -289,7 +289,7 @@ fn story_view(s: &App, p: &Pal) -> El {
         .gap(20.0)
         .radius(10.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .children(settings_section(s, p))
         .children(sidebar_pill(s, p).map(|pill| col().w(260.0).child(pill)))
 }

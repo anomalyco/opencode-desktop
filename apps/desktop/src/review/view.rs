@@ -151,7 +151,7 @@ fn mode_popover(p: &Pal, sr: &SessionReview) -> El {
         .gap(1.0)
         .radius(8.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(2.0, 8.0, p.shadow_far)
         .shadow(1.0, 2.0, p.shadow);
     for m in modes {
@@ -448,7 +448,7 @@ fn seg_icon_btn(
         .center()
         .cursor(Cursor::Pointer)
         .fill(if active { p.bg_base } else { Color::TRANSPARENT })
-        .border(0.5, if active { p.q.border_strong } else { Color::TRANSPARENT })
+        .box_shadow(Pal::ring_out(if active { p.q.border_strong } else { Color::TRANSPARENT }))
         .role("button")
         .label(help_text)
         .help(help_text)
@@ -459,7 +459,7 @@ fn seg_icon_btn(
 
 /// A segmented control's track: `layer-01` under a 0.5 px `border-base` ring.
 fn seg_track(p: &Pal, key: &'static str) -> El {
-    row().key(key).h(28.0).center_y().radius(6.0).fill(p.layer1).border(0.5, p.border)
+    row().key(key).h(28.0).center_y().radius(6.0).fill(p.layer1).box_shadow(Pal::ring_out(p.border))
 }
 
 fn review_main(

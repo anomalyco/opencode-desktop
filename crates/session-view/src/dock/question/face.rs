@@ -46,7 +46,7 @@ fn mark(p: &Pal, multi: bool, picked: bool, index: usize) -> El {
     let key = el().size(18.0, 18.0).center().radius(if multi { 4.0 } else { 9.0 });
     let key = match (picked, multi) {
         (true, _) => key.fill(p.bg_accent),
-        (false, false) => key.fill(p.layer3).border(0.5, p.border),
+        (false, false) => key.fill(p.layer3).box_shadow(Pal::ring_in(p.border)),
         (false, true) => key.border(1.0, p.q.border_strong),
     };
     let ink = if picked { p.q.contrast_text } else { p.muted };

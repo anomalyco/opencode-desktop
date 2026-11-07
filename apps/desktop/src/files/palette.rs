@@ -419,7 +419,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .radius(12.0)
         .clip_rounded(12.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(8.0, 28.0, p.shadow_far)
         .shadow(2.0, 6.0, p.shadow)
         .on_press(|_: &mut App| {})

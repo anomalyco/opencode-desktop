@@ -420,7 +420,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         .padding(2.0)
         .radius(6.0)
         .fill(p.layer1)
-        .border(0.5, p.border_muted)
+        .box_shadow(Pal::ring_out(p.border_muted))
         .shadow(4.0, 12.0, p.shadow)
         .transition(rune::Transition::none())
         .motion(Spring::NONE)
@@ -570,7 +570,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
         .center_y()
         .radius(6.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .child(text(SERVE_CMD).font(CODE).color(p.text).grow(1.0).shrink().truncate_fade())
         .child(
             row()
@@ -600,7 +600,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
         .center()
         .radius(6.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .hover(if checking { p.bg_base } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .child(text(if checking { "Checking…" } else { "Retry" }).font(UI_MED).color(if checking { p.faint } else { p.text }));
@@ -616,7 +616,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
         .gap(14.0)
         .radius(10.0)
         .fill(p.layer2)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .child(
             col()
                 .w_full()
@@ -683,7 +683,7 @@ mod no_server_story {
             .h(440.0)
             .radius(10.0)
             .fill(p.bg_base)
-            .border(0.5, p.ring)
+            .box_shadow(Pal::ring_out(p.ring))
             .clip_soft(0.0)
             .child(super::home(s, p, 760.0))
     }

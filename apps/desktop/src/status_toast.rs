@@ -286,7 +286,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .py(8.0)
         .radius(8.0)
         .fill(p.layer1)
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(4.0, 12.0, p.shadow)
         .transition(Transition::none())
         .motion(Spring::NONE)

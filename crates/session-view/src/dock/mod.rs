@@ -143,13 +143,13 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
     b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(0.4) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
-        Variant::Neutral => b = b.border(0.5, p.q.neutral_ring).shadow(1.0, 1.5, p.q.neutral_shadow),
+        Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),
         // `--v2-elevation-button-contrast` under the top-lit highlight (`--submit-highlight`,
         // brighter on dark's light Submit fill).
         Variant::Submit | Variant::Contrast => {
             let lit = if variant == Variant::Submit && p.dark { 0.6 } else { 0.2 };
             let (y, blur, drop) = if p.dark { (1.0, 2.0, 0.4) } else { (1.0, 1.5, 0.2) };
-            b = b.gradient(Color::WHITE.alpha(lit), Color::WHITE.alpha(0.0)).border(0.5, p.q.submit_ring).shadow(y, blur, Color::BLACK.alpha(drop))
+            b = b.gradient(Color::WHITE.alpha(lit), Color::WHITE.alpha(0.0)).box_shadow(Pal::ring_out(p.q.submit_ring)).shadow(y, blur, Color::BLACK.alpha(drop))
         }
     }
     b

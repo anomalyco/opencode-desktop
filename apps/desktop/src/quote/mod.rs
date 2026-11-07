@@ -313,7 +313,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .radius(8.0)
         .fill(crate::view::composer_fill(p))
         // --v2-elevation-raised.
-        .border(0.5, p.ring)
+        .box_shadow(Pal::ring_out(p.ring))
         .shadow(2.0, 4.0, p.shadow_far)
         .shadow(1.0, 2.0, p.shadow)
         // It comes, goes and moves at once.

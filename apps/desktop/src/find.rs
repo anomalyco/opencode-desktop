@@ -572,7 +572,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
             .center_y()
             .radius(6.0)
             .fill(p.bg_base)
-            .border(0.5, border)
+            .box_shadow(Pal::ring_out(border))
             .child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted))
             .child(
                 text_input(&s.find.input, UI)

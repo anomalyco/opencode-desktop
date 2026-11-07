@@ -411,7 +411,7 @@ pub fn page(s: &App, p: &Pal, st: Stage) -> El {
 
 /// A component's frame on the stage: the panel's surface, as wide as the timeline's column.
 pub(crate) fn frame(p: &Pal, key: &str) -> El {
-    col().key(key).w_full().max_w(820.0).radius(10.0).fill(p.bg_base).border(0.5, p.ring).shadow(1.0, 2.0, p.shadow).clip_soft(0.0)
+    col().key(key).w_full().max_w(820.0).radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_out(p.ring)).shadow(1.0, 2.0, p.shadow).clip_soft(0.0)
 }
 
 pub(crate) fn composer_view(s: &App, p: &Pal) -> El {
