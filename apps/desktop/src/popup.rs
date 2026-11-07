@@ -44,6 +44,10 @@ pub struct Item {
     shortcut: Option<String>,
     /// The 14 pt glyph before the title, in the title's ink (drawn menus only).
     glyph: Option<Glyph>,
+    /// A row that only tells (`SessionLocationDetail`): never lit or picked, in the base ink.
+    detail: bool,
+    /// Lines added and removed after the title, in the diff's inks (drawn menus only).
+    diff: Option<(u32, u32)>,
 }
 
 /// A row's icon, the same when it's the same icon.
@@ -58,7 +62,7 @@ impl PartialEq for Glyph {
 
 impl Item {
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Item {
-        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, glyph: None }
+        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, glyph: None, detail: false, diff: None }
     }
     pub fn enabled(mut self, on: bool) -> Item { self.enabled = on; self }
     /// A check at the row's end, as a picker marks its current value.
@@ -69,6 +73,10 @@ impl Item {
     pub fn project(mut self, dir: impl Into<String>) -> Item { self.project = Some(dir.into()); self }
     /// A 14 pt icon before the title, as menu-v2's items lead with one (`menu.tsx`).
     pub fn icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph(glyph)); self }
+    /// A row that only tells, as the location card's server and its branch-less line do.
+    pub fn detail(mut self) -> Item { self.detail = true; self.enabled = false; self }
+    /// A change count's lines after the title, as Desktop's `DiffChanges` reads them.
+    pub fn diff(mut self, added: u32, removed: u32) -> Item { self.diff = Some((added, removed)); self }
     /// The keys that do the same, at the row's end ("Ctrl+Shift+N"); none when empty.
     pub fn shortcut(mut self, keys: impl Into<String>) -> Item {
         let keys = keys.into();
@@ -92,6 +100,8 @@ struct Sub {
     id: String,
     title: String,
     menu: Menu,
+    /// The glyph before the title (drawn menus only).
+    glyph: Option<Glyph>,
 }
 
 /// How a drawn menu looks.
@@ -170,7 +180,12 @@ impl Menu {
     pub fn rows_before_scroll(mut self, rows: f32) -> Menu { self.max_h = 2.0 * MENU.inset + rows * MENU.row_h; self }
     /// A row titled `title` that opens `menu` beside it; its items answer the same `pick`.
     pub fn submenu(mut self, id: impl Into<String>, title: impl Into<String>, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None })));
+        self
+    }
+    /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
+    pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph(glyph)) })));
         self
     }
     /// Opens above the element, or below it when there's no room (`placement="top-*"`).
@@ -482,31 +497,40 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         None => (&shown.menu, shown.active),
     };
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
-    let menu = drawn(s, p, listed, active);
+    let menu = drawn(s, p, listed, active, shown.sub.map(|o| o.at));
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
     layer.push(popover::place(&s.knobs, menu, &anchor, side, align, gap));
+    // The open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`).
+    if let Some(o) = shown.sub
+        && let Some(Entry::Sub(sub)) = listed.entries.get(o.at)
+    {
+        layer.push(popover::place(&s.knobs, build(Some(s), p, &sub.menu, o.active, None, true), &row_key(&sub.id), Side::Right, Align::Start, 4.0));
+    }
     layer
 }
 
 /// `menu` as a drawn surface, row `active` lit. Its rows light and pick the open menu's, so a
 /// copy drawn while none is open (the storybook's) stays still.
 pub fn surface(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
-    build(None, p, menu, active)
+    build(None, p, menu, active, None, false)
 }
 
-/// [`surface`] with the app's project avatars.
-fn drawn(s: &App, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
-    build(Some(s), p, menu, active)
+/// [`surface`] with the app's project avatars, and the row whose submenu is open.
+fn drawn(s: &App, p: &Pal, menu: &Menu, active: Option<usize>, open: Option<usize>) -> El {
+    build(Some(s), p, menu, active, open, false)
 }
 
-fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
-    let mut list = popover::List::new("popup-rows", MENU);
+/// A menu's surface: the root's, or with `nested` the open submenu's, whose rows light and pick
+/// in it.
+fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Option<usize>, nested: bool) -> El {
+    let mut list = popover::List::new(if nested { "popup-sub-rows" } else { "popup-rows" }, MENU);
     if let (Some(s), Some(search)) = (s, &menu.search) {
         list.other(search_field(s, p, &search.placeholder), SEARCH_H);
     }
     let role = if menu.selected.is_some() { "menuitemradio" } else { "menuitem" };
     for (n, entry) in menu.entries.iter().enumerate() {
         match entry {
+            Entry::Item(i) if i.detail => list.other(detail_row(p, &row_key(&i.id), i), MENU.row_h),
             Entry::Item(i) => {
                 let o = Opt::new(row_key(&i.id), i.title.clone())
                     .role(role)
@@ -523,6 +547,10 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                     Some(keys) => o.trailing(popover::hint(p, keys)),
                     None => o,
                 };
+                let o = match i.diff {
+                    Some((a, d)) => o.after(diff_note(p, a, d)),
+                    None => o,
+                };
                 let o = match (s, &i.project) {
                     (Some(s), Some(dir)) => {
                         let project = s.project_at(dir);
@@ -530,7 +558,12 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                     }
                     _ => o,
                 };
-                list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx)));
+                let row = if nested {
+                    popover::option::<App>(p, MENU, o, move |s| hover_sub(s, n), move |s, tx| choose_sub(s, n, tx))
+                } else {
+                    popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx))
+                };
+                list.row(row);
             }
             Entry::Separator => {
                 // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`):
@@ -544,16 +577,73 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                     .child(text(title.clone()).font(GROUP).color(p.faint).shrink().truncate_fade());
                 list.other(label, GROUP_H);
             }
-            // Only the standard look opens submenus beside their rows.
+            // A row that opens its menu beside it (`Menu.SubTrigger`), lit while that menu shows,
+            // its chevron in the muted ink. One level deep.
+            Entry::Sub(sub) if !nested => {
+                let o = Opt::new(row_key(&sub.id), sub.title.clone())
+                    .role("menuitem")
+                    .active(active == Some(n) || open == Some(n))
+                    .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted));
+                let o = match sub.glyph {
+                    Some(g) => o.lead(icon(g.0, 16.0).color(p.icon_muted)),
+                    None => o,
+                };
+                list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| open_sub(s, n, false, tx)));
+            }
             Entry::Sub(_) => {}
         }
     }
-    let surface = popover::surface::<App>(p, MENU, "popup-menu", menu.label.clone()).min_w(menu.min_w);
-    let surface = match menu.width {
+    let key = if nested { "popup-submenu" } else { "popup-menu" };
+    let surface = popover::surface::<App>(p, MENU, key, menu.label.clone()).min_w(menu.min_w);
+    // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
+    let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
+    let surface = match width {
         Some(w) => surface.w(w).max_w(w),
         None => surface,
     };
-    surface.child(list.build("popup-scroll", menu.max_h))
+    surface.child(list.build(if nested { "popup-sub-scroll" } else { "popup-scroll" }, menu.max_h))
+}
+
+/// The widest row of `menu`, its glyph, label and shortcut with the row's padding and the
+/// surface's inset.
+fn hug_width(menu: &Menu) -> f32 {
+    let label = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+    let w = |s: &str, st| rune::text::measure(s, &[], st, None).0;
+    let rows = menu.entries.iter().map(|e| match e {
+        Entry::Item(i) => {
+            i.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&i.title, label) + i.shortcut.as_deref().map_or(0.0, |k| MENU.gap + w(k, popover::HINT))
+        }
+        Entry::Group(t) => w(t, GROUP),
+        Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
+        Entry::Separator => 0.0,
+    });
+    rows.fold(0.0, f32::max) + MENU.pad_l + MENU.pad_r + 2.0 * MENU.inset + 2.0
+}
+
+/// `menu-v2-item-chevron`: a submenu row's end.
+static CHEVRON: Icon = Icon { name: "menu-v2-chevron", view: 16.0, body: r#"<path d="M6 4L10 8L6 12V4Z" fill="currentColor"/>"# };
+
+/// `· +added -removed`: the separator muted, the counts in the diff's inks.
+fn diff_note(p: &Pal, added: u32, removed: u32) -> El {
+    let st = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+    row().gap(8.0).center_y()
+        .child(text("·").font(st).color(p.muted))
+        .child(row().gap(4.0).child(text(format!("+{added}")).font(st).color(p.diff_add)).child(text(format!("-{removed}")).font(st).color(p.diff_del)))
+}
+
+/// A row that only tells (`SessionLocationDetail`): its 16 pt glyph in the muted ink and its
+/// line, 13/440 in the base ink, 28 tall.
+fn detail_row(p: &Pal, key: &str, i: &Item) -> El {
+    row()
+        .key(key.to_owned())
+        .w_full()
+        .h(MENU.row_h)
+        .pl(MENU.pad_l)
+        .pr(MENU.pad_r)
+        .gap(MENU.gap)
+        .center_y()
+        .children(i.glyph.map(|g| icon(g.0, 16.0).color(p.icon_muted)))
+        .child(text(i.title.clone()).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.text).truncate_fade().shrink())
 }
 
 /// A searchable menu's field and the 4pt around it (`recently-closed-search m-1`): Desktop's

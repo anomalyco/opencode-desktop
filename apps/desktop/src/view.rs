@@ -23,6 +23,7 @@ mod header;
 mod header_fit;
 mod home;
 pub(crate) mod location;
+mod location_card;
 mod inbox;
 mod narrow;
 mod narrow_story;

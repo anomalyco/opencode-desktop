@@ -1,0 +1,251 @@
+//! The location card the header's location opens (`SessionLocation`'s `Menu.Content`): the
+//! project, the workspace (with the Session details plugin's Move session to), the branch and the
+//! folder as submenus (Copy branch name, Open in terminal; Copy path, Reveal, Open in), the
+//! session's changes, the server when it isn't this computer's only one, and Edit project.
+
+use std::collections::HashMap;
+
+use rune::Tx;
+use rune_theme_opencode::icons as ic;
+
+use super::location::TRIGGER;
+use crate::App;
+use crate::jobs::Apply;
+use crate::popup::{self, Item, Menu};
+
+/// Each folder's branch, once read (`None` for a folder that isn't on one).
+#[derive(Default)]
+pub struct Location {
+    branches: HashMap<String, Option<String>>,
+}
+
+/// Opens the location card for the routed session, and reads the branches it shows: its
+/// folder's, and its project root's for a folder on none.
+pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
+    tx.instant();
+    if s.popup.open_at(TRIGGER) {
+        return popup::dismiss(s, tx);
+    }
+    let crate::Route::Session(id) = &s.route else { return };
+    let Some(info) = s.session(id).cloned() else { return };
+    // The changes row keeps the session's changes fresh while the card shows.
+    s.ensure_session_review(&info.id);
+    show(s, &info, tx);
+    let root = s.project(&info.project).map(|p| p.directory.clone());
+    for dir in std::iter::once(info.directory.clone()).chain(root) {
+        if s.location.branches.contains_key(&dir) {
+            continue;
+        }
+        s.job(move |srv| {
+            let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
+            let branch = srv.get(&path).ok().map(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()).map(str::to_owned));
+            Box::new(move |s: &mut App, tx: &mut Tx| {
+                let Some(branch) = branch else { return };
+                s.location.branches.insert(dir, branch);
+                reshow(s, tx);
+            }) as Apply
+        });
+    }
+}
+
+/// Draws the open card again with what it's learned.
+fn reshow(s: &mut App, tx: &mut Tx) {
+    if s.popup.open_at(TRIGGER)
+        && let crate::Route::Session(id) = &s.route
+        && let Some(info) = s.session(id).cloned()
+    {
+        tx.instant();
+        show(s, &info, tx);
+    }
+}
+
+fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
+    let project = s.project(&info.project).cloned();
+    let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &info.directory), |p| p.name.clone());
+    let dir = info.directory.clone();
+    let sid = info.id.clone();
+    let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir).is_some_and(Option::is_some);
+    let worktree = super::location::worktree_name(project.as_ref(), &dir);
+    let child = info.parent.is_some();
+
+    let mut menu = Menu::new(name.clone()).width(320.0);
+    let mut head = Item::new("project", name.clone()).enabled(project.is_some());
+    if let Some(p) = &project {
+        head = head.project(p.directory.clone());
+    }
+    menu = menu.item(head);
+
+    if worktree.is_some() || git {
+        let (glyph, label) = match &worktree {
+            Some(w) => (&ic::OUTLINE_WORKTREE, w.clone()),
+            None => (&ic::MONITOR, "Local repository".to_owned()),
+        };
+        // Session details' workspace row: where a root session can move (a subagent's only tells).
+        menu = match &project {
+            Some(p) if !child => menu.submenu_icon("workspace", label, glyph, move_menu(s, p, &dir, info)),
+            _ => menu.item(Item::new("workspace", label).icon(glyph).detail()),
+        };
+    }
+
+    let branch = s.location.branches.get(&dir).cloned().flatten();
+    if git {
+        menu = match &branch {
+            Some(b) => {
+                let mut sub = Menu::new(b.clone()).min_width(172.0).item(Item::new("copy-branch", "Copy branch name").icon(&ic::OUTLINE_COPY));
+                // The terminal plugin's row (`session.location.branch.menu`).
+                if s.live_terminals().is_none_or(|(_, observer)| !observer) {
+                    sub = sub.item(Item::new("open-terminal", "Open in terminal").icon(&ic::OUTLINE_CONSOLE));
+                }
+                menu.submenu_icon("branch", b.clone(), &ic::BRANCH, sub)
+            }
+            None => {
+                let base = project.as_ref().filter(|p| p.directory != dir).and_then(|p| s.location.branches.get(&p.directory).cloned().flatten());
+                let line = match base {
+                    Some(base) => format!("No branch · Based on {base}"),
+                    None => "No branch".to_owned(),
+                };
+                menu.item(Item::new("no-branch", line).icon(&ic::BRANCH).detail())
+            }
+        };
+    }
+
+    // Session details' changes row (`session.location.menu`): picking it opens the review.
+    if git {
+        menu = menu.item(changes_row(s, &sid));
+    }
+
+    menu = menu.separator();
+    if let crate::Source::Live { server, .. } = &s.source
+        && !server.is_local()
+    {
+        menu = menu.item(Item::new("server", server.base.clone()).icon(&ic::SERVER).detail());
+    }
+    let mut folder = Menu::new(dir.clone()).item(Item::new("copy-path", "Copy path").icon(&ic::OUTLINE_COPY));
+    if matches!(&s.source, crate::Source::Live { server, .. } if server.is_local()) {
+        folder = folder.item(Item::new("reveal", REVEAL).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+    }
+    // The file plugin's row (`session.location.path.menu`): Open in the chosen app.
+    if s.can_open_in() && s.open_in.current() != crate::open_in::FINDER {
+        folder = folder.item(Item::new("open-in", format!("Open in {}", s.open_in.current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+    }
+    menu = menu.submenu_icon("path", dir.clone(), &ic::FOLDER, folder);
+    menu = menu.separator().item(Item::new("settings", "Edit project").icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
+
+    let project_id = project.as_ref().map(|p| p.id.clone());
+    let root = project.as_ref().map(|p| p.directory.clone());
+    popup::open_drawn(s, menu, TRIGGER, tx, move |s, picked, tx| match picked {
+        Some("project") => {
+            s.project_state.home_selected = project_id.clone();
+            s.go_home(tx);
+        }
+        Some("copy-branch") => copied(s, branch.as_deref().unwrap_or_default(), tx),
+        Some("open-terminal") => s.create_terminal_tab(None, tx),
+        Some("changes") => s.show_review(&sid, tx),
+        Some("copy-path") => copied(s, &dir, tx),
+        Some("reveal") => {
+            if let Err(e) = reveal(&dir) {
+                crate::status_toast::fail(s, "Request failed", e);
+            }
+        }
+        Some("open-in") => {
+            let app = s.open_in.current().to_owned();
+            s.open_in_app(&app, "", false);
+        }
+        Some("settings") => {
+            tx.instant();
+            s.open_settings();
+        }
+        Some(id) if id.starts_with("move-") => move_session(s, &sid, &dir, project_id.as_deref(), root.as_deref(), id),
+        _ => {}
+    });
+}
+
+/// The changes row: "N Changed files" and its lines, "No changes", or "Loading changes…".
+fn changes_row(s: &App, sid: &str) -> Item {
+    let item = |title: &str| Item::new("changes", title.to_owned()).icon(&ic::REVIEW);
+    match s.review.sessions.get(sid) {
+        Some(r) if r.ready && r.meta.is_empty() => item("No changes"),
+        Some(r) if r.ready => {
+            let (added, removed) = r.totals();
+            let n = r.meta.len();
+            item(&format!("{n} Changed file{}", if n == 1 { "" } else { "s" })).diff(added, removed)
+        }
+        _ => item("Loading changes…"),
+    }
+}
+
+/// Session details' Move session to (`SessionWorkspaceMenu`): the project's root, a new
+/// worktree, and its other worktrees; disabled while the session runs.
+fn move_menu(s: &App, project: &opencode_kit::model::Project, dir: &str, info: &opencode_kit::model::SessionInfo) -> Menu {
+    let running = s.busy(&info.id);
+    let norm = |d: &str| d.trim_end_matches(['/', '\\']).replace('\\', "/");
+    let mut menu = Menu::new("Move session to").min_width(200.0).width(200.0).group("Move session to");
+    if norm(&project.directory) != norm(dir) {
+        menu = menu.item(Item::new("move-local", "Local repository").icon(&ic::MONITOR).enabled(!running));
+    }
+    menu = menu.item(Item::new("move-new", "New worktree").icon(&ic::PLUS).enabled(!running));
+    let worktrees: Vec<String> = opencode_kit::model::project_sandboxes(&project.id)
+        .into_iter()
+        .filter(|w| norm(w) != norm(&project.directory) && norm(w) != norm(dir))
+        .collect();
+    if !worktrees.is_empty() {
+        menu = menu.group("Worktree");
+        for w in worktrees {
+            let name = opencode_kit::path::basename(w.trim_end_matches(['/', '\\'])).to_owned();
+            menu = menu.item(Item::new(format!("move-to:{w}"), name).icon(&ic::OUTLINE_WORKTREE).enabled(!running));
+        }
+    }
+    menu
+}
+
+/// Moves session `sid` where `pick` says: the project's root, a new worktree made from `dir`,
+/// or an existing worktree. A failure says so in a toast.
+fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: Option<&str>, pick: &str) {
+    let (sid, dir, project) = (sid.to_owned(), dir.to_owned(), project.unwrap_or_default().to_owned());
+    let target = match pick {
+        "move-local" => root.map(str::to_owned),
+        "move-new" => None,
+        other => other.strip_prefix("move-to:").map(str::to_owned),
+    };
+    if pick != "move-new" && target.is_none() {
+        return;
+    }
+    s.job(move |srv| {
+        let moved = match target {
+            Some(t) => srv.move_session(&sid, &t),
+            None => srv.create_worktree(&project, &dir, None).and_then(|t| srv.move_session(&sid, &t)),
+        };
+        Box::new(move |s: &mut App, _tx: &mut Tx| {
+            if let Err(e) = moved {
+                crate::status_toast::fail(s, "Failed to move session", e);
+            }
+        }) as Apply
+    });
+}
+
+fn copied(s: &mut App, value: &str, tx: &mut Tx) {
+    tx.copy(value.to_owned());
+    crate::status_toast::say(s, "Copied", value);
+}
+
+/// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).
+#[cfg(target_os = "windows")]
+const REVEAL: &str = "Reveal in File Explorer";
+#[cfg(target_os = "macos")]
+const REVEAL: &str = "Reveal in Finder";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const REVEAL: &str = "Open containing folder";
+
+/// Shows folder `dir` in the system's file manager; a headless run opens nothing.
+fn reveal(dir: &str) -> Result<(), String> {
+    if crate::headless() {
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("/usr/bin/open");
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
