@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, Pickers, RECENT, Selection, grouped, hover, search};
+use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, search};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -49,6 +49,14 @@ pub trait PickerHost: ComposerHost {
     fn picker_search_key(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }
+
+    /// The buttons beside the model search, in order: Manage models opens here; a host that can
+    /// connect a provider puts Connect first.
+    fn picker_model_actions(&self) -> Vec<ModelAction> {
+        vec![ModelAction::Manage]
+    }
+    /// Connect was pressed; the list has closed.
+    fn picker_model_action(&mut self, _action: ModelAction, _tx: &mut Tx) {}
 
     /// The project picker's rows (a host without one lists none).
     fn picker_projects(&self) -> Vec<Item> {
@@ -276,15 +284,19 @@ pub trait PickerHost: ComposerHost {
 ///
 /// A search lists what it finds, best first and ties by name as Desktop lists them, each
 /// provider's models together: [`search::score`] finds a typo as well as a word (t1389).
+///
+/// With no search, each provider's models go by name and the providers in Desktop's order
+/// (`select-dialog.tsx:85-98`, `:496`): its popular ones first, then the rest by name.
 fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
     let current = format!("{}:{}", selection.model.provider, selection.model.id);
     // Rows are grouped, and the rail keyed, by the provider's id; the header says its name.
     let item = |m: &Model, group: &str, heading: &str, note: bool| Item {
         key: m.key.clone(), label: m.name.clone(), group: group.to_owned(), heading: heading.to_owned(),
-        note: if note { m.group.clone() } else { String::new() }, free: m.free,
+        note: if note { m.group.clone() } else { String::new() }, free: m.free, latest: m.latest,
     };
     if !pk.search.text.trim().is_empty() {
         let mut hits: Vec<(i64, Item)> = pk.models.iter()
+            .filter(|m| pk.visible(m))
             .filter_map(|m| {
                 let fields = [m.name.as_str(), m.group.as_str(), m.provider.as_str(), m.id.as_str()];
                 search::score(&pk.search.text, &fields).map(|score| (score, item(m, &m.provider, &m.group, false)))
@@ -300,10 +312,23 @@ fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
         .chain(prefs.recent.iter().filter(|k| **k != current && !prefs.is_favorite(k)))
         .filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
+    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| (pk.visible(m) || m.key == current) && !lead(m)).collect();
+    rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     grouped(recent.iter().map(|m| item(m, RECENT, "", true))
         .chain(favorites.iter().map(|m| item(m, FAVORITES, "", true)))
-        .chain(pk.models.iter().filter(|m| (!m.hidden || m.key == current) && !lead(m)).map(|m| item(m, &m.provider, &m.group, false)))
+        .chain(rest.into_iter().map(|m| item(m, &m.provider, &m.group, false)))
         .collect())
+}
+
+/// Desktop's `popularProviders` (`providers/catalog/order.ts`), which lead the list in this order.
+const POPULAR: [&str; 8] = ["opencode-go", "opencode", "anthropic", "github-copilot", "openai", "google", "openrouter", "vercel"];
+
+/// Where a model's provider goes: a popular one by its place, the rest after them by name.
+pub(super) fn provider_rank(m: &Model) -> (usize, String) {
+    match POPULAR.iter().position(|p| *p == m.provider) {
+        Some(at) => (at, String::new()),
+        None => (POPULAR.len(), m.group.to_lowercase()),
+    }
 }
 
 fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {

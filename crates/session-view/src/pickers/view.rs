@@ -7,7 +7,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::flyout::{self, EffortFlyout};
 use super::hover::{self, ModelHover};
-use super::{ADD_PROJECT_KEY, Kind, PickerHost, rail};
+use super::{ADD_PROJECT_KEY, Kind, ModelAction, PickerHost, rail};
 use crate::palette::Pal;
 use crate::popover::{self as pop, LIST, MENU, Opt};
 use crate::style::UI;
@@ -15,7 +15,7 @@ use crate::style::UI;
 /// The scrim, the open list and the lit model's efforts, over everything, while a picker is open.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     if s.pickers().open.is_none() {
-        return Vec::new();
+        return super::manage::layer(s, p);
     }
     // Nothing gets focus back, so the search field can unmount in this frame.
     let scrim = pop::scrim::<S>("picker-dismiss", |s: &mut S, _| s.close_picker(false));
@@ -131,7 +131,9 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         let field = pop::search_field(p, "picker-search", &pk.search, "Search models")
             .on_edit(|s: &mut S| &mut s.pickers_mut().search)
             .on_input_key(|s: &mut S, ev, tx| s.picker_key(ev, tx) || s.picker_search_key(ev, tx));
-        menu = menu.child(pop::search_row(p, look, "picker-search-row", rail::LEAD, field));
+        // Desktop's trailing buttons (`select-dialog.tsx:1010-1034`); the host offers what it has.
+        let trailing: Vec<El> = s.picker_model_actions().into_iter().map(|a| model_action::<S>(p, a)).collect();
+        menu = menu.child(pop::search_row(p, look, "picker-search-row", rail::LEAD, field, trailing));
     }
     let mut list = pop::List::new("picker-options", look);
     let mut footer: Option<El> = None;
@@ -153,6 +155,9 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
             lit_group = Some(item.group.as_str());
         }
         let mut o = Opt::new(format!("option-{key}"), item.label.clone()).active(is_active).checked(!is_add && item.key == selected);
+        if kind == Kind::Model {
+            o = o.mark(search_match(&item.label, &pk.search.text));
+        }
         if !is_add {
             o = o.slides();
         }
@@ -168,6 +173,9 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         }
         if item.free {
             o = o.after(pop::badge(p, "Free"));
+        }
+        if item.latest {
+            o = o.after(pop::badge(p, "Latest"));
         }
         if kind == Kind::Model && is_active {
             let star = key.clone();
@@ -207,7 +215,7 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     if kind == Kind::Model && items.is_empty() {
         // Nothing to jump to, so no rail: the words stand on the labels' edge with no empty
         // column and hairline beside the search (t1389).
-        list.other(pop::empty(p, "picker-empty", "No models found", rail::LEAD + look.label_x()), pop::EMPTY_H);
+        list.other(pop::empty(p, "picker-empty", "No model results", rail::LEAD + look.label_x()), pop::EMPTY_H);
     }
     list.slide(s.knobs(), p, &pk.search.text);
     let listed = !list.is_empty();
@@ -235,4 +243,36 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
         menu = menu.child(col().key("picker-footer").w_full().padding(look.inset).child(add_row));
     }
     pop::place(s.knobs(), menu, kind.key(), Side::Top, Align::Start, 6.0)
+}
+
+/// Where the query first shows in a model's name, ignoring case: the one stretch Desktop's
+/// `SearchHighlight` marks (`search-list.tsx:377-403`). None when it isn't there as typed, or
+/// when lowercasing moves the name's offsets.
+fn search_match(name: &str, query: &str) -> Option<std::ops::Range<usize>> {
+    let needle = query.trim().to_lowercase();
+    let hay = name.to_lowercase();
+    if needle.is_empty() || hay.len() != name.len() {
+        return None;
+    }
+    hay.find(&needle).map(|at| at..at + needle.len())
+}
+
+/// A button beside the model search: it closes the list and hands the action to the host.
+fn model_action<S: PickerHost>(p: &Pal, action: ModelAction) -> El {
+    let glyph = match action {
+        ModelAction::Connect => &ic::PLUS,
+        ModelAction::Manage => &ic::OUTLINE_SLIDERS,
+    };
+    let key = match action {
+        ModelAction::Connect => "picker-connect",
+        ModelAction::Manage => "picker-manage",
+    };
+    pop::search_button::<S>(p, key, glyph, action.label(), move |s: &mut S, tx: &mut Tx| {
+        tx.instant();
+        s.close_picker(false);
+        match action {
+            ModelAction::Manage => s.pickers_mut().open_manage(),
+            ModelAction::Connect => s.picker_model_action(action, tx),
+        }
+    })
 }

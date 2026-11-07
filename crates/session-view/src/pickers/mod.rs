@@ -11,6 +11,7 @@
 pub mod flyout;
 mod host;
 pub mod hover;
+pub mod manage;
 pub mod prefs;
 pub mod rail;
 pub mod search;
@@ -39,6 +40,21 @@ pub enum Kind { Agent, Model, Effort, Project }
 
 pub const ADD_PROJECT_KEY: &str = "+add";
 
+/// The model list's buttons beside its search (`select-dialog.tsx:1010-1034`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelAction {
+    /// `+`: Connect an integration.
+    Connect,
+    /// The sliders: Manage models.
+    Manage,
+}
+
+impl ModelAction {
+    pub fn label(self) -> &'static str {
+        match self { Self::Connect => "Connect an integration", Self::Manage => "Manage models" }
+    }
+}
+
 impl Kind {
     pub fn key(self) -> &'static str {
         match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
@@ -55,10 +71,12 @@ pub struct Model {
     pub group: String,
     pub name: String,
     pub variants: Vec<String>,
-    /// Left out of the list until a search finds it (Desktop's `visible`).
+    /// Left out of the list unless Manage models shows it (Desktop's default `visible`).
     pub hidden: bool,
     /// OpenCode's free models (Desktop's `isFreeModel`).
     pub free: bool,
+    /// Named "(latest)" by the server: its row says Latest (`models.tsx:110`).
+    pub latest: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -76,6 +94,7 @@ pub struct Item {
     /// Faint after the label: a model's provider in Favorites and Recent.
     pub note: String,
     pub free: bool,
+    pub latest: bool,
 }
 
 impl Item {
@@ -118,6 +137,8 @@ pub struct Pickers {
     /// When the flyout opens on hover.
     pub hover: hover::Hover,
     pub prefs: ModelPrefs,
+    /// Manage models, while it's open.
+    pub manage: Option<manage::Manage>,
 }
 
 /// `items` with each group's rows together, groups in the order they first appear: the server
@@ -141,7 +162,7 @@ impl Pickers {
             let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
-                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false }
+                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false, latest: false }
         }).collect();
         self.load_limits(&fixture["models"]);
         // A fixture may name its providers too, as the server's `/api/provider` does.
@@ -179,7 +200,8 @@ impl Pickers {
         self.models = listed.iter().map(|v| {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
-            Model { hidden: !shown.contains(&key), free: is_free(v), key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: s(v, "name").replace("(latest)", "").trim().to_owned(),
+            let name = s(v, "name");
+            Model { hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: name.replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);
@@ -214,6 +236,12 @@ impl Pickers {
         self.staged.insert(key.to_owned(), effort.to_owned());
     }
 
+    /// Whether the model is listed: as Manage models set it, else as Desktop lists it by default
+    /// (`models.tsx:128-140`).
+    pub fn visible(&self, m: &Model) -> bool {
+        self.prefs.visibility(&m.key).unwrap_or(!m.hidden)
+    }
+
     pub fn model_name(&self, m: &ModelRef) -> String {
         self.models.iter().find(|x| x.id == m.id && x.provider == m.provider).map_or_else(|| m.display(), |x| x.name.clone())
     }
@@ -233,9 +261,10 @@ fn is_free(m: &Value) -> bool {
     m["providerID"] == "opencode" && m["cost"].as_array().and_then(|c| c.iter().find(|c| c.get("tier").is_none()).or(c.first())).is_none_or(|c| c["input"].as_f64() == Some(0.0))
 }
 
-/// Desktop's default model list (`models.tsx` `visible`): each provider's newest model in a
-/// family released in the last six months, OpenCode's free models, and models with no release
-/// date. A search finds the rest.
+/// Desktop's default model list (`models.tsx:128-140` `visible`): each provider's newest model
+/// in a family released in the last six months, OpenCode's free models, and models with no
+/// release date. A search finds the rest. `time.released` 0 is no date
+/// (`global-sync/utils.ts:122`), so a configured model the server knows no date for stays listed.
 fn shown_models(models: &[&Value], now_ms: i64) -> HashSet<String> {
     const SIX_MONTHS: f64 = 6.0 * 30.436875 * 24.0 * 3600.0 * 1000.0;
     let key = |m: &Value| format!("{}:{}", m["providerID"].as_str().unwrap_or(""), m["id"].as_str().unwrap_or(""));
@@ -243,7 +272,7 @@ fn shown_models(models: &[&Value], now_ms: i64) -> HashSet<String> {
     let mut out = HashSet::new();
     let mut newest: HashMap<String, (i64, String)> = HashMap::new();
     for m in models {
-        let Some(released) = m["time"]["released"].as_f64() else { out.insert(key(m)); continue };
+        let Some(released) = m["time"]["released"].as_f64().filter(|r| *r != 0.0) else { out.insert(key(m)); continue };
         if free(m) { out.insert(key(m)); }
         if (now_ms as f64 - released).abs() >= SIX_MONTHS { continue; }
         let family = format!("{}/{}/{}", m["providerID"].as_str().unwrap_or(""), m["family"].as_str().unwrap_or(""), free(m));

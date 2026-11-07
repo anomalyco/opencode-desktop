@@ -16,7 +16,9 @@ pub mod motion;
 pub mod nav;
 mod slide;
 
-use rune::{Align, Color, El, ScrollSpec, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use std::ops::Range;
+
+use rune::{Align, Color, El, ScrollSpec, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text, text_input};
 use rune_kit::glyphs;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
@@ -142,14 +144,26 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
 
 /// The search row and the hairline under it, across the whole surface, over a list that starts
 /// `lead` points in (a rail of icons down its left): the glass is centred over the lead and the
-/// query starts where the rows' labels do. Use it with [`LIST`].
-pub fn search_row(p: &Pal, look: Look, key: &str, lead: f32, field: El) -> El {
+/// query starts where the rows' labels do. `trailing` ([`search_button`]s) end it, each 2 pt from
+/// the row's edges as Desktop's (`select-dialog.css:69-86`). Use it with [`LIST`].
+pub fn search_row(p: &Pal, look: Look, key: &str, lead: f32, field: El, trailing: Vec<El>) -> El {
+    let end = if trailing.is_empty() { look.inset } else { look.inset + 2.0 };
     col().key(key.to_owned()).w_full().pt(look.inset).gap(look.inset)
-        .child(row().key("search").h(SEARCH_H).w_full().pr(look.inset).center_y()
+        .child(row().key("search").h(SEARCH_H).w_full().pr(end).center_y()
             .child(row().key("search-glass").w(lead).h_full().center().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
             .child(el().w(look.inset + look.label_x()))
-            .child(field))
+            .child(field)
+            .children(trailing))
         .child(divider(p, "search-divider"))
+}
+
+/// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 16 pt
+/// icon on the hover and pressed overlays, its name in a tooltip.
+pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
+        .size(24.0, 24.0).center().radius(6.0).hover(p.hover).press(p.pressed)
+        .on_press_tx(press)
+        .child(icon(glyph, SLOT).color(p.icon_muted))
 }
 
 /// A full-width hairline.
@@ -210,12 +224,15 @@ pub struct Opt {
     pub danger: bool,
     /// Shown but not offered: a faint label that neither lights nor picks.
     pub disabled: bool,
+    /// The stretch of the label a search matched, in the accent (`search-list.css:170-173`).
+    pub mark: Option<Range<usize>>,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None }
     }
+    pub fn mark(mut self, r: Option<Range<usize>>) -> Opt { self.mark = r; self }
     pub fn danger(mut self, on: bool) -> Opt { self.danger = on; self }
     pub fn disabled(mut self, on: bool) -> Opt { self.disabled = on; self }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
@@ -260,8 +277,12 @@ pub fn option<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S) + 
             .on_press_tx(pick)
     };
     let ink = if o.disabled { p.faint } else if o.danger { p.danger } else { p.text };
+    let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
+        Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
+        None => text(o.label),
+    };
     let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
-        .child(text(o.label).font(UI).color(ink).shrink().truncate_fade())
+        .child(label.key("label").font(UI).color(ink).shrink().truncate_fade())
         .children(o.after);
     r.children(o.lead)
         .child(words)
@@ -359,7 +380,8 @@ impl List {
 /// The empty state's height in a list ("No models found").
 pub const EMPTY_H: f32 = 36.0;
 
-/// "No models found": faint, on the row labels' edge, `left` in from the list's own edge.
+/// "No model results": muted as Desktop's (`search-list.css:175-184`), on the row labels'
+/// edge, `left` in from the list's own edge.
 pub fn empty(p: &Pal, key: &str, label: &str, left: f32) -> El {
-    row().key(key.to_owned()).transition(Transition::none()).h(EMPTY_H).w_full().pl(left).center_y().child(text(label.to_owned()).font(UI).color(p.faint))
+    row().key(key.to_owned()).transition(Transition::none()).h(EMPTY_H).w_full().pl(left).center_y().child(text(label.to_owned()).font(UI).color(p.muted))
 }
