@@ -74,8 +74,8 @@ impl<P: 'static> WindowSetupCx<P> {
         });
     }
 
-    /// [`Self::add_panel`] with `label` drawing what leads the tab's title in the strip
-    /// (`BuiltinPanelTab.label`), in place of its icon.
+    /// [`Self::add_panel`] with `label` drawing the tab's label in the strip
+    /// (`BuiltinPanelTab.label`), in place of its icon and title.
     pub fn add_panel_with_label(
         &mut self,
         spec: PanelSpec,

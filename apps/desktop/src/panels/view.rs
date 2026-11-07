@@ -535,21 +535,23 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview
             s.side.tab_menu = Some((menu_key.clone(), ev.x / s.zoom, ev.y / s.zoom));
         });
 
-    if let Some(lead) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
-        pill = pill.child(lead);
-    } else if let Some(glyph) = entry.tab.icon {
+    // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
+    if let Some(label) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
+        pill = pill.child(label);
+    } else {
+        if let Some(glyph) = entry.tab.icon {
+            pill = pill.child(
+                icon(glyph, 14.0).color(if active { p.icon } else { p.icon_muted }),
+            );
+        }
         pill = pill.child(
-            icon(glyph, 14.0).color(if active { p.icon } else { p.icon_muted }),
+            text(entry.tab.title.clone())
+                .font(if active { UI_MED } else { UI })
+                .color(label_color)
+                .truncate_fade()
+                .shrink(),
         );
     }
-
-    pill = pill.child(
-        text(entry.tab.title.clone())
-            .font(if active { UI_MED } else { UI })
-            .color(label_color)
-            .truncate_fade()
-            .shrink(),
-    );
 
     if let Some(badge) = &entry.tab.badge {
         pill = pill.child(text(badge.clone()).font(UI_SMALL).color(p.faint));

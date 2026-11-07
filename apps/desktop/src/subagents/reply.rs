@@ -125,7 +125,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
         let mut model = row().key("subagent-model").shrink().min_w(0.0).center_y();
         if let Some(provider) = s.pickers.provider_label(&info.model) {
             // `Slash gap={4}`: 4 of space each side of the `/`, less its side bearing.
-            model = model.child(words(provider)).child(words("/".to_owned()).color(p.icon_faint).mx(3.5));
+            model = model.child(words(provider)).child(words("/".to_owned()).color(p.icon_faint).mx(3.0));
         }
         model = model.child(text(s.pickers.model_name(&info.model)).font(BAR).color(p.faint).truncate().shrink());
         if !info.model.variant.is_empty() && info.model.variant != "default" {

@@ -618,7 +618,7 @@ pub struct PanelSpecAbi<'a> {
     pub order: i32,
     pub flags: u32,
     pub render: RenderCallback,
-    /// Draws what leads the tab's title in the strip ([`SURFACE_TAB`]), in place of `icon`.
+    /// Draws the tab's label in the strip ([`SURFACE_TAB`]), in place of its icon and title.
     pub label: RenderCallback,
 }
 

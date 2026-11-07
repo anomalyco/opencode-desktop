@@ -112,7 +112,7 @@ pub struct PanelRec {
     /// `PANEL_*` flags.
     pub flags: u32,
     pub render: RenderEnv,
-    /// Draws what leads the tab's title, in place of `icon`.
+    /// Draws the tab's label, in place of its icon and title.
     pub label: Option<RenderEnv>,
 }
 

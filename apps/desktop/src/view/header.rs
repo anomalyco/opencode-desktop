@@ -47,8 +47,9 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
         if keep(HeaderDrop::Badge) {
             crumbs = crumbs.child(super::location::trigger(s, p, project, &proj, keep(HeaderDrop::Name)));
             // The separator after the location: 8 of space each side, less the trigger's 6 and the
-            // title's 4 padding (`SessionHeaderSeparator gap 8 before 6 after 4`).
-            crumbs = crumbs.child(slash(p, 1.5, 3.5));
+            // title's 4 padding (`SessionHeaderSeparator gap 8 before 6 after 4`), and the glyph's
+            // own side bearing, which Desktop's `Slash` cancels.
+            crumbs = crumbs.child(slash(p, 0.5, 3.5));
         }
         if let Some(parent) = parent.filter(|_| keep(HeaderDrop::Parent)) {
             let pid = parent.id.clone();
@@ -71,7 +72,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                         })
                         .child(text(title_of(parent)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink()),
                 )
-                .child(slash(p, 7.5, 3.5));
+                .child(slash(p, 6.5, 3.5));
         }
         if titled {
             crumbs = crumbs.children(header_title(s, p, info, keep(HeaderDrop::More)));

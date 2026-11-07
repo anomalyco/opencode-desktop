@@ -68,7 +68,7 @@ fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     panels.chain(items).collect()
 }
 
-/// A plugin panel's own tab lead (`PanelSpec` `label`), drawn for the routed session.
+/// A plugin panel's own tab label (`PanelSpec` `label`), drawn for the routed session.
 fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
     let host = &app.plugins;
     let (i, rec) = panels(host).find(|(_, p)| p.tab == tab.id)?;

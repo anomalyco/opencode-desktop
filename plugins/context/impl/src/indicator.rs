@@ -147,12 +147,16 @@ pub fn menu(_: &Context, cx: &mut ViewCx<Context>, props: &Props) -> El {
     card.child(view)
 }
 
-/// What leads the Context tab's title: the ring in its indicator look.
+/// The Context tab's label (`tab.label`): the ring in its indicator look, 8 from the title,
+/// which keeps the trigger's muted ink.
 pub fn tab_label(_: &Context, cx: &mut ViewCx<Context>, props: &Props) -> El {
     let percent = cx.session(&props.session_id).map(|s| Usage::of(cx, &s).percent.unwrap_or(0)).unwrap_or(0);
     cx.memo("tab-label", (percent, cx.dark()), |cx| {
         let p = cx.pal();
-        // Desktop's label spaces the ring 8 from the title; the strip leaves 6.
-        ring(&p, Look::Indicator, percent, Some(p.pressed)).mr(2.0)
+        row()
+            .gap(8.0)
+            .center_y()
+            .child(ring(&p, Look::Indicator, percent, Some(p.pressed)))
+            .child(text("Context").font(13.0, 440.0).line_height(20.0).color(p.muted).no_wrap())
     })
 }
