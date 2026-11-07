@@ -1,15 +1,17 @@
 //! Hex's desktop capture API (the one its SDK's `connect()` uses): an app borrows Hex's
-//! microphone and model for one recording and gets the whole transcript back from `finish`.
-//! Unlike `hex dictation start`, nothing ends it but the app (Smart Turn never stops it on a
-//! pause), and nothing is pasted. `transcribe` turns a WAV the app recorded itself into words.
-//! Hex writes where it listens to `local-api.json`, and removes the file when it quits.
+//! microphone (the one the user chose in Hex) and model for one recording and gets the whole
+//! transcript back from `finish`, with the words so far on the way where Hex offers them
+//! (`partials`). Unlike `hex dictation start`, nothing ends it but the app (Smart Turn never
+//! stops it on a pause), and nothing is pasted. `transcribe` turns a WAV the app recorded itself
+//! into words. Hex writes where it listens to `local-api.json`, and removes the file when it quits.
 //!
-//! For live text, `stream` is the other way round: the app records and pushes the audio, and
-//! Hex sends partials, segments, and the final (`stream.rs`).
+//! `stream` is the other way round: the app records and pushes the audio, and Hex sends
+//! partials, segments, and the final (`stream.rs`). An older Windows Hex offers only that.
 //!
-//! `dictate` (`session/`) runs a whole dictation on whichever of the two this OS's Hex offers,
+//! `dictate` (`session/`) runs a whole dictation on whichever of the two the running Hex offers,
 //! and `install.rs` finds, starts, and offers to download Hex.
 
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -63,6 +65,15 @@ pub struct Capture {
     owner: String,
 }
 
+/// What the running Hex's local API offers (`/capabilities`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Capabilities {
+    /// Hex records a capture itself (`/dictations`). Windows Hex before it did says no.
+    pub capture: bool,
+    /// A capture started with partials sends the words so far (`/dictations/{id}/partials`).
+    pub partials: bool,
+}
+
 pub const NOT_RUNNING: &str = "Hex isn't running";
 pub const BUSY: &str = "Hex is already recording";
 pub const OUTDATED: &str = "This Hex can't record and needs an update";
@@ -112,9 +123,25 @@ impl Hex {
         Ok(v)
     }
 
-    pub fn start(&self) -> Result<Capture, String> {
-        let v = self.call("/dictations", None, Some(json!({ "source": self.source })), Duration::from_secs(10)).map_err(|code| match code.as_str() {
+    /// What this Hex offers; None when it doesn't answer (it quit, or it's too old to say).
+    pub fn capabilities(&self) -> Option<Capabilities> {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(5))).http_status_as_error(false).build().into();
+        let mut resp = agent.get(format!("{}/capabilities", self.base)).header("Authorization", &format!("Bearer {}", self.token)).call().ok()?;
+        if resp.status().as_u16() >= 400 {
+            return None;
+        }
+        let v: Value = serde_json::from_str(&resp.body_mut().read_to_string().ok()?).ok()?;
+        Some(Capabilities { capture: v["serviceCapture"] == true, partials: v["dictationPartials"] == true })
+    }
+
+    /// Starts a capture on Hex's microphone, asking for the words so far (`partials`), which a
+    /// Hex without them ignores. `records`: this Hex said it records captures, so one it can't
+    /// start yet has its listener off or still loading its model, rather than being too old.
+    pub fn start(&self, records: bool) -> Result<Capture, String> {
+        let body = json!({ "source": self.source, "partials": true });
+        let v = self.call("/dictations", None, Some(body), Duration::from_secs(10)).map_err(|code| match code.as_str() {
             "dictation-busy" => BUSY.to_owned(),
+            "service-capture-unavailable" | "service-capture-busy" if records => NO_ENGINE.to_owned(),
             // An older Hex has the API but no capture behind it, or no `/dictations` at all.
             "service-capture-unavailable" | "not_found" => self.outdated.clone(),
             _ if code.contains("running") => code,
@@ -163,6 +190,27 @@ impl Hex {
 
     pub fn cancel(&self, c: &Capture) {
         let _ = self.call(&format!("/dictations/{}/cancel", c.id), Some(&c.owner), None, Duration::from_secs(5));
+    }
+
+    /// The words so far of a capture started with partials, as (`stable`, which won't change,
+    /// `tentative`, which may), until the capture ends. Hex sends them while its model streams
+    /// (on a GPU); `finish` has the transcript either way. Read them on their own thread.
+    pub fn partials(&self, c: &Capture) -> Result<impl Iterator<Item = (String, String)> + Send + 'static, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_connect(Some(Duration::from_secs(5))).http_status_as_error(false).build().into();
+        let resp = agent
+            .get(format!("{}/dictations/{}/partials", self.base, c.id))
+            .header("Authorization", &format!("Bearer {}", self.token))
+            .header("x-hex-dictation-token", &c.owner)
+            .call()
+            .map_err(|_| NOT_RUNNING.to_owned())?;
+        if resp.status().as_u16() >= 400 {
+            return Err(format!("partials refused: {}", resp.status().as_u16()));
+        }
+        let lines = BufReader::new(resp.into_body().into_reader()).lines();
+        Ok(lines.map_while(Result::ok).filter_map(|line| {
+            let v: Value = serde_json::from_str(line.strip_prefix("data:")?.trim()).ok()?;
+            Some((v["stable"].as_str()?.to_owned(), v["tentative"].as_str().unwrap_or("").to_owned()))
+        }))
     }
 
 }

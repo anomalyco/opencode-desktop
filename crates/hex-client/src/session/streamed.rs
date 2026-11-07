@@ -1,6 +1,7 @@
-//! Windows: the app records the default microphone (`mic.rs`) and pushes it to one of Hex's
-//! live streams every 100 ms. Hex's events give the words so far while it listens; the stop
-//! keeps the microphone open for `TAIL`, pushes the rest, and waits for Hex's final text.
+//! A Windows Hex from before its capture API: the app records the default microphone (`mic.rs`)
+//! and pushes it to one of Hex's live streams every 100 ms. Hex's events give the words so far
+//! while it listens; the stop keeps the microphone open for `TAIL`, pushes the rest, and waits
+//! for Hex's final text.
 
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};

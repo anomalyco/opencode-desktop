@@ -2,10 +2,11 @@
 //! installed Hex that isn't running), records through the transport this OS's Hex offers, and
 //! reports what it heard.
 //!
-//! - macOS and Linux: Hex's capture API (`captured.rs`). Hex records its own microphone and
-//!   answers the whole transcript when the app finishes.
-//! - Windows: Hex has no capture API, so the app records the microphone itself and pushes it to
-//!   a live stream (`streamed.rs`), which also sends partial text while it listens.
+//! - Hex's capture API (`captured.rs`), wherever Hex has it: Hex records the microphone the user
+//!   chose in Hex, sends the words so far where it offers them, and answers the whole transcript
+//!   when the app finishes.
+//! - Windows Hex from before it had one: the app records the default microphone itself and
+//!   pushes it to a live stream (`streamed.rs`), which also sends partial text while it listens.
 
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -14,14 +15,9 @@ use std::time::{Duration, Instant};
 use crate::install::{Fix, Presence};
 use crate::{Hex, NOT_RUNNING, OUTDATED};
 
-#[cfg(not(windows))]
 mod captured;
-#[cfg(not(windows))]
-use captured as transport;
 #[cfg(windows)]
 mod streamed;
-#[cfg(windows)]
-use streamed as transport;
 
 /// How long the microphone stays open after the stop, so a last word said as the stop is
 /// pressed lands. Hex's own shortcut keeps 200 ms after release.
@@ -96,8 +92,23 @@ pub fn dictate(file: &Path, support: &Path, source: &str, cmds: &Receiver<Cmd>, 
         Presence::Running => false,
     };
     match Hex::connect_at(file, source) {
-        Ok(hex) => transport::run(&hex, cmds, warming, heard),
+        Ok(hex) => run(&hex, cmds, warming, heard),
         Err(why) => heard(Heard::Failed(Problem::of(why))),
+    }
+}
+
+/// Hex's own capture: every Hex off Windows has one.
+#[cfg(not(windows))]
+fn run(hex: &Hex, cmds: &Receiver<Cmd>, warming: bool, heard: &mut dyn FnMut(Heard)) {
+    captured::run(hex, cmds, warming, false, heard);
+}
+
+/// Hex's own capture when this Windows Hex says it has one, else a stream the app records for.
+#[cfg(windows)]
+fn run(hex: &Hex, cmds: &Receiver<Cmd>, warming: bool, heard: &mut dyn FnMut(Heard)) {
+    match hex.capabilities() {
+        Some(c) if c.capture => captured::run(hex, cmds, warming, true, heard),
+        _ => streamed::run(hex, cmds, warming, heard),
     }
 }
 

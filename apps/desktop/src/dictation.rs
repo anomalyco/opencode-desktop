@@ -7,8 +7,9 @@
 //! It looks like the OpenCode iOS app's composer: while it listens the mic is a quiet stop beside
 //! Send, which shows a spinner while the words come; "Preparing dictation…", the words so far,
 //! and what went wrong sit under the toolbar. `hex_client::dictate` runs each dictation on its
-//! own thread over whatever this OS's Hex offers (its capture API on macOS, a live stream from
-//! the app's own microphone on Windows, which also sends the words so far). Hex pastes nothing,
+//! own thread over whatever the running Hex offers (its capture API, on the microphone chosen in
+//! Hex, with the words so far where its model streams; on a Windows Hex from before that API, a
+//! live stream from the app's own microphone, which also sends the words so far). Hex pastes nothing,
 //! so the composer keeps its focus. An installed Hex that isn't running starts on the press.
 //!
 //! The mic shows while Hex is there (on Windows always, so a press without Hex offers its
