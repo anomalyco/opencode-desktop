@@ -185,6 +185,7 @@ fn md_edges(src: &str) -> (f32, f32) {
         Some(Block::Quote(_)) => (16.0, 16.0),
         Some(Block::Rule) => (32.0, 32.0),
         Some(Block::Table(_)) => (12.0, 16.0),
+        Some(Block::Image { .. }) => (24.0, 24.0),
         Some(Block::Para(_)) | None => (0.0, 12.0),
     };
     let blocks = markdown::parse_cached(src);
