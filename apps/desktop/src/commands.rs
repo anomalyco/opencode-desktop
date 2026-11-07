@@ -63,11 +63,12 @@ impl Cmd {
     }
 }
 
-/// How a listed command runs: its own function, or a panel's launcher.
+/// How a listed command runs: its own function, a panel's launcher, or a plugin's command.
 #[derive(Clone, Copy, Debug)]
 pub enum Run {
     Fn(fn(&mut App, &mut Tx)),
     Panel(&'static str),
+    Plugin(&'static str),
 }
 
 /// A command as the palette and the `/` popover list it.
@@ -78,6 +79,8 @@ pub struct Command {
     pub description: &'static str,
     pub slash: Option<&'static str>,
     pub keys: Option<Bind>,
+    /// A plugin command's chord, drawn when it has no keymap entry.
+    pub chord: Option<rune::Chord>,
     pub run: Run,
 }
 
@@ -88,7 +91,7 @@ pub const COMMON: [&str; 4] = ["new", "home", "sidebar", "settings"];
 pub const SEARCH: &str = "commands";
 
 impl App {
-    /// Every enabled command: the registered ones, then the panels'.
+    /// Every enabled command: the registered ones, the panels', then the plugins'.
     pub fn commands(&self) -> Vec<Command> {
         let own = collect(&COMMANDS).into_iter().filter(|c| (c.enabled)(self)).map(|c| Command {
             id: c.id,
@@ -96,6 +99,7 @@ impl App {
             description: c.description,
             slash: c.slash,
             keys: c.keys,
+            chord: None,
             run: Run::Fn(c.run),
         });
         let panels = self.all_panels().into_iter().filter_map(|p| {
@@ -105,16 +109,20 @@ impl App {
                 description: "",
                 slash: p.slash,
                 keys: p.shortcut,
+                chord: None,
                 run: Run::Panel(p.plugin),
             })
         });
-        own.chain(panels).collect()
+        own.chain(panels).chain(crate::plugin_host::commands(self)).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
         let Some(c) = self.commands().into_iter().find(|c| c.id == id) else { return };
         match c.run {
             Run::Fn(f) => f(self, tx),
+            Run::Plugin(id) => {
+                crate::plugin_host::run_command(self, id, tx);
+            }
             Run::Panel("file") => self.open_file_palette(tx),
             Run::Panel(plugin) => {
                 if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {

@@ -10,6 +10,9 @@ default = ["knobs"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
+# Built-in plugins linked into the binary through their own entry points, for headless and
+# fuzzer builds; release builds ship them as libraries in `<app>/plugins/`.
+static-builtins = ["dep:opencode-plugin-hello", "opencode-plugin-hello/static-builtin"]
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -17,8 +20,11 @@ knobs = ["rune-knobs/panel"]
 browser-pane = { path = "../../crates/browser-pane" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
+libloading = "0.8"
 rune-mac.workspace = true
 opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-plugin = { path = "../../crates/opencode-plugin" }
+opencode-plugin-hello = { path = "../../plugins/hello", optional = true }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
@@ -33,6 +39,7 @@ serde_json.workspace = true
 sha2 = "0.10"
 session-view = { path = "../../crates/session-view" }
 terminal = { path = "../../crates/terminal" }
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 ureq = { workspace = true, features = ["rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

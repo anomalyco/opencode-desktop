@@ -57,6 +57,8 @@ pub struct Entry {
     pub description: String,
     /// A command's keymap entry, whose chord the row shows.
     pub hint: Option<crate::keymap::Bind>,
+    /// A plugin command's chord, which has no keymap entry.
+    pub chord: Option<rune::Chord>,
     pub group: &'static str,
     pub updated: Option<i64>,
     /// The session is open as a tab.
@@ -232,6 +234,7 @@ impl App {
             project: String::new(),
             description: c.description.into(),
             hint: c.keys,
+            chord: c.chord,
             group: "Commands",
             updated: None,
             open: false,
@@ -248,6 +251,7 @@ impl App {
             project: s.project.clone(),
             description: self.project_label(s),
             hint: None,
+            chord: None,
             group,
             updated: Some(s.updated),
             open: self.tabs.iter().any(|t| t.id == s.id),
@@ -527,6 +531,9 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El
         r = r.child(text(model::ago(now, at)).key("meta").font(UI).color(p.muted));
     } else if let Some(bind) = e.hint.filter(|b| b.chord().is_some()) {
         r = r.child(spacer()).child(crate::keymap::keycaps(p, bind).key("hint"));
+    } else if let Some(chord) = e.chord {
+        let caps = crate::keymap::caps(chord).into_iter().fold(row().key("keys").gap(2.0).center_y(), |r, c| r.child(crate::queue::keycap(p, &c.to_uppercase())));
+        r = r.child(spacer()).child(caps.key("hint"));
     }
     r
 }

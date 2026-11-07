@@ -154,6 +154,7 @@ pub mod panels;
 mod perf;
 mod permission;
 mod pickers;
+mod plugin_host;
 mod popover;
 mod popup;
 mod project_stories;
@@ -415,6 +416,8 @@ pub struct App {
     pub tool_open: Option<tool_open::Opened>,
     pub terminal: terminal::TerminalPane,
     pub rune_mcp: rune_mcp::WindowMcp,
+    /// Native plugins over the C ABI: their panels, commands and settings rows (`plugin_host`).
+    pub plugins: plugin_host::PluginHost,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
     pub stage: Option<stories::Stage>,
     /// The story's variant (1 to 9 in the playground pick it).
@@ -844,7 +847,7 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
-        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) {
+        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) || plugin_host::key(self, ev, tx) {
             return true;
         }
         if tx.focused().is_some() && keymap::Bind::PastePlain.matches_tx(ev, tx) {
@@ -1194,6 +1197,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.open_in.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
+    plugin_host::setup(s, waker.clone());
     s.setup_rune_mcp(waker);
     if !s.playback.is_empty() {
         s.wake_at_playback();

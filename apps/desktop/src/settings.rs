@@ -256,7 +256,8 @@ pub fn page(s: &App, p: &Pal) -> El {
                 .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
                 .child(section(p, "Notifications", notification_list(s, p)))
                 .child(crate::keymap::settings_section(s, p))
-                .child(crate::glitch::settings_section(s, p)),
+                .child(crate::glitch::settings_section(s, p))
+                .children(crate::plugin_host::settings_section(s, p)),
         );
     col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar_styled(crate::palette::scroll_bar(p)))
 }

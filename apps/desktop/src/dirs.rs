@@ -30,6 +30,11 @@ pub fn data() -> Option<PathBuf> {
     Some(app()?.data().to_owned())
 }
 
+/// User configuration: `plugins-override/` (the same folder as `data` on macOS and Windows).
+pub fn config() -> Option<PathBuf> {
+    Some(app()?.config().to_owned())
+}
+
 /// Session pages kept between launches; safe to delete.
 pub fn cache() -> Option<PathBuf> {
     Some(app()?.cache().to_owned())
