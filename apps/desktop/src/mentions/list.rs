@@ -8,7 +8,7 @@ use rune::{Color, Cx, El, Tx, col, row, text};
 use serde_json::Value;
 
 use crate::App;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 
 /// Desktop's composer suggestions (`composer/editor/editor.tsx:72-82`): 28 pt rows in 6 pt of
@@ -156,7 +156,8 @@ pub fn popup(
     };
     // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`: 10 pt
     // corners and the raised ring and drops, no border of its own.
-    p.raised.into_iter().fold(col(), El::box_shadow)
+    col()
+        .elevate(p.raised)
         .key(spec.key)
         .role("listbox")
         .label(spec.label)
