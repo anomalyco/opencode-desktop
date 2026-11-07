@@ -465,7 +465,8 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
             toggle(s);
         });
     }
-    Some(b)
+    // Its slot rides the composer's edge on the panel's spring; the button's own swap lands at once.
+    Some(el().size(28.0, 28.0).child(b))
 }
 
 /// Under the toolbar, as in iOS: "Preparing dictation…" while Hex is slow to start, the words so

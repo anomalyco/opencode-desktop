@@ -343,6 +343,10 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
         .on_selection_change(S::on_timeline_selection_change)
+        // While a panel's spring moves the timeline's edge, rows take the width they land at,
+        // so their text wraps once, and glide from where the first in view was
+        // (`virtualizer.tsx:254-268`, `panel-motion.ts` `holdLandingWidth`).
+        .hold_landing_width()
         .growth(GrowthSpec { spring: crate::knobs::growth(s.knobs()), edge: e });
     let eager = EAGER_ROWS.get();
     // Eager construction is the benchmark and regression-test reference.

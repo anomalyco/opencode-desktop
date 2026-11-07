@@ -250,6 +250,16 @@ impl App {
             .is_some_and(|st| st.bottom_open)
     }
 
+    /// Lands a tab shown with `show` at once when its pane was already on screen, as switching
+    /// tabs does; a pane it opens flies on `SIDE_SPRING`, as the region's toggle does.
+    pub fn show_pane_tab(&mut self, tx: &mut Tx, show: impl FnOnce(&mut Self)) {
+        let was = (self.side_open(), self.bottom_open());
+        show(self);
+        if (self.side_open(), self.bottom_open()) == was {
+            tx.instant();
+        }
+    }
+
     pub fn resolve_dock_entry(&self) -> Option<(String, String, String, ResolvedEntry)> {
         let session_id = self.active_session_id()?.to_owned();
         let (directory, project_id) = match self.session(&session_id) {

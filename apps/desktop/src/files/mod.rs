@@ -567,14 +567,13 @@ impl App {
         tx: &mut Tx,
     ) {
         let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
-        tx.instant();
         self.ensure_file_loaded(sid, path);
         let tab_key = file_tab_key(path);
         // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
         if let Some(st) = self.side.sessions.get_mut(sid) {
             st.tab_state.tabs.all.retain(|k| k != OPEN_TAB_KEY);
         }
-        self.open_side_tab_for_session(sid, &tab_key, Some(SessionPane::Side), preview, false);
+        self.show_pane_tab(tx, |s| s.open_side_tab_for_session(sid, &tab_key, Some(SessionPane::Side), preview, false));
         if !steal_focus {
             (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
         }

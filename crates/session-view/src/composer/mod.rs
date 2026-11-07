@@ -448,7 +448,9 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .gap(2.0)
                     .center_y()
                     .children(s.composer_toolbar_items(p, scope, busy && ready))
-                    .child(submit),
+                    // The slot rides the composer's edge as a panel's spring moves it, as
+                    // Desktop's follows the chat's width; the button's own swaps land at once.
+                    .child(el().size(28.0, 28.0).child(submit)),
             )
             .children(s.composer_below_toolbar(p)),
     }

@@ -178,10 +178,9 @@ impl App {
     pub(crate) fn create_terminal_tab(&mut self, pane: Option<SessionPane>, tx: &mut Tx) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         let wk = self.terminal_workspace_key_for_session(&sid);
-        tx.instant();
         self.ensure_terminal_workspace_hydrated(&wk);
         let Some(id) = self.new_terminal_in(&wk) else { return };
-        self.show_side_tab(&sid, &panel_key(PLUGIN, &id), pane);
+        self.show_pane_tab(tx, |s| s.show_side_tab(&sid, &panel_key(PLUGIN, &id), pane));
         self.focus_terminal_surface();
     }
 
@@ -197,9 +196,8 @@ impl App {
         if self.side_tab_visible(&key) {
             return self.hide_side_tab(&key, tx);
         }
-        tx.instant();
         self.select_terminal_tab(&wk, &id);
-        self.show_side_tab(&sid, &key, None);
+        self.show_pane_tab(tx, |s| s.show_side_tab(&sid, &key, None));
         self.focus_terminal_surface();
     }
 }

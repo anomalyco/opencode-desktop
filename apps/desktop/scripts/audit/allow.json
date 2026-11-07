@@ -1,5 +1,5 @@
 [
-  {"trace": "switch", "element": "toolbar/submit/send-glyph", "kind": "cut-exit",
+  {"trace": "switch", "element": "submit/send-glyph", "kind": "cut-exit",
    "reason": "a top tab opens on the press, as Desktop navigates on mousedown (tab-nav.tsx); the release then lands the outgoing session's submit glyph, which a session switch swaps at once"},
   {"trace": "switch", "element": "#0/trigger/arrow", "kind": "invisible-work",
    "reason": "a top tab opens on the press, so the session it opens mounts a beat before the release; its tool group's hover-only arrow settles hidden meanwhile"},

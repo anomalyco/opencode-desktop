@@ -370,8 +370,7 @@ impl App {
     /// Opens the review tab, and the side region with it (Desktop's `show`): added to the
     /// strip when it isn't there, selected, its changes read.
     pub fn show_review(&mut self, sid: &str, tx: &mut Tx) {
-        tx.instant();
-        self.show_side_tab(sid, REVIEW_KEY, None);
+        self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.side.focused = true;
         self.side.dock_focused = false;
         self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, REVIEW_KEY);
@@ -652,7 +651,6 @@ impl App {
         tx: &mut Tx,
     ) {
         let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
-        tx.instant();
         if let Some(v) = view {
             self.set_review_diff_mode(v);
         }
@@ -665,7 +663,7 @@ impl App {
                 self.review.asked = None;
             }
         }
-        self.show_side_tab(sid, REVIEW_KEY, None);
+        self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.ensure_session_review(sid);
         if let Some(p) = path {
             let anchor = line.map(|n| crate::tool_open::Anchor {
