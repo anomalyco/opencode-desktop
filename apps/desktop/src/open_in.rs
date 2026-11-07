@@ -322,7 +322,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .role("button")
         .label(format!("Open in {label}"))
         .help(format!("Open in {label}"))
-        .dim(if busy { 0.5 } else { 1.0 })
+        .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             let app = s.open_in.current().to_owned();

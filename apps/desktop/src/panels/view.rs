@@ -26,6 +26,8 @@ pub const SIDE_SPRING: Spring = Spring::new(0.3, 0.0);
 const INSTANT: Anim = Anim::INSTANT;
 const FADE_FLOOR: f32 = 0.5;
 
+/// The review toggle's own glyph (`session-header-actions.tsx`), mirrored so its pane sits on
+/// the right, as Desktop draws it at 16 px.
 static LAYOUT_RIGHT: Icon = Icon {
     name: "layout-right",
     view: 20.0,
@@ -604,8 +606,8 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
         el().key("side-toggle")
             .role("button")
             .label(crate::keymap::Bind::SideToggle.tip(if open { "Hide side panel" } else { "Show side panel" }))
-            // On the session header's centre line, 10pt into the panel.
-            .pin(None, Some(crate::view::chrome().top() + 10.0), Some(18.0), None)
+            // On the session header's centre line, 12pt in from the panel's edge.
+            .pin(None, Some(crate::view::chrome().top() + 10.0), Some(20.0), None)
             .size(28.0, 28.0)
             .radius(6.0)
             .center()
@@ -614,16 +616,16 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_side_region(tx))
             .child(
-                icon(&LAYOUT_RIGHT_FULL, 20.0)
+                icon(&LAYOUT_RIGHT_FULL, 16.0)
                     .color(p.icon_muted)
-                    .absolute(4.0, 4.0)
+                    .absolute(6.0, 6.0)
                     .opacity(if open { 1.0 } else { 0.0 })
                     .opacity_motion(SIDE_SPRING),
             )
             .child(
-                icon(&LAYOUT_RIGHT, 20.0)
+                icon(&LAYOUT_RIGHT, 16.0)
                     .color(p.icon_muted)
-                    .absolute(4.0, 4.0)
+                    .absolute(6.0, 6.0)
                     .opacity(if open { 0.0 } else { 1.0 })
                     .opacity_motion(SIDE_SPRING),
             ),

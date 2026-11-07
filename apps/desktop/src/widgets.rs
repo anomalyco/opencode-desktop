@@ -33,12 +33,11 @@ pub fn status_row(p: &Pal, key: &str, label: &str) -> El {
         .child(text(label.to_owned()).font(BODY).color(p.muted))
 }
 
-/// `opencode-logo.tsx`: OpenCode's mark, which Desktop draws for the `opencode` provider. Its
-/// `translate(1.2 1.2) scale(0.85)` is baked into the paths, as Rune's icons take no transforms.
+/// `opencode-logo.tsx`: OpenCode's mark, which Desktop draws for the `opencode` provider.
 pub static OPENCODE_LOGO: Icon = Icon {
     name: "opencode-logo",
     view: 16.0,
-    body: r#"<path opacity="0.2" d="M10.7199 12.08H5.2799V6.64H10.7199V12.08Z" fill="currentColor"/><path d="M10.72 3.92H5.28V12.08H10.72V3.92ZM13.44 14.8H2.56V1.2H13.44V14.8Z" fill="currentColor"/>"#,
+    body: r#"<g transform="translate(1.2 1.2) scale(0.85)"><path opacity="0.2" d="M11.1999 12.8H4.79993V6.40002H11.1999V12.8Z" fill="currentColor"/><path d="M11.2 3.2H4.79998V12.8H11.2V3.2ZM14.4 16H1.59998V0H14.4V16Z" fill="currentColor"/></g>"#,
 };
 
 /// The dialog's own close cross (`overlays/dialog/dialog.tsx`): a 1 pt stroke corner to corner.
