@@ -1,0 +1,14 @@
+[package]
+name = "opencode-plugin-wsl-impl"
+version = "0.1.0"
+description = "OpenCode (Rune)'s WSL plugin, as Desktop's built-in"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+opencode-plugin = { path = "../../../crates/opencode-plugin" }
+serde_json.workspace = true
+
+[lints]
+workspace = true
