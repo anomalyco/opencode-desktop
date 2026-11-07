@@ -181,13 +181,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
         keyed.push(owner.id);
         card = card.child(file_item(s, p, cx, first.id, item, row_key, i == 0, i + 1 == n));
     }
-    // A file's errors sit flush under the card, as Desktop's `DiagnosticsDisplay` follows its
-    // file's accordion.
-    let errors = items.iter().filter_map(|item| {
-        let owner = item.entries[0].call;
-        diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path))
-    });
-    col().w_full().child(card).children(errors)
+    card
 }
 
 /// One row of the card, and under it the change while open, and the file's errors.
@@ -198,9 +192,11 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     // Timeline detail's Edits › Collapse decides how a file shows until pressed.
     let open = crate::disclosure::is_open(s, &k, s.timeline_detail().expanded(crate::detail::Category::Edit));
     let owner = item.entries[0].call;
-    let closed_bottom = last && !open;
+    let errors = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path));
+    // The card's bottom corners round whichever section ends it: the errors, the change or the row.
+    let end = last && errors.is_none();
     let top = if first { RADIUS } else { 0.0 };
-    let bottom = if closed_bottom { RADIUS } else { 0.0 };
+    let bottom = if end && !open { RADIUS } else { 0.0 };
     let (dir, name) = match shown.rfind(['/', '\\']) {
         Some(at) => (&shown[..=at], &shown[at + 1..]),
         None => ("", shown),
@@ -257,7 +253,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         out = out.mt(-1.0);
     }
     if open {
-        let corner = if last { RADIUS } else { 0.0 };
+        let corner = if end { RADIUS } else { 0.0 };
         let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
         // border is the content's top, which has none of its own (`border-top: 0`).
@@ -273,6 +269,26 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .clip_corners([0.0, 0.0, corner, corner])
                 .child(el().key("hairline").w_full().h(0.5).fill(p.border_muted))
                 .child(readable(p, views)),
+        );
+    }
+    if let Some(errors) = errors {
+        // An intentional Rune extra: Desktop lists a file's errors under a lone edit or write but
+        // never in a group's file card. Here they close the file's part of the card, 1 pt up so
+        // their divider stands in for the bottom border of the row or the change above.
+        let corner = if last { RADIUS } else { 0.0 };
+        let inner = (corner - 1.0).max(0.0);
+        out = out.child(
+            col()
+                .key("errors")
+                .w_full()
+                .mt(-1.0)
+                .px(1.0)
+                .pb(1.0)
+                .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
+                .fill(p.bg_base)
+                .corners([0.0, 0.0, corner, corner])
+                .clip_corners([0.0, 0.0, corner, corner])
+                .child(errors.corners([0.0, 0.0, inner, inner])),
         );
     }
     out
@@ -295,8 +311,9 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
     }
 }
 /// A file's errors after the change (severity 1, the first three), as Desktop's
-/// `DiagnosticsDisplay` lists them (`[data-component="diagnostics"]`): on the danger fill, 8 by
-/// 12 in, under a 0.5 pt `state-border-danger` top border, square and without sides.
+/// `DiagnosticsDisplay` lists them (`[data-component="diagnostics"]`): 13/19.5 mono in
+/// `state-fg-danger` on `state-bg-danger`, 8 by 12 in, under a 0.5 pt `state-border-danger`
+/// divider.
 fn diagnostics(p: &Pal, metadata: &Value, file: &str) -> Option<El> {
     let list: Vec<&Value> = metadata["diagnostics"][file].as_array()?.iter().filter(|d| d["severity"] == 1).take(3).collect();
     if list.is_empty() {
