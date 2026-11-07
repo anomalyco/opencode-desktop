@@ -19,7 +19,7 @@ use rune_theme_opencode::icons as ic;
 use crate::mentions::list::cycle;
 use crate::palette::{Elevate as _, Pal};
 use crate::rewind::SavedDraft;
-use crate::view::{INSTANT, UI, UI_SMALL};
+use crate::view::{INSTANT, UI};
 use crate::{App, Route, Source};
 
 #[derive(Clone, Debug)]
@@ -272,54 +272,66 @@ pub fn applied(s: &mut App, from: String, before: Option<String>, forked: Sessio
     }
 }
 
+/// When a prompt was sent, as `toLocaleTimeString({ timeStyle: "short" })` reads it: "6:03 AM".
 fn short_time(id: &str) -> String {
     let ms = mention::user_created(id).or_else(|| {
         let hex = id.strip_prefix("msg_")?.get(..12)?;
         u64::from_str_radix(hex, 16).ok().map(|v| (v >> 12) as i64).filter(|&v| v > 1_500_000_000_000)
     });
-    let Some(ms) = ms else { return String::new() };
-    let tod = ms.div_euclid(1000).rem_euclid(86_400);
-    format!("{:02}:{:02}", tod / 3600, (tod % 3600) / 60)
+    ms.map(|ms| session_view::turn_errors::short_time(rune::LocalTime::at(ms))).unwrap_or_default()
 }
 
+/// The search block (`.fork-dialog [data-slot="search-list-search"]`): 6 above the 28-tall
+/// field and 9 below it, the hairline at its foot.
+const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
+/// `fork-dialog-section`: the description, 4 above and below its 20-tall line.
+const SECTION_H: f32 = 28.0;
+/// A row (`.fork-dialog [data-slot="search-list-row"]`), and the 2 between rows.
+const ROW_H: f32 = 28.0;
+const ROW_GAP: f32 = 2.0;
+/// `search-list-empty`.
+const EMPTY_H: f32 = 120.0;
+
+/// Desktop's `DialogFork` (`fork-dialog.tsx`, `search-list.css:243-289`) in the compact palette
+/// dialog (`dialog.css:141-153`): 480 wide on bg-base with `--v2-elevation-overlay` and 12 pt
+/// corners, as tall as its rows up to 480, its top halfway down a 480-tall box but at least 48
+/// from the window's.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let zoom = s.zoom.max(0.5);
     let [win_w, win_h] = cx
         .layout_size("zoom")
         .map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w / zoom, h / zoom]);
-    let (w, h) = ((win_w - 32.0).clamp(280.0, 560.0), (win_h - 64.0).clamp(200.0, 380.0));
+    let w = (win_w - 24.0).min(480.0);
+    let max_h = (win_h - 96.0).min(480.0);
     let all = s.fork_messages();
     let filtered = s.fork_filtered();
-    let active = s
-        .fork
-        .active
-        .as_ref()
-        .filter(|id| filtered.iter().any(|m| &m.id == *id))
-        .or_else(|| filtered.first().map(|m| &m.id));
+    let active = s.fork.active.as_ref().filter(|id| filtered.iter().any(|m| &m.id == *id));
     let session = match &s.route {
         Route::Session(sid) => sid.clone(),
         _ => String::new(),
     };
 
+    // `text-input-v2` (base) in the fork dialog: 28 tall and transparent, the glyph 8 in and 8
+    // from the text, the placeholder in `text-base` at half strength, and the clear button
+    // (`circle-xmark`) once something is typed.
+    let typed = !s.fork.search.text.is_empty();
     let search = row()
         .key("fork-field")
-        .h(36.0)
-        .px(12.0)
+        .h(28.0)
+        .pl(8.0)
+        .pr(if typed { 2.0 } else { 6.0 })
         .gap(8.0)
         .center_y()
-        .radius(6.0)
-        .fill(p.search_bg)
-        .hover(p.layer2)
-        .hover_motion(INSTANT, INSTANT)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            text_input(&s.fork.search, UI.lh(20.0))
+            text_input(&s.fork.search, UI)
                 .key("fork-input")
+                .single_line()
                 .grow(1.0)
                 .shrink()
-                .h(20.0)
+                .min_w(0.0)
                 .color(p.text)
-                .placeholder("Search", p.faint)
+                .placeholder("Search", p.text.alpha(p.text.a * 0.5))
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.fork.search)
                 .on_input_change(|s: &mut App, tx| {
@@ -327,28 +339,50 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                     s.fork.active = s.fork_filtered().first().map(|m| m.id.clone());
                 })
                 .on_input_key(|s: &mut App, ev, tx| s.fork_key(ev, tx) || s.shortcut(ev, tx)),
-        );
+        )
+        .children(typed.then(|| {
+            el().key("fork-clear")
+                .role("button")
+                .label("Clear")
+                .size(20.0, 20.0)
+                .radius(4.0)
+                .center()
+                .hover(p.hover)
+                .hover_motion(INSTANT, INSTANT)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.fork.search = TextEdit::new("");
+                    s.fork.search.focused = true;
+                    s.fork.active = s.fork_filtered().first().map(|m| m.id.clone());
+                })
+                .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_muted))
+        }));
 
-    let mut list = col().key("fork-results").w_full().px(6.0).pb(8.0).gap(1.0);
-    if filtered.is_empty() {
+    // `search-list-results` in the compact dialog: 6 in at the sides and foot, rows 2 apart.
+    let mut list = col().key("fork-results").w_full().px(6.0).pb(6.0).gap(ROW_GAP);
+    let content_h = if filtered.is_empty() {
         let empty = if all.is_empty() { "No messages to fork from" } else { "No messages found" };
-        list = list.child(col().key("fork-empty").w_full().min_h(120.0).center().child(text(empty).font(UI).color(p.muted)));
+        list = col().key("fork-results").w_full().child(col().key("fork-empty").w_full().h(EMPTY_H).center().child(text(empty).font(UI).color(p.muted)));
+        EMPTY_H
     } else {
         for item in &filtered {
             let is_active = active == Some(&item.id);
             let (sid, mid, hover_id) = (session.clone(), item.id.clone(), item.id.clone());
-            let mut r = row()
+            // `search-list-row`: 8 in, 12 between the text and the time, 6 pt corners, the hover
+            // overlay while lit; the text 13 at 440 in `text-base`, the time in `text-muted`.
+            let r = row()
                 .key(format!("fork-row-{}", item.id))
                 .role("option")
                 .label(item.text.clone())
                 .w_full()
-                .h(36.0)
-                .px(12.0)
+                .h(ROW_H)
+                .px(8.0)
                 .gap(12.0)
                 .center_y()
                 .radius(6.0)
-                .fill(if is_active { p.row_active } else { Color::TRANSPARENT })
+                .fill(if is_active { p.hover } else { Color::TRANSPARENT })
                 .transition(Transition::none())
+                .motion(Spring::NONE)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
                     tx.instant();
                     s.fork.active = inside.then(|| hover_id.clone());
@@ -357,20 +391,19 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                     tx.instant();
                     s.fork_from(&sid, &mid, tx);
                 })
-                .child(text(item.text.clone()).font(UI).color(p.text).truncate_fade().grow(1.0).shrink().min_w(0.0));
-            if !item.time.is_empty() {
-                r = r.child(text(item.time.clone()).font(UI_SMALL).color(p.faint));
-            }
-            list = list.child(r);
+                .child(text(item.text.clone()).key("text").font(UI).color(p.text).truncate().grow(1.0).shrink().min_w(0.0));
+            list = list.child(r.children((!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(UI.features("\"tnum\"")).color(p.muted))));
         }
-    }
+        filtered.len() as f32 * (ROW_H + ROW_GAP) - ROW_GAP + 6.0
+    };
+    let scroll_h = content_h.min(max_h - HEAD_H - SECTION_H).max(0.0);
 
     let dialog = col()
         .key("fork-dialog")
         .role("dialog")
         .label("Fork from message")
         .w(w)
-        .h(h)
+        .h(HEAD_H + SECTION_H + scroll_h)
         .radius(12.0)
         .fill(p.bg_base)
         .elevate(p.overlay)
@@ -378,25 +411,27 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .transition(Transition::none())
         .motion(Spring::NONE)
         .modal(true, |s: &mut App| s.close_fork_dialog(true))
-        .child(col().key("fork-search").w_full().padding(6.0).child(search))
+        .child(col().key("fork-search").w_full().pt(6.0).px(6.0).child(search))
+        // `::after`: a 0.5 hairline in `border-muted` across the dialog at the block's foot.
+        .child(el().key("fork-divider").w_full().h(0.5).mt(8.5).fill(p.border_muted))
         .child(
             row()
                 .key("fork-desc")
                 .w_full()
-                .h(28.0)
-                .px(18.0)
+                .h(SECTION_H)
+                .px(14.0)
                 .center_y()
-                .child(text("Choose a message to fork from").font(UI_SMALL).color(p.muted)),
+                .child(text("Choose a message to fork from").font(UI.lh(20.0)).color(p.muted)),
         )
         .child(
             col()
                 .key("fork-scroll")
                 .role("listbox")
                 .w_full()
-                .grow(1.0)
-                .shrink()
+                .h(scroll_h)
                 .scroll(ScrollSpec { stick_bottom: false })
-                .clip_fade(0.0, 0.0, 0.0, 24.0)
+                // Rows fade out past the bottom edge only while more follow (search-list.css:63-75).
+                .clip_fade(0.0, 0.0, 0.0, if content_h > scroll_h { 24.0 } else { 0.0 })
                 .child(list),
         );
 
@@ -407,16 +442,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .h_full()
         .fill(p.scrim)
         .transition(Transition::none());
-    let modal = el()
-        .key("fork-modal")
-        .absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .center()
-        .transition(Transition::none())
-        .child(dialog)
-        .raise();
-    [scrim, modal]
+    [scrim, dialog.absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0)).raise()]
 }
 
 #[cfg(test)]
