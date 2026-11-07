@@ -800,7 +800,7 @@ impl App {
             }
         }
         self.status = "Fixture".into();
-        self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode"])));
+        self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
         self.open_in.detect();
         if let Some(home) = v["home"].as_str() {
             self.home = home.to_owned();

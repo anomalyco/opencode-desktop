@@ -1,68 +1,114 @@
-//! Open a file in an editor or terminal, or reveal it in Finder, as Desktop's file panel does
-//! (`gui-plugins/src/file/open-in-app.tsx`).
+//! Open a file in an editor or terminal, or show it in the file manager, as Desktop's file panel
+//! does (`gui-plugins/src/file/open-in-app.tsx`, `desktop/src/main/files`).
 //!
 //! | Where | What |
 //! | --- | --- |
-//! | Files and Changes toolbars | A split button: the remembered app opens the file; the chevron lists the others, Reveal in Finder and Copy path. |
-//! | Tree rows (right-click) | The same apps; picking one opens that row and remembers it. Finder reveals. |
+//! | Files and Changes toolbars | A split button: the remembered app's mark opens the file; the chevron lists the apps under "Open in", then Copy path. Picking one remembers it and opens the file there. |
+//! | Tree rows (right-click) | The same apps; picking one opens that row and remembers it. The file manager reveals it. |
 //!
-//! Only apps that are installed are listed (found by bundle ID through `NSWorkspace`, once, off
-//! the UI thread), Finder always. The choice is kept across launches and defaults to Finder, as
-//! Desktop's does. Nothing shows unless the server shares this machine's files.
+//! Each platform lists Desktop's apps for it (macOS's editors and terminals; on Windows VS Code,
+//! Cursor, Zed, PowerShell and Sublime Text), only those installed (checked once, off the UI
+//! thread), with the file manager first (Finder, File Explorer). The choice is kept across
+//! launches and defaults to the file manager, as Desktop's does. Nothing shows unless the server
+//! shares this machine's files.
 
 use std::sync::Arc;
 
-use rune::{Align, Anim, Cursor, El, PointerPress, Latest, Tx, Waker, el, icon, row, text};
+use rune::{Align, Anim, Cursor, El, PointerPress, Latest, Tx, Waker, el, icon, row};
+use rune_kit::Loader;
 
 use crate::popup::{self, Item, Menu};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
-use crate::palette::Pal;
-use crate::view::UI_SMALL;
+use crate::palette::{Pal, kit};
+
+#[cfg(target_os = "windows")]
+mod windows;
 
 pub const FINDER: &str = "finder";
 
 pub struct OpenApp {
     pub id: &'static str,
     pub label: &'static str,
-    pub bundle: &'static str,
+    /// Desktop's mark for it (`AppIcon`'s id).
+    pub icon: &'static str,
+    /// What the platform finds and opens it by: a bundle ID on macOS, a command elsewhere.
+    pub open_with: &'static str,
+}
+
+const fn app(id: &'static str, label: &'static str, icon: &'static str, open_with: &'static str) -> OpenApp {
+    OpenApp { id, label, icon, open_with }
 }
 
 /// Desktop's macOS list, in its order.
+#[cfg(target_os = "macos")]
 pub const APPS: &[OpenApp] = &[
-    OpenApp { id: "vscode", label: "VS Code", bundle: "com.microsoft.VSCode" },
-    OpenApp { id: "cursor", label: "Cursor", bundle: "com.todesktop.230313mzl4w4u92" },
-    OpenApp { id: "zed", label: "Zed", bundle: "dev.zed.Zed" },
-    OpenApp { id: "textmate", label: "TextMate", bundle: "com.macromates.TextMate" },
-    OpenApp { id: "antigravity", label: "Antigravity", bundle: "com.google.antigravity" },
-    OpenApp { id: "terminal", label: "Terminal", bundle: "com.apple.Terminal" },
-    OpenApp { id: "iterm2", label: "iTerm2", bundle: "com.googlecode.iterm2" },
-    OpenApp { id: "ghostty", label: "Ghostty", bundle: "com.mitchellh.ghostty" },
-    OpenApp { id: "warp", label: "Warp", bundle: "dev.warp.Warp-Stable" },
-    OpenApp { id: "xcode", label: "Xcode", bundle: "com.apple.dt.Xcode" },
-    OpenApp { id: "android-studio", label: "Android Studio", bundle: "com.google.android.studio" },
-    OpenApp { id: "sublime-text", label: "Sublime Text", bundle: "com.sublimetext.4" },
+    app("vscode", "VS Code", "vscode", "com.microsoft.VSCode"),
+    app("cursor", "Cursor", "cursor", "com.todesktop.230313mzl4w4u92"),
+    app("zed", "Zed", "zed", "dev.zed.Zed"),
+    app("textmate", "TextMate", "textmate", "com.macromates.TextMate"),
+    app("antigravity", "Antigravity", "antigravity", "com.google.antigravity"),
+    app("terminal", "Terminal", "terminal", "com.apple.Terminal"),
+    app("iterm2", "iTerm2", "iterm2", "com.googlecode.iterm2"),
+    app("ghostty", "Ghostty", "ghostty", "com.mitchellh.ghostty"),
+    app("warp", "Warp", "warp", "dev.warp.Warp-Stable"),
+    app("xcode", "Xcode", "xcode", "com.apple.dt.Xcode"),
+    app("android-studio", "Android Studio", "android-studio", "com.google.android.studio"),
+    app("sublime-text", "Sublime Text", "sublime-text", "com.sublimetext.4"),
 ];
 
+/// Desktop's Windows list (`WINDOWS_OPEN_APPS`), in its order, by the commands it opens them with.
+#[cfg(target_os = "windows")]
+pub const APPS: &[OpenApp] = &[
+    app("vscode", "VS Code", "vscode", "code"),
+    app("cursor", "Cursor", "cursor", "cursor"),
+    app("zed", "Zed", "zed", "zed"),
+    app("powershell", "PowerShell", "powershell", "powershell"),
+    app("sublime-text", "Sublime Text", "sublime-text", "Sublime Text"),
+];
+
+/// Desktop's Linux list.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub const APPS: &[OpenApp] = &[
+    app("vscode", "VS Code", "vscode", "code"),
+    app("cursor", "Cursor", "cursor", "cursor"),
+    app("zed", "Zed", "zed", "zed"),
+    app("sublime-text", "Sublime Text", "sublime-text", "Sublime Text"),
+];
+
+/// The file manager's name and mark, as the host's project menus name it (`fileManagerApp`).
+#[cfg(target_os = "macos")]
+const FILE_MANAGER: (&str, &str) = ("Finder", "finder");
+#[cfg(target_os = "windows")]
+const FILE_MANAGER: (&str, &str) = ("File Explorer", "file-explorer");
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const FILE_MANAGER: (&str, &str) = ("File Manager", "finder");
+
 fn label_of(id: &str) -> &'static str {
-    if id == FINDER {
-        return "Finder";
-    }
-    APPS.iter().find(|a| a.id == id).map_or("Finder", |a| a.label)
+    APPS.iter().find(|a| a.id == id).map_or(FILE_MANAGER.0, |a| a.label)
 }
 
-/// What launches apps. The real one shells out; tests and fixtures swap in their own.
+fn icon_of(id: &str) -> &'static str {
+    APPS.iter().find(|a| a.id == id).map_or(FILE_MANAGER.1, |a| a.icon)
+}
+
+/// What launches apps. The real one is the platform's; tests and fixtures swap in their own.
 pub trait Launcher: Send + Sync + 'static {
-    /// Bundle IDs among `bundles` that are installed.
-    fn installed(&self, bundles: &[&'static str]) -> Vec<&'static str>;
-    /// Opens `path` in the app with `bundle`, or in its default app.
-    fn open(&self, path: &str, bundle: Option<&str>) -> Result<(), String>;
+    /// The apps among `apps` (by `OpenApp::open_with`) that are installed.
+    fn installed(&self, apps: &[&'static str]) -> Vec<&'static str>;
+    /// Opens `path` in the app found by `app`, or in its default app (a folder in the file manager).
+    fn open(&self, path: &str, app: Option<&str>) -> Result<(), String>;
+    /// Shows `path` selected in the file manager.
     fn reveal(&self, path: &str) -> Result<(), String>;
 }
 
+/// macOS: apps by bundle ID through `NSWorkspace`, opened with `open`.
+#[cfg(not(target_os = "windows"))]
+#[derive(Default)]
 pub struct Mac;
 
+#[cfg(not(target_os = "windows"))]
 fn run(cmd: &mut std::process::Command) -> Result<String, String> {
     let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() {
@@ -72,6 +118,7 @@ fn run(cmd: &mut std::process::Command) -> Result<String, String> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl Launcher for Mac {
     fn installed(&self, bundles: &[&'static str]) -> Vec<&'static str> {
         if !cfg!(target_os = "macos") {
@@ -98,12 +145,18 @@ impl Launcher for Mac {
     }
 }
 
+/// The platform's launcher.
+#[cfg(target_os = "windows")]
+type System = windows::Win;
+#[cfg(not(target_os = "windows"))]
+type System = Mac;
+
 /// A fixture's stand-in: a fixed set of apps, and opening does nothing.
 pub struct Fixed(pub Vec<&'static str>);
 
 impl Launcher for Fixed {
-    fn installed(&self, bundles: &[&'static str]) -> Vec<&'static str> {
-        bundles.iter().copied().filter(|b| self.0.iter().any(|a| APPS.iter().any(|x| x.id == *a && x.bundle == *b))).collect()
+    fn installed(&self, apps: &[&'static str]) -> Vec<&'static str> {
+        apps.iter().copied().filter(|b| self.0.iter().any(|a| APPS.iter().any(|x| x.id == *a && x.open_with == *b))).collect()
     }
     fn open(&self, _: &str, _: Option<&str>) -> Result<(), String> {
         Ok(())
@@ -125,7 +178,7 @@ pub struct OpenIn {
 
 impl Default for OpenIn {
     fn default() -> Self {
-        Self::with(Arc::new(Mac))
+        Self::with(Arc::new(System::default()))
     }
 }
 
@@ -144,16 +197,16 @@ impl OpenIn {
     pub fn detect(&mut self) {
         let launcher = self.launcher.clone();
         self.found.request((), move |()| {
-            let bundles: Vec<&'static str> = APPS.iter().map(|a| a.bundle).collect();
-            launcher.installed(&bundles)
+            let apps: Vec<&'static str> = APPS.iter().map(|a| a.open_with).collect();
+            launcher.installed(&apps)
         });
     }
 
     /// Takes in finished work; the error of a launch that failed.
     pub fn poll(&mut self) -> (bool, Option<String>) {
         let mut changed = false;
-        if let Some(bundles) = self.found.take() {
-            self.installed = APPS.iter().filter(|a| bundles.contains(&a.bundle)).map(|a| a.id).collect();
+        if let Some(found) = self.found.take() {
+            self.installed = APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect();
             changed = true;
         }
         let mut err = None;
@@ -165,9 +218,9 @@ impl OpenIn {
         (changed, err)
     }
 
-    /// Finder first, then what's installed.
+    /// The file manager first, then what's installed.
     pub fn options(&self) -> Vec<(&'static str, &'static str)> {
-        std::iter::once((FINDER, "Finder")).chain(self.installed.iter().map(|id| (*id, label_of(id)))).collect()
+        std::iter::once((FINDER, FILE_MANAGER.0)).chain(self.installed.iter().map(|id| (*id, label_of(id)))).collect()
     }
 
     pub fn current(&self) -> &str {
@@ -197,8 +250,8 @@ impl OpenIn {
         }
         self.busy = true;
         let launcher = self.launcher.clone();
-        let bundle = APPS.iter().find(|a| a.id == app).map(|a| a.bundle);
-        self.done.request((), move |()| match bundle {
+        let open_with = APPS.iter().find(|a| a.id == app).map(|a| a.open_with);
+        self.done.request((), move |()| match open_with {
             None if reveal => launcher.reveal(&path),
             None => launcher.open(&path, None),
             Some(b) => launcher.open(&path, Some(b)),
@@ -213,7 +266,7 @@ fn file() -> Option<std::path::PathBuf> {
 impl App {
     /// Opening only works where the server shares this machine's files.
     pub fn can_open_in(&self) -> bool {
-        cfg!(target_os = "macos")
+        cfg!(any(target_os = "macos", target_os = "windows"))
             && match &self.source {
                 crate::Source::Live { server, .. } => server.is_local(),
                 crate::Source::Fixture => true,
@@ -231,11 +284,17 @@ impl App {
     /// `rel` in the open session's directory.
     pub fn open_in_path(&self, rel: &str) -> Option<String> {
         let dir = &self.session(self.active_session_id()?)?.directory;
-        Some(if dir.is_empty() { rel.to_owned() } else if rel.is_empty() { dir.clone() } else { format!("{}/{rel}", dir.trim_end_matches('/')) })
+        Some(if dir.is_empty() { rel.to_owned() } else if rel.is_empty() { dir.clone() } else { format!("{}/{rel}", dir.trim_end_matches(['/', '\\'])) })
     }
 
-    /// Opens `rel` in `app` (Finder reveals it) and remembers the choice.
+    /// Opens `rel` in `app` (the file manager reveals it) and remembers the choice.
     pub fn open_in_app(&mut self, app: &str, rel: &str, remember: bool) {
+        self.open_in_app_as(app, rel, remember, true);
+    }
+
+    /// [`App::open_in_app`]; with `reveal` false the file manager opens a folder `rel` rather than
+    /// show it selected in its parent, as the toolbar's button and menu do.
+    pub fn open_in_app_as(&mut self, app: &str, rel: &str, remember: bool, reveal: bool) {
         let Some(path) = self.open_in_path(rel) else { return };
         if remember {
             self.open_in.set_chosen(Some(app.to_owned()));
@@ -248,7 +307,10 @@ impl App {
                 });
             }
         }
-        self.open_in.launch(app, path, app == FINDER);
+        // Desktop's toolbar opens its panel's folder in the file manager; a file, as these
+        // toolbars hold, shows selected in its folder instead of opening in its default app.
+        let reveal = reveal || !std::path::Path::new(&path).is_dir();
+        self.open_in.launch(app, path, reveal && app == FINDER);
     }
 
     pub fn poll_open_in(&mut self) -> bool {
@@ -260,47 +322,49 @@ impl App {
     }
 }
 
-fn app_items(s: &App, with_current: bool) -> Vec<Item> {
+/// Desktop's `OpenInAppMenuItemsV2`: "Open in" over each app with its mark (the current one
+/// checked, from the toolbar), then Copy path.
+fn menu(s: &App, with_current: bool) -> Menu {
     let cur = s.open_in.current();
-    s.open_in.options().into_iter().map(|(id, label)| Item::new(format!("app:{id}"), label).checked(with_current && id == cur)).collect()
+    let apps = s.open_in.options().into_iter().map(|(id, label)| Item::new(format!("app:{id}"), label).app_icon(icon_of(id)).checked(with_current && id == cur));
+    // menu-v2 content is at least 160 pt wide (`menu.css`).
+    Menu::new("Open in").min_width(160.0).group("Open in").items(apps).separator().item(Item::new("copy", "Copy path").weak_icon(&ic::COPY))
 }
 
-fn pick(s: &mut App, rel: &str, id: &str, tx: &mut Tx) {
-    match id {
-        "reveal" => s.open_in_app(FINDER, rel, false),
-        "copy" => {
-            if let Some(p) = s.open_in_path(rel) {
-                tx.copy(p);
-            }
+fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
+    if id == "copy" {
+        if let Some(p) = s.open_in_path(rel) {
+            tx.copy(p.clone());
+            crate::status_toast::say(s, "Copied", &p);
         }
-        _ => {
-            if let Some(app) = id.strip_prefix("app:") {
-                s.open_in_app(app, rel, true);
-            }
-        }
+        return;
+    }
+    if let Some(app) = id.strip_prefix("app:") {
+        s.open_in_app_as(app, rel, true, reveal);
     }
 }
 
-/// Right-click on a tree row: the apps, Finder revealing, and Copy path.
+/// Right-click on a tree row: the apps (the file manager revealing the row), and Copy path.
 pub fn context(row: El, rel: String) -> El {
     row.on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| {
         if !s.can_open_in() {
             return;
         }
-        let menu = Menu::new("Open in").items(app_items(s, false)).separator().item(Item::new("copy", "Copy path"));
         let rel = rel.clone();
         tx.instant();
-        popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
+        popup::open(s, menu(s, false), press, tx, move |s: &mut App, picked, tx| {
             tx.instant();
             if let Some(id) = picked {
-                pick(s, &rel, id, tx);
+                pick(s, &rel, id, true, tx);
             }
         });
     })
 }
 
-/// The toolbar's split button for `rel`: the remembered app opens it, the chevron lists the rest.
-/// Nothing where opening isn't possible.
+/// The toolbar's split button for `rel` (`split-button-v2`): 28 pt tall with 6 pt corners and a
+/// 1 pt `border-muted` ring; the remembered app's 16 pt mark opens it, the chevron lists the rest.
+/// While a launch runs both halves fade to half and the mark turns to the loader. Nothing where
+/// opening isn't possible.
 pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     if !s.can_open_in() {
         return None;
@@ -310,14 +374,18 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     let busy = s.open_in.busy();
     let chevron_key = format!("{key}-menu");
     let anchor = chevron_key.clone();
-    let main = row()
+    let mark = match rune_theme_opencode::app_icons::named(icon_of(s.open_in.current()), p.dark) {
+        _ if busy => Loader::new().size(14.0).build(kit(p)),
+        Some(glyph) => icon(glyph, 16.0),
+        None => el().size(16.0, 16.0),
+    };
+    let main = el()
         .key(format!("{key}-run"))
-        .h(25.0)
-        .px(7.0)
-        .center_y()
-        .radius(5.0)
+        .size(28.0, 28.0)
+        .center()
         .cursor(Cursor::Pointer)
         .hover(p.hover)
+        .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .role("button")
         .label(format!("Open in {label}"))
@@ -325,41 +393,43 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
+            if s.open_in.busy() {
+                return;
+            }
             let app = s.open_in.current().to_owned();
-            s.open_in_app(&app, &rel_main, false);
+            s.open_in_app_as(&app, &rel_main, false, false);
         })
-        .child(text(label).font(UI_SMALL).color(p.muted));
+        .child(mark);
+    let open = s.popup.open_at(&chevron_key);
     let chev = el()
         .key(chevron_key)
-        .size(20.0, 25.0)
-        .radius(5.0)
+        .size(20.0, 28.0)
         .center()
         .cursor(Cursor::Pointer)
+        .fill(if open { p.hover } else { rune::Color::TRANSPARENT })
         .hover(p.hover)
+        .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .role("button")
         .label("Open options")
         .help("Open options")
+        .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = Menu::new("Open in")
-                .items(app_items(s, true))
-                .separator()
-                .item(Item::new("reveal", "Reveal in Finder"))
-                .item(Item::new("copy", "Copy path"))
-                .align(Align::End);
+            if s.open_in.busy() {
+                return;
+            }
             let rel = rel_menu.clone();
             tx.instant();
-            popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| {
+            popup::open(s, menu(s, true).align(Align::End), anchor.clone(), tx, move |s: &mut App, picked, tx| {
                 tx.instant();
                 if let Some(id) = picked {
-                    pick(s, &rel, id, tx);
+                    pick(s, &rel, id, false, tx);
                 }
             });
         })
-        .child(icon(&ic::CHEVRON_DOWN, 11.0).color(p.icon_muted));
-    Some(row().key(key).gap(0.0).center_y().child(main).child(chev))
+        .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
+    Some(row().key(key).h(28.0).radius(6.0).clip_rounded(6.0).box_shadow(rune::Shadow { spread: 1.0, color: p.border_muted, inset: true, ..rune::Shadow::default() }).center_y().child(main).child(chev))
 }
 
 #[cfg(test)]
 mod tests;
-

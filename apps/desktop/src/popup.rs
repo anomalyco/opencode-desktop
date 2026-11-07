@@ -42,7 +42,7 @@ pub struct Item {
     /// The folder whose project avatar leads the row (drawn menus only).
     project: Option<String>,
     shortcut: Option<String>,
-    /// The 14 pt glyph before the title, in the title's ink (drawn menus only).
+    /// The glyph before the title (drawn menus only).
     glyph: Option<Glyph>,
     /// A row that only tells (`SessionLocationDetail`): never lit or picked, in the base ink.
     detail: bool,
@@ -52,11 +52,32 @@ pub struct Item {
 
 /// A row's icon, the same when it's the same icon.
 #[derive(Clone, Copy, Debug)]
-struct Glyph(&'static Icon);
+enum Glyph {
+    /// 14 pt, in the title's ink.
+    Ink(&'static Icon),
+    /// 14 pt, in `icon-weak` (`text-icon-weak`).
+    Weak(&'static Icon),
+    /// An app's 16 pt mark in its own colours (`AppIcon`), by its id, in the appearance's variant.
+    App(&'static str),
+}
+
+impl Glyph {
+    /// A one-colour glyph's icon; None for an app's mark.
+    fn mono(self) -> Option<&'static Icon> {
+        match self {
+            Glyph::Ink(g) | Glyph::Weak(g) => Some(g),
+            Glyph::App(_) => None,
+        }
+    }
+}
 
 impl PartialEq for Glyph {
     fn eq(&self, other: &Glyph) -> bool {
-        std::ptr::eq(self.0, other.0)
+        match (self, other) {
+            (Glyph::Ink(a), Glyph::Ink(b)) | (Glyph::Weak(a), Glyph::Weak(b)) => std::ptr::eq(*a, *b),
+            (Glyph::App(a), Glyph::App(b)) => a == b,
+            _ => false,
+        }
     }
 }
 
@@ -72,7 +93,11 @@ impl Item {
     /// The 16 pt project avatar for folder `dir` before the title, as a session row has it.
     pub fn project(mut self, dir: impl Into<String>) -> Item { self.project = Some(dir.into()); self }
     /// A 14 pt icon before the title, as menu-v2's items lead with one (`menu.tsx`).
-    pub fn icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph(glyph)); self }
+    pub fn icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph::Ink(glyph)); self }
+    /// A 14 pt icon in Desktop's weak icon ink, as Open in's Copy path has.
+    pub fn weak_icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph::Weak(glyph)); self }
+    /// App `id`'s 16 pt mark (`AppIcon`) before the title, as Open in's apps have.
+    pub fn app_icon(mut self, id: &'static str) -> Item { self.glyph = Some(Glyph::App(id)); self }
     /// A row that only tells, as the location card's server and its branch-less line do.
     pub fn detail(mut self) -> Item { self.detail = true; self.enabled = false; self }
     /// A change count's lines after the title, as Desktop's `DiffChanges` reads them.
@@ -185,7 +210,7 @@ impl Menu {
     }
     /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
     pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph(glyph)) })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)) })));
         self
     }
     /// Opens above the element, or below it when there's no room (`placement="top-*"`).
@@ -540,7 +565,12 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     .disabled(!i.enabled);
                 let ink = if !i.enabled { p.faint } else if i.danger { p.danger } else { p.text };
                 let o = match i.glyph {
-                    Some(g) => o.lead(icon(g.0, 14.0).color(ink)),
+                    Some(Glyph::Ink(g)) => o.lead(icon(g, 14.0).color(ink)),
+                    Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(session_view::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
+                    Some(Glyph::App(id)) => match rune_theme_opencode::app_icons::named(id, p.dark) {
+                        Some(g) => o.lead(icon(g, 16.0)),
+                        None => o.lead(el().size(16.0, 16.0)),
+                    },
                     None => o,
                 };
                 let o = match &i.shortcut {
@@ -584,8 +614,8 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     .role("menuitem")
                     .active(active == Some(n) || open == Some(n))
                     .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted));
-                let o = match sub.glyph {
-                    Some(g) => o.lead(icon(g.0, 16.0).color(p.icon_muted)),
+                let o = match sub.glyph.and_then(Glyph::mono) {
+                    Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
                 list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| open_sub(s, n, false, tx)));
@@ -642,7 +672,7 @@ fn detail_row(p: &Pal, key: &str, i: &Item) -> El {
         .pr(MENU.pad_r)
         .gap(MENU.gap)
         .center_y()
-        .children(i.glyph.map(|g| icon(g.0, 16.0).color(p.icon_muted)))
+        .children(i.glyph.and_then(Glyph::mono).map(|g| icon(g, 16.0).color(p.icon_muted)))
         .child(text(i.title.clone()).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.text).truncate_fade().shrink())
 }
 
