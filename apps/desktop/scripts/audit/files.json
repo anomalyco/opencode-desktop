@@ -5,8 +5,8 @@
     {"t": 0.9, "type": "tap", "key": "side-toggle"},
     {"t": 1.6, "type": "tap", "key": "side-add-side", "expect": "instant", "scope": "side-panel"},
     {"t": 2.1, "type": "tap", "key": "side-launch-file-open", "expect": "instant", "scope": "side-panel"},
-    {"t": 2.7, "type": "tap", "key": "files-open-palette-btn", "expect": "instant"},
-    {"t": 3.3, "type": "tap", "key": "file-palette-scrim", "expect": "instant"},
+    {"t": 2.7, "type": "key", "name": "p", "cmd": true, "expect": "instant", "scope": "switcher"},
+    {"t": 3.3, "type": "key", "name": "Escape", "expect": "instant", "scope": "switcher"},
     {"t": 3.9, "type": "tap", "key": "side-tab-review-changes", "expect": "instant", "scope": "side-panel"},
     {"t": 4.6, "type": "tap", "key": "side-toggle"},
     {"t": 5.8, "type": "move", "x": 600, "y": 400}

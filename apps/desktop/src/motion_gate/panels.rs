@@ -71,14 +71,14 @@ pub fn files(r: &mut Run) {
     r.loaded();
     r.play(0.2);
     r.act("open ⌘P", |rt| {
-        rt.update(|s, tx| s.open_file_palette(tx));
+        rt.update(|s, tx| s.open_file_search(tx));
     });
     r.loaded();
     r.play(0.2);
     r.act("close ⌘P", |rt| {
         rt.update(|s, tx| {
             tx.instant();
-            s.close_file_palette(true);
+            s.close_switcher(true);
         });
     });
     r.loaded();

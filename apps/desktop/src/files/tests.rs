@@ -29,13 +29,13 @@ fn cmd_p_opens_file_palette_filters_and_jumps_to_line_in_shared_code_viewer() {
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
     rt.frame(1.0 / 120.0);
-    assert!(rt.state.files.palette.open);
-    assert!(rt.find("file-palette-modal").is_some());
+    assert!(rt.state.switcher.open);
+    assert!(rt.find("switcher").is_some());
 
     // Type `stream.ts:15` and press Enter to open `src/net/stream.ts` at line 15.
     rt.update(|s, _| {
-        s.files.palette.search = TextEdit::new("stream.ts:15");
-        s.files.palette.search.focused = true;
+        s.switcher.search = TextEdit::new("stream.ts:15");
+        s.switcher.search.focused = true;
     });
     rt.frame(1.0 / 60.0);
     rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
@@ -43,7 +43,7 @@ fn cmd_p_opens_file_palette_filters_and_jumps_to_line_in_shared_code_viewer() {
         rt.frame(1.0 / 60.0);
     }
 
-    assert!(!rt.state.files.palette.open);
+    assert!(!rt.state.switcher.open);
     assert!(rt.state.side_open());
     let expected_key = file_tab_key("src/net/stream.ts");
     assert_eq!(

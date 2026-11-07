@@ -100,7 +100,6 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if s.project_switcher.open {
         inner = inner.children(crate::project_switcher::view(s, p, cx));
     }
-    inner = inner.children(crate::files::palette::view(s, p));
     inner = inner.children(crate::attachments::viewer(s, p, cx));
     inner = inner.children(crate::diagram::view(s, p, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));

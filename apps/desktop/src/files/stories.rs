@@ -70,9 +70,11 @@ pub fn init_palette(s: &mut App) {
     s.finish_stream();
     s.files = Default::default();
     let mut tx = rune::Tx::default();
-    s.open_file_palette(&mut tx);
+    s.open_file_search(&mut tx);
     if s.variant == 1 {
-        s.files.palette.search = TextEdit::new("stream.ts:15");
+        s.switcher.search = TextEdit::new("stream.ts:15");
+        s.switcher.search.focused = true;
+        s.poll_switcher(&mut tx);
     }
 }
 
@@ -85,13 +87,10 @@ fn view_files_card(s: &App, p: &Pal) -> El {
 }
 
 fn view_palette_card(s: &App, p: &Pal) -> El {
-    rune::col()
-        .w(620.0)
-        .h(480.0)
-        .radius(12.0)
-        .clip_rounded(12.0)
-        .fill(p.bg_deep)
-        .children(crate::files::palette::view(s, p))
+    if !s.switcher.open {
+        return rune::col().w(480.0);
+    }
+    crate::switcher::dialog(s, p, 480.0, 480.0)
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

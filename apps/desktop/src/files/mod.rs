@@ -1,4 +1,5 @@
-//! Files panel (`packages/gui-extensions/src/file/`) and `⌘P` Open File, registered on `panels::PANELS`
+//! Files panel (`packages/gui-extensions/src/file/`), registered on `panels::PANELS` (`⌘P` opens
+//! the palette, `switcher.rs`, which searches the folder's files)
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
 pub mod data;
@@ -13,7 +14,6 @@ pub mod markdown;
 mod markdown_stories;
 #[cfg(test)]
 mod markdown_tests;
-pub mod palette;
 mod stories;
 #[cfg(test)]
 mod tests;
@@ -112,7 +112,6 @@ pub struct FilesPane {
     pub sidebar_resized: bool,
     pub sidebar_drag: Option<f32>,
     pub filter: TextEdit,
-    pub palette: palette::FilePalette,
     pub dirty: bool,
     pub wrap: markdown::WrapPrefs,
     dir_fetch: Latest<(String, String, Vec<(String, bool)>)>,
@@ -130,7 +129,6 @@ impl Default for FilesPane {
             sidebar_resized: false,
             sidebar_drag: None,
             filter: TextEdit::new(""),
-            palette: palette::FilePalette::default(),
             dirty: false,
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
@@ -142,7 +140,6 @@ impl Default for FilesPane {
 
 impl FilesPane {
     pub fn set_waker(&mut self, waker: Waker) {
-        self.palette.set_waker(waker.clone());
         self.dir_fetch.set_waker(waker.clone());
         self.content_fetch.set_waker(waker.clone());
         self.find_fetch.set_waker(waker);
@@ -252,7 +249,7 @@ fn on_restore_file(
 }
 
 fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
-    let mut changed = s.poll_file_palette(tx);
+    let mut changed = false;
     if let Some((session_id, rel_dir, entries)) = s.files.dir_fetch.take() {
         tx.instant();
         let ws = s.files.sessions.entry(session_id).or_default();

@@ -1,31 +1,36 @@
-//! ⌘K, Desktop's "Search everything" palette as the home surface opens it
-//! (`home/start/command-palette.tsx`, `shell/commands/{palette,search,dialog}.ts(x)`,
-//! `ui/forms/search-list`): commands and sessions, opening a session as a tab.
+//! ⌘K, ⇧⌘P and ⌘P, Desktop's "Search everything" palette (`shell/commands/{dialog,palette,search}.ts(x)`,
+//! `ui/forms/search-list`): commands, files and sessions in one list.
 //!
-//! ⇧⌘P opens it on commands alone (`commands.search`); the commands are `commands.rs`'s list.
+//! In a session it is `DialogCommandPalette`: empty, Desktop's preferred commands, the files open
+//! in the side panel and the five newest sessions; typed, the matching commands, sessions and
+//! files the server finds. On Home it is `HomeCommandPalette`: the first commands and the
+//! sessions, no files. Search commands opens it on commands alone (`DialogCommandSearch`), ⇧⌘F
+//! on sessions (`DialogSessionSearch`); the commands are `commands.rs`'s list.
 //!
-//! Empty, it lists a few commands, then the five newest sessions. Typed, it filters on title,
-//! project and session id, asks the server for title matches past the loaded list
-//! (`/api/session?search=`, after a 100 ms pause), and ranks sessions first (open tabs, then
-//! the newest) ahead of commands.
+//! Sessions match on title, project and id, and the server finds title matches past the loaded
+//! list (`/api/session?search=`, after a 150 ms pause, `PALETTE_SESSION_DEBOUNCE_MS`). A typed
+//! query ranks commands first, then sessions (open tabs, then the newest), then files
+//! (`rankCommandPaletteEntries`).
 
 use crate::pickers::PickerHost as _;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use rune::{Color, Cx, El, Key, KeyEvent, Latest, ScrollSpec, Span, TextEdit, Transition, Tx, Waker, col, el, icon, row, spacer, text, text_input};
-use rune_theme_opencode::icons as ic;
+use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 
 use opencode_kit::model::{self, SessionInfo};
 
+use crate::files::data::{fetch_live_find, file_tab_path, parse_path_and_line};
 use crate::keymap::Bind;
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
-use crate::palette::{Elevate as _, Pal};
-use crate::view::{UI, UI_MED, title_of};
-use crate::{App, Source};
+use crate::view::title_of;
+use crate::{App, Route, Source};
 
-/// Rows each list shows: the empty query's commands and recent sessions (`ENTRY_LIMIT`),
-/// `DialogSessionSearch`'s recent sessions (`RECENT_LIMIT`), and a query's local session matches.
+mod view;
+pub use view::{dialog, highlighted, view};
+
+/// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
+/// recent sessions (`RECENT_LIMIT`); and a query's local session matches (`ENTRY_LIMIT * 10`).
 const RECENT: usize = 5;
 const RECENT_SESSIONS: usize = 10;
 const MATCHES: usize = 50;
@@ -35,7 +40,7 @@ pub enum SwitcherMode {
     #[default]
     All,
     Sessions,
-    /// ⇧⌘P: commands only.
+    /// Search commands: commands only.
     Commands,
     /// The Inbox's Archived button: archived sessions, each restored as it opens
     /// (`DialogSessionSearch archived`).
@@ -47,6 +52,8 @@ pub enum Action {
     Session(String),
     /// A command's id in `commands.rs`.
     Command(&'static str),
+    /// A workspace file's path, from the session's folder.
+    File(String),
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +97,11 @@ pub struct Switcher {
     fetch: Latest<Found>,
     /// The archived search has asked for its first list.
     listed_archived: bool,
+    /// The files the server found for a query, and that query (`file.searchFiles`).
+    pub(crate) files: (String, Vec<String>),
+    /// The file query last sent.
+    files_asked: Option<String>,
+    files_fetch: Latest<(String, Vec<String>)>,
 }
 
 impl Default for Switcher {
@@ -103,15 +115,19 @@ impl Default for Switcher {
             loaded: Vec::new(),
             searched: String::new(),
             failed: None,
-            fetch: Latest::default().debounce(Duration::from_millis(100)),
+            fetch: Latest::default().debounce(Duration::from_millis(150)),
             listed_archived: false,
+            files: (String::new(), Vec::new()),
+            files_asked: None,
+            files_fetch: Latest::default(),
         }
     }
 }
 
 impl Switcher {
     pub fn set_waker(&mut self, waker: Waker) {
-        self.fetch = Latest::new(waker).debounce(Duration::from_millis(100));
+        self.fetch = Latest::new(waker.clone()).debounce(Duration::from_millis(150));
+        self.files_fetch = Latest::new(waker);
     }
 
     pub fn activate(&mut self, key: String) {
@@ -124,6 +140,15 @@ impl Switcher {
 
     pub(crate) fn restore_composer(&self) -> bool {
         self.restore_composer
+    }
+
+    /// Still waiting on the server for this query: Desktop's "Loading" while nothing matches.
+    pub(crate) fn loading(&self) -> bool {
+        self.fetch.is_pending() || self.files_fetch.is_pending()
+    }
+
+    pub(crate) fn failed(&self) -> Option<&str> {
+        self.failed.as_deref()
     }
 }
 
@@ -138,13 +163,19 @@ pub fn matches(e: &Entry, q: &str) -> bool {
     let (id, group) = match &e.action {
         Action::Session(id) => (id.as_str(), ""),
         Action::Command(_) => ("", e.group),
+        Action::File(path) => (path.as_str(), e.group),
     };
     [e.title.as_str(), e.description.as_str(), id, group].iter().any(|t| t.to_lowercase().contains(&q))
 }
 
-/// `rankCommandPaletteEntries`: sessions lead, open tabs first and then the newest, then commands.
+/// `rankCommandPaletteEntries`: commands lead, then sessions (open tabs first, then the newest),
+/// then files.
 pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
-    let kind = |e: &Entry| u8::from(matches!(e.action, Action::Command(_)));
+    let kind = |e: &Entry| match e.action {
+        Action::Command(_) => 0,
+        Action::Session(_) => 1,
+        Action::File(_) => 2,
+    };
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
             (Action::Session(_), Action::Session(_)) => b.open.cmp(&a.open).then(b.updated.cmp(&a.updated)),
@@ -230,6 +261,15 @@ impl App {
         all
     }
 
+    /// The session whose folder the palette searches for files: Desktop lists files only where
+    /// the palette opens over a session (`DialogCommandPalette`), not on Home.
+    pub(crate) fn switcher_files_session(&self) -> Option<&str> {
+        match (&self.route, self.switcher.mode) {
+            (Route::Session(_), SwitcherMode::All) => self.active_session_id(),
+            _ => None,
+        }
+    }
+
     pub fn switcher_entries(&self) -> Vec<Entry> {
         let q = self.switcher.query();
         let all = self.commands();
@@ -275,12 +315,51 @@ impl App {
             return rank(sessions.filter(|e| matches(e, q)).take(MATCHES).collect());
         }
         if q.is_empty() {
-            let common = crate::commands::COMMON.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command);
-            return common.take(RECENT).chain(sessions.take(RECENT)).collect();
+            // `preferredCommandEntries` over a session; Home's first five (`HomeCommandPalette`).
+            let ids: &[&str] = if self.route == Route::Home { &crate::commands::HOME_COMMON } else { &crate::commands::COMMON };
+            let common: Vec<Entry> = ids.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command).collect();
+            return common.into_iter().chain(self.switcher_recent_files()).chain(sessions.take(RECENT)).collect();
         }
-        let found: Vec<Entry> =
-            all.iter().map(command).filter(|e| matches(e, q)).chain(sessions.filter(|e| matches(e, q)).take(MATCHES)).collect();
+        let found: Vec<Entry> = all
+            .iter()
+            .map(command)
+            .filter(|e| matches(e, q))
+            .chain(sessions.filter(|e| matches(e, q)).take(MATCHES))
+            .chain(self.switcher_found_files(q))
+            .collect();
         rank(found)
+    }
+
+    /// `recentFileEntries`: the files open in the side panel, the shown one first.
+    fn switcher_recent_files(&self) -> Vec<Entry> {
+        let Some(sid) = self.switcher_files_session() else { return Vec::new() };
+        let Some(tabs) = self.side.sessions.get(sid).map(|s| &s.tab_state.tabs) else { return Vec::new() };
+        let path = |key: &str| key.strip_prefix("file:").and_then(file_tab_path);
+        let active = tabs.active.as_deref().and_then(path);
+        let mut paths: Vec<String> = active.clone().into_iter().collect();
+        paths.extend(tabs.all.iter().filter_map(|k| path(k)).filter(|p| Some(p) != active.as_ref()));
+        paths.into_iter().take(RECENT).map(file_entry).collect()
+    }
+
+    /// The server's files for the query (`file.searchFiles`). Until it answers this query, the
+    /// files it found before and the folder's known files that still match (`search.ts`'s
+    /// settled and seen items), so rows don't blink out between keystrokes.
+    fn switcher_found_files(&self, q: &str) -> Vec<Entry> {
+        let Some(sid) = self.switcher_files_session() else { return Vec::new() };
+        let clean = parse_path_and_line(q).0;
+        let (asked, found) = &self.switcher.files;
+        if *asked == clean {
+            return found.iter().cloned().map(file_entry).collect();
+        }
+        let needle = clean.to_lowercase();
+        let known = self.files.sessions.get(sid).into_iter().flat_map(|w| w.known_files.iter());
+        let mut out: Vec<String> = Vec::new();
+        for p in found.iter().chain(known) {
+            if p.to_lowercase().contains(&needle) && !out.contains(p) {
+                out.push(p.clone());
+            }
+        }
+        out.into_iter().take(MATCHES).map(file_entry).collect()
     }
 
     /// The highlighted row's key: the one picked under this query, else the first.
@@ -297,10 +376,19 @@ impl App {
         self.open_switcher_mode(SwitcherMode::Sessions);
     }
 
-    /// ⇧⌘P: the palette on commands alone.
+    /// Search commands: the palette on commands alone.
     pub fn open_command_search(&mut self, tx: &mut Tx) {
         tx.instant();
         self.open_switcher_mode(SwitcherMode::Commands);
+    }
+
+    /// ⌘P, `file.open`: the same palette ⌘K opens over a session (`use-session-commands.tsx`).
+    pub fn open_file_search(&mut self, tx: &mut Tx) {
+        tx.instant();
+        if let Some(sid) = self.active_session_id().map(str::to_owned) {
+            self.ensure_workspace_files(&sid);
+        }
+        self.open_switcher_mode(SwitcherMode::All);
     }
 
     /// The Inbox's Archived button: session search over archived sessions.
@@ -336,6 +424,9 @@ impl App {
         self.switcher.fetch.cancel();
         self.switcher.failed = None;
         self.switcher.listed_archived = false;
+        self.switcher.files = (String::new(), Vec::new());
+        self.switcher.files_asked = None;
+        self.switcher.files_fetch.cancel();
     }
 
     /// Closes it; `restore` gives the composer back its focus if it had it.
@@ -347,12 +438,14 @@ impl App {
         self.switcher.search.focused = false;
         self.switcher.search.preedit = None;
         self.switcher.fetch.cancel();
+        self.switcher.files_fetch.cancel();
         self.composer.focused = restore && self.switcher.restore_composer;
     }
 
     pub fn switcher_choose(&mut self, key: &str, tx: &mut Tx) {
         let Some(entry) = self.switcher_entries().into_iter().find(|e| e.key == key) else { return };
         let restore = self.switcher.mode == SwitcherMode::Archived;
+        let line = parse_path_and_line(self.switcher.query()).1;
         self.close_switcher(false);
         match entry.action {
             // An archived session is restored as it opens.
@@ -375,11 +468,13 @@ impl App {
                 self.open(&id, tx);
             }
             Action::Command(id) => self.run_command(id, tx),
+            // `path:line` (or `path#L12`) opens the file at that line.
+            Action::File(path) => self.open_workspace_file(&path, false, line, tx),
         }
     }
 
-    /// ⌘K toggles "Search everything", ⇧⌘F "Search sessions" and ⇧⌘P "Search commands"; while
-    /// open, the list's keys.
+    /// ⌘K and ⇧⌘P toggle "Search everything", ⇧⌘F "Search sessions" and ⌘P,
+    /// over a session, "Search everything" again; while open, the list's keys.
     pub fn switcher_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if Bind::CommandSearch.matches_tx(ev, tx) {
             if self.switcher.open && self.switcher.mode == SwitcherMode::Commands {
@@ -389,12 +484,23 @@ impl App {
             }
             return true;
         }
+        if Bind::FileOpen.matches_tx(ev, tx) && matches!(self.route, Route::Session(_)) && !self.settings.open {
+            if self.switcher.open && self.switcher.mode == SwitcherMode::All {
+                tx.instant();
+                self.close_switcher(true);
+            } else {
+                self.open_file_search(tx);
+            }
+            return true;
+        }
         for (bind, mode) in [(Bind::Palette, SwitcherMode::All), (Bind::SessionSearch, SwitcherMode::Sessions)] {
             if !bind.matches_tx(ev, tx) {
                 continue;
             }
             if self.switcher.open && self.switcher.mode == mode {
                 self.close_switcher(true);
+            } else if mode == SwitcherMode::All {
+                self.open_file_search(tx);
             } else {
                 tx.instant();
                 self.open_switcher_mode(mode);
@@ -436,6 +542,7 @@ impl App {
                 true
             }
             Key::Escape => {
+                tx.instant();
                 self.close_switcher(true);
                 true
             }
@@ -453,6 +560,12 @@ impl App {
             }
             changed = true;
         }
+        if let Some(found) = self.switcher.files_fetch.take() {
+            if self.switcher.files_asked.as_deref() == Some(found.0.as_str()) {
+                self.switcher.files = found;
+            }
+            changed = true;
+        }
         if !self.switcher.open {
             return changed;
         }
@@ -464,6 +577,7 @@ impl App {
         if changed {
             tx.instant();
         }
+        changed |= self.request_switcher_files();
         let q = self.switcher.query().to_owned();
         let archived = self.switcher.mode == SwitcherMode::Archived;
         if q == self.switcher.searched && !(archived && !self.switcher.listed_archived) {
@@ -498,6 +612,46 @@ impl App {
         });
         true
     }
+
+    /// Asks the server for the files matching a new query, in the session's folder (a typed
+    /// `:line` left out); a newer query cancels the last.
+    fn request_switcher_files(&mut self) -> bool {
+        let Some(sid) = self.switcher_files_session().map(str::to_owned) else { return false };
+        let clean = parse_path_and_line(self.switcher.query()).0;
+        if clean.is_empty() || self.switcher.files_asked.as_deref() == Some(clean.as_str()) {
+            return false;
+        }
+        self.switcher.files_asked = Some(clean.clone());
+        self.switcher.files_fetch.cancel();
+        let Source::Live { server, .. } = &self.source else {
+            // The fixture's folder is all known: its files are the answer.
+            let known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let found = crate::files::data::rank_file_query(&known, &clean).into_iter().filter(|p| p.to_lowercase().contains(&clean.to_lowercase())).collect();
+            self.switcher.files = (clean, found);
+            return true;
+        };
+        let (server, dir) = (server.clone(), self.session(&sid).map(|s| s.directory.clone()).unwrap_or_default());
+        self.switcher.files_fetch.request(clean, move |q| {
+            let found = fetch_live_find(&server, &dir, &q);
+            (q, found)
+        });
+        true
+    }
+}
+
+fn file_entry(path: String) -> Entry {
+    Entry {
+        key: format!("file:{path}"),
+        action: Action::File(path.clone()),
+        title: path,
+        project: String::new(),
+        description: String::new(),
+        hint: None,
+        chord: None,
+        group: "Files",
+        updated: None,
+        open: false,
+    }
 }
 
 /// Percent-encodes a query parameter's value.
@@ -508,170 +662,6 @@ pub(crate) fn encode(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
-}
-
-// ---------------------------------------------------------------------------------------------
-// View: a 640 × 480 dialog centred over a scrim (`dialog.css`, `search-list.css`).
-
-/// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
-pub(crate) fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
-    let t = text(s.to_owned()).font(style).color(color).truncate_fade();
-    let lower = s.to_lowercase();
-    let needle = q.trim().to_lowercase();
-    match lower.find(&needle) {
-        Some(at) if !needle.is_empty() && lower.len() == s.len() => t.spans(vec![Span::new(at, at + needle.len()).color(accent)]),
-        _ => t,
-    }
-}
-
-fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, now: i64) -> El {
-    let key = e.key.clone();
-    let hover = e.key.clone();
-    let mut main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
-    if matches!(e.action, Action::Session(_)) {
-        let mut badge = el().key("badge").size(16.0, 16.0).child(crate::icons::badge(s, p, s.project(&e.project), &e.description));
-        if e.open {
-            badge = badge.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
-        }
-        main = main.child(badge);
-    }
-    let mut words = row().key("words").shrink().min_w(0.0).gap(6.0).center_y().child(highlighted(&e.title, q, UI_MED, p.text, p.accent));
-    if !e.description.is_empty() {
-        words = words.child(highlighted(&e.description, q, UI, p.muted, p.accent));
-    }
-    let mut r = row()
-        .key(format!("sw-{}", e.key))
-        .role("option")
-        .label(e.title.clone())
-        .w_full()
-        .h(36.0)
-        .px(12.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .fill(if active { p.row_active } else { Color::TRANSPARENT })
-        // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if inside {
-                tx.instant();
-                s.switcher.activate(hover.clone());
-                if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
-            }
-        })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
-        .child(main.child(words));
-    if let Some(at) = e.updated {
-        r = r.child(text(model::ago(now, at)).key("meta").font(UI).color(p.muted));
-    } else if let Some(bind) = e.hint.filter(|b| b.chord().is_some()) {
-        r = r.child(spacer()).child(crate::keymap::keycaps(p, bind).key("hint"));
-    } else if let Some(chord) = e.chord {
-        let caps = crate::keymap::caps(chord).into_iter().fold(row().key("keys").gap(2.0).center_y(), |r, c| r.child(crate::queue::keycap(p, &c.to_uppercase())));
-        r = r.child(spacer()).child(caps.key("hint"));
-    }
-    r
-}
-
-pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
-    let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
-    let (w, h) = ((win_w - 24.0).min(640.0), (win_h - 96.0).min(480.0));
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog(s, p, w, h).absolute((win_w - w) / 2.0, (win_h - h) / 2.0)]
-}
-
-/// The dialog itself, `w` × `h`.
-pub fn dialog(s: &App, p: &Pal, w: f32, h: f32) -> El {
-    let q = s.switcher.query();
-    let entries = s.switcher_entries();
-    let active = s.switcher_active(&entries);
-
-    let sessions_only = matches!(s.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived);
-    let placeholder = match s.switcher.mode {
-        _ if sessions_only => "Search sessions",
-        SwitcherMode::Commands => "Search commands",
-        _ => "Search commands and sessions",
-    };
-    let search = row()
-        .key("switcher-field")
-        .h(36.0)
-        .pl(12.0)
-        .pr(12.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .fill(p.search_bg)
-        .hover(p.layer2)
-        .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-        .child(
-            text_input(&s.switcher.search, UI.lh(20.0))
-                .key("switcher-input")
-                .grow(1.0)
-                .shrink()
-                .h(20.0)
-                .color(p.text)
-                .placeholder(placeholder, p.faint)
-                .caret(p.text, p.selection)
-                .on_edit(|s: &mut App| &mut s.switcher.search)
-                .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),
-        );
-
-    let mut results = col().key("switcher-results").w_full().px(6.0).pt(6.0).pb(8.0);
-    let mut i = 0;
-    while i < entries.len() {
-        let group = entries[i].group;
-        let end = entries[i..].iter().position(|e| e.group != group).map_or(entries.len(), |n| i + n);
-        // Space inside the section, so the next header meets this one and pushes it up.
-        let mut section = col().key(format!("sw-section-{group}")).w_full().gap(1.0).pb(if end < entries.len() { 16.0 } else { 0.0 }).child(
-            row()
-                .key("header")
-                .w_full()
-                .h(28.0)
-                .px(12.0)
-                .center_y()
-                .fill(p.bg_base)
-                .sticky_top(0.0)
-                .child(text(group).font(UI).color(p.muted)),
-        );
-        for e in &entries[i..end] {
-            section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, s.now_ms));
-        }
-        results = results.child(section);
-        i = end;
-    }
-    if entries.is_empty() {
-        let state = if s.switcher.fetch.is_pending() {
-            "Loading"
-        } else if s.switcher.failed.as_deref() == Some(q) {
-            "Request failed"
-        } else {
-            "No results found"
-        };
-        results = results.child(col().key("switcher-empty").w_full().min_h(120.0).center().child(text(state).font(UI).color(p.muted)));
-    }
-
-    col()
-        .key("switcher")
-        .role("dialog")
-        .label("Search everything")
-        .w(w)
-        .h(h)
-        .radius(12.0)
-        .fill(p.bg_base)
-        .elevate(p.overlay)
-        .clip_soft(0.0)
-        .transition(Transition::none())
-        .modal(true, |s: &mut App| s.close_switcher(true))
-        .child(col().key("switcher-search").w_full().padding(6.0).child(search))
-        .child(
-            col()
-                .key("switcher-scroll")
-                .role("listbox")
-                .w_full()
-                .grow(1.0)
-                .shrink()
-                .scroll(ScrollSpec { stick_bottom: false })
-                .clip_fade(0.0, 0.0, 0.0, 24.0)
-                .child(results),
-        )
 }
 
 #[cfg(test)]

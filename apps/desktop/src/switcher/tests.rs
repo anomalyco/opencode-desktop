@@ -36,29 +36,30 @@ fn empty_lists_commands_then_the_newest_sessions() {
     a.open_switcher();
     let e = a.switcher_entries();
     let groups: Vec<&str> = e.iter().map(|e| e.group).collect();
-    assert_eq!(groups, [["Commands"; 4].as_slice(), ["Recent sessions"; 5].as_slice()].concat());
-    assert_eq!(e[0].title, "New session");
+    assert_eq!(groups, [["Commands"; 5].as_slice(), ["Recent sessions"; 5].as_slice()].concat());
+    // Home's first five, as Desktop registers them there.
+    assert_eq!(e[0].title, "Open settings");
     // Roots only, newest first: the subagent session never lists.
-    assert_eq!(e[4].key, "session:ses_fx0001aaaaaaaaaaaaaaaaaa");
-    assert_eq!(e[5].key, "session:ses_fx0003aaaaaaaaaaaaaaaaaa");
+    assert_eq!(e[5].key, "session:ses_fx0001aaaaaaaaaaaaaaaaaa");
+    assert_eq!(e[6].key, "session:ses_fx0003aaaaaaaaaaaaaaaaaa");
     assert!(!keys(&a).iter().any(|k| k.contains("fx0002")));
-    assert_eq!(e[4].description, "lumen");
+    assert_eq!(e[5].description, "lumen");
 }
 
 #[test]
-fn a_query_ranks_open_tabs_then_the_newest_then_commands() {
+fn a_query_ranks_commands_then_open_tabs_then_the_newest() {
     let mut a = app();
     a.open_switcher();
     // Only the oldest match is open as a tab.
     a.tabs = vec![crate::tabs::Tab::session("ses_fx0012aaaaaaaaaaaaaaaaaa", String::new(), String::new())];
     query(&mut a, "THE");
-    let k = keys(&a);
+    let k: Vec<String> = keys(&a).into_iter().filter(|k| k.starts_with("session:")).collect();
     assert_eq!(k[0], "session:ses_fx0012aaaaaaaaaaaaaaaaaa");
     assert_eq!(k[1], "session:ses_fx0001aaaaaaaaaaaaaaaaaa");
-    assert!(a.switcher_entries().iter().all(|e| e.group == "Session"));
-    // Sessions lead commands; a command matches by title.
+    assert!(a.switcher_entries().iter().filter(|e| e.key.starts_with("session:")).all(|e| e.group == "Session"));
+    // Commands lead sessions (`rankCommandPaletteEntries`); a command matches by title.
     query(&mut a, "sidebar");
-    assert_eq!(keys(&a), ["session:ses_fx0003aaaaaaaaaaaaaaaaaa", "command:sidebar"]);
+    assert_eq!(keys(&a), ["command:sidebar", "session:ses_fx0003aaaaaaaaaaaaaaaaaa"]);
     // Project names and ids match; the "Session" group name doesn't.
     query(&mut a, "harbor");
     assert_eq!(keys(&a), ["session:ses_fx0006aaaaaaaaaaaaaaaaaa", "session:ses_fx0007aaaaaaaaaaaaaaaaaa"]);
@@ -115,7 +116,7 @@ fn cmd_k_arrows_enter_and_escape() {
     let active = |rt: &Runtime<App>| rt.state.switcher_active(&rt.state.switcher_entries());
     assert_eq!(active(&rt).as_deref(), Some("command:new"));
     key(&mut rt, Key::Down);
-    assert_eq!(active(&rt).as_deref(), Some("command:home"));
+    assert_eq!(active(&rt).as_deref(), Some("command:previous-tab"));
     key(&mut rt, Key::Up);
     key(&mut rt, Key::Up);
     assert_eq!(active(&rt), rt.state.switcher_entries().last().map(|e| e.key.clone()));

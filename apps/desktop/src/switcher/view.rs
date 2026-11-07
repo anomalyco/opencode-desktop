@@ -1,0 +1,305 @@
+//! The palette drawn as Desktop's `CommandPaletteView` (`shell/commands/dialog.tsx`): the compact
+//! dialog (`dialog.css:141-234`) over `SearchList` (`ui/forms/search-list/search-list.css`), its
+//! rows `PaletteRow` with `palette-menu.css`'s title and `keybind.css`'s chips.
+
+use rune::{Color, Cx, El, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune_theme_opencode::{file_icons, icons as ic};
+
+use opencode_kit::model;
+
+use super::{Action, Entry, SwitcherMode};
+use crate::App;
+use crate::palette::{Elevate as _, Pal};
+use crate::view::{UI, UI_MED};
+
+/// The search block (`search-list-search` in the compact palette, `dialog.css:156-166`): 6 above
+/// the 28-tall field, 17 below it, with the hairline 8 from the block's foot.
+const HEAD_H: f32 = 6.0 + 28.0 + 17.0;
+/// A compact row (`search-list-row[data-size=compact]`) and a section header, both 28 tall.
+const ROW_H: f32 = 28.0;
+/// Rows and the header sit 4 apart in a section, and a section ends 4 above the next
+/// (`dialog.css:196-202`).
+const GAP: f32 = 4.0;
+/// `search-list-empty`'s height.
+const EMPTY_H: f32 = 120.0;
+/// `command-palette-meta`: tabular figures.
+const META: TextStyle = UI.features("\"tnum\"");
+
+/// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
+pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Color) -> El {
+    let t = text(s.to_owned()).font(style).color(color).truncate_fade();
+    let lower = s.to_lowercase();
+    let needle = q.trim().to_lowercase();
+    match lower.find(&needle) {
+        Some(at) if !needle.is_empty() && lower.len() == s.len() => t.spans(vec![Span::new(at, at + needle.len()).color(accent)]),
+        _ => t,
+    }
+}
+
+/// The scrim, and the dialog where Desktop puts it: 480 wide (less 24 in a narrow window), its
+/// top halfway down a 480-tall box but at least 48 from the window's (`dialog.css:145-153`).
+pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
+    let [win_w, win_h] = cx.layout_size("window").or_else(|| cx.layout_size("zoomed")).unwrap_or([1280.0, 820.0]);
+    let w = (win_w - 24.0).min(480.0);
+    let max_h = (win_h - 96.0).min(480.0);
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
+    [scrim, dialog(s, p, w, max_h).absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0))]
+}
+
+/// The dialog itself, `w` wide and as tall as its rows up to `max_h`.
+pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
+    let q = s.switcher.query();
+    let entries = s.switcher_entries();
+    let active = s.switcher_active(&entries);
+    let placeholder = match s.switcher.mode {
+        SwitcherMode::Sessions | SwitcherMode::Archived => "Search sessions",
+        SwitcherMode::Commands => "Search commands",
+        // `palette.search.placeholder.home` on Home (`HomeCommandPalette`).
+        _ if s.route == crate::Route::Home => "Search commands and sessions",
+        _ => "Search files, commands, and sessions",
+    };
+
+    // `text-input-v2` in the compact palette: 28 tall and transparent, the glyph 6 in and 6 from
+    // the text, the text in `text-base` and the placeholder in it at half strength.
+    let search = row()
+        .key("switcher-field")
+        .h(28.0)
+        .pl(6.0)
+        .pr(6.0)
+        .gap(6.0)
+        .center_y()
+        .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
+        .child(
+            text_input(&s.switcher.search, UI)
+                .key("switcher-input")
+                .single_line()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .color(p.text)
+                .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
+                .caret(p.text, p.selection)
+                .on_edit(|s: &mut App| &mut s.switcher.search)
+                .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),
+        );
+
+    let mut results = col().key("switcher-results").w_full().px(6.0).pb(6.0);
+    let mut content_h = 0.0_f32;
+    let mut i = 0;
+    while i < entries.len() {
+        let group = entries[i].group;
+        let end = entries[i..].iter().position(|e| e.group != group).map_or(entries.len(), |n| i + n);
+        let last = end == entries.len();
+        // Space inside the section, so the next header meets this one and pushes it up.
+        let mut section = col().key(format!("sw-section-{group}")).w_full().gap(GAP).pb(if last { 0.0 } else { GAP }).child(
+            row()
+                .key("header")
+                .w_full()
+                .h(ROW_H)
+                .px(6.0)
+                .center_y()
+                .fill(p.bg_base)
+                .sticky_top(0.0)
+                .child(text(group).font(UI).color(p.muted)),
+        );
+        for e in &entries[i..end] {
+            section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, w));
+        }
+        content_h += ROW_H + (end - i) as f32 * (ROW_H + GAP) + if last { 0.0 } else { GAP };
+        results = results.child(section);
+        i = end;
+    }
+    if entries.is_empty() {
+        let state = if s.switcher.loading() {
+            "Loading"
+        } else if s.switcher.failed() == Some(q) {
+            "Request failed"
+        } else {
+            "No results found"
+        };
+        results = col().key("switcher-results").w_full().child(col().key("switcher-empty").w_full().h(EMPTY_H).center().child(text(state).font(UI).color(p.muted)));
+        content_h = EMPTY_H;
+    } else {
+        content_h += 6.0;
+    }
+    let scroll_h = content_h.min(max_h - HEAD_H).max(0.0);
+
+    col()
+        .key("switcher")
+        .role("dialog")
+        .label(placeholder)
+        .w(w)
+        .h(HEAD_H + scroll_h)
+        .radius(12.0)
+        .fill(p.bg_base)
+        .elevate(p.overlay)
+        .clip_soft(0.0)
+        .transition(Transition::none())
+        .motion(Spring::NONE)
+        .modal(true, |s: &mut App| s.close_switcher(true))
+        .child(col().key("switcher-search").w_full().pt(6.0).px(6.0).child(search))
+        // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
+        .child(el().key("switcher-divider").w_full().h(0.5).mt(8.5).mb(8.0).fill(p.border))
+        .child(
+            col()
+                .key("switcher-scroll")
+                .role("listbox")
+                .w_full()
+                .h(scroll_h)
+                .scroll(ScrollSpec { stick_bottom: false })
+                // Rows fade out past the bottom edge only while more follow (search-list.css:63-75).
+                .clip_fade(0.0, 0.0, 0.0, if content_h > scroll_h { 24.0 } else { 0.0 })
+                .child(results),
+        )
+}
+
+/// A row (`PaletteRow`): 28 tall, 6 in, 6 pt corners, the hover overlay while highlighted in
+/// both schemes (`dialog.css:208-215, 232-234`), its lead and text 8 apart, and its time or keys
+/// at the end.
+fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
+    let key = e.key.clone();
+    let hover = e.key.clone();
+    let surface = if active { p.bg_base.mix(p.hover.alpha(1.0), p.hover.a) } else { p.bg_base };
+    let (lead, trailing) = match &e.action {
+        Action::Session(id) => session_parts(s, p, e, id, surface),
+        Action::Command(_) => (None, command_keys(p, e)),
+        Action::File(_) => (None, None),
+    };
+    let main = match &e.action {
+        Action::File(path) => file_main(p, path, q),
+        _ => {
+            // The row's text: the row less its 6 pt sides, the lead and the trailing part.
+            let trailing_w = trailing.as_ref().map_or(0.0, |(_, w)| w + 8.0);
+            let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
+            let archived = s.switcher.mode == SwitcherMode::Archived;
+            row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(row_text(p, e, q, text_w, archived))
+        }
+    };
+    let r = row()
+        .key(format!("sw-{}", e.key))
+        .role("option")
+        .label(e.title.clone())
+        .w_full()
+        .h(ROW_H)
+        .px(6.0)
+        .gap(8.0)
+        .center_y()
+        .radius(6.0)
+        .fill(if active { p.hover } else { Color::TRANSPARENT })
+        .transition(Transition::none())
+        .motion(Spring::NONE)
+        // Not `on_hover`: its commit would animate the highlight's fill from row to row.
+        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+            if inside {
+                tx.instant();
+                s.switcher.activate(hover.clone());
+                if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
+            }
+        })
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
+        .child(main);
+    r.children(trailing.map(|(el, _)| el))
+}
+
+/// `command-palette-row-text`: the title (`palette-menu-title`, 13 at 530) and, 6 after it, the
+/// description in `text-faint` taking what is left; with a description the title keeps at most
+/// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
+fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool) -> El {
+    let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
+    let title = highlighted(&e.title, q, UI_MED, fade(p.text), p.accent).truncate();
+    let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
+    if e.description.is_empty() {
+        return words.child(title.shrink().min_w(0.0));
+    }
+    words = words.child(row().key("title").max_w((w * 0.6).max(0.0)).center_y().child(title.shrink().min_w(0.0)));
+    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0))
+}
+
+/// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
+/// and its age, or the activity ring while it works (`PaletteSessionRow`).
+fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, surface: Color) -> (Option<El>, Option<(El, f32)>) {
+    let attention = s.requests.iter().any(|(r, _)| s.root_of(r) == id);
+    let busy = !attention && s.running.iter().any(|r| s.root_of(r) == id);
+    let unread = attention || (s.route != crate::Route::Session(id.to_owned()) && s.session(id).is_some_and(model::SessionInfo::unread));
+    let mut avatar = el().key("badge").size(16.0, 16.0).child(crate::icons::badge(s, p, s.project(&e.project), &e.description));
+    if e.open {
+        // `h-3 w-0.5 rounded-[2px] bg-v2-background-bg-layer-04`, 6 before the avatar, centred.
+        avatar = avatar.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
+    }
+    if unread {
+        // `project-avatar.css:118-133`: the avatar's corner cut clear 4.5 around a 6 pt
+        // `bg-accent` dot centred on it.
+        avatar = avatar
+            .child(el().key("notch").absolute(11.5, -4.5).size(9.0, 9.0).radius(4.5).fill(surface))
+            .child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
+    }
+    if busy {
+        let ring = row().key("meta").size(14.0, 16.0).center().child(session_view::style::activity_ring(p));
+        return (Some(avatar), Some((ring, 14.0)));
+    }
+    let meta = e.updated.map(|at| {
+        let ago = relative_time(s.now_ms, at);
+        let w = rune::text::measure(&ago, &[], META, None).0;
+        (text(ago).key("meta").font(META).color(p.muted), w)
+    });
+    (Some(avatar), meta)
+}
+
+/// `getRelativeTime` (`shell/time.ts`): "Just now", "5m ago", "3h ago", "2d ago", then the local
+/// date ("Nov 3", with its year when not this year's).
+fn relative_time(now: i64, then: i64) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let (s, m, h, d) = {
+        let s = (now - then).div_euclid(1000);
+        (s, s.div_euclid(60), s.div_euclid(3600), s.div_euclid(86_400))
+    };
+    match () {
+        _ if s < 60 => "Just now".into(),
+        _ if m < 60 => format!("{m}m ago"),
+        _ if h < 24 => format!("{h}h ago"),
+        _ if d < 7 => format!("{d}d ago"),
+        _ => {
+            let (at, today) = (rune::LocalTime::at(then), rune::LocalTime::at(now));
+            let date = format!("{} {}", MONTHS[at.month as usize - 1], at.day);
+            if at.year == today.year { date } else { format!("{date}, {}", at.year) }
+        }
+    }
+}
+
+/// A command's chord as Desktop's neutral `Keybind` chips, and their width.
+fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
+    let caps = match (e.hint, e.chord) {
+        (Some(bind), _) if bind.chord().is_some() => bind.keycaps(),
+        (_, Some(chord)) => crate::keymap::caps(chord),
+        _ => return None,
+    };
+    let label = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);
+    let w = caps.iter().map(|c| rune::text::measure(&c.to_uppercase(), &[], label, None).0.max(6.0) + 8.0).sum::<f32>() + 2.0 * (caps.len() as f32 - 1.0);
+    Some((crate::keymap::chips(p, caps).key("hint"), w))
+}
+
+/// A file's row: its coloured `FileIcon` badge, then its folder (`text-muted`, 440, cut first)
+/// and name (`text-base`, 530) as one path (`dialog.css:91-114`).
+fn file_main(p: &Pal, path: &str, q: &str) -> El {
+    let (dir, name) = (opencode_kit::path::parent(path), opencode_kit::path::basename(path));
+    // `getDirectory`: the folder with its slash, a bare "/" for a file at the root.
+    let dir = format!("{dir}/");
+    row()
+        .key("main")
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(8.0)
+        .center_y()
+        .child(icon(file_icons::file(name), 16.0).key("icon").color(p.text))
+        .child(
+            row()
+                .key("path")
+                .shrink()
+                .min_w(0.0)
+                .center_y()
+                .child(highlighted(&dir, q, UI, p.muted, p.accent).truncate().shrink().min_w(0.0))
+                // The name never gives way (`flex-shrink: 0`).
+                .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(rune::text::measure(name, &[], UI_MED, None).0)),
+        )
+}

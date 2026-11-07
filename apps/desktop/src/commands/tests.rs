@@ -72,7 +72,8 @@ fn session_commands_leave_home() {
 #[test]
 fn cmd_shift_p_searches_commands_alone() {
     let mut rt = runtime();
-    cmd_shift_p(&mut rt);
+    rt.update(|s, tx| s.run_command("commands", tx));
+    rt.frame(1.0 / 60.0);
     assert!(rt.state.switcher.open && rt.state.switcher.mode == SwitcherMode::Commands);
     let entries = rt.state.switcher_entries();
     assert!(entries.len() > 20, "{} commands", entries.len());
@@ -82,8 +83,9 @@ fn cmd_shift_p_searches_commands_alone() {
     typed(&mut rt, "zoom");
     let keys: Vec<String> = rt.state.switcher_entries().into_iter().map(|e| e.key).collect();
     assert_eq!(keys, ["command:zoom-in", "command:zoom-out"]);
+    // ⇧⌘P is the palette's own second chord (`DEFAULT_PALETTE_KEYBIND`).
     cmd_shift_p(&mut rt);
-    assert!(!rt.state.switcher.open, "⇧⌘P toggles");
+    assert!(rt.state.switcher.open && rt.state.switcher.mode == SwitcherMode::All, "⇧⌘P opens Search everything");
 }
 
 #[test]

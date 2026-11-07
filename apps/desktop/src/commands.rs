@@ -26,7 +26,7 @@ pub struct Cmd {
     pub description: &'static str,
     /// The `/name` that runs it from the composer.
     pub slash: Option<&'static str>,
-    /// Its keymap command, whose chord the palette draws (`⇧⌘P`, `Ctrl+Shift+P`).
+    /// Its keymap command, whose chord the palette draws (`⇧⌘T`, `Ctrl+Shift+T`).
     pub keys: Option<Bind>,
     /// Listed only while this holds (Desktop's `disabled`).
     pub enabled: fn(&App) -> bool,
@@ -84,10 +84,16 @@ pub struct Command {
     pub run: Run,
 }
 
-/// The palette's opening rows, in this order (`COMMON_COMMAND_IDS`).
-pub const COMMON: [&str; 4] = ["new", "home", "sidebar", "settings"];
+/// The palette's opening rows over a session, in this order (`palette.ts:57-59`): New session,
+/// Previous and Next session, the featured Toggle terminal (`gui-plugins/src/terminal/renderer.tsx:89`)
+/// and Toggle review. Desktop's `workspace.new` has no command here yet.
+pub const COMMON: [&str; 5] = ["new", "previous-tab", "next-tab", "terminal", "side"];
 
-/// ⇧⌘P's own entry: the commands-only palette doesn't list itself.
+/// The opening rows on Home (`HomeCommandPalette`: the first five commands Desktop registers
+/// there, `settings/command.tsx` then `shell/titlebar/tab-strip.tsx`).
+pub const HOME_COMMON: [&str; 5] = ["settings", "previous-tab", "next-tab", "previous-unread", "next-unread"];
+
+/// Search commands' own entry: the commands-only palette doesn't list itself.
 pub const SEARCH: &str = "commands";
 
 impl App {
@@ -123,7 +129,7 @@ impl App {
             Run::Plugin(id) => {
                 crate::plugin_host::run_command(self, id, tx);
             }
-            Run::Panel("file") => self.open_file_palette(tx),
+            Run::Panel("file") => self.open_file_search(tx),
             Run::Panel(plugin) => {
                 if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
                     if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
@@ -187,10 +193,6 @@ fn can_background(s: &App) -> bool {
     s.open_session().is_some_and(|id| !crate::background::blocking(s, &id).is_empty())
 }
 
-fn has_tabs(s: &App) -> bool {
-    s.tabs.len() > 1
-}
-
 fn agent_shown(s: &App) -> bool {
     s.has_composer() && s.picker_show_agent()
 }
@@ -228,11 +230,12 @@ fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
 }
 
 rune_register::register!(COMMANDS: Cmd = [
-    Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new").keys(Bind::TabNew),
+    // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
+    Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new"),
     Cmd::new("home", "Home", |s, tx| s.go_home(tx)).keys(Bind::Home),
     Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys(Bind::Sidebar),
-    Cmd::new("settings", "Settings", |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
-    Cmd::new("side", "Toggle side panel", |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
+    Cmd::new("settings", "Open settings", |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
+    Cmd::new("side", "Toggle review", |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
     Cmd::new("open-project", "Open project", |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
     Cmd::new("select-project", "Search projects", |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
     Cmd::new("sessions", "Search sessions", |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
@@ -305,8 +308,10 @@ rune_register::register!(COMMANDS: Cmd = [
     })
     .keys(Bind::FocusInput)
     .when(App::has_composer),
-    Cmd::new("next-tab", "Next tab", |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext).when(has_tabs),
-    Cmd::new("previous-tab", "Previous tab", |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev).when(has_tabs),
+    Cmd::new("next-tab", "Next session", |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext),
+    Cmd::new("previous-tab", "Previous session", |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev),
+    Cmd::new("previous-unread", "Previous unread session", |s, tx| s.select_adjacent(-1, true, tx)).keys(Bind::UnseenPrev),
+    Cmd::new("next-unread", "Next unread session", |s, tx| s.select_adjacent(1, true, tx)).keys(Bind::UnseenNext),
     Cmd::new("close-tab", "Close tab", |s, tx| {
         if let Some(id) = s.current_tab() {
             s.close_tab(&id, tx);

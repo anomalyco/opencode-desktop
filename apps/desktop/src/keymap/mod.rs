@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use rune::{Chord, Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
 mod view;
-pub use view::{keycaps, settings_section};
+pub use view::{chips, keycaps, settings_section};
 
 use KeyPlatform::{Linux, Mac, Windows};
 
@@ -144,15 +144,17 @@ fn table() -> Vec<Binding> {
     // The session view's own (`session_view::keymap`), listed here so Settings shows them.
     let view = |b: session_view::keymap::Bind| b.keybind().clone();
     let rows = vec![
-        row(Palette, "command.palette", "Search everything", General, on("mod+k")),
-        row(CommandSearch, "commands.search", "Search commands", General, on("mod+shift+p")),
+        // `DEFAULT_PALETTE_KEYBIND` (`command.tsx:22`): ⇧⌘P opens the palette too, and Search
+        // commands has no chord of its own (`shell.tsx:196-203`).
+        row(Palette, "command.palette", "Search everything", General, on("mod+k, mod+shift+p")),
+        row(CommandSearch, "commands.search", "Search commands", General, on("none")),
         row(SessionSearch, "sessions.search", "Search sessions", General, on("mod+shift+f")),
-        row(Settings, "settings.open", "Settings", General, on("mod+comma")),
+        row(Settings, "settings.open", "Open settings", General, on("mod+comma")),
         // `titlebar.tsx`: Windows keeps Ctrl+B for Move to background.
         row(Home, "home.toggle", "Home", General, on("mod+b").on(Windows, "alt+home")),
         row(Sidebar, "sidebar.toggle", "Toggle sidebar", General, on("mod+shift+b")),
         // ⌥⌘B is Ctrl+Alt+B off macOS, the Browser's launcher; there only `review.toggle`'s chord.
-        row(SideToggle, "review.toggle", "Toggle side panel", General, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
+        row(SideToggle, "review.toggle", "Toggle review", General, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
         row(OpenProject, "project.open", "Open project", General, view(session_view::keymap::Bind::OpenProject)),
         row(SelectProject, "project.select", "Search projects", General, on("mod+shift+o")),
         row(ZoomIn, "view.zoomIn", "Zoom in", General, view(session_view::keymap::Bind::ZoomIn)),
@@ -200,8 +202,7 @@ fn table() -> Vec<Binding> {
         row(FileOpen, "file.open", "Open file", Session, on("mod+p")),
         // The GUI plugins' launchers (`gui-plugins/src/{browser,file,review}/renderer.tsx`):
         // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
-        // On macOS Files' launcher stays on ⌘P (`file.open`), as it always has here.
-        row(FileBrowse, "file.browse", "Browse files", Session, on("ctrl+alt+p").on(Mac, "none")),
+        row(FileBrowse, "file.browse", "Browse files", Session, on("ctrl+alt+p").on(Mac, "ctrl+mod+p")),
         row(BrowserOpen, "browser.open", "Open browser", Session, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
         row(ReviewOpen, "review.open", "Review changes", Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
         // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
