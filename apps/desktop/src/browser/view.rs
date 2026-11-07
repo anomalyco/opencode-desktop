@@ -79,7 +79,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         .child(
             text_input(&s.browser.address, MONO_URL)
                 .key("browser-address")
-                .placeholder(crate::keymap::Bind::BrowserAddress.tip("Enter URL, :port, or search…"), p.faint)
+                .placeholder("Search or enter a URL", p.faint)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
