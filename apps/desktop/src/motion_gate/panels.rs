@@ -33,7 +33,8 @@ pub fn side_region(r: &mut Run) {
 pub fn review(r: &mut Run) {
     r.act("seed review open", |rt| {
         rt.update(|s, tx| {
-            s.toggle_side_region(tx);
+            // The side region opens on its launchers; Changes opens as a tab in it.
+            s.show_review(super::SID, tx);
             tx.settle();
         });
     });

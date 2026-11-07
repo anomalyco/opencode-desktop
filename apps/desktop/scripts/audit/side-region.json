@@ -2,6 +2,7 @@
   "scene": "session", "secs": 7.5,
   "events": [
     {"t": 1.0, "type": "tap", "key": "side-toggle"},
+    {"t": 1.4, "type": "tap", "key": "side-launch-review-open", "expect": "instant", "scope": "side-panel"},
     {"t": 1.8, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
     {"t": 2.3, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
     {"t": 2.8, "type": "drag", "key": "side-resize", "dx": -60, "dur": 0.5, "expect": "follow", "element": "side-resize"},

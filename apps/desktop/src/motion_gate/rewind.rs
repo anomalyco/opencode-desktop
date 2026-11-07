@@ -43,6 +43,11 @@ pub fn run(r: &mut Run) {
     r.play(0.2);
     r.act("reopen message menu", |rt| Run::tap(rt, &more_key));
     r.play(0.2);
+    r.act("hover Undo", |rt| {
+        let (x, y) = rt.find("popup-item-revert").expect("Undo");
+        rt.pointer_move(x, y);
+    });
+    r.play(0.1);
     r.act("tap Undo", |rt| Run::tap(rt, "popup-item-revert"));
     r.play(0.8);
     r.act("tap Undo on Rewound toast", |rt| Run::tap(rt, "toast-undo"));
