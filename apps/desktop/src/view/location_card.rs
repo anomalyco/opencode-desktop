@@ -225,7 +225,7 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
 
 fn copied(s: &mut App, value: &str, tx: &mut Tx) {
     tx.copy(value.to_owned());
-    crate::status_toast::say(s, "Copied", value);
+    crate::status_toast::succeed(s, "Copied", value);
 }
 
 /// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).

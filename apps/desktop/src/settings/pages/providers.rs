@@ -222,7 +222,7 @@ impl App {
             });
             Box::new(move |s: &mut App, _: &mut Tx| {
                 match result {
-                    Ok(()) => crate::status_toast::say(s, format!("{name} disconnected"), format!("{name} models are no longer available.")),
+                    Ok(()) => crate::status_toast::succeed(s, format!("{name} disconnected"), format!("{name} models are no longer available.")),
                     Err(e) => crate::status_toast::fail(s, "Request failed", e),
                 }
                 s.sync_catalogs(None, |_, _, _| {});
@@ -264,7 +264,7 @@ impl App {
             let r = work(srv);
             Box::new(move |s: &mut App, _: &mut Tx| {
                 match r {
-                    Ok(()) if !title.is_empty() => crate::status_toast::say(s, title, description),
+                    Ok(()) if !title.is_empty() => crate::status_toast::succeed(s, title, description),
                     Ok(()) => {}
                     Err(e) => crate::status_toast::fail(s, "Request failed", e),
                 }

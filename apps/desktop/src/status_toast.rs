@@ -14,12 +14,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rune::{Align, Color, El, Key, KeyEvent, Shadow, Side, Spring, TextStyle, Transition, Tx, col, icon, row, spacer, text};
-use rune_theme_opencode::icons as ic;
+use rune::{Color, El, Icon, Key, KeyEvent, Shadow, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 
 use crate::palette::{Elevate as _, Pal};
 use crate::rewind::UndoRewind;
-use crate::view::{INSTANT, UI};
+use crate::view::INSTANT;
 use crate::App;
 
 /// Desktop's `duration={5000}` on `Toast.Region`.
@@ -41,6 +40,8 @@ pub struct Entry {
     pub title: String,
     pub description: Option<String>,
     pub action: Option<ToastAction>,
+    /// The glyph before the words: a success toast's tick.
+    pub icon: Option<&'static Icon>,
     pub persistent: bool,
     pub at: f64,
 }
@@ -64,6 +65,7 @@ pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
         title: "Rewound".into(),
         description: None,
         action: Some(ToastAction::UndoRewind(undo)),
+        icon: None,
         persistent: false,
         at: s.clock,
     });
@@ -75,6 +77,15 @@ pub fn say(s: &mut App, title: impl Into<String>, description: impl Into<String>
     fail(s, title, description);
     if let Some(e) = s.toast.current.as_mut() {
         e.persistent = false;
+    }
+}
+
+/// A success (`variant: "success"`): a message that leaves after [`DURATION`] s, after Desktop's
+/// `circle-check`.
+pub fn succeed(s: &mut App, title: impl Into<String>, description: impl Into<String>) {
+    say(s, title, description);
+    if let Some(e) = s.toast.current.as_mut() {
+        e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
     }
 }
 
@@ -92,7 +103,7 @@ pub fn fail_retry(s: &mut App, title: impl Into<String>, description: impl Into<
 pub fn from_server(s: &mut App, e: String) {
     if let Some(path) = e.strip_prefix("Saved session to ") {
         let line = format!("Saved session to {path}");
-        return say(s, "Session exported", line);
+        return succeed(s, "Session exported", line);
     }
     let Some((call, why)) = e.split_once(": ") else {
         return fail(s, crate::background::FAILED, e);
@@ -155,6 +166,7 @@ pub fn fail(s: &mut App, title: impl Into<String>, description: impl Into<String
         title,
         description: (!trimmed.is_empty()).then(|| trimmed.chars().take(240).collect()),
         action: None,
+        icon: None,
         persistent: true,
         at: s.clock,
     });
@@ -204,6 +216,16 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     false
 }
 
+/// Sonner's close glyph, which `toast.css` draws at 16 px: two strokes 6 to 18 across 24, 1.5
+/// wide with round caps.
+static CLOSE: Icon = Icon {
+    name: "toast-close",
+    view: 24.0,
+    body: r#"<path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+};
+
+/// The card (`.toast-v2`): 320 wide, 12 in, its icon's, content's and close button's columns
+/// 12 apart, the actions 12 under the content in its column.
 pub fn view(s: &App, p: &Pal) -> Option<El> {
     let entry = s.toast.current.as_ref()?;
     let id = entry.id;
@@ -217,12 +239,15 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .center()
         .hover(p.hover)
         .press(p.pressed)
+        .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             dismiss(s);
         })
-        .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
+        // `icon-muted` at rest, `icon-base` under the pointer.
+        .child(icon(&CLOSE, 16.0).color(p.icon_muted))
+        .child(icon(&CLOSE, 16.0).color(p.icon).absolute(2.0, 2.0).group_opacity(0.0, 1.0));
 
     let action_btn = entry.action.as_ref().map(|action| {
         let (key, label) = match action {
@@ -258,34 +283,25 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 .child(text(label).font(TITLE).color(p.text))
     });
 
-    let body = if let Some(desc) = &entry.description {
-        let mut content = col()
-            .key("toast-content")
-            .grow(1.0)
-            .shrink()
-            .min_w(0.0)
-            .gap(2.0)
-            .child(text(entry.title.clone()).key("toast-title").font(TITLE).color(p.text).truncate_fade())
-            .child(text(desc.clone()).key("toast-description").font(DESC).color(p.muted).wrap().w_full());
-        if let Some(btn) = action_btn {
-            content = content.child(row().key("toast-actions").pt(6.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
-        }
-        row().key("toast-head").w(296.0).gap(10.0).child(content).child(close)
-    } else {
-        row()
-            .key("toast-head")
-            .gap(10.0)
-            .center_y()
-            .child(text(entry.title.clone()).key("toast-title").font(TITLE).color(p.text))
-            .children(action_btn)
-            .child(close)
-    };
+    let mut content = col()
+        .key("toast-content")
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(4.0)
+        .child(text(entry.title.clone()).key("toast-title").font(TITLE).color(p.text).truncate().w_full())
+        .children(entry.description.as_ref().map(|desc| text(desc.clone()).key("toast-description").font(DESC).color(p.muted).wrap().w_full()));
+    if let Some(btn) = action_btn {
+        content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
+    }
+    let lead = entry.icon.map(|glyph| el().key("toast-icon").w(16.0).h(20.0).center().child(icon(glyph, 16.0).color(p.icon)));
+    let body = row().key("toast-head").w_full().gap(12.0).children(lead).child(content).child(close);
 
     let card = col()
         .key("status-toast")
         .role("status")
-        .px(12.0)
-        .py(8.0)
+        .w(320.0)
+        .padding(12.0)
         .radius(8.0)
         .fill(p.layer1)
         .elevate(p.floating)
@@ -308,13 +324,8 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .on_press(|_: &mut App| {})
         .child(body);
 
-    let _ = UI;
-    let placed = if s.has_composer() && !s.settings.open {
-        card.anchored("composer", Side::Top, Align::End, 8.0)
-    } else {
-        card.pin(None, None, Some(28.0), Some(28.0))
-    };
-    Some(placed.raise())
+    // Sonner's region: 32 in from the window's right, 48 up from its bottom (`toast.tsx` offset).
+    Some(card.pin(None, None, Some(32.0), Some(48.0)).raise())
 }
 
 /// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the

@@ -78,7 +78,7 @@ fn toast_start(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     crate::status_toast::dismiss(s);
     tx.instant();
-    tx.after(0.5, |s, _| crate::status_toast::say(s, "Copied the session link", ""));
+    tx.after(0.5, |s, _| crate::status_toast::succeed(s, "Copied", "~/code/lumen"));
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

@@ -335,7 +335,7 @@ fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
     if id == "copy" {
         if let Some(p) = s.open_in_path(rel) {
             tx.copy(p.clone());
-            crate::status_toast::say(s, "Copied", &p);
+            crate::status_toast::succeed(s, "Copied", &p);
         }
         return;
     }

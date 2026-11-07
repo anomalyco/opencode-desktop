@@ -26,7 +26,7 @@ impl App {
                 let label = self.account_label(&provider, &account);
                 self.write_then(move |srv| srv.credential_activate(&account), move |s, tx, r| {
                     if r.is_ok() {
-                        crate::status_toast::say(s, format!("{name} account switched"), format!("Now using {label}."));
+                        crate::status_toast::succeed(s, format!("{name} account switched"), format!("Now using {label}."));
                     }
                     s.settle_account(session, attempt, tx);
                 });
@@ -36,7 +36,7 @@ impl App {
                 let label = self.account_label(&provider, &account);
                 self.write_then(move |srv| srv.credential_remove(&account), move |s, tx, r| {
                     if r.is_ok() {
-                        crate::status_toast::say(s, format!("{label} removed"), format!("{name} will no longer use this account."));
+                        crate::status_toast::succeed(s, format!("{label} removed"), format!("{name} will no longer use this account."));
                     }
                     s.settle_account(session, attempt, tx);
                 });
@@ -67,7 +67,7 @@ impl App {
             Effect::Toast(provider) => {
                 let name = self.provider_name(&provider);
                 let description = if self.connection_models(&provider).is_empty() { String::new() } else { format!("{name} models are now available to use.") };
-                crate::status_toast::say(self, format!("{name} connected"), description);
+                crate::status_toast::succeed(self, format!("{name} connected"), description);
             }
             Effect::Apply(key) => self.apply_connected_model(&key, tx),
             Effect::Close => self.close_connect(tx),
