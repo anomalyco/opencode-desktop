@@ -56,6 +56,8 @@ pub struct Settings {
     pub notify: crate::notifications::Kinds,
     /// Answer every permission request "once" as it arrives (Desktop's `permissions.autoApprove`).
     pub auto_accept: bool,
+    /// Projects whose own Auto-accept permissions overrides that default, by project id.
+    pub project_auto_accept: BTreeMap<String, bool>,
     /// Desktop's colour theme id (`themes.rs`); `oc-2` is OpenCode's own.
     pub theme: String,
     pub reduce_motion: crate::appearance::ReduceMotion,
@@ -114,6 +116,7 @@ impl Default for Settings {
             terminal_placement: crate::panels::DockPlacement::Side,
             notify: Default::default(),
             auto_accept: false,
+            project_auto_accept: BTreeMap::new(),
             theme: crate::themes::DEFAULT.into(),
             reduce_motion: Default::default(),
             terminal_font: 3,
@@ -150,7 +153,7 @@ impl Settings {
             "foldUserMessages": self.fold_user,
             "terminalPlacement": self.terminal_placement.name(),
             "notifications": self.notify.to_json(),
-            "permissions": { "autoApprove": self.auto_accept },
+            "permissions": { "autoApprove": self.auto_accept, "projects": self.project_auto_accept },
             "theme": self.theme,
             "reduceMotion": self.reduce_motion.name(),
             "terminalFont": self.terminal_font,
@@ -187,6 +190,7 @@ impl Settings {
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
             auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
+            project_auto_accept: v["permissions"]["projects"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_bool()?))).collect()).unwrap_or_default(),
             theme: theme_id(v["theme"].as_str().unwrap_or_default()),
             reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),

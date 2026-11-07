@@ -99,6 +99,24 @@ pub fn parse_location(v: &Value) -> Option<LocationInfo> {
     })
 }
 
+/// What a project's settings edit (Settings › Projects › a project): its name as given (empty
+/// when it goes by its folder's) and its worktree startup script (`commands.start`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProjectMeta {
+    pub name: String,
+    pub start: String,
+}
+
+fn meta_store() -> &'static Mutex<HashMap<String, ProjectMeta>> {
+    static STORE: OnceLock<Mutex<HashMap<String, ProjectMeta>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// Project `id`'s name as given and startup script, as the server last reported them.
+pub fn project_meta(id: &str) -> ProjectMeta {
+    meta_store().lock().unwrap().get(id).cloned().unwrap_or_default()
+}
+
 /// Parses one `Project.Info` object from `/api/project` or a `project.updated` event.
 pub fn parse_project(p: &Value) -> Option<Project> {
     let dir = p["canonical"].as_str().or_else(|| p["worktree"].as_str()).unwrap_or("").to_owned();
@@ -120,6 +138,8 @@ pub fn parse_project(p: &Value) -> Option<Project> {
     }
     if !id.is_empty() {
         git_store().lock().unwrap().insert(id.clone(), p["vcs"].as_str() == Some("git"));
+        let meta = ProjectMeta { name: p["name"].as_str().map(str::trim).unwrap_or("").to_owned(), start: p["commands"]["start"].as_str().unwrap_or("").to_owned() };
+        meta_store().lock().unwrap().insert(id.clone(), meta);
     }
     Some(Project {
         id,

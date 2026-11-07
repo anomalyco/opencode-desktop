@@ -210,7 +210,7 @@ fn decide(app: &App, ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'stati
         }
         "permission.asked" | "form.created" => {
             let (kind, title, asker) = request(ty, data, sid)?;
-            if !app.settings.notify.get(kind) || (ty == "permission.asked" && app.settings.auto_accept) {
+            if !app.settings.notify.get(kind) || (ty == "permission.asked" && app.auto_accepts(&asker)) {
                 return None;
             }
             // The asking session's own tab, else its root's: a subagent's request waits there.

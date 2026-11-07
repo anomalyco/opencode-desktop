@@ -151,10 +151,13 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
             let app = s.open_in.current().to_owned();
             s.open_in_app(&app, "", false);
         }
-        Some("settings") => {
-            tx.instant();
-            s.open_settings();
-        }
+        Some("settings") => match root.as_deref() {
+            Some(dir) => s.edit_project(dir, tx),
+            None => {
+                tx.instant();
+                s.open_settings();
+            }
+        },
         Some(id) if id.starts_with("move-") => move_session(s, &sid, &dir, project_id.as_deref(), root.as_deref(), id),
         _ => {}
     });

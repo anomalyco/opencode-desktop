@@ -24,7 +24,7 @@ pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_perm
 pub use notice::{Notice, NoticeKind, Retry, StepError, is_notice_event};
 pub use tool::{tool_error, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
-pub use crate::project::{LocationInfo, parse_location, parse_project, parse_worktrees, project_git, project_sandboxes, set_project_sandboxes};
+pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, set_project_sandboxes};
 pub use crate::quote::{Quote, set_user_quotes, user_quotes};
 
 #[derive(Clone, Debug)]

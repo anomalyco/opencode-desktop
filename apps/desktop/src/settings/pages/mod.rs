@@ -10,6 +10,8 @@ pub mod general;
 pub mod models;
 pub mod notifications;
 pub mod pairing;
+pub mod project;
+pub mod project_extensions;
 pub mod projects;
 pub mod providers;
 pub mod servers;
@@ -48,6 +50,8 @@ pub enum Page {
     About,
     /// A plugin's own page (`SettingsPage` without a host page), by its contribution key.
     Plugin(String),
+    /// A project's own pages (`SettingsProjectView`), by its folder.
+    Project(String, project::Tab),
 }
 
 impl Page {
@@ -69,6 +73,7 @@ impl Page {
             Page::Experimental => "experimental",
             Page::About => "about",
             Page::Plugin(id) => id,
+            Page::Project(_, tab) => tab.id(),
         }
     }
 
@@ -90,6 +95,8 @@ impl Page {
             "whats-new" => Page::WhatsNew,
             "experimental" => Page::Experimental,
             "about" => Page::About,
+            // A project's page names no project; its list stands in.
+            "project-general" | "project-workspaces" | "project-extensions" => Page::Projects,
             other => Page::Plugin(other.to_owned()),
         }
     }
@@ -112,6 +119,7 @@ impl Page {
             Page::Experimental => "Experimental",
             Page::About => "About",
             Page::Plugin(_) => "",
+            Page::Project(_, tab) => tab.label(),
         }
     }
 
@@ -132,6 +140,7 @@ impl Page {
             Page::WhatsNew => &ic::OUTLINE_LIST_CHANGELOG,
             Page::Experimental => &ic::FLASK,
             Page::About => &ic::INFO,
+            Page::Project(_, tab) => tab.icon(),
         }
     }
 }
@@ -172,6 +181,8 @@ pub struct State {
     pub pairing: pairing::State,
     /// Preferences' Timeline section.
     pub timeline: timeline::State,
+    /// A project's own pages.
+    pub project: project::State,
 }
 
 impl State {
@@ -183,6 +194,9 @@ impl State {
         self.fonts.blur();
         self.shortcuts.filter.focused = false;
         self.projects.filter.focused = false;
+        self.project.name.focused = false;
+        self.project.startup.focused = false;
+        self.project.rename.focused = false;
     }
 }
 
@@ -213,6 +227,7 @@ impl App {
             Page::Servers => servers::load(self),
             Page::Worktrees => worktrees::load(self),
             Page::Pairing => pairing::load(self),
+            Page::Project(dir, tab) => project::load(self, &dir.clone(), *tab),
             _ => {}
         }
         if page == Page::Models {
@@ -382,6 +397,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         Page::Experimental => experimental::view(s, p),
         Page::About => about::view(s, p),
         Page::Plugin(id) => plugin_page(s, p, id),
+        Page::Project(dir, tab) => project::view(s, p, dir, *tab),
     }
 }
 

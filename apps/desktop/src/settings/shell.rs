@@ -69,9 +69,14 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
         .child(screen.child(row().w_full().px(gutter).justify_center().child(row().w_full().max_w(1048.0).items_start().child(rail).child(page))))
 }
 
-/// `.settings-nav`: Back, the search, then the page groups (or the search's results).
+/// `.settings-nav`: Back, the search, then the page groups (or the search's results). A
+/// project's pages have Back to projects and their tabs, without the search.
 fn nav(s: &App, p: &Pal, height: f32) -> El {
-    let mut nav = col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p).mb(28.0)).child(search::field(s, p));
+    if let Page::Project(dir, _) = &s.settings_pages.page {
+        let tabs = pages::project::Tab::ALL.iter().fold(col().key("settings-nav-group-0").w_full().gap(4.0), |c, tab| c.child(nav_item(s, p, &Page::Project(dir.clone(), *tab))));
+        return col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(col().key("settings-nav-groups").w_full().child(tabs));
+    }
+    let mut nav = col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(search::field(s, p));
     if search::active(s) {
         // The results scroll in what the rail leaves them: the screen less its insets, Back and the field.
         let room = if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - 16.0).max(120.0) } else { 480.0 };
@@ -101,17 +106,23 @@ fn nav_item(s: &App, p: &Pal, page: &Page) -> El {
         .child(text(label).font(TAB).color(ink).truncate())
 }
 
-/// `.settings-back`: the arrow and "Back to app", muted until hovered.
-fn back_button(p: &Pal) -> El {
-    row().key("settings-back").role("button").label("Back to app").help("Back to app Esc").h(28.0).px(6.0).gap(6.0).center_y().radius(4.0).self_start()
+/// `.settings-back`: the arrow and "Back to app" ("Back to projects" on a project's pages), muted
+/// until hovered.
+fn back_button(p: &Pal, project: bool) -> El {
+    let words = if project { "Back to projects" } else { "Back to app" };
+    row().key("settings-back").role("button").label(words).help(format!("{words} Esc")).h(28.0).px(6.0).gap(6.0).center_y().radius(4.0).self_start()
         .hover_group()
         .hover(p.layer3)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            s.close_settings();
+            if project {
+                s.open_settings_page(Page::Projects, tx);
+            } else {
+                s.close_settings();
+            }
         })
         .child(icon(&ic::ARROW_LEFT, 14.0).color(p.muted).group_color(p.text))
-        .child(text("Back to app").font(TAB).color(p.muted).group_color(p.text))
+        .child(text(words).font(TAB).color(p.muted).group_color(p.text))
 }
 
 /// `.settings-mobile-nav`: Back on the bar's start, the open page's menu at its end.
@@ -138,7 +149,7 @@ fn narrow_bar(s: &App, p: &Pal) -> El {
         .child(text(current).font(TAB).color(p.text))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
     row().key("settings-mobile-nav").w_full().h(48.0).px(16.0).center_y().justify_between().fill(p.bg_base)
-        .child(back_button(p))
+        .child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))))
         .child(trigger)
         .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border_muted))
 }

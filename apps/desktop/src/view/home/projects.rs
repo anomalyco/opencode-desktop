@@ -187,10 +187,7 @@ fn open_menu(s: &mut App, id: &str, tx: &mut Tx) {
     popup::open_drawn(s, menu, menu_key(id), tx, move |s: &mut App, picked, tx| match picked {
         Some("new-session") => s.new_session_in(&proj.directory, tx),
         Some("import") => s.import_session(&proj.directory, tx),
-        Some("edit") => {
-            tx.instant();
-            s.open_settings();
-        }
+        Some("edit") => s.edit_project(&proj.directory, tx),
         Some("reveal") => {
             if let Err(e) = super::super::location_card::reveal(&proj.directory) {
                 crate::status_toast::fail(s, "Request failed", e);
@@ -222,8 +219,13 @@ impl App {
         tx.settle();
     }
 
+    /// Whether any of `proj`'s sessions is unread (`notification.project.hasUnread`).
+    pub(crate) fn project_has_unread(&self, proj: &model::Project) -> bool {
+        project_unread(self, proj).next().is_some()
+    }
+
     /// Clear notifications: its sessions read, here and on the server.
-    fn clear_project_notifications(&mut self, proj: &model::Project, tx: &mut Tx) {
+    pub(crate) fn clear_project_notifications(&mut self, proj: &model::Project, tx: &mut Tx) {
         let ids: Vec<String> = project_unread(self, proj).map(|i| i.id.clone()).collect();
         tx.instant();
         for id in ids {

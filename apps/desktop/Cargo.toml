@@ -18,6 +18,7 @@ static-builtins = ["dep:opencode-plugin-hello-impl", "dep:opencode-plugin-contex
 knobs = ["rune-knobs/panel"]
 
 [dependencies]
+base64 = "0.22"
 browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"

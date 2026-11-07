@@ -30,16 +30,22 @@ pub fn load(s: &App) {
     }
 }
 
-/// `(project id, project name, worktree folder)` for every worktree, by project.
-fn worktrees(s: &App) -> Vec<(String, String, String)> {
-    s.projects.iter().flat_map(|p| {
+/// `(project id, project name, worktree folder)` for every worktree, by project; `only`'s alone
+/// when given.
+fn worktrees(s: &App, only: Option<&str>) -> Vec<(String, String, String)> {
+    s.projects.iter().filter(|p| only.is_none_or(|id| p.id == id)).flat_map(|p| {
         let name = super::projects::name(p);
         s.project_worktrees(&p.id, &p.directory).into_iter().map(move |dir| (p.id.clone(), name.clone(), dir))
     }).collect()
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
-    let list = worktrees(s);
+    view_for(s, p, None)
+}
+
+/// Worktrees, of project `only` alone on its own pages (`SettingsWorkspaces projectID`).
+pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
+    let list = worktrees(s, only);
     let body = if list.is_empty() {
         col().key("settings-workspaces-empty").w_full().gap(4.0)
             .child(text("No worktrees yet").font(NAME).color(p.text))
@@ -53,7 +59,8 @@ pub fn view(s: &App, p: &Pal) -> El {
                 .child(text(format!("{n} worktree{}", if n == 1 { "" } else { "s" })).font(BODY).color(p.muted)))
             .child(col().key("settings-workspaces-inventory").w_full().padding(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
     };
-    page(p, "settings-workspaces-page", header_with(p, "Worktrees", "Review worktrees and manage disk usage", super::servers::switcher(s, p)), body)
+    let switcher = if only.is_none() { super::servers::switcher(s, p) } else { None };
+    page(p, "settings-workspaces-page", header_with(p, "Worktrees", "Review worktrees and manage disk usage", switcher), body)
 }
 
 fn worktree_row(s: &App, p: &Pal, project: &str, project_name: &str, dir: &str, active: Option<&str>, divided: bool) -> El {

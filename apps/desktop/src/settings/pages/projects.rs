@@ -10,7 +10,6 @@ use rune_theme_opencode::icons as ic;
 use super::{filter_field, ghost_button, header_with, no_results, page};
 use crate::App;
 use crate::palette::Pal;
-use crate::popup::{self, Item, Menu};
 
 /// A project's name: 13 on 20 at 530.
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
@@ -111,38 +110,44 @@ fn project_list(s: &App, p: &Pal, key: &str, projects: &[&Project], others: bool
     list
 }
 
-fn card(s: &App, p: &Pal, x: &Project, other: bool, alone: bool) -> El {
-    let dir = x.directory.clone();
-    let id = x.id.clone();
-    let menu_key = format!("settings-project-menu-{}", x.id);
-    let anchor = menu_key.clone();
-    let dots = row().key(menu_key).role("button").label("More options").size(24.0, 24.0).center().radius(4.0)
-        .hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = Menu::new("Project").align(rune::Align::End)
-                .items(other.then(|| Item::new("add", "Add project")))
-                .item(Item::new("reveal", crate::view::location_card::REVEAL));
-            let (dir, id) = (dir.clone(), id.clone());
-            popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| match picked {
-                Some("add") => {
-                    tx.instant();
-                    s.touch_project(&id);
-                }
-                Some("reveal") => {
-                    if let Err(e) = crate::view::location_card::reveal(&dir) {
-                        crate::status_toast::say(s, "Couldn't open the folder", &e);
-                    }
-                }
-                _ => {}
-            });
-        })
-        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
+/// `SettingsProjectRow`: the project's avatar and name, which open its own pages, and its menu
+/// (Add project, Edit, Rename, Reveal, Clear notifications); renaming, the name is a field in
+/// place that Enter saves and Escape or a click away drops.
+fn card(s: &App, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
     let label = name(x);
-    row().key(format!("settings-project-{}", x.id)).role("listitem").label(label.clone()).help(x.directory.clone())
+    let card = row().key(format!("settings-project-{}", x.id)).role("listitem").label(label.clone())
         .w_full().h(if alone { 48.0 } else { 40.0 }).px(if alone { 16.0 } else { 12.0 }).gap(8.0).center_y().radius(if alone { 8.0 } else { 4.0 })
-        .hover(p.layer2)
-        .child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y()
-            .child(crate::icons::badge(s, p, Some(x), &label))
-            .child(text(label).font(NAME).color(p.text).truncate()))
-        .child(dots)
+        .hover(p.layer2);
+    let st = &s.settings_pages.project;
+    if st.renaming.as_deref() == Some(x.directory.as_str()) {
+        let field = rune::text_input(&st.rename, NAME).key("settings-project-rename").single_line().grow(1.0).shrink().min_w(0.0)
+            .color(p.text).caret(p.text, p.selection).label("Rename")
+            .on_edit(|s: &mut App| &mut s.settings_pages.project.rename)
+            .on_submit(|s: &mut App, tx: &mut Tx| s.commit_project_rename(tx))
+            .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+                if ev.key != rune::Key::Escape {
+                    return false;
+                }
+                tx.instant();
+                s.settings_pages.project.renaming = None;
+                true
+            });
+        return card.child(row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(crate::icons::badge(s, p, Some(x), &label)).child(field));
+    }
+    let dir = x.directory.clone();
+    let open = row().key("open").role("button").label(label.clone()).help(x.directory.clone()).grow(1.0).shrink().min_w(0.0).h_full().gap(8.0).center_y()
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_settings_page(super::Page::Project(dir.clone(), super::project::Tab::General), tx))
+        .child(crate::icons::badge(s, p, Some(x), &label))
+        .child(text(label).font(NAME).color(p.text).truncate());
+    card.child(open).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 24.0, true))
+}
+
+/// A row's field lost focus: the rename is dropped, as a click away drops Desktop's.
+pub fn poll(s: &mut App) -> bool {
+    let st = &mut s.settings_pages.project;
+    if st.renaming.is_some() && !st.rename.focused {
+        st.renaming = None;
+        return true;
+    }
+    false
 }

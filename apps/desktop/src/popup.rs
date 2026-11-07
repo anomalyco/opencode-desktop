@@ -219,6 +219,8 @@ impl Menu {
     pub fn above(mut self) -> Menu { self.side = Side::Top; self }
     /// At least `w` wide, as menu-v2's content is 160 pt (`menu.css:12`).
     pub fn min_width(mut self, w: f32) -> Menu { self.min_w = w; self }
+    /// As wide as its widest row (`menu-v2`'s `w-max`), its entries added.
+    pub fn hug(mut self) -> Menu { self.width = Some(hug_width(&self)); self }
     /// Beside an element, which of its edges the drawn menu lines up with (its start by default).
     pub fn align(mut self, align: Align) -> Menu { self.align = align; self }
     /// Opens `gap` from its element rather than 4 (`gutter={6}`).
