@@ -53,8 +53,13 @@ const V2 = [
 ]
 const V1 = [
   "text-stronger",
+  "text-strong",
   "text-base",
+  "text-weak",
   "background-stronger",
+  "surface-raised-stronger-non-alpha",
+  "surface-raised-base-hover",
+  "icon-base",
   "syntax-comment",
   "syntax-string",
   "syntax-keyword",

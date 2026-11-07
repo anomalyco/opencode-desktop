@@ -69,6 +69,7 @@ mod add_menu;
 mod agent_rows;
 mod agent_start_stories;
 mod agent_stories;
+mod app_menu;
 mod appearance;
 mod appearance_stories;
 mod arrivals;

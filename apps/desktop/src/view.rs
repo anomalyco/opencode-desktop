@@ -45,7 +45,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
-    set_chrome(cx.chrome_insets(), s.zoom);
+    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale);
+    // The caption buttons line up with the titlebar row at every zoom.
+    cx.titlebar_height(titlebar_height(s.zoom));
     cx.caption_color(caption_color(p.bg_deep));
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
     // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
@@ -183,7 +185,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx))
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
         // it's the titlebar row itself.
-        .child(el().key("drag-inset").absolute(0.0, 0.0).w_full().h(chrome().top()).window_drag());
+        .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag());
     if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
         let left = if open { w } else { 0.0 };
         root = root.child(
@@ -201,6 +203,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         root = root.child(toggle);
     }
     root = root.child(sidebar_toggle(p, open, w));
+    if let Some(at) = chrome().menu_at() {
+        root = root.child(crate::app_menu::button(s, p, at));
+    }
     root
 }
 

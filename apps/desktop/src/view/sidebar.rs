@@ -372,8 +372,8 @@ pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
         .hover_motion(INSTANT, INSTANT)
         .motion(SIDEBAR_SPRING)
         .on_press(|s: &mut App| s.sidebar_open = !s.sidebar_open)
-        .child(icon(&ic::LAYOUT_LEFT_FULL, 20.0).color(p.icon_muted).absolute(4.0, 4.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
-        .child(icon(&ic::LAYOUT_LEFT, 20.0).color(p.icon_muted).absolute(4.0, 4.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING))
+        .child(icon(&ic::LAYOUT_LEFT_FULL, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
+        .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING))
 }
 
 /// Room the session header keeps for the collapsed toggle.

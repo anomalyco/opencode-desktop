@@ -92,6 +92,8 @@ pub enum Bind {
     Rewind,
     DemoReplay,
     DemoPause,
+    WindowNew,
+    WindowClose,
 }
 
 /// Settings > Shortcuts' groups (Desktop's `CommandSection`).
@@ -226,6 +228,9 @@ fn table() -> Vec<Binding> {
         // Ctrl+Alt+R and Ctrl+Alt+P are Review and Files off macOS.
         hidden(DemoReplay, "dev.demo.replay", "Replay demo", General, on("mod+alt+r").on(Windows, "ctrl+alt+enter").on(Linux, "ctrl+alt+enter")),
         hidden(DemoPause, "dev.demo.pause", "Pause demo", General, on("mod+alt+p").on(Windows, "ctrl+alt+space").on(Linux, "ctrl+alt+space")),
+        // The app menu's accelerators off macOS (`desktop-menu.ts`), which no command binds.
+        hidden(WindowNew, "window.new", "New window", General, on("ctrl+shift+n").on(Mac, "none")),
+        hidden(WindowClose, "window.close", "Close window", General, on("ctrl+shift+w").on(Mac, "none")),
     ];
     assert!(rows.iter().enumerate().all(|(i, r)| r.bind as usize == i), "keymap rows follow `Bind`'s order");
     rows

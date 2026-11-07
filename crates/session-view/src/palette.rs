@@ -86,6 +86,23 @@ pub struct Pal {
     pub accent_hover: Color,
     /// Desktop's code block fill: the v1 `background-stronger` (`.highlights`).
     pub code_bg: Color,
+    /// Desktop's v1 raised surface, as `menu-v2`'s standard look draws it (the Windows app menu).
+    pub standard: Standard,
+}
+
+/// `menu-v2`'s standard look: Desktop's v1 tokens, as each theme resolves them.
+#[derive(Clone, Copy, Debug)]
+pub struct Standard {
+    /// `surface-raised-stronger-non-alpha`: the surface.
+    pub surface: Color,
+    /// `text-strong`: an item's label.
+    pub text: Color,
+    /// `text-weak`: a group's label and a disabled item's.
+    pub weak: Color,
+    /// `surface-raised-base-hover`: the lit item.
+    pub hover: Color,
+    /// `icon-base`: a submenu's chevron.
+    pub icon: Color,
 }
 
 /// Desktop's `syntax-*` tokens, as `highlight-theme.tsx` assigns them to token kinds.
@@ -179,6 +196,13 @@ fn build(theme: usize, dark: bool) -> Pal {
         diff_del: if themed { c("syntax-diff-delete") } else { danger },
         accent_hover: c("text-text-accent-hover"),
         code_bg: c("background-stronger"),
+        standard: Standard {
+            surface: c("surface-raised-stronger-non-alpha"),
+            text: c("text-strong"),
+            weak: c("text-weak"),
+            hover: c("surface-raised-base-hover"),
+            icon: c("icon-base"),
+        },
         code: themed.then_some(syntax),
         syntax,
         v1_text_base: match (themed, dark) {
