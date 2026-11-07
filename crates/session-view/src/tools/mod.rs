@@ -32,7 +32,7 @@ use serde_json::Value;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
+use crate::style::{HOVER_FADE, TOOL_CODE, UI, UI_MED, arrow, readable};
 
 pub use details::overlay as details_overlay;
 pub use files::{group as file_group, is_file_tool};
@@ -257,7 +257,8 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .label(t.title.into_owned())
             .expanded(d.open())
             .hover_group()
-            .hover_motion(INSTANT, INSTANT)
+            // The arrow fades in under the pointer (`collapsible.css:26-29`).
+            .hover_motion(HOVER_FADE, HOVER_FADE)
             .on_press_tx(crate::disclosure::toggle::<S>(k, id));
     }
     let host = s.tool_row_action(p, cx.session, c, None);

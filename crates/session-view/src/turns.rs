@@ -15,7 +15,7 @@ use opencode_kit::model::{Assistant, Attachment, Part, ToolStatus};
 use crate::TimelineHost;
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::style::{UI, UI_MED, arrow, reasoning};
+use crate::style::{HOVER_FADE, UI, UI_MED, arrow, reasoning};
 
 /// One step inside a group.
 #[derive(Debug)]
@@ -213,6 +213,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .gap(4.0)
         .center_y()
         .hover_group()
+        // The arrow fades in under the pointer (`collapsible.css:26-29`).
+        .hover_motion(HOVER_FADE, HOVER_FADE)
         // A step joining or the label changing crossfades the words while the arrow slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));

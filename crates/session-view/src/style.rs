@@ -4,7 +4,7 @@
 use std::ops::Range;
 use std::sync::{Mutex, OnceLock};
 
-use rune::{Anim, Color, Cycle, El, Icon, TextHighlight, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Curve, Cycle, Easing, El, Icon, TextHighlight, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{Markdown, MarkdownStyle};
 use rune_theme_opencode::icons as ic;
 
@@ -12,6 +12,8 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 
 pub const INSTANT: Anim = Anim::INSTANT;
+/// Desktop's `transition: opacity 0.15s ease` on a hover-revealed control.
+pub const HOVER_FADE: Anim = Anim::new(Curve::tween(0.15, Easing::EASE));
 
 // Type: Inter variable (weights 440/530/670 are real instances) and IBM Plex Mono.
 pub const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -92,7 +94,8 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         .gap(6.0)
         .center_y()
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
+        // The triangle fades in under the pointer (`collapsible.css:26-29`).
+        .hover_motion(HOVER_FADE, HOVER_FADE)
         // "Thinking" crossfades to "Thought" while the triangle slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle::<S>(key.to_owned(), format!("{key}/trigger")))
@@ -254,8 +257,8 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
-/// ghost icon button 4 pt in from the top right, shown while the pointer is over the block,
-/// its glyph a tick for a moment after a copy.
+/// ghost icon button 4 pt in from the top right, fading in over 0.15 s while the pointer is over
+/// the block (`markdown.css:352-381`), its glyph a tick for a moment after a copy.
 fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: Option<&str>) -> El {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -290,7 +293,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
     col()
         .w_full()
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
+        .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
         .child(buttons.group_opacity(0.0, 1.0))
 }

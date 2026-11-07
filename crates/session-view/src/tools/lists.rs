@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CONTENT_W, INSTANT, MD, UI, UI_MED, arrow, readable};
+use crate::style::{CONTENT_W, HOVER_FADE, INSTANT, MD, UI, UI_MED, arrow, readable};
 
 /// A search's results scroll past 240 px, as a console's do.
 const MAX_H: f32 = super::console::MAX_H;
@@ -74,7 +74,7 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         .min_h(28.0)
         .gap(8.0)
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
+        .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(row().h(if open { 20.0 } else { 28.0 }).center_y().child(title))
         .child(row().shrink().min_w(0.0).center_y().child(readable(p, words).shrink().min_w(0.0)));
     r = if open { r.items_start().py(4.0) } else { r.center_y() };

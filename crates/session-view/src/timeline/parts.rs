@@ -176,9 +176,16 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         if pending && !meta.is_empty() {
             model = model.child(text("\u{00b7}").key("pending-sep").font(PROMPT_META).color(p.faint));
         }
-        line = line.child(if open { model } else { model.group_opacity(0.0, 1.0) });
+        // As Desktop's copy wrapper, the whole line shows only under the pointer, so it comes and
+        // goes unseen as the model it names lands or changes; a steer's line stays in view for
+        // Pending, its model still shown only under the pointer.
+        let shown = |el: El| if open { el.opacity(1.0).opacity_motion(INSTANT) } else { el.group_opacity(0.0, 1.0) };
         if pending {
-            line = line.child(text("Pending").key("pending").font(PROMPT_META).color(p.faint));
+            // The model joins a steer's Pending line sliding in, as Desktop's
+            // `user-message-transition` labels arrive (200 ms, `message-part.css:365-385`).
+            line = line.animate_layout().child(shown(model)).child(text("Pending").key("pending").font(PROMPT_META).color(p.faint));
+        } else {
+            line = shown(line.child(model));
         }
         face = face.child(line);
     }

@@ -413,7 +413,12 @@ impl App {
                 Some("fork") => {
                     s.fork_from(&sid, &mid, tx);
                 }
-                Some("revert") => s.rewind_to(&sid, &mid, tx),
+                Some("revert") => {
+                    // The menu closes in its frame, but the rows it reverts leave on their own
+                    // exits, as a revert from anywhere else does.
+                    tx.animated();
+                    s.rewind_to(&sid, &mid, tx);
+                }
                 Some("delete") => {
                     s.withdraw(&sid, &mid);
                 }
