@@ -3,6 +3,7 @@
 //! rows `PaletteRow` with `palette-menu.css`'s title and `keybind.css`'s chips.
 
 use rune::{Color, Cx, El, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune_kit::ScrollBar as _;
 use rune_theme_opencode::{file_icons, icons as ic};
 
 use super::{Action, Entry, SwitcherMode};
@@ -149,7 +150,9 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 // bottom edge and under the stuck section header, each linear, at full strength
                 // once 15 are hidden.
                 .scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky())
-                .child(results),
+                .child(results)
+                // `MenuScroll`: the thumb shows while the list scrolls (`search-list.tsx:311`).
+                .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
         )
 }
 
