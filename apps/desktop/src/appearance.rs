@@ -3,16 +3,12 @@
 //! motion (System / On / Off). Desktop's font rows take any family name; here they pick from
 //! the faces the app bundles or macOS always has, since Rune loads only those.
 
-use std::borrow::Cow;
 use std::cell::Cell;
 
-use rune::{Color, El, Tx, icon, row, text};
-use rune_theme_opencode::icons as ic;
+use rune::Tx;
 
 use crate::App;
-use crate::palette::Pal;
 use crate::popup::{self, Menu};
-use crate::view::UI;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReduceMotion {
@@ -29,7 +25,7 @@ impl ReduceMotion {
         match self { Self::System => "system", Self::On => "on", Self::Off => "off" }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self { Self::System => "System", Self::On => "On", Self::Off => "Off" }
     }
 
@@ -145,6 +141,7 @@ impl App {
     /// motion and the terminal font knob.
     pub fn apply_appearance(&mut self) {
         crate::themes::set_active(&self.settings.theme);
+        crate::keymap::overrides::apply(&self.settings.keybinds);
         self.apply_reduce_motion();
         self.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
     }
@@ -207,104 +204,6 @@ impl App {
         crate::themes::set_active(&id);
         self.change_settings(|s| s.theme = id);
     }
-}
-
-/// The rows, in Desktop's order.
-pub fn rows(s: &App, p: &Pal) -> Vec<(&'static str, &'static str, Cow<'static, str>, El)> {
-    vec![
-        ("appearance", "Color scheme", "Choose whether OpenCode follows the system, light, or dark theme".into(), crate::settings::scheme_control(s, p)),
-        ("theme", "Theme", "Customise how OpenCode is themed.".into(), theme_select(s, p)),
-        ("ui-font", "UI Font", "Customise the font used throughout the interface".into(), ui_font_select(s, p)),
-        ("code-font", "Code Font", "Customise the font used in code blocks".into(), code_font_select(s, p)),
-        ("terminal-font", "Terminal Font", "Customise the font used in the terminal".into(), terminal_font_select(s, p)),
-        ("zoom", "Zoom", zoom_about().into(), crate::settings::zoom_control(s, p)),
-        ("reduce-motion", "Reduce motion", "Reduce animations or match your system".into(), reduce_motion_control(s, p)),
-    ]
-}
-
-/// "⌘+ ⌘− ⌘0 do the same", in this platform's keys.
-fn zoom_about() -> String {
-    use crate::keymap::{Bind, label};
-    let chord = |b: Bind, i: usize| b.keybind().chords().get(i).map_or_else(String::new, |c| label(*c));
-    format!("Make text and controls larger across the app. {} {} {} do the same.", chord(Bind::ZoomIn, 1), chord(Bind::ZoomOut, 0).replace('-', "−"), chord(Bind::ZoomReset, 0))
-}
-
-fn ui_font_select(s: &App, p: &Pal) -> El {
-    font_select(p, "ui-font-select", "Choose UI font", &UI_FONTS, s.settings.ui_font, App::set_ui_font)
-}
-
-fn code_font_select(s: &App, p: &Pal) -> El {
-    font_select(p, "code-font-select", "Choose code font", &CODE_FONTS, s.settings.code_font, App::set_code_font)
-}
-
-/// A font row's select: the current font's name, opening the choices over the button.
-fn font_select(p: &Pal, key: &'static str, label: &'static str, fonts: &'static [Font], current: usize, set: fn(&mut App, usize, &mut Tx)) -> El {
-    let current = current.min(fonts.len() - 1);
-    select(p, key, label, fonts[current].name).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-        let menu = Menu::picker(label, fonts.iter().enumerate().map(|(i, f)| (i.to_string(), f.name)), &current.to_string());
-        popup::open(s, menu, key, tx, move |s: &mut App, picked, tx| {
-            if let Some(i) = picked.and_then(|i| i.parse().ok()) {
-                set(s, i, tx);
-            }
-        });
-    })
-}
-
-fn theme_select(s: &App, p: &Pal) -> El {
-    let current = &crate::themes::all()[crate::themes::index(&s.settings.theme)];
-    select(p, "theme-select", "Choose theme", &current.name).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_theme_menu(tx))
-}
-
-fn terminal_font_select(s: &App, p: &Pal) -> El {
-    let current = TERMINAL_FONTS[s.settings.terminal_font.min(TERMINAL_FONTS.len() - 1)];
-    select(p, "terminal-font-select", "Choose terminal font", current).on_press_tx(|s: &mut App, tx: &mut Tx| {
-        let menu = Menu::picker("Terminal font", TERMINAL_FONTS.iter().enumerate().map(|(i, f)| (i.to_string(), *f)), &s.settings.terminal_font.to_string());
-        popup::open(s, menu, "terminal-font-select", tx, |s: &mut App, picked, tx| {
-            if let Some(i) = picked.and_then(|i| i.parse().ok()) {
-                s.set_terminal_font(i, tx);
-            }
-        });
-    })
-}
-
-/// Desktop's Select: the current choice and a chevron, opening the choices with the current
-/// one checked (a native pop-up button on macOS, a drawn list below it elsewhere).
-fn select(p: &Pal, key: &'static str, label: &'static str, current: &str) -> El {
-    row()
-        .key(key)
-        .role("button")
-        .label(label)
-        .h(28.0)
-        .pl(10.0)
-        .pr(6.0)
-        .gap(4.0)
-        .center_y()
-        .radius(6.0)
-        .fill(p.layer2)
-        .hover(p.hover)
-        .child(text(current.to_owned()).font(UI).color(p.text))
-        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted))
-}
-
-fn reduce_motion_control(s: &App, p: &Pal) -> El {
-    let mut r = row().key("reduce-motion-control").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
-    for m in ReduceMotion::ALL {
-        let on = s.settings.reduce_motion == m;
-        r = r.child(
-            row()
-                .key(format!("reduce-motion-{}", m.name()))
-                .role("button")
-                .h(24.0)
-                .px(10.0)
-                .center()
-                .radius(4.0)
-                .fill(if on { p.bg_base } else { Color::TRANSPARENT })
-                .hover(if on { p.bg_base } else { p.hover })
-                .on_press(move |s: &mut App| s.set_reduce_motion(m))
-                .child(text(m.label()).font(UI).color(if on { p.text } else { p.muted })),
-        );
-    }
-    r
 }
 
 #[cfg(test)]

@@ -205,7 +205,8 @@ impl App {
             }
             Route::Session(id) => {
                 if self.busy(&id) {
-                    prompt.delivery = Some(if alternate { Delivery::Queue } else { Delivery::Steer });
+                    let queue = alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue);
+                    prompt.delivery = Some(if queue { Delivery::Queue } else { Delivery::Steer });
                 }
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let w = if staged {

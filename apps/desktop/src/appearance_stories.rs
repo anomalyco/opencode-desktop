@@ -30,7 +30,7 @@ fn next(s: &mut App, tx: &mut Tx) {
 }
 
 fn view(s: &App, p: &Pal) -> El {
-    col().key("appearance-story").w(640.0).fill(p.bg_base).padding(24.0).child(crate::settings::settings_card(p, "appearance-list", crate::appearance::rows(s, p)))
+    col().key("appearance-story").w(640.0).fill(p.bg_base).padding(24.0).child(crate::settings::pages::appearance::view(s, p))
 }
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [

@@ -87,24 +87,12 @@ fn page_json(app: &App) -> Value {
 }
 
 /// Desktop's `?tab=` for a settings page.
-fn settings_tab(page: &crate::settings::pages::Page) -> &'static str {
-    use crate::settings::pages::Page;
-    match page {
-        Page::Providers => "providers",
-        Page::Models => "models",
-        Page::Extensions => "extensions",
-        _ => "general",
-    }
+fn settings_tab(page: &crate::settings::pages::Page) -> String {
+    page.id().to_owned()
 }
 
 fn settings_page(tab: &str) -> crate::settings::pages::Page {
-    use crate::settings::pages::Page;
-    match tab {
-        "providers" => Page::Providers,
-        "models" => Page::Models,
-        "extensions" => Page::Extensions,
-        _ => Page::default(),
-    }
+    crate::settings::pages::Page::parse(tab)
 }
 
 /// A saved route.

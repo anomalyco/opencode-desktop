@@ -232,6 +232,13 @@ impl Contribution {
         self
     }
 
+    /// A settings page listed beside Experimental and About rather than with the app's pages
+    /// (`SettingsPage.group: "about"`), as What's new is.
+    pub fn about_group(mut self) -> Self {
+        self.flags |= crate::abi::SETTINGS_PAGE_ABOUT;
+        self
+    }
+
     /// A settings search entry on this page: found without drawing the page.
     pub fn entry(mut self, id: &str, title: &str, description: &str, keywords: &str) -> Self {
         let line = format!("{id}\t{title}\t{description}\t{keywords}").replace('\n', " ");

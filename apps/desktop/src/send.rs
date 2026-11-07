@@ -69,8 +69,9 @@ impl App {
             && (self.busy(&id) || self.steers_waiting(&id))
         {
             let local = prompt.id.clone().unwrap_or_default();
-            // With no run to queue behind, ⌘⏎ sends as Enter does.
-            let queue = alternate && self.busy(&id);
+            // Enter does what Settings › Follow-up behavior says and ⌘⏎ the other; with no run to
+            // queue behind, both send as a steer does.
+            let queue = (alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue)) && self.busy(&id);
             self.echo_mentions(&local);
             self.admit(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer });
             if queue {

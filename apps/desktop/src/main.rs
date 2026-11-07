@@ -209,6 +209,7 @@ mod settings;
 mod shortcuts;
 mod side_stories;
 mod slash;
+mod sounds;
 mod reconnect;
 mod status_toast;
 #[cfg(test)]
@@ -884,7 +885,7 @@ impl App {
     /// OpenCode Desktop's key defaults; true when `ev` was one.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         use shortcuts::Action;
-        if dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) || plugin_host::key(self, ev, tx) {
+        if settings::pages::shortcuts::run_bound(self, ev, tx) || dictation::key(self, ev, tx) || background::key(self, ev, tx) || find::shortcut(self, ev, tx) || commands::key(self, ev, tx) || plugin_host::key(self, ev, tx) {
             return true;
         }
         if tx.focused().is_some() && keymap::Bind::PastePlain.matches_tx(ev, tx) {
@@ -1007,6 +1008,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= updater::poll(s, tx);
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
+    changed |= settings::search::poll(s, tx);
+    changed |= settings::pages::pairing::poll(s, tx);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= turn_errors::poll(s, tx);

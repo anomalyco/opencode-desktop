@@ -28,6 +28,8 @@ pub enum Kind {
     Permission,
     /// A run failed (`session.execution.failed`).
     Error,
+    /// The agent asks a question (`form.created`).
+    Question,
 }
 
 impl Kind {
@@ -36,6 +38,7 @@ impl Kind {
             Kind::Agent => "agent",
             Kind::Permission => "permissions",
             Kind::Error => "errors",
+            Kind::Question => "questions",
         }
     }
 
@@ -45,6 +48,7 @@ impl Kind {
             Kind::Agent => "Response ready",
             Kind::Permission => "Permission required",
             Kind::Error => "Session error",
+            Kind::Question => "Question requires an answer",
         }
     }
 }
@@ -55,11 +59,12 @@ pub struct Kinds {
     pub agent: bool,
     pub permissions: bool,
     pub errors: bool,
+    pub questions: bool,
 }
 
 impl Default for Kinds {
     fn default() -> Self {
-        Kinds { agent: false, permissions: true, errors: false }
+        Kinds { agent: false, permissions: true, errors: false, questions: true }
     }
 }
 
@@ -69,6 +74,7 @@ impl Kinds {
             Kind::Agent => self.agent,
             Kind::Permission => self.permissions,
             Kind::Error => self.errors,
+            Kind::Question => self.questions,
         }
     }
 
@@ -77,11 +83,12 @@ impl Kinds {
             Kind::Agent => self.agent = on,
             Kind::Permission => self.permissions = on,
             Kind::Error => self.errors = on,
+            Kind::Question => self.questions = on,
         }
     }
 
     pub fn to_json(&self) -> Value {
-        json!({ "agent": self.agent, "permissions": self.permissions, "errors": self.errors })
+        json!({ "agent": self.agent, "permissions": self.permissions, "questions": self.questions, "errors": self.errors })
     }
 
     pub fn from_json(v: &Value) -> Kinds {
@@ -90,6 +97,7 @@ impl Kinds {
             agent: v["agent"].as_bool().unwrap_or(d.agent),
             permissions: v["permissions"].as_bool().unwrap_or(d.permissions),
             errors: v["errors"].as_bool().unwrap_or(d.errors),
+            questions: v["questions"].as_bool().unwrap_or(d.questions),
         }
     }
 }
@@ -201,6 +209,11 @@ fn decide(app: &App, ty: &str, data: &Value, sid: &str) -> Option<(Kind, String,
             let title = app.tab_title(&root)?;
             Some((Kind::Permission, root.clone(), if title.is_empty() { root } else { title }))
         }
+        "form.created" if app.settings.notify.questions => {
+            let root = app.root_of(data["sessionID"].as_str().unwrap_or(sid)).to_owned();
+            let title = app.tab_title(&root)?;
+            Some((Kind::Question, root.clone(), if title.is_empty() { root } else { title }))
+        }
         _ => None,
     }
 }
@@ -210,7 +223,7 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
     if app.notify.sink.is_none() {
         return;
     }
-    if ty == "permission.asked" {
+    if ty == "permission.asked" || ty == "form.created" {
         let id = data["id"].as_str().unwrap_or("").to_owned();
         if id.is_empty() || app.notify.asked.contains(&id) {
             return;

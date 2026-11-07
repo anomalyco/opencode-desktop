@@ -40,7 +40,7 @@ fn groups(s: &App) -> Vec<(String, Vec<&Model>)> {
 pub fn view(s: &App, p: &Pal) -> El {
     let searching = !s.settings_pages.search.text.trim().is_empty();
     let groups = groups(s);
-    let mut body = col().key("settings-models").w_full().gap(12.0).pt(24.0);
+    let mut body = col().key("settings-models").w_full().gap(12.0);
     if groups.is_empty() {
         let status = if searching {
             row().key("settings-models-empty").w_full().py(48.0).gap(4.0).center()
@@ -58,7 +58,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let head = col().w_full().gap(24.0)
         .child(header(p, "Models", "Choose which models appear in model picker"))
         .child(search(s, p));
-    page("settings-models-page", head, body)
+    page(p, "settings-models-page", head, body)
 }
 
 /// `settings-filter-search`: 36 pt, `layer-02` at 60% (full under the pointer or while typed

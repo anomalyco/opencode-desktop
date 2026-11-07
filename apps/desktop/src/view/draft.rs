@@ -33,6 +33,20 @@ pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
 /// (`wordmark.tsx:170-178`); the logo inside is 78 × 14 whole-point pitches, the pitch
 /// `max(3, round(box / 78))`, centred in it (`fitStage`, `wordmark.tsx:410-428`).
 pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
+    let span = 0.8 * if width > 0.0 { (width - 48.0).min(720.0) } else { 720.0 };
+    let pitch = (span / 78.0).round().max(3.0);
+    // A pitch is 3 of the logo's units.
+    let k = pitch / 3.0;
+    let icon = p.standard.icon;
+    let (stem, weak) = (icon.alpha(icon.a * 0.16), icon.alpha(icon.a * 0.16 * 0.3));
+    let logo = logo_at(k, stem, weak).key("wordmark");
+    let boxed = row().key("wordmark-box").w(span).h(span * 42.0 / 234.0).center().child(logo);
+    row().key("wordmark-row").w_full().justify_center().child(boxed)
+}
+
+/// The logo's blocks at `k` points a unit (234 × 42 units): letters in `stem`, the counters'
+/// lower halves in `weak`.
+pub(crate) fn logo_at(k: f32, stem: rune::Color, weak: rune::Color) -> El {
     // x, y, w, h in the logo's 234×42 units; `true` for a counter's lower half.
     const RECTS: [(f32, f32, f32, f32, bool); 40] = [
         (0., 6., 24., 6., false), (0., 12., 6., 24., false), (18., 12., 6., 24., false), (6., 30., 12., 6., false), (6., 18., 12., 12., true),
@@ -44,16 +58,9 @@ pub(in crate::view) fn wordmark(p: &Pal, width: f32) -> El {
         (180., 6., 18., 6., false), (198., 0., 6., 36., false), (180., 12., 6., 24., false), (186., 30., 12., 6., false), (186., 18., 12., 12., true),
         (210., 6., 24., 6., false), (210., 12., 6., 24., false), (228., 12., 6., 12., false), (216., 18., 12., 6., false), (216., 30., 18., 6., false), (216., 24., 18., 6., true),
     ];
-    let span = 0.8 * if width > 0.0 { (width - 48.0).min(720.0) } else { 720.0 };
-    let pitch = (span / 78.0).round().max(3.0);
-    // A pitch is 3 of the logo's units.
-    let k = pitch / 3.0;
-    let icon = p.standard.icon;
-    let (stem, weak) = (icon.alpha(icon.a * 0.16), icon.alpha(icon.a * 0.16 * 0.3));
-    let mut logo = el().key("wordmark").size(78.0 * pitch, 14.0 * pitch);
+    let mut logo = el().size(78.0 * 3.0 * k, 14.0 * 3.0 * k);
     for (x, y, w, h, counter) in RECTS {
         logo = logo.child(el().absolute(x * k, y * k).size(w * k, h * k).fill(if counter { weak } else { stem }));
     }
-    let boxed = row().key("wordmark-box").w(span).h(span * 42.0 / 234.0).center().child(logo);
-    row().key("wordmark-row").w_full().justify_center().child(boxed)
+    logo
 }

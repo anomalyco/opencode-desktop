@@ -95,16 +95,55 @@ pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &st
     Some(col().key(format!("plugin-file-{}", c.key)).w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(body))
 }
 
-/// The settings pages plugins add on host page `page` (`general`, `servers`), or their own
-/// pages (`""`), as sections in Settings' one column.
+/// The settings pages plugins add on host page `page` (`general`, `servers`), as sections of
+/// that page (`PluginSettingsSections`).
 pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
     sorted(app, kinds::SETTINGS_PAGE)
         .into_iter()
-        .filter(|(_, c)| c.target == page)
+        .filter(|(_, c)| c.target == page && !page.is_empty())
         .filter_map(|(i, c)| {
             let body = draw(app, p, i, c, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), false)?;
             let card = col().key(format!("plugin-page-{}", c.key)).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
             Some(crate::settings::section(p, intern(&c.title), card))
         })
         .collect()
+}
+
+/// The plugins' own Settings pages, in order, by key, each with whether it belongs beside
+/// Experimental and About (`group: "about"`).
+pub fn settings_page_ids(app: &App) -> Vec<(String, bool)> {
+    sorted(app, kinds::SETTINGS_PAGE)
+        .into_iter()
+        .filter(|(_, c)| c.target.is_empty())
+        .map(|(_, c)| (c.key.to_owned(), c.flags & opencode_plugin::abi::SETTINGS_PAGE_ABOUT != 0))
+        .collect()
+}
+
+fn own_page<'a>(app: &'a App, key: &str) -> Option<(usize, &'a ContribRec)> {
+    active(&app.plugins, kinds::SETTINGS_PAGE).find(|(_, c)| c.target.is_empty() && (c.key == key || c.id == key))
+}
+
+/// The key of the plugin page a manifest's search entry names by its id.
+pub fn settings_page_key(app: &App, id: &str) -> String {
+    own_page(app, id).map_or_else(|| id.to_owned(), |(_, c)| c.key.to_owned())
+}
+
+pub fn settings_page_title(app: &App, key: &str) -> Option<String> {
+    own_page(app, key).map(|(_, c)| c.title.clone())
+}
+
+/// A plugin page's rail icon: one it interned or a host icon by name.
+pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
+    let (i, c) = own_page(app, key)?;
+    (!c.icon.is_empty()).then(|| super::icons::resolve(&app.plugins.slots[i].manifest.id, &c.icon))
+}
+
+/// A plugin page: its title and what it draws, a failed render's card in its place.
+pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, El)> {
+    let (i, c) = own_page(app, key)?;
+    let body = match render::surface(app, i, c.render.as_ref()?, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), p) {
+        Ok(el) => el.unwrap_or_else(rune::el),
+        Err(e) => render::card(p, &app.plugins.slots[i].manifest.name, &format!("Stopped drawing: {e}"), Some(&app.plugins.slots[i].manifest.id), true),
+    };
+    Some((c.title.clone(), body))
 }

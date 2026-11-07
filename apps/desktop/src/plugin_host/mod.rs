@@ -62,7 +62,8 @@ pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation,
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command};
-pub use surfaces::{composer_pills, file_viewer, settings_pages, slot, slot_with, titlebar_items};
+pub use contrib::{run_menu_item, server_menu_items, servers, settings_search};
+pub use surfaces::{composer_pills, file_viewer, settings_page, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, slot, slot_with, titlebar_items};
 pub use trust::dialog as trust_dialog;
 pub use view::settings_section;
 

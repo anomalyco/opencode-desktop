@@ -63,7 +63,7 @@ fn desktops_defaults_and_saved_shape() {
     let d = Kinds::default();
     assert!(!d.agent && d.permissions && !d.errors);
     assert_eq!(Kinds::from_json(&json!(null)), d);
-    let on = Kinds { agent: true, permissions: false, errors: true };
+    let on = Kinds { agent: true, permissions: false, errors: true, questions: true };
     assert_eq!(Kinds::from_json(&on.to_json()), on);
     assert_eq!(Kinds::from_json(&json!({ "agent": true })), Kinds { agent: true, ..d });
 }
@@ -81,7 +81,7 @@ fn a_finished_run_notifies_only_with_the_agent_setting_on() {
 #[test]
 fn nothing_posts_while_the_window_is_focused() {
     let (mut app, fake) = app();
-    app.settings.notify = Kinds { agent: true, permissions: true, errors: true };
+    app.settings.notify = Kinds { agent: true, permissions: true, errors: true, questions: true };
     fake.0.borrow_mut().focused = true;
     ended(&mut app, "session.execution.succeeded", "root");
     ended(&mut app, "session.execution.failed", "root");
@@ -92,7 +92,7 @@ fn nothing_posts_while_the_window_is_focused() {
 #[test]
 fn only_a_root_session_with_an_open_tab_notifies() {
     let (mut app, fake) = app();
-    app.settings.notify = Kinds { agent: true, permissions: false, errors: true };
+    app.settings.notify = Kinds { agent: true, permissions: false, errors: true, questions: true };
     ended(&mut app, "session.execution.succeeded", "closed");
     ended(&mut app, "session.execution.succeeded", "child");
     ended(&mut app, "session.execution.failed", "child");
@@ -142,7 +142,7 @@ fn a_permission_notifies_once_for_its_root() {
 #[test]
 fn interrupted_runs_and_other_events_post_nothing() {
     let (mut app, fake) = app();
-    app.settings.notify = Kinds { agent: true, permissions: true, errors: true };
+    app.settings.notify = Kinds { agent: true, permissions: true, errors: true, questions: true };
     ended(&mut app, "session.execution.interrupted", "root");
     ended(&mut app, "session.execution.started", "root");
     app.apply_event("form.created", &json!({ "sessionID": "root", "form": { "id": "frm_1" } }));

@@ -54,6 +54,8 @@ pub enum Action {
     Command(&'static str),
     /// A workspace file's path, from the session's folder.
     File(String),
+    /// A Settings row or page, by its settings search id (settings/palette.ts).
+    Setting(String),
 }
 
 #[derive(Clone, Debug)]
@@ -164,6 +166,7 @@ pub fn matches(e: &Entry, q: &str) -> bool {
         Action::Session(id) => (id.as_str(), ""),
         Action::Command(_) => ("", e.group),
         Action::File(path) => (path.as_str(), e.group),
+        Action::Setting(_) => ("", e.group),
     };
     [e.title.as_str(), e.description.as_str(), id, group].iter().any(|t| t.to_lowercase().contains(&q))
 }
@@ -174,7 +177,8 @@ pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
     let kind = |e: &Entry| match e.action {
         Action::Command(_) => 0,
         Action::Session(_) => 1,
-        Action::File(_) => 2,
+        Action::Setting(_) => 2,
+        Action::File(_) => 3,
     };
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
@@ -325,9 +329,30 @@ impl App {
             .map(command)
             .filter(|e| matches(e, q))
             .chain(sessions.filter(|e| matches(e, q)).take(MATCHES))
+            .chain(self.switcher_settings(q))
             .chain(self.switcher_found_files(q))
             .collect();
         rank(found)
+    }
+
+    /// Settings' rows for the query (`createSettingsPaletteEntries`): the settings search's best
+    /// five, servers and projects left out, a title starting with the query first.
+    fn switcher_settings(&self, q: &str) -> Vec<Entry> {
+        let value = q.trim().to_lowercase();
+        let mut found: Vec<_> = crate::settings::search::palette(self, q, usize::MAX).into_iter().filter(|e| !e.entity).collect();
+        found.sort_by_key(|e| !e.title.to_lowercase().starts_with(&value));
+        found.into_iter().take(5).map(|e| Entry {
+            key: format!("setting:{}", e.id),
+            action: Action::Setting(e.id.clone()),
+            description: if e.where_ == e.title { String::new() } else { e.where_.clone() },
+            title: e.title,
+            project: String::new(),
+            hint: None,
+            chord: None,
+            group: "Settings",
+            updated: None,
+            open: false,
+        }).collect()
     }
 
     /// `recentFileEntries`: the files open in the side panel, the shown one first.
@@ -470,6 +495,11 @@ impl App {
             Action::Command(id) => self.run_command(id, tx),
             // `path:line` (or `path#L12`) opens the file at that line.
             Action::File(path) => self.open_workspace_file(&path, false, line, tx),
+            Action::Setting(id) => {
+                if let Some(e) = crate::settings::search::index(self).into_iter().find(|e| e.id == id) {
+                    crate::settings::search::reveal(self, &e, tx);
+                }
+            }
         }
     }
 

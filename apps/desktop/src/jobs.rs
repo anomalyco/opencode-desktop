@@ -51,6 +51,11 @@ impl App {
         });
     }
 
+    /// Where a thread of the app's own (not a server's) hands back what to apply.
+    pub(crate) fn jobs_sender(&self) -> Sender<Apply> {
+        self.jobs.tx.clone()
+    }
+
     /// Applies `apply` on the next poll rather than now, so an answer known at once still lands
     /// after the transition that asked for it.
     pub(crate) fn later(&self, apply: Apply) {

@@ -47,10 +47,11 @@ pub fn view(s: &App, p: &Pal) -> El {
     let heading = row().w_full().h(24.0).center_y()
         .child(text("Available to all projects").font(LINE).color(p.text).grow(1.0))
         .child(link);
-    let body = col().key("settings-extensions").w_full().pt(24.0)
+    let body = col().key("settings-extensions").w_full()
         .child(tabs(p, tab))
-        .child(col().w_full().pt(24.0).gap(16.0).child(heading).children(content));
-    page("settings-extensions-page", header(p, "Extensions", "Manage extensions available on this server"), body)
+        .child(col().w_full().pt(24.0).gap(16.0).child(heading).children(content))
+        .children((tab == ExtensionsTab::Plugins).then(|| crate::plugin_host::settings_section(s, p)).flatten().map(|e| e.mt(32.0)));
+    page(p, "settings-extensions-page", header(p, "Extensions", "Manage extensions available on this server"), body)
 }
 
 /// Pill tabs (`tabs-v2` pill in `.settings-subtabs`): 24 pt pills 6 apart, the picked one on

@@ -103,6 +103,7 @@ impl App {
     pub fn set_draft_dir(&mut self, dir: String) {
         crate::view::draft_location::picked(self, &dir);
         self.forget_new_worktree();
+        self.note_destination(&dir, "local");
         let open = match &self.route {
             Route::Draft(id) => self.tabs.iter_mut().find(|t| t.id == *id && t.directory != dir),
             _ => None,
@@ -119,6 +120,7 @@ impl App {
         let id = tabs::draft_id();
         self.tabs.push(Tab::draft(id.clone(), self.default_dir.clone()));
         self.route = Route::Draft(id.clone());
+        self.apply_default_destination();
         if self.stage.is_none() {
             self.composer.focused = true;
         }

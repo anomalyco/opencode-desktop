@@ -103,6 +103,8 @@ impl App {
         if let Route::Draft(id) = &self.route {
             self.new_worktree.drafts.insert(id.clone(), None);
         }
+        let dir = self.draft_dir().to_owned();
+        self.note_destination(&dir, "workspace");
         self.touch_project(project);
     }
 
@@ -178,6 +180,31 @@ impl App {
     /// back to it after New worktree.
     pub(crate) fn note_existing_worktree(&mut self, project: &str, dir: String) {
         self.new_worktree.existing.insert(project.to_owned(), dir);
+    }
+
+    /// Remembers where a session of the project at `dir` last started (`workspaces.lastUsed`).
+    pub(crate) fn note_destination(&mut self, dir: &str, place: &str) {
+        let Some(id) = self.project_at(dir).map(|p| p.id.clone()) else { return };
+        if self.settings.last_used.get(&id).map(String::as_str) != Some(place) {
+            self.change_settings(|s| {
+                s.last_used.insert(id, place.to_owned());
+            });
+        }
+    }
+
+    /// A new draft starts where Settings › Default environment says: its folder, a new
+    /// worktree, or wherever its project's last session started.
+    pub(crate) fn apply_default_destination(&mut self) {
+        let Route::Draft(id) = self.route.clone() else { return };
+        let Some(project) = self.project_at(self.draft_dir()) else { return };
+        let new = match self.settings.default_destination {
+            crate::settings::Destination::New => true,
+            crate::settings::Destination::Local => false,
+            crate::settings::Destination::LastUsed => self.settings.last_used.get(&project.id).is_some_and(|p| p == "workspace"),
+        };
+        if new {
+            self.new_worktree.drafts.insert(id, None);
+        }
     }
 
     /// The open draft goes back to starting where its folder is.

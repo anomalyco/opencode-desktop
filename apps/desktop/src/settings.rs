@@ -1,18 +1,21 @@
-//! A basic Settings page (⌘, or ⌘K "Settings"): Desktop's settings rows (`settings.css`: a
-//! 720 px column, a raised list of rows with a 13/530 title and a muted description, and the
-//! 24 × 16 switch), with only the preferences this app has. They live in
-//! `<data dir>/rune-opencode/settings.json`, next to `ui.json`.
+//! Settings (⌘, or the palette's Open settings): Desktop's routed two-pane screen
+//! (`settings/shell.tsx`, `navigation.tsx`, `settings.css`): a 328 pt rail of grouped pages
+//! beside a 720 pt column with the open page, the whole screen scrolling under each page's
+//! sticky header. The preferences live in `<data dir>/rune-opencode/settings.json`, next to
+//! `ui.json`, in the shape of Desktop's `settings.v3` where they share a name.
 
 use crate::pickers::PickerHost as _;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use rune::{Color, Cx, El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, spacer, text};
-use rune_kit::ScrollBar;
+use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, row, text};
+use rune_kit::Switch;
 use serde_json::{Value, json};
 
-use crate::palette::Pal;
-use crate::view::{UI, UI_MED};
 use crate::App;
+use crate::palette::{Pal, kit};
+
+pub use prefs::{Choice, Destination, FollowUp, Organize, Sounds};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Scheme {
@@ -23,13 +26,13 @@ pub enum Scheme {
 }
 
 impl Scheme {
-    const ALL: [Scheme; 3] = [Scheme::System, Scheme::Light, Scheme::Dark];
+    pub const ALL: [Scheme; 3] = [Scheme::System, Scheme::Light, Scheme::Dark];
 
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self { Self::System => "system", Self::Light => "light", Self::Dark => "dark" }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self { Self::System => "System", Self::Light => "Light", Self::Dark => "Dark" }
     }
 
@@ -42,10 +45,10 @@ impl Scheme {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub open: bool,
-    /// The composer's agent picker; the agent still applies when it's hidden.
+    /// The composer's agent picker (`general.showCustomAgents`); the agent still applies when it's hidden.
     pub show_agent: bool,
     pub scheme: Scheme,
-    /// Fold prompts past 12 lines behind Read more (`fold.rs`). On unless turned off.
+    /// Fold prompts past 12 lines behind Read more (`fold.rs`); Experimental, off unless turned on.
     pub fold_user: bool,
     /// Where `PanelRegion::Dock` (Terminal) renders: `"side"` (default) or `"bottom"`.
     pub terminal_placement: crate::panels::DockPlacement,
@@ -70,6 +73,28 @@ pub struct Settings {
     pub new_question_ui: bool,
     /// Download the browser engine while the app is idle (`browser::prefetch`); on by default.
     pub prefetch_browser: bool,
+    /// The display language (Desktop's `language` store); English is the only one the app has.
+    pub language: String,
+    /// Where a new session starts (`workspaces.defaultDestination`).
+    pub default_destination: Destination,
+    /// Where each project's last session started (`workspaces.lastUsed`): `"local"` or `"workspace"`.
+    pub last_used: BTreeMap<String, String>,
+    /// What Enter does while the agent works (`general.followUpBehavior`).
+    pub follow_up: FollowUp,
+    /// Ctrl-scroll and trackpad pinches zoom the window (Desktop's `pinchZoom`); off by default.
+    pub pinch_zoom: bool,
+    /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
+    pub spellcheck: bool,
+    /// Experimental › New icons (`general.newIcons`).
+    pub new_icons: bool,
+    /// Experimental › Organize vertical sidebar (`general.sidebarOrganize`).
+    pub sidebar_organize: Organize,
+    /// Notifications › Sound effects (`sounds`).
+    pub sounds: Sounds,
+    /// Shortcuts the user changed (`keybinds`): command id to keybind, "none" for unbound.
+    pub keybinds: BTreeMap<String, String>,
+    /// Pairing › Keep screen active: the display stays awake while the app runs.
+    pub keep_screen_active: bool,
 }
 
 impl Default for Settings {
@@ -78,7 +103,7 @@ impl Default for Settings {
             open: false,
             show_agent: false,
             scheme: Scheme::default(),
-            fold_user: true,
+            fold_user: false,
             terminal_placement: crate::panels::DockPlacement::Side,
             notify: Default::default(),
             auto_accept: false,
@@ -91,6 +116,17 @@ impl Default for Settings {
             tab_layout: Default::default(),
             new_question_ui: false,
             prefetch_browser: true,
+            language: "en".into(),
+            default_destination: Destination::default(),
+            last_used: BTreeMap::new(),
+            follow_up: FollowUp::default(),
+            pinch_zoom: false,
+            spellcheck: true,
+            new_icons: false,
+            sidebar_organize: Organize::default(),
+            sounds: Sounds::default(),
+            keybinds: BTreeMap::new(),
+            keep_screen_active: false,
         }
     }
 }
@@ -113,15 +149,26 @@ impl Settings {
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
             "browser": { "prefetch": self.prefetch_browser },
+            "language": self.language,
+            "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
+            "followUpBehavior": self.follow_up.name(),
+            "pinchZoom": self.pinch_zoom,
+            "spellcheck": self.spellcheck,
+            "newIcons": self.new_icons,
+            "sidebarOrganize": self.sidebar_organize.name(),
+            "sounds": self.sounds.to_json(),
+            "keybinds": self.keybinds,
+            "keepScreenActive": self.keep_screen_active,
         })
     }
 
     pub fn from_json(v: &Value) -> Settings {
+        let d = Settings::default();
         Settings {
             open: false,
             show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
-            fold_user: v["foldUserMessages"].as_bool().unwrap_or(true),
+            fold_user: v["foldUserMessages"].as_bool().unwrap_or(d.fold_user),
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
             notify: crate::notifications::Kinds::from_json(&v["notifications"]),
             auto_accept: v["permissions"]["autoApprove"].as_bool().unwrap_or(false),
@@ -136,9 +183,23 @@ impl Settings {
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
+            language: v["language"].as_str().filter(|l| LANGUAGES.iter().any(|(id, _)| id == l)).unwrap_or("en").to_owned(),
+            default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
+            last_used: v["workspaces"]["lastUsed"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned()))).collect()).unwrap_or_default(),
+            follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
+            pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
+            spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
+            new_icons: v["newIcons"].as_bool().unwrap_or(false),
+            sidebar_organize: Organize::parse(v["sidebarOrganize"].as_str()),
+            sounds: if v["sounds"].is_object() { Sounds::from_json(&v["sounds"]) } else { Sounds::default() },
+            keybinds: v["keybinds"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect()).unwrap_or_default(),
+            keep_screen_active: v["keepScreenActive"].as_bool().unwrap_or(false),
         }
     }
 }
+
+/// The display languages the app has: Desktop lists its 60 locales; this app's copy is English only.
+pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
 
 /// A saved theme id: one of Desktop's, or a plugin's (`<plugin>:<id>`), kept as written since
 /// plugins register their themes after the settings load.
@@ -176,7 +237,7 @@ fn write(path: &std::path::Path, settings: &Settings) {
 }
 
 impl App {
-    pub fn dark(&self, cx: &Cx<App>) -> bool {
+    pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
         match self.settings.scheme {
             Scheme::System => cx.system_dark(),
             Scheme::Light => false,
@@ -184,15 +245,25 @@ impl App {
         }
     }
 
+    /// Opens Settings on its first page, Preferences.
     pub fn open_settings(&mut self) {
+        self.open_settings_at(pages::Page::General);
+    }
+
+    /// Opens Settings on `page`, as Desktop's `layout.settings(tab)` does.
+    pub fn open_settings_at(&mut self, page: pages::Page) {
         self.close_picker(false);
         self.close_switcher(false);
         self.composer.focused = false;
         self.settings.open = true;
+        self.show_settings_page(page);
     }
 
     pub fn close_settings(&mut self) {
         self.settings.open = false;
+        search::clear(self);
+        self.settings_pages.shortcuts.capture = None;
+        self.settings_pages.blur_fields();
     }
 
     pub(crate) fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
@@ -224,9 +295,16 @@ impl App {
         self.change_settings(|s| s.terminal_placement = placement);
     }
 
-    /// Esc closes the page.
+    /// Settings' keys: the shortcut being recorded takes every key; Escape steps back through
+    /// search and then leaves; mod+f focuses the search (`settings.search.focus`).
     pub fn settings_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.settings.open && ev.key == Key::Escape {
+        if !self.settings.open {
+            return false;
+        }
+        if pages::shortcuts::key(self, ev, tx) || search::key(self, ev, tx) {
+            return true;
+        }
+        if ev.key == Key::Escape {
             tx.instant();
             self.close_settings();
             return true;
@@ -245,251 +323,89 @@ impl App {
     }
 }
 
-const TITLE: TextStyle = TextStyle::new(15.0, 640.0).lh(24.0);
-const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+/// `.settings-section-title`: 13 on 16 at 530.
 const SECTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
+/// `settings-row-description`: 13 on 20 at 440.
+const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+/// `settings-row-title`: 13 on 16 at 530, -0.04 tracking.
+const ROW_TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 
-pub fn page(s: &App, p: &Pal) -> El {
-    // Desktop's first General row, its control at the row's top (`align="start"`).
-    let layout = setting_at(p, "interface-mode", "Interface layout", "Choose how you switch between sessions and keep track of what's running", interface_mode::control(s, p), true, false);
-    let general = settings_card_led(p, "settings-list", Some(layout), [
-        ("agent-picker", "Show agent picker", "Choose the agent from the composer. Hidden, the last agent still applies.",
-            switch(p, "show-agent", s.settings.show_agent).on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent))),
-        ("fold-user", "Fold long messages", "Fold your messages past 12 lines behind a Read more button",
-            switch(p, "fold-user-switch", s.settings.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user))),
-        ("auto-accept", "Auto-accept permissions", "Permission requests will be automatically approved",
-            switch(p, "auto-accept-switch", s.settings.auto_accept).on_press(|s: &mut App| s.set_auto_accept(!s.settings.auto_accept))),
-        ("terminal-placement", "Terminal placement", "Choose where the terminal opens in sessions.", placement_control(s, p)),
-    ].map(|(key, title, about, control)| (key, title, about.to_owned(), control)).into_iter().chain(browser_prefetch_row(s, p)));
-    let body = col()
-        .key("settings")
-        .role("region")
-        .label("Settings")
-        .w_full()
-        .grow(1.0)
-        .shrink()
-        .items_center()
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .child(
-            col()
-                .w_full()
-                .max_w(720.0)
-                .px(40.0)
-                .pb(48.0)
-                .gap(32.0)
-                .child(text("Settings").font(TITLE).color(p.text))
-                .children(crate::updater::settings_section(s, p))
-                .child(section(p, "General", general))
-                // Plugins' sections on General (`SettingsPage` with `page: "general"`).
-                .children(crate::plugin_host::settings_pages(s, p, "general"))
-                .child(section(p, "Appearance", settings_card(p, "appearance-list", crate::appearance::rows(s, p))))
-                .child(section(p, "Notifications", notification_list(s, p)))
-                .child(crate::keymap::settings_section(s, p))
-                .child(section(p, "Experimental", settings_card(p, "experimental-list", [
-                    ("new-question-ui", "New question UI", "Preview the keyboard-first question dock",
-                        switch(p, "new-question-ui-switch", s.settings.new_question_ui).on_press(|s: &mut App| s.change_settings(|x| x.new_question_ui = !x.new_question_ui))),
-                ])))
-                .child(crate::glitch::settings_section(s, p))
-                .children(crate::plugin_host::settings_section(s, p))
-                // Plugins' own pages, until Settings has a page list to put them in.
-                .children(crate::plugin_host::settings_pages(s, p, "")),
-        );
-    let content = match pages::view(s, p) {
-        Some(page) => page,
-        None => row().w_full().grow(1.0).shrink().min_h(0.0)
-            .child(col().pl(24.0).child(pages::nav(s, p)))
-            .child(body.scroll_bar_styled(crate::palette::scroll_bar(p))),
-    };
-    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(content)
+/// The Settings screen in a panel `size` points large (0 when not measured yet).
+pub fn page(s: &App, p: &Pal, size: (f32, f32)) -> El {
+    shell::view(s, p, size)
 }
 
-/// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,
-/// at the panel's top-left, past the collapsed sidebar toggle. It does what Esc does.
-fn header(s: &App, p: &Pal) -> El {
-    row()
-        .key("settings-header")
-        .w_full()
-        .h(48.0)
-        .pl(14.0)
-        .center_y()
-        .window_drag()
-        .child(crate::view::collapsed_slot(s))
-        .child(back_button(p))
-}
-
-fn back_button(p: &Pal) -> El {
-    el().key("settings-back")
-        .role("button")
-        .label("Back to app")
-        .help("Back to app Esc")
-        .size(28.0, 28.0)
-        .radius(6.0)
-        .center()
-        .hover(p.hover)
-        .press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.close_settings();
-        })
-        .child(icon(&crate::review::view::ARROW_LEFT, 20.0).color(p.icon_muted))
-}
-
-pub(crate) fn section(p: &Pal, title: &'static str, list: El) -> El {
-    col().w_full().gap(16.0).child(text(title).font(SECTION).color(p.text)).child(list)
-}
-
-/// Download browser in the background, with what that download is doing; only where the app
-/// has a browser engine.
-fn browser_prefetch_row(s: &App, p: &Pal) -> Option<(&'static str, &'static str, String, El)> {
-    if s.browser_unsupported() {
-        return None;
-    }
-    let on = s.settings.prefetch_browser;
-    let control = switch(p, "prefetch-browser-switch", on).on_press(|s: &mut App| s.set_prefetch_browser(!s.settings.prefetch_browser));
-    Some(("prefetch-browser", "Download browser in the background", crate::browser::prefetch::describe(&s.browser.host.status()), control))
-}
-
-/// Desktop's three notification switches, with its titles and descriptions.
-fn notification_list(s: &App, p: &Pal) -> El {
-    use crate::notifications::Kind;
-    let rows = [
-        (Kind::Agent, "Agent", "Show system notification when the agent is complete or needs attention"),
-        (Kind::Permission, "Permissions", "Show system notification when a permission is required"),
-        (Kind::Error, "Errors", "Show system notification when an error occurs"),
-    ];
-    settings_card(p, "notifications-list", rows.map(|(kind, title, description)| {
-        let key = format!("notify-{}", kind.name());
-        let control = switch(p, &key, s.settings.notify.get(kind)).on_press(move |s: &mut App| s.set_notify(kind, !s.settings.notify.get(kind)));
-        (key, title, description, control)
-    }))
+/// `.settings-section`: its title, 16 above its list.
+pub(crate) fn section(p: &Pal, title: &str, list: El) -> El {
+    col().w_full().gap(16.0).child(text(title.to_owned()).font(SECTION).color(p.text)).child(list)
 }
 
 pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
-    settings_card_led(p, key, None, items)
+    list(p, key, items.into_iter().map(|(k, title, description, control)| setting(p, k.as_ref(), title, description.as_ref(), control)).collect())
 }
 
-/// A card whose first row, `lead`, is built apart.
-fn settings_card_led<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, lead: Option<El>, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
-    let items: Vec<_> = items.into_iter().collect();
-    let n = items.len();
-    let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).children(lead);
-    for (i, (k, title, description, control)) in items.into_iter().enumerate() {
-        list = list.child(setting(p, k.as_ref(), title, description.as_ref(), control, i + 1 < n));
-    }
-    list
+/// `[data-component="settings-list"]`: a `layer-01` card with 8 pt corners, 20 pt in from each
+/// side and a 0.5 pt `border-muted` ring inside; its rows split by 0.5 pt `border-base` rules.
+pub(crate) fn list(p: &Pal, key: &str, rows: Vec<El>) -> El {
+    let n = rows.len();
+    rows.into_iter().enumerate().fold(col().key(key.to_owned()).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)), |l, (i, r)| {
+        l.child(r).children((i + 1 < n).then(|| el().w_full().h(0.5).fill(p.border)))
+    })
 }
 
-fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divider: bool) -> El {
-    setting_at(p, key, title, description, control, divider, true)
+/// `SettingsRow`: its title and description beside its control, the control centred on them.
+pub(crate) fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El) -> El {
+    setting_at(p, key, title, description, control, true)
 }
 
-/// A row; its control centred on the text, or at its top (`SettingsRow align="start"`).
-fn setting_at(p: &Pal, key: &str, title: &str, description: &str, control: El, divider: bool, centred: bool) -> El {
-    let r = row()
-        .key(format!("setting-{key}"))
-        .w_full()
-        .gap(16.0)
-        .py(20.0);
-    let r = if centred { r.center_y() } else { r }
-        .child(
-            col()
-                .grow(1.0)
-                .shrink()
-                .gap(8.0)
-                .child(text(title.to_owned()).font(UI_MED).color(p.text).wrap())
-                .child(text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap()),
-        )
-        .child(control);
-    col().key(format!("setting-{key}-block")).w_full().child(r).children(divider.then(|| el().w_full().h(0.5).fill(p.border)))
+/// A row; its control centred on the text, or at its top (`SettingsRow align="start"`). A row
+/// settings search can reveal carries its `data-action` as `setting-<key>`.
+pub(crate) fn setting_at(p: &Pal, key: &str, title: &str, description: &str, control: El, centred: bool) -> El {
+    let about = text(description.to_owned()).key(format!("setting-{key}-about")).font(BODY).color(p.muted).wrap();
+    setting_with(p, key, title, about, control, centred)
 }
 
-/// Desktop's switch: 24 × 16, the thumb 12 × 12, accent when on. It flips in the press's frame.
+/// A row whose description is built apart (a link after its words).
+pub(crate) fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: El, centred: bool) -> El {
+    let r = row().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0);
+    let r = if centred { r.center_y() } else { r };
+    r.child(
+        col()
+            .grow(1.0)
+            .shrink()
+            .min_w(0.0)
+            .gap(8.0)
+            .child(text(title.to_owned()).font(ROW_TITLE).color(p.text).wrap())
+            // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
+            .child(about.my(-3.5)),
+    )
+    .child(row().key("control").justify_end().child(control))
+}
+
+/// `settings-row-description` text, for a description built apart.
+pub(crate) fn about(p: &Pal, words: &str) -> El {
+    text(words.to_owned()).font(BODY).color(p.muted)
+}
+
+/// `a.settings-link`: accent, its hover ink under the pointer, opening `url`.
+pub(crate) fn link(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
+    text(words.to_owned()).key(key.to_owned()).role("link").label(words.to_owned()).font(BODY).color(p.accent)
+        .on_press_tx(move |_: &mut App, tx: &mut Tx| {
+            let _ = tx.open_url(url);
+        })
+}
+
+/// Desktop's switch in a settings row (`switch.css`, compact, as the web draws it), with the 4 pt
+/// padding a row gives it. It flips in the press's frame.
 pub(crate) fn switch(p: &Pal, key: &str, on: bool) -> El {
-    let thumb = el().size(12.0, 12.0).radius(2.0).fill(p.switch_thumb);
-    row()
-        .key(key)
-        .role("switch")
-        .label(if on { "On" } else { "Off" })
-        .w(24.0)
-        .h(16.0)
-        .px(2.0)
-        .center_y()
-        .radius(4.0)
-        .fill(if on { p.bg_accent } else { p.q.layer4 })
-        .child(if on { row().w_full().child(spacer()).child(thumb) } else { row().w_full().child(thumb) })
-}
-
-fn placement_control(s: &App, p: &Pal) -> El {
-    use crate::panels::DockPlacement;
-    let mut r = row().key("terminal-placement-control").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
-    for (pl, label) in [(DockPlacement::Side, "Side"), (DockPlacement::Bottom, "Bottom")] {
-        let on = s.settings.terminal_placement == pl;
-        r = r.child(
-            row()
-                .key(format!("placement-{}", pl.name()))
-                .role("button")
-                .h(24.0)
-                .px(10.0)
-                .center()
-                .radius(4.0)
-                .fill(if on { p.bg_base } else { Color::TRANSPARENT })
-                .hover(if on { p.bg_base } else { p.hover })
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.set_terminal_placement(pl, tx))
-                .child(text(label).font(UI).color(if on { p.text } else { p.muted })),
-        );
-    }
-    r
-}
-
-pub(crate) fn scheme_control(s: &App, p: &Pal) -> El {
-    let mut r = row().key("scheme").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
-    for scheme in Scheme::ALL {
-        let on = s.settings.scheme == scheme;
-        r = r.child(
-            row()
-                .key(format!("scheme-{}", scheme.name()))
-                .role("button")
-                .h(24.0)
-                .px(10.0)
-                .center()
-                .radius(4.0)
-                .fill(if on { p.bg_base } else { Color::TRANSPARENT })
-                .hover(if on { p.bg_base } else { p.hover })
-                .on_press(move |s: &mut App| s.set_scheme(scheme))
-                .child(text(scheme.label()).font(UI).color(if on { p.text } else { p.muted })),
-        );
-    }
-    r
-}
-
-pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
-    let step = |key: &str, label: &str, dir: i32| {
-        row()
-            .key(key.to_owned())
-            .role("button")
-            .label(if dir < 0 { "Zoom out" } else { "Zoom in" })
-            .size(24.0, 24.0)
-            .center()
-            .radius(4.0)
-            .hover(p.hover)
-            .press(p.pressed)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.zoom_by(dir, tx))
-            .child(text(label.to_owned()).font(UI).color(p.muted))
-    };
-    row()
-        .key("zoom-control")
-        .gap(2.0)
-        .padding(2.0)
-        .center_y()
-        .radius(6.0)
-        .fill(p.layer2)
-        .child(step("zoom-out", "−", -1))
-        .child(row().key("zoom-value").w(48.0).center().child(text(format!("{}%", (s.zoom * 100.0).round() as i32)).font(UI).color(p.text)))
-        .child(step("zoom-in", "+", 1))
+    Switch::new(on).web().build(kit(p)).key(key.to_owned()).padding(4.0)
 }
 
 mod interface_mode;
 pub mod pages;
+pub mod prefs;
+pub mod search;
+mod shell;
 mod stories;
 #[cfg(test)]
 pub(crate) mod leave_tests;
@@ -557,8 +473,6 @@ mod tests {
         assert!(rt.find("show-agent").is_some());
         tap(&mut rt, "show-agent");
         assert!(rt.state.settings.show_agent);
-        tap(&mut rt, "scheme-dark");
-        assert_eq!(rt.state.settings.scheme, Scheme::Dark);
         key(&mut rt, Key::Escape, false);
         assert!(!rt.state.settings.open);
         assert!(has_agent(&rt));
@@ -580,7 +494,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { open: false, show_agent: true, scheme: Scheme::Light, fold_user: false, terminal_placement: crate::panels::DockPlacement::Bottom, notify: Default::default(), auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, record_glitches: true, tab_layout: Default::default(), new_question_ui: false, prefetch_browser: true };
+        let mut on = Settings { show_agent: true, scheme: Scheme::Light, terminal_placement: crate::panels::DockPlacement::Bottom, auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, ..Default::default() };
         on.notify.set(crate::notifications::Kind::Agent, true);
         on.notify.set(crate::notifications::Kind::Permission, false);
         write(&path, &on);

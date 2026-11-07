@@ -60,7 +60,14 @@ impl Bind {
         Bind::ZoomReset,
     ];
 
+    /// The chords bound here: the user's, when the host set some ([`set_override`]), else the
+    /// default.
     pub fn keybind(self) -> &'static Keybind {
+        OVERRIDES.read().unwrap_or_else(|e| e.into_inner())[self as usize].unwrap_or(&TABLE[self as usize])
+    }
+
+    /// The chords this command has before the user changes them.
+    pub fn default_keybind(self) -> &'static Keybind {
         &TABLE[self as usize]
     }
 
@@ -76,6 +83,15 @@ impl Bind {
     pub fn label(self) -> String {
         self.keybind().chords().first().map_or_else(String::new, |c| label(*c))
     }
+}
+
+/// The host's shortcut settings over the defaults, in `Bind` order.
+static OVERRIDES: std::sync::RwLock<[Option<&'static Keybind>; 17]> = std::sync::RwLock::new([None; 17]);
+
+/// Binds `bind` to `keybind` instead of its default, or back to the default with `None`: the
+/// host's shortcut settings, which it keeps for the app's life.
+pub fn set_override(bind: Bind, keybind: Option<&'static Keybind>) {
+    OVERRIDES.write().unwrap_or_else(|e| e.into_inner())[bind as usize] = keybind;
 }
 
 // In `Bind` order.

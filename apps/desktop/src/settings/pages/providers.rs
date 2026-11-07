@@ -78,12 +78,12 @@ pub fn view(s: &App, p: &Pal) -> El {
     popular.sort_by_key(|(id, _)| POPULAR.iter().position(|p| p == id));
     let more = text("Show more providers").key("settings-providers-view-all").role("button").font(NAME).color(p.accent).mt(20.0)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_connect(None, true, tx));
-    let body = col().key("settings-providers").w_full().gap(32.0).pt(32.0)
+    let body = col().key("settings-providers").w_full().gap(32.0).mt(8.0)
         .child(section(p, "connected-providers-section", Some("Connected providers"), connected_list))
         .child(col().w_full()
             .child(section(p, "popular-providers-section", Some("Popular providers"), catalog(p, "popular-providers", popular.iter().map(|(id, name)| popular_row(p, id, name)).collect())))
             .child(more));
-    page("settings-providers-page", header(p, "Providers", "Connect and manage model providers"), body)
+    page(p, "settings-providers-page", header(p, "Providers", "Connect and manage model providers"), body)
 }
 
 /// A connected provider: its mark, name and how it connects; then its accounts, Disconnect, or

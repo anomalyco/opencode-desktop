@@ -606,6 +606,10 @@ pub const PANEL_FALLBACK: u32 = 1 << 3;
 /// Can't be dragged to another pane (`draggable: false`).
 pub const PANEL_FIXED: u32 = 1 << 4;
 
+/// A settings page's [`ContributionAbi::flags`]: listed in the rail's last group, beside
+/// Experimental and About (`SettingsPage.group: "about"`).
+pub const SETTINGS_PAGE_ABOUT: u32 = 1 << 0;
+
 #[repr(C)]
 pub struct PanelSpecAbi<'a> {
     pub id: AbiStr<'a>,

@@ -11,8 +11,9 @@ use std::sync::LazyLock;
 
 use rune::{Chord, Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
+pub mod overrides;
 mod view;
-pub use view::{chips, keycaps, settings_section};
+pub use view::{chips, keycaps};
 
 use KeyPlatform::{Linux, Mac, Windows};
 
@@ -294,7 +295,13 @@ impl Bind {
         &TABLE[self as usize]
     }
 
+    /// The chords bound here: Settings › Shortcuts' when changed there, else the default.
     pub fn keybind(self) -> &'static Keybind {
+        overrides::get(self).unwrap_or(&self.binding().keybind)
+    }
+
+    /// The chords before Settings › Shortcuts changes them.
+    pub fn default_keybind(self) -> &'static Keybind {
         &self.binding().keybind
     }
 

@@ -161,7 +161,7 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
     let (lead, trailing) = match &e.action {
         Action::Session(id) => session_parts(s, p, e, id, surface),
         Action::Command(_) => (None, command_keys(p, e)),
-        Action::File(_) => (None, None),
+        Action::File(_) | Action::Setting(_) => (None, None),
     };
     let main = match &e.action {
         Action::File(path) => file_main(p, path, q),

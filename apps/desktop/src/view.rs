@@ -23,7 +23,7 @@ mod header;
 mod header_fit;
 mod home;
 pub(crate) mod location;
-mod location_card;
+pub(crate) mod location_card;
 mod inbox;
 mod narrow;
 mod narrow_story;
@@ -127,6 +127,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
+    inner = inner.children(crate::settings::pages::pairing::layer(s, p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
@@ -167,6 +168,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         (0.0, 0.0)
     };
+    let settings_sz = if s.settings.open { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
     let bottom_reserve = crate::panels::view::bottom_reserve_height(s, cx);
     let mut root = row()
         .key("window")
@@ -199,7 +201,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 // Files dropped anywhere on the page attach, as in Desktop.
                 .on_drop_files(crate::dropzone::drop)
                 .on_drop_hover(crate::dropzone::hover)
-                .child(if s.settings.open { crate::settings::page(s, p) } else { match &s.route {
+                .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
                     Route::Home => home(s, p, panel_sz.0),
                     Route::Session(id) => session_page(s, p, id),
                     Route::Draft(_) => draft_page(s, p, panel_sz.0),

@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::*;
 use crate::fixture_runtime as runtime;
-use crate::palette::pal;
+use crate::palette::{Pal, pal};
 use crate::themes;
 
 fn frames(rt: &mut Runtime<App>, n: usize) {

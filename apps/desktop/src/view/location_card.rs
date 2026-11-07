@@ -230,14 +230,14 @@ fn copied(s: &mut App, value: &str, tx: &mut Tx) {
 
 /// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).
 #[cfg(target_os = "windows")]
-const REVEAL: &str = "Reveal in File Explorer";
+pub(crate) const REVEAL: &str = "Reveal in File Explorer";
 #[cfg(target_os = "macos")]
-const REVEAL: &str = "Reveal in Finder";
+pub(crate) const REVEAL: &str = "Reveal in Finder";
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-const REVEAL: &str = "Open containing folder";
+pub(crate) const REVEAL: &str = "Open containing folder";
 
 /// Shows folder `dir` in the system's file manager; a headless run opens nothing.
-fn reveal(dir: &str) -> Result<(), String> {
+pub(crate) fn reveal(dir: &str) -> Result<(), String> {
     if crate::headless() {
         return Ok(());
     }
