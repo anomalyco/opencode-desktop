@@ -70,6 +70,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
     cx.foreground(p.text);
     cx.focus_ring(2.0, 2.5, crate::palette::kit(p).c.border_focus);
+    // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
+    cx.help_look(rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact).help_look());
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);

@@ -396,7 +396,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
         .key(TRIGGER)
         .role("button")
         .label("Choose branch")
-        .help(Bind::BranchChoose.hint("Choose base branch"))
+        .help("Choose base branch").help_keys(Bind::BranchChoose.keycaps())
         .hover_group()
         .h(28.0)
         .max_w(220.0)

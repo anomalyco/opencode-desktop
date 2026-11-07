@@ -453,10 +453,10 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .motion_intent(rune::MotionIntent::CUT)
         .preserve_focus_on_press(true);
     b = match &d.phase {
-        Phase::Idle | Phase::Failed(_) => b.label("Dictate with Hex").help(crate::keymap::Bind::Dictate.hint("Dictate with Hex")).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
+        Phase::Idle | Phase::Failed(_) => b.label("Dictate with Hex").help("Dictate with Hex").help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
         Phase::Finishing { .. } => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_sized(p, 14.0)),
         // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
-        Phase::Starting { .. } | Phase::Listening { .. } => b.label("Stop dictation").help(crate::keymap::Bind::Dictate.hint("Stop dictation")).fill(p.layer2)
+        Phase::Starting { .. } | Phase::Listening { .. } => b.label("Stop dictation").help("Stop dictation").help_keys(crate::keymap::Bind::Dictate.keycaps()).fill(p.layer2)
             .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
     };
     if !finishing {

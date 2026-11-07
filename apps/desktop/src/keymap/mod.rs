@@ -345,12 +345,6 @@ impl Bind {
         let keys = self.label();
         if keys.is_empty() { text.to_owned() } else { format!("{text} ({keys})") }
     }
-
-    /// `text` and this command's label, space-separated, as Desktop's tooltips put them: "Find in file ⌘F".
-    pub fn hint(self, text: &str) -> String {
-        let keys = self.label();
-        if keys.is_empty() { text.to_owned() } else { format!("{text} {keys}") }
-    }
 }
 
 pub use session_view::keymap::{caps, label};

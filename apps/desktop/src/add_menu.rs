@@ -274,7 +274,7 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .key("add")
         .role("button")
         .label("Add images and files")
-        .help(crate::keymap::Bind::Attach.hint("Add images and files"))
+        .help("Add images and files").help_keys(crate::keymap::Bind::Attach.keycaps())
         .size(28.0, 28.0)
         .mr(2.0)
         .radius(6.0)

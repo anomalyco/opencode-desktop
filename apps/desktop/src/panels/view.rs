@@ -649,7 +649,11 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
     Some(
         el().key("side-toggle")
             .role("button")
-            .label(crate::keymap::Bind::SideToggle.tip(if open { "Hide side panel" } else { "Show side panel" }))
+            // `SessionHeaderActions`: "Toggle review" and its keybind in the tooltip under it.
+            .label("Toggle review")
+            .expanded(open)
+            .help("Toggle review")
+            .help_keys(crate::keymap::Bind::SideToggle.keycaps())
             // On the session header's centre line, 12pt in from the panel's edge.
             .pin(None, Some(crate::view::chrome().top() + 10.0), Some(20.0), None)
             .size(28.0, 28.0)

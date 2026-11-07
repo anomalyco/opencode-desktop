@@ -52,7 +52,7 @@ pub fn sidebar_toggle(p: &Pal, key: &'static str, open: bool, disabled: bool, pr
         .fill(if open { p.layer2 } else { Color::TRANSPARENT })
         .role("button")
         .label("Toggle file tree")
-        .help(crate::keymap::Bind::TreeToggle.hint("Toggle file tree"))
+        .help("Toggle file tree").help_keys(crate::keymap::Bind::TreeToggle.keycaps())
         .child(icon(&FILETREE, 16.0).color(p.icon));
     if disabled {
         return b.inert();

@@ -51,7 +51,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         let id = project.id.clone();
         // The onboarding's own large tooltip isn't drawn here yet; after it, Desktop's plain one.
         let button = trigger("worktree", "Choose worktree");
-        let button = if used() { button.help(crate::keymap::Bind::LocationSelect.hint("Choose worktree")) } else { button };
+        let button = if used() { button.help("Choose worktree").help_keys(crate::keymap::Bind::LocationSelect.keycaps()) } else { button };
         button
             .hover(p.hover)
             .press(p.pressed)

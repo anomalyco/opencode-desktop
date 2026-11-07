@@ -79,7 +79,7 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
 fn home_button(s: &App, p: &Pal) -> El {
     let home = s.route == Route::Home && !s.settings.open;
     nav_button(p, "home", "Home", &ic::GRID_PLUS, home)
-        .help(crate::keymap::Bind::Home.hint("Home"))
+        .help("Home").help_keys(crate::keymap::Bind::Home.keycaps())
         .matched(NAV_HOME).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.toggle_home(tx);
@@ -88,7 +88,7 @@ fn home_button(s: &App, p: &Pal) -> El {
 
 fn search_button(p: &Pal) -> El {
     nav_button(p, "search", "Search sessions", &ic::MAGNIFYING_GLASS, false)
-        .help(crate::keymap::Bind::SessionSearch.hint("Search sessions"))
+        .help("Search sessions").help_keys(crate::keymap::Bind::SessionSearch.keycaps())
         .matched(NAV_SEARCH).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.close_settings();
@@ -109,7 +109,7 @@ fn new_button(p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .help(crate::keymap::Bind::TabNew.hint("New session"))
+        .help("New session").help_keys(crate::keymap::Bind::TabNew.keycaps())
         .matched(NAV_NEW).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx))

@@ -262,7 +262,7 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
         .key("sidebar-toggle")
         .role("button")
         .label(if unread { "Toggle sidebar, unread sessions" } else { "Toggle sidebar" })
-        .help(crate::keymap::Bind::Sidebar.hint("Toggle sidebar"))
+        .help("Toggle sidebar").help_keys(crate::keymap::Bind::Sidebar.keycaps())
         .size(28.0, 28.0)
         .radius(6.0)
         .center()

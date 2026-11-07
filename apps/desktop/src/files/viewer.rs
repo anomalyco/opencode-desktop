@@ -117,13 +117,13 @@ pub(super) fn files_main(
             let (glyph, label) = if rendered { (&ic::CODE_LINES, "Show source") } else { (&READ_ICON, "Show rendered") };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
-        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, "Find in file", &crate::keymap::Bind::Find.hint("Find in file"), at(|s, sid, path, tx| {
+        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, "Find in file", "Find in file", at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
                 d.find_open = !d.find_open;
                 d.find_input.focused = d.find_open;
             }
-        })))
+        })).help_keys(crate::keymap::Bind::Find.keycaps()))
         .children((!rendered).then(|| {
             tool(p, "files-wrap-btn", &WRAP_ICON, wrap_on, "Wrap lines", "Wrap lines", at(|s, sid, path, tx| {
                 tx.instant();
