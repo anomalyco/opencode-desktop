@@ -411,12 +411,13 @@ pub fn revealable(s: &App, p: &Pal, target: &str, inset: f32, row: El) -> El {
     revealed(p, super::search::reveal_of(s, target), inset, row)
 }
 
-/// [`revealable`] given the search's highlight on the row (`None` when it has none).
+/// [`revealable`] given the search's highlight on the row (`None` when it has none). The
+/// highlight's box stays when it has faded, so the row keeps its place in the tree and nothing
+/// about it moves as the reveal ends.
 pub fn revealed(p: &Pal, lit: Option<bool>, inset: f32, row: El) -> El {
-    let Some(lit) = lit else { return row };
     let fade = rune::Curve::tween(1.8, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
     let mark = el().key("search-reveal").pin(Some(-inset), Some(0.0), Some(-inset), Some(0.0)).radius(6.0).fill(p.layer3)
-        .opacity(if lit { 1.0 } else { 0.0 }).opacity_motion(if lit { rune::Anim::INSTANT } else { fade.into() });
+        .opacity(if lit == Some(true) { 1.0 } else { 0.0 }).opacity_motion(if lit == Some(true) { rune::Anim::INSTANT } else { fade.into() });
     col().w_full().child(mark).child(row)
 }
 

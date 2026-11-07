@@ -26,6 +26,7 @@ mod reconnect;
 mod rewind;
 mod scenarios;
 mod scrollbar;
+mod settings_search;
 mod steered;
 mod stream_pace;
 mod todos;

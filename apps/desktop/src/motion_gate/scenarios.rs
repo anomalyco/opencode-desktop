@@ -367,6 +367,7 @@ const ACTIONS: &[Action] = &[
         r.start_stream();
         r.play_out(1.0);
     } },
+    Action { name: "settings-search-reveal", circs: pinned, run: super::settings_search::reveal },
     Action { name: "stream-pace-slow", circs: pinned, run: super::stream_pace::slow },
     Action { name: "stream-pace-medium", circs: pinned, run: super::stream_pace::medium },
     Action { name: "stream-pace-fast", circs: pinned, run: super::stream_pace::fast },
