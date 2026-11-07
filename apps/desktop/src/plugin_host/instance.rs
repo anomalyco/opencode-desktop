@@ -186,8 +186,8 @@ impl Contributions {
 pub struct Instance {
     pub generation: u32,
     pub vtable: PluginVtable,
-    /// The app half's state; null without one.
-    pub app: *mut c_void,
+    /// The app half, shared by every window's instance of this library; none without one.
+    pub app: Option<std::rc::Rc<super::app_half::AppHalf>>,
     /// The window half's state; null without one.
     pub state: *mut c_void,
     pub contributions: Contributions,
@@ -218,9 +218,15 @@ impl Instance {
         true
     }
 
+    /// Its contributions of `kind`, the window half's and the app half's.
+    pub fn of(&self, kind: u32) -> impl Iterator<Item = &ContribRec> {
+        let app = self.app.iter().flat_map(move |half| half.contribs.iter().filter(move |c| c.kind == kind));
+        self.contributions.of(kind).chain(app)
+    }
+
     pub fn state_of(&self, scope: Scope) -> *mut c_void {
         match scope {
-            Scope::App => self.app,
+            Scope::App => self.app.as_ref().map_or(std::ptr::null_mut(), |half| half.state),
             Scope::Window => self.state,
         }
     }
@@ -230,14 +236,15 @@ impl Drop for Instance {
     fn drop(&mut self) {
         // Contributions first: their captures may point into the states.
         self.contributions = Contributions::default();
-        let halves = [(self.vtable.drop_state, std::mem::replace(&mut self.state, std::ptr::null_mut())), (self.vtable.app_drop_state, std::mem::replace(&mut self.app, std::ptr::null_mut()))];
-        for (drop_state, state) in halves {
-            let (Some(drop_state), false) = (drop_state, state.is_null()) else { continue };
+        let state = std::mem::replace(&mut self.state, std::ptr::null_mut());
+        if let (Some(drop_state), false) = (self.vtable.drop_state, state.is_null()) {
             // SAFETY: the state this instance's setup returned, dropped once; the plugin catches a panic.
             let out = unsafe { drop_state(state) };
             if let Err((_, message)) = out.into_result() {
                 super::tasks::log(format!("opencode-plugin: dropping a plugin's state failed: {message}"));
             }
         }
+        // The app half goes with the last window's instance.
+        self.app = None;
     }
 }

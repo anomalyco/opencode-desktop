@@ -27,6 +27,7 @@
 // The C ABI boundary is unsafe by nature; each block says what it relies on.
 #![allow(unsafe_code)]
 
+mod app_half;
 mod arena;
 mod builtins;
 mod contrib;

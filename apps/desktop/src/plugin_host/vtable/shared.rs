@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use opencode_plugin::abi::*;
 
-use super::super::instance::ServerRec;
+use super::super::instance::{Scope, ServerRec};
 use super::super::shared::Shared;
 use super::super::{icons, tasks};
 use super::{ActionCtx, Kind, Request, SetupCtx, cast, text};
@@ -37,9 +37,15 @@ unsafe fn writer<'a>(ctx: *mut c_void) -> Option<(&'a mut Shared, &'a str, &'a s
 pub(super) unsafe extern "C" fn provide(ctx: *mut c_void, id: AbiStr, type_hash: u64, value: usize, drop_value: Option<DropFn>) -> AbiStatus {
     // SAFETY: the plugin passes its setup context.
     let Some(s) = (unsafe { cast::<SetupCtx>(ctx, Kind::Setup) }) else { return AbiStatus::Err };
-    match s.shared.contracts.provide(s.slot, s.plugin_id, s.generation, text(id), type_hash, value, drop_value, s.lib.clone()) {
+    // The app half's values live as long as the half, which every window shares: its
+    // contracts list them without freeing them.
+    let owned = if s.scope == Scope::App { None } else { drop_value };
+    match s.shared.contracts.provide(s.slot, s.plugin_id, s.generation, text(id), type_hash, value, owned, s.lib.clone()) {
         Ok(wake) => {
             s.woken |= wake;
+            if s.scope == Scope::App {
+                s.app_services.push(super::super::app_half::Service::new(text(id).to_owned(), type_hash, value, drop_value));
+            }
             AbiStatus::Ok
         }
         Err(e) => {
@@ -86,10 +92,10 @@ pub(super) unsafe extern "C" fn image_drop(ctx: *mut c_void, id: u32) {
 pub(super) unsafe extern "C" fn store_get(ctx: *mut c_void, name: AbiStr, session: AbiStr, out: *mut AbiStr<'static>) -> u8 {
     // SAFETY: the plugin passes its context and a valid out pointer.
     let (Some((shared, plugin)), Some(out)) = (unsafe { reader(ctx) }, unsafe { out.as_mut() }) else { return 0 };
-    let Some(value) = shared.stores.get(plugin, text(name), text(session)) else { return 0 };
+    let Some((ptr, len)) = shared.stores.get(plugin, text(name), text(session)) else { return 0 };
     // The view lives until the store next changes, which no call the plugin makes before
     // copying it can do.
-    *out = AbiStr { ptr: value.as_ptr(), len: value.len(), _lt: std::marker::PhantomData };
+    *out = AbiStr { ptr, len, _lt: std::marker::PhantomData };
     1
 }
 

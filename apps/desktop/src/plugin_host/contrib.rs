@@ -21,7 +21,7 @@ use crate::palette::Pal;
 
 /// Active plugins' contributions of `kind`, with their slots.
 pub(super) fn active(host: &PluginHost, kind: u32) -> impl Iterator<Item = (usize, &ContribRec)> {
-    host.slots.iter().enumerate().filter_map(|(i, s)| s.active().map(|inst| (i, inst))).flat_map(move |(i, inst)| inst.contributions.of(kind).map(move |c| (i, c)))
+    host.slots.iter().enumerate().filter_map(|(i, s)| s.active().map(|inst| (i, inst))).flat_map(move |(i, inst)| inst.of(kind).map(move |c| (i, c)))
 }
 
 fn find<'a>(host: &'a PluginHost, kind: u32, key: &str) -> Option<(usize, &'a ContribRec)> {

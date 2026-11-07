@@ -66,6 +66,8 @@ pub struct SetupCtx<'a> {
     /// Consumers a publish woke, woken once setup returns.
     pub woken: u64,
     pub requests: Vec<Request>,
+    /// What the app half provided: its half owns the values, every window lists them.
+    pub app_services: Vec<super::app_half::Service>,
 }
 
 #[repr(C)]

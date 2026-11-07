@@ -13,7 +13,7 @@ use super::lifecycle::{Event, PluginState};
 use super::loader::{self, Loaded};
 use super::shared::Live;
 use super::vtable::{Kind, Request, SetupCtx};
-use super::{PluginHost, Source, contrib, tasks};
+use super::{PluginHost, Source, app_half, contrib, tasks};
 use crate::App;
 
 /// Loads slot `i` (the library the watcher already loaded, when given) and sets it up:
@@ -66,14 +66,31 @@ pub(super) fn load(app: &mut App, i: usize, prepared: Option<Loaded>) {
     contrib::sync(&app.plugins);
 }
 
+/// Which build of a plugin `source` holds: a linked built-in's entry point, or a library
+/// file's path and when it was written (each window loads its own copy of it).
+fn library_identity(source: &Source) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    match source {
+        Source::Static(entry) => (*entry as usize).hash(&mut h),
+        Source::Library(path) => (path, std::fs::metadata(path).and_then(|m| m.modified()).ok()).hash(&mut h),
+    }
+    h.finish()
+}
+
 fn tabs(instance: &Instance) -> Vec<(String, String, String)> {
     instance.contributions.panels.iter().map(|p| (p.tab.to_owned(), p.title.clone(), p.icon.clone())).collect()
 }
 
 /// Runs a plugin's setups, its app half's first, collecting what they register. On failure,
 /// whatever this generation published is rolled back before its states drop.
+/// The app half runs once per process: a window setting up the same library another window
+/// runs shares its app half (its state, app menu items and services); a rebuilt library gets
+/// a new one, which the windows that reload after it share in turn.
 fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reuse: &[EditorHandle]) -> Result<Instance, String> {
     let id = host.slots[i].manifest.id.clone();
+    let entry = library_identity(&host.slots[i].source);
+    let running = app_half::find(&id, entry);
     let mut ctx = SetupCtx {
         kind: Kind::Setup,
         scope: Scope::App,
@@ -88,11 +105,12 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
         shared: &mut host.shared,
         woken: 0,
         requests: Vec::new(),
+        app_services: Vec::new(),
     };
     let mut instance = Instance {
         generation,
         vtable: loaded.vtable,
-        app: std::ptr::null_mut(),
+        app: None,
         state: std::ptr::null_mut(),
         contributions: Default::default(),
         servers: Vec::new(),
@@ -105,11 +123,31 @@ fn set_up(host: &mut PluginHost, i: usize, loaded: Loaded, generation: u32, reus
     for (scope, setup) in halves {
         let Some(setup) = setup else { continue };
         ctx.scope = scope;
+        if let (Scope::App, Some(half)) = (scope, &running) {
+            // This window's contracts list the half's services, as its own setup would have.
+            for s in &half.services {
+                if let Ok(wake) = ctx.shared.contracts.provide(i, &id, generation, &s.id, s.type_hash, s.value, None, half.lib.clone()) {
+                    ctx.woken |= wake;
+                }
+            }
+            instance.app = Some(half.clone());
+            tasks::log(format!("plugin {id}: this window shares the app half another window set up"));
+            continue;
+        }
         // SAFETY: the plugin's setup, with a setup context alive for the call.
         let out = unsafe { setup((&raw mut ctx).cast()) };
         match out.into_result() {
             Ok((_, state)) if !state.is_null() => match scope {
-                Scope::App => instance.app = state,
+                Scope::App => {
+                    let mut half = app_half::AppHalf::new(state, loaded.vtable.app_drop_state, entry, loaded.lib.clone());
+                    // What it registered so far is its own: app menu items.
+                    half.contribs = std::mem::take(&mut ctx.made.contribs);
+                    half.services = std::mem::take(&mut ctx.app_services);
+                    let half = std::rc::Rc::new(half);
+                    app_half::publish(&id, &half);
+                    instance.app = Some(half);
+                    tasks::log(format!("plugin {id}: app half set up, once for every window"));
+                }
                 Scope::Window => instance.state = state,
             },
             Err((AbiStatus::Panicked, message)) => failed = Some(format!("panicked during setup: {message}")),

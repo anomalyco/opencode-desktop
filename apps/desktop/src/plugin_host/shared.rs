@@ -6,8 +6,10 @@
 //! one step on the app's thread, so a consumer never sees a half-swapped provider; every state
 //! change wakes the consumers' polls.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use opencode_plugin::abi::{DropFn, LIVE_ACTIVE, LIVE_DISABLED, LIVE_FAILED, LIVE_MISMATCH, LIVE_PENDING, LiveAbi};
@@ -219,12 +221,26 @@ impl Contracts {
     }
 }
 
+type Values = BTreeMap<String, BTreeMap<String, String>>;
+
+thread_local! {
+    /// The values every window's stores read and write: one copy per process, so two windows
+    /// never write the same file from different copies.
+    static VALUES: Rc<RefCell<Values>> = Rc::default();
+}
+
 /// Each plugin's stores: text values by name (`name` global, `name@<session>` per session),
-/// in `<data>/plugins-state/<id>.json`, loaded before the plugin sets up.
-#[derive(Default)]
+/// in `<data>/plugins-state/<id>.json`, loaded before the plugin sets up, and shared by every
+/// window.
 pub struct Stores {
-    plugins: BTreeMap<String, BTreeMap<String, String>>,
+    plugins: Rc<RefCell<Values>>,
     pub persist: bool,
+}
+
+impl Default for Stores {
+    fn default() -> Self {
+        Stores { plugins: VALUES.with(Rc::clone), persist: false }
+    }
 }
 
 fn file(plugin: &str) -> Option<PathBuf> {
@@ -238,7 +254,7 @@ pub fn key(name: &str, session: &str) -> String {
 impl Stores {
     /// Loads plugin `plugin`'s stores once (`PreparingStores`).
     pub fn load(&mut self, plugin: &str) {
-        if self.plugins.contains_key(plugin) {
+        if self.plugins.borrow().contains_key(plugin) {
             return;
         }
         let read = || -> Option<BTreeMap<String, String>> {
@@ -246,15 +262,19 @@ impl Stores {
             Some(v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
         };
         let values = if self.persist { read().unwrap_or_default() } else { BTreeMap::new() };
-        self.plugins.insert(plugin.to_owned(), values);
+        self.plugins.borrow_mut().insert(plugin.to_owned(), values);
     }
 
-    pub fn get(&self, plugin: &str, name: &str, session: &str) -> Option<&str> {
-        self.plugins.get(plugin)?.get(&key(name, session)).map(String::as_str)
+    /// The value's bytes, alive until the store next changes.
+    pub fn get(&self, plugin: &str, name: &str, session: &str) -> Option<(*const u8, usize)> {
+        let plugins = self.plugins.borrow();
+        let value = plugins.get(plugin)?.get(&key(name, session))?;
+        Some((value.as_ptr(), value.len()))
     }
 
     pub fn set(&mut self, plugin: &str, name: &str, session: &str, value: &str) {
-        let values = self.plugins.entry(plugin.to_owned()).or_default();
+        let mut plugins = self.plugins.borrow_mut();
+        let values = plugins.entry(plugin.to_owned()).or_default();
         if values.get(&key(name, session)).map(String::as_str) == Some(value) {
             return;
         }
