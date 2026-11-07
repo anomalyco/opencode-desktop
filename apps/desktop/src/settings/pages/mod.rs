@@ -168,6 +168,8 @@ pub struct State {
     pub find: super::search::Find,
     /// Appearance's three font fields, as typed.
     pub fonts: appearance::Fields,
+    /// About's wordmark, which scrambles each time the page shows.
+    pub wordmark: about::Wordmark,
     pub shortcuts: shortcuts::State,
     pub projects: projects::State,
     pub worktrees: worktrees::State,
@@ -224,6 +226,10 @@ impl App {
         }
         if page == Page::Models {
             self.settings_pages.search.focused = true;
+        }
+        // About's wordmark scrambles each time the page shows (`AnimatedWordmark`'s `active`).
+        if page == Page::About || self.settings_pages.page == Page::About {
+            self.settings_pages.wordmark.activate(page == Page::About);
         }
         self.settings_pages.page = page;
     }

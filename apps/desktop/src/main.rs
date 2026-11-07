@@ -1255,6 +1255,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();
     changed |= settings::pages::project::poll(s, tx);
+    changed |= settings::pages::about::poll(s, now, tx);
     changed |= settings::pages::projects::poll(s);
     changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);

@@ -87,7 +87,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(text(label).font(BODY).color(p.muted).group_color(p.text));
     let ink = p.muted;
     let (stem, weak) = (ink.alpha(ink.a * 0.2), ink.alpha(ink.a * 0.2 * 0.3));
-    let wordmark = crate::view::logo_at(178.0 / 234.0, stem, weak).key("settings-about-wordmark");
+    let wordmark = wordmark(&s.settings_pages.wordmark.letters, 178.0 / 234.0, stem, weak).key("settings-about-wordmark");
     let site = text("www.opencode.ai").key("settings-about-site").role("link").font(BODY).color(p.faint)
         .on_press_tx(|_: &mut App, tx: &mut Tx| {
             let _ = tx.open_url("https://opencode.ai");
@@ -118,4 +118,103 @@ pub fn view(s: &App, p: &Pal) -> El {
             .child(line("copyright", "\u{a9} Anomaly Innovations, Inc.", false))
             .child(clipped("settings-about-anomaly-brush", &BRUSH, 126.72, 48.384)));
     col().key("settings-about").w_full().px(24.0).items_center().child(content)
+}
+
+/// The wordmark's letters, as `AnimatedWordmark` spells it: o p e n c o d e.
+const TARGET: [u8; 8] = [0, 1, 2, 3, 4, 0, 5, 2];
+/// The letters a scramble draws from: o, p, e, n, c, d.
+const CHOICES: u8 = 6;
+/// Each letter's rects in its 24 by 42 cell (`settings-about-letter-*`), `true` for its shadow.
+const LETTERS: [&[(f32, f32, f32, f32, bool)]; 6] = [
+    &[(0., 6., 24., 6., false), (0., 12., 6., 24., false), (18., 12., 6., 24., false), (6., 30., 12., 6., false), (6., 18., 12., 12., true)],
+    &[(0., 6., 24., 6., false), (0., 12., 6., 30., false), (18., 12., 6., 24., false), (6., 30., 12., 6., false), (6., 18., 12., 12., true)],
+    &[(0., 6., 24., 6., false), (0., 12., 6., 24., false), (18., 12., 6., 12., false), (6., 18., 12., 6., false), (6., 30., 18., 6., false), (6., 24., 18., 6., true)],
+    &[(0., 6., 18., 6., false), (0., 12., 6., 24., false), (18., 12., 6., 24., false), (6., 18., 12., 18., true)],
+    &[(0., 6., 24., 6., false), (0., 12., 6., 18., false), (0., 30., 24., 6., false), (6., 18., 18., 12., true)],
+    &[(0., 6., 18., 6., false), (18., 0., 6., 36., false), (0., 12., 6., 24., false), (6., 30., 12., 6., false), (6., 18., 12., 12., true)],
+];
+/// A scramble's step (`tick * 75` ms).
+const TICK: f64 = 0.075;
+
+/// The wordmark's letters while the page shows (`AnimatedWordmark`'s `active`): each opening
+/// starts every letter on a random one, which changes each 75 ms tick until its own settle tick,
+/// 6 to 13, then stays right. Under Reduce Motion it is spelled at once.
+pub struct Wordmark {
+    pub letters: [u8; 8],
+    /// The page opened and its scramble hasn't started.
+    pending: bool,
+    /// Each letter's settle tick.
+    settles: [u8; 8],
+    /// When the running scramble started (the app's clock) and the last tick it drew.
+    started: Option<(f64, u8)>,
+    seed: u64,
+}
+
+impl Default for Wordmark {
+    fn default() -> Self {
+        Wordmark { letters: TARGET, pending: false, settles: [0; 8], started: None, seed: 0x9E37_79B9_7F4A_7C15 }
+    }
+}
+
+impl Wordmark {
+    /// The page shows (`true`) or leaves: a scramble starts on the next poll, or the letters
+    /// spell the word again.
+    pub fn activate(&mut self, active: bool) {
+        self.started = None;
+        self.pending = active;
+        self.letters = TARGET;
+    }
+
+    fn random(&mut self, below: u8) -> u8 {
+        // xorshift64*: a scramble needs no better.
+        self.seed ^= self.seed >> 12;
+        self.seed ^= self.seed << 25;
+        self.seed ^= self.seed >> 27;
+        (self.seed.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) as u8 % below
+    }
+}
+
+/// Runs the scramble on the app's clock: an opening's first letters, then each tick's.
+pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    let reduced = s.reduced_motion;
+    let w = &mut s.settings_pages.wordmark;
+    if std::mem::take(&mut w.pending) && !reduced {
+        w.seed ^= now.to_bits() | 1;
+        for i in 0..8 {
+            w.letters[i] = w.random(CHOICES);
+            w.settles[i] = 6 + w.random(8);
+        }
+        w.started = Some((now, 0));
+        // A letter swaps for the next at once, as an SVG `use` does: nothing glides between them.
+        tx.instant();
+        tx.wake_after(std::time::Duration::from_secs_f64(TICK));
+        return true;
+    }
+    let Some((start, drawn)) = w.started else { return false };
+    let tick = ((now - start) / TICK).floor().clamp(0.0, 255.0) as u8;
+    let last = w.settles.iter().copied().max().unwrap_or(0);
+    if tick > drawn {
+        tx.instant();
+        for i in 0..8 {
+            w.letters[i] = if tick >= w.settles[i] { TARGET[i] } else { w.random(CHOICES) };
+        }
+    }
+    if tick >= last {
+        w.started = None;
+    } else {
+        w.started = Some((start, tick.max(drawn)));
+        tx.wake_after(std::time::Duration::from_secs_f64((start + f64::from(tick + 1) * TICK - now).max(0.001)));
+    }
+    tick > drawn
+}
+
+/// The wordmark spelling `letters`, `k` points a unit of its 234 by 42 grid, each letter 30 on.
+fn wordmark(letters: &[u8; 8], k: f32, stem: rune::Color, weak: rune::Color) -> El {
+    let mut logo = el().size(234.0 * k, 42.0 * k);
+    for (i, &letter) in letters.iter().enumerate() {
+        for &(x, y, w, h, shadow) in LETTERS[usize::from(letter) % LETTERS.len()] {
+            logo = logo.child(el().key(format!("l{i}-{x}-{y}-{w}-{h}")).absolute((x + i as f32 * 30.0) * k, y * k).size(w * k, h * k).fill(if shadow { weak } else { stem }));
+        }
+    }
+    logo
 }
