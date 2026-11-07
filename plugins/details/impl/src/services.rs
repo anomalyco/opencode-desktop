@@ -273,7 +273,7 @@ fn item_row(s: &Details, cx: &mut ViewCx<Details>, service: Service, item: &Item
     match service {
         Service::Mcp => {
             let on = status != Some("disabled");
-            let busy = s.toggling.iter().any(|n| *n == item.name);
+            let busy = s.toggling.contains(&item.name);
             let (name_owned, dir) = (item.name.clone(), directory.to_owned());
             let failure = item.error.clone().filter(|_| status == Some("failed"));
             // Desktop's `follow`: a press asks for the switch's other side, or signs in.

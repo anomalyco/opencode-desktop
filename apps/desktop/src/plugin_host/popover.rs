@@ -66,7 +66,7 @@ pub fn view(app: &App, p: &Pal) -> Vec<El> {
         ALIGN_END => Align::End,
         _ => Align::Start,
     };
-    let scrim = crate::popover::scrim::<App>("plugin-popover-scrim", |s, tx| close(s, tx));
+    let scrim = crate::popover::scrim::<App>("plugin-popover-scrim", close);
     let content = rune::col().key(format!("plugin-popover-{}", c.key)).child(content);
     vec![scrim, crate::popover::place(&app.knobs, content, &open.anchor, side, align, c.order as f32)]
 }

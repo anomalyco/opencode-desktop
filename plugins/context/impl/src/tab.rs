@@ -214,7 +214,7 @@ fn raw_messages(s: &Context, cx: &mut ViewCx<Context>, sid: &str, raws: &[Raw], 
     let mut list = col().key("context-raw").w_full();
     for (i, m) in raws.iter().enumerate() {
         let id = m.id().to_owned();
-        let open = s.open.iter().any(|o| *o == id);
+        let open = s.open.contains(&id);
         let lg = 8.0;
         let top = if i == 0 { lg } else { 0.0 };
         let bottom = if i == last && !open { lg } else { 0.0 };

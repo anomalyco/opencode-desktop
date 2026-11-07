@@ -109,7 +109,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     }
     menu = menu.separator().item(Item::new("copy-path", dir.clone()).icon(&ic::FOLDER));
     if matches!(&s.source, crate::Source::Live { server, .. } if server.is_local()) {
-        menu = menu.item(Item::new("reveal", "Reveal in File Explorer").icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+        menu = menu.item(Item::new("reveal", REVEAL).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     menu = menu.separator().item(Item::new("settings", "Edit project").icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
     let project_id = project.map(|p| p.id);
@@ -121,7 +121,9 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         Some("copy-branch") => copied(s, branch.as_deref().unwrap_or_default(), tx),
         Some("copy-path") => copied(s, &dir, tx),
         Some("reveal") => {
-            let _ = tx.open_url(&format!("file:///{}", dir.replace('\\', "/").trim_start_matches('/')));
+            if let Err(e) = reveal(&dir) {
+                crate::status_toast::fail(s, "Request failed", e);
+            }
         }
         Some("settings") => {
             tx.instant();
@@ -134,4 +136,26 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
 fn copied(s: &mut App, value: &str, tx: &mut Tx) {
     tx.copy(value.to_owned());
     crate::status_toast::say(s, "Copied", value);
+}
+
+/// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).
+#[cfg(target_os = "windows")]
+const REVEAL: &str = "Reveal in File Explorer";
+#[cfg(target_os = "macos")]
+const REVEAL: &str = "Reveal in Finder";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const REVEAL: &str = "Open containing folder";
+
+/// Shows folder `dir` in the system's file manager; a headless run opens nothing.
+fn reveal(dir: &str) -> Result<(), String> {
+    if crate::headless() {
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("/usr/bin/open");
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(dir).spawn().map(|_| ()).map_err(|e| e.to_string())
 }

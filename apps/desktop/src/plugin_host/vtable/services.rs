@@ -100,7 +100,7 @@ pub fn panel_state(app: &App, plugin: &str, panel: &str, session: &str) -> u64 {
     let key = panel_key(super::super::view::PANEL, &format!("{plugin}.{panel}"));
     let Some(st) = app.side.sessions.get(session) else { return 0 };
     let tabs = &st.tab_state.tabs;
-    if !tabs.all.iter().any(|t| *t == key) {
+    if !tabs.all.contains(&key) {
         return 0;
     }
     let pane = session_tab_pane(tabs, &key);

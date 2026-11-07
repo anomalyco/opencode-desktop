@@ -248,11 +248,14 @@ pub fn token(dark: bool, name: &str) -> Option<Color> {
     let key = (theme, dark, rune::theme::blends_srgb());
     THEMES.with(|t| {
         let mut t = t.borrow_mut();
-        if !t.contains_key(&key) {
-            let src = crate::themes::json(theme, THEME);
-            t.insert(key, Theme::from_json(src.as_deref().unwrap_or(THEME), dark).ok()?);
-        }
-        t.get(&key)?.try_color(name)
+        let read = match t.entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let src = crate::themes::json(theme, THEME);
+                v.insert(Theme::from_json(src.as_deref().unwrap_or(THEME), dark).ok()?)
+            }
+        };
+        read.try_color(name)
     })
 }
 
