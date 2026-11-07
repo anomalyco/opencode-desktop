@@ -1,0 +1,14 @@
+id = "debug"
+name = "Debug"
+version = "0.1.0"
+description = "The debug bar: the latest turn's time and tokens per second, the motion tools and memory diagnostics in local and Beta builds, and heap snapshots"
+api = "0.1-experimental"
+library = "opencode_plugin_debug"
+
+[[stores]]
+name = "bar"
+scope = "global"
+
+[[stores]]
+name = "memory"
+scope = "global"
