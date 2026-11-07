@@ -667,12 +667,14 @@ fn review_main(
         .build(s, p)
     };
 
+    // The toolbar shows while there are changes, or the tree is closed (`SessionFilePanelV2`'s
+    // `toolbar`), so an empty review with its tree open has none.
+    let toolbar = (has_diffs || !sidebar_open).then(|| col().w_full().child(toolbar).child(el().w_full().h(1.0).fill(p.border)));
     col()
         .key("review-main")
         .grow(1.0)
         .min_w(0.0)
         .h_full()
-        .child(toolbar)
-        .child(el().w_full().h(1.0).fill(p.border))
+        .children(toolbar)
         .child(body)
 }
