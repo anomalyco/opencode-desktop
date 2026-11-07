@@ -72,12 +72,14 @@ pub struct Menu {
     min_w: f32,
     /// A fixed width, as a menu with `w-56` has.
     width: Option<f32>,
+    /// How tall it gets before its rows scroll.
+    max_h: f32,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H }
     }
 
     /// A picker: one checked-when-current row per `(id, title)`, lined up with the end of the
@@ -101,6 +103,8 @@ impl Menu {
     pub fn group(mut self, title: impl Into<String>) -> Menu { self.entries.push(Entry::Group(title.into())); self }
     /// Draws the menu this wide, whatever its rows.
     pub fn width(mut self, w: f32) -> Menu { self.width = Some(w); self }
+    /// Lets the menu grow to `rows` rows before they scroll.
+    pub fn rows_before_scroll(mut self, rows: f32) -> Menu { self.max_h = 2.0 * MENU.inset + rows * MENU.row_h; self }
     /// Beside an element, which of its edges the drawn menu lines up with (its start by default).
     pub fn align(mut self, align: Align) -> Menu { self.align = align; self }
 
@@ -303,7 +307,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
         Some(w) => surface.w(w).max_w(w),
         None => surface,
     };
-    surface.child(list.build("popup-scroll", MAX_H))
+    surface.child(list.build("popup-scroll", menu.max_h))
 }
 
 fn hover(s: &mut App, n: usize) {

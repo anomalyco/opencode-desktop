@@ -12,7 +12,8 @@ use crate::tabs::tab_title;
 /// How many entries the menu lists in all.
 const LIMIT: usize = 10;
 
-/// The menu's width (`w-56`).
+/// The menu's width (`w-56`). Its two titles and ten rows fit without scrolling, as in
+/// Desktop's two-thirds-of-the-window cap.
 const WIDTH: f32 = 224.0;
 
 /// Opens the menu at `at`.
@@ -50,7 +51,7 @@ fn menu(s: &App) -> Menu {
     recent.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
     let recent: Vec<Item> = recent.into_iter().take(LIMIT - closed.len()).map(|i| row("recent", &i.id, &i.title, &i.directory)).collect();
     let none = closed.is_empty() && recent.is_empty();
-    let mut menu = Menu::new("Recently closed").width(WIDTH);
+    let mut menu = Menu::new("Recently closed").width(WIDTH).rows_before_scroll(12.0);
     if !closed.is_empty() {
         menu = menu.group("Recently closed").items(closed);
     }
