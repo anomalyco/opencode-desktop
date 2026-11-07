@@ -89,6 +89,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::mentions::view(s, p, cx));
     inner = inner.children(crate::slash::commands_view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));
+    inner = inner.children(crate::new_worktree::picker(s, p).into_iter().flatten());
     if let Some(pop) = home::home_projects_popover(s, p) {
         inner = inner.children(pop);
     }

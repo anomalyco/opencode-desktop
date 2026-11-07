@@ -6,11 +6,10 @@
 
 use std::cell::Cell;
 
-use opencode_kit::model::project_sandboxes;
+use opencode_kit::model::project_git;
 use opencode_kit::path;
 
 use super::*;
-use crate::project_switcher::StepMode;
 
 /// The worktree onboarding's flag (Desktop's `workspace-onboarding`): once a worktree is
 /// picked, the dot after `Local` goes for good.
@@ -27,39 +26,42 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     let dir = s.draft_dir();
     let project = s.draft_project();
     let name = project_or_dir(project, dir);
-    let open = s.pickers.open == Some(Kind::Project);
     // Desktop's `TRIGGER`: 28 tall, 6 in and 8 from the end, 4 pt corners, muted words that
-    // turn base under the pointer with the hover overlay.
-    let button = trigger("project", "Choose a project")
-        .fill(if open { p.hover } else { Color::TRANSPARENT })
+    // turn base under the pointer with the hover overlay. It opens the location dialog on its
+    // projects (`view.tsx:127`).
+    let button = trigger("project", "Choose project")
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            s.open_picker(Kind::Project);
-            if s.pickers.open.is_some() {
-                crate::popover::motion::opening(&s.knobs, tx);
-            }
+            tx.instant();
+            s.open_project_switcher();
         })
         .child(crate::icons::badge(s, p, project, &name))
-        .child(text(name.clone()).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade());
+        .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade());
     let branch = s.sidebar_inbox.branches.get(dir);
+    let creating = s.draft_creates();
     // Worktrees are a Git project's (`view.tsx:128`).
-    let place = project.filter(|_| branch.is_some()).map(|project| {
-        let worktree = project_sandboxes(&project.id).iter().any(|w| path::trim(w) == path::trim(dir));
-        let (glyph, label) = if worktree { (&ic::OUTLINE_WORKTREE, path::basename(dir).to_owned()) } else { (&ic::MONITOR, "Local".to_owned()) };
+    let place = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
+        let worktree = s.project_worktrees(&project.id, &project.directory).iter().any(|w| path::trim(w) == path::trim(dir));
+        let (glyph, size, label) = match (creating, worktree) {
+            (true, _) => (&ic::PLUS, 14.0, "New worktree".to_owned()),
+            (false, true) => (&ic::OUTLINE_WORKTREE, 16.0, path::basename(dir).to_owned()),
+            (false, false) => (&ic::MONITOR, 14.0, "Local".to_owned()),
+        };
         let id = project.id.clone();
-        trigger("worktree", "Choose where the session runs")
+        trigger("worktree", "Choose worktree")
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
                 s.open_project_switcher();
-                s.project_switcher.mode = StepMode::Worktrees(id.clone());
+                s.drill_project_worktrees(&id, tx);
             })
-            .child(icon(glyph, if worktree { 16.0 } else { 14.0 }).color(p.icon_muted))
+            .child(icon(glyph, size).color(p.icon_muted))
             .child(text(label).font(UI).color(p.muted).group_color(p.text).truncate_fade())
             .children((!used()).then(|| el().key("onboarding-dot").size(6.0, 6.0).radius(3.0).fill(p.accent)))
     });
+    // A new worktree's branch is the one it starts from, and can be picked (`selector.tsx`).
+    let branch = branch.map(|b| if creating { crate::new_worktree::trigger(s, p, b) } else { branch_label(p, b) });
     let pickers = row()
         .key("location-pickers")
         .shrink()
@@ -68,7 +70,8 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .center_y()
         .child(button)
         .children(place.map(|place| row().key("location-place").shrink().min_w(48.0).center_y().child(session_view::composer::slash(p, 2.0)).child(place)))
-        .children(branch.map(|b| branch_label(p, b)));
+        .children(branch);
+    // A worktree still to be made has no folder yet (`view.tsx:312-316`).
     row()
         .key("location")
         .w_full()
@@ -78,7 +81,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .gap(12.0)
         .center_y()
         .child(pickers)
-        .children((width > 560.0).then(|| folder(p, dir)))
+        .children((width > 560.0 && !creating).then(|| folder(p, dir)))
 }
 
 /// A picker in the row, before its look: Desktop's `TRIGGER` (`view.tsx:274-275`).
@@ -153,7 +156,15 @@ fn used() -> bool {
 /// (`view.tsx:84-90`).
 pub(crate) fn picked(s: &App, dir: &str) {
     let Some(project) = s.project_at(dir) else { return };
-    if used() || !project_sandboxes(&project.id).iter().any(|w| path::trim(w) == path::trim(dir)) {
+    if !s.project_worktrees(&project.id, &project.directory).iter().any(|w| path::trim(w) == path::trim(dir)) {
+        return;
+    }
+    mark_used(s);
+}
+
+/// A worktree, new or not, was picked: the onboarding's dot goes for good.
+pub(crate) fn mark_used(s: &App) {
+    if used() {
         return;
     }
     USED.set(Some(true));

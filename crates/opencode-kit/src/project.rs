@@ -51,6 +51,29 @@ pub fn set_project_sandboxes(id: &str, sandboxes: Vec<String>) {
     }
 }
 
+fn git_store() -> &'static Mutex<HashMap<String, bool>> {
+    static STORE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// Whether the server reported project `id` as a Git checkout (`vcs: "git"`): it can have
+/// worktrees, and a new one can be made.
+pub fn project_git(id: &str) -> bool {
+    git_store().lock().unwrap().get(id).copied().unwrap_or(false)
+}
+
+/// The directories of `GET /api/worktree?projectID=`, other than the project's own `root`.
+pub fn parse_worktrees(v: &Value, root: &str) -> Vec<String> {
+    let items = v.get("data").unwrap_or(v).as_array().cloned().unwrap_or_default();
+    let mut dirs: Vec<String> = Vec::new();
+    for d in items.iter().filter_map(|i| i["directory"].as_str()) {
+        if crate::path::trim(d) != crate::path::trim(root) && !dirs.iter().any(|x| crate::path::trim(x) == crate::path::trim(d)) {
+            dirs.push(d.to_owned());
+        }
+    }
+    dirs
+}
+
 /// Parses one `Location.PublicInfo` reply from `GET /api/location`.
 pub fn parse_location(v: &Value) -> Option<LocationInfo> {
     let v = v.get("data").unwrap_or(v);
@@ -94,6 +117,9 @@ pub fn parse_project(p: &Value) -> Option<Project> {
             .collect();
         sandboxes.dedup();
         set_project_sandboxes(&id, sandboxes);
+    }
+    if !id.is_empty() {
+        git_store().lock().unwrap().insert(id.clone(), p["vcs"].as_str() == Some("git"));
     }
     Some(Project {
         id,

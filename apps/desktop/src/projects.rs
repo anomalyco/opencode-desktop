@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use opencode_kit::client::{DEFAULT_SERVER, Request, Write};
-use opencode_kit::model::{LocationInfo, Project, ProjectIcon, SessionInfo, Transcript, project_sandboxes};
+use opencode_kit::model::{LocationInfo, Project, ProjectIcon, SessionInfo, Transcript};
 use opencode_kit::path;
 use rune::{FileDialogOptions, Tx};
 
@@ -189,7 +189,8 @@ impl App {
         if dir.is_empty() {
             return None;
         }
-        let at = |p: &&Project| p.directory == dir || project_sandboxes(&p.id).iter().any(|s| clean_dir(s) == dir);
+        // Its checkout, or one of its worktrees: a sandbox, or one the server's inventory lists.
+        let at = |p: &&Project| p.directory == dir || self.project_worktrees(&p.id, &p.directory).iter().any(|s| clean_dir(s) == dir);
         self.projects.iter().filter(at).find(|p| p.id == id).or_else(|| self.projects.iter().find(at))
     }
 

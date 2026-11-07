@@ -1,21 +1,19 @@
-//! ⇧⌘O ("Search projects"), Desktop's project and worktree switcher (`new-session/location/dialog.tsx`).
+//! ⇧⌘O ("Search projects"), Desktop's project and worktree switcher (`new-session/location/dialog.tsx`),
+//! which the new-session page's project and worktree buttons open too.
 //!
 //! Lists this client's recent/used projects first, then any other server projects (`Other projects`),
-//! existing Git worktrees (`sandboxes`) behind `→`, and `+ Add project` (`⌘O`) at the foot.
-//! Selecting a project updates the open draft's folder on a New Session page, or opens a new session in that
-//! project from anywhere else.
+//! a Git project's worktrees behind its chevron (its checkout, New worktree, then the server's
+//! inventory), and `+ Add project` (`⌘O`) last. Selecting a project updates the open draft's
+//! folder on a New Session page, or opens a new session in that project from anywhere else.
 
 use crate::pickers::PickerHost as _;
-use opencode_kit::model::{Project, project_sandboxes};
-use rune::{
-    Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, spacer, text,
-    text_input,
-};
+use opencode_kit::model::{Project, project_git};
+use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::Highlight;
-use crate::palette::Pal;
-use crate::projects::{clean_dir, folder_name};
+use crate::palette::{Elevate as _, Pal};
+use crate::projects::folder_name;
 use crate::switcher::{move_for, target};
 use crate::view::{UI, UI_MED};
 use crate::{App, Route};
@@ -49,6 +47,8 @@ pub struct ProjectSwitcher {
 pub enum RowKind {
     Project { id: String, directory: String, used: bool, drillable: bool },
     Worktree { project_id: String, directory: String, main: bool },
+    /// New worktree: the session starts in a worktree made from the project's checkout.
+    Create { project_id: String, directory: String },
     Other { count: usize },
     Add,
 }
@@ -68,7 +68,7 @@ fn matches_query(q: &str, fields: &[&str]) -> bool {
 }
 
 fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
-    let t = text(s.to_owned()).font(style).color(color).truncate_fade();
+    let t = text(s.to_owned()).font(style).color(color).truncate();
     let lower = s.to_lowercase();
     let needle = q.trim().to_lowercase();
     match lower.find(&needle) {
@@ -99,45 +99,36 @@ impl App {
         match &self.project_switcher.mode {
             StepMode::Worktrees(pid) => {
                 let Some(project) = self.project(pid) else { return Vec::new() };
-                let main_short = self.tilde(&project.directory);
-                let mut out = Vec::new();
-                if matches_query(q, &[&project.name, &project.directory, &main_short]) {
-                    out.push(SwitcherRow {
-                        key: format!("wt:main:{}", project.id),
-                        title: project.name.clone(),
-                        subtitle: main_short,
-                        section: "Worktrees",
-                        kind: RowKind::Worktree {
-                            project_id: project.id.clone(),
-                            directory: project.directory.clone(),
-                            main: true,
-                        },
-                    });
-                }
-                for dir in project_sandboxes(&project.id) {
-                    let dir = clean_dir(&dir);
-                    if dir.is_empty() || dir == clean_dir(&project.directory) {
-                        continue;
-                    }
-                    let title = folder_name(&dir);
-                    let short = self.tilde(&dir);
-                    if matches_query(q, &[&title, &dir, &short]) {
-                        out.push(SwitcherRow {
-                            key: format!("wt:{dir}"),
-                            title,
-                            subtitle: short,
-                            section: "Worktrees",
-                            kind: RowKind::Worktree { project_id: project.id.clone(), directory: dir, main: false },
-                        });
-                    }
-                }
-                out
+                let (id, root) = (project.id.clone(), project.directory.clone());
+                // The checkout and New worktree, then the worktrees (`dialog.tsx:156-173`).
+                let main = SwitcherRow {
+                    key: format!("wt:main:{id}"),
+                    title: project.name.clone(),
+                    subtitle: root.clone(),
+                    section: "Worktrees",
+                    kind: RowKind::Worktree { project_id: id.clone(), directory: root.clone(), main: true },
+                };
+                let create = SwitcherRow {
+                    key: format!("wt:create:{id}"),
+                    title: "New worktree".into(),
+                    subtitle: "Creates isolated copy from current checkout".into(),
+                    section: "Worktrees",
+                    kind: RowKind::Create { project_id: id.clone(), directory: root.clone() },
+                };
+                let worktrees = self.project_worktrees(&id, &root).into_iter().map(|dir| SwitcherRow {
+                    key: format!("wt:{dir}"),
+                    title: folder_name(&dir),
+                    subtitle: dir.clone(),
+                    section: "Worktrees",
+                    kind: RowKind::Worktree { project_id: id.clone(), directory: dir, main: false },
+                });
+                [main, create].into_iter().chain(worktrees).filter(|r| matches_query(q, &[&r.title, &r.subtitle])).collect()
             }
             StepMode::Others => self
                 .other_projects()
                 .into_iter()
-                .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
-                .map(|p| project_row_item(p, self.tilde(&p.directory), false))
+                .filter(|p| matches_query(q, &[&p.name, &p.directory]))
+                .map(|p| project_row_item(p, false))
                 .collect(),
             StepMode::Projects => {
                 let used = self.used_projects();
@@ -145,15 +136,15 @@ impl App {
                 let other_count = others.len();
                 let mut out: Vec<SwitcherRow> = used
                     .into_iter()
-                    .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
-                    .map(|p| project_row_item(p, self.tilde(&p.directory), true))
+                    .filter(|p| matches_query(q, &[&p.name, &p.directory]))
+                    .map(|p| project_row_item(p, true))
                     .collect();
                 if !q.is_empty() {
                     out.extend(
                         others
                             .into_iter()
-                            .filter(|p| matches_query(q, &[&p.name, &p.directory, &self.tilde(&p.directory)]))
-                            .map(|p| project_row_item(p, self.tilde(&p.directory), false)),
+                            .filter(|p| matches_query(q, &[&p.name, &p.directory]))
+                            .map(|p| project_row_item(p, false)),
                     );
                 } else if other_count > 0 {
                     out.push(SwitcherRow {
@@ -225,11 +216,13 @@ impl App {
         }
     }
 
+    /// Steps into `project_id`'s worktrees (a Git project's), asking the server for them.
     pub fn drill_project_worktrees(&mut self, project_id: &str, tx: &mut Tx) {
-        if project_sandboxes(project_id).is_empty() {
+        if !drillable(self, project_id) {
             return;
         }
         tx.instant();
+        self.list_worktrees(project_id);
         let active = format!("project:{project_id}");
         self.project_switcher.back = Some(SavedStep {
             query: self.project_switcher.search.text.clone(),
@@ -274,6 +267,18 @@ impl App {
             }
             RowKind::Add => {
                 self.open_project_dialog(tx);
+            }
+            RowKind::Create { project_id, directory } => {
+                tx.instant();
+                self.close_project_switcher(false);
+                if !matches!(self.route, Route::Draft(_)) {
+                    self.open_draft_tab();
+                }
+                self.choose_new_worktree(&project_id, directory);
+                self.sort_projects();
+                if self.stage.is_none() {
+                    self.composer.focused = true;
+                }
             }
             RowKind::Project { id, directory, .. } | RowKind::Worktree { project_id: id, directory, .. } => {
                 tx.instant();
@@ -369,66 +374,65 @@ impl App {
     }
 }
 
-fn project_row_item(p: &Project, subtitle: String, used: bool) -> SwitcherRow {
-    let drillable = !project_sandboxes(&p.id).is_empty();
+fn project_row_item(p: &Project, used: bool) -> SwitcherRow {
     SwitcherRow {
         key: format!("project:{}", p.id),
         title: p.name.clone(),
-        subtitle,
+        subtitle: p.directory.clone(),
         section: if used { "Projects" } else { "Other projects" },
-        kind: RowKind::Project { id: p.id.clone(), directory: p.directory.clone(), used, drillable },
+        kind: RowKind::Project { id: p.id.clone(), directory: p.directory.clone(), used, drillable: project_git(&p.id) },
     }
 }
 
-fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str) -> El {
+/// A Git project steps into its worktrees (`dialog.tsx:185`), as does one the server already
+/// knows worktrees of.
+fn drillable(s: &App, project_id: &str) -> bool {
+    project_git(project_id) || s.project(project_id).is_some_and(|p| !s.project_worktrees(project_id, &p.directory).is_empty())
+}
+
+/// A row (`palette-menu-row` at `data-size="compact"`, `dialog.css:97-121`): 28 tall, 6 in, 6 pt
+/// corners, the hover overlay while lit; its glyph, then its title (13 at 530) and its folder
+/// or description in faint, both cut with an ellipsis, and a chevron where it steps in.
+fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) -> El {
     let key = r.key.clone();
     let hover = r.key.clone();
-    let mut main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
-    match &r.kind {
-        RowKind::Project { id, .. } => {
-            main = main
-                .child(crate::icons::badge(s, p, s.project(id), &r.title))
-                .child(highlighted(&r.title, q, UI_MED, p.text, p.accent))
-                .child(highlighted(&r.subtitle, q, UI, p.faint, p.accent));
+    let option = matches!(r.kind, RowKind::Other { .. } | RowKind::Add);
+    let title_ink = if option { p.muted } else { p.text };
+    let title = highlighted(&r.title, q, TITLE, title_ink, p.accent);
+    let description = |t: &str| highlighted(t, q, UI, p.faint, p.accent).grow(1.0).shrink().min_w(0.0);
+    // The name keeps up to 55% of its text (a worktree's title 60%) while the folder gives way:
+    // the row less its insets, glyph and chevron.
+    let text_w = w - 12.0 - 12.0 - 24.0 - if matches!(r.kind, RowKind::Project { drillable: true, .. }) { 24.0 } else { 0.0 };
+    let named = |t: El, share: f32| row().key("name").max_w(text_w * share).center_y().child(t.shrink().min_w(0.0));
+    let main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
+    let main = match &r.kind {
+        RowKind::Project { id, .. } | RowKind::Worktree { project_id: id, main: true, .. } => main
+            .child(crate::icons::badge(s, p, s.project(id), &r.title))
+            .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(named(title, 0.55)).child(description(&r.subtitle))),
+        RowKind::Worktree { main: false, .. } | RowKind::Create { .. } => {
+            let glyph = if matches!(r.kind, RowKind::Create { .. }) { &ic::PLUS } else { &ic::OUTLINE_WORKTREE };
+            main.child(icon(glyph, 16.0).color(p.icon_muted))
+                .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(named(title, 0.6)).child(description(&r.subtitle)))
         }
-        RowKind::Worktree { project_id, main: true, .. } => {
-            main = main
-                .child(crate::icons::badge(s, p, s.project(project_id), &r.title))
-                .child(highlighted(&r.title, q, UI_MED, p.text, p.accent))
-                .child(highlighted(&r.subtitle, q, UI, p.faint, p.accent));
-        }
-        RowKind::Worktree { main: false, .. } => {
-            main = main
-                .child(icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted))
-                .child(highlighted(&r.title, q, UI_MED, p.text, p.accent))
-                .child(highlighted(&r.subtitle, q, UI, p.faint, p.accent));
-        }
-        RowKind::Other { .. } => {
-            main = main
-                .child(icon(&ic::FOLDER, 16.0).color(p.icon_muted))
-                .child(text(r.title.clone()).font(UI_MED).color(p.text))
-                .child(text(r.subtitle.clone()).font(UI).color(p.faint));
-        }
-        RowKind::Add => {
-            main = main
-                .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
-                .child(text(r.title.clone()).font(UI_MED).color(p.text));
-        }
-    }
-
-    let mut line = row()
+        RowKind::Other { count } => main
+            .child(icon(&ic::MENU, 16.0).color(p.icon_muted))
+            .child(title.shrink().min_w(0.0))
+            .child(text(count.to_string()).font(UI.features("\"tnum\"")).color(p.faint)),
+        RowKind::Add => main.child(icon(&ic::PLUS, 16.0).color(p.icon_muted)).child(title.shrink().min_w(0.0)),
+    };
+    let line = row()
         .key(format!("psw-{}", r.key))
         .role("option")
         .label(r.title.clone())
         .w_full()
-        .h(32.0)
-        .px(10.0)
+        .h(28.0)
+        .px(6.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
         .transition(Transition::none())
         .motion(Spring::NONE)
-        .fill(if active { p.row_active } else { Color::TRANSPARENT })
+        .fill(if active { p.hover } else { Color::TRANSPARENT })
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
                 tx.instant();
@@ -437,81 +441,79 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str) -> El {
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.project_switcher_choose(&key, tx))
         .child(main);
-
     match &r.kind {
-        RowKind::Add => {
-            line = line.child(spacer()).child(text(crate::keymap::Bind::OpenProject.label()).font(UI).color(p.faint));
-        }
-        RowKind::Other { .. } => {
-            line = line.child(spacer()).child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_muted));
-        }
+        RowKind::Add => line.child(crate::keymap::keycaps(p, crate::keymap::Bind::OpenProject)),
+        RowKind::Other { .. } => line.child(drill(p, "psw-drill-other", "Other projects", |s: &mut App, tx: &mut Tx| s.project_switcher_choose("other", tx))),
         RowKind::Project { id, drillable: true, .. } => {
             let pid = id.clone();
-            line = line.child(spacer()).child(
-                el().key(format!("psw-drill-{pid}"))
-                    .role("button")
-                    .label("Worktrees")
-                    .size(22.0, 22.0)
-                    .radius(4.0)
-                    .center()
-                    .hover(p.hover)
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.drill_project_worktrees(&pid, tx))
-                    .child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_muted)),
-            );
+            line.child(drill(p, &format!("psw-drill-{id}"), "Worktrees", move |s: &mut App, tx: &mut Tx| s.drill_project_worktrees(&pid, tx)))
         }
-        _ => {}
+        _ => line,
     }
-    line
 }
 
+/// `new-session-location-drill`: a 20 pt chevron, faint, that lights with its own hover.
+fn drill(p: &Pal, key: &str, label: &str, on: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    el().key(key.to_owned())
+        .role("button")
+        .label(label.to_owned())
+        .size(20.0, 20.0)
+        .mx(-2.0)
+        .radius(4.0)
+        .center()
+        .hover_group()
+        .hover(p.hover)
+        .on_press_tx(on)
+        .child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_faint).group_color(p.icon))
+}
+
+/// A row's title: `palette-menu-title`, 13 at 530.
+const TITLE: rune::TextStyle = UI_MED;
+
+/// The dialog (`dialog.css:5-60`): 480 wide on bg-base with `--v2-elevation-overlay` and 12 pt
+/// corners, as tall as it needs up to 480, its top halfway down a 480-tall box but at least 48
+/// from the window's. The search field (28 tall, transparent, the placeholder in the base ink at
+/// half strength), a hairline 8 below it, and the rows 4 apart under it.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let [win_w, win_h] = cx
         .layout_size("window")
         .or_else(|| cx.layout_size("zoomed"))
         .unwrap_or([1280.0 / s.zoom.max(1e-3), 820.0 / s.zoom.max(1e-3)]);
     let w = (win_w - 24.0).min(480.0);
-    let max_h = (win_h - 96.0).min(420.0).max(200.0);
+    let max_h = (win_h - 96.0).min(480.0);
     let q = s.project_switcher.query();
     let rows = s.project_switcher_rows();
     let active = s.project_switcher_active(&rows);
 
-    let placeholder = match &s.project_switcher.mode {
-        StepMode::Worktrees(_) => "Search worktrees",
-        _ => "Search projects",
+    let (placeholder, step_title) = match &s.project_switcher.mode {
+        StepMode::Projects => ("Search projects", None),
+        StepMode::Others => ("Search projects", Some("Other projects")),
+        StepMode::Worktrees(_) => ("Search worktrees", Some("Run session in")),
     };
-    let step_title = match &s.project_switcher.mode {
-        StepMode::Projects => None,
-        StepMode::Others => Some("Other projects"),
-        StepMode::Worktrees(_) => Some("Run session in"),
-    };
-
     let search = row()
         .key("project-switcher-field")
-        .h(34.0)
-        .px(10.0)
-        .gap(8.0)
+        .h(28.0)
+        .pl(6.0)
+        .pr(6.0)
+        .gap(6.0)
         .center_y()
-        .radius(6.0)
-        .fill(p.search_bg)
-        .hover(p.layer2)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            text_input(&s.project_switcher.search, UI.lh(20.0))
+            text_input(&s.project_switcher.search, UI)
                 .key("project-switcher-input")
+                .single_line()
                 .grow(1.0)
                 .shrink()
-                .h(20.0)
+                .min_w(0.0)
                 .color(p.text)
-                .placeholder(placeholder, p.faint)
+                .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.project_switcher.search)
                 .on_input_key(|s: &mut App, ev, tx| s.project_switcher_key(ev, tx) || s.shortcut(ev, tx)),
         );
 
-    let mut list = col().key("project-switcher-results").w_full().px(6.0).pt(4.0).pb(6.0).gap(1.0);
-    let mut content_h = 10.0_f32;
-    let mut footer: Option<El> = None;
-
+    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(4.0);
+    let mut content_h = 6.0_f32;
     if let Some(title) = step_title {
         list = list.child(
             row()
@@ -519,73 +521,56 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .role("button")
                 .label("Back to projects")
                 .h(28.0)
-                .px(8.0)
-                .gap(4.0)
+                .px(6.0)
                 .center_y()
-                .radius(4.0)
-                .hover(p.hover)
+                .radius(2.0)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.project_switcher_back(tx))
                 .child(text(title).font(UI).color(p.muted)),
         );
-        content_h += 29.0;
+        content_h += 32.0;
     }
-
+    if rows.is_empty() {
+        list = list.child(col().key("project-switcher-empty").w_full().h(120.0).center().child(text("No results found").font(UI).color(p.muted)));
+        content_h += 120.0;
+    }
     let mut shown_other_heading = false;
-    let mut main_rows = 0usize;
     for (idx, r) in rows.iter().enumerate() {
-        if r.kind == RowKind::Add {
-            footer = Some(draw_row(s, p, r, active.as_deref() == Some(r.key.as_str()), q));
-            continue;
-        }
-        if !q.is_empty()
-            && s.project_switcher.mode == StepMode::Projects
-            && r.section == "Other projects"
-            && !shown_other_heading
-        {
+        if !q.is_empty() && s.project_switcher.mode == StepMode::Projects && r.section == "Other projects" && !shown_other_heading {
             shown_other_heading = true;
-            list = list.child(
-                row().key("psw-other-heading").h(26.0).px(10.0).center_y().child(text("Other projects").font(UI).color(p.muted)),
-            );
-            content_h += 27.0;
+            list = list.child(row().key("psw-other-heading").h(28.0).px(6.0).center_y().child(text("Other projects").font(UI).color(p.muted)));
+            content_h += 32.0;
         }
-        if idx == 1 && matches!(r.kind, RowKind::Worktree { main: false, .. }) {
-            list = list.child(el().key("psw-wt-divider").h(0.5).w_full().my(3.0).fill(p.border_muted));
-            content_h += 7.0;
+        // A hairline across the dialog before Add project, and between New worktree and the
+        // worktrees (`dialog.tsx:371-382`).
+        let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
+        if idx > 0 && (r.kind == RowKind::Add || after_actions) {
+            list = list.child(el().key(format!("psw-divider-{idx}")).h(0.5).my(2.0).mx(-6.0).fill(p.border_muted));
+            content_h += 8.5;
         }
-        list = list.child(draw_row(s, p, r, active.as_deref() == Some(r.key.as_str()), q));
-        content_h += 33.0;
-        main_rows += 1;
+        list = list.child(draw_row(s, p, r, active.as_deref() == Some(r.key.as_str()), q, w));
+        content_h += 32.0;
     }
+    content_h -= 4.0;
 
-    if main_rows == 0 && footer.is_none() {
-        list = list.child(
-            col().key("project-switcher-empty").w_full().h(72.0).center().child(text("No matching projects").font(UI).color(p.muted)),
-        );
-        content_h += 72.0;
-    }
-
-    let footer_h = if footer.is_some() { 45.0 } else { 0.0 };
-    let scroll_max = (max_h - 48.0 - footer_h).max(96.0);
-    let scroll_h = content_h.min(scroll_max);
-    let total_h = 46.5 + scroll_h + footer_h;
-
-    let mut dialog = col()
+    // The search block (6 above, the field) and the divider (9 between 4 and 4).
+    let head_h = 6.0 + 28.0 + 17.0;
+    let scroll_h = content_h.min(max_h - head_h).max(0.0);
+    let total_h = head_h + scroll_h;
+    let dialog = col()
         .key("project-switcher")
         .role("dialog")
-        .label("Search projects")
+        .label(placeholder)
         .w(w)
         .h(total_h)
         .radius(12.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
-        .shadow(8.0, 16.0, p.shadow_far)
-        .shadow(4.0, 8.0, p.shadow)
+        .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
         .motion(Spring::NONE)
         .modal(true, |s: &mut App| s.close_project_switcher(true))
-        .child(col().key("project-switcher-search").w_full().padding(6.0).child(search))
-        .child(el().key("project-switcher-divider").h(0.5).w_full().fill(p.border))
+        .child(col().key("project-switcher-search").w_full().pt(6.0).px(6.0).child(search))
+        .child(el().key("project-switcher-divider").h(0.5).w_full().mt(8.0).mb(8.5).fill(p.border))
         .child(
             col()
                 .key("project-switcher-scroll")
@@ -593,17 +578,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .w_full()
                 .h(scroll_h)
                 .scroll(ScrollSpec { stick_bottom: false })
-                .clip_fade(0.0, 0.0, 0.0, 16.0)
                 .child(list),
         );
-
-    if let Some(add_row) = footer {
-        dialog = dialog
-            .child(el().key("project-switcher-add-divider").h(0.5).w_full().fill(p.border_muted))
-            .child(col().key("project-switcher-footer").w_full().px(6.0).py(6.0).child(add_row));
-    }
-
-    let y = ((win_h - total_h) * 0.38).max(32.0);
+    let y = ((win_h - 480.0) / 2.0).max(48.0);
     let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     [scrim, dialog.absolute((win_w - w) / 2.0, y)]
 }

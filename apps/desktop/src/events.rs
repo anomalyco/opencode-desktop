@@ -158,6 +158,9 @@ impl App {
                 self.reload_session(&sid);
             }
         }
+        if ty.starts_with("worktree.") || ty == "vcs.branch.listed" {
+            changed |= self.apply_worktree_event(ty, data);
+        }
         if ty == "project.updated"
             && let Some(updated) = opencode_kit::model::parse_project(data)
         {

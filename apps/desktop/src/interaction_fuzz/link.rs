@@ -512,6 +512,8 @@ fn call(job: &Job) -> String {
             Request::Inbox(id) => format!("GET /api/session/{id}/inbox"),
             Request::Active => "GET /api/session/active".into(),
             Request::Config(_) => "GET /api/config".into(),
+            Request::Worktrees { project, .. } => format!("GET /api/worktree?projectID={project}"),
+            Request::Branches { .. } => "GET /api/vcs/branch".into(),
         },
         Job::Receipts(ask) => format!("GET /api/session/{}/inbox", ask.first().map_or("", |a| a.0.as_str())),
         Job::Page { key, cursor: None, limit, .. } => format!("GET /api/session/{}/message?limit={limit}&order=desc", key.id),
@@ -549,7 +551,7 @@ fn apply(job: &Job, sim: &mut Sim, log: &mut Vec<String>) -> Option<Out> {
             Request::Session(id) if *id == sim.sid => Incoming::Messages { session: id.clone(), messages: model::parse_messages(&sim.page(80)) },
             Request::Session(id) => Incoming::Messages { session: id.clone(), messages: vec![] },
             Request::Sessions | Request::ProjectSessions(_) => Incoming::Sessions(sim.sessions()),
-            Request::Projects => return None,
+            Request::Projects | Request::Worktrees { .. } | Request::Branches { .. } => return None,
             Request::Info(id) => Incoming::Info(sim.info(id)),
             Request::Pending(id) => Incoming::Pending { session: id.clone(), items: vec![] },
             Request::Inbox(id) => {

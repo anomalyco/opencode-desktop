@@ -385,6 +385,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
         }
         *requests = Some(r);
         s.inbox = Some(inbox);
+        s.list_unlisted_worktrees();
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session(id) = s.route.clone() {
             crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));

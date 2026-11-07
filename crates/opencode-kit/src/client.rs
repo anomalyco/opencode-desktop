@@ -83,6 +83,14 @@ pub enum Request {
     /// reply is `Incoming::Event` with type `config.listed` and data
     /// `{directory, backgroundCompaction}`.
     Config(String),
+    /// A project's worktree inventory (`GET /api/worktree?projectID=`), the project's `root`
+    /// left out. The reply is `Incoming::Event` with type `worktree.listed` and data
+    /// `{projectID, directories}`.
+    Worktrees { project: String, root: String },
+    /// The branches at `directory` matching `search` (`GET /api/vcs/branch`, 50 at most). The
+    /// reply is `Incoming::Event` with type `vcs.branch.listed` and data
+    /// `{directory, search, branches}`, or with `failed: true`.
+    Branches { directory: String, search: String },
 }
 
 pub enum Write {
@@ -148,6 +156,11 @@ pub enum Write {
     SendFromRevert { session: String, prompt: Prompt },
     /// Forks `session` before `before` (`POST /api/session/:id/fork`), replying `Incoming::Forked`.
     Fork { session: String, before: Option<String> },
+    /// `StartAs` in a new worktree of `project` (Desktop's `createWorktree`): `POST /api/worktree`
+    /// from the checkout `from`, on `branch` or its current one, then the session in the
+    /// worktree it made. `Incoming::Event` `worktree.updated` follows the worktree, then
+    /// `Incoming::Created`; a failure reports `Incoming::SendFailed` with the prompt's id.
+    StartInNewWorktree { session: String, project: String, from: String, branch: Option<String>, prompt: Prompt },
 }
 
 pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
@@ -373,8 +386,13 @@ impl Server {
 
     /// A write: `method` with an optional JSON body; an empty (204) reply is `Value::Null`.
     pub fn write(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+        self.write_within(method, path, body, Duration::from_secs(15))
+    }
+
+    /// `write`, waiting up to `timeout` for the reply.
+    fn write_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
         let url = format!("{}{path}", self.base);
-        let agent = Self::agent(Some(Duration::from_secs(15)));
+        let agent = Self::agent(Some(timeout));
         let auth = self.auth.as_deref();
         let resp = match method {
             "DELETE" => {
@@ -571,6 +589,32 @@ impl Server {
         }
     }
 
+    /// `worktree.create`: a new worktree of `project` from the checkout `from`, on `branch` or
+    /// the checkout's current one; returns its directory. The server runs the project's setup
+    /// script before it answers (often a dependency install), so this waits up to ten minutes.
+    pub fn create_worktree(&self, project: &str, from: &str, branch: Option<&str>) -> Result<String, String> {
+        let mut body = serde_json::json!({ "projectID": project, "from": from });
+        if let Some(b) = branch {
+            body["branch"] = b.into();
+        }
+        let v = self.write_within("POST", "/api/worktree", Some(body), Duration::from_secs(600))?;
+        v.get("data").unwrap_or(&v)["directory"].as_str().map(str::to_owned).ok_or_else(|| "POST /api/worktree: no directory in the reply".into())
+    }
+
+    /// `StartInNewWorktree`: the worktree, then `start_as` in it.
+    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce()) -> Result<SessionInfo, String> {
+        let directory = self.create_worktree(project, from, branch)?;
+        made();
+        self.start_as(id, &directory, prompt)
+    }
+
+    /// `vcs.branch.list`: up to 50 branches at `directory` whose names hold `search`.
+    pub fn branches(&self, directory: &str, search: &str) -> Result<Vec<String>, String> {
+        let path = format!("/api/vcs/branch?location%5Bdirectory%5D={}&search={}&limit=50", encode_component(directory), encode_component(search));
+        let v = self.get(&path)?;
+        Ok(list(&v).iter().filter_map(|b| b.as_str().map(str::to_owned)).collect())
+    }
+
     /// Resolves `directory` (`GET /api/location?location[directory]=…`), registering its project
     /// on the server as Desktop's `projects.add` does.
     pub fn resolve_location(&self, directory: &str) -> Result<model::LocationInfo, String> {
@@ -726,7 +770,8 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
                         Write::Send { session, prompt }
                         | Write::SendMovingHome { session, prompt }
                         | Write::SendFromRevert { session, prompt }
-                        | Write::StartAs { session, prompt, .. } => {
+                        | Write::StartAs { session, prompt, .. }
+                        | Write::StartInNewWorktree { session, prompt, .. } => {
                             prompt.id.clone().map(|id| (session.clone(), id))
                         }
                         _ => None,
@@ -766,6 +811,14 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
                         Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
                             let _ = inbox_tx.send(Incoming::Created(info));
                         }),
+                        Write::StartInNewWorktree { session, project, from, branch, prompt } => {
+                            let made = || {
+                                let _ = inbox_tx.send(Incoming::Event { ty: "worktree.updated".into(), data: serde_json::json!({ "projectID": project }) });
+                            };
+                            server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
+                                let _ = inbox_tx.send(Incoming::Created(info));
+                            })
+                        }
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
                         Write::Shell { session, id, command } => server.shell(&session, id.as_deref(), &command),
@@ -865,6 +918,20 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
                             let v = server.get(&format!("/api/config?location%5Bdirectory%5D={}", encode_component(&dir)));
                             let on = v.is_ok_and(|v| model::background_compaction(&v));
                             send(Incoming::Event { ty: "config.listed".into(), data: serde_json::json!({ "directory": dir, "backgroundCompaction": on }) })
+                        }
+                        Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {
+                            Ok(v) => send(Incoming::Event {
+                                ty: "worktree.listed".into(),
+                                data: serde_json::json!({ "projectID": project, "directories": model::parse_worktrees(&v, &root) }),
+                            }),
+                            Err(e) => send(Incoming::Status(e)),
+                        },
+                        Request::Branches { directory, search } => {
+                            let data = match server.branches(&directory, &search) {
+                                Ok(branches) => serde_json::json!({ "directory": directory, "search": search, "branches": branches }),
+                                Err(_) => serde_json::json!({ "directory": directory, "search": search, "failed": true }),
+                            };
+                            send(Incoming::Event { ty: "vcs.branch.listed".into(), data })
                         }
                         Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
                             Ok(v) => send(Incoming::Event {

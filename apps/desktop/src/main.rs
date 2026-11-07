@@ -142,6 +142,7 @@ mod shell_fold_tests;
 mod motion_gate;
 mod motion_log;
 mod new_session;
+mod new_worktree;
 mod notifications;
 mod odometer_stories;
 mod title_change;
@@ -398,6 +399,8 @@ pub struct App {
     pub unsent: send_failed::Log,
     /// Sessions shown before the server has them (`new_session.rs`).
     pub starts: new_session::Starts,
+    /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
+    pub new_worktree: new_worktree::NewWorktree,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: i64,
     base_ms: i64,
@@ -1085,6 +1088,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         tx.instant();
                         s.projects = projects;
                         s.sort_projects();
+                        s.list_unlisted_worktrees();
                     }
                     Incoming::ProjectOpened { location, projects, session } => {
                         s.apply_project_opened(location, projects, session, tx);

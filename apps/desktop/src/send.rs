@@ -106,7 +106,7 @@ impl App {
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let w = if starting {
-                    Write::StartAs { session: id.clone(), directory: self.draft_dir().to_owned(), prompt }
+                    self.start_write(id.clone(), prompt)
                 } else if staged {
                     Write::SendFromRevert { session: id.clone(), prompt }
                 } else {
