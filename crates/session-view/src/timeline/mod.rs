@@ -41,6 +41,8 @@ pub enum RowContent {
     Compaction { message: usize, piece: crate::compaction::Piece, run: Run },
     /// A compaction the server admitted but hasn't started.
     CompactionQueued(Run),
+    /// Between a stopped step and the steps the run went on with: Interrupted.
+    TurnDivider(Run),
     TurnText { message: usize, part: usize, live: bool, pt: f32 },
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
     Actions { message: usize, busy: bool },
@@ -157,11 +159,12 @@ impl RowSpec {
                         && !text.contains("@ses_")
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id));
+                        let meta = prompt_meta(s, t, Some(*message));
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta);
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
-                            self.wrap(s, user_bubble(s, p, id, text, run, 0.0, None, None))
+                            self.wrap(s, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
                         });
                     }
                 }
@@ -174,7 +177,7 @@ impl RowSpec {
                 Message::User { id, text, .. } => {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
                     let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
-                    user_bubble(s, p, id, text, run, glow, None, crate::user_parts::quotes_on_message(s, p, id, text))
+                    user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)))
                 }
                 _ => unreachable!(),
             },
@@ -185,7 +188,7 @@ impl RowSpec {
                         let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text);
                         let label = if cards.is_some() { item.text.clone() } else { s.pending_steer_label(item) };
                         let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
-                        user_bubble(s, p, id, &label, run, 0.0, Some(&t.session), cards)
+                        user_bubble(s, p, &t.session, id, &label, run, 0.0, true, cards, &prompt_meta(s, t, None))
                     }
                     None => col(),
                 }
@@ -211,6 +214,7 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
+            RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text("Interrupted").key("label").font(UI).color(p.faint), *run),
             RowContent::Lane(h) => el().w_full().h(*h),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
             RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
@@ -381,6 +385,12 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
             Message::Assistant(a) => {
                 if steps.is_empty() { start = mi; }
                 steps.push(a);
+                // Steps after an interrupted one (the run went on after a stop) sit under an
+                // Interrupted divider (`projection.ts:554-582`, `session-timeline-row.tsx:1162-1182`).
+                if a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) && matches!(t.messages[..shown].get(mi + 1), Some(Message::Assistant(_))) {
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false);
+                    out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
+                }
             }
             Message::User { id, text: body, .. } => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
@@ -459,10 +469,12 @@ pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
     tight
 }
 
-/// Space above a turn's row, as Desktop spaces assistant parts: none under the prompt, 8 between
-/// two tools, 16 before anything else.
+/// Space above a turn's row, as Desktop spaces assistant parts (`session-timeline-row.tsx:696-700`):
+/// none under the prompt but a text part's own 24 (`message-part.css:569-571`), 8 between two
+/// tools, 16 before anything else.
 pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
     match prev {
+        None if !tool => 24.0,
         None => 0.0,
         Some(true) if tool => 8.0,
         Some(_) => 16.0,
@@ -472,15 +484,9 @@ pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 /// `live`: these steps end the transcript and the last one is still running.
 pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
     let blocks = turns::fold(steps, live);
-    let n = blocks.len();
-    let skip: Vec<bool> = if blocks.iter().any(|b| matches!(b, Block::Agent { .. })) {
-        (0..n).map(|i| crate::subagent_card::skip(&blocks, i)).collect()
-    } else {
-        Vec::new()
-    };
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
-    for (i, b) in blocks.into_iter().enumerate().filter(|(i, _)| !skip.get(*i).copied().unwrap_or(false)) {
+    for (i, b) in blocks.into_iter().enumerate() {
         let tool = !matches!(b, Block::Text { .. });
         let pt = part_gap(prev, tool);
         let content = RowContent::Turn { start, end, block: i, live, pt };
@@ -516,7 +522,8 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end
     if live && a.retry.is_some() {
         out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false });
     } else if a.error.is_some() && !a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) {
-        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt }, streaming: false });
+        // The error's row always sits 24 below what's above it, the prompt too (`pt-6`).
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false });
     }
 }
 

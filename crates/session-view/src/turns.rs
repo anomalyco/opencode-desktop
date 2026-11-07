@@ -31,7 +31,7 @@ pub enum Block<'a> {
     Group { key: String, steps: Vec<Step<'a>> },
     Text { key: String, body: &'a str, msg: usize, part: usize, live: bool },
     /// A subagent call. `session`: its child session, once the call names it.
-    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str> },
+    Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str>, metadata: &'a serde_json::Value },
     /// A question call, once answered, dismissed or failed (`question_row`).
     Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
 }
@@ -82,7 +82,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                     if text.trim().is_empty() {
                         continue;
                     }
-                    let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(1.0) as i64);
+                    let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64);
                     fold_in(&mut group, (&a.id, Some(n)), Step::Thought { msg: &a.id, index: n, body: text, secs });
                 }
                 Part::Tool { id, name, title, status, input, files, metadata } => match name.as_str() {
@@ -92,7 +92,7 @@ pub fn fold<'a>(steps: &[&'a Assistant], live: bool) -> Vec<Block<'a>> {
                         // `agent` today; older servers' `task` calls said `subagent_type`.
                         let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("general");
                         let session = opencode_kit::model::subagent_session(input, metadata);
-                        out.push(Block::Agent { id, agent, title, status, session });
+                        out.push(Block::Agent { id, agent, title, status, session, metadata });
                     }
                     "question" => {
                         if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
@@ -227,7 +227,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
             .child(text("Used").key("used").font(UI).color(p.muted))
             .child(odometer(format!("{key}-count"), n.to_string(), n as f64, UI, p.text))
             .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()),
-        None => trigger.child(text(l.title.clone()).key("thinking").font(UI).color(p.muted)),
+        // Thoughts alone, still live: Thinking shimmers in the title's 13/530 (`tool-renderer.tsx:634-636`).
+        None => trigger.child(crate::working::shimmer(s, p, &l.title, UI_MED, 0.0).key("thinking")),
     };
     // The arrow shows while the pointer is over the label, and always while open.
     let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
@@ -246,7 +247,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
             let (n, item) = match &steps[i] {
                 Step::Thought { msg, index, body, secs } => {
                     let key = format!("r-{msg}-{index}");
-                    (1, reasoning::<S>(p, &key, body, *secs, s.expanded().contains(&key), fade).key(key))
+                    (1, reasoning::<S>(s, p, &key, body, *secs, live, s.expanded().contains(&key), fade).key(key))
                 }
                 st @ Step::Tool { .. } if grouped_read(st) => {
                     let calls: Vec<crate::tools::Call> = steps[i..i + run(grouped_read)].iter().filter_map(call).collect();

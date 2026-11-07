@@ -6,7 +6,7 @@
 //! they take the theme, the keyboard, the window's zoom and headless captures. A menu drawn on
 //! every platform (the side panel's) opens with [`open_drawn`].
 
-use rune::{Align, El, Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, Side, TextStyle, Tx, col, el, row, text};
+use rune::{Align, El, Icon, Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, Side, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
@@ -42,11 +42,23 @@ pub struct Item {
     /// The folder whose project avatar leads the row (drawn menus only).
     project: Option<String>,
     shortcut: Option<String>,
+    /// The 14 pt glyph before the title, in the title's ink (drawn menus only).
+    glyph: Option<Glyph>,
+}
+
+/// A row's icon, the same when it's the same icon.
+#[derive(Clone, Copy, Debug)]
+struct Glyph(&'static Icon);
+
+impl PartialEq for Glyph {
+    fn eq(&self, other: &Glyph) -> bool {
+        std::ptr::eq(self.0, other.0)
+    }
 }
 
 impl Item {
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Item {
-        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None }
+        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, glyph: None }
     }
     pub fn enabled(mut self, on: bool) -> Item { self.enabled = on; self }
     /// A check at the row's end, as a picker marks its current value.
@@ -55,6 +67,8 @@ impl Item {
     pub fn danger(mut self, on: bool) -> Item { self.danger = on; self }
     /// The 16 pt project avatar for folder `dir` before the title, as a session row has it.
     pub fn project(mut self, dir: impl Into<String>) -> Item { self.project = Some(dir.into()); self }
+    /// A 14 pt icon before the title, as menu-v2's items lead with one (`menu.tsx`).
+    pub fn icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph(glyph)); self }
     /// The keys that do the same, at the row's end ("Ctrl+Shift+N"); none when empty.
     pub fn shortcut(mut self, keys: impl Into<String>) -> Item {
         let keys = keys.into();
@@ -104,6 +118,8 @@ pub struct Menu {
     /// How tall it gets before its rows scroll.
     max_h: f32,
     look: Look,
+    /// Which side of an element it opens on, flipping when it doesn't fit.
+    side: Side,
     /// Presses on it leave the focused field focused (`El::keeps_text_selection`).
     keeps_focus: bool,
 }
@@ -111,7 +127,7 @@ pub struct Menu {
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, keeps_focus: false }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false }
     }
 
     /// A picker: one checked-when-current row per `(id, title)`, lined up with the end of the
@@ -142,6 +158,10 @@ impl Menu {
         self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu })));
         self
     }
+    /// Opens above the element, or below it when there's no room (`placement="top-*"`).
+    pub fn above(mut self) -> Menu { self.side = Side::Top; self }
+    /// At least `w` wide, as menu-v2's content is 160 pt (`menu.css:12`).
+    pub fn min_width(mut self, w: f32) -> Menu { self.min_w = w; self }
     /// Beside an element, which of its edges the drawn menu lines up with (its start by default).
     pub fn align(mut self, align: Align) -> Menu { self.align = align; self }
     /// Drawn in menu-v2's standard look, at least `min_w` wide, as Desktop's app menu is.
@@ -252,6 +272,11 @@ pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &
     }
     s.popup.shown = Some(Shown { menu, anchor: anchor.into(), active, sub: None, pick: Box::new(pick) });
     popover::motion::opening(&s.knobs, tx);
+}
+
+/// Closes the drawn menu as a press outside it would. Nothing when none is open.
+pub fn dismiss(s: &mut App, tx: &mut Tx) {
+    close(s, None, tx);
 }
 
 /// Closes the drawn menu, answering `picked`. Nothing when none is open.
@@ -379,7 +404,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, tx))
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, tx));
     let (anchor, point, align, side) = match &shown.anchor {
-        PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, Side::Bottom),
+        PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
         &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(0.0, 0.0)), Align::Start, Side::Bottom),
     };
     let at_point = point.is_some();
@@ -424,6 +449,11 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                     .checked(i.checked)
                     .danger(i.danger)
                     .disabled(!i.enabled);
+                let ink = if !i.enabled { p.faint } else if i.danger { p.danger } else { p.text };
+                let o = match i.glyph {
+                    Some(g) => o.lead(icon(g.0, 14.0).color(ink)),
+                    None => o,
+                };
                 let o = match &i.shortcut {
                     Some(keys) => o.trailing(popover::hint(p, keys)),
                     None => o,
@@ -438,8 +468,10 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                 list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx)));
             }
             Entry::Separator => {
-                let line = col().key(format!("popup-sep-{n}")).w_full().py(2.0).child(popover::divider(p, "line"));
-                list.other(line, 4.5);
+                // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`).
+                let line = col().key(format!("popup-sep-{n}")).w_full().py(2.0).mx(-MENU.inset)
+                    .child(el().key("line").h(1.0).w_full().fill(p.border_muted));
+                list.other(line, 5.0);
             }
             Entry::Group(title) => {
                 let label = row().key(format!("popup-group-{n}")).w_full().h(GROUP_H).pl(MENU.pad_l).pr(MENU.pad_r).center_y()

@@ -268,16 +268,15 @@ pub trait TimelineHost: Sized + 'static {
     fn open_quote_more(&mut self, id: String) {
         self.expanded_mut().insert(format!("quote-more:{id}"));
     }
-    fn delivered_user_actions(&self, p: &palette::Pal, id: &str, body: &str) -> (El, f32) {
-        timeline::default_user_actions(self, p, id, body)
+    /// The button in a prompt's top trailing corner (`timeline::user_menu_button`), which opens
+    /// its actions; `pending` for a steer the server hasn't delivered. `None` for none.
+    fn user_menu(&self, p: &palette::Pal, _session: &str, id: &str, body: &str, _pending: bool) -> Option<El> {
+        timeline::default_user_menu(self, p, id, body)
     }
     /// Delivery status belongs below its own bubble, even inside a run of user messages.
     fn user_status(&self, _p: &palette::Pal, _id: &str) -> Option<El> { None }
     /// Included in the user-row memo key; a receipt can change without changing the message.
     fn user_status_version(&self, _id: &str) -> u64 { 0 }
-    fn pending_user_actions(&self, _p: &palette::Pal, _session: &str, _id: &str, _below: bool) -> (El, f32) {
-        (rune::col(), -50.0)
-    }
 
     fn inbox_for(&self, _session: &str) -> Option<&Inbox> {
         None

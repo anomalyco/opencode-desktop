@@ -32,52 +32,85 @@ pub fn prompts_join(a: &str, b: &InboxItem) -> bool {
     !a.trim().is_empty() && !b.text.trim().is_empty() && b.files.is_empty() && model::user_files(&b.id).is_empty()
 }
 
-/// Read-only hover action for a user prompt: Copy message (`copied::glyph`).
-pub fn default_user_actions<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (El, f32) {
-    let mut actions = row().key("user-actions").gap(6.0).center_y().group_opacity(0.0, 1.0);
-    if !body.trim().is_empty() {
-        let copy_key = format!("copy-u-{id}");
-        let copied = body.to_owned();
-        let glyph = crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted);
-        actions = actions.child(
-            row()
-                .key(format!("copy-{id}"))
-                .role("button")
-                .label("Copy message")
-                .help("Copy message")
-                .size(20.0, 20.0)
-                .center()
-                .radius(4.0)
-                .hover(p.hover)
-                .press(p.pressed)
-                .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                    tx.copy(copied.clone());
-                    crate::copied::mark_copied(s, copy_key.clone(), tx);
-                })
-                .child(glyph),
-        );
+/// A read-only host's corner button for a user prompt: Copy message (`copied::glyph`), as
+/// [`user_menu_button`] lays it out.
+pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> Option<El> {
+    if body.trim().is_empty() {
+        return None;
     }
-    (actions, -24.0)
+    let copy_key = format!("copy-u-{id}");
+    let copied = body.to_owned();
+    let glyph = crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted);
+    Some(
+        user_menu_button(p, format!("copy-{id}"), "Copy message", false)
+            .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                tx.copy(copied.clone());
+                crate::copied::mark_copied(s, copy_key.clone(), tx);
+            })
+            .child(glyph),
+    )
 }
 
-/// A prompt's bubble. A run of prompts sits 4 apart with the trailing corners tightened where
-/// they meet (`above`, `below`); the run's last prompt has a copy line under it, and the others
-/// show copy beside the bubble, all only while hovered.
+/// The bubble's corner button (`Menu.Trigger` as a small ghost-muted `IconButton`,
+/// `icon-button.css`): 20 pt with 4 pt corners, the overlay's hover and press fills, and the
+/// pressed fill while its menu is `open`. The host adds the glyph and the press.
+pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0)
+        .hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
+    if open { b.fill(p.pressed) } else { b }
+}
+
+/// The meta line under a prompt (`user-message-meta-wrap`): 12/18 at 440, tracking 0.05, faint
+/// (`message-part.css:329-338`).
+const PROMPT_META: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+
+/// The chevron's inset from the bubble's top and trailing edges: 8 plus half of what a 21 pt
+/// line has over the 20 pt button (`message-part.css:507-511`).
+const MENU_INSET: f32 = 8.0 + (21.0 - 20.0) / 2.0;
+
+/// The model a prompt ran with, for its meta line: the last its turn's replies named, else the
+/// last one named before it (`projection.ts`'s `indexUserContext`), and a variant other than
+/// default after it.
+pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize>) -> Vec<(String, bool)> {
+    let model_of = |m: &Message| match m {
+        Message::Assistant(a) => a.model.clone().filter(|m| !m.id.is_empty() || !m.provider.is_empty()),
+        _ => None,
+    };
+    let turn = message.and_then(|i| {
+        let end = t.messages[i + 1..].iter().position(|m| matches!(m, Message::User { .. })).map_or(t.messages.len(), |n| i + 1 + n);
+        t.messages[i + 1..end].iter().rev().find_map(model_of)
+    });
+    let before = t.messages[..message.unwrap_or(t.messages.len())].iter().rev().find_map(model_of);
+    let Some(m) = turn.or(before) else { return Vec::new() };
+    let mut items = vec![(s.model_name(&m), false)];
+    if !m.variant.is_empty() && m.variant != "default" {
+        let mut v = m.variant.chars();
+        items.push((v.next().map(|c| c.to_uppercase().chain(v).collect()).unwrap_or_default(), true));
+    }
+    items
+}
+
+/// A prompt's bubble, as Desktop's `user-message` (`message-part.css:10-567`): 14/21 text on
+/// `layer-02`, 8 by 12 inside, 10 pt corners, at most `min(82%, 64ch)` wide. A run of prompts
+/// sits 4 apart with the trailing corners tightened where they meet (`above`, `below`).
 ///
-/// `pending` (the session) draws an undelivered steer: muted, with Move to queue and Delete in
-/// copy's place, and the run's last one marked Pending under its bubble at all times.
+/// Its actions open from a chevron in its top trailing corner, shown while the bubble is
+/// hovered (or its menu is open) over a 16 pt fade of the bubble's colour; under it a 20 pt
+/// line 8 below names the model (`meta`) while the bubble is hovered. A run's earlier prompts
+/// fold that line away.
+///
+/// `pending` (the session) draws an undelivered steer: on `layer-01`, its meta line ending in
+/// Pending at all times.
 ///
 /// `quotes` are the prompt's quote cards: inside the bubble above its words, or in its place
 /// when it has none.
 #[allow(clippy::too_many_arguments)]
-pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place: Place, glow: f32, pending: Option<&str>, quotes: Option<El>) -> El {
+pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, body: &str, place: Place, glow: f32, pending: bool, quotes: Option<El>, meta: &[(String, bool)]) -> El {
     let Place { tight, above, below, fold } = place;
-    let (actions, pin_x) = match pending {
-        Some(session) => s.pending_user_actions(p, session, id, below),
-        None => s.delivered_user_actions(p, id, body),
-    };
+    let menu = s.user_menu(p, session, id, body, pending);
+    let open = s.user_menu_open_on(id);
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
+    let fill = if pending { p.layer1 } else { p.layer2 };
     let mut bubble = col()
         .key("bubble")
         .max_w(BUBBLE_MAX)
@@ -85,7 +118,9 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
         .px(12.0)
         .py(8.0)
         .corners([10.0, top, end, 10.0])
-        .fill(if pending.is_some() { p.layer1 } else { p.layer2 });
+        .fill(fill)
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT);
     if glow > 0.0 {
         // A quiet surface lift under the text, with no glow rim.
         let lift = p.lift;
@@ -96,10 +131,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
                 .opacity_motion(INSTANT),
         );
     }
-    let ink = if pending.is_some() { p.muted } else { p.text };
+    let ink = if pending { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges, links) = crate::user_parts::bubble_badges(s, p, id, body);
-    let highlights = if pending.is_none() { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
+    let highlights = if !pending { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
     let mut words = text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights);
     if !links.is_empty() {
         for link in links {
@@ -117,22 +152,46 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
         Some(cards) => bubble.w(342.0).pt(12.0).child(cards).children(words),
         None => bubble.children(words),
     };
+    if let Some(button) = menu {
+        // The bubble's colour fades in over 16 pt behind the chevron, so words under the corner
+        // never compete with it (`message-part.css:499-525`).
+        let fade = el().key("menu-fade").w(16.0).h(20.0).linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, fill.alpha(0.0)), (1.0, fill)]);
+        let corner = row().key("menu").pin(None, Some(MENU_INSET), Some(MENU_INSET), None).h(20.0).corners([4.0; 4])
+            .child(fade)
+            .child(el().key("menu-under").size(20.0, 20.0).fill(fill).child(button));
+        face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
+    }
     let status = s.user_status(p, id);
-    let actions = if status.is_some() {
-        status
-    } else if below {
-        face = face.child(actions.pin(Some(pin_x), None, None, Some(8.5)));
-        None
-    } else {
-        Some(actions)
-    };
+    // The meta line, right under the bubble: the model, then Pending on a steer, which stays
+    // in view while the model shows only under the pointer (`message-part.css:271-458`).
+    if status.is_none() && !below && (!meta.is_empty() || pending) {
+        let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-28.0)).h(20.0).gap(4.0).center_y().a11y_hidden();
+        let mut model = row().key("meta-model").gap(4.0).center_y();
+        for (k, (label, variant)) in meta.iter().enumerate() {
+            if k > 0 && !variant {
+                model = model.child(text("\u{00b7}").key(format!("sep{k}")).font(PROMPT_META).color(p.faint));
+            }
+            model = model.child(text(label.clone()).key(format!("item{k}")).font(PROMPT_META).color(p.faint));
+        }
+        if pending && !meta.is_empty() {
+            model = model.child(text("\u{00b7}").key("pending-sep").font(PROMPT_META).color(p.faint));
+        }
+        line = line.child(if open { model } else { model.group_opacity(0.0, 1.0) });
+        if pending {
+            line = line.child(text("Pending").key("pending").font(PROMPT_META).color(p.faint));
+        }
+        face = face.child(line);
+    }
     let c = col()
         .w_full()
         .pt(if above { 4.0 } else if tight { 8.0 } else { 16.0 })
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
-    c.children(actions.map(|actions| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(actions)))
+    match status {
+        Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
+        // The meta line's room (`user-message-copy-wrapper`: 8 above, 20 tall), folded away in
+        // a run's earlier prompts.
+        None => c.child(el().key("meta-room").w_full().h(if below { 0.0 } else { 28.0 })),
+    }
 }
 
 /// The hover group a reply's footer shares with the reply text above it (separate virtual
@@ -230,29 +289,42 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
     let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.is_session_stopped(session));
     // "Model · 1s" after Copy, 4 apart, the separator 4 from each item; a variant follows its
     // model with no separator.
-    let meta = (!busy && has_text && !interrupted)
+    let items = (!busy && has_text)
         .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).map(|i| reply_meta(s, t, i)).unwrap_or_default()))
         .flatten()
-        .filter(|items| !items.is_empty())
-        .map(|items| {
-            let mut r = row().key("meta").absolute(COPY_AT.0 + COPY + 4.0, COPY_AT.1).h(COPY).gap(4.0).center_y().a11y_hidden();
-            for (k, (label, variant)) in items.into_iter().enumerate() {
-                if k > 0 && !variant {
-                    r = r.child(text("\u{00b7}").key(format!("sep{k}")).font(META).color(p.faint));
-                }
-                r = r.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
+        .unwrap_or_default();
+    let meta = |items: Vec<(String, bool)>| {
+        let mut r = row().key("meta").h(COPY).gap(4.0).center_y().a11y_hidden();
+        for (k, (label, variant)) in items.into_iter().enumerate() {
+            if k > 0 && !variant {
+                r = r.child(text("\u{00b7}").key(format!("sep{k}")).font(META).color(p.faint));
             }
-            r.group_opacity(0.0, 1.0)
-        });
-    // Copy and the meta show only while the reply or its footer is hovered, at once, as
-    // Desktop's do; Kit's Working-to-Copy swap still plays under the pointer.
-    el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
+            r = r.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
+        }
+        r.group_opacity(0.0, 1.0)
+    };
+    let lane = el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
-        .child(button.absolute(COPY_AT.0, COPY_AT.1).group_opacity(0.0, 1.0))
-        .children(meta)
-        .children(interrupted.then(|| interrupted_label(p, has_text)))
+        .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+    if interrupted {
+        // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
+        // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
+        // Interrupted stays in view and rises out of Working's place as the run settles (Kit's);
+        // Copy and the rest show under the pointer, as Desktop's footer does.
+        let mut tail = row().key("tail").pin(None, Some(COPY_AT.1), Some(0.0), None).h(COPY).gap(4.0).center_y();
+        if has_text {
+            tail = tail.child(button.group_opacity(0.0, 1.0));
+            if !items.is_empty() {
+                tail = tail.child(meta(items)).child(text("\u{00b7}").key("sep-interrupted").font(META).color(p.faint).group_opacity(0.0, 1.0));
+            }
+        }
+        return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
+    }
+    // Copy and the meta show only while the reply or its footer is hovered, at once, as
+    // Desktop's do; Kit's Working-to-Copy swap still plays under the pointer.
+    lane.child(button.absolute(COPY_AT.0, COPY_AT.1).group_opacity(0.0, 1.0))
+        .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + COPY + 4.0, COPY_AT.1)))
         .children(s.turn_tail_extra(p, session, busy))
 }
 

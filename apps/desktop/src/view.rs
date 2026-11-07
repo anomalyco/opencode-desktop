@@ -109,7 +109,6 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if s.fork.open {
         inner = inner.children(crate::fork::view(s, p, cx));
     }
-    inner = inner.children(crate::rewind::menu_view(s, p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {

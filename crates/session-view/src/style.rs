@@ -18,7 +18,7 @@ pub const UI: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 pub const UI_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 pub const UI_SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 pub const MD: TextStyle = TextStyle::new(14.0, 440.0).lh(22.4);
-pub const BUBBLE: TextStyle = TextStyle::new(14.0, 400.0).lh(21.0);
+pub const BUBBLE: TextStyle = TextStyle::new(14.0, 440.0).lh(21.0);
 pub const H1: TextStyle = TextStyle::new(17.0, 600.0).lh(24.0);
 pub const H2: TextStyle = TextStyle::new(15.0, 600.0).lh(24.0);
 pub const H3: TextStyle = TextStyle::new(13.0, 600.0).lh(20.0);
@@ -67,32 +67,62 @@ pub fn readable(p: &Pal, t: El) -> El {
     t.selectable(true).selection_color(p.selection)
 }
 
-pub fn reasoning<S: TimelineHost>(p: &Pal, key: &str, body: &str, secs: Option<i64>, open: bool, fade: f32) -> El {
-    let label = match secs {
-        Some(s) => format!("Thought for {s}s"),
-        None => "Thinking".into(),
+/// A thought in a tool group, as Desktop's `AssistantReasoningContent` (`message-content.tsx`)
+/// draws it in a compact `BasicTool`: a 28 pt trigger reading "Thought" and how long it took
+/// ("0s", faint), or "Thinking" shimmering with its latest heading while it streams shut, the
+/// disclosure triangle 6 after them, shown under the pointer and while open
+/// (`collapsible.css:27-45`); open, the thought in 13/20 muted Markdown 4 below, 12 in
+/// (`basic-tool.css:350-354`, `message-part.css:672-709`). `secs` is `None` until it finishes;
+/// `live`, the turn still runs.
+#[allow(clippy::too_many_arguments)]
+pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: Option<i64>, live: bool, open: bool, fade: f32) -> El {
+    let streaming = live && secs.is_none();
+    let title = if streaming { crate::working::shimmer(s, p, "Thinking", UI_MED, 0.0) } else { text("Thought").font(UI_MED).color(p.text) };
+    let subtitle = match (streaming, secs) {
+        (true, _) if !open => reasoning_heading(body),
+        (false, Some(secs)) => Some(format!("{secs}s")),
+        _ => None,
     };
-    let mut c = col().w_full().child(
-        row()
-            .key("trigger")
-            .role("button")
-            .h(28.0)
-            .gap(6.0)
-            .center_y()
-            // "Thinking" crossfades to "Thought for Ns" while the chevron slides over.
-            .animate_layout()
-            // Opening and closing is instant; only the streaming label change animates.
-            .on_press_tx(crate::disclosure::toggle::<S>(key.to_owned(), format!("{key}/trigger")))
-            .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted))
-            .child(text(label).key(if secs.is_some() { "thought" } else { "thinking" }).font(UI).color(p.muted))
-            .child(arrow(p, open)),
-    );
+    let a = el().key("arrow").w(16.0).h(24.0).center().child(arrow(p, open));
+    let trigger = row()
+        .key("trigger")
+        .role("button")
+        .label(if streaming { "Thinking" } else { "Thought" })
+        .h(28.0)
+        .gap(6.0)
+        .center_y()
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        // "Thinking" crossfades to "Thought" while the triangle slides over.
+        .animate_layout()
+        .on_press_tx(crate::disclosure::toggle::<S>(key.to_owned(), format!("{key}/trigger")))
+        .child(title.key(if streaming { "thinking" } else { "thought" }))
+        .children(subtitle.map(|t| text(t).key("subtitle").font(UI).color(p.faint).shrink().min_w(0.0).truncate_fade()))
+        .child(if open { a } else { a.group_opacity(0.0, 1.0) });
+    let mut c = col().w_full().child(trigger);
     if open {
-        c = c.child(
-            row().key("thought").pl(22.0).pt(4.0).child(readable(p, text(body.to_owned()).font(UI.lh(20.0)).color(p.muted).wrap().reveal(fade).w_full())),
-        );
+        let style = markdown_style(p, p.muted, CONTENT_W - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
+        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), None, None);
+        c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }
     c
+}
+
+/// A thought's Markdown: 13/20 at the body weight (`message-part.css:677-682`).
+const THOUGHT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+
+/// The heading a streaming thought last wrote, an ATX heading or a line in bold
+/// (`projection.ts`'s `reasoningHeading`).
+fn reasoning_heading(body: &str) -> Option<String> {
+    body.lines().rev().find_map(|line| {
+        let l = line.trim();
+        let atx = l.trim_start_matches('#');
+        if l.starts_with('#') && l.len() - atx.len() <= 6 && atx.starts_with([' ', '\t']) {
+            return Some(atx.trim().trim_end_matches('#').trim().to_owned()).filter(|h| !h.is_empty());
+        }
+        let bold = l.strip_prefix("**").and_then(|r| r.strip_suffix("**")).or_else(|| l.strip_prefix("__").and_then(|r| r.strip_suffix("__")));
+        bold.map(|b| b.trim().to_owned()).filter(|b| !b.is_empty())
+    })
 }
 
 /// Match `i` of a row in plain text, as `text_highlights` paints it.
@@ -390,20 +420,18 @@ fn radar() -> &'static [Dot16] {
     })
 }
 
-/// A stopped turn's tail: Desktop's quiet Interrupted beside Copy, as its reply footer says
-/// it. It rises out of Working's place as Working goes, so the stop reads as the run settling.
-pub fn interrupted_label(p: &Pal, beside_copy: bool) -> El {
+/// A stopped turn's tail: Desktop's quiet Interrupted, the last item of its reply footer
+/// (`text-part-meta`: 12/18 at 440, tracking 0.05, faint; `message-part.css:608-623`). It rises
+/// out of Working's place as Working goes, so the stop reads as the run settling (Kit's).
+pub fn interrupted_label(p: &Pal) -> El {
     use crate::working::{COPY, COPY_AT, H, LANE_PAD};
     use rune::{Spring, SpringPair, Transition};
-    // Level with Copy's glyph, 4 pt after its square, as Desktop's footer spaces them.
-    let (y, h) = (COPY_AT.1, COPY);
-    let rise = LANE_PAD + H / 2.0 - (y + h / 2.0);
+    let rise = LANE_PAD + H / 2.0 - (COPY_AT.1 + COPY / 2.0);
     let arrive = Transition::offset(0.0, rise).combined(Transition::opacity());
     row()
         .key("interrupted")
-        .absolute(if beside_copy { COPY_AT.0 + COPY + 4.0 } else { 0.0 }, y)
-        .h(h)
+        .h(COPY)
         .center_y()
         .transition(Transition::asymmetric(arrive, Transition::opacity()).springs(SpringPair::new(Spring::new(0.24, 0.0), Spring::new(0.12, 0.0))))
-        .child(text("Interrupted").font(UI_SMALL).color(p.faint))
+        .child(text("Interrupted").font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
 }

@@ -26,7 +26,7 @@ fn last_prompt(s: &App) -> Option<String> {
 fn is_open(s: &App) -> bool {
     match s.variant {
         0 => s.add.open,
-        1 => s.rewind.menu.is_some(),
+        1 => s.rewind.menu.is_some() && s.popup.is_open(),
         2 => s.activity_open,
         _ => s.todo_open,
     }
@@ -39,10 +39,10 @@ fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
         0 => s.close_add_menu(),
         1 if open => {
             if let Some(mid) = last_prompt(s) {
-                s.toggle_message_menu(&sid(s), &mid);
+                s.toggle_message_menu(&sid(s), &mid, tx);
             }
         }
-        1 => s.close_message_menu(),
+        1 => crate::popup::dismiss(s, tx),
         2 => s.activity_open = open,
         _ => s.todo_open = open,
     }

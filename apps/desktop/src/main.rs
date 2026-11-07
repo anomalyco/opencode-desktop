@@ -643,8 +643,8 @@ impl session_view::TimelineHost for App {
     fn open_quote_more(&mut self, id: String) {
         self.quote.more.insert(id);
     }
-    fn delivered_user_actions(&self, p: &palette::Pal, id: &str, body: &str) -> (rune::El, f32) {
-        rewind::user_actions(self, p, id, body)
+    fn user_menu(&self, p: &palette::Pal, session: &str, id: &str, _body: &str, pending: bool) -> Option<rune::El> {
+        rewind::user_menu(self, p, session, id, pending)
     }
     fn user_status(&self, p: &palette::Pal, id: &str) -> Option<rune::El> {
         send_failed::footer(self, p, id)
@@ -655,9 +655,6 @@ impl session_view::TimelineHost for App {
             Some(send_failed::State::Failed) => if self.composer.text.is_empty() && !self.attach.any() { 2 } else { 3 },
             _ => 0,
         }
-    }
-    fn pending_user_actions(&self, p: &palette::Pal, session: &str, id: &str, below: bool) -> (rune::El, f32) {
-        (queue::pending_actions(p, session, id, below), -50.0)
     }
     fn inbox_for(&self, session: &str) -> Option<&Inbox> {
         App::inbox_for(self, session)

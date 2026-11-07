@@ -13,24 +13,13 @@ use std::ops::Range;
 use opencode_kit::client::{PathAttachment, Write};
 use opencode_kit::mention::{self, MentionKind};
 use opencode_kit::model::{self, Attachment, Message, Quote};
-use rune::{
-    Align, Color, El, Icon, Key, KeyEvent, Mark, MarkRange, Side, Spring, Transition, Tx, col, el,
-    icon, row, text,
-};
+use rune::{Align, El, LocalTime, Mark, MarkRange, Tx, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
 use crate::palette::Pal;
 use crate::prompt_history::Entry;
-use crate::view::{INSTANT, UI, UI_SMALL};
 use crate::{App, Route, Source};
-
-/// `@opencode/ui`'s default `reset` icon (`additional-icons.ts`).
-pub static RESET: Icon = Icon {
-    name: "reset",
-    view: 20.0,
-    body: r#"<path d="M5.83333 4.16406L2.5 7.4974L5.83333 10.8307M3.33333 7.4974H17.9167V15.4141H10" stroke="currentColor" stroke-linecap="square"/>"#,
-};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SavedDraft {
@@ -65,9 +54,8 @@ struct PendingRevert {
 
 #[derive(Default)]
 pub struct RewindState {
-    /// Open `⋯` message menu: `(session_id, message_id)` and highlighted item index.
+    /// The message whose menu is open: `(session_id, message_id)`.
     pub menu: Option<(String, String)>,
-    pub menu_active: Option<usize>,
     /// Optimistic revert writes waiting on the server, by session id.
     pending: HashMap<String, PendingRevert>,
     /// Per-session composer drafts (including pills, attachments and quotes) across tab switches.
@@ -218,7 +206,7 @@ impl App {
         }
     }
 
-    /// Rewinds `session` to user message `message_id` (`Rewind to here`).
+    /// Rewinds `session` to user message `message_id` (the message menu's Undo or Revert to here).
     pub fn rewind_to(&mut self, session: &str, message_id: &str, _tx: &mut Tx) {
         self.close_message_menu();
         if !self.can_rewind_session(session) {
@@ -402,18 +390,40 @@ impl App {
         true
     }
 
-    pub fn toggle_message_menu(&mut self, session: &str, message_id: &str) {
-        if self.rewind.menu_is(session, message_id) {
-            self.close_message_menu();
-        } else {
-            self.rewind.menu = Some((session.to_owned(), message_id.to_owned()));
-            self.rewind.menu_active = None;
+    /// Opens message `message_id`'s menu under its corner chevron, as Desktop's `Menu` opens from
+    /// its trigger (`message-content.tsx:426-503`), or closes it when it's the one open.
+    pub fn toggle_message_menu(&mut self, session: &str, message_id: &str, tx: &mut Tx) {
+        if self.rewind.menu_is(session, message_id) && self.popup.open_at(&menu_key(message_id)) {
+            tx.instant();
+            crate::popup::dismiss(self, tx);
+            return;
         }
+        let Some(menu) = message_menu(self, session, message_id) else { return };
+        self.rewind.menu = Some((session.to_owned(), message_id.to_owned()));
+        let (sid, mid) = (session.to_owned(), message_id.to_owned());
+        crate::popup::open(self, menu, menu_key(message_id), tx, move |s: &mut App, picked, tx| {
+            s.close_message_menu();
+            match picked {
+                Some("queue") => s.queue_pending(&sid, &mid),
+                Some("copy") => {
+                    if let Some(body) = message_body(s, &sid, &mid).or_else(|| pending_body(s, &sid, &mid)) {
+                        tx.copy(body);
+                    }
+                }
+                Some("fork") => {
+                    s.fork_from(&sid, &mid, tx);
+                }
+                Some("revert") => s.rewind_to(&sid, &mid, tx),
+                Some("delete") => {
+                    s.withdraw(&sid, &mid);
+                }
+                _ => {}
+            }
+        });
     }
 
     pub fn close_message_menu(&mut self) {
         self.rewind.menu = None;
-        self.rewind.menu_active = None;
     }
 }
 
@@ -479,218 +489,61 @@ pub fn failed(s: &mut App, error: &str) -> bool {
     false
 }
 
-/// Hover actions for a delivered user message (`user_bubble`): `Rewind to here` (on root sessions)
-/// and `More actions` (`⋯`), plus the pinned horizontal offset when placed beside a folded run row.
-pub fn user_actions(s: &App, p: &Pal, id: &str, _body: &str) -> (El, f32) {
-    let session = match &s.route {
-        Route::Session(sid) => sid.as_str(),
-        _ => "",
-    };
-    let can_revert = !session.is_empty() && s.can_rewind_session(session);
-    let menu_open = s.rewind.menu_is(session, id);
-    let mut actions = row().key("user-actions").gap(6.0).center_y();
-    if can_revert {
-        let (sid, mid) = (session.to_owned(), id.to_owned());
-        actions = actions.child(
-            row()
-                .key(format!("rewind-{id}"))
-                .role("button")
-                .label("Rewind to here")
-                .help("Rewind to here")
-                .size(20.0, 20.0)
-                .center()
-                .radius(4.0)
-                .hover(p.hover)
-                .press(p.pressed)
-                .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.rewind_to(&sid, &mid, tx))
-                .child(icon(&RESET, 14.0).color(p.icon_muted)),
-        );
+/// The key of message `id`'s corner chevron, which its menu opens from.
+fn menu_key(id: &str) -> String {
+    format!("user-menu-{id}")
+}
+
+/// The chevron in a user message's top trailing corner (`user-message-menu`): `chevron-down` at
+/// 14 pt, icon-muted, or icon-base on the pressed fill while its menu is open (`icon-button.css`'s
+/// ghost-muted).
+pub fn user_menu(s: &App, p: &Pal, session: &str, id: &str, pending: bool) -> Option<El> {
+    if session.is_empty() || (pending && !s.can_rewind_session(session)) {
+        return None;
     }
+    let open = s.rewind.menu_is(session, id);
     let (sid, mid) = (session.to_owned(), id.to_owned());
-    let mut more = row()
-        .key(format!("more-{id}"))
-        .role("button")
-        .label("More actions")
-        .help("More actions")
-        .size(20.0, 20.0)
-        .center()
-        .radius(4.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            s.toggle_message_menu(&sid, &mid);
-            crate::popover::motion::toggled(&s.knobs, tx, s.rewind.menu.is_some());
-        })
-        .child(icon(&ic::OUTLINE_DOTS, 14.0).color(p.icon_muted));
-    if menu_open {
-        more = more.fill(p.hover);
-    }
-    actions = actions.child(more);
-    let actions = if menu_open {
-        actions.opacity(1.0).opacity_motion(INSTANT)
-    } else {
-        actions.group_opacity(0.0, 1.0)
-    };
-    let pin_x = if can_revert { -50.0 } else { -24.0 };
-    (actions, pin_x)
-}
-
-/// Keys while the `⋯` message menu is open.
-pub fn menu_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let Some((session, mid)) = s.rewind.menu.clone() else { return false };
-    let Some(body) = message_body(s, &session, &mid) else {
-        s.close_message_menu();
-        return false;
-    };
-    let can_fork = s.can_rewind_session(&session);
-    let has_copy = !body.trim().is_empty();
-    let enabled: Vec<usize> = [can_fork.then_some(0), has_copy.then_some(1)].into_iter().flatten().collect();
-    match ev.key {
-        Key::Escape => {
-            tx.instant();
-            s.close_message_menu();
-            true
-        }
-        Key::Down | Key::Up => {
-            tx.instant();
-            if !enabled.is_empty() {
-                let d: isize = if ev.key == Key::Down { 1 } else { -1 };
-                let next = match s.rewind.menu_active.and_then(|a| enabled.iter().position(|&x| x == a)) {
-                    Some(pos) => enabled[(pos as isize + d).rem_euclid(enabled.len() as isize) as usize],
-                    None => if d > 0 { enabled[0] } else { *enabled.last().unwrap() },
-                };
-                s.rewind.menu_active = Some(next);
-            }
-            true
-        }
-        Key::Enter => {
-            tx.instant();
-            match s.rewind.menu_active {
-                Some(0) if can_fork => {
-                    s.close_message_menu();
-                    s.fork_from(&session, &mid, tx);
-                }
-                Some(1) if has_copy => {
-                    tx.copy(body);
-                    s.close_message_menu();
-                }
-                _ => {}
-            }
-            true
-        }
-        _ => true,
-    }
-}
-
-/// The `⋯` ("More actions") menu anchored below a user message's `more-<id>` button.
-pub fn menu_view(s: &App, p: &Pal) -> Option<El> {
-    let (session, mid) = s.rewind.menu.as_ref()?;
-    let body = message_body(s, session, mid)?;
-    let can_fork = s.can_rewind_session(session);
-    let has_copy = !body.trim().is_empty();
-    let active = s.rewind.menu_active;
-
-    let mut menu = col()
-        .key("message-menu")
-        .role("menu")
-        .label("More actions")
-        .anchored(format!("more-{mid}"), Side::Bottom, Align::End, 4.0)
-        .w(188.0)
-        .padding(4.0)
-        .gap(1.0)
-        .radius(8.0)
-        .fill(p.layer1)
-        .border(0.5, p.border_muted)
-        .shadow(4.0, 12.0, p.shadow)
-        .transition(crate::popover::motion::transition(&s.knobs, Side::Bottom, Align::End))
-        .motion(Spring::NONE)
-        // What it holds comes in with it, not on fades of its own.
-        .instant_changes()
-        .on_press(|_: &mut App| {});
-
-    if let Some(stamp) = sent_label(mid) {
-        menu = menu
-            .child(row().key("message-menu-time").w_full().h(24.0).px(8.0).center_y().child(text(stamp).font(UI_SMALL).color(p.faint)))
-            .child(el().key("message-menu-sep").w_full().h(0.5).my(2.0).fill(p.border_muted));
-    }
-
-    let (fork_sid, fork_mid) = (session.clone(), mid.clone());
-    let fork_item = row()
-        .key("message-fork")
-        .role("menuitem")
-        .label("Fork from here")
-        .w_full()
-        .h(28.0)
-        .px(8.0)
-        .center_y()
-        .radius(5.0)
-        .fill(if active == Some(0) && can_fork { p.hover } else { Color::TRANSPARENT })
-        .hover(if can_fork { p.hover } else { Color::TRANSPARENT })
-        .press(if can_fork { p.pressed } else { Color::TRANSPARENT })
-        .hover_motion(INSTANT, INSTANT)
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if inside && can_fork {
-                tx.instant();
-                s.rewind.menu_active = Some(0);
-            }
-        })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            if !can_fork {
-                return;
-            }
-            tx.instant();
-            s.close_message_menu();
-            s.fork_from(&fork_sid, &fork_mid, tx);
-        })
-        .child(text("Fork from here").font(UI).color(if can_fork { p.text } else { p.faint }));
-
-    let copy_words = body;
-    let copy_item = row()
-        .key("message-copy")
-        .role("menuitem")
-        .label("Copy message")
-        .w_full()
-        .h(28.0)
-        .px(8.0)
-        .center_y()
-        .radius(5.0)
-        .fill(if active == Some(1) && has_copy { p.hover } else { Color::TRANSPARENT })
-        .hover(if has_copy { p.hover } else { Color::TRANSPARENT })
-        .press(if has_copy { p.pressed } else { Color::TRANSPARENT })
-        .hover_motion(INSTANT, INSTANT)
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if inside && has_copy {
-                tx.instant();
-                s.rewind.menu_active = Some(1);
-            }
-        })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            if !has_copy {
-                return;
-            }
-            tx.instant();
-            tx.copy(copy_words.clone());
-            s.close_message_menu();
-        })
-        .child(text("Copy message").font(UI).color(if has_copy { p.text } else { p.faint }));
-
-    menu = menu.child(fork_item).child(copy_item);
-
     Some(
-        el().key("message-menu-dismiss")
-            .absolute(0.0, 0.0)
-            .w_full()
-            .h_full()
-            .transition(Transition::none())
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.close_message_menu();
-            })
-            .child(menu)
-            .raise(),
+        session_view::timeline::user_menu_button(p, menu_key(id), "More actions", open)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_message_menu(&sid, &mid, tx))
+            .child(icon(&ic::CHEVRON_DOWN, 14.0).color(if open { p.icon } else { p.icon_muted })),
     )
+}
+
+/// Message `mid`'s menu, as Desktop builds it (`message-content.tsx:440-498`): when it was sent
+/// (or Pending), then Move to queue on a steer, Copy message, Fork from here on a delivered
+/// message, and last, after a rule, Delete on a steer or Undo (the newest prompt) or Revert to
+/// here where the session can rewind. A subagent's session can't fork or rewind.
+fn message_menu(s: &App, session: &str, mid: &str) -> Option<crate::popup::Menu> {
+    use crate::popup::{Item, Menu};
+    let delivered = message_body(s, session, mid);
+    let pending = delivered.is_none();
+    let body = delivered.or_else(|| pending_body(s, session, mid))?;
+    let root = s.can_rewind_session(session);
+    let when = if pending { "Pending".to_owned() } else { sent_label(mid, s.now_ms).unwrap_or_default() };
+    let mut menu = Menu::new("More actions").above().align(Align::End).min_width(160.0);
+    if !when.is_empty() {
+        menu = menu.group(when).separator();
+    }
+    if pending {
+        menu = menu.item(Item::new("queue", "Move to queue").icon(&ic::BULLET_LIST));
+    }
+    menu = menu.item(Item::new("copy", "Copy message").icon(&ic::OUTLINE_COPY).enabled(!body.trim().is_empty()));
+    if pending {
+        return Some(menu.separator().item(Item::new("delete", "Delete").icon(&ic::OUTLINE_TRASH).danger(true)));
+    }
+    menu = menu.item(Item::new("fork", "Fork from here").icon(&ic::FORK).enabled(root));
+    if !root {
+        return Some(menu);
+    }
+    let latest = s.visible_user_ids(session).last().is_some_and(|l| l == mid);
+    let revert = if latest { Item::new("revert", "Undo").icon(&ic::OUTLINE_UNDO) } else { Item::new("revert", "Revert to here").icon(&ic::RESET) };
+    Some(menu.separator().item(revert))
+}
+
+/// An undelivered steer's words.
+fn pending_body(s: &App, session: &str, mid: &str) -> Option<String> {
+    s.inboxes.get(session)?.items.iter().find(|i| i.id == mid).map(|i| i.text.clone())
 }
 
 fn message_body(s: &App, session: &str, mid: &str) -> Option<String> {
@@ -752,35 +605,34 @@ fn restore_pills(s: &App, id: &str, body: &str) -> (String, Vec<(Range<usize>, S
     (out, pills)
 }
 
-/// Formats a user message's creation timestamp (`Oct 23, 2026, 18:38`) when known.
-pub(crate) fn sent_label(id: &str) -> Option<String> {
+/// When a user message was sent, as its menu names it (`message-content.tsx:313-336`): "Today,
+/// 6:03 AM" or "Yesterday, …" by the local calendar, then "Nov 7, 6:03 AM" this year, then
+/// "Nov 7, 2025, 6:03 AM". `now` is the app's clock (ms).
+pub(crate) fn sent_label(id: &str, now: i64) -> Option<String> {
     let ms = mention::user_created(id).or_else(|| {
         let hex = id.strip_prefix("msg_")?.get(..12)?;
         u64::from_str_radix(hex, 16).ok().map(|v| (v >> 12) as i64).filter(|&v| v > 1_500_000_000_000)
     })?;
-    Some(format_epoch_ms(ms))
+    let (sent, today) = (LocalTime::at(ms), LocalTime::at(now));
+    let day = |t: &LocalTime| civil_days(t.year as i64, t.month as i64, t.day as i64);
+    let time = session_view::turn_errors::short_time(sent);
+    Some(match day(&today) - day(&sent) {
+        0 => format!("Today, {time}"),
+        1 => format!("Yesterday, {time}"),
+        _ if sent.year == today.year => format!("{} {}, {time}", MONTHS[sent.month as usize - 1], sent.day),
+        _ => session_view::turn_errors::date_time(sent),
+    })
 }
 
-pub(crate) fn format_epoch_ms(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let days = secs.div_euclid(86_400);
-    let tod = secs.rem_euclid(86_400);
-    let hour = tod / 3600;
-    let min = (tod % 3600) / 60;
-    // Howard Hinnant's civil_from_days (UTC).
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let mon = MONTHS[(m as usize).saturating_sub(1).min(11)];
-    format!("{mon} {d}, {year}, {hour:02}:{min:02}")
+const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// Days since 1970-01-01 of a civil date (Howard Hinnant's `days_from_civil`).
+fn civil_days(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
 }
 
 #[cfg(test)]

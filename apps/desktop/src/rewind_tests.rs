@@ -71,7 +71,8 @@ fn rewind_updates_timeline_immediately_restores_prompt_and_offers_toast_undo() {
     });
     h.rt.frame(DT);
 
-    tap_in(&mut h.rt, &format!("u-{last_id}"), &format!("rewind-{last_id}"));
+    tap_in(&mut h.rt, &format!("u-{last_id}"), &format!("user-menu-{last_id}"));
+    tap_in(&mut h.rt, "popup-menu", "popup-item-revert");
 
     assert_eq!(h.rt.state.session(&h.sid).unwrap().revert.as_deref(), Some(last_id.as_str()));
     assert_eq!(h.rt.state.composer.text, last_body);
@@ -232,7 +233,8 @@ fn child_sessions_hide_rewind_and_disable_fork() {
     h.rt.update(|s, tx| s.open(&child, tx));
     h.rt.frame(DT);
 
-    assert!(!h.rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("rewind-"))));
+    tap_in(&mut h.rt, "u-msg_child_1", "user-menu-msg_child_1");
+    assert!(!h.rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref() == Some("popup-item-revert")));
     assert!(!h.rt.state.can_undo_session());
     assert!(!h.rt.state.can_fork_session());
 }
@@ -251,11 +253,11 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
         })
         .unwrap();
 
-    // Open the ⋯ menu on the message and verify Fork from here + Copy message are present.
-    tap_in(&mut h.rt, &format!("u-{target_id}/"), &format!("more-{target_id}"));
-    crate::popover::tests::grows_whole(&mut h.rt, "message-menu");
+    // Open the message's menu and verify Fork from here + Copy message are present.
+    tap_in(&mut h.rt, &format!("u-{target_id}/"), &format!("user-menu-{target_id}"));
+    crate::popover::tests::grows_whole(&mut h.rt, "popup-menu");
     assert!(shows_text(&h.rt, "Fork from here") && shows_text(&h.rt, "Copy message"));
-    tap_in(&mut h.rt, "message-menu", "message-fork");
+    tap_in(&mut h.rt, "popup-menu", "popup-item-fork");
 
     assert!(matches!(
         h.writes.try_recv(),
@@ -335,14 +337,14 @@ fn fork_dialog_and_rewound_toast_stay_inside_viewport_and_clear_composer_at_zoom
 fn a_glide_that_carries_the_hovered_prompt_away_lets_its_actions_go() {
     let mut h = harness();
     let id = h.rt.state.visible_user_ids(&h.sid).pop().expect("a prompt");
-    let more = format!("more-{id}");
-    let (x, y) = h.rt.find(&more).expect("⋯ on screen");
+    let more = format!("user-menu-{id}");
+    let (x, y) = h.rt.find(&more).expect("the chevron on screen");
     h.rt.pointer_move(x, y);
     for _ in 0..10 {
         h.rt.frame(1.0 / 60.0);
     }
     let actions = |rt: &Runtime<App>| {
-        rt.elements().into_iter().filter(|e| !e.exiting && (e.key.as_deref() == Some(more.as_str()) || e.key.as_deref() == Some("user-actions") && e.path.contains(&format!("u-{id}")))).map(|e| (e.hover, e.opacity)).collect::<Vec<_>>()
+        rt.elements().into_iter().filter(|e| !e.exiting && (e.key.as_deref() == Some(more.as_str()) || e.key.as_deref() == Some("menu") && e.path.contains(&format!("u-{id}")))).map(|e| (e.hover, e.opacity)).collect::<Vec<_>>()
     };
     assert!(actions(&h.rt).iter().any(|&(hover, _)| hover > 0.5), "the pointer lights ⋯: {:?}", actions(&h.rt));
     let scroll = format!("scroll-{}", h.sid);

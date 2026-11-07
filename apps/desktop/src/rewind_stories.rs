@@ -33,7 +33,7 @@ fn rewind_open(s: &mut App, tx: &mut Play<App>) {
         1 => {
             if let Some(last) = s.visible_user_ids(&id).pop() {
                 tx.instant();
-                s.toggle_message_menu(&id, &last);
+                s.toggle_message_menu(&id, &last, tx);
             }
         }
         _ => {

@@ -76,12 +76,10 @@ fn each_call_to_a_steered_agent_shows_only_its_own_share() {
 #[test]
 fn only_the_newest_card_spins_and_the_capsule_counts_the_agent_once() {
     let rt = steered_twice();
-    let live = |key: &str| rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("agent-line/mark") && e.key.as_deref() == Some(key)).count();
-    assert_eq!((live("spin"), live("steered")), (1, 2));
+    let spinners = rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("agent-line/words") && e.key.as_deref() == Some("mark")).count();
+    assert_eq!(spinners, 1);
     let parent = sid(&rt.state);
     assert_eq!(rt.state.running_subagents(&parent).len(), 1, "one agent, however many calls");
-    let words: Vec<String> = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some("steered")).filter_map(|e| e.text).collect();
-    assert_eq!(words, ["Steered", "Steered"]);
 }
 
 #[test]
