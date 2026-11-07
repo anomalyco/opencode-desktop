@@ -2394,6 +2394,7 @@ dependencies = [
  "rune-kit",
  "rune-knobs",
  "rune-mac",
+ "rune-notify",
  "rune-parts",
  "rune-perf",
  "rune-register",
