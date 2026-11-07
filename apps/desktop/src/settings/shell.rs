@@ -76,19 +76,25 @@ fn nav(s: &App, p: &Pal, height: f32) -> El {
         let tabs = pages::project::Tab::ALL.iter().fold(col().key("settings-nav-group-0").w_full().gap(4.0), |c, tab| c.child(nav_item(s, p, &Page::Project(dir.clone(), *tab))));
         return col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(col().key("settings-nav-groups").w_full().child(tabs));
     }
-    let mut nav = col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(search::field(s, p));
+    let nav = col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(search::field(s, p));
+    // The results, or the page groups, scroll in what the rail leaves them: the screen less its
+    // insets, Back and the field.
+    let room = if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - 16.0).max(120.0) } else { 480.0 };
     if search::active(s) {
-        // The results scroll in what the rail leaves them: the screen less its insets, Back and the field.
-        let room = if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - 16.0).max(120.0) } else { 480.0 };
         return nav.child(search::results(s, p).max_h(room));
     }
-    let mut list = col().key("settings-nav-groups").w_full().gap(16.0);
+    let mut list = col().key("settings-nav-list").w_full().gap(16.0);
     for (g, group) in groups(s).into_iter().enumerate() {
         let items = group.iter().fold(col().key(format!("settings-nav-group-{g}")).w_full().gap(4.0), |c, page| c.child(nav_item(s, p, page)));
         list = list.child(items);
     }
-    nav = nav.child(list);
-    nav
+    // `.settings-nav-groups` (`settings.css:84-146`): each edge fades in by what's hidden behind
+    // it, up to 24.
+    let groups = col().key("settings-nav-groups").w_full().shrink().min_h(0.0)
+        .scroll(rune::ScrollSpec { stick_bottom: false })
+        .scroll_fade(rune::ScrollFade::feather(24.0))
+        .child(list);
+    nav.child(col().key("settings-nav-room").w_full().max_h(room).child(groups))
 }
 
 /// A page's trigger: 28 pt, 6 in, 4 pt corners, muted; the open one on `layer-03` in the base ink.
