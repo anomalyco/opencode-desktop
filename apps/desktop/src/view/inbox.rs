@@ -57,7 +57,8 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     }
     if sections.is_empty() {
         list = list.child(
-            row().key("inbox-empty").w_full().px(6.0).py(8.0).child(text("Sessions you work on will appear here").font(LINE).color(p.faint)),
+            // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
+            col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text("Sessions you work on will appear here").font(LINE).color(p.faint).wrap().w_full()),
         );
     }
     if sections.archived {
