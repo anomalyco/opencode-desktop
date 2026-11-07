@@ -166,9 +166,10 @@ pub fn poll(s: &mut App) -> bool {
 }
 
 impl App {
-    /// Applies saved appearance settings that live outside `Settings`: the theme, Reduce
-    /// motion and the terminal font knob.
+    /// Applies saved appearance settings that live outside `Settings`: the theme, the language,
+    /// Reduce motion and the terminal font knob.
     pub fn apply_appearance(&mut self) {
+        crate::language::apply(self);
         crate::themes::set_active(&self.settings.theme);
         crate::keymap::overrides::apply(&self.settings.keybinds);
         self.apply_reduce_motion();

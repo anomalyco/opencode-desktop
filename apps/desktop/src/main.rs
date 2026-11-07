@@ -131,6 +131,7 @@ mod jobs;
 mod keymap;
 mod keys;
 mod knobs;
+mod language;
 mod launch;
 mod layout_state;
 mod mcp;
@@ -472,6 +473,8 @@ pub struct App {
     pub window: windows::Window,
     /// The frame diagnostics every window reports to.
     pub diagnostics: diagnostics::Diagnostics,
+    /// The locale this window's view last built in (`language`).
+    pub language: language::Applied,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -1056,6 +1059,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= updater::poll(s, tx);
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
+    changed |= language::poll(s, tx);
     changed |= settings::search::poll(s, tx);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);

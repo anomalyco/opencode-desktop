@@ -28,6 +28,7 @@ libloading = "0.8"
 notify = "8"
 rune-mac.workspace = true
 rune-notify.workspace = true
+opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
 opencode-plugin-context-impl = { path = "../../plugins/context/impl", optional = true }

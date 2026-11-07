@@ -1,0 +1,15 @@
+[package]
+name = "opencode-i18n"
+version = "0.0.1"
+description = "OpenCode Desktop's message catalogs (its 63 locales, synced from the opencode repo) and the app's own strings, with compile-time keys"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rune-i18n.workspace = true
+
+[build-dependencies]
+rune-i18n = { workspace = true, features = ["codegen"] }
+
+[lints]
+workspace = true

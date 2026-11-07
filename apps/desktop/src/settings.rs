@@ -80,8 +80,9 @@ pub struct Settings {
     pub new_question_ui: bool,
     /// Download the browser engine while the app is idle (`browser::prefetch`); on by default.
     pub prefetch_browser: bool,
-    /// The display language (Desktop's `language` store); English is the only one the app has.
-    pub language: String,
+    /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
+    /// locale id; `None` follows the system's languages (`language::apply`).
+    pub language: Option<String>,
     /// Where a new session starts (`workspaces.defaultDestination`).
     pub default_destination: Destination,
     /// Where each project's last session started (`workspaces.lastUsed`): `"local"` or `"workspace"`.
@@ -135,7 +136,7 @@ impl Default for Settings {
             tab_layout: Default::default(),
             new_question_ui: false,
             prefetch_browser: true,
-            language: "en".into(),
+            language: None,
             default_destination: Destination::default(),
             last_used: BTreeMap::new(),
             follow_up: FollowUp::default(),
@@ -215,7 +216,7 @@ impl Settings {
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
-            language: v["language"].as_str().filter(|l| LANGUAGES.iter().any(|(id, _)| id == l)).unwrap_or("en").to_owned(),
+            language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),
             default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
             last_used: v["workspaces"]["lastUsed"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned()))).collect()).unwrap_or_default(),
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
@@ -233,9 +234,6 @@ impl Settings {
         }
     }
 }
-
-/// The display languages the app has: Desktop lists its 60 locales; this app's copy is English only.
-pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
 
 /// A saved theme id: one of Desktop's, or a plugin's (`<plugin>:<id>`), kept as written since
 /// plugins register their themes after the settings load.

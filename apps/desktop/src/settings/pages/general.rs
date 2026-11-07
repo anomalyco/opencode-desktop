@@ -20,10 +20,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         // Desktop's first row, its control at the row's top (`align="start"`).
         ("settings-tab-layout", setting_at(p, "settings-tab-layout", "Interface layout", "Choose how you switch between sessions and keep track of what's running", super::super::interface_mode::control(s, p), false)),
         ("settings-language", setting(p, "settings-language", "Language", "Change the display language for OpenCode",
-            select(s, p, "settings-language-select", "Language", settings::LANGUAGES.iter().map(|(id, l)| ((*id).to_owned(), (*l).to_owned())).collect(), &st.language, |s, id, _| {
-                let id = id.to_owned();
-                s.change_settings(|x| x.language = id);
-            }))),
+            select(s, p, "settings-language-select", "Language", opencode_i18n::locales().iter().map(|l| (l.id().to_owned(), l.label().to_owned())).collect(), opencode_i18n::locale().id(), |s, id, _| crate::language::set(s, id)))),
         ("settings-workspace-destination", setting(p, "settings-workspace-destination", "Default environment", "Choose where new sessions start",
             choice(s, p, "settings-workspace-destination-select", "Default environment", st.default_destination, |s, id, _| s.change_settings(|x| x.default_destination = Destination::parse(Some(id)))))),
         ("settings-auto-accept-permissions", setting(p, "settings-auto-accept-permissions", "Auto-accept permissions", "Approve permission requests without asking. Projects can override this in their settings.",
