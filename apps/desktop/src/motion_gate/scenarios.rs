@@ -32,7 +32,6 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "steers-land/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "sends-behind-steers/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
-    ("stop-start", "", "stream-pace-medium/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
@@ -63,13 +62,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "header-actions/find-bar", "", "the Find bar closes at once on Esc or close (find::bar)"),
     ("jump", "header/crumbs", "find/", "crumbs make room for the Find bar in the frame ⌘F opens it (view::header)"),
     ("jump", "crumbs/", "find/", "the header title shortens at once when the Find bar takes its header slot (view::header)"),
-    ("jump", "title/title-", "find/", "the header title's words shorten with it (title_change::title)"),
-    ("pop-out", "crumbs/location-trigger", "find/", "a narrow header drops its project name in the frame ⌘F opens the Find bar, so the title keeps room (view::header, p263)"),
-    ("pop-out", "context-usage/p:context:ctx-", "find/", "and its context count, so the cost keeps its place (the Context plugin's header indicator, p263)"),
-    ("pop-out", "context-usage/#2", "find/", "with the separator before the cost (the Context plugin's header indicator, p263)"),
-    ("jump", "header-actions/p:context:header-", "find/", "the header's actions close up on the cost when its count drops (view::header, p263)"),
     ("jump", "header/header-actions", "find/", "the header's actions make room for the Find bar in the frame ⌘F opens it (view::header)"),
-    ("jump", "/context-usage", "find/", "the usage row closes up on the cost when its count drops (the Context plugin's header indicator, p263)"),
     ("pop-in", "find-bar/find-count", "", "the match count appears at once with the first typed character (find::bar)"),
     ("jump", "find-bar/", "find/", "the Find field and count resize at once as typed characters change the match count (find::bar)"),
     ("text-swap", "find-bar/find-count", "", "the match count updates at once on each keystroke or step (find::bar)"),
@@ -81,7 +74,6 @@ const ALLOW: &[Allow] = &[
     ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/timeline-area", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
-    ("fade-snap", "actions/open-", "tool-steps/", "a tool row's side-panel button shows and hides with the tool's hover at once, as Desktop's tool actions do (basic-tool-action has no transition; tool_open)"),
     ("fade-snap", "bubble/menu", "", "a prompt's corner chevron shows and hides with its bubble's hover at once, as Desktop's does (timeline::user_bubble)"),
     ("fade-snap", "bubble/meta", "", "a prompt's meta line shows and hides with its bubble's hover at once, together with the chevron, as Desktop's copy wrapper does (message-part.css:279-283; timeline::user_bubble)"),
     ("fade-snap", "turn-actions/#0/#0/meta", "", "a reply footer's model and time show and hide with the reply's hover at once, as Desktop's text-part-copy-wrapper does: 'Hover actions show and hide at once, without a fade' (message-part.css:584-588; timeline::turn_actions)"),
@@ -90,11 +82,13 @@ const ALLOW: &[Allow] = &[
     ("jump", "words/title", "agents|agent-steered|demo/", "the chip's name closes up the spinner's 24 pt in the frame its run ends, as Desktop's <Show when={view().running}> does (tool-renderer.tsx:1801-1803; subagent_card::row_for)"),
     ("jump", "words/task", "agents|agent-steered|demo/", "the chip's task closes up the spinner's 24 pt in the frame its run ends, as Desktop's <Show when={view().running}> does (tool-renderer.tsx:1801-1803; subagent_card::row_for)"),
     ("pop-in", "agent-line/words", "agent-wakes|demo/", "a Delegating agent chip turns into the agent's chip in place at once, as Desktop's <Show when={view().delegating}> swaps them (tool-renderer.tsx:1821-1844; subagent_card::row_for)"),
-    ("fade-snap", "pill/hover", "", "a sidebar tab's hover fill lands with the pointer, as Desktop's tab overlay (a CSS variable with no transition, tab-nav.css:133-143; view::sidebar)"),
-    ("fade-snap", "pill/status", "", "a sidebar tab's status and close button swap at once under the pointer: 'marks and the hover swap change instantly' (tab-nav.css:39-81; view::sidebar)"),
-    ("fade-snap", "pill/close", "", "a sidebar tab's status and close button swap at once under the pointer: 'marks and the hover swap change instantly' (tab-nav.css:39-81; view::sidebar)"),
     ("snap", "terminal-pane (pixels)", "terminal-dock/", "the focused terminal's bar cursor blinks on and off, as Desktop's terminal does (cursorBlink: true while focused, gui-plugins/src/terminal/terminal.tsx:120-127, 437; terminal::core)"),
     ("load-motion", "ring/d", "", "the Soft Radar spinner's dots keep sweeping from the frame it shows, as Desktop's spinner-radar.ts does (style::activity_ring); one that shows for less than its 1.8 s turn never wraps, so the gate doesn't tell its loop from a fade"),
+    ("jump", "header-location/location-trigger", "find/", "a narrow header gives up its project's name in the frame ⌘F opens the Find bar, so the title keeps room, as Desktop's header collapses (view::header_fit)"),
+    ("pop-out", "location-trigger/location-project", "find/", "the project's name leaves the location button in that frame (view::header_fit)"),
+    ("text-swap", "title/label", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
+    ("jerk", "window/panel", "side-region/|review/|files/", "the side region opens on Kit's 0.3 s SIDE_SPRING from rest across the chat's width, so its first frames speed up by up to ~30 pt a frame and the chat panel's edge rides it (panels::view)"),
+    ("jerk", "window/side-region", "side-region/|review/|files/", "the side region opens on Kit's 0.3 s SIDE_SPRING from rest across the chat's width, so its first frames speed up by up to ~30 pt a frame (panels::view)"),
     ("pop-in", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("jerk", "editor-pad/prompt", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
@@ -108,12 +102,10 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "window/picker-model", "model-efforts", "Esc closes the list in its frame, as every popover closes by default (popover::motion CLOSE, t1150)"),
     ("jump", "timeline-fade", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
     ("jump", "-scroll-area/scroll-", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
-    ("jump", "timeline/t-msg_", "send-from-up/scrolled-up/long/narrow|fold/scrolled-up/long/narrow", "read further up, a send cuts the timeline to its end in one frame (App::land); the rows mounted above the window unmount with the cut, so what's on screen doesn't ride the list's top"),
     ("flicker", "-scroll-area/scroll-bar", "jump-latest/", "the pointer leaves the timeline's scroll area for Jump to latest, so the ScrollView thumb fades, and is over the timeline again once the button goes; Desktop's thumb follows the hover of a root that also holds the button (virtualizer.tsx:1157-1161) (rune_kit::ScrollBarStyle::scroll_view)"),
     ("jump", "th/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r0/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
     ("jump", "r1/c", "demo/", "a streaming table sizes its columns to each finished row, so they widen at once as a row lands (rune_kit markdown tables)"),
-    ("text-swap", "pill/link/", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
 ];
 
 struct Action {
@@ -497,6 +489,10 @@ const ACTIONS: &[Action] = &[
         v.push(Circ { length: Length::Empty, ..long });
         v
     }, run: |r| {
+        // Folding is Settings › Experimental's Fold long messages, off by default as Desktop's.
+        r.rt.update(|s, _| s.settings.fold_user = true);
+        r.idle(0.5);
+        r.restart();
         r.type_prompt();
         r.enter(false);
         r.play_out(1.0);

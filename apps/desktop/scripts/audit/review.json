@@ -2,6 +2,7 @@
   "scene": "session", "secs": 6.5,
   "events": [
     {"t": 0.9, "type": "tap", "key": "side-toggle"},
+    {"t": 1.2, "type": "tap", "key": "side-launch-review-open", "expect": "instant", "scope": "side-panel"},
     {"t": 1.6, "type": "tap", "key": "review-next-file", "expect": "instant", "scope": "side-panel"},
     {"t": 2.1, "type": "tap", "key": "review-expand-all", "expect": "instant", "scope": "side-panel"},
     {"t": 2.6, "type": "tap", "key": "review-collapse-unchanged", "expect": "instant", "scope": "side-panel"},

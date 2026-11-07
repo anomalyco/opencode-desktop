@@ -4,10 +4,10 @@
     {"t": 0.2, "type": "key", "name": ",", "cmd": true, "expect": "instant"},
     {"t": 0.5, "type": "tap", "key": "placement-bottom", "expect": "instant"},
     {"t": 0.8, "type": "key", "name": "Escape", "expect": "instant"},
-    {"t": 1.3, "type": "key", "name": "j", "cmd": true},
-    {"t": 2.1, "type": "drag", "key": "dock-bottom-resize", "dy": -40, "dur": 0.4, "expect": "follow", "element": "dock-bottom-resize"},
-    {"t": 2.7, "type": "drag", "key": "dock-bottom-resize", "dy": 40, "dur": 0.4, "expect": "follow", "element": "dock-bottom-resize"},
-    {"t": 3.4, "type": "tap", "key": "terminal-hide"},
+    {"t": 1.3, "type": "key", "name": "`", "ctrl": true},
+    {"t": 2.1, "type": "drag", "key": "bottom-resize", "dy": -40, "dur": 0.4, "expect": "follow", "element": "bottom-resize"},
+    {"t": 2.7, "type": "drag", "key": "bottom-resize", "dy": 40, "dur": 0.4, "expect": "follow", "element": "bottom-resize"},
+    {"t": 3.4, "type": "key", "name": "`", "ctrl": true},
     {"t": 4.8, "type": "move", "x": 600, "y": 400}
   ]
 }

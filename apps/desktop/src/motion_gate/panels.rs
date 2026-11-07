@@ -147,7 +147,9 @@ pub fn terminal_dock(r: &mut Run) {
     });
     r.loaded();
     r.play(0.2);
-    r.act("switch terminal tab", |rt| Run::tap(rt, "ttab-term_1"));
+    // Terminals are side region tabs: switch to the first one.
+    let first = r.rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("side-tab-terminal-"));
+    r.act("switch terminal tab", |rt| Run::tap(rt, &first.expect("a terminal tab")));
     r.loaded();
     r.play(0.2);
     r.act("close terminal tab ⌘W", |rt| rt.key(cmd('w')));
