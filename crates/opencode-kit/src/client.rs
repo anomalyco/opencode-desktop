@@ -117,6 +117,8 @@ pub enum Write {
     Delete(String),
     /// Archives a session (`PATCH /api/session/:id` with `{ archived: true }`).
     Archive(String),
+    /// Brings an archived session back (`PATCH /api/session/:id` with `{ archived: false }`).
+    Unarchive(String),
     /// Marks a session read up to its `idle` (`POST /api/session/:id/view`).
     View { session: String, idle: i64 },
     /// Replaces a session's `metadata` (`PATCH /api/session/:id`).
@@ -674,6 +676,13 @@ impl Server {
             {
                 data["eventID"] = id.into();
             }
+            // When a request was asked, for the inbox's waiting age; and a branch change's folder.
+            if matches!(ty.as_str(), "permission.asked" | "form.created") {
+                data["eventCreated"] = v["created"].clone();
+            }
+            if ty == "vcs.branch.updated" {
+                data["eventLocation"] = v["location"].clone();
+            }
             if inbox.send(Incoming::Event { ty, data }).is_err() {
                 return Ok(());
             }
@@ -761,6 +770,7 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
                         Write::Rename { session, title } => server.rename_session(&session, &title),
                         Write::Delete(session) => server.delete_session(&session),
                         Write::Archive(session) => server.archive(&session),
+                        Write::Unarchive(session) => server.unarchive(&session),
                         Write::View { session, idle } => server.view(&session, idle),
                         Write::Metadata { session, metadata } => server.set_metadata(&session, metadata),
                         Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {

@@ -20,6 +20,7 @@ mod composer;
 mod draft;
 mod header;
 mod home;
+mod inbox;
 mod narrow;
 mod narrow_story;
 mod session;

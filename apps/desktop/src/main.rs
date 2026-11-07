@@ -119,6 +119,7 @@ mod home_search;
 #[cfg(test)]
 mod home_search_tests;
 mod icons;
+mod inbox_model;
 #[cfg(test)]
 mod interaction_fuzz;
 #[cfg(test)]
@@ -303,6 +304,8 @@ pub struct App {
     pub closed: tabs::Closed,
     /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
     pub layout: layout_state::Shell,
+    /// The Inbox layout's request times, branches and height (`inbox_model.rs`).
+    pub sidebar_inbox: inbox_model::SidebarInbox,
     /// UI zoom, 1.0 = 100% (see `view::app`).
     pub zoom: f32,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
@@ -1064,6 +1067,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     Incoming::Reconnected => {
                         tx.instant();
+                        s.sidebar_inbox.branches.reconnected();
                         reconnect::back(s);
                         s.stream_back();
                         s.check_sends();
@@ -1168,6 +1172,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
+    changed |= inbox_model::poll(s, now, tx);
     if s.persists() {
         s.poll_restore();
         if !s.framed {

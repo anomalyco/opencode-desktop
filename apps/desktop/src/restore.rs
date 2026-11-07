@@ -134,6 +134,9 @@ impl App {
         if let Some(sidebar) = v["sidebar"].as_bool() {
             self.sidebar_open = sidebar;
         }
+        if let Some(w) = v["sidebarWidth"].as_f64() {
+            self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
+        }
         self.side.restore_json(&v["side"]);
         self.load_persisted_terminals(server);
         self.show_draft();
@@ -200,6 +203,7 @@ impl App {
             "route": route_json(&self.route),
             "drafts": drafts,
             "sidebar": self.sidebar_open,
+            "sidebarWidth": self.sidebar_w,
             "side": self.side.to_json(),
             "closedTabs": self.closed.to_json(),
             "inbox": self.restore.inbox.to_json(),
@@ -208,7 +212,7 @@ impl App {
 
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (&self.route, self.sidebar_open, &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
+        (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
         self.side.stamp_hash(&mut h);
         h.finish()
     }

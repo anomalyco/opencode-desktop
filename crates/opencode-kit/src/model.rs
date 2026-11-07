@@ -141,6 +141,8 @@ pub struct SessionInfo {
     /// `time.viewed`): unread while it went idle after the last view.
     pub idle: Option<i64>,
     pub viewed: Option<i64>,
+    /// When its latest run started (`time.busy`).
+    pub busy: Option<i64>,
     /// The session's agent, when it was created (`time.created`), and how its last run ended
     /// (`outcome`: "succeeded", "failed", "interrupted").
     pub agent: String,
@@ -441,6 +443,7 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         cost: p["cost"].as_f64().unwrap_or(0.0),
         idle: p["time"]["idle"].as_i64(),
         viewed: p["time"]["viewed"].as_i64(),
+        busy: p["time"]["busy"].as_i64(),
         agent: s(&p["agent"]),
         created: i(&p["time"]["created"]),
         outcome: p["outcome"].as_str().map(str::to_owned),

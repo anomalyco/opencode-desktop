@@ -8,6 +8,9 @@ use crate::session_menu::{Spot, Target};
 pub const SIDEBAR_W: f32 = 260.0;
 pub const SIDEBAR_MIN: f32 = 120.0;
 pub const SIDEBAR_MAX: f32 = 640.0;
+/// The sidebar's start and end padding (`--sidebar-inset-start`, `--sidebar-inset-end`).
+pub(super) const INSET_START: f32 = 10.0;
+pub(super) const INSET_END: f32 = 2.0;
 /// The sidebars' shared spring, "smooth" (`panel-motion.ts`).
 pub(super) const SIDEBAR_SPRING: Spring = Spring::new(0.3, 0.0);
 /// How far a closed panel's contents dim at the end of the flight.
@@ -62,8 +65,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         .w(w)
         .h_full()
         .pt(chrome.top())
-        .pl(10.0)
-        .pr(2.0)
+        .pl(INSET_START)
+        .pr(INSET_END)
         .pb(10.0)
         .opacity(if s.sidebar_open { 1.0 } else { FADE_FLOOR })
         .opacity_motion(SIDEBAR_SPRING)
@@ -106,7 +109,9 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             ),
     )
     .child(el().key("tabs-gap").w_full().h(16.0))
-    .child(
+    .child(if s.tab_layout() == crate::layout_state::TabLayout::Inbox {
+        super::inbox::inbox(s, p, (INSET_START, INSET_END))
+    } else {
         col()
             .key("tabs-scroll")
             .role("list")
@@ -116,8 +121,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
             .shrink()
             .scroll(ScrollSpec { stick_bottom: false })
             .clip_fade(0.0, 0.0, 0.0, 16.0)
-            .child(list),
-    )
+            .child(list)
+    })
     .children(crate::updater::sidebar_pill(s, p));
 
     // The aside's width moves the panel's edge; its contents keep their width, pinned to that edge.

@@ -17,6 +17,11 @@ impl App {
                     self.fetch_info(&missing);
                 }
                 self.stops.forget(sid);
+                // The run's start, as the server stamps `time.busy`: the inbox's Working age.
+                let now = self.now_ms;
+                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.busy = Some(now);
+                }
                 self.running.insert(sid.to_owned())
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
@@ -40,6 +45,11 @@ impl App {
                 }
                 true
             }
+            "vcs.branch.updated" => {
+                let Some(dir) = data["eventLocation"]["directory"].as_str() else { return false };
+                self.sidebar_inbox.branches.updated(dir, data["branch"].as_str().map(str::to_owned));
+                true
+            }
             "session.viewed" => {
                 let idle = data["idle"].as_i64();
                 self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
@@ -50,6 +60,8 @@ impl App {
             "permission.asked" | "form.created" => {
                 let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
                 let Some(p) = parsed else { return false };
+                let at = data["eventCreated"].as_i64().unwrap_or(self.now_ms);
+                self.sidebar_inbox.asked(p.id(), at);
                 self.add_pending(p);
                 true
             }

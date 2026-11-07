@@ -22,6 +22,11 @@ impl Server {
         self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "archived": true }))).map(|_| ())
     }
 
+    /// Brings `session` back from the archive (`PATCH /api/session/:id` with `{ archived: false }`).
+    pub fn unarchive(&self, session: &str) -> Result<(), String> {
+        self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "archived": false }))).map(|_| ())
+    }
+
     /// Waits for `session`'s active run to settle (`POST /api/experimental/session/:id/wait`).
     pub fn wait(&self, session: &str) -> Result<(), String> {
         self.write("POST", &format!("/api/experimental/session/{session}/wait"), None).map(|_| ())
