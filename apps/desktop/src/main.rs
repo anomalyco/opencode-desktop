@@ -99,6 +99,7 @@ mod disk;
 mod dock_fade_stories;
 mod dropzone;
 mod events;
+mod export_logs;
 mod files;
 mod find;
 mod find_stories;

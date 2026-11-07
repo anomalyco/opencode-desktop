@@ -432,7 +432,7 @@ impl Log {
 }
 
 /// `2026-10-27T21:40:05.123Z` for wall-clock milliseconds.
-fn iso(ms: f64) -> String {
+pub(crate) fn iso(ms: f64) -> String {
     let ms = ms.max(0.0) as i64;
     let (days, rem) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));
     // Howard Hinnant's civil_from_days.

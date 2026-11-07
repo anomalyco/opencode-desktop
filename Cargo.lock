@@ -2374,6 +2374,8 @@ name = "opencode-desktop"
 version = "0.0.1"
 dependencies = [
  "browser-pane",
+ "crc32fast",
+ "flate2",
  "hex-client",
  "image",
  "libc",

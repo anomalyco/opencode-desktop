@@ -250,7 +250,7 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::NextSession => s.select_adjacent(1, false, tx),
         Act::Minimize => tx.minimize(),
         Act::Maximize => tx.toggle_maximized(),
-        Act::ExportLogs => reveal_logs(),
+        Act::ExportLogs => s.export_logs(),
         Act::Open(url) => {
             let _ = tx.open_url(url);
         }
@@ -291,12 +291,4 @@ pub fn accelerator(ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn new_window() {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn();
-}
-
-/// Shows the folder the app writes its logs to.
-fn reveal_logs() {
-    let Some(dir) = crate::dirs::motion_log().and_then(|f| f.parent().map(std::path::Path::to_path_buf)) else { return };
-    let _ = std::fs::create_dir_all(&dir);
-    let opener = if cfg!(target_os = "windows") { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    let _ = std::process::Command::new(opener).arg(dir).spawn();
 }

@@ -19,6 +19,8 @@ knobs = ["rune-knobs/panel"]
 
 [dependencies]
 browser-pane = { path = "../../crates/browser-pane" }
+crc32fast = "1"
+flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
 libloading = "0.8"
