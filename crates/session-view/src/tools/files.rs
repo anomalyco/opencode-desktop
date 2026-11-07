@@ -1,283 +1,325 @@
-//! Edit, Write and Patch: each file a call changed is an accordion row (its icon, directory and
-//! name, and its change counts) that opens to the change itself, as Desktop's
-//! `ToolFileAccordion` and `patch` renderer do. Files start shut.
+//! Edit, Write and Patch, as a group shows them (`CurrentFileToolGroup` over the `patch`
+//! renderer): consecutive file tools merge into one card of file rows (`FileAccordionGroup`),
+//! a row per path they changed. A row (`accordion-trigger`) reads the file's icon, its muted
+//! directory and name, then "Created", "Deleted" or its `+N -M`, and a grabber; pressed, the
+//! change opens flush under it. Several changes to one path share a row: one net diff when each
+//! starts where the last ended (`patchFileGroups`), else their diffs one after another. Files
+//! start shut. With no file known yet, the first tool's title alone.
 
-use rune::{Color, El, col, el, icon, row, text};
-use rune_kit::diff::{FileDiff, LineKind, parse};
-use rune_kit::syntax::SyntaxTheme;
+use rune::{El, col, el, icon, row, text};
+use rune_kit::diff::{FileDiff, parse};
 use serde_json::Value;
 
-use super::{Call, Display, Press, Title, Trigger, body, field, files_count, path, sub_key, trigger};
+use super::{Call, Ctx, Display, Press, Trigger, field, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CODE, INSTANT, UI, UI_SMALL, readable};
+use crate::style::{INSTANT, UI, UI_MED, readable};
 
-/// A file row's change words: Desktop's 12 px medium.
-const SMALL_MED: rune::TextStyle = rune::TextStyle::new(12.0, 530.0).lh(16.0);
+/// A file row's `+N -M` (`DiffChanges`, standard): 14 px mono, regular.
+const COUNTS: rune::TextStyle = rune::TextStyle::new(14.0, 440.0).mono().lh(21.0);
+/// A row's path: 13 px regular at 150% (`accordion-trigger`).
+const PATH: rune::TextStyle = UI.lh(19.5);
+/// `--radius-lg`: the card's outer corners.
+const RADIUS: f32 = 8.0;
 
-/// An edit: a still "Edit · 1 file" title over its file's row; open, the diff, and the file's
-/// errors under it.
-pub fn edit<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let d = Display::of(s, c, true);
-    let input_path = path(c.input).unwrap_or("");
-    let diff = changed_files(c.metadata).into_iter().next().or_else(|| {
-        let (old, new) = (field(c.input, "oldString")?, c.input["newString"].as_str()?);
-        let fd = FileDiff::from_texts(input_path, old, new);
-        (fd.additions() + fd.deletions() > 0).then_some(fd)
-    });
-    let shown = diff.as_ref().map_or(input_path, |fd| fd.path());
-    let shown = if shown.is_empty() { input_path } else { shown };
-    let count = usize::from(!shown.is_empty());
-    let title = Trigger { title: Title::Fixed("Edit"), subtitle: (count > 0).then(|| files_count(count)), ..Default::default() };
-    let mut out = col().w_full().child(trigger(s, p, c, d, title, Press::None));
-    if shown.is_empty() {
-        return out;
-    }
-    let change = match &diff {
-        Some(fd) if !d.busy() => Change::Counts(fd.additions(), fd.deletions()),
-        _ => Change::None,
-    };
-    let k = super::key(c.id);
-    let open = s.expanded().contains(&k);
-    out = out.child(file_row(s, p, c, 0, &relative_file(s, shown), change, open, k));
-    if open {
-        let view = match &diff {
-            Some(fd) => diff_view(p, fd),
-            None => col(),
-        };
-        out = out.child(body(view, false, 4.0));
-    }
-    out.children(diagnostics(p, c.metadata, input_path))
+/// Whether `c` joins a run of file tools: an edit, write or patch that didn't fail.
+pub fn is_file_tool(c: &Call) -> bool {
+    *c.status != opencode_kit::model::ToolStatus::Error && matches!(c.name, "edit" | "multiedit" | "write" | "patch" | "apply_patch")
 }
 
-/// A write: its file's row; open, the file it wrote.
-pub fn write<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let (Some(file), Some(content)) = (path(c.input), field(c.input, "content")) else {
-        // Nothing written yet: the call's title alone, as Desktop shows a write still being written.
-        let d = Display::of(s, c, false);
-        return trigger(s, p, c, d, Trigger { title: Title::Fixed("Write"), ..Default::default() }, Press::None);
-    };
-    let k = super::key(c.id);
-    let open = s.expanded().contains(&k);
-    let header = file_row(s, p, c, 0, &relative_file(s, file), Change::None, open, k);
-    let mut out = col().w_full().child(header);
-    if open {
-        let lang = FileDiff::from_texts(file, "", "").language().map(str::to_owned);
-        out = out.child(body(code_view(p, content, lang.as_deref()), false, 4.0));
-    }
-    out.children(diagnostics(p, c.metadata, file))
+/// What a file's row says it did.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Add,
+    Update,
+    Delete,
 }
 
-/// A patch: a row per file it changed ("Created", "Deleted", or its counts); each opens to its
-/// diff. With no changed file known yet, "Patch" alone.
-pub fn patch<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let files = changed_files(c.metadata);
-    if files.is_empty() {
-        let d = Display::of(s, c, false);
-        return trigger(s, p, c, d, Trigger { title: Title::Fixed("Patch"), ..Default::default() }, Press::None);
-    }
-    let mut out = col().w_full();
-    for (n, fd) in files.iter().enumerate() {
-        let k = sub_key(c.id, n);
-        let open = s.expanded().contains(&k);
-        let change = match fd.status {
-            rune_kit::diff::FileStatus::Added => Change::Created,
-            rune_kit::diff::FileStatus::Deleted => Change::Deleted,
-            _ => Change::Counts(fd.additions(), fd.deletions()),
-        };
-        out = out.child(file_row(s, p, c, n, &relative_file(s, fd.path()), change, open, k));
-        if open {
-            out = out.child(body(diff_view(p, fd), false, 4.0).key(format!("diff-{n}")));
+/// One change a call made to a file: its patch, or the texts before and after.
+enum Source<'a> {
+    Patch(&'a str),
+    Texts(&'a str, &'a str),
+}
+
+impl Source<'_> {
+    fn diff(&self, path: &str) -> FileDiff {
+        match self {
+            Source::Patch(p) => parse(p).into_iter().next().unwrap_or_else(|| FileDiff::from_texts(path, "", "")),
+            Source::Texts(old, new) => FileDiff::from_texts(path, old, new),
         }
     }
-    out
-}
 
-/// What a file row says it did.
-enum Change {
-    None,
-    Created,
-    Deleted,
-    Counts(usize, usize),
-}
-
-/// The changed files a call's `metadata.files` lists (Desktop's `changedFileDiff`): each entry's
-/// patch, when it has one and it changed something.
-fn changed_files(metadata: &Value) -> Vec<FileDiff> {
-    metadata["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|f| f["additions"].as_u64().unwrap_or(0) + f["deletions"].as_u64().unwrap_or(0) > 0)
-        .filter_map(|f| {
-            let patch = f["patch"].as_str()?;
-            let mut fd = parse(patch).into_iter().next()?;
-            let file = f["file"].as_str().unwrap_or("");
-            if !file.is_empty() {
-                fd.new_path = Some(file.to_owned());
-            }
-            fd.status = match f["status"].as_str() {
-                Some("added") => rune_kit::diff::FileStatus::Added,
-                Some("deleted") => rune_kit::diff::FileStatus::Deleted,
-                _ => fd.status,
-            };
-            Some(fd)
-        })
-        .collect()
-}
-
-fn relative_file<S: TimelineHost>(s: &S, path: &str) -> String {
-    let dir = s.active_session_id().and_then(|id| s.session_directory(id));
-    super::relative(path, dir).to_owned()
-}
-
-/// A file's accordion row: icon, muted directory, name, what changed and a chevron. The first
-/// file's row of a write or a patch carries the call's key, `tool-{id}`, and the host's\n/// side-panel button.
-#[allow(clippy::too_many_arguments)]
-fn file_row<S: TimelineHost>(s: &S, p: &Pal, c: &Call, n: usize, path: &str, change: Change, open: bool, k: String) -> El {
-    // An edit's still title row carries the call's key and button, so its file row doesn't.
-    let first = n == 0 && c.name != "edit" && c.name != "multiedit";
-    let (dir, name) = match path.rfind('/') {
-        Some(at) => (&path[..=at], &path[at + 1..]),
-        None => ("", path),
-    };
-    let row_key = if first { format!("tool-{}", c.id) } else { format!("file-{}-{n}", c.id) };
-    let mut words = row().key("name").gap(0.0).shrink().min_w(0.0).center_y();
-    if !dir.is_empty() {
-        words = words.child(text(dir.to_owned()).key("dir").font(UI).color(p.muted).truncate_head().shrink().min_w(0.0));
+    /// The whole file before and after, when the patch holds all of it (Desktop's
+    /// `completePatchContents`): one hunk from the first line, from a producer that writes
+    /// full context (a git diff, or a header ending in a tab).
+    fn contents(&self) -> Option<(String, String)> {
+        let Source::Patch(p) = self else { return None };
+        let full = p.starts_with("diff --git ") || p.lines().any(|l| l.starts_with("--- ") && l.ends_with('\t'));
+        let fd = parse(p).into_iter().next().filter(|_| full)?;
+        let [h] = fd.hunks.as_slice() else { return None };
+        if h.old_start + u32::from(h.old_count == 0) > 1 || h.new_start + u32::from(h.new_count == 0) > 1 {
+            return None;
+        }
+        let side = |keep: rune_kit::diff::LineKind| h.lines.iter().filter(|l| l.kind != keep).map(|l| format!("{}\n", l.text)).collect::<String>();
+        Some((side(rune_kit::diff::LineKind::Added), side(rune_kit::diff::LineKind::Removed)))
     }
-    words = words.child(text(name.to_owned()).key("file").font(UI).color(p.text).truncate_fade());
-    let mut r = row()
+}
+
+/// One change to a path, as one call reported it.
+struct Entry<'a> {
+    call: Call<'a>,
+    path: &'a str,
+    kind: Kind,
+    additions: usize,
+    deletions: usize,
+    source: Source<'a>,
+}
+
+/// A row: a path and every change the run made to it.
+struct Item<'a> {
+    path: &'a str,
+    entries: Vec<Entry<'a>>,
+}
+
+impl Item<'_> {
+    fn kind(&self) -> Kind {
+        match (self.entries.first().map(|e| e.kind), self.entries.last().map(|e| e.kind)) {
+            (_, Some(Kind::Delete)) => Kind::Delete,
+            (Some(Kind::Add), _) => Kind::Add,
+            _ => Kind::Update,
+        }
+    }
+
+    /// The net diff when each change starts where the one before ended.
+    fn chained(&self) -> Option<FileDiff> {
+        if self.entries.len() < 2 {
+            return None;
+        }
+        let contents: Vec<(String, String)> = self.entries.iter().map(|e| e.source.contents()).collect::<Option<_>>()?;
+        contents.windows(2).all(|w| w[0].1 == w[1].0).then(|| FileDiff::from_texts(self.path, &contents[0].0, &contents[contents.len() - 1].1))
+    }
+
+    fn counts(&self) -> (usize, usize) {
+        match self.chained() {
+            Some(fd) => (fd.additions(), fd.deletions()),
+            None => self.entries.iter().fold((0, 0), |(a, d), e| (a + e.additions, d + e.deletions)),
+        }
+    }
+
+    fn diffs(&self) -> Vec<FileDiff> {
+        match self.chained() {
+            Some(fd) => vec![fd],
+            None => self.entries.iter().map(|e| e.source.diff(e.path)).collect(),
+        }
+    }
+}
+
+/// The changes call `c` made: its `metadata.files`, else the edit or write its input describes.
+fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
+    if let Some(files) = c.metadata["files"].as_array().filter(|f| !f.is_empty()) {
+        // Entries that aren't changes show nothing, and still replace what the input says.
+        return files.iter().filter_map(|f| changed(c, f)).collect();
+    }
+    let Some(path) = path(c.input) else { return Vec::new() };
+    let entry = |source, additions, deletions| Entry { call: *c, path, kind: Kind::Update, additions, deletions, source };
+    match c.name {
+        "edit" | "multiedit" => {
+            let (Some(old), Some(new)) = (c.input["oldString"].as_str(), c.input["newString"].as_str()) else { return Vec::new() };
+            let fd = FileDiff::from_texts(path, old, new);
+            let (a, d) = (fd.additions(), fd.deletions());
+            if a + d == 0 { Vec::new() } else { vec![entry(Source::Texts(old, new), a, d)] }
+        }
+        "write" => match field(c.input, "content") {
+            Some(content) => vec![entry(Source::Texts("", content), content.split('\n').count() - usize::from(content.ends_with('\n')), 0)],
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// One of `metadata.files`, when it is a change (`changedFileDiff`).
+fn changed<'a>(c: &Call<'a>, f: &'a Value) -> Option<Entry<'a>> {
+    let (path, patch) = (f["file"].as_str()?, f["patch"].as_str()?);
+    let (additions, deletions) = (f["additions"].as_u64()? as usize, f["deletions"].as_u64()? as usize);
+    let kind = match f["status"].as_str()? {
+        "added" => Kind::Add,
+        "deleted" => Kind::Delete,
+        "modified" => Kind::Update,
+        _ => return None,
+    };
+    (additions + deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
+}
+
+/// A run of file tools: one card of a row per path they changed.
+pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
+    let Some(first) = calls.first() else { return col() };
+    let mut items: Vec<Item> = Vec::new();
+    for e in calls.iter().flat_map(entries) {
+        match items.iter_mut().find(|i| i.path == e.path) {
+            Some(i) => i.entries.push(e),
+            None => items.push(Item { path: e.path, entries: vec![e] }),
+        }
+    }
+    if items.is_empty() {
+        // Nothing changed yet: the first tool's title alone, its file count to come.
+        let title = match first.name {
+            "edit" | "multiedit" => "Edit",
+            "write" => "Write",
+            _ => "Patch",
+        };
+        let pending = calls.iter().find(|c| super::busy(c.status, cx.live)).unwrap_or(first);
+        let d = Display::of(s, cx, pending, false);
+        return still(trigger(s, p, cx, first, d, Trigger { title: title.into(), ..Default::default() }, Press::None, None));
+    }
+    let n = items.len();
+    let mut card = col().key("files").w_full();
+    let mut keyed: Vec<&str> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let owner = item.entries[0].call;
+        // The first row a call shows carries its key, so a press on the host's button keeps it in view.
+        let row_key = if keyed.contains(&owner.id) { format!("file-{}-{i}", first.id) } else { format!("tool-{}", owner.id) };
+        keyed.push(owner.id);
+        card = card.child(file_item(s, p, cx, first.id, item, row_key, i == 0, i + 1 == n));
+    }
+    card
+}
+
+/// One row of the card, and under it the change while open, and the file's errors.
+#[allow(clippy::too_many_arguments)]
+fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, first: bool, last: bool) -> El {
+    let shown = super::session_relative(s, cx.session, item.path);
+    let k = sub_key(group, format!("file:{shown}"));
+    let open = s.expanded().contains(&k);
+    let owner = item.entries[0].call;
+    let diagnostics = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path), last);
+    let closed_bottom = last && !open && diagnostics.is_none();
+    let top = if first { RADIUS } else { 0.0 };
+    let bottom = if closed_bottom { RADIUS } else { 0.0 };
+    let (dir, name) = match shown.rfind(['/', '\\']) {
+        Some(at) => (&shown[..=at], &shown[at + 1..]),
+        None => ("", shown),
+    };
+    let mut words = row().key("name").shrink().min_w(0.0).grow(1.0).center_y();
+    if !dir.is_empty() {
+        words = words.child(text(dir.to_owned()).key("dir").font(PATH).color(p.muted).truncate_head().shrink().min_w(0.0));
+    }
+    words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
+    let change = change(p, item);
+    let toggle = || crate::disclosure::toggle::<S>(k.clone(), row_key.clone());
+    let info = row()
+        .key("info")
+        .h_full()
+        .gap(8.0)
+        .center_y()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .role("button")
+        .label(shown.to_owned())
+        .on_press_tx(toggle())
+        .expanded(open)
+        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
+        .child(words);
+    let marks = row()
+        .key("marks")
+        .h_full()
+        .gap(16.0)
+        .center_y()
+        .children(change)
+        .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("grabber").color(p.text));
+    // The host's button sits beside the row's words, a sibling of its button rather than inside
+    // it; the whole row presses as the button does, and counts as hovered for the host's button.
+    let action = s.tool_row_action(p, cx.session, &owner, Some(item.path));
+    let header = row()
         .key(row_key.clone())
         .w_full()
         .h(32.0)
-        .gap(8.0)
+        .px(12.0)
+        .gap(20.0)
         .center_y()
-        .role("button")
-        .label(path.to_owned())
-        .expanded(open)
+        .fill(p.bg_base)
+        .hover(p.hover)
+        .border(1.0, p.border)
+        .corners([top, top, bottom, bottom])
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(crate::disclosure::toggle::<S>(k, row_key))
-        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
-        .child(words)
-        .child(el().key("spacer").grow(1.0));
-    r = match change {
-        Change::None => r,
-        Change::Created => r.child(text("Created").key("change").font(SMALL_MED).color(p.diff_add)),
-        Change::Deleted => r.child(text("Deleted").key("change").font(SMALL_MED).color(p.diff_del)),
-        Change::Counts(add, del) => r.child(
-            row().key("change").gap(4.0)
-                .child(text(format!("+{add}")).font(SMALL_MED).color(p.diff_add))
-                .child(text(format!("-{del}")).font(SMALL_MED).color(p.diff_del)),
-        ),
-    };
-    if first
-        && let Some(action) = s.tool_row_action(p, c.id, c.name, c.status, c.input, c.metadata)
-    {
-        r = r.child(row().key("action").group_opacity(0.0, 1.0).child(action));
+        .on_press_tx(toggle())
+        .child(info)
+        .child(row().key("actions").h_full().gap(16.0).center_y().children(action).child(marks));    // A key holds no `/`, which separates the parts of a path.
+    let mut out = col().key(format!("item-{}", shown.replace(['/', '\\'], ":"))).w_full().child(header);
+    if !first {
+        out = out.mt(-1.0);
     }
-    r.child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("chevron").color(p.icon_faint))
+    if open {
+        let corner = if last && diagnostics.is_none() { RADIUS } else { 0.0 };
+        let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
+        // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
+        // border is the content's top.
+        out = out.child(
+            col()
+                .key("content")
+                .w_full()
+                .mt(-1.0)
+                .pt(1.0)
+                .px(1.0)
+                .pb(1.0)
+                .border(1.0, p.border)
+                .fill(p.layer1)
+                .corners([0.0, 0.0, corner, corner])
+                .clip_corners([0.0, 0.0, corner, corner])
+                .child(el().key("hairline").w_full().h(0.5).fill(p.border_muted))
+                .child(readable(p, views)),
+        );
+    }
+    out.children(diagnostics)
 }
 
+/// "Created", "Deleted" (13 px medium) or `+N -M`.
+fn change(p: &Pal, item: &Item) -> Option<El> {
+    let word = |w: &'static str, c| Some(text(w).key("change").font(UI_MED.lh(19.5)).color(c));
+    match item.kind() {
+        Kind::Add => word("Created", p.diff.add_text),
+        Kind::Delete => word("Deleted", p.diff.del_text),
+        Kind::Update => {
+            let (a, d) = item.counts();
+            (a + d > 0).then(|| {
+                row().key("change").gap(8.0).center_y()
+                    .child(text(format!("+{a}")).font(COUNTS).color(p.diff.add_text))
+                    .child(text(format!("-{d}")).font(COUNTS).color(p.diff.del_text))
+            })
+        }
+    }
+}
 /// A file's errors after the change (severity 1, the first three), as Desktop's
-/// `DiagnosticsDisplay` lists them.
-fn diagnostics(p: &Pal, metadata: &Value, file: &str) -> Option<El> {
+/// `DiagnosticsDisplay` lists them: flush in the card on the danger fill under a hairline.
+fn diagnostics(p: &Pal, metadata: &Value, file: &str, last: bool) -> Option<El> {
     let list: Vec<&Value> = metadata["diagnostics"][file].as_array()?.iter().filter(|d| d["severity"] == 1).take(3).collect();
     if list.is_empty() {
         return None;
     }
-    let mut box_ = col().key("diagnostics").w_full().gap(4.0).px(12.0).py(8.0).mt(4.0).radius(6.0).fill(p.danger.alpha(0.08));
+    let font = rune::TextStyle::new(13.0, 400.0).mono().lh(19.5);
+    let label = rune::TextStyle::new(13.0, 530.0).mono().lh(19.5).tracking(-0.5);
+    let corner = if last { RADIUS } else { 0.0 };
+    let mut box_ = col()
+        .key("diagnostics")
+        .w_full()
+        .mt(-1.0)
+        .gap(4.0)
+        .px(13.0)
+        .py(9.0)
+        .border(1.0, p.border)
+        .fill(p.danger_bg)
+        .corners([0.0, 0.0, corner, corner])
+        .child(el().key("rule").absolute(0.0, 1.0).w_full().h(0.5).fill(p.danger_border));
     for d in list {
         let start = &d["range"]["start"];
         let at = format!("[{}:{}]", start["line"].as_u64().unwrap_or(0) + 1, start["character"].as_u64().unwrap_or(0) + 1);
         box_ = box_.child(
             row().w_full().gap(6.0)
-                .child(text("ERROR").font(SMALL_MED.mono()).color(p.danger))
-                .child(text(at).font(UI_SMALL.mono()).color(p.danger))
-                .child(readable(p, text(d["message"].as_str().unwrap_or("").to_owned()).font(UI_SMALL.mono()).color(p.danger).wrap_anywhere().max_lines(3)).shrink().min_w(0.0)),
+                .child(text("ERROR").font(label).color(p.danger))
+                .child(text(at).font(font).color(p.danger))
+                .child(readable(p, text(d["message"].as_str().unwrap_or("").to_owned()).font(font).color(p.danger).wrap_anywhere().max_lines(3)).shrink().min_w(0.0)),
         );
     }
     Some(box_)
 }
-
-/// The theme a file's code colours by: the timeline's code theme where it has one.
-fn syntax(p: &Pal) -> SyntaxTheme {
-    let base = SyntaxTheme::from_kit(crate::palette::kit(p));
-    match p.code {
-        Some(code) => code.syntax(base, p.diff_add, p.diff_del),
-        None => base,
-    }
-}
-
-/// One line of code, coloured as `lang`.
-fn code_line(theme: &SyntaxTheme, lang: Option<&str>, line: &str, ink: Color) -> El {
-    let found = rune_kit::syntax::highlight(lang, line);
-    text(line.to_owned()).font(CODE).color(ink).spans(theme.spans(&found, 0)).wrap_anywhere()
-}
-
-/// `t` of the way from `base` to `hue` in OKLab, as Changes tints its lines.
-fn tint(base: Color, hue: Color, t: f32) -> Color {
-    let [a, b] = [base.to_oklab(), hue.to_oklab()];
-    Color::from_oklab([0, 1, 2, 3].map(|i| if i == 3 { a[3] } else { a[i] + (b[i] - a[i]) * t }))
-}
-
-/// The width a gutter of `digits`-digit line numbers takes.
-fn gutter(digits: usize) -> f32 {
-    (digits.max(2) as f32 * 7.8 + 16.0).ceil()
-}
-
-/// A diff in one column: each hunk's lines under a quiet separator, added and removed lines
-/// tinted, a line number in the gutter (the new side's, the old side's for a removed line).
-pub fn diff_view(p: &Pal, fd: &FileDiff) -> El {
-    let theme = syntax(p);
-    let lang = fd.language().map(str::to_owned);
-    let most = fd.hunks.iter().map(|h| (h.old_start + h.old_count).max(h.new_start + h.new_count)).max().unwrap_or(1);
-    let w = gutter(most.to_string().len());
-    let mut out = col().key("diff").w_full().radius(6.0).border(0.5, p.border).fill(p.bg_base).clip_rounded(6.0).py(4.0);
-    for (hi, h) in fd.hunks.iter().enumerate() {
-        if hi > 0 || h.old_start > 1 || h.new_start > 1 {
-            out = out.child(
-                row().key(format!("hunk-{hi}")).w_full().h(24.0).px(12.0).center_y().fill(p.layer1)
-                    .child(text(h.header()).font(UI_SMALL).color(p.faint).truncate_fade()),
-            );
-        }
-        for (li, l) in h.lines.iter().enumerate() {
-            let (tint, number, mark) = match l.kind {
-                LineKind::Added => (Some(tint(p.bg_base, p.diff_add, if p.dark { 0.13 } else { 0.095 })), l.new, "+"),
-                LineKind::Removed => (Some(tint(p.bg_base, p.diff_del, if p.dark { 0.13 } else { 0.095 })), l.old, "-"),
-                _ => (None, l.new, " "),
-            };
-            let num = number.map(|n| n.to_string()).unwrap_or_default();
-            let mut line = row()
-                .key(format!("l-{hi}-{li}"))
-                .w_full()
-                .min_h(20.0)
-                .child(row().w(w).pr(8.0).justify_end().child(text(num).font(CODE).color(p.faint)))
-                .child(el().w(14.0).child(text(mark).font(CODE).color(p.faint)))
-                .child(readable(p, code_line(&theme, lang.as_deref(), &l.text, p.text)).grow(1.0).min_w(0.0).pr(12.0));
-            if let Some(t) = tint {
-                line = line.fill(t);
-            }
-            out = out.child(line);
-        }
-    }
-    out
-}
-
-/// A file's text, its lines numbered, as Desktop shows what a write wrote.
-fn code_view(p: &Pal, content: &str, lang: Option<&str>) -> El {
-    let theme = syntax(p);
-    let lines: Vec<&str> = content.strip_suffix('\n').unwrap_or(content).split('\n').collect();
-    let w = gutter(lines.len().to_string().len());
-    let mut out = col().key("code").w_full().radius(6.0).border(0.5, p.border).fill(p.bg_base).clip_rounded(6.0).py(4.0);
-    for (n, l) in lines.iter().enumerate() {
-        out = out.child(
-            row().key(format!("l-{n}")).w_full().min_h(20.0)
-                .child(row().w(w).pr(8.0).justify_end().child(text((n + 1).to_string()).font(CODE).color(p.faint)))
-                .child(readable(p, code_line(&theme, lang, l, p.text)).grow(1.0).min_w(0.0).pr(12.0)),
-        );
-    }
-    out
-}
-

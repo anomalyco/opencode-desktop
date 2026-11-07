@@ -41,10 +41,15 @@ pub fn current<S: TimelineHost>(s: &S) -> Option<String> {
 
 /// The button's glyph, `size` pt in `color`: the copy icon, or the tick growing in.
 pub fn glyph<S: TimelineHost>(s: &S, key: &str, size: f32, color: rune::Color) -> El {
+    glyph_of(s, key, size, color, &ic::OUTLINE_COPY)
+}
+
+/// [`glyph`] with `copy` as the resting icon.
+pub fn glyph_of<S: TimelineHost>(s: &S, key: &str, size: f32, color: rune::Color, copy: &'static rune::Icon) -> El {
     if is_copied(s, key) {
         icon(&ic::CHECK, size).key("tick").color(color).transition(grow(s.knobs()))
     } else {
-        icon(&ic::OUTLINE_COPY, size).key("copy-glyph").color(color).transition(Transition::none())
+        icon(copy, size).key("copy-glyph").color(color).transition(Transition::none())
     }
 }
 

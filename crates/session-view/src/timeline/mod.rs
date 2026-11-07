@@ -142,7 +142,7 @@ impl RowSpec {
                         let blocks = turns::fold(&steps, *live);
                         let busy = *live && *block + 1 == blocks.len();
                         let el = match &blocks[*block] {
-                            Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
+                            Block::Group { key, steps } => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
                             _ => unreachable!(),
                         };
                         self.wrap(s, el)
@@ -242,11 +242,11 @@ impl RowSpec {
                 let blocks = turns::fold(&steps, *live);
                 let busy = *live && *block + 1 == blocks.len();
                 match &blocks[*block] {
-                    Block::Group { key, steps } => turns::group(s, p, key, steps, busy, fade).pt(*pt),
+                    Block::Group { key, steps } => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
                     Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
                     Block::Agent { .. } => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Block::Question { id, status, input, metadata } =>
-                        crate::question_row::view(s, p, id, status, input, metadata).pt(*pt),
+                        crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
                 }
             }
         };

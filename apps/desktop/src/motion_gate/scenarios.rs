@@ -82,6 +82,7 @@ const ALLOW: &[Allow] = &[
     ("jump", "dock/composer", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/dock", "dropzone/", "the composer grows at once to hold a dropped file's chip, as for a picked file (dropzone::drop)"),
     ("jump", "session/timeline-area", "dropzone/", "the timeline gives the composer the room for a dropped file's chip at once (dropzone::drop)"),
+    ("fade-snap", "actions/open-", "tool-steps/", "a tool row's side-panel button shows and hides with the tool's hover at once, as Desktop's tool actions do (basic-tool-action has no transition; tool_open)"),
     ("fade-snap", "actions/", "", "a prompt's hover actions show and hide with its row's hover at once (view::user_bubble)"),
     ("pop-in", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),

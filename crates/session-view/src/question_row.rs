@@ -5,14 +5,13 @@
 //! another way, the error. While the dock asks, nothing: the dock is the question.
 
 use opencode_kit::model::{ToolStatus, tool_error};
-use rune::{El, col, icon, row, text};
-use rune_theme_opencode::icons as ic;
+use rune::{El, col, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
 use crate::disclosure::toggle;
 use crate::palette::Pal;
-use crate::style::{UI, UI_MED, chevron, readable};
+use crate::style::{UI, UI_MED, arrow, readable};
 
 /// Each question's text, and its answer once the call has them (`None` before).
 pub fn answers(input: &Value, metadata: &Value) -> (Vec<String>, Option<Vec<String>>) {
@@ -36,7 +35,7 @@ fn error(status: &ToolStatus, metadata: &Value) -> Option<String> {
     Some(e.replace("Error: ", "").trim().to_owned()).filter(|e| !e.is_empty())
 }
 
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> El {
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> El {
     let key = format!("question-{id}");
     match error(status, metadata) {
         Some(e) if e.contains("dismissed this question") => row()
@@ -46,7 +45,8 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, status: &ToolStatus, inpu
             .center_y()
             .justify_end()
             .child(text("Questions dismissed").key("dismissed").font(UI).color(p.faint)),
-        Some(e) => failed(s, p, &key, &e),
+        // Failed another way: the tool error card every other tool's failure shows.
+        Some(_) => col().key(key).w_full().child(crate::tools::error::card(s, p, session, &crate::tools::Call { id, name: "question", status, input, metadata })),
         None => answered(s, p, &key, input, metadata),
     }
 }
@@ -75,7 +75,8 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
         trigger = trigger.child(text(subtitle).key("subtitle").font(UI).color(p.muted));
     }
     if answers.is_some() {
-        trigger = trigger.on_press_tx(toggle::<S>(closed, format!("{key}/trigger"))).child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
+        let a = arrow(p, open);
+        trigger = trigger.hover_group().on_press_tx(toggle::<S>(closed, format!("{key}/trigger"))).child(if open { a } else { a.group_opacity(0.0, 1.0) });
     }
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if let (true, Some(answers)) = (open, answers) {
@@ -88,33 +89,6 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
                 .child(readable(p, text(a).key("a").font(UI.lh(20.0)).color(p.text).wrap_anywhere().w_full()))
         });
         c = c.child(col().key("answers").w_full().pl(12.0).py(8.0).gap(12.0).children(items));
-    }
-    c
-}
-
-/// Desktop's tool error card: the error's first clause, and all of it when opened.
-fn failed<S: TimelineHost>(s: &S, p: &Pal, key: &str, e: &str) -> El {
-    let open_key = format!("{key}-open");
-    let open = s.expanded().contains(&open_key);
-    let head = e.split(": ").next().unwrap_or("").trim();
-    let summary = opencode_kit::model::capitalize(if head.is_empty() { "Failed" } else { head });
-    let mut trigger = row()
-        .key("trigger")
-        .role("button")
-        .label("Questions failed")
-        .h(28.0)
-        .gap(8.0)
-        .center_y()
-        .on_press_tx(toggle::<S>(open_key, format!("{key}/trigger")))
-        .child(icon(&ic::WARNING, 16.0).color(p.danger))
-        .child(text("Questions").key("title").font(UI_MED).color(p.text));
-    if !open {
-        trigger = trigger.child(text(summary).key("summary").font(UI).color(p.danger).truncate_fade().shrink());
-    }
-    trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
-    let mut c = col().key(key.to_owned()).w_full().child(trigger);
-    if open {
-        c = c.child(row().key("error").w_full().pl(24.0).py(4.0).child(readable(p, text(e.to_owned()).font(UI.lh(20.0)).color(p.danger).wrap_anywhere().w_full())));
     }
     c
 }

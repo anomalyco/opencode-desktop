@@ -140,9 +140,9 @@ fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
 /// Another running label in the Working label's light (Desktop's `TextShimmer`, as a running
 /// tool's title has it), its rhythm counted from `since` on the app clock. Still when motion
 /// is reduced.
-pub fn shimmer<S: TimelineHost>(s: &S, p: &Pal, words: &'static str, font: TextStyle, since: f64) -> El {
+pub fn shimmer<S: TimelineHost>(s: &S, p: &Pal, words: &str, font: TextStyle, since: f64) -> El {
     let (weak, strong) = colors(p);
-    let base = text(words).key("label").font(font).color(weak);
+    let base = text(words.to_owned()).key("label").font(font).color(weak);
     if s.reduced_motion() {
         return rune::row().child(base);
     }
@@ -207,12 +207,12 @@ fn finish_pass(was: Band, w: f32, at: f32) -> Band {
 
 /// A soft-edged window of the lit `words` sliding over the weak label: the window travels, and
 /// the lit copy inside it slides back so it stays on the label.
-fn sweep(run: Run, words: &'static str, font: TextStyle, base: El, lit: Color, b: Band) -> El {
+fn sweep(run: Run, words: &str, font: TextStyle, base: El, lit: Color, b: Band) -> El {
     let w = b.width;
     let delay = run.delay(b.period);
     let spec = |a: f32, c: f32| LoopSpec { delay, ..LoopSpec::slide(b.period, [a, 0.0], [c, 0.0]).easing(Easing::LINEAR) };
     let copy = el().key("lit").absolute(0.0, 0.0).w(w).h_full().looping(spec(-b.x0 / w, -b.x1 / w))
-        .child(text(words).font(font).color(lit).absolute(0.0, 0.0));
+        .child(text(words.to_owned()).font(font).color(lit).absolute(0.0, 0.0));
     rune::row().child(base).child(
         el().key("sheen").absolute(0.0, 0.0).w(w).h_full().clip_fade(b.soft, 0.0, b.soft, 0.0).looping(spec(b.x0 / w, b.x1 / w)).child(copy),
     )

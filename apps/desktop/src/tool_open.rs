@@ -218,12 +218,36 @@ pub fn locate(fd: &FileDiff, anchor: &Anchor) -> Option<Located> {
     Some(Located { side, start, end, top })
 }
 
-/// The step's "open in sidebar" button, on its row while hovered, when the step has somewhere
-/// to open: a press on the row itself folds the step open inline, as Desktop's does.
-pub fn action(s: &App, p: &Pal, id: &str, name: &str, status: &ToolStatus, input: &Value, metadata: &Value) -> Option<El> {
-    let sid = s.active_session_id()?;
-    let directory = s.session(sid).map(|i| i.directory.as_str()).unwrap_or("");
-    let t = target(name, status, input, metadata, directory)?;
+/// Where a finished call opens for `file`, one of the files it changed: that file's change, or
+/// for a write, the file.
+pub fn file_target(name: &str, status: &ToolStatus, input: &Value, metadata: &Value, directory: &str, file: &str) -> Option<Target> {
+    if *status != ToolStatus::Completed {
+        return None;
+    }
+    let path = relative(file, directory)?;
+    match name {
+        "write" => Some(Target::File { path, lines: None }),
+        "edit" | "multiedit" | "patch" | "apply_patch" => {
+            let anchor = metadata_anchor(metadata, &path, directory)
+                .or_else(|| matches!(name, "edit" | "multiedit").then(|| edit_anchor(input)).flatten())
+                .or_else(|| input["patchText"].as_str().and_then(|t| patch_text_anchor(t, &path)));
+            Some(Target::Change { path, anchor })
+        }
+        _ => None,
+    }
+}
+
+/// The step's "open in sidebar" button, beside its row (or beside the row of `file`, one of the
+/// files it changed) while hovered, when the step has somewhere to open: a press on the row
+/// itself folds the step open inline, as Desktop's does.
+pub fn action(s: &App, p: &Pal, session: &str, call: &session_view::tools::Call, file: Option<&str>) -> Option<El> {
+    let directory = s.session(session).map(|i| i.directory.as_str()).unwrap_or("");
+    let (id, name, status, input, metadata) = (call.id, call.name, call.status, call.input, call.metadata);
+    let t = match file {
+        Some(f) => file_target(name, status, input, metadata, directory, f)?,
+        None if matches!(name, "edit" | "multiedit" | "write" | "patch" | "apply_patch") => return None,
+        None => target(name, status, input, metadata, directory)?,
+    };
     let step = id.to_owned();
     let ink = if s.tool_step_showing(id) { p.text } else { p.icon_muted };
     Some(rune::row()
@@ -233,11 +257,13 @@ pub fn action(s: &App, p: &Pal, id: &str, name: &str, status: &ToolStatus, input
         .help(t.tooltip())
         .size(24.0, 24.0)
         .center()
-        .radius(4.0)
+        .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
-        .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink))
+        // Its glyph shows while the tool is hovered; the button stays pressable, as Desktop's
+        // tool actions do.
+        .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink).group_opacity(0.0, 1.0))
         .on_press_tx({
             let (step, t) = (step.clone(), t.clone());
             move |s: &mut App, tx: &mut Tx| s.open_tool_step(&step, t.clone(), tx)

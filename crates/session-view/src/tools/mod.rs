@@ -3,28 +3,41 @@
 //! (title, subtitle, `key=value` args), and under it, once pressed open, what the call did:
 //! a shell's console, an edit's diff, a search's results, a failure's message.
 //!
-//! Each call shows in one of four phases, collapsed or expanded ([`Display`]). A call opens
+//! Each call shows in one of five phases, collapsed or expanded ([`Display`]). A call opens
 //! while it runs only where Desktop lets it (`allowOpenWhilePending`: shell and execute), and
 //! only when it has something to show. Opening and closing is instant, as a thought's is
 //! (`disclosure::toggle`); the group's row carries the height change on its own fold spring.
-//! The host may add a button that opens what the call touched in its side panel
+//! The host may add a button beside a row that opens what the call touched in its side panel
 //! ([`TimelineHost::tool_row_action`]).
+//!
+//! A row builds again only when its call, its open parts or its look change ([`memo`]): the
+//! console's text, a diff's lines and their colours are worked out once per change, not once
+//! per commit.
 
 mod console;
-mod error;
+mod details;
+mod diff;
+pub mod error;
+mod execute;
 mod files;
 mod lists;
+mod plain;
+
+use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
 
 use opencode_kit::model::{self, ToolStatus};
-use rune::{El, col, icon, row, text};
+use rune::{El, col, el, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{INSTANT, UI, UI_MED, chevron, readable};
+use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
-pub use console::strip_ansi;
-pub use lists::read_group;
+pub use details::overlay as details_overlay;
+pub use files::{group as file_group, is_file_tool};
+pub use lists::{read_group, skill_group, skill_name};
+pub use plain::strip_ansi;
 
 /// A tool call, as its part has it.
 #[derive(Clone, Copy)]
@@ -36,12 +49,24 @@ pub struct Call<'a> {
     pub metadata: &'a Value,
 }
 
+/// What the rows of one group share.
+#[derive(Clone, Copy)]
+pub struct Ctx<'a> {
+    /// The session the calls are in: their paths are relative to its directory.
+    pub session: &'a str,
+    /// The turn is still running. A call a finished or stopped turn left pending or running is
+    /// [`Phase::Stopped`]: it never shimmers, so an idle window draws nothing.
+    pub live: bool,
+}
+
 /// Where a call is in its run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     /// The model is still writing the call.
     Pending,
     Running,
+    /// Pending or running when its turn ended: it never finished.
+    Stopped,
     Completed,
     Errored,
 }
@@ -62,10 +87,11 @@ pub struct Display {
 
 impl Display {
     /// Call `c`'s display: open when its key is in `expanded` and `opens` says it may be.
-    pub fn of<S: TimelineHost>(s: &S, c: &Call, opens: bool) -> Self {
+    pub fn of<S: TimelineHost>(s: &S, cx: Ctx, c: &Call, opens: bool) -> Self {
         let phase = match c.status {
-            ToolStatus::Pending => Phase::Pending,
-            ToolStatus::Running => Phase::Running,
+            ToolStatus::Pending if cx.live => Phase::Pending,
+            ToolStatus::Running if cx.live => Phase::Running,
+            ToolStatus::Pending | ToolStatus::Running => Phase::Stopped,
             ToolStatus::Completed => Phase::Completed,
             ToolStatus::Error => Phase::Errored,
         };
@@ -83,6 +109,11 @@ impl Display {
     }
 }
 
+/// Whether `status` is still under way in a turn that is `live`.
+pub fn busy(status: &ToolStatus, live: bool) -> bool {
+    live && matches!(status, ToolStatus::Pending | ToolStatus::Running)
+}
+
 /// The key that holds call `id` open in [`TimelineHost::expanded`].
 pub fn key(id: &str) -> String {
     format!("tool:{id}")
@@ -94,33 +125,88 @@ pub fn sub_key(id: &str, part: impl std::fmt::Display) -> String {
     format!("tool:{id}/{part}")
 }
 
-/// The row of call `c` inside its group, with what it shows open under it.
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let el = if *c.status == ToolStatus::Error && c.name != "execute" {
-        error::card(s, p, c)
-    } else {
+/// The row of call `c` inside its group, with what it shows open under it, built again only
+/// when what it shows changes. A shimmering title isn't cached, so its sweep keeps the run's
+/// rhythm.
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    let build = || {
+        if *c.status == ToolStatus::Error && c.name != "execute" {
+            return error::card(s, p, cx.session, c);
+        }
         match c.name {
-            "shell" | "bash" => console::shell(s, p, c),
-            "execute" => console::execute(s, p, c),
-            "edit" | "multiedit" => files::edit(s, p, c),
-            "write" => files::write(s, p, c),
-            "patch" | "apply_patch" => files::patch(s, p, c),
-            "read" => lists::read(s, p, c),
-            "list" | "glob" | "grep" => lists::search(s, p, c),
-            "webfetch" => lists::webfetch(s, p, c),
-            "websearch" => lists::websearch(s, p, c),
-            "skill" => lists::skill(s, p, c),
-            _ => lists::generic(s, p, c),
+            "shell" | "bash" => console::shell(s, p, cx, c),
+            "execute" => execute::execute(s, p, cx, c),
+            "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::group(s, p, cx, &[*c]),
+            "read" => lists::read(s, p, cx, c),
+            "list" | "glob" | "grep" => lists::search(s, p, cx, c),
+            "webfetch" => lists::webfetch(s, p, cx, c),
+            "websearch" => lists::websearch(s, p, cx, c),
+            "skill" => lists::skill_group(s, p, cx, &[*c]),
+            _ => lists::generic(s, p, cx, c),
         }
     };
-    col().key(format!("step-{}", c.id)).w_full().child(el)
+    cached(s, p, cx, &[*c], build)
+}
+
+/// `build` for `calls`, kept until one of them, the parts of them held open, their copy
+/// buttons, the host's buttons beside them or the look changes.
+pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: impl FnOnce() -> El) -> El {
+    let Some(first) = calls.first() else { return col() };
+    if !s.reduced_motion() && calls.iter().any(|c| busy(c.status, cx.live)) {
+        return build();
+    }
+    let mut h = std::hash::DefaultHasher::new();
+    (cx.session, cx.live, p.theme, p.dark, s.reduced_motion(), s.session_directory(cx.session)).hash(&mut h);
+    let copied = crate::copied::current(s);
+    for c in calls {
+        (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
+        fingerprint(c.input, &mut h);
+        fingerprint(c.metadata, &mut h);
+        let own = key(c.id);
+        let mut open: Vec<&String> = s.expanded().iter().filter(|k| k.starts_with(&own)).collect();
+        open.sort();
+        open.hash(&mut h);
+        copied.as_deref().filter(|k| k.contains(c.id)).hash(&mut h);
+    }
+    // The memo keys its root with its own id, so the row keeps its keys one level down.
+    rune::memo(format!("tm-{}", first.id), h.finish(), || col().w_full().child(build()))
+}
+
+/// A cheap stand-in for `v`'s content: its shape, numbers, and each string's length and ends.
+/// Streamed output grows, and a tool's input or result is replaced, never edited in its middle
+/// at the same length.
+fn fingerprint(v: &Value, h: &mut impl Hasher) {
+    match v {
+        Value::Null => 0u8.hash(h),
+        Value::Bool(b) => (1u8, b).hash(h),
+        Value::Number(n) => (2u8, n.as_f64().map(f64::to_bits)).hash(h),
+        Value::String(s) => {
+            let b = s.as_bytes();
+            (3u8, b.len(), &b[..b.len().min(32)], &b[b.len().saturating_sub(32)..]).hash(h);
+        }
+        Value::Array(a) => {
+            (4u8, a.len()).hash(h);
+            a.iter().for_each(|x| fingerprint(x, h));
+        }
+        Value::Object(o) => {
+            (5u8, o.len()).hash(h);
+            for (k, x) in o {
+                k.hash(h);
+                fingerprint(x, h);
+            }
+        }
+    }
 }
 
 /// A trigger's words: Desktop's `TriggerTitle`.
 #[derive(Default)]
 pub struct Trigger {
-    /// Shimmers while the call runs; a title that isn't fixed (a provider's name) shows still.
-    pub title: Title,
+    /// Shimmers while the call runs.
+    pub title: Cow<'static, str>,
+    /// Desktop's compact tools (shell, execute): a medium title, 6 pt gaps and a 16 pt arrow
+    /// box. The rest set their title in the regular weight inside a group, 8 pt from the words
+    /// after it.
+    pub compact: bool,
     pub subtitle: Option<String>,
     pub args: Vec<String>,
     /// "(3 matches)" after a dot, from a search's count.
@@ -131,26 +217,6 @@ pub struct Trigger {
     pub link: Option<El>,
 }
 
-pub enum Title {
-    Fixed(&'static str),
-    Named(String),
-}
-
-impl Default for Title {
-    fn default() -> Self {
-        Title::Fixed("")
-    }
-}
-
-impl Title {
-    fn text(&self) -> &str {
-        match self {
-            Title::Fixed(t) => t,
-            Title::Named(t) => t,
-        }
-    }
-}
-
 /// What a trigger does when pressed.
 pub enum Press {
     /// Nothing: the call has nothing more to show.
@@ -159,56 +225,75 @@ pub enum Press {
     Toggle(String),
 }
 
-/// A call's one-line trigger, keyed `tool-{id}`: its words, the chevron when it opens (on hover,
-/// or while open), and the host's side-panel button on hover.
-pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, c: &Call, d: Display, t: Trigger, press: Press) -> El {
+/// A call's trigger line: the trigger itself, keyed `tool-{id}` (its words, and the arrow when it
+/// opens: on hover, or while open), and beside it, as siblings rather than inside the trigger's
+/// button, the call's own `action` and the host's side-panel button, shown while the tool is
+/// hovered (Desktop's `basic-tool-action`). Wrap it with [`disclosure`] or [`still`], which
+/// make the tool the hover group those buttons follow.
+pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t: Trigger, press: Press, action: Option<El>) -> El {
     let id = format!("tool-{}", c.id);
-    let mut r = row().key(id.clone()).w_full().h(28.0).gap(6.0).center_y().hover_group().hover_motion(INSTANT, INSTANT);
-    r = r.child(title(s, p, &t.title, d));
+    let gap = if t.compact { 6.0 } else { 8.0 };
+    let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, if t.compact { UI_MED } else { UI }, d));
     if let Some(sub) = t.subtitle.filter(|x| !x.is_empty()) {
-        let font = if t.code { crate::style::CODE.lh(16.0) } else { UI };
-        r = r.child(readable(p, text(sub).key("subtitle").font(font).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+        let font = if t.code { TOOL_CODE.lh(16.0) } else { UI };
+        words = words.child(readable(p, text(sub).key("subtitle").font(font).color(p.faint).truncate_fade()).shrink().min_w(0.0));
     }
     for (k, a) in t.args.into_iter().enumerate() {
-        r = r.child(readable(p, text(a).key(format!("arg-{k}")).font(UI).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+        words = words.child(readable(p, text(a).key(format!("arg-{k}")).font(UI).color(p.muted).truncate_fade()).shrink().min_w(0.0));
     }
     if let Some(l) = t.link {
-        r = r.child(l);
+        words = words.child(l);
     }
     if let Some(m) = t.matches {
-        r = r.child(text("·").key("dot").font(UI).color(p.faint)).child(text(m).key("matches").font(UI).color(p.faint));
+        let dot = el().key("dot").size(6.0, 6.0).center().child(el().size(2.25, 2.25).radius(1.125).fill(p.icon_muted));
+        words = words.child(dot).child(text(m).key("matches").font(UI).color(p.faint));
     }
-    let toggles = matches!(press, Press::Toggle(_));
-    if toggles {
-        let arrow = icon(chevron(d.open()), 14.0).key("chevron").color(p.icon_faint);
-        r = r.child(if d.open() { arrow } else { arrow.group_opacity(0.0, 1.0) });
+    let mut button = row().key(id.clone()).h(28.0).gap(if t.compact { 6.0 } else { 0.0 }).center_y().shrink().min_w(0.0).child(words);
+    if let Press::Toggle(k) = press {
+        let a = el().key("arrow").w(if t.compact { 16.0 } else { 24.0 }).h(24.0).center().child(arrow(p, d.open()));
+        button = button
+            .child(if d.open() { a } else { a.group_opacity(0.0, 1.0) })
+            .role("button")
+            .label(t.title.into_owned())
+            .expanded(d.open())
+            .hover_group()
+            .hover_motion(INSTANT, INSTANT)
+            .on_press_tx(crate::disclosure::toggle::<S>(k, id));
     }
-    if let Some(action) = s.tool_row_action(p, c.id, c.name, c.status, c.input, c.metadata) {
-        r = r.child(row().key("action").group_opacity(0.0, 1.0).child(action));
+    let host = s.tool_row_action(p, cx.session, c, None);
+    let actions: Vec<El> = action.into_iter().chain(host).collect();
+    let line = row().key("line").w_full().h(28.0).gap(2.0).center_y();
+    if actions.is_empty() {
+        return line.child(button.grow(1.0));
     }
-    match press {
-        Press::None => r,
-        Press::Toggle(k) => r.role("button").label(t.title.text().to_owned()).on_press_tx(crate::disclosure::toggle::<S>(k, id)),
-    }
+    // The buttons' glyphs rest hidden (`group_opacity`), the buttons themselves still pressable,
+    // as Desktop's `basic-tool-action` is.
+    line.child(button).child(row().key("actions").gap(2.0).center_y().children(actions))
 }
 
-fn title<S: TimelineHost>(s: &S, p: &Pal, t: &Title, d: Display) -> El {
-    match t {
-        Title::Fixed(words) if d.busy() => crate::working::shimmer(s, p, words, UI_MED, 0.0).key("title"),
-        _ => text(t.text().to_owned()).key("title").font(UI_MED).color(p.text),
+fn title<S: TimelineHost>(s: &S, p: &Pal, t: &str, font: rune::TextStyle, d: Display) -> El {
+    if d.busy() {
+        return crate::working::shimmer(s, p, t, font, 0.0).key("title");
     }
+    text(t.to_owned()).key("title").font(font).color(p.text)
+}
+
+/// A tool with nothing to open: its trigger line, the hover group its buttons follow.
+pub fn still(line: El) -> El {
+    col().w_full().hover_group().child(line)
 }
 
 /// What an open call shows, under its trigger: `rail` insets it 12, as Desktop insets a tool's
 /// content; a shell's console and a file's diff run full width.
 pub fn body(content: El, rail: bool, gap: f32) -> El {
-    let b = col().key("body").w_full().pt(gap).pb(4.0).child(content);
+    let b = col().key("body").w_full().pt(gap).child(content);
     if rail { b.pl(12.0) } else { b }
 }
 
-/// A trigger, and `content` under it while open.
-pub fn disclosure(trigger: El, d: Display, content: impl FnOnce() -> El) -> El {
-    let c = col().w_full().child(trigger);
+/// A trigger line, and `content` under it while open; the whole tool is the hover group its
+/// buttons follow.
+pub fn disclosure(line: El, d: Display, content: impl FnOnce() -> El) -> El {
+    let c = col().w_full().hover_group().child(line);
     if d.open() { c.child(content()) } else { c }
 }
 
@@ -243,11 +328,17 @@ pub fn relative<'a>(path: &'a str, directory: Option<&str>) -> &'a str {
     path.strip_prefix(dir).and_then(|r| r.strip_prefix(sep)).unwrap_or(path)
 }
 
-/// The directory a call ran in, relative to the session's, as a search's subtitle shows it.
-pub fn directory<S: TimelineHost>(s: &S, path: &str) -> String {
-    let dir = s.active_session_id().and_then(|id| s.session_directory(id));
-    let rel = relative(path, dir);
-    if rel.is_empty() { "/".to_owned() } else { rel.to_owned() }
+/// `path` relative to session `session`'s directory.
+pub fn session_relative<'a, S: TimelineHost>(s: &S, session: &str, path: &'a str) -> &'a str {
+    relative(path, s.session_directory(session))
+}
+
+/// The directory a search ran in, relative to the session's, as its subtitle shows it; none
+/// for the session's own directory. Desktop shows the searched directory's parent
+/// (`displayDirectory(getDirectory(path))`), which names the wrong folder; this names the one
+/// searched, as an intentional Rune design.
+pub fn directory<S: TimelineHost>(s: &S, session: &str, path: &str) -> Option<String> {
+    Some(session_relative(s, session, path).to_owned()).filter(|r| !r.is_empty())
 }
 
 /// "1 file", "3 files" (`ui.common.file`).

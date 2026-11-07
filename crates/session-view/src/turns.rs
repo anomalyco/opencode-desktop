@@ -8,14 +8,14 @@
 //! each tool's name once. A group of thoughts alone reads "Used 1 Thought", or "Thinking" while
 //! it is the live end of the turn.
 
-use rune::{El, col, icon, row, text};
+use rune::{El, col, el, row, text};
 
 use opencode_kit::model::{Assistant, Attachment, Part, ToolStatus};
 
 use crate::TimelineHost;
 use crate::odometer::odometer;
 use crate::palette::Pal;
-use crate::style::{UI, UI_MED, chevron, reasoning};
+use crate::style::{UI, UI_MED, arrow, reasoning};
 
 /// One step inside a group.
 #[derive(Debug)]
@@ -192,11 +192,16 @@ fn grouped_read(st: &Step) -> bool {
     **status != ToolStatus::Error && !image && !loaded
 }
 
-/// The folded row: its label and chevron, and when open, every step in order. The row springs
+/// The folded row: its label, and when open, every step in order, inset 24 behind a hairline
+/// rail (`collapsed-tool-group`), 8 under the label and 8 apart. Plain reads in a row share a
+/// line, edits, writes and patches in a row share one card of files, and named skills in a row
+/// share one "Loaded" line, as Desktop's `CurrentContextToolGroup` merges them. The row springs
 /// open and shut on the timeline's growth with its header held in place
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
-/// the group scrolls past.
-pub fn group<S: TimelineHost>(s: &S, p: &Pal, key: &str, steps: &[Step], busy: bool, fade: f32) -> El {
+/// the group scrolls past. `busy`: the group is the live end of the turn; `live`: the turn is
+/// still running, so a step still under way shimmers.
+#[allow(clippy::too_many_arguments)]
+pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step], busy: bool, live: bool, fade: f32) -> El {
     let open = s.expanded().contains(key);
     let shutting = !open && crate::disclosure::is_shutting(s, key);
     let l = label(steps, busy);
@@ -207,7 +212,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, key: &str, steps: &[Step], busy: b
         .h(28.0)
         .gap(4.0)
         .center_y()
-        // A step joining or the label changing crossfades the words while the chevron slides over.
+        .hover_group()
+        // A step joining or the label changing crossfades the words while the arrow slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
     if open || shutting {
@@ -223,47 +229,67 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, key: &str, steps: &[Step], busy: b
             .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()),
         None => trigger.child(text(l.title.clone()).key("thinking").font(UI).color(p.muted)),
     };
-    trigger = trigger.child(icon(chevron(open), 14.0).key("chevron").color(p.icon_faint));
+    // The arrow shows while the pointer is over the label, and always while open.
+    let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
+    trigger = trigger.child(if open { a } else { a.group_opacity(0.0, 1.0) });
     let mut c = col().w_full().child(trigger);
     if open || shutting {
+        let cx = crate::tools::Ctx { session, live };
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
-        let mut list = col().key("steps").w_full().pl(4.0).transition(rune::Transition::none());
+        // 8 under the label (inside the steps, so a shut box is no taller than nothing), then the
+        // rail 6 in from the steps' top and bottom.
+        let mut list = col().key("steps").w_full().pt(8.0).pl(12.0).gap(8.0).transition(rune::Transition::none());
+        list = list.child(el().key("rail").pin(Some(-0.25), Some(14.0), None, Some(6.0)).w(0.5).fill(p.border));
         let mut i = 0;
         while i < steps.len() {
-            // Plain reads in a row share one line (`CurrentReadToolGroup`).
-            let reads = steps[i..].iter().take_while(|st| grouped_read(st)).count();
-            if reads > 1 {
-                let calls: Vec<crate::tools::Call> = steps[i..i + reads].iter().filter_map(call).collect();
-                list = list.child(crate::tools::read_group(s, p, &calls).key(format!("reads-{}", calls[0].id)));
-                i += reads;
-                continue;
-            }
-            list = list.child(match &steps[i] {
+            let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
+            let (n, item) = match &steps[i] {
                 Step::Thought { msg, index, body, secs } => {
                     let key = format!("r-{msg}-{index}");
-                    reasoning::<S>(p, &key, body, *secs, s.expanded().contains(&key), fade).key(key)
+                    (1, reasoning::<S>(p, &key, body, *secs, s.expanded().contains(&key), fade).key(key))
+                }
+                st @ Step::Tool { .. } if grouped_read(st) => {
+                    let calls: Vec<crate::tools::Call> = steps[i..i + run(grouped_read)].iter().filter_map(call).collect();
+                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls));
+                    (calls.len(), el.key(format!("reads-{}", calls[0].id)))
+                }
+                st @ Step::Tool { .. } if file_tool(st) => {
+                    let calls: Vec<crate::tools::Call> = steps[i..i + run(file_tool)].iter().filter_map(call).collect();
+                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls));
+                    (calls.len(), col().key(format!("files-{}", calls[0].id)).w_full().child(el))
+                }
+                st @ Step::Tool { .. } if named_skill(st) => {
+                    let calls: Vec<crate::tools::Call> = steps[i..i + run(named_skill)].iter().filter_map(call).collect();
+                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls));
+                    (calls.len(), col().key(format!("skills-{}", calls[0].id)).w_full().child(el))
                 }
                 st @ Step::Tool { id, files, .. } => {
-                    let r = crate::tools::view(s, p, &call(st).expect("a tool step"));
-                    match crate::images::gallery(s, p, "step-images", files, false) {
-                        Some(g) => r.child(g.pl(22.0)),
-                        None => r,
-                    }
-                    .key(format!("step-{id}"))
+                    let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &call(st).expect("a tool step")));
+                    (1, step.children(crate::images::gallery(s, p, "step-images", files, false).map(|g| g.pl(22.0))))
                 }
-            });
-            i += 1;
+            };
+            list = list.child(item);
+            i += n;
         }
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.
         // The box keeps the steps' path the same either way, so they don't remount on a press.
-        let held = col().key("steps-box").w_full().transition(rune::Transition::none());
+        let held = col().key("steps-box").w_full().pl(12.0).transition(rune::Transition::none());
         c = c.child(if open { held } else { held.h(0.0) }.child(list));
     }
     c
 }
 
+/// An edit, write or patch that didn't fail: it joins the file card of the steps beside it.
+fn file_tool(st: &Step) -> bool {
+    call(st).is_some_and(|c| crate::tools::is_file_tool(&c))
+}
+
+/// A skill call with a name that didn't fail: it joins the "Loaded" line of the skills beside it.
+fn named_skill(st: &Step) -> bool {
+    matches!(st, Step::Tool { name: "skill", status, .. } if **status != ToolStatus::Error) && call(st).is_some_and(|c| crate::tools::skill_name(&c).is_some())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

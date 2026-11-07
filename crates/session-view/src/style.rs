@@ -30,6 +30,9 @@ const MD_H: [TextStyle; 4] = [
     TextStyle::new(14.0, 530.0).lh(21.0),
 ];
 pub const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
+/// A tool's code (`--v2-font-family-code` at 440, tracking -0.04): a console's text, a shell's
+/// command, Execute's calls.
+pub const TOOL_CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
 
 /// `--container-session`: 744 including 24 px padding on each side.
 pub const CONTENT_W: f32 = 696.0;
@@ -44,9 +47,19 @@ pub const BUBBLE_MAX: f32 = 565.0;
 
 pub const ACTIVE_KEY: &str = "find-active";
 
-pub fn chevron(open: bool) -> &'static Icon {
-    if open { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }
+/// Desktop's disclosure triangle (`Collapsible.Arrow`): `fill-triangle-down` at 14 pt, pointing
+/// right while shut, in the colour its arrows inherit.
+pub fn arrow(p: &Pal, open: bool) -> El {
+    icon(if open { &ic::FILL_TRIANGLE_DOWN } else { &TRIANGLE_RIGHT }, 14.0).key("chevron").color(p.v1_text_base)
 }
+
+/// `fill-triangle-down` turned a quarter left, as Desktop's CSS turns a shut arrow, drawn so
+/// rather than rotated so it needs no layer of its own.
+static TRIANGLE_RIGHT: Icon = Icon {
+    name: "oc-fill-triangle-right",
+    view: 16.0,
+    body: r#"<path d="M6.75194 10.62376C6.41861 10.81816 6 10.57776 6 10.19186V5.8079C6 5.422 6.41861 5.1816 6.75194 5.376L10.5096 7.56797C10.8404 7.76091 10.8404 8.23881 10.5096 8.43175L6.75194 10.62376Z" fill="currentColor"/>"#,
+};
 
 /// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome
 /// around it (triggers, labels, buttons) stays unselectable.
@@ -72,7 +85,7 @@ pub fn reasoning<S: TimelineHost>(p: &Pal, key: &str, body: &str, secs: Option<i
             .on_press_tx(crate::disclosure::toggle::<S>(key.to_owned(), format!("{key}/trigger")))
             .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted))
             .child(text(label).key(if secs.is_some() { "thought" } else { "thinking" }).font(UI).color(p.muted))
-            .child(icon(chevron(open), 14.0).color(p.icon_faint)),
+            .child(arrow(p, open)),
     );
     if open {
         c = c.child(

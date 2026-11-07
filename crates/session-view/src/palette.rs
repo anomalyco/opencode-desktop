@@ -88,6 +88,33 @@ pub struct Pal {
     pub code_bg: Color,
     /// Desktop's v1 raised surface, as `menu-v2`'s standard look draws it (the Windows app menu).
     pub standard: Standard,
+    /// `state-bg-danger` and `state-border-danger`: a file's diagnostics.
+    pub danger_bg: Color,
+    pub danger_border: Color,
+    /// A diff's colours, as Desktop's Pierre theme and file rows draw them.
+    pub diff: DiffInk,
+}
+
+/// A diff's colours (`session-ui/src/pierre/index.ts`, `diff-changes.css`).
+#[derive(Clone, Copy, Debug)]
+pub struct DiffInk {
+    /// `--text-diff-add-base` and `-delete-base`: a file row's `+N -M`, Created and Deleted.
+    pub add_text: Color,
+    pub del_text: Color,
+    /// A changed line's fill, its number cell's too.
+    pub add_line: Color,
+    pub del_line: Color,
+    /// A changed word's fill, over its line's.
+    pub add_word: Color,
+    pub del_word: Color,
+    /// A changed word's text.
+    pub add_word_text: Color,
+    pub del_word_text: Color,
+    /// A changed line's 2 pt bar and number.
+    pub add_bar: Color,
+    pub del_bar: Color,
+    /// The quiet row between hunks.
+    pub separator: Color,
 }
 
 /// `menu-v2`'s standard look: Desktop's v1 tokens, as each theme resolves them.
@@ -175,6 +202,9 @@ fn build(theme: usize, dark: bool) -> Pal {
     let themed = theme > 0;
     let success = c("state-fg-success");
     let danger = c("state-fg-danger");
+    let diff_add = if themed { c("syntax-diff-add") } else { success };
+    let diff_del = if themed { c("syntax-diff-delete") } else { danger };
+    let code_bg = c("background-stronger");
     let syntax = Code {
         comment: c("syntax-comment"),
         string: c("syntax-string"),
@@ -196,10 +226,13 @@ fn build(theme: usize, dark: bool) -> Pal {
         switch_thumb: if dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE },
         lift: if dark { text } else { Color::WHITE },
         term_fg: if themed { c("text-stronger") } else { text },
-        diff_add: if themed { c("syntax-diff-add") } else { success },
-        diff_del: if themed { c("syntax-diff-delete") } else { danger },
+        diff_add,
+        diff_del,
         accent_hover: c("text-text-accent-hover"),
-        code_bg: c("background-stronger"),
+        code_bg,
+        danger_bg: c("state-bg-danger"),
+        danger_border: c("state-border-danger"),
+        diff: diff_ink(&t, themed, dark, diff_add, diff_del, text, code_bg),
         standard: Standard {
             surface: c("surface-raised-stronger-non-alpha"),
             text: c("text-strong"),
@@ -299,6 +332,31 @@ fn build(theme: usize, dark: bool) -> Pal {
             focus: c("blue-500"),
             dot: c("grey-300"),
         },
+    }
+}
+
+/// Pierre's diff colours over Desktop's v2 green and red ramps; a theme without those ramps
+/// tints with its own diff colours instead.
+#[allow(clippy::too_many_arguments)]
+fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: Color, bg: Color) -> DiffInk {
+    let ramp = |name: &str, or: Color| if themed { or } else { t.try_color(name).unwrap_or(or) };
+    let hex = |s: &str, or: Color| if themed { or } else { rune::color::hex(s).unwrap_or(or) };
+    let (green, red) = (ramp("green-600", add), ramp("red-600", del));
+    let fill = if dark { 0.1 } else { 0.05 };
+    let word = if dark { 0.4 } else { 0.2 };
+    let mixer = if dark { Color::WHITE } else { Color::BLACK };
+    DiffInk {
+        add_text: if dark { hex("#9bcd97", add) } else { hex("#3a8437", add) },
+        del_text: if dark { hex("#fc533a", del) } else { hex("#ed4831", del) },
+        add_line: t.alpha(if dark { ramp("green-800", add) } else { green }, fill),
+        del_line: t.alpha(red, fill),
+        add_word: t.alpha(green, word),
+        del_word: t.alpha(red, word),
+        add_word_text: if dark { text } else { ramp("green-1200", text) },
+        del_word_text: if dark { text } else { ramp("red-1200", text) },
+        add_bar: if dark { ramp("green-400", add) } else { ramp("green-900", add) },
+        del_bar: if dark { ramp("red-500", del) } else { ramp("red-800", del) },
+        separator: bg.mix(mixer, if dark { 0.05 } else { 0.02 }),
     }
 }
 

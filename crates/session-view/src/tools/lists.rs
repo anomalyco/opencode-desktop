@@ -1,14 +1,13 @@
 //! Read, List, Glob, Grep, Webfetch, Web Search, Skill, and any other tool: their triggers and,
-//! where Desktop shows one, their results.
+//! where they have one, their results.
 
-use rune::{El, Tx, col, icon, row, text};
-use rune_theme_opencode::icons as ic;
+use rune::{El, Span, Tx, col, el, icon, row, text};
 use serde_json::Value;
 
-use super::{Call, Display, Press, Title, Trigger, body, directory, disclosure, field, file_name, output, path, sub_key, trigger};
+use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{INSTANT, UI, UI_MED, readable};
+use crate::style::{CONTENT_W, INSTANT, MD, UI, UI_MED, arrow, readable};
 
 /// A search's results scroll past 240 px, as a console's do.
 const MAX_H: f32 = super::console::MAX_H;
@@ -16,17 +15,22 @@ const MAX_H: f32 = super::console::MAX_H;
 /// Web Search lists this many links, then "+N more".
 const LINKS: usize = 10;
 
-/// A read: "Read", the file's name and its `offset=`/`limit=`. Desktop never shows a read's text;
-/// an image it loaded shows under the group, and instructions it loaded say "Loaded …".
-pub fn read<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let d = Display::of(s, c, false);
-    let t = Trigger { title: Title::Fixed("Read"), subtitle: path(c.input).map(|x| file_name(x).to_owned()), args: read_args(c.input), ..Default::default() };
-    let mut out = col().w_full().child(trigger(s, p, c, d, t, Press::None));
+/// The width of session `session`'s timeline column, as laid out.
+pub fn column(session: &str) -> f32 {
+    rune::memo::layout_with(&format!("scroll-{session}"), |r| (r[2] - 48.0).clamp(0.0, CONTENT_W)).unwrap_or(CONTENT_W)
+}
+
+/// A read that doesn't share a line with others (an image, a failed one, or one that loaded
+/// instructions): "Read", the file's name and its `offset=`/`limit=`; "Loaded …" under it for
+/// the instructions it loaded. An image it returned shows under the group.
+pub fn read<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    let d = Display::of(s, cx, c, false);
+    let t = Trigger { title: "Read".into(), subtitle: path(c.input).map(|x| file_name(x).to_owned()), args: read_args(c.input), ..Default::default() };
+    let mut out = still(trigger(s, p, cx, c, d, t, Press::None, None));
     if *c.status == opencode_kit::model::ToolStatus::Completed {
-        let dir = s.active_session_id().and_then(|id| s.session_directory(id));
-        let loaded: Vec<&str> = c.metadata["loaded"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|x| super::relative(x, dir)).collect();
+        let loaded: Vec<&str> = c.metadata["loaded"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|x| super::session_relative(s, cx.session, x)).collect();
         if !loaded.is_empty() {
-            out = out.child(loaded_item(p, "Loaded", &loaded.join(", "), None));
+            out = out.child(loaded_item(s, p, "Loaded", &[(loaded.join(", "), false)], None));
         }
     }
     out
@@ -34,43 +38,50 @@ pub fn read<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
 
 /// Plain reads in a row of the group: "Read a.ts offset=11 limit=20, b.ts" on one line, which a
 /// press wraps whole when it doesn't fit (`CurrentReadToolGroup`).
-pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, calls: &[Call]) -> El {
+pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
     let Some(first) = calls.first() else { return col() };
-    let files: Vec<String> = calls
-        .iter()
-        .filter_map(|c| {
-            let name = file_name(path(c.input)?);
-            let args = read_args(c.input);
-            Some(if args.is_empty() { name.to_owned() } else { format!("{name} {}", args.join(" ")) })
-        })
-        .collect();
-    let list = files.join(", ");
-    let busy = calls.iter().any(|c| matches!(c.status, opencode_kit::model::ToolStatus::Pending | opencode_kit::model::ToolStatus::Running));
-    // Wider than the column shows it in one line: Desktop measures the clip, this counts it.
-    let long = rune::text::measure(&list, &[], UI, None).0 > crate::style::CONTENT_W - 80.0;
+    let mut list = String::new();
+    let mut args: Vec<Span> = Vec::new();
+    for (n, c) in calls.iter().enumerate() {
+        let Some(name) = path(c.input).map(file_name).filter(|n| !n.is_empty()) else { continue };
+        if !list.is_empty() {
+            list.push(' ');
+        }
+        list.push_str(name);
+        for a in read_args(c.input) {
+            // Args carry a leading space; their 2 pt margin completes the 6 pt gap.
+            let at = list.len();
+            list.push_str("  ");
+            list.push_str(&a);
+            args.push(Span::new(at, list.len()).color(p.muted));
+        }
+        if n + 1 < calls.len() {
+            list.push(',');
+        }
+    }
+    let pending = calls.iter().any(|c| busy(c.status, cx.live));
+    let title_w = rune::text::measure("Read", &[], UI, None).0;
+    // Wider than the row shows it in one line: Desktop measures the clip, this measures the words.
+    let long = rune::text::measure(&list, &[], UI, None).0 > column(cx.session) - 24.0 - 24.0 - title_w - 8.0;
     let k = super::key(first.id);
     let open = long && s.expanded().contains(&k);
-    let title = if busy { crate::working::shimmer(s, p, "Read", UI_MED, 0.0).key("title") } else { text("Read").key("title").font(UI_MED).color(p.text) };
-    let words = text(list).key("subtitle").font(UI).color(p.muted);
+    let title = if pending { crate::working::shimmer(s, p, "Read", UI, 0.0).key("title") } else { text("Read").key("title").font(UI).color(p.text) };
+    let words = text(list).key("subtitle").font(if open { UI.lh(20.0) } else { UI }).color(p.faint).spans(args);
     let words = if open { words.wrap() } else { words.truncate_fade() };
     let mut r = row()
         .key(format!("tool-{}", first.id))
         .w_full()
         .min_h(28.0)
-        .gap(6.0)
+        .gap(8.0)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .child(row().h(28.0).center_y().child(title))
-        .child(row().min_h(28.0).center_y().shrink().min_w(0.0).child(readable(p, words).shrink().min_w(0.0)));
-    if open {
-        r = r.items_start().py(4.0);
-    } else {
-        r = r.center_y();
-    }
+        .child(row().h(if open { 20.0 } else { 28.0 }).center_y().child(title))
+        .child(row().shrink().min_w(0.0).center_y().child(readable(p, words).shrink().min_w(0.0)));
+    r = if open { r.items_start().py(4.0) } else { r.center_y() };
     if long {
-        let arrow = icon(crate::style::chevron(open), 14.0).key("chevron").color(p.icon_faint);
+        let a = el().key("arrow").w(16.0).h(20.0).center().child(arrow(p, open));
         r = r
-            .child(row().h(28.0).center_y().child(if open { arrow } else { arrow.group_opacity(0.0, 1.0) }))
+            .child(if open { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
             .label("Read")
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{}", first.id)));
@@ -83,15 +94,17 @@ fn read_args(input: &Value) -> Vec<String> {
 }
 
 /// List, Glob and Grep: the tool, the directory it looked in, its pattern and how many it
-/// found; open, what it returned.
-pub fn search<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
+/// found. Desktop's grouped row is a trigger alone; this one opens to what the search returned,
+/// as Desktop's separate-mode renderer does, an intentional Rune design.
+pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let out = output(c).trim_end();
-    let d = Display::of(s, c, !out.is_empty() && !matches!(c.status, opencode_kit::model::ToolStatus::Pending | opencode_kit::model::ToolStatus::Running));
-    let (title, mut args, count) = match c.name {
-        "list" => (Title::Fixed("List"), Vec::new(), None),
-        "glob" => (Title::Fixed("Glob"), Vec::new(), c.metadata["count"].as_u64()),
-        _ => (Title::Fixed("Grep"), Vec::new(), c.metadata["matches"].as_u64()),
+    let d = Display::of(s, cx, c, !out.is_empty() && !busy(c.status, cx.live));
+    let (title, count) = match c.name {
+        "list" => ("List", None),
+        "glob" => ("Glob", c.metadata["count"].as_u64()),
+        _ => ("Grep", c.metadata["matches"].as_u64()),
     };
+    let mut args = Vec::new();
     if c.name != "list" {
         args.extend(field(c.input, "pattern").map(|x| format!("pattern={x}")));
     }
@@ -99,27 +112,36 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
         args.extend(field(c.input, "include").map(|x| format!("include={x}")));
     }
     let matches = count.filter(|n| *n > 0).map(|n| format!("({n} {})", if n == 1 { "match" } else { "matches" }));
-    let t = Trigger { title, subtitle: Some(directory(s, path(c.input).unwrap_or("/"))), args, matches, ..Default::default() };
+    let searched = path(c.input).or_else(|| s.session_directory(cx.session)).unwrap_or("/");
+    let t = Trigger { title: title.into(), subtitle: directory(s, cx.session, searched), args, matches, ..Default::default() };
     let press = if out.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
-    disclosure(trigger(s, p, c, d, t, press), d, || {
-        let words = readable(p, text(out.to_owned()).font(UI.lh(20.0)).color(p.text).wrap_anywhere()).w_full();
+    disclosure(trigger(s, p, cx, c, d, t, press, None), d, || {
+        // `tool-output`: the result as written (`white-space: pre`), 240 px and scrolling.
+        let words = readable(p, text(out.to_owned()).font(MD).color(p.text).wrap_anywhere()).w_full();
         body(col().key("output").w_full().max_h(MAX_H).scroll(rune::ScrollSpec { stick_bottom: false }).child(words), true, 4.0)
     })
 }
 
-/// A web fetch: "Webfetch" and its URL, which opens in the browser. It has nothing to open.
-pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let d = Display::of(s, c, false);
-    let url = field(c.input, "url").filter(|_| *c.status != opencode_kit::model::ToolStatus::Pending);
-    let t = Trigger { title: Title::Fixed("Webfetch"), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
-    trigger(s, p, c, d, t, Press::None)
+/// A web fetch: "Webfetch" and its URL, a link that opens in the browser. It has nothing to open.
+pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    let d = Display::of(s, cx, c, false);
+    let url = field(c.input, "url").filter(|_| d.phase != super::Phase::Pending);
+    let t = Trigger { title: "Webfetch".into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
+    still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
-/// A URL that opens in the browser, with an arrow out.
+/// A URL that opens in the browser (`webfetch-link`): accent text, underlined under the pointer,
+/// with the way-out icon then too.
 fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
     let to = url.to_owned();
+    let words = el()
+        .key("words")
+        .shrink()
+        .min_w(0.0)
+        .child(text(url.to_owned()).font(UI).color(p.accent).truncate_fade())
+        .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(1.0)).h(1.0).fill(p.accent).group_opacity(0.0, 1.0));
     row()
-        .gap(4.0)
+        .gap(8.0)
         .center_y()
         .shrink()
         .min_w(0.0)
@@ -132,85 +154,93 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
             tx.instant();
             s.open_link(&to, tx);
         })
-        .child(text(url.to_owned()).font(UI).color(p.muted).truncate_fade().shrink().min_w(0.0))
-        .child(icon(&ic::OUTLINE_SQUARE_ARROW, 16.0).color(p.accent).group_opacity(0.0, 1.0))
+        .child(words)
+        .child(icon(&rune_theme_opencode::icons::OUTLINE_SQUARE_ARROW, 16.0).key("out").color(p.accent).group_opacity(0.0, 1.0))
 }
 
-/// A web search: "{Provider} Web Search" and its query; open, the links it found.
-pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let links = urls(output(c));
-    let d = Display::of(s, c, !links.is_empty());
-    let title = match field(c.metadata, "provider") {
-        Some(provider) => Title::Named(format!("{} Web Search", provider_name(provider))),
-        None => Title::Fixed("Web Search"),
-    };
-    let t = Trigger { title, subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
-    let press = if links.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
-    disclosure(trigger(s, p, c, d, t, press), d, || {
+/// "{Provider} Web Search", or "Web Search" (`webSearchProviderLabel`).
+pub fn web_search_title(metadata: &Value) -> String {
+    match field(metadata, "provider") {
+        Some("opencode") => "OpenCode Web Search".to_owned(),
+        Some("tinyfish") => "TinyFish Web Search".to_owned(),
+        Some(other) => format!("{} Web Search", opencode_kit::model::capitalize(other)),
+        None => "Web Search".to_owned(),
+    }
+}
+
+/// A web search: "{Provider} Web Search" and its query; open, the links it found. It opens once
+/// it has finished.
+pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    let out = output(c);
+    let opens = !busy(c.status, cx.live) && !super::plain::urls(out).is_empty();
+    let d = Display::of(s, cx, c, opens);
+    let t = Trigger { title: web_search_title(c.metadata).into(), subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
+    let press = if opens { Press::Toggle(super::key(c.id)) } else { Press::None };
+    disclosure(trigger(s, p, cx, c, d, t, press, None), d, || {
+        let mut links: Vec<&str> = Vec::new();
+        for r in super::plain::urls(out) {
+            if !links.contains(&&out[r.clone()]) {
+                links.push(&out[r]);
+            }
+        }
         let more_key = sub_key(c.id, "more");
         let all = s.expanded().contains(&more_key);
         let shown = if all || links.len() <= LINKS { links.len() } else { LINKS };
         let mut list = col().key("links").w_full().gap(8.0);
         for (n, u) in links.iter().take(shown).enumerate() {
-            list = list.child(row().key(format!("link-{n}")).child(link::<S>(p, u)));
+            list = list.child(row().key(format!("link-{n}")).w_full().child(link::<S>(p, u)));
         }
         if shown < links.len() {
-            list = list.child(
-                text(format!("+{} more", links.len() - shown))
-                    .key("more")
-                    .font(UI)
-                    .color(p.faint)
-                    .role("button")
-                    .on_press_tx(crate::disclosure::toggle::<S>(more_key, format!("tool-{}", c.id))),
-            );
+            let more = format!("+{} more", links.len() - shown);
+            let words = el()
+                .key("more")
+                .role("button")
+                .label(more.clone())
+                .hover_group()
+                .on_press_tx(crate::disclosure::toggle::<S>(more_key, format!("tool-{}", c.id)))
+                .child(text(more.clone()).font(UI).color(p.faint).group_color(p.muted))
+                .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(1.0)).h(1.0).fill(p.muted).group_opacity(0.0, 1.0));
+            list = list.child(row().key("more-row").w_full().child(words));
         }
         body(list, true, 4.0)
     })
 }
 
-/// "OpenCode", "TinyFish", or the provider's id capitalised.
-fn provider_name(id: &str) -> String {
-    match id {
-        "opencode" => "OpenCode".to_owned(),
-        "tinyfish" => "TinyFish".to_owned(),
-        _ => opencode_kit::model::capitalize(id),
+/// Skills in a row of the group: "Loaded release-notes skill", or "Loaded a, b skills" for named
+/// skills one after another, each name shimmering while it loads; "Skill" until its name is known.
+pub fn skill_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
+    let Some(first) = calls.first() else { return col() };
+    let names: Vec<(String, bool)> = calls.iter().filter_map(|c| skill_name(c).map(|n| (n.to_owned(), busy(c.status, cx.live)))).collect();
+    if names.is_empty() {
+        let d = Display::of(s, cx, first, false);
+        let title = if d.busy() { crate::working::shimmer(s, p, "Skill", UI_MED, 0.0) } else { text("Skill").font(UI_MED).color(p.text) };
+        return row().key(format!("tool-{}", first.id)).w_full().h(28.0).center_y().child(title.key("title"));
     }
+    let kind = if names.len() == 1 { "skill" } else { "skills" };
+    loaded_item(s, p, "Loaded", &names, Some(kind)).key(format!("tool-{}", first.id))
 }
 
-/// The distinct `http(s)` URLs in a search's result, in order, without trailing punctuation.
-fn urls(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("http") {
-        let tail = &rest[at..];
-        if !(tail.starts_with("http://") || tail.starts_with("https://")) {
-            rest = &tail[4..];
-            continue;
-        }
-        let end = tail.find(|c: char| c.is_whitespace() || "<>\"'`)]".contains(c)).unwrap_or(tail.len());
-        let url = tail[..end].trim_end_matches(|c: char| "),.;:!?".contains(c));
-        if !out.iter().any(|u| u == url) {
-            out.push(url.to_owned());
-        }
-        rest = &tail[end..];
-    }
-    out
+/// A skill call's name: its metadata's, else what the model asked for.
+pub fn skill_name<'a>(c: &Call<'a>) -> Option<&'a str> {
+    field(c.metadata, "name").or_else(|| field(c.input, "id")).or_else(|| field(c.input, "name"))
 }
 
-/// A skill: "Loaded {name} skill", or "Skill" until its name is known.
-pub fn skill<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let name = field(c.metadata, "name").or_else(|| field(c.input, "id")).or_else(|| field(c.input, "name"));
-    match name {
-        Some(n) => row().key(format!("tool-{}", c.id)).w_full().h(28.0).center_y().child(loaded_item(p, "Loaded", n, Some("skill"))),
-        None => {
-            let d = Display::of(s, c, false);
-            trigger(s, p, c, d, Trigger { title: Title::Fixed("Skill"), ..Default::default() }, Press::None)
+/// "Loaded {values} {kind}": Desktop's `tool-loaded-item`, a value that is still loading
+/// shimmering.
+fn loaded_item<S: TimelineHost>(s: &S, p: &Pal, label: &str, values: &[(String, bool)], kind: Option<&str>) -> El {
+    let value = if values.iter().any(|v| v.1) {
+        let mut r = row().key("value").shrink().min_w(0.0).center_y();
+        for (i, (v, loading)) in values.iter().enumerate() {
+            r = r.child(if *loading { crate::working::shimmer(s, p, v, UI, 0.0) } else { text(v.clone()).font(UI).color(p.text) });
+            if i + 1 < values.len() {
+                r = r.child(text(", ").font(UI).color(p.text));
+            }
         }
-    }
-}
-
-/// "Loaded {value} {kind}": Desktop's `tool-loaded-item`.
-fn loaded_item(p: &Pal, label: &str, value: &str, kind: Option<&str>) -> El {
+        r
+    } else {
+        let joined = values.iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>().join(", ");
+        readable(p, text(joined).key("value").font(UI).color(p.text).truncate_fade()).shrink().min_w(0.0)
+    };
     row()
         .key("loaded")
         .w_full()
@@ -218,15 +248,15 @@ fn loaded_item(p: &Pal, label: &str, value: &str, kind: Option<&str>) -> El {
         .gap(6.0)
         .center_y()
         .child(text(label.to_owned()).font(UI_MED).color(p.text))
-        .child(readable(p, text(value.to_owned()).font(UI).color(p.text).truncate_fade()).shrink().min_w(0.0))
+        .child(value)
         .children(kind.map(|k| text(k.to_owned()).font(UI).color(p.muted).ml(-2.0)))
 }
 
 /// Any other tool, an MCP server's: "Called `tool`", the first of its description, query, URL,
 /// path, pattern or name, and up to three more of its plain inputs.
-pub fn generic<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
+pub fn generic<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     const LABELS: [&str; 6] = ["description", "query", "url", "path", "pattern", "name"];
-    let d = Display::of(s, c, false);
+    let d = Display::of(s, cx, c, false);
     let subtitle = LABELS.iter().find_map(|k| field(c.input, k)).map(str::to_owned);
     let args = c.input.as_object().into_iter().flatten()
         .filter(|(k, _)| !LABELS.contains(&k.as_str()))
@@ -238,6 +268,6 @@ pub fn generic<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
         })
         .take(3)
         .collect();
-    let t = Trigger { title: Title::Named(format!("Called `{}`", c.name)), subtitle, args, ..Default::default() };
-    trigger(s, p, c, d, t, Press::None)
+    let t = Trigger { title: format!("Called `{}`", c.name).into(), subtitle, args, ..Default::default() };
+    still(trigger(s, p, cx, c, d, t, Press::None, None))
 }

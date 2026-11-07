@@ -119,11 +119,15 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("tools-glob-grep", |s| tour(s, Some("c-call_list_tour"), &["tool:call_glob_tour", "tool:call_grep_tour"])),
     ("tools-read", |s| tour(s, Some("c-call_list_tour"), &[])),
     ("tools-web", |s| tour(s, Some("c-call_webfetch_tour"), &["tool:call_websearch_tour"])),
-    ("tools-edit", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_edit_tour"])),
-    ("tools-write", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_write_tour"])),
-    ("tools-patch", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_patch_tour/0", "tool:call_patch_tour/1"])),
+    ("tools-edit", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_edit_tour/file:scripts/release.sh"])),
+    ("tools-write", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_edit_tour/file:ci/toolchain.env"])),
+    ("tools-patch", |s| tour(s, Some("c-call_edit_tour"), &["tool:call_edit_tour/file:ci/build.yml", "tool:call_edit_tour/file:docs/toolchain.md"])),
     ("tools-shell", |s| tour(s, Some("c-call_shell_tour"), &["tool:call_shell_tour"])),
     ("tools-execute", |s| tour(s, Some("c-call_shell_tour"), &["tool:call_execute_tour", "tool:call_execute_tour/output"])),
+    ("tools-execute-code", |s| {
+        let open = format!("execute-details:{}:call_execute_tour", crate::fixture_ids::TOUR);
+        tour(s, Some("c-call_shell_tour"), &[&open]);
+    }),
     ("tools-error", |s| tour(s, Some("c-call_shellerr_tour"), &["tool:call_shellerr_tour"])),
     ("tools-running", tour_running),
 ]);

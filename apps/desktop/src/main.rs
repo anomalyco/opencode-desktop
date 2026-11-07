@@ -577,8 +577,11 @@ impl session_view::TimelineHost for App {
     fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
         self.pickers.model_name(model)
     }
-    fn tool_row_action(&self, p: &palette::Pal, id: &str, name: &str, status: &opencode_kit::model::ToolStatus, input: &Value, metadata: &Value) -> Option<rune::El> {
-        tool_open::action(self, p, id, name, status, input, metadata)
+    fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call, file: Option<&str>) -> Option<rune::El> {
+        tool_open::action(self, p, session, call, file)
+    }
+    fn tool_row_action_version(&self, id: &str) -> u64 {
+        u64::from(self.tool_step_showing(id))
     }
     fn can_open_subagent(&self) -> bool {
         true

@@ -53,7 +53,6 @@ use opencode_kit::client::Request;
 use opencode_kit::model::{Inbox, InboxItem, ModelRef, ToolStatus, Transcript};
 use rune::{Cx, El, ScrollPos, SelectionChange, TextHighlight, Tx, Waker};
 use rune_knobs::Knobs;
-use serde_json::Value;
 
 /// Bundled per-window state for a host that embeds a session timeline.
 #[derive(Default)]
@@ -195,11 +194,18 @@ pub trait TimelineHost: Sized + 'static {
             model.id.clone()
         }
     }
-    /// A button on tool call `id`'s row, shown on hover, that opens what the call touched in the
-    /// host's side panel (a changed file in its review, a read file at its lines); `None` for none.
-    /// A press on the row itself opens the call inline.
-    fn tool_row_action(&self, _p: &palette::Pal, _id: &str, _name: &str, _status: &ToolStatus, _input: &Value, _metadata: &Value) -> Option<El> {
+    /// A button beside call `call`'s row in session `session`, or beside the row of `file`, one of
+    /// the files it changed: it opens what the call touched in
+    /// the host's side panel (a changed file in its review, a read file at its lines); `None` for
+    /// none. A press on the row itself opens the call inline. Rest its glyph hidden with
+    /// `group_opacity(0.0, 1.0)`, so it shows while the tool is hovered and stays pressable.
+    fn tool_row_action(&self, _p: &palette::Pal, _session: &str, _call: &tools::Call, _file: Option<&str>) -> Option<El> {
         None
+    }
+    /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can
+    /// change without the call changing.
+    fn tool_row_action_version(&self, _id: &str) -> u64 {
+        0
     }
 
     fn can_open_subagent(&self) -> bool {
@@ -300,11 +306,13 @@ pub fn read_only<S: TimelineHost>(s: &S, p: &palette::Pal, id: &str, t: Option<&
     timeline_area(s, p, id, t, Vec::new())
 }
 
-/// Modal overlays opened from timeline rows (full-size image viewer and Mermaid diagram lightbox).
+/// Modal overlays opened from timeline rows (full-size image viewer, Mermaid diagram lightbox and
+/// Execute's View code dialog).
 pub fn overlays<S: TimelineHost>(s: &S, p: &palette::Pal, cx: &mut Cx<S>) -> Vec<El> {
     let mut out = Vec::new();
     out.extend(images::viewer(s, p, cx));
     out.extend(diagram::view(s, p, cx));
+    out.extend(tools::details_overlay(s, p, cx));
     out
 }
 

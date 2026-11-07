@@ -1,77 +1,93 @@
-//! A failed call: Desktop's `ToolErrorCard`. Shut, the tool's name, what it was working on, and
-//! the error's gist in red; open, the whole error and a Copy error button.
+//! A failed call: Desktop's `ToolErrorCard`. Shut, a 24 pt trigger of the warning mark, the
+//! tool's name, what it was working on, the error's gist in red and an arrow; open, the whole
+//! error and a Copy error button, with a subtitle the trigger had to cut moved above it.
 
-use rune::{El, Tx, col, icon, row, text};
-use rune_theme_opencode::icons as ic;
+use rune::{El, Tx, col, el, icon, row, text};
 
-use super::{Call, Display, directory, field, file_name, files_count, path};
+use super::{Call, directory, field, file_name, files_count, path};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CODE, INSTANT, UI, UI_MED, chevron, readable};
+use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
-pub fn card<S: TimelineHost>(s: &S, p: &Pal, c: &Call) -> El {
-    let d = Display::of(s, c, true);
-    let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
-    let cleaned = raw.trim_start_matches("Error:").trim().to_owned();
+/// The card of failed call `c` in session `session`.
+pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
     let k = super::key(c.id);
+    let open = s.expanded().contains(&k);
+    let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
+    let cleaned = raw.trim_start().strip_prefix("Error:").unwrap_or(raw).trim().to_owned();
     let id = format!("tool-{}", c.id);
-    let mut r = row()
+    let title = name(c);
+    let shell = matches!(c.name, "shell" | "bash");
+    let sub_font = if shell { TOOL_CODE.lh(16.0) } else { UI };
+    let sub = subtitle(s, session, c);
+    let gist = summary(c.name, &cleaned);
+    // Measured as the shut row lays it out: a subtitle it can't show whole moves into the body.
+    let clipped = sub.as_deref().is_some_and(|t| {
+        let room = super::lists::column(session) - 24.0 - 16.0 - 8.0 - rune::text::measure(&title, &[], UI_MED, None).0 - 12.0 - 20.0;
+        t.contains('\n') || rune::text::measure(t, &[], sub_font, None).0 + rune::text::measure(&gist, &[], UI, None).0 > room
+    });
+    let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI_MED).color(p.text));
+    if let Some(t) = sub.as_deref().filter(|_| !(open && clipped)) {
+        let first = t.lines().next().unwrap_or("").to_owned();
+        words = words.child(readable(p, text(first).key("subtitle").font(sub_font).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+    }
+    if !open {
+        words = words.child(text(gist).key("summary").font(UI).color(p.danger).truncate_fade().shrink().min_w(0.0));
+    }
+    let button = row()
         .key(id.clone())
-        .w_full()
-        .h(28.0)
-        .gap(6.0)
+        .h(24.0)
+        .gap(8.0)
         .center_y()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
         .role("button")
-        .label(format!("{} failed", name(c)))
-        .hover_group()
+        .label(format!("{title} failed"))
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, id))
-        .child(icon(&ic::OUTLINE_HEXAGONAL_WARNING, 16.0).key("icon").color(p.danger))
-        .child(text(name(c)).key("title").font(UI_MED).color(p.text));
-    if let Some(sub) = subtitle(s, c) {
-        let font = if matches!(c.name, "shell" | "bash") { CODE.lh(16.0) } else { UI };
-        r = r.child(readable(p, text(sub).key("subtitle").font(font).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+        .child(el().key("icon").size(16.0, 16.0).center().child(icon(&rune_theme_opencode::icons::OUTLINE_HEXAGONAL_WARNING, 16.0).color(p.danger)))
+        .child(words)
+        .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));
+    let mut line = row().key("line").w_full().min_h(28.0).gap(2.0).center_y().child(button);
+    if let Some(action) = s.tool_row_action(p, session, c, None) {
+        line = line.child(row().key("actions").child(action));
     }
-    if !d.open() {
-        r = r.child(text(summary(c.name, &cleaned)).key("summary").font(UI).color(p.danger).truncate_fade().shrink().min_w(0.0));
-    }
-    if let Some(action) = s.tool_row_action(p, c.id, c.name, c.status, c.input, c.metadata) {
-        r = r.child(row().key("action").group_opacity(0.0, 1.0).child(action));
-    }
-    r = r.child(icon(chevron(d.open()), 14.0).key("chevron").color(p.icon_faint));
-    let card = col().key("error-card").w_full().hover_group().child(r);
-    if !d.open() {
+    let card = col().key("error-card").w_full().hover_group().child(line);
+    if !open {
         return card;
     }
     let copy_key = format!("copy-tool-{}-error", c.id);
+    let done = crate::copied::is_copied(s, &copy_key);
+    let label = if done { "Copied" } else { "Copy error" };
     let copied = cleaned.clone();
     let copy = row()
         .key("copy")
         .role("button")
-        .label("Copy error")
-        .help("Copy error")
+        .label(label)
+        .help(label)
         .size(24.0, 24.0)
         .center()
-        .radius(4.0)
+        .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
         .group_opacity(0.0, 1.0)
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            tx.copy(copied.clone());
-            crate::copied::mark_copied(s, copy_key.clone(), tx);
+        .on_press_tx({
+            let copy_key = copy_key.clone();
+            move |s: &mut S, tx: &mut Tx| {
+                tx.copy(copied.clone());
+                crate::copied::mark_copied(s, copy_key.clone(), tx);
+            }
         })
-        .child(crate::copied::glyph(s, &format!("copy-tool-{}-error", c.id), 14.0, p.icon_muted));
-    card.child(
-        col()
-            .key("error")
-            .w_full()
-            .pl(24.0)
-            .pr(40.0)
-            .pb(4.0)
-            .child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).w_full())
-            .child(copy.pin(None, Some(0.0), Some(0.0), None)),
-    )
+        .child(crate::copied::glyph_of(s, &copy_key, 16.0, p.text, &rune_theme_opencode::icons::COPY));
+    let mut content = col().key("error").w_full().pl(24.0).pr(40.0);
+    if let Some(t) = sub.filter(|_| clipped) {
+        let full = col().key("subtitle-full").w_full().max_h(super::console::MAX_H).mb(4.0).scroll(rune::ScrollSpec { stick_bottom: false });
+        content = content.child(full.child(readable(p, text(t).font(if shell { TOOL_CODE } else { UI.lh(20.0) }).color(p.muted).wrap_anywhere()).w_full()));
+    }
+    content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
+    card.child(content)
 }
 
 /// The tool's name, as its trigger says it.
@@ -90,23 +106,19 @@ fn name(c: &Call) -> String {
         "skill" => "Skill",
         "patch" | "apply_patch" => "Patch",
         "question" => "Questions",
-        "websearch" => {
-            return match field(c.metadata, "provider") {
-                Some(provider) => format!("{} Web Search", opencode_kit::model::capitalize(provider)),
-                None => "Web Search".to_owned(),
-            };
-        }
+        "websearch" => return super::lists::web_search_title(c.metadata),
         other => return other.to_owned(),
     };
     fixed.to_owned()
 }
 
-/// What the call was working on, as its own trigger's subtitle says it (`toolErrorSubtitle`).
-fn subtitle<S: TimelineHost>(s: &S, c: &Call) -> Option<String> {
+/// What the call was working on, as its own trigger's subtitle says it (`toolErrorSubtitle`),
+/// whole: the trigger shows its first line.
+fn subtitle<S: TimelineHost>(s: &S, session: &str, c: &Call) -> Option<String> {
     let text = match c.name {
         "shell" | "bash" => field(c.input, "command").or_else(|| field(c.metadata, "command"))?.to_owned(),
         "read" | "edit" | "multiedit" | "write" => file_name(path(c.input)?).to_owned(),
-        "list" | "glob" | "grep" => directory(s, path(c.input).unwrap_or("/")),
+        "list" | "glob" | "grep" => directory(s, session, path(c.input).unwrap_or(s.session_directory(session).unwrap_or("/")))?,
         "webfetch" => field(c.input, "url")?.to_owned(),
         "websearch" => field(c.input, "query")?.to_owned(),
         "skill" => field(c.metadata, "name").or_else(|| field(c.input, "id")).or_else(|| field(c.input, "name"))?.to_owned(),
@@ -117,15 +129,21 @@ fn subtitle<S: TimelineHost>(s: &S, c: &Call) -> Option<String> {
             }
             files_count(n)
         }
+        "question" => match c.input["questions"].as_array().map_or(0, Vec::len) {
+            0 => return None,
+            1 => "1 question".to_owned(),
+            n => format!("{n} questions"),
+        },
         "subagent" | "task" => field(c.input, "description")?.to_owned(),
         _ => return None,
     };
-    Some(text.lines().next().unwrap_or("").to_owned())
+    Some(text).filter(|t| !t.is_empty())
 }
 
 /// The error's gist: what comes before its first ": ", capitalised, without the tool's own name
 /// in front; "Failed" when there's nothing.
 pub fn summary(tool: &str, cleaned: &str) -> String {
+    let tool = if tool == "bash" { "shell" } else { tool };
     let tail = cleaned.strip_prefix(&format!("{tool} ")).unwrap_or(cleaned);
     let head = tail.split(": ").next().unwrap_or("").trim();
     let head = head.lines().next().unwrap_or("").trim();
