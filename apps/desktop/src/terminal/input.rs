@@ -84,8 +84,10 @@ pub fn dispatch_key(
 
     // Other ⌘ chords bubble up (`⌘J`, `⌘W`, `⌘T`, `⌘K`, `⌘1..9`, `⌘,`), as Desktop's
     // `consumeTerminalMetaKey` keeps them from the shell. Off macOS Ctrl is the shell's key, so a
-    // Ctrl chord leaves only when it is one of the app's commands (Ctrl+T, Ctrl+K, Ctrl+`).
-    if crate::keymap::logo_held(m) || (m.cmd && crate::keymap::takes_from_pane(ev, tx)) {
+    // Ctrl chord leaves only when it is one of the app's commands (Ctrl+T, Ctrl+K, Ctrl+`). Alt
+    // chords do the same: Desktop's keymap listens on the document's capture phase, so its
+    // Alt+Up and Alt+Down switch sessions before the terminal sees them.
+    if crate::keymap::logo_held(m) || ((m.cmd || m.alt) && crate::keymap::takes_from_pane(ev, tx)) {
         return KeyOutcome::Ignored;
     }
 
