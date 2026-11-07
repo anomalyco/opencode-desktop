@@ -17,11 +17,27 @@ path = "src/bin/opencode_browser_engine_helper.rs"
 base64 = "0.22"
 cef = { version = "156.2.0", default-features = false }
 cef-dll-sys = "156.2.0"
-libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSResponder"] }
 objc2-foundation = "0.3.2"
+
+# Windows: the app's socket (AF_UNIX, Windows 10 1803 and later) and D3D11 shared-texture frames.
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1.1"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }

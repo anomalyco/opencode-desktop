@@ -17,8 +17,8 @@ use cef::{
 use serde_json::{Value, json};
 
 use crate::handlers::{
-    TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, ViewRectState, ascii_vk,
-    cef_mods, mac_key_code, named_codes,
+    FrameRing, TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, ViewRectState, ascii_vk,
+    cef_mods, event_flag, mac_key_code, named_codes, native_key_code,
 };
 use crate::profile::Profile;
 use crate::wire::{
@@ -32,7 +32,8 @@ pub struct CefRuntime {
 }
 
 impl CefRuntime {
-    pub fn initialize() -> Self {
+    /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on.
+    pub fn initialize(adapter_luid: Option<(i32, u32)>) -> Self {
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
 
@@ -48,16 +49,34 @@ impl CefRuntime {
 
         let profile = Profile::open();
 
+        #[cfg(unix)]
         let exe_str = std::env::current_exe()
             .ok()
             .and_then(|p| p.into_os_string().into_string().ok())
             .unwrap_or_else(|| "opencode-browser-engine".into());
+        #[cfg(unix)]
         let c_exe = std::ffi::CString::new(exe_str).unwrap();
+        #[cfg(unix)]
         let argv = [c_exe.as_ptr()];
+        #[cfg(unix)]
         let main_args = cef::MainArgs { argc: 1, argv: argv.as_ptr() as *mut *mut _ };
+        #[cfg(windows)]
+        let main_args = cef::args::Args::new().as_main_args().clone();
 
-        let mut app = SidecarCefApp::new();
+        // macOS finds its helper apps by bundle convention; elsewhere CEF would start this
+        // executable again for its renderer and GPU processes, so point it at the helper.
+        #[cfg(not(target_os = "macos"))]
+        let browser_subprocess_path = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.with_file_name(format!("opencode-browser-engine-helper{}", std::env::consts::EXE_SUFFIX)))
+            .map(|helper| CefString::from(helper.to_string_lossy().as_ref()))
+            .unwrap_or_default();
+        #[cfg(target_os = "macos")]
+        let browser_subprocess_path = CefString::default();
+
+        let mut app = SidecarCefApp::new(adapter_luid.map(|(high, low)| format!("{high},{low}")));
         let settings = Settings {
+            browser_subprocess_path,
             windowless_rendering_enabled: 1,
             external_message_pump: 1,
             no_sandbox: 1,
@@ -88,7 +107,10 @@ impl Drop for CefRuntime {
 }
 
 wrap_app! {
-    struct SidecarCefApp {}
+    struct SidecarCefApp {
+        // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
+        adapter_luid: Option<String>,
+    }
     impl App {
         fn on_before_command_line_processing(
             &self,
@@ -101,6 +123,9 @@ wrap_app! {
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
+            if let Some(luid) = &self.adapter_luid {
+                cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
+            }
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
@@ -143,6 +168,7 @@ struct ManagedTab {
     internal_picked: Arc<Mutex<Vec<i64>>>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
+    frames: FrameRing,
 }
 
 pub struct EngineManager {
@@ -151,21 +177,42 @@ pub struct EngineManager {
     out_tx: Sender<EngineMsg>,
     next_cdp_id: AtomicI32,
     next_eref: u64,
+    /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
+    #[cfg(windows)]
+    gpu: Option<Arc<crate::d3d_frames::Gpu>>,
 }
 
 impl EngineManager {
-    pub fn new(out_tx: Sender<EngineMsg>) -> Self {
+    pub fn new(out_tx: Sender<EngineMsg>, adapter_luid: Option<(i32, u32)>) -> Self {
+        #[cfg(not(windows))]
+        let _ = adapter_luid;
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
             out_tx,
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
+            #[cfg(windows)]
+            gpu: crate::d3d_frames::Gpu::new(adapter_luid),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.tabs.is_empty()
+    }
+
+    /// Windows: repaints each tab that dropped a frame while the app had every one unread,
+    /// once it has read one.
+    pub fn poll_frames(&mut self) {
+        #[cfg(windows)]
+        for t in self.tabs.values() {
+            let Some(ring) = &t.frames else { continue };
+            let mut ring = ring.lock().unwrap();
+            if ring.dropped && ring.has_free() {
+                ring.dropped = false;
+                t.host.invalidate(PaintElementType::default());
+            }
+        }
     }
 
     pub fn poll_picks(&mut self) {
@@ -219,6 +266,8 @@ impl EngineManager {
     pub fn handle(&mut self, msg: HostMsg) -> bool {
         match msg {
             HostMsg::Hello { mach_service, .. } => {
+                #[cfg(not(target_os = "macos"))]
+                let _ = mach_service;
                 #[cfg(target_os = "macos")]
                 if let Some(name) = mach_service {
                     let port = crate::handlers::lookup_mach_port(&name);
@@ -236,6 +285,10 @@ impl EngineManager {
                         .collect();
                     let _ = self.out_tx.send(EngineMsg::TabList { tabs: list });
                     for t in self.tabs.values() {
+                        #[cfg(windows)]
+                        if let Some(ring) = &t.frames {
+                            ring.lock().unwrap().forget_reads();
+                        }
                         t.host.invalidate(PaintElementType::default());
                     }
                 }
@@ -331,15 +384,15 @@ impl EngineManager {
                     let (btn, flag): (MouseButtonType, u32) = match button {
                         PointerBtn::Secondary => (
                             sys::cef_mouse_button_type_t::MBT_RIGHT.into(),
-                            sys::cef_event_flags_t::EVENTFLAG_RIGHT_MOUSE_BUTTON.0,
+                            event_flag(sys::cef_event_flags_t::EVENTFLAG_RIGHT_MOUSE_BUTTON),
                         ),
                         PointerBtn::Middle => (
                             sys::cef_mouse_button_type_t::MBT_MIDDLE.into(),
-                            sys::cef_event_flags_t::EVENTFLAG_MIDDLE_MOUSE_BUTTON.0,
+                            event_flag(sys::cef_event_flags_t::EVENTFLAG_MIDDLE_MOUSE_BUTTON),
                         ),
                         PointerBtn::Primary => (
                             sys::cef_mouse_button_type_t::MBT_LEFT.into(),
-                            sys::cef_event_flags_t::EVENTFLAG_LEFT_MOUSE_BUTTON.0,
+                            event_flag(sys::cef_event_flags_t::EVENTFLAG_LEFT_MOUSE_BUTTON),
                         ),
                     };
                     if up {
@@ -363,6 +416,7 @@ impl EngineManager {
                         y: y.round() as i32,
                         modifiers: cef_mods(mods) | t.held_buttons,
                     };
+                    let (dx, dy) = crate::handlers::wheel_delta(dx, dy);
                     t.host.send_mouse_wheel_event(Some(&ev), dx.round() as i32, dy.round() as i32);
                 }
             }
@@ -520,19 +574,31 @@ impl EngineManager {
             zoom: 1.0,
             cursor: CursorKind::Default,
         }));
+        #[cfg(windows)]
+        let frames: FrameRing = self
+            .gpu
+            .clone()
+            .map(|gpu| Arc::new(Mutex::new(crate::d3d_frames::TabFrames::new(gpu, tab_id))));
+        #[cfg(not(windows))]
+        let frames: FrameRing = ();
+        #[cfg(windows)]
+        let shared_texture = frames.is_some();
+        #[cfg(not(windows))]
+        let shared_texture = cfg!(target_os = "macos");
         let render = TabRenderHandler::new(
             tab_id,
             view_state.clone(),
             self.mach_port.clone(),
             self.out_tx.clone(),
             Arc::new(AtomicU64::new(0)),
+            frames.clone(),
         );
         let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
         let load = TabLoadHandler::new(snap.clone(), self.out_tx.clone());
         let mut client = SidecarTabClient::new(render, display, load);
 
-        let mut win_info = WindowInfo::default().set_as_windowless(std::ptr::null_mut());
-        win_info.shared_texture_enabled = i32::from(cfg!(target_os = "macos"));
+        let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
+        win_info.shared_texture_enabled = i32::from(shared_texture);
         win_info.external_begin_frame_enabled = 0;
 
         let browser_settings = BrowserSettings {
@@ -583,6 +649,7 @@ impl EngineManager {
                 internal_picked,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
+                frames,
             },
         );
     }
@@ -604,7 +671,7 @@ fn send_key(
     if let Some(s) = text {
         for ch in s.chars() {
             let vk = ascii_vk(ch);
-            let mc = mac_key_code(ch);
+            let mc = native_key_code(vk, mac_key_code(ch));
             if down {
                 let raw_down = KeyEvent {
                     type_: KeyEventType::from(sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN),
@@ -643,6 +710,7 @@ fn send_key(
     }
     let Some(name) = named else { return };
     let Some((vk, mc, ch)) = named_codes(name) else { return };
+    let mc = native_key_code(vk, mc);
     let ty = if down {
         sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN
     } else {

@@ -95,4 +95,8 @@ pub enum EngineMsg {
     CdpResponse { tab_id: u64, request_id: u64, ok: bool, result: Value },
     CdpEvent { tab_id: u64, method: String, params: Value, session_id: Option<String> },
     CpuFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, bgra_b64: String },
+    /// Windows: a finished BGRA frame in the named D3D11 shared texture. The app signals the
+    /// named shared fence to `frame_id` once it has read it, and the engine reuses the texture
+    /// only after that.
+    SharedFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String },
 }

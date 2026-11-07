@@ -1,6 +1,7 @@
 //! CEF display, load, DevTools observer, and Mach `IOSurface` frame sender.
 
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -162,6 +163,18 @@ mod mach_tx {
 #[cfg(target_os = "macos")]
 pub use mach_tx::lookup as lookup_mach_port;
 
+/// Windows: the tab's D3D11 frame ring; None when the engine has no D3D11 device (CPU frames).
+#[cfg(windows)]
+pub type FrameRing = Option<Arc<Mutex<crate::d3d_frames::TabFrames>>>;
+#[cfg(not(windows))]
+pub type FrameRing = ();
+
+/// The native cursor CEF hands `OnCursorChange` (unused: the app draws its own cursor).
+#[cfg(windows)]
+type NativeCursor = sys::HCURSOR;
+#[cfg(not(windows))]
+type NativeCursor = *mut u8;
+
 #[derive(Clone, Debug)]
 pub struct ViewRectState {
     pub width_pt: f32,
@@ -176,6 +189,7 @@ wrap_render_handler! {
         mach_port: Arc<AtomicU32>,
         out_tx: Sender<EngineMsg>,
         frame_seq: Arc<AtomicU64>,
+        frames: FrameRing,
     }
 
     impl RenderHandler {
@@ -232,6 +246,23 @@ wrap_render_handler! {
                     );
                 }
             }
+            #[cfg(windows)]
+            if let Some(ring) = &self.frames {
+                let handle = windows::Win32::Foundation::HANDLE(info.shared_texture_handle);
+                let copied = ring.lock().unwrap().copy(handle, id);
+                if let Some(f) = copied {
+                    let _ = self.out_tx.send(EngineMsg::SharedFrame {
+                        tab_id: self.tab_id,
+                        frame_id: id,
+                        width: f.width,
+                        height: f.height,
+                        texture: f.texture,
+                        release_fence: f.release_fence,
+                    });
+                }
+            }
+            #[cfg(not(any(target_os = "macos", windows)))]
+            let _ = (id, &self.frames);
         }
 
         fn on_paint(
@@ -295,7 +326,7 @@ wrap_display_handler! {
         fn on_cursor_change(
             &self,
             _browser: Option<&mut Browser>,
-            _cursor: *mut u8,
+            _cursor: NativeCursor,
             type_: CursorType,
             _custom: Option<&CursorInfo>,
         ) -> i32 {
@@ -405,21 +436,68 @@ wrap_dev_tools_message_observer! {
     }
 }
 
+/// An event flag as the `u32` CEF's event structs take (the flag enum is `i32` on Windows).
+#[allow(clippy::unnecessary_cast)]
+pub fn event_flag(flag: sys::cef_event_flags_t) -> u32 {
+    flag.0 as u32
+}
+
 pub fn cef_mods(bits: u8) -> u32 {
     let mut flags = 0u32;
     if bits & MOD_SHIFT != 0 {
-        flags |= sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
+        flags |= event_flag(sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN);
     }
     if bits & MOD_CTRL != 0 {
-        flags |= sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
+        flags |= event_flag(sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN);
     }
     if bits & MOD_ALT != 0 {
-        flags |= sys::cef_event_flags_t::EVENTFLAG_ALT_DOWN.0;
+        flags |= event_flag(sys::cef_event_flags_t::EVENTFLAG_ALT_DOWN);
     }
     if bits & MOD_CMD != 0 {
-        flags |= sys::cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0;
+        flags |= event_flag(sys::cef_event_flags_t::EVENTFLAG_COMMAND_DOWN);
     }
     flags
+}
+
+/// The wheel delta CEF takes for the app's scroll in points: points elsewhere, but on Windows
+/// `WHEEL_DELTA` (120) units that CEF turns into the system's lines (or characters, sideways) of
+/// 100/3 px each. Converted so the page scrolls by the points the app reports, as on macOS.
+#[cfg(not(windows))]
+pub fn wheel_delta(dx: f32, dy: f32) -> (f32, f32) {
+    (dx, dy)
+}
+
+#[cfg(windows)]
+pub fn wheel_delta(dx: f32, dy: f32) -> (f32, f32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SPI_GETWHEELSCROLLCHARS, SPI_GETWHEELSCROLLLINES, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
+    };
+    let setting = |action| {
+        let mut value = 3u32;
+        let read = unsafe {
+            SystemParametersInfoW(action, 0, Some((&raw mut value).cast()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0))
+        };
+        // WHEEL_PAGESCROLL (u32::MAX) pages instead of lines; keep the default then.
+        if read.is_ok() && (1..1000).contains(&value) { value as f32 } else { 3.0 }
+    };
+    let units = |px: f32, per_notch: f32| px * 120.0 / (per_notch * 100.0 / 3.0);
+    (units(dx, setting(SPI_GETWHEELSCROLLCHARS)), units(dy, setting(SPI_GETWHEELSCROLLLINES)))
+}
+
+/// The key's `native_key_code`: a macOS virtual key code, or on Windows the `WM_KEYDOWN`
+/// `lParam` with the key's scan code, which gives the page its `KeyboardEvent.code`.
+#[cfg(not(windows))]
+pub fn native_key_code(_vk: i32, mac: i32) -> i32 {
+    mac
+}
+
+#[cfg(windows)]
+pub fn native_key_code(vk: i32, _mac: i32) -> i32 {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{MAPVK_VK_TO_VSC_EX, MapVirtualKeyW};
+    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC_EX) };
+    // Extended keys (arrows, Home, Delete…) come back as 0xE0nn; lParam bit 24 marks them.
+    let extended = u32::from(scan & 0xFF00 == 0xE000) << 24;
+    (((scan & 0xFF) << 16) | extended | 1) as i32
 }
 
 pub fn ascii_vk(ch: char) -> i32 {

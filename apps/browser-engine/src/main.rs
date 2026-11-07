@@ -1,8 +1,11 @@
 //! Standalone `OpenCode Browser Engine` CEF 156 sidecar daemon.
 //!
-//! Listens on a private Unix domain socket, streams 2x Retina `IOSurface` frames over Mach ports,
-//! survives UI hot-reloads (15s reconnect grace window), and exits cleanly after 60s with 0 tabs.
+//! Listens on a private Unix domain socket (AF_UNIX on Windows too), streams GPU frames (2x
+//! Retina `IOSurface`s over Mach ports on macOS, D3D11 shared textures on Windows), survives UI
+//! hot-reloads (15s reconnect grace window), and exits cleanly after 60s with 0 tabs.
 
+#[cfg(windows)]
+mod d3d_frames;
 mod engine;
 mod handlers;
 #[cfg(target_os = "macos")]
@@ -11,12 +14,16 @@ mod profile;
 mod wire;
 
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use uds_windows::{UnixListener, UnixStream};
 
 use crate::engine::{CefRuntime, EngineManager};
 use crate::wire::{EngineMsg, HostMsg};
@@ -51,7 +58,14 @@ fn main() {
     let listener = UnixListener::bind(&sock_path).expect("bind browser-engine unix socket");
     listener.set_nonblocking(true).expect("set_nonblocking");
 
-    let _cef = CefRuntime::initialize();
+    // The app's GPU (`HIGH,LOW` LUID halves): Chromium renders on it, so its frames open there.
+    let adapter_luid = args
+        .iter()
+        .position(|a| a == "--adapter-luid")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.split_once(','))
+        .and_then(|(high, low)| Some((high.parse::<i32>().ok()?, low.parse::<u32>().ok()?)));
+    let _cef = CefRuntime::initialize(adapter_luid);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<HostMsg>();
     let (out_tx, out_rx) = mpsc::channel::<EngineMsg>();
@@ -82,7 +96,7 @@ fn main() {
             .expect("spawn engine-sock-tx");
     }
 
-    let mut manager = EngineManager::new(out_tx);
+    let mut manager = EngineManager::new(out_tx, adapter_luid);
     let mut disconnected_since: Option<Instant> = Some(Instant::now());
     let mut empty_since: Option<Instant> = Some(Instant::now());
 
@@ -130,6 +144,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         mac_app::pump_run_loop(0.004);
         manager.poll_picks();
+        manager.poll_frames();
 
         // Reconnect grace window: if UI exited without sending Shutdown, stay up 15s for hot-swap.
         if !client_connected.load(Ordering::SeqCst) {
@@ -157,10 +172,17 @@ fn main() {
     let _ = std::fs::remove_file(&sock_path);
 }
 
+#[cfg(unix)]
 fn default_socket_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let uid = unsafe { libc::geteuid() };
     PathBuf::from(home)
         .join("Library/Caches/co.anomaly.opencode")
         .join(format!("browser-{uid}.sock"))
+}
+
+/// The app always passes `--socket`; this is for running the engine by hand.
+#[cfg(windows)]
+fn default_socket_path() -> PathBuf {
+    std::env::temp_dir().join("co.anomaly.opencode").join("browser.sock")
 }
