@@ -27,7 +27,8 @@ enum Source {
 /// Where a source's picture is.
 enum Slot {
     Fetching,
-    Decoding(Image),
+    /// The decoding picture and its encoded bytes, which a drag out writes to a file.
+    Decoding(Image, Arc<[u8]>),
     Failed,
 }
 
@@ -80,6 +81,14 @@ impl MdStore {
         self.get(image_source(directory, src)?)
     }
 
+    /// Markdown image `src`'s encoded bytes, once they've landed.
+    pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
+        match self.slots.borrow().get(&image_source(directory, src)?)? {
+            Slot::Decoding(_, bytes) => Some(bytes.clone()),
+            Slot::Fetching | Slot::Failed => None,
+        }
+    }
+
     /// The favicon to draw before a link to `url`, once it has decoded: Google's favicon
     /// service for a public host, as Desktop asks; `None` for GitHub (its mark), private and
     /// local hosts, and until it loads.
@@ -93,7 +102,7 @@ impl MdStore {
         self.land();
         if let Some(slot) = self.slots.borrow().get(&source) {
             return match slot {
-                Slot::Decoding(image) => Some(image.clone()),
+                Slot::Decoding(image, _) => Some(image.clone()),
                 Slot::Fetching | Slot::Failed => None,
             };
         }
@@ -109,7 +118,10 @@ impl MdStore {
         for (source, bytes) in fetched {
             let slot = match bytes {
                 Ok(bytes) => match self.cache() {
-                    Some(cache) => Slot::Decoding(cache.load(bytes)),
+                    Some(cache) => {
+                        let bytes: Arc<[u8]> = bytes.into();
+                        Slot::Decoding(cache.load(bytes.clone()), bytes)
+                    }
                     None => Slot::Failed,
                 },
                 Err(_) => Slot::Failed,

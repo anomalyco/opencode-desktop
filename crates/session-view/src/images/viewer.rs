@@ -2,7 +2,7 @@ use rune::{Cx, El, Image, Spring, SpringPair, SurfaceFit, Transition, el};
 
 use opencode_kit::model::Attachment;
 
-use super::identity;
+use super::{Dragged, draggable, identity};
 use crate::TimelineHost;
 use crate::palette::Pal;
 
@@ -15,6 +15,8 @@ pub struct Viewing {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) image: Image,
+    /// What dragging the open image out carries.
+    pub(crate) dragged: Dragged,
 }
 
 /// Desktop flies on a 0.3 s spring launched with a push, as a spring from rest starts slowly;
@@ -25,14 +27,15 @@ pub(crate) fn flight<S: TimelineHost>(s: &S) -> Spring {
 
 /// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
 /// apart, so the thumbnail leaves the tree) holds its place, and the image flies out of it and
-/// back into it.
+/// back into it. Dragged past a few points, it goes out as its image's file instead.
 pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, id: String, f: &Attachment, image: Image) -> El {
     if s.media_store().viewing.as_ref().is_some_and(|v| v.id == id) {
         return held;
     }
-    let name = f.name.clone();
+    let (name, dragged) = (f.name.clone(), Dragged::File(f.clone()));
+    let thumb = draggable::<S>(thumb, dragged.clone());
     thumb.matched(id.clone()).token_motion(flight(s)).on_press(move |s: &mut S| {
-        s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
+        s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() });
     })
 }
 
@@ -40,7 +43,7 @@ pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, id: String, f: &Attach
 /// storybook's images story). False while its image isn't loaded.
 pub fn view_image<S: TimelineHost>(s: &mut S, key: &str, f: &Attachment) -> bool {
     let Some(image) = s.media_store().image(f) else { return false };
-    s.media_store_mut().viewing = Some(Viewing { id: format!("{key}:{}", identity(f)), name: f.name.clone(), image });
+    s.media_store_mut().viewing = Some(Viewing { id: format!("{key}:{}", identity(f)), name: f.name.clone(), image, dragged: Dragged::File(f.clone()) });
     true
 }
 
@@ -63,7 +66,7 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let [x, y, w, h] = shown(v.image.size(), win_w, win_h);
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
-    let image = el()
+    let image = draggable::<S>(el(), v.dragged.clone())
         .key("image-viewer")
         .role("dialog")
         .label(v.name.clone())

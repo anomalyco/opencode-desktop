@@ -2,6 +2,7 @@
 //! prepared-image cache behind a transcript's thumbnails.
 
 pub mod bento;
+pub mod drag;
 pub mod markdown;
 pub mod viewer;
 
@@ -17,6 +18,7 @@ use opencode_kit::model::{Attachment, Message, Transcript};
 use crate::TimelineHost;
 use crate::palette::Pal;
 
+pub use drag::{Dragged, draggable};
 pub use viewer::{Viewing, opens, shown, view_image, viewer};
 
 /// Newest message window checked by `transcript_ready` (matches `session_pages::LATEST`).
@@ -38,6 +40,8 @@ pub struct MediaStore {
     refs: RefCell<HashMap<String, Image>>,
     /// A ref's header dimensions, so its box takes the image's own shape.
     ref_sizes: RefCell<HashMap<String, [u32; 2]>>,
+    /// A ref's encoded bytes, so dragging it out writes the image's own file.
+    ref_bytes: RefCell<HashMap<String, Arc<[u8]>>>,
     /// SHA-256 (a ref's hash) of inline images, by image id, computed only when a ref misses.
     shas: RefCell<HashMap<rune::ImageId, String>>,
     /// Pictures for markdown in replies: images and link favicons.
@@ -297,12 +301,12 @@ impl MediaStore {
             }
             // A page read swaps a live event's inline image for its ref: keep the pixels shown.
             if let Some(p) = self.inline_copy(hash) {
-                self.adopt_ref(hash, p.image.clone(), p.size);
+                self.adopt_ref(hash, p.image.clone(), p.size, p.bytes.clone());
                 return Some(p.image);
             }
             let Fetched::Ready(bytes) = self.media.get(hash, self.waker.as_ref()) else { return None };
             let img = self.load(bytes.clone());
-            self.adopt_ref(hash, img.clone(), dimensions(&bytes));
+            self.adopt_ref(hash, img.clone(), dimensions(&bytes), bytes.clone());
             return Some(img);
         }
         let key = (a.bytes.as_ptr() as usize, a.bytes.len());
@@ -314,8 +318,9 @@ impl MediaStore {
         Some(img)
     }
 
-    fn adopt_ref(&self, hash: &str, img: Image, size: Option<[u32; 2]>) {
+    fn adopt_ref(&self, hash: &str, img: Image, size: Option<[u32; 2]>, bytes: Arc<[u8]>) {
         self.refs.borrow_mut().insert(hash.to_owned(), img);
+        self.ref_bytes.borrow_mut().insert(hash.to_owned(), bytes);
         if let Some(size) = size { self.ref_sizes.borrow_mut().insert(hash.to_owned(), size); }
         self.media.state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash.to_owned(), Fetched::Decoded);
     }
@@ -329,6 +334,14 @@ impl MediaStore {
         images.values().find(|p| {
             shas.entry(p.image.id()).or_insert_with(|| format!("{:x}", Sha256::digest(&p.bytes))) == hash
         }).cloned()
+    }
+
+    /// An attachment's encoded bytes: inline ones as they are, a ref's once they've landed.
+    pub fn bytes(&self, a: &Attachment) -> Option<Arc<[u8]>> {
+        match &a.media {
+            Some(hash) => self.ref_bytes.borrow().get(hash).cloned(),
+            None => (!a.bytes.is_empty()).then(|| a.bytes.clone()),
+        }
     }
 
     /// A ref's fetch, once `image` has asked for it (None for inline files).
@@ -374,8 +387,10 @@ pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::M
             }
             let name = if f.alt.is_empty() { "Image preview".to_owned() } else { f.alt.to_owned() };
             let image = f.image.clone();
+            let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
+            let img = draggable::<S>(img, dragged.clone());
             img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press(move |s: &mut S| {
-                s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone() });
+                s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() });
             })
         })
 }
