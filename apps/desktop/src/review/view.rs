@@ -480,7 +480,16 @@ fn review_main(
 
     let mut start = row().key("review-toolbar-start").center_y().shrink().min_w(0.0);
     if !sidebar_open {
-        // `session-review-v2-toolbar-collapsed-meta`: title, stats and the file's position.
+        // `session-review-v2-toolbar-collapsed-meta`: title, stats and the file's position. In a
+        // narrow pane only the title gives way; the stats and the position keep their width, so
+        // the file arrows after them never draw over them.
+        let measure = |s: &str, st: TextStyle| rune::text::measure(s, &[], st, None).0;
+        let stats_w = [(adds > 0).then(|| measure(&format!("+{adds}"), MONO_COUNT)), (dels > 0).then(|| measure(&format!("−{dels}"), MONO_COUNT))]
+            .into_iter()
+            .flatten()
+            .fold((0.0, 0usize), |(w, n), x| (w + x, n + 1));
+        let stats_w = stats_w.0 + 4.0 * stats_w.1.saturating_sub(1) as f32;
+        let pos_w = if total > 0 { measure(&format!("{}/{total}", cur_idx + 1), POSITION) + 8.0 } else { 0.0 };
         start = start.child(
             row()
                 .key("review-collapsed-meta")
@@ -488,7 +497,7 @@ fn review_main(
                 .pr(8.0)
                 .center_y()
                 .shrink()
-                .min_w(0.0)
+                .min_w((stats_w + 8.0 + pos_w + 8.0).ceil())
                 .child(mode_button(p, sr).shrink().min_w(0.0))
                 .child(diff_counts_badge(p, adds, dels))
                 .children((total > 0).then(|| text(format!("{}/{total}", cur_idx + 1)).font(POSITION).color(p.faint))),
