@@ -59,6 +59,8 @@ pub struct HostView {
     pub now_ms: i64,
     /// `(panel, session, state)` of the plugin's panels in the routed session.
     pub panels: Vec<(String, String, u64)>,
+    /// The routed session (TEXT_ACTIVE_SESSION).
+    pub session: Option<String>,
 }
 
 impl HostView {
@@ -79,6 +81,7 @@ impl HostView {
             local: local(app),
             now_ms: app.now_ms,
             panels,
+            session: active_session(app),
         }
     }
 
@@ -95,6 +98,13 @@ impl HostView {
             _ => 0,
         }
     }
+}
+
+/// The routed session as TEXT_ACTIVE_SESSION describes it.
+pub fn active_session(app: &App) -> Option<String> {
+    let info = app.session(app.active_session_id()?)?;
+    let m = &info.model;
+    Some(serde_json::json!({ "id": info.id, "directory": info.directory, "agent": info.agent, "providerID": m.provider, "modelID": m.id, "variant": m.variant }).to_string())
 }
 
 /// How many servers the app knows: its own and the contributed ones it lists.
@@ -259,7 +269,7 @@ pub(super) unsafe extern "C" fn server_request(ctx: *mut c_void, method: AbiStr,
         return AbiStatus::Err;
     }
     let done = CallbackEnv::new(done, a.lib.clone());
-    a.requests.push(Request::ServerRequest { method: text(method).to_owned(), path: text(path).to_owned(), body: text(body).to_owned(), done });
+    a.requests.push(Request::ServerRequest { method: text(method).to_owned(), path: text(path).to_owned(), body: text(body).to_owned(), done, scope: a.scope });
     AbiStatus::Ok
 }
 

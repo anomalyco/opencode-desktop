@@ -16,8 +16,12 @@ use crate::App;
 
 const NONE: u32 = u32::MAX;
 
+/// Builds a host control from its children once they're known (a settings row's control).
+pub type Compose = Box<dyn FnOnce(Vec<El>) -> El>;
+
 struct Node {
     el: Option<El>,
+    compose: Option<Compose>,
     press: Option<Rc<Press>>,
     hover: Option<Rc<Press>>,
     first: u32,
@@ -39,15 +43,21 @@ impl PluginRenderArena {
         self.nodes.truncate(mark);
     }
 
-    pub fn push(&mut self, el: El, (press, hover): Handlers) -> ElHandle {
-        self.nodes.push(Node { el: Some(el), press, hover, first: NONE, last: NONE, next: NONE });
+    pub fn push(&mut self, el: El, handlers: Handlers) -> ElHandle {
+        self.push_with(el, handlers, None)
+    }
+
+    /// [`Self::push`] for an element `compose` builds around its children.
+    pub fn push_with(&mut self, el: El, (press, hover): Handlers, compose: Option<Compose>) -> ElHandle {
+        self.nodes.push(Node { el: Some(el), compose, press, hover, first: NONE, last: NONE, next: NONE });
         ElHandle(self.nodes.len() as u32 - 1)
     }
 
     /// Restyles `h`, keeping its children, and its handlers unless new ones replace them.
-    pub fn replace(&mut self, h: ElHandle, el: El, (press, hover): Handlers) {
+    pub fn replace(&mut self, h: ElHandle, el: El, (press, hover): Handlers, compose: Option<Compose>) {
         if let Some(n) = self.nodes.get_mut(h.0 as usize) {
             n.el = Some(el);
+            n.compose = compose;
             if press.is_some() {
                 n.press = press;
             }
@@ -73,6 +83,17 @@ impl PluginRenderArena {
     pub fn take(&mut self, h: ElHandle) -> El {
         let Some(node) = self.nodes.get_mut(h.0 as usize) else { return rune::el() };
         let mut el = node.el.take().unwrap_or_else(rune::el);
+        if let Some(compose) = node.compose.take() {
+            let mut children = Vec::new();
+            let mut child = std::mem::replace(&mut node.first, NONE);
+            while child != NONE {
+                let next = self.nodes[child as usize].next;
+                children.push(self.take(ElHandle(child)));
+                child = next;
+            }
+            el = compose(children);
+        }
+        let Some(node) = self.nodes.get_mut(h.0 as usize) else { return el };
         if let Some(press) = node.press.take() {
             el = el.on_press_tx(move |app: &mut App, tx: &mut rune::Tx| super::run::press(app, tx, &press));
         }
@@ -99,6 +120,8 @@ pub struct Build<'a> {
     pub slot: usize,
     pub generation: u32,
     pub lib: &'a std::sync::Arc<super::loader::LoadedLibrary>,
+    /// The app the render reads: the timeline's Markdown and shimmer draw with it.
+    pub app: &'a App,
 }
 
 fn color(c: [f32; 4]) -> Color {
@@ -136,10 +159,23 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
             session_view::odometer::odometer_end(key, s(spec.text).to_owned(), spec.value, style(), color(spec.text_color))
         }
         ElKind::Box | ElKind::NativeSurface => rune::el(),
-        ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field => super::widgets::build(b, spec, s(spec.text), s(spec.help)).unwrap_or_else(rune::el),
+        ElKind::Markdown => {
+            let width = if spec.width > 0.0 { spec.width } else { session_view::style::content_w() };
+            let ink = if spec.text_color[3] > 0.0 { color(spec.text_color) } else { b.pal.text };
+            let style = session_view::style::markdown_style(b.pal, ink, width);
+            // A body line height of its own (`Markdown class="text-14-regular"`'s 180%).
+            let style = if spec.line_height > 0.0 { style.body_font(session_view::style::MD.lh(spec.line_height)) } else { style };
+            let none: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> = Vec::new();
+            session_view::style::markdown_styled::<App, _>(b.pal, s(spec.text), 0.0, false, style, none, None, None)
+        }
+        ElKind::Shimmer => session_view::working::shimmer(b.app, b.pal, s(spec.text), style(), b.app.clock),
+        ElKind::Image => b.app.plugins.shared.images.borrow().draw(b.plugin, spec.icon_id, rune::el()),
+        ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field | ElKind::Switch => super::widgets::build(b, spec, s(spec.text), s(spec.help)).unwrap_or_else(rune::el),
+        // Built around their children once the tree is taken (widgets::compose).
+        ElKind::SettingsRow | ElKind::SettingsList => rune::el(),
     };
     // A control's own label, colours and description are its; the rest still applies.
-    let control = matches!(spec.kind, ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field);
+    let control = matches!(spec.kind, ElKind::Button | ElKind::Loader | ElKind::Radio | ElKind::Field | ElKind::Markdown | ElKind::Shimmer | ElKind::Switch);
     let set = |v: f32| !v.is_nan();
     el = match spec.width {
         w if w < 0.0 => el.w_full(),
@@ -192,6 +228,7 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
     if f & flags::HOVER_GROUP != 0 { el = el.hover_group(); }
     if f & flags::INSTANT_HOVER != 0 { el = el.hover_motion(crate::view::INSTANT, crate::view::INSTANT); }
     if f & flags::NO_WRAP != 0 { el = el.single_line(); }
+    if f & flags::REVEAL != 0 { el = el.group_opacity(0.0, 1.0); }
     if spec.group_color[3] > 0.0 { el = el.group_color(color(spec.group_color)); }
     el = match spec.shadow {
         SHADOW_RAISED | SHADOW_FLOATING | SHADOW_OVERLAY => {

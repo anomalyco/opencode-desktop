@@ -32,6 +32,8 @@ pub enum ToastAction {
     UndoRewind(UndoRewind),
     /// Retry: attach this file again (an upload that failed).
     Attach(PathBuf),
+    /// A plugin's button (its label) that shows a path in the file manager (desktop.reveal).
+    Reveal(String, PathBuf),
 }
 
 #[derive(Clone, Debug)]
@@ -251,14 +253,15 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
 
     let action_btn = entry.action.as_ref().map(|action| {
         let (key, label) = match action {
-            ToastAction::UndoRewind(_) => ("toast-undo", "Undo"),
-            ToastAction::Attach(_) => ("toast-retry", "Retry"),
+            ToastAction::UndoRewind(_) => ("toast-undo", "Undo".to_owned()),
+            ToastAction::Attach(_) => ("toast-retry", "Retry".to_owned()),
+            ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
         };
         let action = action.clone();
         row()
                 .key(key)
                 .role("button")
-                .label(label)
+                .label(label.clone())
                 .h(24.0)
                 .px(9.0)
                 .radius(4.0)
@@ -278,6 +281,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                             tx.instant();
                             s.attach_path(&path);
                         }
+                        ToastAction::Reveal(_, path) => crate::plugin_host::reveal(&path.to_string_lossy()),
                     }
                 })
                 .child(text(label).font(TITLE).color(p.text))

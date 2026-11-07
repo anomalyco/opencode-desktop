@@ -370,6 +370,77 @@ pub fn exe() -> Option<String> {
     text(TEXT_EXE, "")
 }
 
+/// The build's release channel: `local` (a development build), `beta` or `prod`.
+pub fn channel() -> String {
+    text(crate::abi::TEXT_CHANNEL, "").unwrap_or_else(|| "local".into())
+}
+
+/// The folder the app writes its logs to.
+pub fn logs_dir() -> Option<String> {
+    text(crate::abi::TEXT_LOGS_DIR, "")
+}
+
+/// The folder the app saves downloads to.
+pub fn downloads_dir() -> Option<String> {
+    text(crate::abi::TEXT_DOWNLOADS_DIR, "")
+}
+
+/// The app process's memory as JSON (see `abi::TEXT_MEMORY`).
+pub fn memory() -> Option<String> {
+    text(crate::abi::TEXT_MEMORY, "")
+}
+
+/// The routed session, as JSON (see `abi::TEXT_ACTIVE_SESSION`); `None` when none is open.
+pub fn active_session() -> Option<String> {
+    text(crate::abi::TEXT_ACTIVE_SESSION, "")
+}
+
+/// A developer tool's state (see `abi::TEXT_DEV`).
+pub fn dev(name: &str) -> Option<String> {
+    text(crate::abi::TEXT_DEV, name)
+}
+
+impl ActionCx {
+    /// Drives a developer tool (see `abi::REQUEST_DEV`).
+    pub fn dev(&mut self, what: &str) {
+        // SAFETY: handler contexts accept it.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_DEV, AbiStr::new(what)) };
+    }
+}
+
+/// An experiment's setting (see `abi::TEXT_EXPERIMENT`).
+pub fn experiment(name: &str) -> Option<String> {
+    text(crate::abi::TEXT_EXPERIMENT, name)
+}
+
+/// An image handed to the host, for [`crate::ui::image`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ImageId(pub u32);
+
+/// Copies an encoded image (PNG, JPEG …) into the host, which decodes it off the app's thread.
+/// Call it on the app's thread (setup, a render, a handler or poll); `None` when refused.
+pub fn image(encoded: &[u8]) -> Option<ImageId> {
+    // SAFETY: `encoded` is alive for the call; the host copies it.
+    let id = unsafe { (host().image)(ctx(), AbiStr::from_bytes(encoded), 0, 0) };
+    (id != 0).then_some(ImageId(id))
+}
+
+/// Copies `width` × `height` RGBA8 pixels (straight alpha) into the host.
+pub fn image_rgba(pixels: &[u8], width: u32, height: u32) -> Option<ImageId> {
+    if width == 0 || height == 0 || pixels.len() != width as usize * height as usize * 4 {
+        return None;
+    }
+    // SAFETY: as `image`.
+    let id = unsafe { (host().image)(ctx(), AbiStr::from_bytes(pixels), width, height) };
+    (id != 0).then_some(ImageId(id))
+}
+
+/// Lets the host free an image once nothing draws it.
+pub fn image_drop(id: ImageId) {
+    // SAFETY: any callback on the app's thread accepts it.
+    unsafe { (host().image_drop)(ctx(), id.0) };
+}
+
 /// An HTTP request.
 #[derive(Clone, Debug)]
 pub struct Fetch {

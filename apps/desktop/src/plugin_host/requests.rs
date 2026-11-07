@@ -131,18 +131,55 @@ fn parse_menu(spec: &str) -> crate::popup::Menu {
     menu
 }
 
+/// Shows `path` in the system's file manager, selected when it's a file (`desktop.reveal`); a
+/// headless run opens nothing.
+pub fn reveal(path: &str) {
+    if crate::headless() || path.is_empty() {
+        return;
+    }
+    let file = std::path::Path::new(path).is_file();
+    #[cfg(target_os = "windows")]
+    let spawned = if file { std::process::Command::new("explorer.exe").arg(format!("/select,{path}")).spawn() } else { std::process::Command::new("explorer.exe").arg(path).spawn() };
+    #[cfg(target_os = "macos")]
+    let spawned = if file { std::process::Command::new("/usr/bin/open").args(["-R", path]).spawn() } else { std::process::Command::new("/usr/bin/open").arg(path).spawn() };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(if file { std::path::Path::new(path).parent().map_or(path, |p| p.to_str().unwrap_or(path)) } else { path }).spawn();
+    if let Err(e) = spawned {
+        super::tasks::log(format!("reveal {path}: {e}"));
+    }
+}
+
 /// Sends `method path` with `body` to the server off the app's thread; `done` gets the answer.
-pub fn server(app: &mut App, i: usize, method: String, path: String, body: String, done: CallbackEnv) {
-    let Some(n) = hold(app, i, Scope::Window, done) else { return };
-    app.job(move |srv| {
-        let answer = if method.eq_ignore_ascii_case("GET") {
-            srv.get_text(&path)
+pub fn server(app: &mut App, i: usize, scope: Scope, method: String, path: String, body: String, done: CallbackEnv) {
+    let Some(n) = hold(app, i, scope, done) else { return };
+    let send = move |srv: &opencode_kit::client::Server, path: &str| {
+        // `BYTES` reads a file's raw bytes (`abi::METHOD_BYTES`), which needn't be text.
+        let answer = if method == opencode_plugin::abi::METHOD_BYTES {
+            srv.get_bytes(path)
+        } else if method.eq_ignore_ascii_case("GET") {
+            srv.get_text(path).map(String::into_bytes)
         } else {
             let body = (!body.is_empty()).then(|| serde_json::from_str(&body).unwrap_or(serde_json::Value::Null));
-            srv.call(&method.to_ascii_uppercase(), &path, body).map(|v| v.to_string())
+            // A plugin keeps its own deadline (a model's reply may take minutes), so the request
+            // only gives up once nothing could still want it.
+            srv.call_within(&method.to_ascii_uppercase(), path, body, std::time::Duration::from_secs(600)).map(|v| v.to_string().into_bytes())
         };
-        Box::new(move |s: &mut App, tx: &mut Tx| answer_with(s, n, EVENT_RESPONSE, answer, tx)) as Apply
-    });
+        Box::new(move |s: &mut App, tx: &mut Tx| answer_bytes(s, n, EVENT_RESPONSE, u32::from(answer.is_err()), answer, tx)) as Apply
+    };
+    // `local:` asks the app's own server, even while the window is connected to another.
+    match (path.strip_prefix(opencode_plugin::abi::LOCAL_SERVER_PREFIX), app.own_server.clone()) {
+        (Some(local), Some(own)) => {
+            let (local, deliver) = (local.to_owned(), app.deliverer());
+            super::tasks::run(move || {
+                let apply = send(&own, &local);
+                deliver(apply);
+            });
+        }
+        (local, _) => {
+            let path = local.map_or(path.clone(), str::to_owned);
+            app.job(move |srv| send(srv, &path));
+        }
+    }
 }
 
 /// Saves `content` as `name` in the Downloads folder; `done` gets its path.
@@ -159,14 +196,19 @@ fn answer_with(app: &mut App, n: u64, kind: u32, answer: Result<String, String>,
 }
 
 fn answer_with_status(app: &mut App, n: u64, kind: u32, mods: u32, answer: Result<String, String>, tx: &mut Tx) {
+    answer_bytes(app, n, kind, mods, answer.map(String::into_bytes), tx);
+}
+
+/// [`answer_with_status`] with an answer that may not be text (`abi::METHOD_BYTES`).
+fn answer_bytes(app: &mut App, n: u64, kind: u32, mods: u32, answer: Result<Vec<u8>, String>, tx: &mut Tx) {
     let Some(p) = app.plugins.pending.remove(&n) else { return };
     let Some(func) = p.done.cb.func else { return };
-    let (text, extra) = match &answer {
-        Ok(body) => (body.as_str(), ""),
-        Err(e) => ("", e.as_str()),
+    let (text, extra): (&[u8], &str) = match &answer {
+        Ok(body) => (body, ""),
+        Err(e) => (&[], e.as_str()),
     };
-    let view = |s: &str| AbiStr { ptr: s.as_ptr(), len: s.len(), _lt: std::marker::PhantomData };
-    let event = AbiEvent { kind, mods, text: view(text), extra: view(extra), ..AbiEvent::default() };
+    let view = |s: &[u8]| AbiStr { ptr: s.as_ptr(), len: s.len(), _lt: std::marker::PhantomData };
+    let event = AbiEvent { kind, mods, text: view(text), extra: view(extra.as_bytes()), ..AbiEvent::default() };
     let data = p.done.cb.data;
     // SAFETY: the plugin's own callback with its data, on the state of the generation that asked;
     // the event's strings outlive the call.

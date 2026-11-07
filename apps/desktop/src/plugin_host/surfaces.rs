@@ -55,11 +55,63 @@ pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
     )
 }
 
+/// What a host-drawn composer pill shows (`ComposerPillView`), as its plugin answered.
+pub struct PillView {
+    pub label: String,
+    pub icon: String,
+    pub tone: String,
+    pub title: String,
+}
+
+/// Composer pill `c` of slot `i` for session `session`, when it shows one.
+pub fn pill_view(app: &App, i: usize, c: &ContribRec, session: &str) -> Option<PillView> {
+    let query = c.query.as_ref()?;
+    let directory = app.session(session).map_or("", |s| s.directory.as_str());
+    let answer = run::peek(app, i, &query.cb, &format!("{session}\n{directory}"))?;
+    let mut f = answer.split('\t').map(str::to_owned);
+    Some(PillView { label: f.next()?, icon: f.next().unwrap_or_default(), tone: f.next().unwrap_or_default(), title: f.next().unwrap_or_default() })
+}
+
+/// The pills plugins put in the composer lane after the app's own (`SessionPluginPills`): the
+/// capsule every lane pill shares, its icon in its tone, its label cut past 260. A pill with a
+/// menu opens it as a popover above; one without runs its press.
+pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
+    sorted(app, kinds::COMPOSER_PILL)
+        .into_iter()
+        .filter_map(|(i, c)| {
+            let view = pill_view(app, i, c, session)?;
+            let key = format!("plugin-pill-{}", c.key);
+            let open = app.plugins.popover.as_ref().is_some_and(|o| o.slot == i && o.id == c.id && o.pill);
+            let name = if view.title.is_empty() { view.label.clone() } else { view.title.clone() };
+            let ink = match view.tone.as_str() {
+                "success" | "warning" | "danger" => session_view::palette::token(p.dark, &format!("state-fg-{}", view.tone)).unwrap_or(p.icon_muted),
+                _ => p.icon_muted,
+            };
+            let mut pill = crate::subagents::chip(app, p, &key, name, open).shrink().min_w(0.0);
+            if !view.icon.is_empty() {
+                pill = pill.child(rune::icon(super::icons::resolve(&app.plugins.slots[i].manifest.id, &view.icon), 14.0).color(ink));
+            }
+            pill = pill.child(rune::text(view.label).font(crate::view::UI).color(p.text).truncate().max_w(260.0).shrink().min_w(0.0));
+            let (scope, menu, run) = (c.scope, c.render.is_some(), c.run.as_ref().map(|r| r.cb));
+            let id = c.id.clone();
+            Some(pill.on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                if menu {
+                    super::popover::toggle_pill(s, i, &id, &key, tx);
+                } else if let Some(cb) = run {
+                    run::action(s, tx, i, scope, cb, opencode_plugin::abi::EVENT_PRESS, "", "");
+                }
+            }))
+        })
+        .collect()
+}
+
 /// The capsules above root session `session`'s composer.
 pub fn composer_pills(app: &App, p: &Pal, session: &str) -> Option<El> {
     let directory = app.session(session).map_or("", |i| i.directory.as_str());
     let pills: Vec<El> = sorted(app, kinds::COMPOSER_PILL)
         .into_iter()
+        .filter(|(_, c)| c.query.is_none())
         .filter_map(|(i, c)| draw(app, p, i, c, &Props { session, directory, ..Props::new(SURFACE_PILL, &c.id) }, true))
         .collect();
     (!pills.is_empty()).then(|| row().key("plugin-composer-pills").w_full().max_w(session_view::style::content_w()).pb(8.0).gap(6.0).center().children(pills))
@@ -139,11 +191,11 @@ pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
 }
 
 /// A plugin page: its title and what it draws, a failed render's card in its place.
-pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, El)> {
+pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, El)> {
     let (i, c) = own_page(app, key)?;
     let body = match render::surface(app, i, c.render.as_ref()?, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), p) {
         Ok(el) => el.unwrap_or_else(rune::el),
         Err(e) => render::card(p, &app.plugins.slots[i].manifest.name, &format!("Stopped drawing: {e}"), Some(&app.plugins.slots[i].manifest.id), true),
     };
-    Some((c.title.clone(), body))
+    Some((c.title.clone(), c.description.clone(), body))
 }

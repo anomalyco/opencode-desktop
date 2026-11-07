@@ -16,20 +16,33 @@ pub const CAPSULE_FILL: Knob = Knob::new("Capsule fill", 0.0, 1.0, 1.0).about("H
 /// Its hairline: 1 is Desktop's raised ring (the composer's), 0 the faint muted border.
 pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("Strength of the subagent capsule hairline");
 
+/// The window's animation clock (Desktop's `motionGlobals.speed`): below 1 every animation runs
+/// slower. The debug bar's SPEED cell steps it through 0.5x and 0.25x.
+pub const SPEED: Knob = Knob::new("Speed", 0.25, 4.0, 1.0).step(0.05).about("Global animation speed");
+/// Every animation at a quarter of its speed, on top of Speed (`motionGlobals.slow`).
+pub const SLOW: Knob = Knob::choice("Slow motion (0.25x)", &["Off", "On"], 0).about("Run every animation at a quarter speed");
+
+/// What the window's animation clock runs at, from Speed and Slow motion.
+pub fn time_scale(s: &App) -> f32 {
+    s.knobs.get(&SPEED) * if s.knobs.get(&SLOW) > 0.5 { 0.25 } else { 1.0 }
+}
+
 rune_register::slice!(pub GROUP_LIST: Group);
 
 rune_register::register!(GROUP_LIST: Group = [
+    Group::new("Global", "window", &[SPEED, SLOW]),
     Group::new("Composer", "composer", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING, JUMP_PLACE, COMPOSER_FADE]),
     TIMELINE_GROUP,
     crate::disclosure::GROUP,
     WORKING,
     crate::compaction::GROUP,
     crate::copied::GROUP,
+    session_view::knobs::EXPERIMENTS,
 ]);
 
 /// The panel's order, which module paths don't give. A group not named here goes after these.
 const ORDER: &[&str] = &[
-    "Composer", "Question dock", "Timeline", "Scroll bar", "Tool groups", "Working", "Terminal",
+    "Global", "Composer", "Question dock", "Timeline", "Scroll bar", "Tool groups", "Working", "Terminal",
     "Header", "Dividers", "Copy", "Popover", "Stream", "Todo pill",
 ];
 

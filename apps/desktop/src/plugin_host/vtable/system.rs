@@ -11,7 +11,7 @@ use super::super::instance::{CallbackEnv, Scope};
 use super::super::loader::LoadedLibrary;
 use super::super::process::Spec;
 use super::super::shared::Shared;
-use super::{ActionCtx, Kind, Request, SetupCtx, WakeShared, cast, render, text};
+use super::{ActionCtx, Kind, Request, SetupCtx, WakeShared, cast, text};
 
 /// What starting a process needs of the context: its plugin's shared state, slot, generation,
 /// half, library and waker.
@@ -102,6 +102,25 @@ pub(super) unsafe extern "C" fn host_text(ctx: *mut c_void, what: u32, arg: AbiS
     let answer = match what {
         TEXT_ARG => crate::arg(&format!("--{}", text(arg).trim_start_matches('-'))),
         TEXT_EXE => std::env::current_exe().ok().map(|p| p.display().to_string()),
+        TEXT_CHANNEL => Some(crate::updater::build_channel().to_owned()),
+        TEXT_LOGS_DIR => crate::dirs::motion_log().and_then(|f| f.parent().map(|d| d.display().to_string())),
+        TEXT_DOWNLOADS_DIR => crate::dirs::downloads().map(|d| d.display().to_string()),
+        TEXT_MEMORY => Some(super::super::memory::report()),
+        TEXT_ACTIVE_SESSION => {
+            // SAFETY: the plugin passes its context.
+            if let Some(r) = unsafe { super::render(ctx) } {
+                super::services::active_session(r.app)
+            } else {
+                // SAFETY: as above.
+                unsafe { super::cast::<super::ActionCtx>(ctx, super::Kind::Action) }.and_then(|a| a.view.session.clone())
+            }
+        }
+        TEXT_EXPERIMENT | TEXT_DEV => {
+            // SAFETY: the plugin passes its context.
+            let Some((shared, _)) = (unsafe { reader(ctx) }) else { return 0 };
+            let facts = if what == TEXT_DEV { &shared.facts.dev } else { &shared.facts.experiments };
+            facts.get(text(arg)).cloned()
+        }
         TEXT_SERVER_VERSION | TEXT_SERVER_HEALTH => {
             // SAFETY: the plugin passes its context.
             let Some((shared, plugin)) = (unsafe { reader(ctx) }) else { return 0 };
@@ -125,15 +144,7 @@ pub(super) unsafe extern "C" fn host_text(ctx: *mut c_void, what: u32, arg: AbiS
 /// As `cast`.
 unsafe fn reader<'a>(ctx: *mut c_void) -> Option<(&'a Shared, &'a str)> {
     // SAFETY: as `cast`.
-    unsafe {
-        if let Some(r) = render(ctx) {
-            return Some((r.shared, r.build.plugin));
-        }
-        if let Some(a) = cast::<ActionCtx>(ctx, Kind::Action) {
-            return Some((&*a.shared, a.plugin_id));
-        }
-        cast::<SetupCtx>(ctx, Kind::Setup).map(|s| (&*s.shared, s.plugin_id))
-    }
+    unsafe { super::read(ctx) }
 }
 
 pub(super) unsafe extern "C" fn open_menu(ctx: *mut c_void, anchor: AbiStr, spec: AbiStr, done: Callback) -> AbiStatus {

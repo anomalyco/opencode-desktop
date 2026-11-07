@@ -22,6 +22,8 @@ pub struct El {
     press: Option<Handler>,
     hover: Option<Handler>,
     anchor: Cow<'static, str>,
+    /// A button's leading icon.
+    lead: Cow<'static, str>,
     handle: Option<ElHandle>,
     dirty: bool,
     /// Built by the host (a memo's subtree): setters no longer reach it.
@@ -48,6 +50,7 @@ fn new(kind: ElKind) -> El {
         press: None,
         hover: None,
         anchor: Cow::Borrowed(""),
+        lead: Cow::Borrowed(""),
         handle: None,
         dirty: false,
         sealed: false,
@@ -214,6 +217,8 @@ impl El {
         invalid(on: bool) => |s| if on { s.flags |= flags::INVALID } else { s.flags &= !flags::INVALID };
         /// A field whose text is hidden.
         secure() => |s| s.flags |= flags::SECURE;
+        /// Shown only while the nearest [El::hover_group] ancestor is hovered.
+        reveal_on_hover() => |s| s.flags |= flags::REVEAL;
     }
 
     /// An overlay beside the element keyed `key` (drawn before it): on `side`
@@ -223,6 +228,13 @@ impl El {
         self.spec.anchor_side = side;
         self.spec.anchor_align = align;
         self.spec.anchor_gap = gap;
+        self.dirty = true;
+        self
+    }
+
+    /// A [`ui::button_with`]'s leading icon, by name (Desktop's `Button icon`).
+    pub fn lead_icon(mut self, name: impl Into<Cow<'static, str>>) -> Self {
+        self.lead = name.into();
         self.dirty = true;
         self
     }
@@ -309,6 +321,7 @@ impl El {
         spec.help = AbiStr::new(&self.help);
         spec.text = AbiStr::new(&self.text);
         spec.anchor = AbiStr::new(&self.anchor);
+        spec.icon = AbiStr::new(&self.lead);
         // The host owns the handlers' captures from here on.
         let give = |h: Option<Handler>| {
             h.map_or(Callback::NONE, |h| {
@@ -380,6 +393,54 @@ pub mod ui {
         let mut e = new(ElKind::Field);
         e.spec.editor = editor;
         e.text = placeholder.into();
+        e
+    }
+
+    /// Desktop's `SettingsRow`, keyed `id` for settings search: `title` and `description`
+    /// beside `control`.
+    pub fn settings_row(id: impl Into<Cow<'static, str>>, title: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, control: El) -> El {
+        let mut e = new(ElKind::SettingsRow);
+        e.key = id.into();
+        e.text = title.into();
+        e.help = description.into();
+        e.child(control)
+    }
+
+    /// Desktop's settings list card around `rows` (`settings_row`s), split by hairlines.
+    pub fn settings_list(key: impl Into<Cow<'static, str>>, rows: impl IntoIterator<Item = El>) -> El {
+        let mut e = new(ElKind::SettingsList);
+        e.key = key.into();
+        e.children(rows)
+    }
+
+    /// Desktop's `Switch`, the app's own: give it `on_press`, and `disabled` while it can't change.
+    pub fn switch_control(on: bool) -> El {
+        let mut e = new(ElKind::Switch);
+        e.spec.value = if on { 1.0 } else { 0.0 };
+        e
+    }
+
+    /// Markdown drawn as the timeline draws a reply (`Markdown class="text-14-regular"`), links,
+    /// code blocks and all.
+    pub fn markdown(source: impl Into<Cow<'static, str>>) -> El {
+        let mut e = new(ElKind::Markdown);
+        e.text = source.into();
+        e
+    }
+
+    /// Desktop's `TextShimmer`: `label` shimmering, in the font and colour you give it.
+    pub fn shimmer(label: impl Into<Cow<'static, str>>) -> El {
+        let mut e = new(ElKind::Shimmer);
+        e.text = label.into();
+        e
+    }
+
+    /// An image handed to the host with [`crate::image`], `w` × `h` points, aspect kept.
+    pub fn image(id: crate::ImageId, w: f32, h: f32) -> El {
+        let mut e = new(ElKind::Image);
+        e.spec.icon_id = id.0;
+        e.spec.width = w;
+        e.spec.height = h;
         e
     }
 

@@ -15,6 +15,7 @@ mod system;
 
 pub use services::{HostView, Resources, panel_state};
 
+
 use std::alloc::Layout;
 use std::cell::RefCell;
 use std::ffi::c_void;
@@ -37,6 +38,15 @@ pub enum Kind {
     Setup = 0x5E70,
     Render = 0x8E4D,
     Action = 0xAC70,
+    /// A query where the app is only read (listing a panel's tabs): stores, facts and icons.
+    Read = 0x4EAD,
+}
+
+#[repr(C)]
+pub struct ReadCtx<'a> {
+    pub kind: Kind,
+    pub plugin_id: &'a str,
+    pub shared: &'a Shared,
 }
 
 #[repr(C)]
@@ -108,13 +118,20 @@ pub enum Request {
     ClosePopover,
     Invalidate(String),
     NewDraft { directory: String, prompt: String },
-    ServerRequest { method: String, path: String, body: String, done: super::instance::CallbackEnv },
+    ServerRequest { method: String, path: String, body: String, done: super::instance::CallbackEnv, scope: Scope },
     SaveFile { name: String, content: String, done: super::instance::CallbackEnv },
     Fetch { request: super::requests::FetchRequest, done: super::instance::CallbackEnv, scope: Scope },
     OpenMenu { anchor: String, spec: String, done: super::instance::CallbackEnv, scope: Scope },
     OpenDialog(String),
     CloseDialog,
     ConnectServer(String),
+    OpenPanelInstance { panel: String, instance: String },
+    OpenExternal(String),
+    Reveal(String),
+    /// A toast that stays, with a button that reveals a path: title, description, button, path.
+    ToastReveal(String),
+    /// A developer tool (`REQUEST_DEV`).
+    Dev(String),
 }
 
 /// Wakes the event loop for plugins: one bit per slot in `dirty`, which `PluginHost::poll`
@@ -185,6 +202,26 @@ unsafe fn cast<'a, T>(ctx: *mut c_void, kind: Kind) -> Option<&'a mut T> {
 unsafe fn render<'a>(ctx: *mut c_void) -> Option<&'a RenderCtx<'a>> {
     // SAFETY: as `cast`.
     (!ctx.is_null() && unsafe { *ctx.cast::<u32>() } == Kind::Render as u32).then(|| unsafe { &*ctx.cast::<RenderCtx>() })
+}
+
+/// The shared state and plugin id whichever context `ctx` is can read.
+///
+/// # Safety
+/// As `cast`.
+unsafe fn read<'a>(ctx: *mut c_void) -> Option<(&'a Shared, &'a str)> {
+    // SAFETY: as `cast`.
+    unsafe {
+        if let Some(r) = render(ctx) {
+            return Some((r.shared, r.build.plugin));
+        }
+        if let Some(a) = cast::<ActionCtx>(ctx, Kind::Action) {
+            return Some((&*a.shared, a.plugin_id));
+        }
+        if let Some(r) = cast::<ReadCtx>(ctx, Kind::Read) {
+            return Some((r.shared, r.plugin_id));
+        }
+        cast::<SetupCtx>(ctx, Kind::Setup).map(|s| (&*s.shared, s.plugin_id))
+    }
 }
 
 /// The editors whichever context `ctx` is can read.
@@ -310,7 +347,8 @@ unsafe extern "C" fn el_build(ctx: *mut c_void, spec: *const ElSpec) -> ElHandle
     // SAFETY: as above.
     let el = unsafe { arena::build(&r.build, spec) };
     let handlers = arena::handlers(&r.build, spec);
-    r.arena.borrow_mut().push(el, handlers)
+    let compose = super::widgets::compose(&r.build, spec);
+    r.arena.borrow_mut().push_with(el, handlers, compose)
 }
 
 unsafe extern "C" fn el_apply(ctx: *mut c_void, h: ElHandle, spec: *const ElSpec) {
@@ -319,7 +357,8 @@ unsafe extern "C" fn el_apply(ctx: *mut c_void, h: ElHandle, spec: *const ElSpec
     // SAFETY: as above.
     let el = unsafe { arena::build(&r.build, spec) };
     let handlers = arena::handlers(&r.build, spec);
-    r.arena.borrow_mut().replace(h, el, handlers);
+    let compose = super::widgets::compose(&r.build, spec);
+    r.arena.borrow_mut().replace(h, el, handlers, compose);
 }
 
 unsafe extern "C" fn el_child(ctx: *mut c_void, parent: ElHandle, child: ElHandle) {
@@ -389,6 +428,8 @@ pub static HOST_VTABLE: HostApiVtable = HostApiVtable {
     fetch: system::fetch,
     host_text: system::host_text,
     open_menu: system::open_menu,
+    image: shared::image,
+    image_drop: shared::image_drop,
 };
 
 unsafe extern "C" fn host_alloc(size: usize, align: usize) -> *mut u8 {

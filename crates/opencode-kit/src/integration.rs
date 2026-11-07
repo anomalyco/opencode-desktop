@@ -302,7 +302,12 @@ pub fn location_query(dir: Option<&str>) -> String {
 impl Server {
     /// A request whose failure says what the server said (`{ message }`), else its status.
     pub fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).http_status_as_error(false).build().into();
+        self.call_within(method, path, body, Duration::from_secs(30))
+    }
+
+    /// [`Self::call`], waiting up to `timeout` for the answer (a model's reply can take minutes).
+    pub fn call_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into();
         let url = format!("{}{path}", self.base);
         let body = body.map(|b| b.to_string());
         let resp = match (method, body) {

@@ -9,7 +9,7 @@ use opencode_plugin::abi::*;
 use super::super::instance::ServerRec;
 use super::super::shared::Shared;
 use super::super::{icons, tasks};
-use super::{ActionCtx, Kind, Request, SetupCtx, cast, render, text};
+use super::{ActionCtx, Kind, Request, SetupCtx, cast, text};
 
 /// The shared state and plugin id whichever context `ctx` is can read.
 ///
@@ -17,15 +17,7 @@ use super::{ActionCtx, Kind, Request, SetupCtx, cast, render, text};
 /// As `cast`.
 unsafe fn reader<'a>(ctx: *mut c_void) -> Option<(&'a Shared, &'a str)> {
     // SAFETY: as `cast`.
-    unsafe {
-        if let Some(r) = render(ctx) {
-            return Some((r.shared, r.build.plugin));
-        }
-        if let Some(a) = cast::<ActionCtx>(ctx, Kind::Action) {
-            return Some((&*a.shared, a.plugin_id));
-        }
-        cast::<SetupCtx>(ctx, Kind::Setup).map(|s| (&*s.shared, s.plugin_id))
-    }
+    unsafe { super::read(ctx) }
 }
 
 /// The shared state, plugin id, library and request queue of a setup or handler context.
@@ -74,6 +66,21 @@ pub(super) unsafe extern "C" fn intern_icon(ctx: *mut c_void, spec: *const IconS
     // SAFETY: the plugin passes its context and a spec valid for the call.
     let (Some((_, plugin)), Some(spec)) = (unsafe { reader(ctx) }, unsafe { spec.as_ref() }) else { return 0 };
     icons::intern_icon(plugin, text(spec.name), text(spec.body), spec.view)
+}
+
+pub(super) unsafe extern "C" fn image(ctx: *mut c_void, bytes: AbiStr, width: u32, height: u32) -> u32 {
+    // SAFETY: the plugin passes its context and bytes valid for the call.
+    let Some((shared, plugin)) = (unsafe { reader(ctx) }) else { return 0 };
+    // SAFETY: as above.
+    let bytes = unsafe { bytes.as_bytes() };
+    shared.images.borrow_mut().add(plugin, bytes, width, height)
+}
+
+pub(super) unsafe extern "C" fn image_drop(ctx: *mut c_void, id: u32) {
+    // SAFETY: the plugin passes its context.
+    if let Some((shared, plugin)) = unsafe { reader(ctx) } {
+        shared.images.borrow_mut().remove(plugin, id);
+    }
 }
 
 pub(super) unsafe extern "C" fn store_get(ctx: *mut c_void, name: AbiStr, session: AbiStr, out: *mut AbiStr<'static>) -> u8 {
@@ -140,6 +147,14 @@ pub(super) unsafe extern "C" fn request(ctx: *mut c_void, kind: u32, arg: AbiStr
         REQUEST_OPEN_DIALOG => Request::OpenDialog(arg),
         REQUEST_CLOSE_DIALOG => Request::CloseDialog,
         REQUEST_CONNECT_SERVER => Request::ConnectServer(arg),
+        REQUEST_OPEN_PANEL_INSTANCE => {
+            let (panel, instance) = arg.split_once('\n').unwrap_or((&arg, ""));
+            Request::OpenPanelInstance { panel: panel.to_owned(), instance: instance.to_owned() }
+        }
+        REQUEST_OPEN_EXTERNAL => Request::OpenExternal(arg),
+        REQUEST_REVEAL => Request::Reveal(arg),
+        REQUEST_TOAST_REVEAL => Request::ToastReveal(arg),
+        REQUEST_DEV => Request::Dev(arg),
         REQUEST_TOGGLE_PANEL => Request::TogglePanel(arg),
         REQUEST_TOGGLE_POPOVER => {
             let (id, anchor) = arg.split_once('\n').unwrap_or((&arg, ""));

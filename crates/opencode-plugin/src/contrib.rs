@@ -85,6 +85,37 @@ pub struct ServerEntry {
     pub listed: bool,
 }
 
+/// A composer pill's icon colour (`ComposerPillTone`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Tone {
+    Success,
+    Warning,
+    Danger,
+}
+
+/// What a composer pill shows (`ComposerPillView`): its label, an icon by Desktop's name, the
+/// icon's tone, and its accessible name and popover heading when it differs from the label.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PillView {
+    pub label: String,
+    pub icon: String,
+    pub tone: Option<Tone>,
+    pub title: String,
+}
+
+impl PillView {
+    fn encode(&self) -> String {
+        let tone = match self.tone {
+            Some(Tone::Success) => "success",
+            Some(Tone::Warning) => "warning",
+            Some(Tone::Danger) => "danger",
+            None => "",
+        };
+        let clean = |s: &str| s.replace(['\t', '\n'], " ");
+        format!("{}\t{}\t{tone}\t{}", clean(&self.label), clean(&self.icon), clean(&self.title))
+    }
+}
+
 /// One contribution: a kind and the fields it uses.
 #[derive(Clone, Debug)]
 pub struct Contribution {
@@ -203,6 +234,11 @@ impl Contribution {
         Self::new(contrib::SERVER, id, title)
     }
 
+    /// Hears the server's events whose type starts with `prefix` (`ctx.servers.get(id).client.rpc(…).events`).
+    pub fn server_events(id: impl Into<Text>, prefix: impl Into<Text>) -> Self {
+        Contribution { target: prefix.into(), ..Self::new(contrib::EVENTS, id, "") }
+    }
+
     /// A modal dialog (`dialogs.open`), opened with `ActionCx::open_dialog`.
     pub fn dialog(id: impl Into<Text>, label: impl Into<Text>) -> Self {
         Self::new(contrib::DIALOG, id, label)
@@ -319,6 +355,38 @@ impl<P: 'static> WindowSetupCx<P> {
     /// (`cx.nothing()` hides it), `run` presses it.
     pub fn add_composer_pill(&mut self, spec: Contribution, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static, run: impl Fn(&mut P, &mut ActionCx) + 'static) {
         spec.add(action_callback::<P, _>(run), render_callback::<P, _>(render), QueryCallback::NONE);
+    }
+
+    /// A [`Contribution::composer_pill`] the host draws as Desktop's (`ComposerPill.show`): `show`
+    /// answers what it shows for the session (`props.session_id`), or `None` to show none;
+    /// `menu`, when given, draws the content of the popover it opens under the host's heading
+    /// (`ComposerPill.menu`; close it with `cx.close_popover()`); otherwise `run` presses it.
+    pub fn add_composer_pill_view(
+        &mut self,
+        spec: Contribution,
+        show: impl Fn(&P, &Props) -> Option<PillView> + 'static,
+        menu: Option<Box<dyn Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static>>,
+        run: impl Fn(&mut P, &mut ActionCx) + 'static,
+    ) {
+        let query = query_callback::<P, _>(move |s, _, input| {
+            let (session, directory) = input.split_once('\n').unwrap_or((input, ""));
+            let props = Props::for_session(session, directory);
+            Ok(show(s, &props).map(|v| v.encode()))
+        });
+        let render = match menu {
+            Some(menu) => render_callback::<P, _>(move |s: &P, cx: &mut ViewCx<P>, props: &Props| menu(s, cx, props)),
+            None => RenderCallback::NONE,
+        };
+        spec.add(action_callback::<P, _>(run), render, query);
+    }
+
+    /// A [`Contribution::server_events`]: `on` gets each event's type and its data's JSON.
+    pub fn add_server_events(&mut self, spec: Contribution, on: impl Fn(&mut P, &mut ActionCx, &str, &str) + 'static) {
+        let run = action_callback::<P, _>(move |s: &mut P, cx: &mut ActionCx| {
+            let (kind, data) = (cx.input().to_owned(), cx.input_extra().to_owned());
+            on(s, cx, &kind, &data);
+        });
+        spec.add(run, RenderCallback::NONE, QueryCallback::NONE);
     }
 
     /// A [`Contribution::code_block_action`]: `run` gets the code as `cx.input()` and its

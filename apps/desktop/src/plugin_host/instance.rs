@@ -98,6 +98,10 @@ pub struct CommandRec {
     pub keybind: Option<rune::Keybind>,
     pub editable: bool,
     pub hidden: bool,
+    /// /name words runs it with words (slash.arguments).
+    pub slash_args: bool,
+    /// Offered only while a session is open in a desktop-width window.
+    pub needs_session: bool,
     pub run: CallbackEnv,
 }
 
@@ -114,6 +118,10 @@ pub struct PanelRec {
     pub render: RenderEnv,
     /// Draws the tab's label, in place of its icon and title.
     pub label: Option<RenderEnv>,
+    /// PANEL_INSTANCES: which open instances it lists, with their titles.
+    pub list: Option<QueryEnv>,
+    /// PANEL_INSTANCES: runs as an instance's tab closes.
+    pub close: Option<CallbackEnv>,
 }
 
 pub struct SettingRec {

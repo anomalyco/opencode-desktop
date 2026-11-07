@@ -23,6 +23,8 @@ pub struct Shared {
     /// The processes plugins started (`process.rs`).
     pub processes: super::process::Processes,
     pub facts: Facts,
+    /// Images plugins handed over (images.rs), drawn from renders too.
+    pub images: std::cell::RefCell<super::images::Images>,
 }
 
 /// What the app knows that plugins ask about (`HostApiVtable::host_text`).
@@ -32,6 +34,12 @@ pub struct Facts {
     pub server_version: Option<String>,
     /// Contributed servers' versions once they answered healthy, by `<plugin>:<id>`.
     pub health: std::collections::HashMap<String, String>,
+    /// The experiments' settings (`TEXT_EXPERIMENT`), as the app's knobs have them.
+    pub experiments: BTreeMap<String, String>,
+    /// The developer tools' state (`TEXT_DEV`).
+    pub dev: BTreeMap<String, String>,
+    /// The knobs both came from when last handed over (`run::sync_experiments`).
+    pub synced: Option<(bool, bool, u32, bool, bool)>,
 }
 
 /// A published value, freed by its provider's own destructor while its library is mapped.

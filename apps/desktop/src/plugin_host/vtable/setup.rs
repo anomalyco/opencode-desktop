@@ -41,6 +41,8 @@ pub(super) unsafe extern "C" fn add_command(ctx: *mut c_void, spec: *const Comma
         keybind,
         editable: spec.flags & COMMAND_EDITABLE != 0,
         hidden: spec.flags & COMMAND_HIDDEN != 0,
+        slash_args: spec.flags & COMMAND_SLASH_ARGS != 0,
+        needs_session: spec.flags & COMMAND_SESSION != 0,
         run: CallbackEnv::new(spec.run, s.lib.clone()),
     });
     AbiStatus::Ok
@@ -50,7 +52,8 @@ pub(super) unsafe extern "C" fn add_panel(ctx: *mut c_void, spec: *const PanelSp
     // SAFETY: as `add_command`.
     let (Some(s), Some(spec)) = (unsafe { window(ctx) }, unsafe { spec.as_ref() }) else { return AbiStatus::Err };
     let id = text(spec.id).to_owned();
-    if id.is_empty() || id.contains(':') || spec.render.func.is_none() {
+    let instances = spec.flags & PANEL_INSTANCES != 0;
+    if id.is_empty() || id.contains([':', '/']) || spec.render.func.is_none() || (instances && spec.list.func.is_none()) {
         return AbiStatus::Err;
     }
     s.made.panels.push(PanelRec {
@@ -63,6 +66,8 @@ pub(super) unsafe extern "C" fn add_panel(ctx: *mut c_void, spec: *const PanelSp
         flags: spec.flags,
         render: RenderEnv::new(spec.render, s.lib.clone()),
         label: spec.label.func.is_some().then(|| RenderEnv::new(spec.label, s.lib.clone())),
+        list: spec.list.func.is_some().then(|| QueryEnv::new(spec.list, s.lib.clone())),
+        close: spec.close.func.is_some().then(|| CallbackEnv::new(spec.close, s.lib.clone())),
     });
     AbiStatus::Ok
 }
@@ -91,7 +96,9 @@ pub(super) unsafe extern "C" fn add_contribution(ctx: *mut c_void, spec: *const 
     let needs = match spec.kind {
         contrib::MENU_ITEM | contrib::MENUBAR_ITEM | contrib::CODE_BLOCK_ACTION => spec.run.func.is_some(),
         contrib::SETTINGS_PAGE | contrib::SLOT | contrib::FILE_VIEWER | contrib::CODE_BLOCK => spec.render.func.is_some(),
-        contrib::TITLEBAR_ITEM | contrib::COMPOSER_PILL | contrib::POPOVER | contrib::DIALOG => spec.render.func.is_some(),
+        contrib::TITLEBAR_ITEM | contrib::POPOVER | contrib::DIALOG => spec.render.func.is_some(),
+        contrib::COMPOSER_PILL => spec.render.func.is_some() || spec.query.func.is_some(),
+        contrib::EVENTS => spec.run.func.is_some() && !text(spec.target).is_empty(),
         contrib::LINK_HANDLER => spec.run.func.is_some() && spec.query.func.is_some(),
         contrib::MCP_TOOL => spec.query.func.is_some(),
         contrib::THEME | contrib::SERVER => true,

@@ -34,6 +34,14 @@ pub const JUMP_RISE: Knob = Knob::new("Jump rise", 0.0, 12.0, 4.0).step(1.0).abo
 /// An image flying out of its thumbnail into the viewer and back, as a spring.
 pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25).about("Spring duration for opening image viewer");
 
+/// Desktop's Sources experiment (`sources/experiment.ts`, Knobs › Experiments › Sources): a
+/// "N sources" chip under a reply that searched the web, opening the turn's searches in a tab.
+pub const SOURCES_ENABLED: Knob = Knob::choice("Sources", &["Off", "On"], 0).about("Pages a turn searched and read");
+/// A site's own icon is fetched from that site, which tells it the page was looked at; letters
+/// stay on this device.
+pub const SOURCES_ICONS: Knob = Knob::choice("Site icons", &["Letters", "Site icon"], 0).about("How a source's site shows");
+pub const EXPERIMENTS: Group = Group::new("Experiments", "sources-chip", &[SOURCES_ENABLED, SOURCES_ICONS]);
+
 pub const TIMELINE: &[Knob] = &[
     GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH, NEW_LINE_REVEAL,
     LINE_GROW, SOFT_EDGE, ACTIONS_TAIL, JUMP_IN, JUMP_OUT, JUMP_RISE, IMAGE_FLIGHT,

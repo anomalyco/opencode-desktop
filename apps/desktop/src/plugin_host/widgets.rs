@@ -33,6 +33,11 @@ pub fn build(b: &Build, spec: &ElSpec, label: &str, help: &str) -> Option<El> {
             let size = if small { rune_kit::ButtonSize::Small } else { rune_kit::ButtonSize::Normal };
             let words = label.to_owned();
             let mut button = crate::widgets::button(label, if loading && !small { ButtonVariant::Loading } else { variant }).size(size).disabled(f & flags::DISABLED != 0);
+            // SAFETY: the spec's strings are valid for the build call this runs in.
+            let lead = unsafe { spec.icon.as_str() };
+            if !lead.is_empty() {
+                button = button.icon(super::icons::resolve(b.plugin, lead));
+            }
             if loading && small {
                 // `<Loader class="size-3.5" />` before the label, in the label's color.
                 let spinner = Loader::new().size(14.0).build(k);
@@ -46,8 +51,34 @@ pub fn build(b: &Build, spec: &ElSpec, label: &str, help: &str) -> Option<El> {
         ElKind::Loader => Loader::new().size(if spec.font_size > 0.0 { spec.font_size } else { 16.0 }).build(k),
         ElKind::Radio => radio(k, label, help, spec.value > 0.5, f & flags::DISABLED != 0, (spec.text_color[3] > 0.0).then(|| color(spec.text_color))),
         ElKind::Field => field(b, spec, label),
+        ElKind::Switch => {
+            let switch = crate::settings::switch(b.pal, "switch", spec.value > 0.5);
+            if f & flags::DISABLED != 0 { switch.disabled(true).layer_opacity(0.5) } else { switch }
+        }
         _ => return None,
     })
+}
+
+/// The settings controls built around their children (`ElKind::SettingsRow`, `SettingsList`):
+/// the app's own rows and card, so a plugin's settings page is the app's to the pixel.
+pub fn compose(b: &Build, spec: &ElSpec) -> Option<super::arena::Compose> {
+    // SAFETY: the spec's strings are valid for the build call this runs in.
+    let s = |v: opencode_plugin::abi::AbiStr| unsafe { v.as_str() }.to_owned();
+    let pal = *b.pal;
+    let key = s(spec.key);
+    match spec.kind {
+        ElKind::SettingsRow => {
+            let (title, description) = (s(spec.text), s(spec.help));
+            let lit = crate::settings::search::reveal_of(b.app, &key);
+            Some(Box::new(move |mut children: Vec<El>| {
+                let control = if children.is_empty() { el() } else { children.remove(0) };
+                let row = crate::settings::setting(&pal, &key, &title, &description, control);
+                crate::settings::pages::revealed(&pal, lit, 20.0, row)
+            }))
+        }
+        ElKind::SettingsList => Some(Box::new(move |rows: Vec<El>| crate::settings::list(&pal, &key, rows))),
+        _ => None,
+    }
 }
 
 fn color(c: [f32; 4]) -> Color {

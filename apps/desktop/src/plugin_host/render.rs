@@ -83,7 +83,7 @@ pub fn surface(app: &App, i: usize, render: &RenderEnv, props: &Props, pal: &Pal
     let ctx = RenderCtx {
         kind: Kind::Render,
         pal: pal_abi,
-        build: Build { editors: &host.editors, pal, faint: pal.faint, plugin: &slot.manifest.id, slot: i, generation: inst.generation, lib: &inst.lib },
+        build: Build { editors: &host.editors, pal, faint: pal.faint, plugin: &slot.manifest.id, slot: i, generation: inst.generation, lib: &inst.lib, app },
         arena: &host.arena,
         prefix: &slot.prefix,
         salt,

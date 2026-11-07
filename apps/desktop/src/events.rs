@@ -113,6 +113,7 @@ impl App {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = self.now_ms;
         if matches!(self.source, Source::Fixture) { self.served.record(ty, data); }
+        crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= self.apply_status(ty, data, &sid);
         changed |= self.note_review_event(ty);

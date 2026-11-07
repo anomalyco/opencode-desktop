@@ -328,11 +328,35 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
         }
         return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
     }
+    // The Sources experiment's chip leads a finished turn's footer that searched the web: it
+    // stays in view, 16 under the reply, and Copy follows it 8 on (`text-part-footer`).
+    let sources = (!busy && has_text && s.knobs().get(&crate::knobs::SOURCES_ENABLED) > 0.5)
+        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).and_then(|i| crate::sources_chip::of(t, i))).flatten())
+        .flatten();
+    let (dx, y) = match &sources {
+        Some(c) => (chip_width(c) + 8.0, 16.0),
+        None => (0.0, COPY_AT.1),
+    };
+    let lane = match &sources {
+        Some(c) => lane.child(crate::sources_chip::chip(s, p, c).absolute(0.0, 16.0)),
+        None => lane,
+    };
     // Copy and the meta show only while the reply or its footer is hovered, at once, as
     // Desktop's do; Kit's Working-to-Copy swap still plays under the pointer.
-    lane.child(button.absolute(COPY_AT.0, COPY_AT.1).group_opacity(0.0, 1.0))
-        .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + COPY + 4.0, COPY_AT.1)))
+    lane.child(button.absolute(COPY_AT.0 + dx, y).group_opacity(0.0, 1.0))
+        .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + dx + COPY + 4.0, y)))
         .children(s.turn_tail_extra(p, session, busy))
+}
+
+/// The Sources chip's width: 2 in, its tiles (or the globe), 6, its words, 8 out.
+fn chip_width(c: &crate::sources_chip::Chip) -> f32 {
+    let label = match c.count {
+        0 => "No sources".to_owned(),
+        1 => "1 source".to_owned(),
+        n => format!("{n} sources"),
+    };
+    let icons = if c.sites.is_empty() { 18.0 } else { 16.0 + 13.0 * (c.sites.len() - 1) as f32 };
+    2.0 + icons + 6.0 + rune::text::measure(&label, &[], TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05), None).0 + 8.0
 }
 
 // ---------------------------------------------------------------------------------------------

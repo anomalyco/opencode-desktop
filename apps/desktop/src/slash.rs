@@ -33,6 +33,8 @@ pub struct Item {
     pub description: String,
     pub keys: Option<crate::keymap::Bind>,
     pub builtin: Option<&'static str>,
+    /// An app command whose `/name` takes words (`slash.arguments`): picking it types `/name `.
+    pub args: bool,
 }
 
 #[derive(Default)]
@@ -105,13 +107,24 @@ impl App {
             description: c.description.clone(),
             keys: None,
             builtin: None,
+            args: false,
         });
-        let mut own: Vec<Item> = self.commands().into_iter().filter_map(|c| {
+        let mut own: Vec<Item> = self.commands().into_iter().filter(|c| !matches!(c.run, crate::commands::Run::Plugin(_))).filter_map(|c| {
             let name = c.slash?;
             // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
             let keys = c.keys.filter(|_| name != "new");
-            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), title: c.title.into(), description: c.description.into(), keys, builtin: Some(c.id) })
+            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), title: c.title.into(), description: c.description.into(), keys, builtin: Some(c.id), args: false })
         }).collect();
+        // Plugin commands, hidden ones too (`/btw`), as Desktop's `slashCommands` lists them.
+        own.extend(crate::plugin_host::slash_commands(self).into_iter().map(|c| Item {
+            id: format!("builtin.{}", c.id),
+            name: c.name.into(),
+            title: c.title.into(),
+            description: c.description.into(),
+            keys: None,
+            builtin: Some(c.id),
+            args: c.args,
+        }));
         own.sort_by_key(|c| ORDER.iter().position(|n| *n == c.name).unwrap_or(ORDER.len()));
         server.chain(own).collect()
     }
@@ -145,22 +158,38 @@ impl App {
         self.composer.set_selection(0, len);
         self.add.slash.active.clear();
         match item.builtin {
+            // A command that takes words waits for them (`onSuggestionSelect` declines it).
+            Some(_) if item.args => self.composer.insert(&format!("/{} ", item.name)),
             Some(command) => {
                 self.composer.insert("");
-                self.run_command(command, tx);
+                if !crate::plugin_host::run_command(self, command, tx) {
+                    self.run_command(command, tx);
+                }
             }
             None => self.composer.insert(&format!("/{} ", item.name)),
         }
     }
 
-    /// A sent `/name` naming an app command and no server one runs it, and the draft clears.
+    /// A sent `/name` naming an app command and no server one runs it, and the draft clears; a
+    /// command that takes words runs with the rest (`parseClientSlashCommand`).
     pub fn run_slash(&mut self, text: &str, tx: &mut Tx) -> bool {
-        let Some((name, "")) = parse_slash(text.trim()) else { return false };
+        let Some((name, words)) = parse_slash(text.trim()) else { return false };
         if self.add.slash.commands.iter().any(|c| c.name == name) {
             return false;
         }
-        let Some(id) = self.slash_list().into_iter().find(|c| c.builtin.is_some() && c.name == name).map(|c| c.id) else { return false };
-        self.pick_command(&id, tx);
+        let Some(item) = self.slash_list().into_iter().find(|c| c.builtin.is_some() && c.name == name) else { return false };
+        if item.args {
+            let Some(command) = item.builtin else { return false };
+            let len = self.composer.text.len();
+            self.composer.set_selection(0, len);
+            self.composer.insert("");
+            crate::plugin_host::run_slash(self, command, words, tx);
+            return true;
+        }
+        if !words.is_empty() {
+            return false;
+        }
+        self.pick_command(&item.id, tx);
         true
     }
 

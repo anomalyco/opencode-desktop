@@ -93,6 +93,31 @@ pub(super) fn query(app: &mut App, tx: &mut Tx, i: usize, scope: Scope, cb: open
     }
 }
 
+/// Runs query `cb` of slot `i`'s window half where the app is only read (listing a panel's
+/// tabs): with a read-only context, so it may read its state, stores and the app's facts. A panic or an error
+/// answers nothing; the plugin keeps running, and its next handler or poll reports a panic.
+pub(super) fn peek(app: &App, i: usize, cb: &opencode_plugin::abi::QueryCallback, input: &str) -> Option<String> {
+    let func = cb.func?;
+    let inst = app.plugins.slots.get(i)?.active()?;
+    let state = inst.state_of(Scope::Window);
+    if state.is_null() {
+        return None;
+    }
+    let mut out = opencode_plugin::abi::AbiOwnedBytes::EMPTY;
+    let mut ctx = super::vtable::ReadCtx { kind: super::vtable::Kind::Read, plugin_id: &app.plugins.slots[i].manifest.id, shared: &app.plugins.shared };
+    // SAFETY: the plugin's query with its own data and a valid out pointer, on its own state,
+    // which nothing else touches while the app's thread is here.
+    let answer = unsafe { func(state, (&raw mut ctx).cast(), cb.data, AbiStr::new(input), &mut out) };
+    match answer.into_result() {
+        Ok((_, 1)) => Some(out.to_string_lossy()),
+        Ok(_) => None,
+        Err((_, message)) => {
+            super::tasks::log(format!("plugin {}: listing failed: {message}", app.plugins.slots[i].manifest.id));
+            None
+        }
+    }
+}
+
 fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option<u64>, tx: &mut Tx) {
     if let Some(ms) = wake_after {
         let due = app.clock + ms as f64 / 1000.0;
@@ -131,7 +156,7 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
                 app.composer.replace_text(prompt);
                 tx.settle();
             }
-            Request::ServerRequest { method, path, body, done } => super::requests::server(app, i, method, path, body, done),
+            Request::ServerRequest { method, path, body, done, scope } => super::requests::server(app, i, scope, method, path, body, done),
             Request::SaveFile { name, content, done } => super::requests::save(app, i, &name, &content, done, tx),
             Request::RunCommand(command) => app.run_command(&command, tx),
             Request::OpenLink(href) => app.open_reply_link(&href, tx),
@@ -140,6 +165,9 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
                 app.open_settings();
                 if page == "servers" {
                     app.open_settings_page(crate::settings::pages::Page::Servers, tx);
+                } else if !page.is_empty() {
+                    // The plugin's own page (`layout.settings(page)`).
+                    app.open_settings_page(crate::settings::pages::Page::Plugin(format!("{id}.{page}")), tx);
                 }
             }
             Request::SetServers { source, list, ready } => {
@@ -152,8 +180,94 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
             Request::OpenDialog(dialog) => super::dialog::open(app, i, &dialog, tx),
             Request::CloseDialog => super::dialog::close(app, i, tx),
             Request::ConnectServer(server) => super::servers::connect(app, &format!("{id}:{server}"), tx),
+            Request::OpenPanelInstance { panel, instance } => super::view::open_instance(app, i, &panel, &instance, tx),
+            Request::OpenExternal(url) => {
+                if app.live() {
+                    let _ = tx.open_url(&url);
+                }
+            }
+            Request::Reveal(path) => super::requests::reveal(&path),
+            Request::ToastReveal(arg) => {
+                let mut f = arg.splitn(5, '\n');
+                let mut next = || f.next().unwrap_or_default();
+                let (variant, title, description, button, path) = (next(), next(), next(), next(), next());
+                if variant == "loading" {
+                    crate::status_toast::waiting(app, title);
+                } else {
+                    crate::status_toast::fail(app, title, description);
+                }
+                if let Some(e) = app.toast.current.as_mut() {
+                    if variant == "success" {
+                        e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
+                    }
+                    if !button.is_empty() && !path.is_empty() {
+                        e.action = Some(crate::status_toast::ToastAction::Reveal(button.to_owned(), path.into()));
+                    }
+                }
+            }
+            Request::Dev(what) => {
+                tx.instant();
+                match what.split_once(':') {
+                    Some(("speed", x)) => app.knobs.set(&crate::knobs::SPEED, x.parse().unwrap_or(1.0)),
+                    Some(("slow", on)) => app.knobs.set(&crate::knobs::SLOW, if on == "on" { 1.0 } else { 0.0 }),
+                    _ if what == "knobs" => app.knobs.toggle(),
+                    _ if what == "components" => tx.open_playground(),
+                    _ => {}
+                }
+            }
         }
     }
+}
+
+/// Queues a server event for the plugins listening for its type (`contrib::EVENTS`), delivered
+/// on the next poll; nothing when none listens.
+pub fn server_event(app: &mut App, ty: &str, data: &serde_json::Value) {
+    let host = &mut app.plugins;
+    let bits = super::contrib::active(host, opencode_plugin::abi::contrib::EVENTS).filter(|(_, c)| ty.starts_with(c.target.as_str())).fold(0, |b, (i, _)| b | slot_bit(i));
+    if bits == 0 {
+        return;
+    }
+    host.server_events.push((ty.to_owned(), data.to_string()));
+    host.wake.wake(bits, false);
+}
+
+/// Hands the experiments' knobs (`TEXT_EXPERIMENT`) and the developer tools' state (`TEXT_DEV`)
+/// to plugins, waking them when one changed.
+fn sync_experiments(app: &mut App) {
+    use session_view::knobs::{SOURCES_ENABLED, SOURCES_ICONS};
+    let on = |v: f32| v > 0.5;
+    let k = &app.knobs;
+    let now = (on(k.get(&SOURCES_ENABLED)), on(k.get(&SOURCES_ICONS)), k.get(&crate::knobs::SPEED).to_bits(), on(k.get(&crate::knobs::SLOW)), k.open);
+    let facts = &mut app.plugins.shared.facts;
+    if facts.synced == Some(now) {
+        return;
+    }
+    facts.synced = Some(now);
+    let word = |b: bool| (if b { "on" } else { "off" }).to_owned();
+    facts.experiments.insert("sources.enabled".into(), word(now.0));
+    facts.experiments.insert("sources.icons".into(), (if now.1 { "site" } else { "letters" }).into());
+    facts.dev.insert("speed".into(), format!("{:.2}", f32::from_bits(now.2)));
+    facts.dev.insert("slow".into(), word(now.3));
+    facts.dev.insert("knobs".into(), word(now.4));
+    let all = (0..app.plugins.slots.len()).fold(0, |bits, i| bits | slot_bit(i));
+    app.plugins.wake.wake(all, false);
+}
+
+fn deliver_events(app: &mut App, tx: &mut Tx) -> bool {
+    if app.plugins.server_events.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    for (ty, data) in std::mem::take(&mut app.plugins.server_events) {
+        let listeners: Vec<(usize, super::instance::Scope, Callback)> = super::contrib::active(&app.plugins, opencode_plugin::abi::contrib::EVENTS)
+            .filter(|(_, c)| ty.starts_with(c.target.as_str()))
+            .filter_map(|(i, c)| Some((i, c.scope, c.run.as_ref()?.cb)))
+            .collect();
+        for (i, scope, cb) in listeners {
+            changed |= action(app, tx, i, scope, cb, opencode_plugin::abi::EVENT_SERVER, &ty, &data);
+        }
+    }
+    changed
 }
 
 /// An element's press handler, from a plugin's render.
@@ -182,16 +296,42 @@ pub(crate) fn hover(app: &mut App, tx: &mut Tx, hover: &Press, on: bool) {
 
 /// Runs plugin command `id` (`<plugin>.<command>`); false when it declined or is gone.
 pub fn run_command(app: &mut App, id: &str, tx: &mut Tx) -> bool {
-    run_command_as(app, id, EVENT_COMMAND, tx)
+    run_command_as(app, id, EVENT_COMMAND, "", tx)
 }
 
-fn run_command_as(app: &mut App, id: &str, kind: u32, tx: &mut Tx) -> bool {
+/// Runs plugin command `id` from the composer's `/name words` with `words` as its input.
+pub fn run_slash(app: &mut App, id: &str, input: &str, tx: &mut Tx) -> bool {
+    run_command_as(app, id, EVENT_COMMAND, input, tx)
+}
+
+/// One plugin command the composer's `/` offers: hidden ones too (`/btw`), while enabled.
+pub struct SlashCommand {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    /// `/name ` waits for its words rather than running when picked.
+    pub args: bool,
+}
+
+pub fn slash_commands(app: &App) -> Vec<SlashCommand> {
+    app.plugins
+        .slots
+        .iter()
+        .filter_map(Slot::active)
+        .flat_map(|inst| &inst.contributions.commands)
+        .filter(|c| enabled(app, c))
+        .filter_map(|c| Some(SlashCommand { id: c.id, name: c.slash?, title: c.title, description: c.description, args: c.slash_args }))
+        .collect()
+}
+
+fn run_command_as(app: &mut App, id: &str, kind: u32, input: &str, tx: &mut Tx) -> bool {
     let found = app.plugins.slots.iter().enumerate().find_map(|(i, s)| {
-        let cmd = s.active()?.contributions.commands.iter().find(|c| c.id == id)?;
+        let cmd = s.active()?.contributions.commands.iter().find(|c| c.id == id && enabled(app, c))?;
         Some((i, cmd.run.cb))
     });
     let Some((i, cb)) = found else { return false };
-    action(app, tx, i, Scope::Window, cb, kind, "", "")
+    action(app, tx, i, Scope::Window, cb, kind, input, "")
 }
 
 /// A plugin command's keybind. Chords with Ctrl, Alt or ⌘ fire anywhere; a plain key only
@@ -202,17 +342,22 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)) && (!plain || c.editable || tx.focused().is_none())
     });
     let Some(id) = hit.map(|c| c.id) else { return false };
-    run_command_as(app, id, EVENT_KEY, tx)
+    run_command_as(app, id, EVENT_KEY, "", tx)
 }
 
-/// The palette's (and the composer's `/`) plugin commands.
+/// Whether a plugin command is offered now: one that `needs_session` only over an open session.
+fn enabled(app: &App, c: &super::instance::CommandRec) -> bool {
+    !c.needs_session || app.active_session_id().is_some()
+}
+
+/// The palette's plugin commands.
 pub fn commands(app: &App) -> Vec<crate::commands::Command> {
     app.plugins
         .slots
         .iter()
         .filter_map(Slot::active)
         .flat_map(|inst| &inst.contributions.commands)
-        .filter(|c| !c.hidden)
+        .filter(|c| !c.hidden && enabled(app, c))
         .map(|c| crate::commands::Command {
             id: c.id,
             title: c.title,
@@ -229,16 +374,18 @@ pub fn commands(app: &App) -> Vec<crate::commands::Command> {
 /// the watcher rebuilt and loaded. At rest: two atomic swaps, one comparison, no call into any
 /// plugin.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
+    sync_experiments(app);
+    let mut changed = deliver_events(app, tx);
     let now = app.clock;
     let host = &mut app.plugins;
     let dirty = host.wake.dirty.swap(0, Ordering::AcqRel);
     let hot = host.wake.hot.swap(0, Ordering::AcqRel);
     let due = host.next_deadline.is_some_and(|d| now >= d);
     if dirty == 0 && hot == 0 && !due {
-        return false;
+        return changed;
     }
     // Processes' output and exits first: their wake set the same bits.
-    let mut changed = super::process::drain(app, tx);
+    changed |= super::process::drain(app, tx);
     for i in 0..app.plugins.slots.len() {
         if hot & slot_bit(i) != 0 {
             let prepared = super::hot::take(&app.plugins.ready, i);

@@ -159,6 +159,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
 
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
+    cx.time_scale(crate::knobs::time_scale(s));
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
     let side_tabs = s.tab_layout().has_sidebar();
@@ -244,16 +245,23 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         root = root.child(sidebar_toggle(s, p, s.sidebar_open, w));
     }
     root = root.children(crate::plugin_host::titlebar_items(s, p));
-    // Plugins' `window.bottom` slot (a debug bar) runs across the window's foot.
+    // Plugins' `window.bottom` slot (the debug bar) runs across the window's foot, under the
+    // panels, taking its own room (`shell.tsx`'s last `PluginSlot`).
     let sid = match &s.route {
         Route::Session(id) => id.as_str(),
         _ => "",
     };
     let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);
-    if !bottom.is_empty() {
-        root = root.child(row().key("plugin-window-bottom").pin(Some(0.0), None, Some(0.0), Some(0.0)).children(bottom));
+    if bottom.is_empty() {
+        return root;
     }
-    root
+    col()
+        .key("window-column")
+        .w_full()
+        .h_full()
+        .fill(p.bg_deep)
+        .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
+        .child(col().key("plugin-window-bottom").w_full().children(bottom))
 }
 
 // ---------------------------------------------------------------------------------------------

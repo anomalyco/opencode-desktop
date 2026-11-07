@@ -29,6 +29,7 @@ pub mod palette;
 pub mod pickers;
 pub mod popover;
 pub mod question_row;
+pub mod sources_chip;
 pub mod story;
 pub mod style;
 pub mod subagent_card;

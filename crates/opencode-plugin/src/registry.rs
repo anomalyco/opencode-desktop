@@ -3,8 +3,9 @@
 use std::borrow::Cow;
 
 use crate::abi::{
-    AbiStatus, AbiStr, COMMAND_EDITABLE, COMMAND_HIDDEN, Callback, CommandSpecAbi, PANEL_FALLBACK, PANEL_FIRST, PANEL_FIXED, PANEL_NO_LAUNCHER,
-    PANEL_TRANSIENT, PanelSpecAbi, RenderCallback, SettingSpecAbi,
+    AbiStatus, AbiStr, COMMAND_EDITABLE, COMMAND_HIDDEN, COMMAND_SESSION, COMMAND_SLASH_ARGS, Callback, CommandSpecAbi, PANEL_FALLBACK,
+    PANEL_FIRST, PANEL_FIXED, PANEL_INSTANCES, PANEL_NO_LAUNCHER, PANEL_TRANSIENT, PanelSpecAbi, QueryCallback, RenderCallback,
+    SettingSpecAbi,
 };
 use crate::boundary::drop_packed;
 
@@ -35,6 +36,8 @@ pub struct CommandSpec {
     section: CommandSection,
     editable: bool,
     hidden: bool,
+    slash_args: bool,
+    session: bool,
 }
 
 impl CommandSpec {
@@ -49,7 +52,22 @@ impl CommandSpec {
             section: CommandSection::General,
             editable: false,
             hidden: false,
+            slash_args: false,
+            session: false,
         }
+    }
+
+    /// The `/name` takes arguments (`slash.arguments`): picking it types `/name `, and sending
+    /// `/name words` runs the command with `words` as `cx.input()`.
+    pub fn slash_args(mut self, on: bool) -> Self {
+        self.slash_args = on;
+        self
+    }
+
+    /// Offered only while a session is open in a window wide enough for the side region.
+    pub fn needs_session(mut self, on: bool) -> Self {
+        self.session = on;
+        self
     }
 
     pub fn description(mut self, description: impl Into<Text>) -> Self {
@@ -111,7 +129,10 @@ impl CommandSpec {
             bind_macos: AbiStr::new(&self.binds[1]),
             bind_linux: AbiStr::new(&self.binds[2]),
             section: self.section as u32,
-            flags: if self.editable { COMMAND_EDITABLE } else { 0 } | if self.hidden { COMMAND_HIDDEN } else { 0 },
+            flags: [(self.editable, COMMAND_EDITABLE), (self.hidden, COMMAND_HIDDEN), (self.slash_args, COMMAND_SLASH_ARGS), (self.session, COMMAND_SESSION)]
+                .iter()
+                .filter(|(on, _)| *on)
+                .fold(0, |all, (_, flag)| all | flag),
             run,
         };
         if f(&abi) != AbiStatus::Ok {
@@ -186,7 +207,15 @@ impl PanelSpec {
         self.flag(PANEL_TRANSIENT, transient)
     }
 
+    pub(crate) fn instances(self) -> Self {
+        self.flag(PANEL_INSTANCES, true)
+    }
+
     pub(crate) fn with_abi(&self, render: RenderCallback, label: RenderCallback, f: impl FnOnce(&PanelSpecAbi) -> AbiStatus) {
+        self.with_abi_instances(render, label, QueryCallback::NONE, Callback::NONE, f);
+    }
+
+    pub(crate) fn with_abi_instances(&self, render: RenderCallback, label: RenderCallback, list: QueryCallback, close: Callback, f: impl FnOnce(&PanelSpecAbi) -> AbiStatus) {
         let abi = PanelSpecAbi {
             id: AbiStr::new(&self.id),
             title: AbiStr::new(&self.title),
@@ -196,12 +225,25 @@ impl PanelSpec {
             flags: self.flags,
             render,
             label,
+            list,
+            close,
         };
         if f(&abi) != AbiStatus::Ok {
             drop_packed(render.data, render.drop_data);
             drop_packed(label.data, label.drop_data);
+            drop_packed(list.data, list.drop_data);
+            drop_packed(close.data, close.drop_data);
         }
     }
+}
+
+/// One tab an instance panel lists (`PanelTab`): its instance id, its title, and whether it's
+/// held hidden (a restored tab whose data hasn't loaded, kept so its selection survives).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelTab {
+    pub id: String,
+    pub title: String,
+    pub hidden: bool,
 }
 
 /// A row in Settings (`SettingsPage` entries in Desktop's plugin API): title, description and

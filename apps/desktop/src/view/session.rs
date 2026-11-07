@@ -53,7 +53,11 @@ fn pills(s: &App, p: &Pal, id: &str) -> Vec<El> {
     // The timeline's edge rises over their row first, so a pill fades in only once nothing is
     // under it, and goes at once so the edge can come back down (t1129).
     let enter = |pill: El| pill.transition(rune::Transition::asymmetric(rune::Transition::opacity(), rune::Transition::none())).enter_delay(PILL_WAIT);
-    capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).map(enter).collect()
+    let own: Vec<El> = capsule.into_iter().chain(crate::todos::pill(s, p, id).map(|t| t.ml(gap))).collect();
+    // Plugins' pills follow the app's (`SessionPluginPills`), 8 apart.
+    let gap = if own.is_empty() { 0.0 } else { 8.0 };
+    let plugins = crate::plugin_host::pill_views(s, p, id).into_iter().enumerate().map(|(k, pill)| pill.ml(if k == 0 { gap } else { 8.0 }));
+    own.into_iter().chain(plugins).map(enter).collect()
 }
 
 /// How long the timeline's edge takes to clear the pills' row (the page's spring).

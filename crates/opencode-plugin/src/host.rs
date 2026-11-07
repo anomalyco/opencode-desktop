@@ -229,6 +229,11 @@ impl ActionCx {
         self.request(crate::abi::REQUEST_NEW_DRAFT, &format!("{directory}\n{prompt}"));
     }
 
+    /// The wall clock, in ms since the Unix epoch.
+    pub fn now_ms(&self) -> i64 {
+        state(STATE_NOW_MS, "", "") as i64
+    }
+
     /// Whether the app may write to its server.
     pub fn can_write(&self) -> bool {
         state(STATE_CAN_WRITE, "", "") != 0

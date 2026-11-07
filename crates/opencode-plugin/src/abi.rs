@@ -18,11 +18,11 @@ use core::mem::MaybeUninit;
 /// "OCRUNEPL".
 pub const ABI_MAGIC: u64 = 0x4F43_5255_4E45_504C;
 pub const ABI_ENDIAN: u32 = 0x0102_0304;
-/// Experimental epoch 4 (epoch 3's session reads, server requests, popovers, theme tokens and
-/// richer elements, plus supervised processes, HTTP fetches, host menus and dialogs, Desktop's
-/// buttons, fields, radios and loader, and server sources the app connects to); bumped on any
-/// breaking layout change.
-pub const ABI_EPOCH: u16 = 4;
+/// Experimental epoch 5 (epoch 4's processes, fetches, menus, dialogs, controls and server
+/// sources, plus panels with a tab per instance, slash commands with arguments, composer pills
+/// the host draws from a plugin's view, Markdown, shimmering text and images, the server's
+/// events, and the app's channel, folders and memory); bumped on any breaking layout change.
+pub const ABI_EPOCH: u16 = 5;
 /// Additive tail extensions to the vtables within an epoch.
 pub const ABI_MINOR: u16 = 0;
 /// What `plugin.toml`'s `api` names for this epoch.
@@ -259,6 +259,21 @@ pub enum ElKind {
     /// [`flags::DISABLED`], [`flags::INVALID`] and [`flags::SECURE`] apply, and `press` runs on
     /// Enter.
     Field = 12,
+    /// Markdown drawn as the timeline draws a reply's (`text-14-regular`): `text` is its source.
+    Markdown = 13,
+    /// Desktop's `TextShimmer`: `text` shimmers in the element's font and colour.
+    Shimmer = 14,
+    /// An image the plugin handed the host (`HostApiVtable::image`): `icon_id` is its id;
+    /// `width` and `height` size it, and it fills that box keeping its aspect.
+    Image = 15,
+    /// Desktop's `SettingsRow`: `text` is its title, `help` its description, `key` its id (the
+    /// settings search's target); its first child is its control.
+    SettingsRow = 16,
+    /// Desktop's settings list card (`SettingsSection`'s list): its children are its rows,
+    /// split by hairlines.
+    SettingsList = 17,
+    /// Desktop's `Switch`: `value` 1 when on; [`flags::DISABLED`] applies; `press` toggles it.
+    Switch = 18,
 }
 
 /// [`ElSpec::value`] of an [`ElKind::Button`].
@@ -310,6 +325,9 @@ pub mod flags {
     pub const INVALID: u64 = 1 << 24;
     /// A field whose text is hidden (a password).
     pub const SECURE: u64 = 1 << 25;
+    /// Shown only while the nearest [HOVER_GROUP] ancestor is hovered, at once (a reply's
+    /// Copy and meta line).
+    pub const REVEAL: u64 = 1 << 26;
 }
 
 /// [`ElSpec::shadow`]: Desktop's elevation tokens.
@@ -410,6 +428,11 @@ pub const EVENT_PROCESS_EXIT: u32 = 11;
 pub const EVENT_FETCH: u32 = 12;
 /// A dialog closed by Esc or a press outside it (`contrib::DIALOG`'s `run`).
 pub const EVENT_DISMISS: u32 = 13;
+/// One of the server's events (`contrib::EVENTS`): `text` is its type, `extra` its data's JSON.
+pub const EVENT_SERVER: u32 = 14;
+/// A panel instance's tab closed (`PanelSpecAbi::close`): `text` is the instance, `extra` the
+/// session.
+pub const EVENT_TAB_CLOSED: u32 = 15;
 
 /// What ran a callback. The strings are views valid for the call.
 #[repr(C)]
@@ -573,6 +596,8 @@ pub struct ElSpec<'a> {
     pub anchor_gap: f32,
     /// Runs as the pointer enters and leaves ([`EVENT_HOVER`]).
     pub hover: Callback,
+    /// A [`ElKind::Button`]'s leading icon, by name (an icon the plugin interned or Desktop's).
+    pub icon: AbiStr<'a>,
 }
 
 impl ElSpec<'static> {
@@ -620,12 +645,18 @@ impl ElSpec<'static> {
         anchor_align: ALIGN_START,
         anchor_gap: 0.0,
         hover: Callback::NONE,
+        icon: AbiStr::EMPTY,
     };
 }
 
 /// [`CommandSpecAbi::flags`].
 pub const COMMAND_EDITABLE: u32 = 1 << 0;
 pub const COMMAND_HIDDEN: u32 = 1 << 1;
+/// `/name` takes arguments (`slash.arguments`): picking it types `/name `, and sending
+/// `/name words` runs it with `words` as the event's text.
+pub const COMMAND_SLASH_ARGS: u32 = 1 << 2;
+/// Offered only while a session is open in a window wide enough for the side region.
+pub const COMMAND_SESSION: u32 = 1 << 3;
 
 #[repr(C)]
 pub struct CommandSpecAbi<'a> {
@@ -654,6 +685,10 @@ pub const PANEL_FIRST: u32 = 1 << 2;
 pub const PANEL_FALLBACK: u32 = 1 << 3;
 /// Can't be dragged to another pane (`draggable: false`).
 pub const PANEL_FIXED: u32 = 1 << 4;
+/// A tab per instance (`<plugin>.<panel>/<instance>`), opened by the plugin
+/// ([`REQUEST_OPEN_PANEL_INSTANCE`]) and listed by its `list` query; renders get the instance as
+/// `RenderProps::path`.
+pub const PANEL_INSTANCES: u32 = 1 << 5;
 
 /// A settings page's [`ContributionAbi::flags`]: listed in the rail's last group, beside
 /// Experimental and About (`SettingsPage.group: "about"`).
@@ -673,6 +708,11 @@ pub struct PanelSpecAbi<'a> {
     pub render: RenderCallback,
     /// Draws the tab's label in the strip ([`SURFACE_TAB`]), in place of its icon and title.
     pub label: RenderCallback,
+    /// [`PANEL_INSTANCES`]: given `session\ninstance\n…` (the session's open instances), answers a
+    /// line per instance to list, `instance\ttitle\tflags` (`h` hidden), in that order.
+    pub list: QueryCallback,
+    /// [`PANEL_INSTANCES`]: runs with [`EVENT_TAB_CLOSED`] as an instance's tab closes.
+    pub close: Callback,
 }
 
 #[repr(C)]
@@ -701,7 +741,11 @@ pub mod contrib {
     pub const LINK_HANDLER: u32 = 4;
     /// A pill at the titlebar's trailing end: `render` draws it, `run` presses it.
     pub const TITLEBAR_ITEM: u32 = 5;
-    /// A capsule above the root session's composer; `render` returns `ElHandle::NONE` to hide.
+    /// A capsule above the root session's composer. With `query`, the host draws Desktop's pill
+    /// from its answer for the session (`label\ticon\ttone\ttitle`, tone `success`, `warning` or
+    /// `danger`; no answer hides it) and `render`, when set, draws the content of the popover it
+    /// opens under the host's heading; `run` presses a pill without one. Without `query`,
+    /// `render` draws the whole pill (`ElHandle::NONE` hides it).
     pub const COMPOSER_PILL: u32 = 6;
     /// A hover button beside a code block's Copy; `target` lists languages (empty for all).
     pub const CODE_BLOCK_ACTION: u32 = 7;
@@ -729,6 +773,9 @@ pub mod contrib {
     /// `run` hears Esc or a press outside closing it ([`super::EVENT_DISMISS`]). Opened with
     /// [`super::REQUEST_OPEN_DIALOG`].
     pub const DIALOG: u32 = 15;
+    /// Hears the server's events whose type starts with `target` (`rpc.opencode.goal.`): `run`
+    /// gets each with [`super::EVENT_SERVER`], from whichever server the window is connected to.
+    pub const EVENTS: u32 = 16;
 }
 
 /// [`ContributionAbi::flags`] of a [`contrib::POPOVER`]: where it sits beside its anchor, as
@@ -860,6 +907,21 @@ pub const REQUEST_CLOSE_DIALOG: u32 = 10;
 /// Connects the window to this plugin's server `arg` (it must be ready and listed) and goes to
 /// its Home.
 pub const REQUEST_CONNECT_SERVER: u32 = 11;
+/// Opens this plugin's [`PANEL_INSTANCES`] panel's tab for an instance in the routed session and
+/// selects it (`layout.open(key, session, { tab: "select" })`): `arg` is `panel\ninstance`.
+pub const REQUEST_OPEN_PANEL_INSTANCE: u32 = 12;
+/// Opens `arg` in the system's browser (`system.openExternal`).
+pub const REQUEST_OPEN_EXTERNAL: u32 = 13;
+/// Shows `arg` in the system's file manager (`desktop.reveal`).
+pub const REQUEST_REVEAL: u32 = 14;
+/// A toast that stays until dismissed or replaced: `arg` is
+/// `variant\ntitle\ndescription\nbutton\npath`, `variant` being `success`, `error` or `loading`;
+/// with a button and a path, the button reveals the path.
+pub const REQUEST_TOAST_REVEAL: u32 = 15;
+/// The developer tools the debug bar drives: `speed:<x>` (the window's animation clock, 1 for
+/// full speed), `slow:on|off` (every animation at a quarter speed), `knobs` (opens or closes
+/// the Knobs panel), `components` (opens the components playground).
+pub const REQUEST_DEV: u32 = 16;
 
 /// [`HostApiVtable::host_state`] questions.
 /// This plugin's panel `arg` in session `arg2`: 0 closed, 1 in the strip, 2 selected in its
@@ -892,6 +954,32 @@ pub const TEXT_SERVER_VERSION: u32 = 1;
 pub const TEXT_SERVER_HEALTH: u32 = 2;
 /// The app's executable.
 pub const TEXT_EXE: u32 = 3;
+/// The build's release channel: `local` (a development build), `beta` or `prod`.
+pub const TEXT_CHANNEL: u32 = 4;
+/// The folder the app writes its logs to.
+pub const TEXT_LOGS_DIR: u32 = 5;
+/// The folder the app saves downloads to.
+pub const TEXT_DOWNLOADS_DIR: u32 = 6;
+/// The app process's memory as JSON, in bytes: the OS's view (`footprint`, `footprintPeak`,
+/// `resident`; `null` where it can't be read) and its allocator's (`heap`: `live`, `peak`,
+/// `allocations`, `largest`, and `tags`, the net bytes per thread tag).
+pub const TEXT_MEMORY: u32 = 7;
+/// The routed session as JSON (`id`, `directory`, `agent`, `providerID`, `modelID`, `variant`),
+/// or nothing when no session is open.
+pub const TEXT_ACTIVE_SESSION: u32 = 8;
+/// An experiment's setting by name (Desktop's Knobs, Experiments): `sources.enabled` is `on` or
+/// `off`, `sources.icons` is `letters` or `site`.
+pub const TEXT_EXPERIMENT: u32 = 9;
+/// The developer tools' state ([`REQUEST_DEV`]): `speed` (`1.00`), `slow` and `knobs` (`on` or
+/// `off`).
+pub const TEXT_DEV: u32 = 10;
+
+/// A [`HostApiVtable::server_request`] path starting with this goes, without it, to the app's own
+/// (local) server even while the window is connected to another (`servers.list().find(builtin)`).
+pub const LOCAL_SERVER_PREFIX: &str = "local:";
+/// A [`HostApiVtable::server_request`] method that `GET`s the path's raw bytes (a file from
+/// `/api/fs/read/…`), answered in the event's `text` whether or not they're text.
+pub const METHOD_BYTES: &str = "BYTES";
 
 /// A step's tokens.
 #[repr(C)]
@@ -1137,6 +1225,13 @@ pub struct HostApiVtable {
     /// or `sep`, after an optional `menu\t<label>\t<start|end>\t<min width>`. `done` runs once it
     /// closes with [`EVENT_MENU`], `text` the picked id ("" when dismissed).
     pub open_menu: unsafe extern "C" fn(ctx: *mut c_void, anchor: AbiStr, spec: AbiStr, done: Callback) -> AbiStatus,
+    // Any callback on the app's thread.
+    /// Copies an image into the host and returns its id for [`ElKind::Image`] (0 when refused):
+    /// `bytes` encoded (PNG, JPEG …) when `width` is 0, else `width` × `height` RGBA8, straight
+    /// alpha. The host decodes it off the app's thread and keeps it until [`Self::image_drop`] or
+    /// the plugin unloads.
+    pub image: unsafe extern "C" fn(ctx: *mut c_void, bytes: AbiStr, width: u32, height: u32) -> u32,
+    pub image_drop: unsafe extern "C" fn(ctx: *mut c_void, id: u32),
 }
 
 pub type SetupFn = unsafe extern "C" fn(ctx: *mut c_void) -> AbiOutcome<*mut c_void>;

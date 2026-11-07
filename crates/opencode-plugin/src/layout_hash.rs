@@ -52,10 +52,10 @@ pub const ABI_LAYOUT_HASH: u64 = {
     layout!(
         h, ElSpec<'static>, kind, key, role, label, help, text, icon_id, surface, editor, width, height, min_w, min_h, max_w, max_h, grow,
         shrink, pad, margin, gap, radius, border_w, fill, hover_fill, press_fill, border_color, text_color, font_size, font_weight,
-        line_height, opacity, flags, press, tracking, shadow, value, group_color, pin, anchor, anchor_side, anchor_align, anchor_gap, hover
+        line_height, opacity, flags, press, tracking, shadow, value, group_color, pin, anchor, anchor_side, anchor_align, anchor_gap, hover, icon
     );
     layout!(h, CommandSpecAbi<'static>, id, title, description, keywords, slash, bind_windows, bind_macos, bind_linux, section, flags, run);
-    layout!(h, PanelSpecAbi<'static>, id, title, description, icon, order, flags, render, label);
+    layout!(h, PanelSpecAbi<'static>, id, title, description, icon, order, flags, render, label, list, close);
     layout!(h, TokensAbi, input, output, reasoning, cache_read, cache_write);
     layout!(
         h, SessionAbi<'static>, id, title, directory, project_id, parent_id, provider_id, model_id, usage_provider_id, usage_model_id,
@@ -75,7 +75,7 @@ pub const ABI_LAYOUT_HASH: u64 = {
         h, HostApiVtable, log, add_command, add_panel, add_setting, create_editor, waker, editor_text, editor_version, editor_set_text,
         instant, wake_after, copy_text, open_panel, toast, palette, el_build, el_apply, el_child, memo, add_contribution, provide, consume,
         intern_icon, live, store_get, store_set, spawn, set_servers, request, session, model, resource, token, host_state, server_request,
-        save_file, process_spawn, process_write, process_kill, fetch, host_text, open_menu
+        save_file, process_spawn, process_write, process_kill, fetch, host_text, open_menu, image, image_drop
     );
     layout!(h, PluginVtable, app_setup, app_drop_state, app_poll, window_setup, drop_state, poll, save_hot_state, load_hot_state);
     layout!(h, HostHandshake, magic, endian, abi_epoch, abi_minor, abi_layout_hash, pointer_width, os, arch, host_vtable_size, host_vtable, host_alloc);

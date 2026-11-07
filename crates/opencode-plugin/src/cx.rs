@@ -89,6 +89,34 @@ impl<P: 'static> WindowSetupCx<P> {
         });
     }
 
+    /// A panel with a tab per instance (`<plugin>.<panel>/<instance>`), such as one per question
+    /// asked: [`ActionCx::open_panel_instance`] opens one; `list` names the session's open
+    /// instances it still shows (`list(state, session, open)`, in order); `render` and `label`
+    /// draw one, its id in `props.path`; `close` runs as its tab closes, with the instance as
+    /// `cx.input()` and the session as `cx.input_extra()`.
+    pub fn add_panel_instances(
+        &mut self,
+        spec: PanelSpec,
+        list: impl Fn(&P, &str, &[String]) -> Vec<crate::registry::PanelTab> + 'static,
+        render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static,
+        label: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static,
+        close: impl Fn(&mut P, &mut ActionCx) + 'static,
+    ) {
+        let list = query_callback::<P, _>(move |s, _, input| {
+            let mut lines = input.lines();
+            let session = lines.next().unwrap_or_default();
+            let open: Vec<String> = lines.map(str::to_owned).collect();
+            let tabs = list(s, session, &open);
+            let clean = |t: &str| t.replace(['\t', '\n'], " ");
+            Ok(Some(tabs.iter().map(|t| format!("{}\t{}\t{}", clean(&t.id), clean(&t.title), if t.hidden { "h" } else { "" })).collect::<Vec<_>>().join("\n")))
+        });
+        let (render, label, close) = (render_callback::<P, _>(render), render_callback::<P, _>(label), action_callback::<P, _>(close));
+        spec.instances().with_abi_instances(render, label, list, close, |abi| {
+            // SAFETY: as `add_command`.
+            unsafe { (host().add_panel)(ctx(), abi) }
+        });
+    }
+
     /// A row in Settings › Plugins; `render` draws its control.
     pub fn add_setting(&mut self, spec: SettingSpec, render: impl Fn(&P, &mut ViewCx<P>, &Props) -> El + 'static) {
         let render = render_callback::<P, _>(render);
@@ -159,6 +187,26 @@ pub struct Props {
     pub compact: bool,
     /// A tab label's tab is the selected one.
     pub selected: bool,
+}
+
+impl Props {
+    /// Props naming only a session and its folder.
+    pub fn for_session(session: &str, directory: &str) -> Props {
+        Props {
+            id: String::new(),
+            session_id: session.to_owned(),
+            directory: directory.to_owned(),
+            path: String::new(),
+            text: String::new(),
+            width: 0.0,
+            height: 0.0,
+            visible: true,
+            focused: false,
+            active: true,
+            compact: false,
+            selected: false,
+        }
+    }
 }
 
 /// The theme tokens of the render running on this thread.
@@ -237,6 +285,14 @@ fn editor_text(editor: EditorHandle) -> String {
     }
 }
 
+/// What a persistent toast says it is ([`ActionCx::toast_persistent`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToastVariant {
+    Success,
+    Error,
+    Loading,
+}
+
 /// Passed to a handler, a command and `poll`: asks the host for things it carries out after
 /// the call returns.
 pub struct ActionCx {
@@ -259,6 +315,12 @@ impl ActionCx {
     pub fn input(&self) -> &str {
         // SAFETY: the host's event strings are valid for the call this context lives in.
         unsafe { self.event.text.as_str() }
+    }
+
+    /// What the event carries as bytes: a `BYTES` request's file (`abi::METHOD_BYTES`).
+    pub fn input_bytes(&self) -> &[u8] {
+        // SAFETY: as `input`.
+        unsafe { self.event.text.as_bytes() }
     }
 
     /// A code block action's language.
@@ -288,6 +350,39 @@ impl ActionCx {
     pub fn open_panel(&mut self, panel: &str) {
         // SAFETY: as `instant`.
         unsafe { (host().open_panel)(ctx(), AbiStr::new(panel)) };
+    }
+
+    /// Opens the tab of `instance` of this plugin's instance panel `panel` in the routed session,
+    /// selected (`layout.open(key, session, { tab: "select" })`).
+    pub fn open_panel_instance(&mut self, panel: &str, instance: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_OPEN_PANEL_INSTANCE, AbiStr::new(&format!("{panel}\n{instance}"))) };
+    }
+
+    /// Opens `url` in the system's browser (`system.openExternal`).
+    pub fn open_external(&mut self, url: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_OPEN_EXTERNAL, AbiStr::new(url)) };
+    }
+
+    /// Shows `path` in the system's file manager (`desktop.reveal`).
+    pub fn reveal(&mut self, path: &str) {
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_REVEAL, AbiStr::new(path)) };
+    }
+
+    /// A toast that stays until dismissed or replaced (`showToast({ persistent: true })`): a
+    /// success with its tick, an error, or a loading line (`variant`), with a `button` that shows
+    /// `path` in the file manager when both are given.
+    pub fn toast_persistent(&mut self, variant: ToastVariant, title: &str, description: &str, button: &str, path: &str) {
+        let variant = match variant {
+            ToastVariant::Success => "success",
+            ToastVariant::Error => "error",
+            ToastVariant::Loading => "loading",
+        };
+        let arg = format!("{variant}\n{title}\n{description}\n{button}\n{path}");
+        // SAFETY: as `instant`.
+        unsafe { (host().request)(ctx(), crate::abi::REQUEST_TOAST_REVEAL, AbiStr::new(&arg)) };
     }
 
     pub fn toast(&mut self, text: &str) {
@@ -432,20 +527,7 @@ pub(crate) fn render_callback<S: 'static, F: Fn(&S, &mut ViewCx<S>, &Props) -> E
                         selected: p.flags & crate::abi::RENDER_SELECTED != 0,
                     }
                 });
-                let props = props.unwrap_or(Props {
-                    id: String::new(),
-                    session_id: String::new(),
-                    directory: String::new(),
-                    path: String::new(),
-                    text: String::new(),
-                    width: 0.0,
-                    height: 0.0,
-                    visible: true,
-                    focused: false,
-                    active: true,
-                    compact: false,
-                    selected: false,
-                });
+                let props = props.unwrap_or_else(|| Props::for_session("", ""));
                 f(state, &mut ViewCx { _p: PhantomData }, &props).finish()
             })
         })

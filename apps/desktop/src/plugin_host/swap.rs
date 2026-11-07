@@ -282,6 +282,7 @@ fn stop(app: &mut App, i: usize, live: Live) {
     host.wake.wake(woken, false);
     host.shared.contracts.forget_consumer(i);
     host.shared.processes.reap(i, |_| true);
+    host.shared.images.borrow_mut().forget(&host.slots[i].manifest.id);
     if host.dialog.as_ref().is_some_and(|d| d.slot == i) {
         host.dialog = None;
     }

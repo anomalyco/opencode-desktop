@@ -34,10 +34,12 @@ mod dialog;
 mod editors;
 mod hot;
 mod icons;
+mod images;
 mod instance;
 mod lifecycle;
 mod loader;
 mod manifest;
+mod memory;
 mod motw;
 mod popover;
 mod process;
@@ -67,9 +69,10 @@ pub use dialog::{key as dialog_key, view as dialog_view};
 pub use servers::{all as contributed_servers, connect as connect_server, row as server_row};
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
-pub use run::{commands, key, run_command};
+pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};
 pub use contrib::{run_menu_item, server_menu_items, servers, settings_search};
-pub use surfaces::{composer_pills, file_viewer, settings_page, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, slot, slot_with, titlebar_items};
+pub use surfaces::{composer_pills, pill_views, file_viewer, settings_page, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, slot, slot_with, titlebar_items};
+pub use requests::reveal;
 pub use trust::dialog as trust_dialog;
 pub use view::settings_section;
 
@@ -112,6 +115,8 @@ pub struct PluginHost {
     dialog: Option<dialog::Open>,
     /// Contributed servers whose health check is on its way.
     checking: HashSet<String>,
+    /// Server events plugins listen for, waiting for the next poll (contrib::EVENTS).
+    server_events: Vec<(String, String)>,
 }
 
 impl PluginHost {
@@ -181,7 +186,9 @@ impl Slot {
 /// Discovers and loads the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
     let persists = app.persists();
+    let keep_screen = app.settings.keep_screen_active;
     let host = &mut app.plugins;
+    host.shared.images.borrow_mut().start(waker.clone());
     host.wake.waker.set(waker).ok();
     if host.started || crate::flag("--no-plugins") {
         return;

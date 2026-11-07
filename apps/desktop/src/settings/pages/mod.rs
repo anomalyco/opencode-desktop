@@ -403,15 +403,20 @@ pub fn view(s: &App, p: &Pal) -> El {
 
 /// A plugin's own page: its title, then what it draws.
 fn plugin_page(s: &App, p: &Pal, id: &str) -> El {
-    let (title, body) = crate::plugin_host::settings_page(s, p, id).unwrap_or_else(|| (id.to_owned(), el()));
-    page(p, "settings-plugin-page", header(p, &title, ""), body)
+    let (title, description, body) = crate::plugin_host::settings_page(s, p, id).unwrap_or_else(|| (id.to_owned(), String::new(), el()));
+    page_with(p, &format!("settings-{}-page", id.rsplit('.').next().unwrap_or(id)), header(p, &title, &description), body, true)
 }
 
 /// `row` with the settings search's highlight behind it once a result revealed `target`
 /// (`[data-search-target]::before`): `layer-03` reaching `inset` past the row each side, fading
 /// out over 1.8 s.
 pub fn revealable(s: &App, p: &Pal, target: &str, inset: f32, row: El) -> El {
-    let Some(lit) = super::search::reveal_of(s, target) else { return row };
+    revealed(p, super::search::reveal_of(s, target), inset, row)
+}
+
+/// [`revealable`] given the search's highlight on the row (`None` when it has none).
+pub fn revealed(p: &Pal, lit: Option<bool>, inset: f32, row: El) -> El {
+    let Some(lit) = lit else { return row };
     let fade = rune::Curve::tween(1.8, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
     let mark = el().key("search-reveal").pin(Some(-inset), Some(0.0), Some(-inset), Some(0.0)).radius(6.0).fill(p.layer3)
         .opacity(if lit { 1.0 } else { 0.0 }).opacity_motion(if lit { rune::Anim::INSTANT } else { fade.into() });

@@ -50,19 +50,20 @@ pub mod system;
 
 pub use abi::{EditorHandle, ElHandle, Rgba};
 pub use app::{AppPlugin, AppSetupCx};
-pub use contrib::{Contribution, HostPage, Menu, Menubar, ServerEntry, ServerState, SlotName};
-pub use cx::{ActionCx, FxHasher, Palette, PluginError, PluginWaker, PollCx, Props, ViewCx, WindowPlugin, WindowSetupCx};
+pub use contrib::{Contribution, HostPage, Menu, Menubar, PillView, ServerEntry, ServerState, SlotName, Tone};
+pub use cx::{ActionCx, FxHasher, Palette, PluginError, PluginWaker, PollCx, Props, ToastVariant, ViewCx, WindowPlugin, WindowSetupCx};
 pub use el::{El, Handler, col, el, icon, icon_id, odometer, row, spacer, text, text_input, ui};
 pub use host::{ModelInfo, PanelState, Resource, Session};
 pub use registry::{CommandSection, CommandSpec, PanelSpec, SettingSpec};
 pub use shared::{Contract, IconId, Inactive, LatestTask, Live, LiveState, Service, Store, StoreValue, intern_icon, spawn_after};
-pub use system::{Fetch, FetchResult, MenuSpec, Process, ProcessEvent, ProcessExit, ProcessOutput, ProcessSpec, Stream};
+pub use registry::PanelTab;
+pub use system::{Fetch, FetchResult, ImageId, MenuSpec, Process, ProcessEvent, ProcessExit, ProcessOutput, ProcessSpec, Stream, image, image_drop, image_rgba};
 
 /// Everything a plugin usually needs.
 pub mod prelude {
     pub use crate::{
         ActionCx, AppPlugin, AppSetupCx, CommandSection, CommandSpec, Contract, Contribution, EditorHandle, El, Fetch, FetchResult, HostPage, Inactive,
-        LatestTask, Live, LiveState, Menu, MenuSpec, Menubar, ModelInfo, Palette, PanelSpec, PanelState, PluginError, PluginWaker, PollCx, Process,
+        LatestTask, Live, LiveState, Menu, MenuSpec, Menubar, ModelInfo, Palette, PanelSpec, PanelState, PanelTab, ImageId, PillView, Tone, ToastVariant, PluginError, PluginWaker, PollCx, Process,
         ProcessEvent, ProcessExit, ProcessOutput, ProcessSpec, Props, Resource, Rgba, ServerEntry, ServerState, Service, Session, SettingSpec, SlotName,
         Store, StoreValue, Stream, ViewCx, WindowPlugin, WindowSetupCx, col, el, icon, icon_id, intern_icon, odometer, row, spacer, text, text_input, ui,
     };
