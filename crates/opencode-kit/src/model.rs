@@ -256,6 +256,8 @@ pub struct Assistant {
     pub model: Option<ModelRef>,
     /// The agent that ran it, as the footer names it when agents are shown.
     pub agent: Option<String>,
+    /// The files the step changed, by path (`snapshot.files`), for its turn's Changed files.
+    pub changed: Vec<String>,
 }
 
 impl Message {
@@ -271,6 +273,11 @@ impl Message {
 
 fn s(v: &Value) -> String {
     v.as_str().unwrap_or("").to_owned()
+}
+
+/// A JSON array's strings.
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect()
 }
 
 fn i(v: &Value) -> i64 {
@@ -390,6 +397,7 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             created: i(&m["time"]["created"]),
             model: model_of(&m["model"]),
             agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
+            changed: strings(&m["snapshot"]["files"]),
         }),
         "shell" => Message::Note {
             id,
@@ -520,9 +528,11 @@ impl Transcript {
                 a.retry = Retry::parse(d);
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
-                let Some(Message::Assistant(a)) = self.messages.iter_mut().rev().find(|m| matches!(m, Message::Assistant(_))) else { return false };
+                // The run ends, as the idle message the server records says (a shutdown resumes it).
+                let idle = !(ty == "session.execution.interrupted" && d["reason"] == "shutdown") && self.apply_idle(d);
+                let Some(Message::Assistant(a)) = self.messages.iter_mut().rev().find(|m| matches!(m, Message::Assistant(_))) else { return idle };
                 if a.retry.take().is_none() {
-                    return false;
+                    return idle;
                 }
             }
             ty if notice::is_notice_event(ty) => return self.apply_notice(ty, d),
@@ -650,6 +660,9 @@ impl Transcript {
                     a.tokens = Tokens::parse(&d["tokens"]);
                 }
                 a.retry = None;
+                if d["files"].is_array() {
+                    a.changed = strings(&d["files"]);
+                }
                 if ty == "session.step.failed" {
                     a.error = Some(d["error"]["message"].as_str().unwrap_or("The step failed").to_owned());
                     a.failure = StepError::parse(&d["error"]);

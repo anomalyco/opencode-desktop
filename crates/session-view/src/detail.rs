@@ -196,6 +196,7 @@ pub fn part_category(part: &Part) -> Option<Category> {
 pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placement {
     use opencode_kit::model::NoticeKind;
     match (&n.kind, d.placement(Category::Notices)) {
+        (NoticeKind::Idle, _) => Placement::Hidden,
         (NoticeKind::Model { .. } | NoticeKind::Moved { .. }, Placement::Grouped) => Placement::Separate,
         (_, p) => p,
     }

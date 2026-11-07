@@ -36,6 +36,7 @@ pub mod themes;
 pub mod timeline;
 pub mod title;
 pub mod tools;
+pub mod turn_diff;
 pub mod turn_errors;
 pub mod turns;
 pub mod usage;
@@ -306,6 +307,13 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_diffs(&self) -> bool {
         false
     }
+    /// The diff of session `session`'s run from prompt `from`, for Changed files; a host loads
+    /// it when first asked.
+    fn turn_diff(&self, _session: &str, _from: &str) -> turn_diff::State<'_> {
+        turn_diff::State::Failed
+    }
+    /// Loads that diff again after a failure.
+    fn retry_turn_diff(&mut self, _session: &str, _from: &str) {}
     /// Settings › Preferences › Background activity: where the pills over the composer sit.
     fn lane_align(&self) -> jump::Align {
         jump::Align::Start

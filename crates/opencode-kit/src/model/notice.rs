@@ -63,6 +63,9 @@ pub enum NoticeKind {
     Instructions { sources: Vec<String> },
     Restart,
     Text(String),
+    /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
+    /// Changed files lists.
+    Idle,
 }
 
 fn model_ref(v: &Value) -> Option<ModelRef> {
@@ -83,6 +86,7 @@ pub(super) fn parse(m: &Value) -> Option<Message> {
 fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
     let description = m["description"].as_str().map(str::trim).filter(|d| !d.is_empty());
     Some(match ty {
+        "idle" => NoticeKind::Idle,
         "agent-switched" => NoticeKind::Agent { agent: s(&m["agent"]), previous: m["previous"].as_str().map(str::to_owned) },
         "model-switched" => NoticeKind::Model { model: ModelRef::parse(&m["model"]), previous: model_ref(&m["previous"]) },
         "location-switched" => NoticeKind::Moved { directory: s(&m["location"]["directory"]) },
@@ -141,6 +145,16 @@ impl Transcript {
             return false;
         }
         self.messages.push(Message::Notice(n));
+        true
+    }
+
+    /// The run ended (`session.execution.*`): its idle marker, under the id its message takes.
+    pub(super) fn apply_idle(&mut self, d: &Value) -> bool {
+        let Some(id) = d["eventID"].as_str().map(|e| e.replacen("evt_", "msg_", 1)) else { return false };
+        if self.messages.iter().any(|m| m.id() == id) {
+            return false;
+        }
+        self.messages.push(Message::Notice(Notice { id, kind: NoticeKind::Idle }));
         true
     }
 

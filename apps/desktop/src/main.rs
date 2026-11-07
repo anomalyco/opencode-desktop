@@ -241,6 +241,7 @@ mod tool_open;
 mod tool_open_stories;
 #[cfg(test)]
 mod tool_open_tests;
+mod turn_diffs;
 mod turn_errors_stories;
 mod updater;
 mod view;
@@ -324,6 +325,8 @@ pub struct App {
     pub zoom: f32,
     /// A pinch's zoom gesture (`pinch.rs`).
     pub zoom_pinch: pinch::Pinch,
+    /// Changed files' diffs (`turn_diffs.rs`).
+    pub turn_diffs: turn_diffs::TurnDiffs,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
@@ -508,6 +511,12 @@ impl session_view::TimelineHost for App {
     }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
+    }
+    fn turn_diff(&self, session: &str, from: &str) -> session_view::turn_diff::State<'_> {
+        self.turn_diffs.view(session, from)
+    }
+    fn retry_turn_diff(&mut self, session: &str, from: &str) {
+        self.turn_diffs.retry(session, from);
     }
     fn lane_align(&self) -> session_view::jump::Align {
         match self.settings.background_activity {
@@ -1232,6 +1241,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.attach.poll();
     changed |= s.poll_panels(tx);
     changed |= rune_mcp::poll(s, tx);
+    changed |= s.poll_turn_diffs();
     changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
@@ -1265,6 +1275,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());
     s.open_in.set_waker(waker.clone());
+    s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     plugin_host::setup(s, waker.clone());

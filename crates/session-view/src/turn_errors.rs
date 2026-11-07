@@ -288,6 +288,7 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             line(kids)
         }
         NoticeKind::Restart => line(vec![faint_med("label", "Continuing after restart".into())]),
+        NoticeKind::Idle => col(),
         NoticeKind::Text(t) => line(vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)

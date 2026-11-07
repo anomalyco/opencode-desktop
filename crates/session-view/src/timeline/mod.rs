@@ -50,6 +50,9 @@ pub enum RowContent {
     /// fetched and decoded, only when the row mounts.
     UserImages { id: String, pt: f32 },
     ToolImages { start: usize, end: usize, tool: String },
+    /// Changed files: the run that ended at message `idle` (its idle marker), from prompt
+    /// `from`, which changed `files`.
+    TurnDiff { idle: usize, from: String, files: Vec<String> },
     /// Room at the timeline's end for the pills' lane, so its last row stands clear over them
     /// (t1129); a row, so the pinned timeline glides up as it opens rather than jumping.
     Lane(f32),
@@ -217,6 +220,7 @@ impl RowSpec {
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
             RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text("Interrupted").key("label").font(UI).color(p.faint), *run),
             RowContent::Lane(h) => el().w_full().h(*h),
+            RowContent::TurnDiff { idle, from, files } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
             RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
@@ -407,9 +411,16 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let detail = s.timeline_detail();
     let mut steps: Vec<Entry> = Vec::new();
     let mut start = 0;
+    // The run under way (`execution`): its first prompt and the files its steps changed, and
+    // where the last run's Changed files went.
+    let mut run: Option<(String, std::collections::BTreeSet<String>)> = None;
+    let mut diff_at: Option<usize> = None;
     for (mi, m) in t.messages[..shown].iter().enumerate() {
         match m {
             Message::Assistant(a) => {
+                if let Some(r) = &mut run {
+                    r.1.extend(a.changed.iter().cloned());
+                }
                 if steps.is_empty() { start = mi; }
                 steps.push(Entry::Step(a));
                 // Steps after an interrupted one (the run went on after a stop) sit under an
@@ -422,6 +433,16 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     }
                 }
             }
+            // A run ends: with Changed files on, the files it changed list after its work.
+            Message::Notice(n) if n.kind == model::NoticeKind::Idle => match run.take().filter(|r| s.turn_diffs() && !r.1.is_empty()) {
+                Some((from, files)) => {
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
+                    diff_at = Some(out.len());
+                    out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect() }, streaming: false });
+                }
+                None if !steps.is_empty() => steps.push(Entry::Skip),
+                None => {}
+            },
             Message::Notice(n) if !steps.is_empty() || crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Grouped => {
                 match crate::detail::notice_placement(n, &detail) {
                     crate::detail::Placement::Grouped => {
@@ -441,6 +462,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                 }
             }
             Message::User { id, text: body, .. } => {
+                run.get_or_insert_with(|| (id.clone(), Default::default()));
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 // The last prompt runs on into the pending steers under it, unless Working
@@ -475,7 +497,12 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
         let busy = busy || s.is_session_live(&t.session);
-        out.push(RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false });
+        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false };
+        // The reply's footer stays with its words, above the run's Changed files.
+        match diff_at.filter(|at| at + 1 == out.len()) {
+            Some(at) => out.insert(at, actions),
+            None => out.push(actions),
+        }
     }
     // A compaction waiting to start sits under Working, above the steers, as Desktop's.
     if let Some(id) = queued {
