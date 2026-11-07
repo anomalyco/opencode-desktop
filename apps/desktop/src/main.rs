@@ -364,6 +364,8 @@ pub struct App {
     pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
     pub settings: settings::Settings,
+    /// Settings' Providers, Models and Extensions pages (`settings::pages`).
+    pub settings_pages: settings::pages::State,
     /// The connect dialog (`connect`).
     pub connect: connect::Connect,
     /// The integrations and providers it and Settings read, by folder.

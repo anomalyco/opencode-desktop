@@ -287,7 +287,13 @@ pub fn page(s: &App, p: &Pal) -> El {
                 // Plugins' own pages, until Settings has a page list to put them in.
                 .children(crate::plugin_host::settings_pages(s, p, "")),
         );
-    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(body.scroll_bar_styled(crate::palette::scroll_bar(p)))
+    let content = match pages::view(s, p) {
+        Some(page) => page,
+        None => row().w_full().grow(1.0).shrink().min_h(0.0)
+            .child(col().pl(24.0).child(pages::nav(s, p)))
+            .child(body.scroll_bar_styled(crate::palette::scroll_bar(p))),
+    };
+    col().key("settings-page").w_full().grow(1.0).shrink().child(header(s, p)).child(content)
 }
 
 /// Desktop's `settings-back`, as an icon in the title bar strip: on the session header's line,
@@ -465,6 +471,7 @@ pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
         .child(step("zoom-in", "+", 1))
 }
 
+pub mod pages;
 mod stories;
 #[cfg(test)]
 pub(crate) mod leave_tests;
