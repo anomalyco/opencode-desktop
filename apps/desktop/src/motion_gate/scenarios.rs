@@ -92,6 +92,12 @@ const ALLOW: &[Allow] = &[
     ("load-motion", "pane-side/", "tool-steps/", "a step's file opens the side region on Kit's SIDE_SPRING, as the toggle does (Desktop's layout.open flies the panel): its tab and pane load in the frame the flight sets off and ride it in (panels::view)"),
     ("load-motion", "side-tabs-side/", "tool-steps/", "a step's file opens the side region on Kit's SIDE_SPRING, as the toggle does: the new file tab loads in the frame the flight sets off and rides it in (panels::view)"),
     ("load-motion", "icon/icon-mono", "tool-steps/", "the new file tab's icon rides the side region's SIDE_SPRING flight in, as its tab does (panels::view)"),
+    ("pop-in", "window/titlebar-band", "layout-switch/", "switching to top tabs, the titlebar row mounts at once under the panel, which covers it; what shows of it flies there from the sidebar (view::shell)"),
+    ("pop-out", "actions/", "layout-switch/", "switching to top tabs, Home, Search sessions and New session hand over to the titlebar's buttons, which fly from their rows in that frame (El::matched); the gate doesn't pair the row that leaves with the flight that takes its place (view::sidebar)"),
+    ("pop-out", "tabs-list/t-", "layout-switch/", "switching to top tabs, each side tab hands over to its top tab, which flies from its row in that frame (El::matched); the gate doesn't pair the row that leaves with the flight that takes its place"),
+    ("jerk", "tab-strip", "layout-switch/", "switching to top tabs, the far tabs and the New tab button fly up to ~1,000 pt on the 0.32 s GLIDE from rest, so their first frames speed up by up to ~15 pt a frame (view::GLIDE)"),
+    ("jerk", "tabs-list/t-", "layout-switch/", "switching to side tabs, the far tabs fly up to ~1,000 pt on the 0.32 s GLIDE from rest, as they do back to the top (view::GLIDE)"),
+    ("jerk", "actions/new", "layout-switch/", "switching to side tabs, New session flies from the far end of the top tabs on the 0.32 s GLIDE from rest, as the tabs do (view::GLIDE)"),
     ("pop-in", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("jerk", "editor-pad/prompt", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
@@ -785,6 +791,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "tool-steps", circs: || vec![Circ::default()], run: super::panels::tool_steps },
     Action { name: "terminal-dock", circs: || vec![Circ::default()], run: super::panels::terminal_dock },
     Action { name: "model-efforts", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: super::model_picker::run },
+    Action { name: "layout-switch", circs: || vec![Circ::default()], run: super::layout_switch::run },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();
         cmd.cmd = true;

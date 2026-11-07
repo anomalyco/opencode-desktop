@@ -6,6 +6,7 @@ use rune::{El, col};
 
 use super::pages::Page;
 use crate::App;
+use crate::layout_state::TabLayout;
 use crate::palette::Pal;
 use crate::stories::{Trigger, replay};
 
@@ -18,8 +19,23 @@ fn view(s: &App, p: &Pal) -> El {
     col().key("settings-story").w(1048.0).h(640.0).fill(p.bg_base).child(crate::settings::page(s, p, (1048.0, 640.0)))
 }
 
+/// Settings › Interface layout over the whole window, at rest in top tabs: S and T switch to
+/// side tabs and back, and each tab flies between the titlebar and the sidebar under the page.
+pub const LAYOUT_KEYS: &[Trigger] = &[
+    replay(|s, _| {
+        crate::open_scene(s);
+        s.finish_stream();
+        s.settings.tab_layout = TabLayout::Horizontal;
+        s.layout = crate::layout_state::Shell::at_rest(TabLayout::Horizontal);
+        s.open_settings();
+    }),
+    Trigger { key: 's', label: "Side tabs", run: |s, tx| s.set_tab_layout(TabLayout::Vertical, tx) },
+    Trigger { key: 't', label: "Top tabs", run: |s, tx| s.set_tab_layout(TabLayout::Horizontal, tx) },
+];
+
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story { path: "Settings/Page", scene: |s| crate::stories::stage(s, view), knobs: &[], keys: KEYS, variants: &[] },
+    crate::stories::Story { path: "Settings/Layout switch", scene: |_| {}, knobs: &[], keys: LAYOUT_KEYS, variants: &[] },
 ]);
 
 /// The open session behind Settings, on `page`.

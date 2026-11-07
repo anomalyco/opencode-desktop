@@ -63,7 +63,8 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 /// The docked sidebar: its aside's width moves the panel's edge while its contents keep their
 /// width, pinned to that edge. Top tabs keep the aside at no width, empty.
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
-    let aside = el().key("sidebar").role("navigation").h_full().clip_soft(0.0).motion(SIDEBAR_SPRING);
+    let switching = s.switching_layout();
+    let aside = el().key("sidebar").role("navigation").h_full().clip_soft(0.0).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.tab_layout().has_sidebar() {
         return aside.w(0.0);
     }

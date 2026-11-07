@@ -93,19 +93,21 @@ fn replays_run_the_same_every_time() {
     assert!(rt.playground_element("story-session").is_some());
 }
 
-/// Every story opens, plays its motion and replays without a hitch, on each of its variants.
+/// Every story opens, plays its motion and replays without a hitch, on each of its variants. A
+/// story without a stage plays over the whole window.
 #[test]
 fn every_story_plays_and_replays() {
     let mut rt = storybook();
+    let shown = |rt: &Runtime<App>| rt.playground_element(if world(rt).stage.is_some() { "story-stage" } else { "window" }).is_some();
     for st in stories() {
         let variants: Vec<Option<&str>> = if st.variants.is_empty() { vec![None] } else { st.variants.iter().map(|(n, _)| Some(*n)).collect() };
         for v in variants {
             rt.open_playground(st.path, v);
-            assert!(world(&rt).stage.is_some(), "{} {v:?}", st.path);
+            assert!(shown(&rt), "{} {v:?}", st.path);
             run(&mut rt, 3.0);
             rt.playground_trigger('r');
             run(&mut rt, 1.0);
-            assert!(rt.playground_element("story-stage").is_some(), "{} {v:?}", st.path);
+            assert!(shown(&rt), "{} {v:?}", st.path);
         }
     }
 }
@@ -175,6 +177,23 @@ fn arrows_reach_the_side_columns_knobs() {
     let tuned = knob(&rt, &GLOW_RISE);
     press(&mut rt, Key::Right);
     assert_eq!(knob(&rt, &GLOW_RISE), tuned, "after Esc the keyboard is back in the list");
+}
+
+/// The layout switch story opens Settings over the window in top tabs; S and T switch.
+#[test]
+fn the_layout_switch_story_switches_both_ways() {
+    use crate::layout_state::TabLayout;
+    let mut rt = story("Settings/Layout switch", None);
+    run(&mut rt, 0.5);
+    assert_eq!(world(&rt).tab_layout(), TabLayout::Horizontal);
+    assert!(rt.playground_element("tab-strip").is_some(), "top tabs in the titlebar");
+    rt.playground_trigger('s');
+    run(&mut rt, 1.0);
+    assert_eq!(world(&rt).tab_layout(), TabLayout::Vertical);
+    assert!(rt.playground_element("sidebar-inner").is_some(), "side tabs in the sidebar");
+    rt.playground_trigger('t');
+    run(&mut rt, 1.0);
+    assert_eq!(world(&rt).tab_layout(), TabLayout::Horizontal);
 }
 
 /// Stories, scenes and knob groups register from their own modules; the lists come out in the
@@ -324,6 +343,7 @@ const STORY_PATHS: &[&str] = &[
     "Session/Reconnecting",
     "Timeline/Send receipts",
     "Settings/Page",
+    "Settings/Layout switch",
     "Composer/Background helpers",
     "Stream/Text speed",
     "Composer/Subagent reply",
