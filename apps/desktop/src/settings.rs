@@ -95,7 +95,8 @@ pub struct Settings {
     pub sounds: Sounds,
     /// Shortcuts the user changed (`keybinds`): command id to keybind, "none" for unbound.
     pub keybinds: BTreeMap<String, String>,
-    /// Pairing › Keep screen active: the display stays awake while the app runs.
+    /// Keep screen active as the app kept it before the Pairing plugin: read once to move it into
+    /// the plugin's store (plugin_host::setup).
     pub keep_screen_active: bool,
     /// Preferences › Timeline: what of a turn's work shows (`general.timelineDetail`), the
     /// column (`timelineWidth`), where background work shows (`backgroundActivity`) and

@@ -9,7 +9,6 @@ pub mod extensions;
 pub mod general;
 pub mod models;
 pub mod notifications;
-pub mod pairing;
 pub mod project;
 pub mod project_extensions;
 pub mod projects;
@@ -29,7 +28,7 @@ use crate::palette::{Pal, kit};
 use crate::popup::{self, Menu};
 
 /// A page of Settings: Desktop's root tabs (`SettingsRootTab`), a page a plugin adds (by its
-/// id), or one built in here that Desktop's GUI plugins add there (Pairing, What's new).
+/// id), or one built in here that Desktop's GUI plugins add there (What's new).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Page {
     Providers,
@@ -43,7 +42,6 @@ pub enum Page {
     Appearance,
     Notifications,
     Shortcuts,
-    Pairing,
     Servers,
     WhatsNew,
     Experimental,
@@ -67,7 +65,6 @@ impl Page {
             Page::Appearance => "appearance",
             Page::Notifications => "notifications",
             Page::Shortcuts => "shortcuts",
-            Page::Pairing => "pairing",
             Page::Servers => "servers",
             Page::WhatsNew => "whats-new",
             Page::Experimental => "experimental",
@@ -90,7 +87,6 @@ impl Page {
             "appearance" => Page::Appearance,
             "notifications" => Page::Notifications,
             "shortcuts" | "keybinds" => Page::Shortcuts,
-            "pairing" => Page::Pairing,
             "servers" | "server" => Page::Servers,
             "whats-new" => Page::WhatsNew,
             "experimental" => Page::Experimental,
@@ -113,7 +109,6 @@ impl Page {
             Page::Appearance => "Appearance",
             Page::Notifications => "Notifications",
             Page::Shortcuts => "Shortcuts",
-            Page::Pairing => "Pairing",
             Page::Servers => "Server",
             Page::WhatsNew => "What's new",
             Page::Experimental => "Experimental",
@@ -135,7 +130,6 @@ impl Page {
             Page::Appearance => &ic::APPEARANCE,
             Page::Notifications => &ic::NOTIFICATIONS,
             Page::Shortcuts => &ic::KEYBOARD,
-            Page::Pairing => &ic::OUTLINE_PAIR,
             Page::Servers => &ic::SERVER,
             Page::WhatsNew => &ic::OUTLINE_LIST_CHANGELOG,
             Page::Experimental => &ic::FLASK,
@@ -178,7 +172,6 @@ pub struct State {
     pub projects: projects::State,
     pub worktrees: worktrees::State,
     pub servers: servers::State,
-    pub pairing: pairing::State,
     /// Preferences' Timeline section.
     pub timeline: timeline::State,
     /// A project's own pages.
@@ -226,7 +219,6 @@ impl App {
             Page::Appearance => self.settings_pages.fonts = appearance::Fields::from(&self.settings),
             Page::Servers => servers::load(self),
             Page::Worktrees => worktrees::load(self),
-            Page::Pairing => pairing::load(self),
             Page::Project(dir, tab) => project::load(self, &dir.clone(), *tab),
             _ => {}
         }
@@ -391,7 +383,6 @@ pub fn view(s: &App, p: &Pal) -> El {
         Page::Appearance => appearance::view(s, p),
         Page::Notifications => notifications::view(s, p),
         Page::Shortcuts => shortcuts::view(s, p),
-        Page::Pairing => pairing::view(s, p),
         Page::Servers => servers::view(s, p),
         Page::WhatsNew => whats_new::view(s, p),
         Page::Experimental => experimental::view(s, p),

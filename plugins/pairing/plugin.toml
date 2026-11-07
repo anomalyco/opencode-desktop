@@ -1,0 +1,10 @@
+id = "pairing"
+name = "Pairing"
+version = "0.1.0"
+description = "Settings › Pairing: pair another device with a QR code, remote access through the background service, and keep the screen active"
+api = "0.1-experimental"
+library = "opencode_plugin_pairing"
+
+[[stores]]
+name = "keepScreenActive"
+scope = "global"

@@ -121,7 +121,6 @@ pub fn index(s: &App) -> Vec<Entry> {
             Page::Worktrees => "workspaces disk usage cleanup delete",
             Page::Providers => "connect api key credentials",
             Page::Models => "model picker visibility",
-            Page::Pairing => "pair device qr phone remote",
             Page::WhatsNew => "changelog release notes beta",
             _ => "",
         };
@@ -246,8 +245,6 @@ const ROWS: &[Row] = &[
     (Page::Notifications, "settings-sounds-errors", "Errors", Some("Sound effects"), "Play sound when an error occurs", "sound audio errors"),
     (Page::Notifications, "settings-sounds-interface", "Interface", Some("Sound effects"), "Play subtle sounds when the wordmark appears and when you play with it", "sound audio interface effects wordmark logo"),
     (Page::Servers, "settings-shell", "Terminal shell", None, "Shell used by the terminal and agent tools", "bash zsh powershell"),
-    (Page::Pairing, "settings-remote-access", "Remote access", None, "Paired devices reach this computer's OpenCode server over the internet. Turning it off disconnects them until you pair them again.", "internet tunnel opentunnel"),
-    (Page::Pairing, "settings-keep-screen-active", "Keep screen active", None, "Prevent this computer's display from sleeping while OpenCode is running.", "display sleep awake local"),
 ];
 
 /// `rankSettings`: entries any of whose words the query names, the pages first, then the

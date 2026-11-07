@@ -17,15 +17,12 @@ use crate::popup::{self, Menu};
 const TAB: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 
 /// The rail's groups (`RootSettings`'s `groups`): the server's pages; the app's, with plugin
-/// pages and Pairing before Server; then What's new, Experimental and About.
+/// pages (Pairing among them) before Server; then What's new, Experimental and About.
 pub fn groups(s: &App) -> Vec<Vec<Page>> {
     let plugins = crate::plugin_host::settings_page_ids(s);
     let (about, own): (Vec<_>, Vec<_>) = plugins.into_iter().partition(|(_, about)| *about);
     let mut client = vec![Page::General, Page::Appearance, Page::Notifications, Page::Shortcuts];
     client.extend(own.into_iter().map(|(id, _)| Page::Plugin(id)));
-    if pages::pairing::available() {
-        client.push(Page::Pairing);
-    }
     client.push(Page::Servers);
     let mut last: Vec<Page> = about.into_iter().map(|(id, _)| Page::Plugin(id)).collect();
     if pages::whats_new::available() {

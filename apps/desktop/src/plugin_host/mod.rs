@@ -195,6 +195,14 @@ pub fn setup(app: &mut App, waker: Waker) {
     }
     host.started = true;
     host.shared.stores.persist = persists;
+    // Keep screen active was the app's own setting before the Pairing plugin took the page: it
+    // moves into the plugin's store once.
+    if keep_screen && persists {
+        host.shared.stores.load("pairing");
+        if host.shared.stores.get("pairing", "keepScreenActive", "").is_none() {
+            host.shared.stores.set("pairing", "keepScreenActive", "", "true");
+        }
+    }
     // In-process tests (the motion gate) load the linked built-ins alone: never the user's
     // folders, saved state or a watcher.
     let isolated = cfg!(test);

@@ -2389,6 +2389,7 @@ dependencies = [
  "opencode-plugin-details-impl",
  "opencode-plugin-goal-impl",
  "opencode-plugin-hello-impl",
+ "opencode-plugin-pairing-impl",
  "opencode-plugin-sources-impl",
  "opencode-plugin-ssh-impl",
  "opencode-plugin-wsl-impl",
@@ -2522,6 +2523,23 @@ version = "0.1.0"
 dependencies = [
  "opencode-plugin",
  "opencode-plugin-hello-api",
+]
+
+[[package]]
+name = "opencode-plugin-pairing"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-pairing-impl",
+]
+
+[[package]]
+name = "opencode-plugin-pairing-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "qrcode",
+ "serde_json",
 ]
 
 [[package]]
@@ -2969,6 +2987,12 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"

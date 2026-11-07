@@ -1044,7 +1044,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
     changed |= settings::search::poll(s, tx);
-    changed |= settings::pages::pairing::poll(s, tx);
     changed |= notifications::poll(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= turn_errors::poll(s, tx);

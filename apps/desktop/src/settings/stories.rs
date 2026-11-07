@@ -47,7 +47,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("settings-appearance", |s| on(s, Page::Appearance)),
     ("settings-notifications", |s| on(s, Page::Notifications)),
     ("settings-shortcuts", |s| on(s, Page::Shortcuts)),
-    ("settings-pairing", |s| on(s, Page::Pairing)),
+    ("settings-pairing", |s| on(s, Page::Plugin("pairing.pairing".into()))),
     ("settings-server", |s| on(s, Page::Servers)),
     ("settings-whats-new", |s| on(s, Page::WhatsNew)),
     ("settings-experimental", |s| on(s, Page::Experimental)),
