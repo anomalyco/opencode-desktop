@@ -7,13 +7,20 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
+mod attachment;
 mod compaction;
+mod inbox;
 mod notice;
+mod pending;
 mod tool;
 #[cfg(test)]
 mod compaction_tests;
 
+pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, set_user_files, user_files};
+use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
+pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, parse_inbox_item};
+pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_permission};
 pub use notice::{Notice, NoticeKind, Retry, StepError, is_notice_event};
 pub use tool::{tool_error, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
@@ -194,127 +201,6 @@ pub enum Part {
 /// The child session a subagent call runs in, once the call names it.
 pub fn subagent_session<'a>(input: &'a Value, metadata: &'a Value) -> Option<&'a str> {
     metadata["sessionID"].as_str().or_else(|| input["sessionID"].as_str()).filter(|s| !s.is_empty())
-}
-
-/// A file on a user message or a tool result. The server inlines its bytes, or, for a client
-/// that opts in (see [`crate::client::MEDIA_CAPABILITY`]) on a session with
-/// `experimental.media_blob` on, sends a `media:<hash>` ref: then `media` is the hash, `bytes`
-/// is empty, and `GET /api/experimental/media/:hash` has the bytes.
-#[derive(Clone, Default, PartialEq)]
-pub struct Attachment {
-    pub mime: String,
-    pub name: String,
-    pub bytes: Arc<[u8]>,
-    pub media: Option<String>,
-}
-
-impl std::fmt::Debug for Attachment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.media {
-            Some(hash) => write!(f, "Attachment({}, {}, media:{hash})", self.mime, self.name),
-            None => write!(f, "Attachment({}, {}, {} bytes)", self.mime, self.name, self.bytes.len()),
-        }
-    }
-}
-
-impl Attachment {
-    pub fn is_image(&self) -> bool {
-        self.mime.starts_with("image/")
-    }
-
-    /// The server's `[media unavailable: <name> (<mime>)]`, which stands in for a ref whose
-    /// stored bytes are gone.
-    pub fn unavailable(&self) -> Option<&str> {
-        if self.mime != "text/plain" || self.media.is_some() {
-            return None;
-        }
-        std::str::from_utf8(&self.bytes).ok().filter(|t| t.starts_with("[media unavailable: ") && t.ends_with(']'))
-    }
-}
-
-/// The blob hash in a `media:<hash>` ref (64 lowercase hex digits), the only form the server
-/// sends stored media in.
-pub fn media_hash(uri: &str) -> Option<&str> {
-    uri.strip_prefix("media:").filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-}
-
-/// Standard base64, padding optional; None on anything else.
-pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
-    let val = |c: u8| match c {
-        b'A'..=b'Z' => Some(c - b'A'),
-        b'a'..=b'z' => Some(c - b'a' + 26),
-        b'0'..=b'9' => Some(c - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    };
-    let s = s.trim_end_matches('=').as_bytes();
-    let mut out = Vec::with_capacity(s.len() * 3 / 4);
-    for chunk in s.chunks(4) {
-        let mut n = 0u32;
-        for (k, &c) in chunk.iter().enumerate() {
-            n |= (val(c)? as u32) << (18 - 6 * k);
-        }
-        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
-        match chunk.len() {
-            4 => out.extend_from_slice(&bytes),
-            3 => out.extend_from_slice(&bytes[..2]),
-            2 => out.push(bytes[0]),
-            _ => return None,
-        }
-    }
-    Some(out)
-}
-
-/// One file: `{data, mime, name}` (base64), `{uri: "data:…;base64,…", mime, name}` or a
-/// `{uri: "media:<hash>", mime, name, bytes}` ref. Other URIs (`file://`) are skipped.
-pub fn parse_attachment(f: &Value) -> Option<Attachment> {
-    if let Some(hash) = f["uri"].as_str().and_then(media_hash) {
-        return Some(Attachment { mime: s(&f["mime"]), name: s(&f["name"]), media: Some(hash.to_owned()), ..Default::default() });
-    }
-    let (mime, bytes) = match (f["data"].as_str(), f["uri"].as_str()) {
-        (Some(data), _) => (s(&f["mime"]), base64_decode(data)?),
-        (None, Some(uri)) => {
-            let (head, data) = uri.strip_prefix("data:")?.split_once(',')?;
-            let head_mime = head.split(';').next().unwrap_or("");
-            if !head.ends_with(";base64") {
-                return None;
-            }
-            let mime = f["mime"].as_str().unwrap_or(head_mime).to_owned();
-            (mime, base64_decode(data)?)
-        }
-        _ => return None,
-    };
-    Some(Attachment { mime, name: s(&f["name"]), bytes: bytes.into(), media: None })
-}
-
-fn parse_attachments(list: &Value) -> Vec<Attachment> {
-    list.as_array().into_iter().flatten().filter(|c| c["type"].as_str().is_none_or(|t| t == "file")).filter_map(parse_attachment).collect()
-}
-
-/// User messages' files, by message id. `Message::User` has no field for them, so apps that
-/// build one as a literal keep compiling; `parse_message` fills this and apps read it.
-fn user_file_store() -> &'static Mutex<HashMap<String, Arc<[Attachment]>>> {
-    static STORE: OnceLock<Mutex<HashMap<String, Arc<[Attachment]>>>> = OnceLock::new();
-    STORE.get_or_init(Default::default)
-}
-
-/// The files on user message `id` (empty when it has none).
-pub fn user_files(id: &str) -> Arc<[Attachment]> {
-    user_file_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
-}
-
-/// Records the files on user message `id`, as a local echo of a sent prompt has them.
-pub fn set_user_files(id: &str, files: Vec<Attachment>) {
-    let mut store = user_file_store().lock().unwrap();
-    // A cached page and its refresh describe the same immutable prompt. Preserve the bytes'
-    // identity so clients can keep already-decoded images while the refresh is parsed.
-    if store.get(id).is_some_and(|old| old.as_ref() == files.as_slice()) { return; }
-    if files.is_empty() {
-        store.remove(id);
-    } else {
-        store.insert(id.to_owned(), files.into());
-    }
 }
 
 /// A message's model (`{ id, providerID, variant }`), when it names one.
@@ -534,144 +420,6 @@ pub fn parse_messages(v: &Value) -> Vec<Message> {
     // delivery time, so it sorts after the work it waited behind, as the server orders it.
     list.sort_by(|a, b| (i(&a["time"]["created"]), a["id"].as_str()).cmp(&(i(&b["time"]["created"]), b["id"].as_str())));
     list.into_iter().filter_map(parse_message).collect()
-}
-
-/// How the server delivers a prompt sent while the session is busy: `Steer` joins the running
-/// turn at its next step boundary; `Queue` waits for the turn (and every steer) to finish. The
-/// server steers when a prompt names neither.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Delivery {
-    #[default]
-    Steer,
-    Queue,
-}
-
-impl Delivery {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Delivery::Steer => "steer",
-            Delivery::Queue => "queue",
-        }
-    }
-
-    pub fn parse(v: &Value) -> Option<Delivery> {
-        match v.as_str()? {
-            "steer" => Some(Delivery::Steer),
-            "queue" => Some(Delivery::Queue),
-            _ => None,
-        }
-    }
-}
-
-/// A prompt the server admitted but hasn't delivered yet (`GET /api/session/:id/inbox`). Its id
-/// becomes the user message's id once delivered.
-#[derive(Clone, Debug, PartialEq)]
-pub struct InboxItem {
-    pub id: String,
-    pub text: String,
-    pub delivery: Delivery,
-    pub files: Vec<Attachment>,
-}
-
-/// One user item, from the inbox list (`{id, type, payload, delivery}`) or a
-/// `session.inbox.enqueued` event (`{inboxID, item: {type, payload, delivery}}`). Synthetic,
-/// compaction and move items are None.
-pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
-    let (id, item) = if v["item"].is_object() { (&v["inboxID"], &v["item"]) } else { (&v["id"], v) };
-    if item["type"] != "user" {
-        return None;
-    }
-    let payload = &item["payload"];
-    let text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
-    if let Some((_, quotes)) = crate::quote::parse_metadata(&payload["metadata"]) {
-        set_user_quotes(&s(id), quotes);
-    }
-    Some(InboxItem { id: s(id), text, delivery: Delivery::parse(&item["delivery"])?, files: parse_attachments(&payload["files"]) })
-}
-
-/// What [`Inbox::apply`] did.
-#[derive(Debug, PartialEq)]
-pub enum InboxChange {
-    None,
-    Changed,
-    /// The item left the inbox for the transcript.
-    Delivered(InboxItem),
-}
-
-/// One session's undelivered prompts, in admission order, kept current from
-/// `session.inbox.*` events.
-#[derive(Clone, Debug, Default)]
-pub struct Inbox {
-    pub items: Vec<InboxItem>,
-    /// The id of a compaction the server admitted but hasn't started.
-    pub compaction: Option<String>,
-}
-
-impl Inbox {
-    pub fn queued(&self) -> impl Iterator<Item = &InboxItem> {
-        self.items.iter().filter(|i| i.delivery == Delivery::Queue)
-    }
-
-    pub fn steering(&self) -> impl Iterator<Item = &InboxItem> {
-        self.items.iter().filter(|i| i.delivery == Delivery::Steer)
-    }
-
-    /// Adds `item`, or replaces the one with its id in place.
-    pub fn upsert(&mut self, item: InboxItem) {
-        match self.items.iter_mut().find(|i| i.id == item.id) {
-            Some(slot) => *slot = item,
-            None => self.items.push(item),
-        }
-    }
-
-    pub fn remove(&mut self, id: &str) -> Option<InboxItem> {
-        let at = self.items.iter().position(|i| i.id == id)?;
-        Some(self.items.remove(at))
-    }
-
-    pub fn set_delivery(&mut self, id: &str, delivery: Delivery) -> bool {
-        self.items.iter_mut().find(|i| i.id == id).is_some_and(|i| std::mem::replace(&mut i.delivery, delivery) != delivery)
-    }
-
-    /// Applies one `session.inbox.*` event, or `session.inbox.listed` (see
-    /// [`crate::client::Request::Inbox`]), which replaces the list.
-    pub fn apply(&mut self, ty: &str, d: &Value) -> InboxChange {
-        let id = d["inboxID"].as_str().unwrap_or("");
-        let compaction = match ty {
-            "session.inbox.listed" => {
-                d["items"].as_array().into_iter().flatten().find(|i| i["type"] == "compaction").map(|i| s(&i["id"]))
-            }
-            "session.inbox.enqueued" if d["item"]["type"] == "compaction" => Some(id.to_owned()),
-            "session.inbox.cancelled" | "session.inbox.delivered" if self.compaction.as_deref() == Some(id) => None,
-            _ => self.compaction.clone(),
-        };
-        let moved = compaction != self.compaction;
-        self.compaction = compaction;
-        let changed = match ty {
-            "session.inbox.listed" => {
-                let items: Vec<InboxItem> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_item).collect();
-                let same = items == self.items;
-                self.items = items;
-                !same
-            }
-            "session.inbox.enqueued" => match parse_inbox_item(d) {
-                Some(item) => {
-                    let same = self.items.iter().any(|i| *i == item);
-                    self.upsert(item);
-                    !same
-                }
-                None => false,
-            },
-            "session.inbox.delivery.changed" => Delivery::parse(&d["delivery"]).is_some_and(|to| self.set_delivery(id, to)),
-            "session.inbox.cancelled" => self.remove(id).is_some(),
-            "session.inbox.delivered" => match self.remove(id) {
-                Some(item) => return InboxChange::Delivered(item),
-                None => false,
-            },
-            _ => false,
-        } || moved;
-        if changed { InboxChange::Changed } else { InboxChange::None }
-    }
 }
 
 /// One open transcript, kept current from events.
@@ -934,113 +682,6 @@ fn place(parts: &mut Vec<Part>, at: Option<usize>, part: Part) {
         Some(i) => parts[i] = part,
         None => parts.push(part),
     }
-}
-
-/// Something a session is waiting on a person for.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Pending {
-    /// A tool wants to run: `action` on `resources`. `input` is the tool's arguments as
-    /// `key: value` lines, when the request carries them (`metadata.input`, an MCP tool's).
-    Permission { id: String, session: String, action: String, resources: Vec<String>, message: String, input: Vec<String> },
-    /// A form, such as the question tool's: one field per question.
-    Form { id: String, session: String, title: String, fields: Vec<Field> },
-}
-
-impl Pending {
-    pub fn id(&self) -> &str {
-        match self {
-            Pending::Permission { id, .. } | Pending::Form { id, .. } => id,
-        }
-    }
-    pub fn session(&self) -> &str {
-        match self {
-            Pending::Permission { session, .. } | Pending::Form { session, .. } => session,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum FieldKind {
-    /// Free text, or one of `options` (plus free text when `custom`).
-    Text,
-    Number,
-    Boolean,
-    /// Any number of `options`.
-    Multi,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct FieldOption {
-    pub value: String,
-    pub label: String,
-    pub description: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Field {
-    pub key: String,
-    pub title: String,
-    pub description: String,
-    pub kind: FieldKind,
-    pub options: Vec<FieldOption>,
-    pub custom: bool,
-    pub required: bool,
-}
-
-/// `permission.asked`'s payload or one entry of `GET /session/:id/permission`.
-pub fn parse_permission(v: &Value) -> Option<Pending> {
-    let id = s(&v["id"]);
-    if id.is_empty() {
-        return None;
-    }
-    Some(Pending::Permission {
-        id,
-        session: s(&v["sessionID"]),
-        action: s(&v["action"]),
-        resources: v["resources"].as_array().into_iter().flatten().filter_map(|r| r.as_str().map(str::to_owned)).collect(),
-        message: s(&v["message"]),
-        input: v["metadata"]["input"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(k, item)| format!("{k}: {}", item.as_str().map_or_else(|| item.to_string(), str::to_owned)))
-            .collect(),
-    })
-}
-
-/// `form.created`'s `form` or one entry of `GET /session/:id/form`.
-pub fn parse_form(v: &Value) -> Option<Pending> {
-    let v = if v["form"].is_object() { &v["form"] } else { v };
-    let id = s(&v["id"]);
-    if id.is_empty() || v["state"]["status"].as_str().is_some_and(|st| st != "pending") {
-        return None;
-    }
-    let fields = v["fields"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|f| f["hidden"].as_bool() != Some(true) && f["type"] != "external")
-        .map(|f| Field {
-            key: s(&f["key"]),
-            title: s(&f["title"]),
-            description: s(&f["description"]),
-            kind: match f["type"].as_str().unwrap_or("") {
-                "boolean" => FieldKind::Boolean,
-                "number" | "integer" => FieldKind::Number,
-                "multiselect" => FieldKind::Multi,
-                _ => FieldKind::Text,
-            },
-            options: f["options"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|o| FieldOption { value: s(&o["value"]), label: s(&o["label"]), description: s(&o["description"]) })
-                .collect(),
-            custom: f["custom"].as_bool().unwrap_or(false),
-            required: f["required"].as_bool().unwrap_or(false),
-        })
-        .collect();
-    Some(Pending::Form { id, session: s(&v["sessionID"]), title: s(&v["title"]), fields })
 }
 
 /// "3m ago"-style age from milliseconds, as Desktop's short relative times.

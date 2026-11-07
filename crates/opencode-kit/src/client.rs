@@ -7,13 +7,25 @@
 
 use std::io::{BufRead, BufReader};
 use std::net::{SocketAddr, TcpStream};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use rune::Waker;
 use serde_json::Value;
 
-use crate::model::{self, Delivery, Message, Pending, SessionInfo};
+use crate::model::{self, Delivery, Pending, SessionInfo};
+
+mod downloads;
+mod ids;
+mod wire;
+mod worker;
+
+pub use downloads::{export_filename, save_download, set_download_dir};
+pub use ids::{message_id, session_id};
+#[cfg(test)]
+use ids::{id_at, message_id_at};
+pub use wire::{Incoming, Request, Write};
+pub use worker::{connect, connect_with_idle};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
@@ -37,132 +49,6 @@ fn server_or_default(env: Option<String>) -> String {
 /// [`model::Attachment`]) instead of inline bytes. Servers without it ignore the header.
 pub const MEDIA_CAPABILITY: &str = "experimental-media-uri";
 
-pub enum Incoming {
-    Sessions(Vec<SessionInfo>),
-    Info(SessionInfo),
-    Messages { session: String, messages: Vec<Message> },
-    Event { ty: String, data: Value },
-    Status(String),
-    /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
-    /// with the id the prompt was sent under and the raw error.
-    SendFailed { session: String, id: String, error: String },
-    /// A session's open permission requests and forms.
-    Pending { session: String, items: Vec<Pending> },
-    /// A session this app just created (its first prompt is already sent).
-    Created(SessionInfo),
-    /// The event stream is back after a drop: anything may have changed in the gap.
-    Reconnected,
-    /// The sessions running right now (the reply to `Request::Active`).
-    Active(Vec<String>),
-    /// The server's project list (`/api/project`).
-    Projects(Vec<model::Project>),
-    /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
-    /// project list and, when `start_session` was set, the new session opened in it.
-    ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
-    /// A session forked from `from` before `before` (`Write::Fork`, `POST /api/session/:id/fork`).
-    Forked { from: String, before: Option<String>, session: SessionInfo },
-}
-
-pub enum Request {
-    Session(String),
-    Sessions,
-    /// The server's project list (`/api/project`).
-    Projects,
-    /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
-    Info(String),
-    Pending(String),
-    /// A project's newest unarchived sessions, subagents included (`/api/session?project=`),
-    /// replied as `Incoming::Sessions`.
-    ProjectSessions(String),
-    /// A session's undelivered prompts. The reply is `Incoming::Event` with type
-    /// `session.inbox.listed` and data `{sessionID, items}` (see [`model::Inbox::apply`]).
-    Inbox(String),
-    /// Which sessions are running (`/api/session/active`).
-    Active,
-    /// Whether `experimental.background_compaction` is on in a directory (`/api/config`). The
-    /// reply is `Incoming::Event` with type `config.listed` and data
-    /// `{directory, backgroundCompaction}`.
-    Config(String),
-    /// A project's worktree inventory (`GET /api/worktree?projectID=`), the project's `root`
-    /// left out. The reply is `Incoming::Event` with type `worktree.listed` and data
-    /// `{projectID, directories}`.
-    Worktrees { project: String, root: String },
-    /// The branches at `directory` matching `search` (`GET /api/vcs/branch`, 50 at most). The
-    /// reply is `Incoming::Event` with type `vcs.branch.listed` and data
-    /// `{directory, search, branches}`, or with `failed: true`.
-    Branches { directory: String, search: String },
-}
-
-pub enum Write {
-    Prompt { session: String, text: String },
-    Permission { session: String, request: String, decision: String },
-    Form { session: String, form: String, answer: Value },
-    CancelForm { session: String, form: String },
-    Interrupt(String),
-    /// A new session in `directory`, then `text` as its first prompt.
-    Create { directory: String, text: String },
-    /// `Prompt` with its client id and files.
-    Send { session: String, prompt: Prompt },
-    /// `Send` that moves a session whose folder is gone to its project's main checkout first
-    /// (`Server::send_moving_home`).
-    SendMovingHome { session: String, prompt: Prompt },
-    /// `Create` with a full first prompt.
-    Start { directory: String, prompt: Prompt },
-    /// `Start` under an id the app chose (`session_id`), so it can show the session before the
-    /// server has it: one create carrying the prompt's agent and model, then the prompt.
-    /// `Incoming::Created` follows once both land; any failure deletes what may have been made
-    /// and reports `Incoming::SendFailed` with the prompt's id.
-    StartAs { session: String, directory: String, prompt: Prompt },
-    /// Withdraws an undelivered prompt (`DELETE /api/session/:id/inbox/:item`).
-    Cancel { session: String, item: String },
-    /// Moves an undelivered prompt between the queue and steering (`PATCH …/inbox/:item`).
-    Deliver { session: String, item: String, delivery: Delivery },
-    /// Runs one shell command in the session's directory (`POST …/shell`).
-    Shell { session: String, id: Option<String>, command: String },
-    /// Renames a session (`PATCH /api/session/:id`, as Desktop's `session.update`).
-    Rename { session: String, title: String },
-    /// Deletes a session and its subagents (`DELETE /api/session/:id`).
-    Delete(String),
-    /// Archives a session (`PATCH /api/session/:id` with `{ archived: true }`).
-    Archive(String),
-    /// Brings an archived session back (`PATCH /api/session/:id` with `{ archived: false }`).
-    Unarchive(String),
-    /// Marks a session read up to its `idle` (`POST /api/session/:id/view`).
-    View { session: String, idle: i64 },
-    /// Replaces a session's `metadata` (`PATCH /api/session/:id`).
-    Metadata { session: String, metadata: Value },
-    /// Saves a session as JSON in the downloads folder, as Desktop's Export does.
-    Export(String),
-    /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
-    /// `quiet` drops a failure rather than reporting it, as a steer's move does.
-    Background { session: String, quiet: bool },
-    /// Summarizes the session to shrink its context (`POST …/compact`, Desktop's Compact session).
-    Compact(String),
-    /// Rebuilds every location from its config (`POST /api/location/reload`, Desktop's `/reload`).
-    Reload,
-    /// Resolves `directory` (`/api/location`, registering its project on the server), reloads
-    /// `/api/project`, and when `start_session` is set creates a session in `directory`.
-    OpenProject { directory: String, start_session: bool },
-    /// Stages a revert to `message` (`POST /api/session/:id/revert/stage`), settling active work
-    /// first (`interrupt` + `wait`) when `settle` is true, as Desktop's `revert.stage` does.
-    RevertStage { session: String, message: String, settle: bool },
-    /// Clears a staged revert (`DELETE /api/session/:id/revert`), as Desktop's `revert.redo` and
-    /// toast `Undo` do.
-    RevertClear(String),
-    /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
-    RevertCommit(String),
-    /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
-    /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
-    SendFromRevert { session: String, prompt: Prompt },
-    /// Forks `session` before `before` (`POST /api/session/:id/fork`), replying `Incoming::Forked`.
-    Fork { session: String, before: Option<String> },
-    /// `StartAs` in a new worktree of `project` (Desktop's `createWorktree`): `POST /api/worktree`
-    /// from the checkout `from`, on `branch` or its current one, then the session in the
-    /// worktree it made. `Incoming::Event` `worktree.updated` follows the worktree, then
-    /// `Incoming::Created`; a failure reports `Incoming::SendFailed` with the prompt's id.
-    StartInNewWorktree { session: String, project: String, from: String, branch: Option<String>, prompt: Prompt },
-}
-
 pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
 
 /// `encodeURIComponent`, for a query value.
@@ -178,60 +64,6 @@ pub(crate) fn encode_component(s: &str) -> String {
 /// `data:<mime>;base64,<bytes>`.
 pub fn data_url(mime: &str, bytes: &[u8]) -> String {
     format!("data:{mime};base64,{}", base64(bytes))
-}
-
-/// A new `SessionMessage.ID` as the server makes them (`Identifier.ascending`): `msg_`, 12 hex
-/// digits of `ms * 0x1000 + counter` (its low 48 bits) and 14 random base62 characters. They
-/// sort by time, so a message sent now lands after the transcript's others.
-pub fn message_id() -> String {
-    message_id_at(now_ms())
-}
-
-/// A new `Session.ID` as the server makes them (`Identifier.descending`): `ses_`, then the
-/// message id's digits with the time inverted, so newer sessions sort first.
-pub fn session_id() -> String {
-    id_at("ses", now_ms(), true)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
-
-fn message_id_at(ms: u64) -> String {
-    id_at("msg", ms, false)
-}
-
-fn id_at(prefix: &str, ms: u64, descending: bool) -> String {
-    use std::hash::{BuildHasher, Hasher};
-    use std::sync::Mutex;
-    static LAST: Mutex<(u64, u64)> = Mutex::new((0, 0));
-    let counter = {
-        let mut last = LAST.lock().unwrap();
-        if last.0 != ms {
-            *last = (ms, 0);
-        }
-        last.1 += 1;
-        last.1
-    };
-    let mut value = ms.wrapping_mul(0x1000).wrapping_add(counter);
-    if descending {
-        value = !value;
-    }
-    let value = value & 0xffff_ffff_ffff;
-    const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    let mut out = format!("{prefix}_{value:012x}");
-    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u64(value);
-    let mut r = h.finish();
-    for k in 0..14 {
-        if k == 7 {
-            h.write_u64(r);
-            r = h.finish();
-        }
-        out.push(CHARS[(r % 62) as usize] as char);
-        r /= 62;
-    }
-    out
 }
 
 fn list(v: &Value) -> Vec<Value> {
@@ -748,277 +580,6 @@ impl Server {
     }
 }
 
-/// How long the event stream may stay silent before it's dropped and reopened, as Desktop's
-/// `defaultIdleTimeout`. The server writes a heartbeat every 15 s. A connection that died while
-/// the Mac slept just goes quiet, and without a limit its read blocks forever: no reconnect, so
-/// no resync, and sessions that finished meanwhile stay running.
-const EVENTS_IDLE: Duration = Duration::from_secs(45);
-
-/// Starts the worker, writer and event threads (the first loads already happened). Returns the
-/// request and write senders and the inbox.
-pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
-    connect_with_idle(server, wake, EVENTS_IDLE)
-}
-
-/// [`connect`], dropping and reopening the event stream once it has been silent for `idle`
-/// (heartbeats included) instead of [`EVENTS_IDLE`]: a slow or dead link (a tunnel that still
-/// accepts but never answers) is noticed sooner.
-pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
-    let (inbox_tx, inbox) = channel();
-    let (req_tx, req_rx) = channel::<Request>();
-    let (write_tx, write_rx) = channel::<Write>();
-
-    {
-        let server = server.clone();
-        let inbox_tx = inbox_tx.clone();
-        let wake = wake.clone();
-        std::thread::Builder::new()
-            .name("opencode-write".into())
-            .spawn(move || {
-                for w in write_rx {
-                    let prompt_id = match &w {
-                        Write::Send { session, prompt }
-                        | Write::SendMovingHome { session, prompt }
-                        | Write::SendFromRevert { session, prompt }
-                        | Write::StartAs { session, prompt, .. }
-                        | Write::StartInNewWorktree { session, prompt, .. } => {
-                            prompt.id.clone().map(|id| (session.clone(), id))
-                        }
-                        _ => None,
-                    };
-                    let result = match w {
-                        Write::Prompt { session, text } => server.send_prompt(&session, &text),
-                        Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
-                        Write::Form { session, form, answer } => server.reply_form(&session, &form, answer),
-                        Write::CancelForm { session, form } => server.cancel_form(&session, &form),
-                        Write::Interrupt(session) => server.interrupt_ack(&session).map(|interrupted| {
-                            if let Some(interrupted) = interrupted {
-                                let _ = inbox_tx.send(Incoming::Event {
-                                    ty: "session.interrupt.acknowledged".into(),
-                                    data: serde_json::json!({ "sessionID": session, "interrupted": interrupted }),
-                                });
-                            }
-                        }),
-                        Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
-                            server.send_prompt(&info.id, &text)?;
-                            let _ = inbox_tx.send(Incoming::Created(info));
-                            Ok(())
-                        }),
-                        Write::Send { session, prompt } => server.send(&session, &prompt).map(|_| ()),
-                        Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
-                        Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
-                            server.send(&info.id, &prompt)?;
-                            // The reply to the create came before the switches.
-                            if let Some(agent) = &prompt.agent {
-                                info.agent.clone_from(agent);
-                            }
-                            if let Some(m) = &prompt.model {
-                                info.model = m.clone();
-                            }
-                            let _ = inbox_tx.send(Incoming::Created(info));
-                            Ok(())
-                        }),
-                        Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
-                            let _ = inbox_tx.send(Incoming::Created(info));
-                        }),
-                        Write::StartInNewWorktree { session, project, from, branch, prompt } => {
-                            let made = || {
-                                let _ = inbox_tx.send(Incoming::Event { ty: "worktree.updated".into(), data: serde_json::json!({ "projectID": project }) });
-                            };
-                            server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
-                                let _ = inbox_tx.send(Incoming::Created(info));
-                            })
-                        }
-                        Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
-                        Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
-                        Write::Shell { session, id, command } => server.shell(&session, id.as_deref(), &command),
-                        Write::Rename { session, title } => server.rename_session(&session, &title),
-                        Write::Delete(session) => server.delete_session(&session),
-                        Write::Archive(session) => server.archive(&session),
-                        Write::Unarchive(session) => server.unarchive(&session),
-                        Write::View { session, idle } => server.view(&session, idle),
-                        Write::Metadata { session, metadata } => server.set_metadata(&session, metadata),
-                        Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {
-                            let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
-                        }),
-                        Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
-                        Write::Compact(session) => server.compact(&session),
-                        // `command.config.reload.done` and `.failed` (`composer/commands.tsx:75-82`).
-                        Write::Reload => server.write("POST", "/api/location/reload", None)
-                            .map(|_| { let _ = inbox_tx.send(Incoming::Status("Configuration reloaded".into())); })
-                            .map_err(|e| format!("Couldn't reload configuration: {e}")),
-                        Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
-                            let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
-                            let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
-                            Ok(())
-                        }),
-                        Write::RevertStage { session, message, settle } => {
-                            let res = if settle { server.revert_to(&session, &message) } else { server.revert_stage(&session, &message) };
-                            res.map(|_| ())
-                        }
-                        Write::RevertClear(session) => server.revert_clear(&session),
-                        Write::RevertCommit(session) => server.revert_commit(&session),
-                        Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
-                        Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|forked| {
-                            let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
-                        }),
-                    };
-                    if let Err(e) = result {
-                        let told = match prompt_id {
-                            Some((session, id)) => inbox_tx.send(Incoming::SendFailed { session, id, error: e }),
-                            None => inbox_tx.send(Incoming::Status(e)),
-                        };
-                        if told.is_err() {
-                            return;
-                        }
-                    }
-                    wake();
-                }
-            })
-            .expect("spawn write thread");
-    }
-
-    {
-        let server = server.clone();
-        let inbox_tx = inbox_tx.clone();
-        let wake = wake.clone();
-        std::thread::Builder::new()
-            .name("opencode-fetch".into())
-            .spawn(move || {
-                let send = |m: Incoming| {
-                    let ok = inbox_tx.send(m).is_ok();
-                    wake();
-                    ok
-                };
-                let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
-                for r in req_rx {
-                    let ok = match r {
-                        Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
-                            Ok(v) => send(Incoming::Messages { session: id, messages: model::parse_messages(&v) }),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::Sessions => match sessions(&server) {
-                            Ok(list) => send(Incoming::Sessions(list)),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::ProjectSessions(project) => {
-                            match server.get(&format!("/api/session?project={}&archived=false&limit=200", encode_component(&project))) {
-                                Ok(v) => send(Incoming::Sessions(model::parse_sessions(&v))),
-                                Err(e) => send(Incoming::Status(e)),
-                            }
-                        }
-                        Request::Projects => match server.projects() {
-                            Ok(list) => send(Incoming::Projects(list)),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
-                            Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::Active => match server.get("/api/session/active") {
-                            Ok(v) => {
-                                let map = v.get("data").unwrap_or(&v);
-                                send(Incoming::Active(map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect()))
-                            }
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
-                        Request::Config(dir) => {
-                            // A server without it leaves compactions loud, as Desktop does.
-                            let v = server.get(&format!("/api/config?location%5Bdirectory%5D={}", encode_component(&dir)));
-                            let on = v.is_ok_and(|v| model::background_compaction(&v));
-                            send(Incoming::Event { ty: "config.listed".into(), data: serde_json::json!({ "directory": dir, "backgroundCompaction": on }) })
-                        }
-                        Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {
-                            Ok(v) => send(Incoming::Event {
-                                ty: "worktree.listed".into(),
-                                data: serde_json::json!({ "projectID": project, "directories": model::parse_worktrees(&v, &root) }),
-                            }),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                        Request::Branches { directory, search } => {
-                            let data = match server.branches(&directory, &search) {
-                                Ok(branches) => serde_json::json!({ "directory": directory, "search": search, "branches": branches }),
-                                Err(_) => serde_json::json!({ "directory": directory, "search": search, "failed": true }),
-                            };
-                            send(Incoming::Event { ty: "vcs.branch.listed".into(), data })
-                        }
-                        Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
-                            Ok(v) => send(Incoming::Event {
-                                ty: "session.inbox.listed".into(),
-                                data: serde_json::json!({ "sessionID": id, "items": list(&v) }),
-                            }),
-                            Err(e) => send(Incoming::Status(e)),
-                        },
-                    };
-                    if !ok {
-                        return;
-                    }
-                    // The channel blocks when idle. User-requested reads should drain without
-                    // a timer between them: opening a session queues several reads together.
-                }
-            })
-            .expect("spawn fetch thread");
-    }
-
-    std::thread::Builder::new()
-        .name("opencode-events".into())
-        .spawn(move || {
-            let mut backoff = 2;
-            let mut resumed = false;
-            loop {
-                let mut opened = false;
-                if let Err(e) = server.events(idle, &inbox_tx, &wake, resumed, &mut opened) {
-                    if inbox_tx.send(Incoming::Status(e)).is_err() {
-                        return;
-                    }
-                    wake();
-                }
-                if opened {
-                    backoff = 1;
-                }
-                resumed = true;
-                std::thread::sleep(Duration::from_secs(backoff));
-                backoff = (backoff * 2).min(30);
-            }
-        })
-        .expect("spawn event thread");
-
-    (req_tx, write_tx, inbox)
-}
-
-/// `sessionExportFilename`: the title (or slug, or id) lowercased, runs of anything but
-/// letters, digits, `_` and `-` as one `-`, trimmed of `-`, plus `.json`.
-pub fn export_filename(info: &Value, id: &str) -> String {
-    let name = ["title", "slug"].iter().filter_map(|k| info[*k].as_str()).find(|s| !s.is_empty()).unwrap_or(id);
-    let mut clean = String::new();
-    for c in name.to_lowercase().chars() {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            clean.push(c);
-        } else if !clean.ends_with('-') {
-            clean.push('-');
-        }
-    }
-    let clean = clean.trim_matches('-');
-    format!("{}.json", if clean.is_empty() { id } else { clean })
-}
-
-static DOWNLOADS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
-
-/// Where [`Write::Export`] saves sessions: the app's Downloads folder, set once at startup.
-pub fn set_download_dir(dir: Option<std::path::PathBuf>) {
-    let _ = DOWNLOADS.set(dir);
-}
-
-/// Writes `json` as `name` in the Downloads folder [`set_download_dir`] named; returns its path.
-pub fn save_download(name: &str, json: &str) -> Result<String, String> {
-    let dir = DOWNLOADS.get().cloned().flatten().ok_or("No Downloads folder")?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(name);
-    std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path.display().to_string())
-}
-
 /// A one-request HTTP server for tests: answers 200 and returns what it received.
 #[cfg(test)]
 pub fn mock_once() -> (String, std::thread::JoinHandle<String>) {
@@ -1078,6 +639,7 @@ fn mock_reply_with(listener: &std::net::TcpListener, status: &str, body: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::channel;
 
     #[test]
     fn base64_matches_rfc4648() {
