@@ -856,6 +856,7 @@ impl App {
         let allow_send = !flag("--read-only") && !headless();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.status = self.live_status();
+        self.resume_settings_page();
         true
     }
 

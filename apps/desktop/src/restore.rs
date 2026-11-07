@@ -77,12 +77,44 @@ fn route_json(route: &Route) -> Value {
     }
 }
 
+/// The page as Desktop's last active URL keeps it: Settings, while open, is the page
+/// (`/settings?tab=`), whatever it was opened over.
+fn page_json(app: &App) -> Value {
+    if app.settings.open {
+        return json!({ "settings": settings_tab(&app.settings_pages.page) });
+    }
+    route_json(&app.route)
+}
+
+/// Desktop's `?tab=` for a settings page.
+fn settings_tab(page: &crate::settings::pages::Page) -> &'static str {
+    use crate::settings::pages::Page;
+    match page {
+        Page::Providers => "providers",
+        Page::Models => "models",
+        Page::Extensions => "extensions",
+        _ => "general",
+    }
+}
+
+fn settings_page(tab: &str) -> crate::settings::pages::Page {
+    use crate::settings::pages::Page;
+    match tab {
+        "providers" => Page::Providers,
+        "models" => Page::Models,
+        "extensions" => Page::Extensions,
+        _ => Page::default(),
+    }
+}
+
 /// A saved route.
 #[derive(Debug, PartialEq)]
 enum Saved {
     Route(Route),
     /// The new-session page, saved before drafts were tabs: it comes back as a draft tab.
     LegacyDraft,
+    /// Settings on this tab, which closes to Home (Desktop's `source` without a saved one).
+    Settings(String),
 }
 
 fn route_from(v: &Value) -> Option<Saved> {
@@ -91,6 +123,9 @@ fn route_from(v: &Value) -> Option<Saved> {
     }
     if let Some(id) = v["draft"].as_str() {
         return Some(Saved::Route(Route::Draft(id.to_owned())));
+    }
+    if let Some(tab) = v["settings"].as_str() {
+        return Some(Saved::Settings(tab.to_owned()));
     }
     match v.as_str()? {
         "new" => Some(Saved::LegacyDraft),
@@ -110,6 +145,11 @@ impl App {
         let saved = match route_from(&v["route"]) {
             Some(Saved::LegacyDraft) => Some(self.migrate_legacy_draft(server)),
             Some(Saved::Route(route)) => Some(route),
+            Some(Saved::Settings(tab)) => {
+                self.settings.open = true;
+                self.settings_pages.page = settings_page(&tab);
+                Some(Route::Home)
+            }
             None => None,
         };
         if let Some(route) = saved {
@@ -142,6 +182,14 @@ impl App {
         self.show_draft();
         self.restore.saved = Some(self.ui_json());
         self.restore.stamp = Some(self.restore_stamp());
+    }
+
+    /// Settings reopened on its page loads what the page reads, once the server is the source.
+    pub fn resume_settings_page(&mut self) {
+        if self.settings.open {
+            let page = std::mem::take(&mut self.settings_pages.page);
+            self.open_settings_page(page, &mut rune::Tx::default());
+        }
     }
 
     /// The new-session page saved before drafts were tabs comes back as a draft tab with its words.
@@ -200,7 +248,7 @@ impl App {
             }
         }
         json!({
-            "route": route_json(&self.route),
+            "route": page_json(self),
             "drafts": drafts,
             "sidebar": self.sidebar_open,
             "sidebarWidth": self.sidebar_w,
@@ -213,6 +261,7 @@ impl App {
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
         (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
+        self.settings.open.then(|| settings_tab(&self.settings_pages.page)).hash(&mut h);
         self.side.stamp_hash(&mut h);
         h.finish()
     }
