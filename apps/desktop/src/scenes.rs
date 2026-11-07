@@ -107,6 +107,16 @@ rune_register::register!(SCENE_LIST: Scene = [
         s.finish_stream();
         side_tabs(s);
     }),
+    // Settings > Experimental > Organize vertical sidebar: Projects, the first project open.
+    ("sidebar-organized", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Projects;
+        if let Some(id) = s.used_projects().first().map(|p| p.id.clone()) {
+            s.project_state.organize_expanded.insert(id);
+        }
+    }),
     // Top tabs past what the titlebar holds: they shrink to icons, then scroll.
     ("tab-overflow", |s| {
         open_scene(s);

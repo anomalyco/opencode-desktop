@@ -152,7 +152,7 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
 
 /// A small ghost-muted IconButton: 20 pt, `rounded-[4px]`, the 16 pt icon in icon-muted, the
 /// overlay hovered and the pressed overlay (with icon-base) pressed or while its menu is open.
-fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, expanded: bool) -> El {
+pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, expanded: bool) -> El {
     let b = el()
         .key(key.to_owned())
         .role("button")
@@ -169,6 +169,11 @@ fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, expanded: 
 /// `ProjectMenuItems`: New session, Import session, Edit project, Reveal in File Explorer (a
 /// local server's), Clear notifications (while any of its sessions is unread), then Close.
 fn open_menu(s: &mut App, id: &str, tx: &mut Tx) {
+    open_project_menu(s, id, menu_key(id), tx);
+}
+
+/// `open_menu` under the element keyed `anchor`.
+pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut Tx) {
     let Some(proj) = s.project(id).cloned() else { return };
     let unread = project_unread(s, &proj).next().is_some();
     let local = matches!(&s.source, crate::Source::Live { server, .. } if server.is_local());
@@ -184,7 +189,7 @@ fn open_menu(s: &mut App, id: &str, tx: &mut Tx) {
     }
     menu = menu.item(Item::new("clear", "Clear notifications").enabled(unread)).separator().item(Item::new("close", "Close"));
     tx.instant();
-    popup::open_drawn(s, menu, menu_key(id), tx, move |s: &mut App, picked, tx| match picked {
+    popup::open_drawn(s, menu, anchor, tx, move |s: &mut App, picked, tx| match picked {
         Some("new-session") => s.new_session_in(&proj.directory, tx),
         Some("import") => s.import_session(&proj.directory, tx),
         Some("edit") => s.edit_project(&proj.directory, tx),

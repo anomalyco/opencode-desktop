@@ -29,6 +29,14 @@ pub struct ProjectsState {
     pub importing: bool,
     /// Counter for sessions opened in fixture mode.
     opened: u32,
+    /// The organized sidebar (`sidebar-organized.tsx`): Projects shut, the projects open to
+    /// their sessions, all projects shown, and how many sessions each open project shows.
+    pub organize_collapsed: bool,
+    pub organize_expanded: HashSet<String>,
+    pub organize_all: bool,
+    pub organize_limits: std::collections::HashMap<String, usize>,
+    /// The session last opened from the organized list, which it highlights while current.
+    pub organize_selected: Option<String>,
 }
 
 pub(crate) fn clean_dir(raw: &str) -> String {

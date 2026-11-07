@@ -2,7 +2,7 @@ use super::*;
 use crate::session_menu::{Spot, Target};
 use rune_kit::{ScrollBar, ScrollBarStyle};
 
-mod projects;
+pub(crate) mod projects;
 mod search;
 
 pub(crate) use projects::home_projects_popover;
