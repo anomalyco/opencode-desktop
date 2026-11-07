@@ -1,5 +1,5 @@
-use opencode_kit::model::{self, InboxItem, Message, Part};
-use rune::{Color, El, Tx, col, el, row, text};
+use opencode_kit::model::{self, InboxItem, Message, Part, Transcript};
+use rune::{Color, El, TextStyle, Tx, col, el, row, text};
 
 use crate::TimelineHost;
 use crate::fold::Fold;
@@ -135,6 +135,58 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, place:
     c.children(actions.map(|actions| row().key("actions").w_full().h(20.0).mt(4.0).justify_end().child(actions)))
 }
 
+/// The hover group a reply's footer shares with the reply text above it (separate virtual
+/// rows), as Desktop shows the footer while its text part is hovered.
+pub const REPLY_HOVER: &str = "reply-hover";
+
+/// The footer's "Model · 1s" (`text-part-meta`): 12/18 at weight 440 in `text-faint`.
+const META: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+
+/// Whether part `part` of message `message` is the reply text the turn's footer copies: the
+/// last text of the last reply with any (`copyContentID`).
+pub fn footer_text(t: &Transcript, message: usize, part: usize) -> bool {
+    let text = |p: &Part| matches!(p, Part::Text { text } if !text.trim().is_empty());
+    let last = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)));
+    last == Some(message)
+        && matches!(&t.messages[message], Message::Assistant(a) if a.parts.iter().rposition(text) == Some(part))
+}
+
+/// The footer's items after Copy (`text-part-meta`): the model's name (and a variant other
+/// than default, with no separator), then how long the turn took, from its prompt to its last
+/// finished step (`SessionTurn.duration`), as "1s" or "1m 5s".
+fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(String, bool)> {
+    let mut items = Vec::new();
+    let model = t.messages[..=message].iter().rev().find_map(|m| match m {
+        Message::Assistant(a) => a.model.clone(),
+        _ => None,
+    });
+    if let Some(m) = model.filter(|m| !m.id.is_empty() || !m.provider.is_empty()) {
+        items.push((s.model_name(&m), false));
+        if !m.variant.is_empty() && m.variant != "default" {
+            let mut v = m.variant.chars();
+            items.push((v.next().map(|c| c.to_uppercase().chain(v).collect()).unwrap_or_default(), true));
+        }
+    }
+    let prompt = t.messages[..message].iter().rposition(|m| matches!(m, Message::User { .. }));
+    let started = prompt.and_then(|i| match &t.messages[i] {
+        Message::User { id, .. } => model::user_created(id),
+        _ => None,
+    });
+    let first_step = t.messages[prompt.map_or(0, |i| i + 1)..=message].iter().find_map(|m| match m {
+        Message::Assistant(a) if a.created > 0 => Some(a.created),
+        _ => None,
+    });
+    let done = t.messages[prompt.map_or(0, |i| i + 1)..].iter().rev().find_map(|m| match m {
+        Message::Assistant(a) => a.completed,
+        _ => None,
+    });
+    if let (Some(done), Some(from)) = (done, started.or(first_step)) {
+        let total = ((done - from).max(0) as f64 / 1000.0).round() as i64;
+        items.push((if total < 60 { format!("{total}s") } else { format!("{}m {}s", total / 60, total % 60) }, false));
+    }
+    items
+}
+
 pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
@@ -176,9 +228,30 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
     let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.is_session_stopped(session));
+    // "Model · 1s" after Copy, 4 apart, the separator 4 from each item; a variant follows its
+    // model with no separator.
+    let meta = (!busy && has_text && !interrupted)
+        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).map(|i| reply_meta(s, t, i)).unwrap_or_default()))
+        .flatten()
+        .filter(|items| !items.is_empty())
+        .map(|items| {
+            let mut r = row().key("meta").absolute(COPY_AT.0 + COPY + 4.0, COPY_AT.1).h(COPY).gap(4.0).center_y().a11y_hidden();
+            for (k, (label, variant)) in items.into_iter().enumerate() {
+                if k > 0 && !variant {
+                    r = r.child(text("\u{00b7}").key(format!("sep{k}")).font(META).color(p.faint));
+                }
+                r = r.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
+            }
+            r.group_opacity(0.0, 1.0)
+        });
+    // Copy and the meta show only while the reply or its footer is hovered, at once, as
+    // Desktop's do; Kit's Working-to-Copy swap still plays under the pointer.
     el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
+        .hover_group_shared(REPLY_HOVER)
+        .hover_motion(INSTANT, INSTANT)
         .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT))
-        .child(button.absolute(COPY_AT.0, COPY_AT.1))
+        .child(button.absolute(COPY_AT.0, COPY_AT.1).group_opacity(0.0, 1.0))
+        .children(meta)
         .children(interrupted.then(|| interrupted_label(p, has_text)))
         .children(s.turn_tail_extra(p, session, busy))
 }
@@ -195,7 +268,7 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find_row_hits(row_key)) {
         return el;
     }
-    markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s))
+    markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(crate::images::md_media(s)))
 }
 
 /// Convenience wrapper with explicit body colour and diagram max width.

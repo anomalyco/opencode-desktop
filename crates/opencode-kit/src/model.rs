@@ -380,6 +380,28 @@ pub fn set_user_files(id: &str, files: Vec<Attachment>) {
     }
 }
 
+/// A message's model (`{ id, providerID, variant }`), when it names one.
+fn model_of(v: &Value) -> Option<ModelRef> {
+    let m = ModelRef::parse(v);
+    (!m.id.is_empty() || !m.provider.is_empty()).then_some(m)
+}
+
+/// User messages' creation times, by message id, as [`user_files`] keeps their files.
+fn user_created_store() -> &'static Mutex<HashMap<String, i64>> {
+    static STORE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// When user message `id` was sent (ms), once known: a reply's duration runs from it.
+pub fn user_created(id: &str) -> Option<i64> {
+    user_created_store().lock().unwrap().get(id).copied()
+}
+
+/// Records when user message `id` was sent (ms).
+pub fn set_user_created(id: &str, at: i64) {
+    user_created_store().lock().unwrap().insert(id.to_owned(), at);
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     User { id: String, text: String },
@@ -405,6 +427,11 @@ pub struct Assistant {
     pub retry: Option<Retry>,
     /// When it started, or 0 when unknown.
     pub created: i64,
+    /// The model that ran it (`model` in `/api` and `session.step.started`), as Desktop's reply
+    /// footer names it; `None` until known.
+    pub model: Option<ModelRef>,
+    /// The agent that ran it, as the footer names it when agents are shown.
+    pub agent: Option<String>,
 }
 
 impl Message {
@@ -522,6 +549,9 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             }
             let text = s(&m["text"]);
             crate::mention::record(&id, &text, m);
+            if let Some(at) = m["time"]["created"].as_i64() {
+                set_user_created(&id, at);
+            }
             Message::User { text: quoted_text(&id, text, &m["metadata"]), id }
         }
         "assistant" => Message::Assistant(Assistant {
@@ -534,6 +564,8 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             failure: StepError::parse(&m["error"]),
             retry: Retry::parse(&m["retry"]),
             created: i(&m["time"]["created"]),
+            model: model_of(&m["model"]),
+            agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
         }),
         "shell" => Message::Note { id, text: format!("$ {}", s(&m["command"])) },
         "compaction" => Message::Compaction(Compaction::parse(m)),
@@ -773,20 +805,26 @@ impl Transcript {
             "session.prompted" | "session.user.message" => {
                 let id = s(&d["messageID"]);
                 if !id.is_empty() && !self.messages.iter().any(|m| m.id() == id) {
+                    set_user_created(&id, d["time"]["created"].as_i64().unwrap_or(now));
                     let text = s(&d["text"]);
                     crate::mention::record(&id, &text, d);
                     self.messages.push(Message::User { id, text });
                 }
             }
-            "session.step.started" => match self.assistant(&mid) {
-                // A retried step starts again under its own id.
-                Some(a) => {
-                    a.retry = None;
-                    a.error = None;
-                    a.failure = None;
+            "session.step.started" => {
+                let (model, agent) = (model_of(&d["model"]), d["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned));
+                match self.assistant(&mid) {
+                    // A retried step starts again under its own id.
+                    Some(a) => {
+                        a.retry = None;
+                        a.error = None;
+                        a.failure = None;
+                        a.model = model.or(a.model.take());
+                        a.agent = agent.or(a.agent.take());
+                    }
+                    None => self.messages.push(Message::Assistant(Assistant { id: mid, created: now, model, agent, ..Default::default() })),
                 }
-                None => self.messages.push(Message::Assistant(Assistant { id: mid, created: now, ..Default::default() })),
-            },
+            }
             "session.retry.scheduled" => {
                 let Some(a) = self.assistant(&mid) else { return false };
                 a.retry = Retry::parse(d);

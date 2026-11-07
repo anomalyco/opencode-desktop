@@ -90,12 +90,14 @@ impl RowSpec {
         }
     }
 
-    /// A reply's text part, its words held back for Grow, then show (`line_reveal`).
+    /// A reply's text part, its words held back for Grow, then show (`line_reveal`). The text
+    /// the footer copies (`footer`) shares the footer's hover.
     #[allow(clippy::too_many_arguments)]
-    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32) -> El {
+    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
         let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
-        self.wrap_paced(s, words, body.contains("```"))
+        let row = self.wrap_paced(s, words, body.contains("```"));
+        if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
     }
 
     pub fn build<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, fade: f32) -> El {
@@ -114,10 +116,16 @@ impl RowSpec {
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part));
                         // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
                         let copied = body.contains("```").then(|| crate::copied::current(s)).flatten();
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, copied);
+                        // A picture landing (an image, a link's favicon) or the viewer opening one rebuilds the row.
+                        let pictures = (body.contains("![") || body.contains("://")).then(|| {
+                            let m = s.media_store();
+                            (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()))
+                        });
+                        let footer = footer_text(t, *message, *part);
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.text_row(s, p, &a.id, *part, body, fade, *live, *pt)
+                            self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer)
                         });
                     }
                 }
@@ -222,7 +230,7 @@ impl RowSpec {
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
-                    Part::Text { text: body } => return self.text_row(s, p, &a.id, *part, body, fade, *live, *pt),
+                    Part::Text { text: body } => return self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer_text(t, *message, *part)),
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
