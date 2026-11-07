@@ -4,7 +4,7 @@ use std::path::Path;
 
 use opencode_kit::client::{FileInput, PathAttachment, data_url};
 use opencode_kit::model::{Attachment, Message, Transcript};
-use rune::{ClipboardContent, El, SurfaceFit, Tx, col, el, icon, row, text};
+use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::ComposerHost;
@@ -145,15 +145,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     if quotes.is_empty() && files.is_empty() && paths.is_empty() && uploading.is_empty() {
         return None;
     }
-    let mut r = row()
-        .key("attachments")
-        .w_full()
-        .px(8.0)
-        .pt(8.0)
-        .pb(4.0)
-        .gap(8.0)
-        .flex_wrap()
-        .children(quotes);
+    let mut r = row().key("attachments-strip").px(8.0).pt(8.0).pb(4.0).gap(8.0).children(quotes);
     for f in files {
         let id = identity(f);
         let img = s.media_store().image(f);
@@ -196,7 +188,43 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     for (i, name) in uploading.iter().enumerate() {
         r = r.child(el().key(format!("uploading-{i}")).child(card(p, name, "Uploading…".into())));
     }
-    Some(r)
+    // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
+    // fade on each side that shows while chips hide under it (`attachments.css`).
+    let fade = |key: &str, side: &'static std::thread::LocalKey<Live<f32>>, angle: f32| {
+        let (left, right) = if angle > 0.0 { (Some(0.0), None) } else { (None, Some(0.0)) };
+        side.with(|o| {
+            el().key(key.to_owned())
+                .pin(left, Some(0.0), right, Some(0.0))
+                .w(24.0)
+                .linear_gradient(angle, [(0.0, p.bg_base), (1.0, p.bg_base.alpha(0.0))])
+                .live_opacity(o)
+                .inert()
+        })
+    };
+    let strip = el()
+        .key("attachments-scroll")
+        .w_full()
+        .scroll_x()
+        .on_scroll_offset(|at: ScrollPos| {
+            FADE_LEFT.with(|o| o.set(if at.offset[0] > 0.1 { 1.0 } else { 0.0 }));
+            FADE_RIGHT.with(|o| o.set(if at.max[0] > 0.0 && at.offset[0] < at.max[0] - 1.0 { 1.0 } else { 0.0 }));
+        })
+        .child(r);
+    Some(
+        el().key("attachments")
+            .w_full()
+            // The fades keep to the composer's rounded top corners.
+            .clip_corners(if s.composer_docked_top() { [0.0; 4] } else { [12.0, 12.0, 0.0, 0.0] })
+            .child(strip)
+            .child(fade("attachments-fade-left", &FADE_LEFT, std::f32::consts::FRAC_PI_2))
+            .child(fade("attachments-fade-right", &FADE_RIGHT, -std::f32::consts::FRAC_PI_2)),
+    )
+}
+
+thread_local! {
+    /// Whether chips hide under the strip's left and right edges: one composer shows at a time.
+    static FADE_LEFT: Live<f32> = Live::new(0.0);
+    static FADE_RIGHT: Live<f32> = Live::new(0.0);
 }
 
 /// The round button on a chip's corner that shows on hover, for a chip `w` wide.
@@ -237,9 +265,89 @@ fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade())
 }
 
+/// Desktop's `typeLabel` (`message-file.ts`): a source file's language by its extension, any
+/// other extension in capitals, and File without one (a dotfile has none).
 fn type_label(name: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((_, ext)) if !ext.is_empty() => ext.to_uppercase(),
-        _ => "File".into(),
+    let base = opencode_kit::path::basename(name);
+    let ext = match base.rfind('.') {
+        Some(i) if i > 0 => base[i + 1..].to_ascii_lowercase(),
+        _ => return "File".into(),
+    };
+    if ext == "pdf" {
+        return "PDF".into();
     }
+    LANGUAGES.iter().find(|(_, exts)| exts.contains(&ext.as_str())).map_or_else(|| ext.to_uppercase(), |(lang, _)| (*lang).to_owned())
 }
+
+const LANGUAGES: &[(&str, &[&str])] = &[
+    ("Assembly", &["asm", "s"]),
+    ("Astro", &["astro"]),
+    ("Batch File", &["bat", "cmd"]),
+    ("C", &["c", "h"]),
+    ("C#", &["cs"]),
+    ("C++", &["cpp", "cc", "cxx", "hpp", "hh", "hxx"]),
+    ("Clojure", &["clj", "cljs", "cljc", "edn"]),
+    ("CSS", &["css"]),
+    ("CUDA", &["cu", "cuh"]),
+    ("Dart", &["dart"]),
+    ("Diff", &["diff", "patch"]),
+    ("Elixir", &["ex", "exs"]),
+    ("Elm", &["elm"]),
+    ("Erlang", &["erl", "hrl"]),
+    ("F#", &["fs", "fsi", "fsx"]),
+    ("Fortran", &["f", "f77", "f90", "f95", "f03", "f08", "for"]),
+    ("GDScript", &["gd"]),
+    ("Gleam", &["gleam"]),
+    ("GLSL", &["glsl", "vert", "frag", "geom", "comp"]),
+    ("Go", &["go"]),
+    ("GraphQL", &["graphql", "gql"]),
+    ("Groovy", &["groovy", "gradle"]),
+    ("Haskell", &["hs"]),
+    ("HCL", &["hcl"]),
+    ("HLSL", &["hlsl"]),
+    ("HTML", &["html", "htm"]),
+    ("Java", &["java"]),
+    ("JavaScript", &["js", "cjs", "mjs"]),
+    ("JSON", &["json"]),
+    ("JSON Lines", &["jsonl"]),
+    ("JSON with Comments", &["jsonc"]),
+    ("JSON5", &["json5"]),
+    ("JSX", &["jsx"]),
+    ("Julia", &["jl"]),
+    ("Kotlin", &["kt", "kts"]),
+    ("LaTeX", &["tex", "latex"]),
+    ("Less", &["less"]),
+    ("Lua", &["lua"]),
+    ("Markdown", &["md", "markdown"]),
+    ("MDX", &["mdx"]),
+    ("Nim", &["nim"]),
+    ("Nix", &["nix"]),
+    ("OCaml", &["ml", "mli"]),
+    ("Perl", &["pl", "pm"]),
+    ("PHP", &["php"]),
+    ("PowerShell", &["ps1", "psm1"]),
+    ("Protocol Buffer", &["proto"]),
+    ("Python", &["py", "pyi"]),
+    ("R", &["r"]),
+    ("Ruby", &["rb"]),
+    ("Rust", &["rs"]),
+    ("Sass", &["sass"]),
+    ("Scala", &["scala", "sbt"]),
+    ("SCSS", &["scss"]),
+    ("Shell", &["sh", "bash", "zsh"]),
+    ("Solidity", &["sol"]),
+    ("SQL", &["sql"]),
+    ("Svelte", &["svelte"]),
+    ("SVG", &["svg"]),
+    ("Swift", &["swift"]),
+    ("Terraform", &["tf", "tfvars"]),
+    ("TOML", &["toml"]),
+    ("TSX", &["tsx"]),
+    ("TypeScript", &["ts", "cts", "mts"]),
+    ("Vue", &["vue"]),
+    ("WebAssembly", &["wat", "wasm"]),
+    ("WGSL", &["wgsl"]),
+    ("XML", &["xml"]),
+    ("YAML", &["yaml", "yml"]),
+    ("Zig", &["zig"]),
+];

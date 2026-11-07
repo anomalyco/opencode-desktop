@@ -14,7 +14,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::*;
 use crate::dock::{BUTTON, Variant, button, face_transition};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::style::readable;
 
 /// `question-header-title`: 13 px on the compact line height.
@@ -136,7 +136,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .child(header)
         .children(options)
         .children(folded);
-    let body = p.raised.into_iter().fold(body, El::box_shadow);
+    let body = body.elevate(p.raised);
     let body = match max {
         Some(m) => body.max_h((m - (TRAY_H - TUCK)).max(0.0)),
         None => body,

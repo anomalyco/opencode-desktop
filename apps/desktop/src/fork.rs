@@ -17,7 +17,7 @@ use rune::{
 use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::cycle;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::rewind::SavedDraft;
 use crate::view::{INSTANT, UI, UI_SMALL};
 use crate::{App, Route, Source};
@@ -373,9 +373,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .h(h)
         .radius(12.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
-        .shadow(8.0, 16.0, p.shadow_far)
-        .shadow(4.0, 8.0, p.shadow)
+        .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
         .motion(Spring::NONE)

@@ -11,7 +11,7 @@ use rune_theme_opencode::icons as ic;
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::Delivery;
 
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 use crate::slash::Slash;
 use crate::{App, Route, Source};
@@ -299,8 +299,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         return None;
     }
     // `menu-v2-content` (`menu.css:6-21`): layer 1, a 2 pt inset, 6 pt corners and
-    // `--v2-elevation-floating`'s two drops over the raised 0.5 pt ring (`theme.css:346-348,495-497`).
-    let drop = |y: f32, blur: f32, a: f32| rune::Shadow { y, blur, color: Color::BLACK.alpha(if p.dark { 0.3 } else { a }), ..rune::Shadow::default() };
+    // `--v2-elevation-floating`.
     let mut menu = col()
         .key("add-menu")
         .role("menu")
@@ -310,16 +309,15 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         .padding(2.0)
         .radius(6.0)
         .fill(p.layer1)
-        .box_shadow(drop(8.0, 16.0, 0.04))
-        .box_shadow(drop(4.0, 8.0, 0.08))
-        .box_shadow(p.raised[2])
+        .elevate(p.floating)
         .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
         // What it holds comes in with it, not on fades of its own.
         .instant_changes()
         .on_press(|_: &mut App| {});
     for item in Item::ALL {
         if item == Item::Commands {
-            menu = menu.child(el().key("add-separator").h(1.0).w_full().mt(2.0).mb(2.0).fill(p.border_muted));
+            // `menu-v2-separator`: edge to edge, through the menu's 2 pt inset.
+            menu = menu.child(el().key("add-separator").h(1.0).mt(2.0).mb(2.0).ml(-2.0).mr(-2.0).fill(p.border_muted));
         }
         let active = s.add.active == Some(item);
         menu = menu.child(

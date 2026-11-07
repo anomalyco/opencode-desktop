@@ -15,7 +15,7 @@ use rune::{El, Tx, col, row, text};
 use opencode_kit::model::{self, Message, Part};
 
 use crate::odometer::odometer;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::{INSTANT, UI, UI_MED, activity_ring_sized};
 use crate::{App, Route};
 
@@ -162,7 +162,7 @@ pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
         (true, false) => p.layer1,
         (true, true) => p.layer2,
     };
-    let [far, near, ring] = p.raised;
+    let [far, near, ring, edge] = p.raised;
     let thin = |sh: rune::Shadow| rune::Shadow { color: sh.color.alpha(sh.color.a * solid), ..sh };
     let ring = rune::Shadow { color: p.border_muted.mix(ring.color, s.knobs.get(&crate::knobs::CAPSULE_RING)), ..ring };
     let chip = row()
@@ -175,9 +175,10 @@ pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
         .center_y()
         .radius(s.knobs.get(&crate::knobs::CAPSULE_RADIUS))
         .fill(bg.alpha(bg.a * solid))
-        .box_shadow(thin(far))
-        .box_shadow(thin(near))
+        .box_shadow(thin(edge))
         .box_shadow(ring)
+        .box_shadow(thin(near))
+        .box_shadow(thin(far))
         .hover_motion(INSTANT, INSTANT);
     if open { chip } else { chip.hover(p.hover).press(p.pressed) }
 }
@@ -261,10 +262,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .w(natural.clamp(240.0, 360.0).ceil())
         .radius(10.0)
         .fill(p.layer1)
-        // --v2-elevation-floating: two drops and a hairline ring.
-        .border(0.5, p.ring)
-        .shadow(8.0, 16.0, p.shadow_far)
-        .shadow(4.0, 8.0, p.shadow)
+        .elevate(p.floating)
         .clip_soft(0.0)
         .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
         .on_press(|_: &mut App| {})

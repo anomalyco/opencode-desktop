@@ -166,9 +166,10 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .w_full()
         .radius(12.0)
         .fill(crate::composer::composer_fill(p))
-        .box_shadow(raised[0])
-        .box_shadow(raised[1])
+        .box_shadow(raised[3])
         .box_shadow(ring)
+        .box_shadow(raised[1])
+        .box_shadow(raised[0])
         .transition(fade())
         .child(body)
         .child(footer);

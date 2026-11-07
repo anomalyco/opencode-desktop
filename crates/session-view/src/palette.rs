@@ -3,7 +3,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use rune::{Color, Shadow, Theme};
+use rune::{Color, El, Shadow, Theme};
 use rune_kit::{Kit, ScrollBarStyle};
 use rune_kit::syntax::SyntaxTheme;
 
@@ -40,9 +40,13 @@ pub struct Pal {
     pub shadow: Color,
     /// --v2-elevation-floating's far drop.
     pub shadow_far: Color,
-    /// --v2-elevation-raised as Desktop draws it: two drops and a 0.5px ring outside the box.
-    /// Dark mode's 0.5px top highlight is left out: no lit rims.
-    pub raised: [Shadow; 3],
+    /// `--v2-elevation-raised`: two drops, a 0.5px ring outside the box and, in dark, the 0.5px
+    /// lit top edge (`0 -0.5px alpha-light-6`). Put them on a surface with [`Elevate::elevate`].
+    pub raised: [Shadow; 4],
+    /// `--v2-elevation-floating`: menus, popovers, toasts and the composer lane's cards.
+    pub floating: [Shadow; 4],
+    /// `--v2-elevation-overlay`: dialogs.
+    pub overlay: [Shadow; 4],
     /// `color-mix(in srgb, bg-base 92%, transparent)`: the tint over a frosted surface.
     pub frost: Color,
     pub success: Color,
@@ -93,6 +97,32 @@ pub struct Pal {
     pub danger_border: Color,
     /// A diff's colours, as Desktop's Pierre theme and file rows draw them.
     pub diff: DiffInk,
+    /// The rest of Desktop's v2 semantic tokens, each theme's own.
+    pub v2: V2,
+}
+
+/// Desktop's v2 semantic tokens (`theme.css`, `mapping.ts`) that `Pal` doesn't carry above:
+/// what rune-kit's controls paint with, so in a chosen theme they follow it.
+#[derive(Clone, Copy, Debug)]
+pub struct V2 {
+    pub bg_inverse: Color,
+    pub bg_code_path: Color,
+    pub text_inverse: Color,
+    pub text_code_accent: Color,
+    pub text_code_path: Color,
+    pub icon_inverse: Color,
+    pub icon_accent: Color,
+    pub icon_accent_hover: Color,
+    pub border_inverse: Color,
+    /// `border-border-focus`: focus rings.
+    pub border_focus: Color,
+    pub contrast_hover: Color,
+    pub contrast_pressed: Color,
+    /// `state-{bg,fg,border}-*`, the fg the icon too.
+    pub success: rune_kit::StateColors,
+    pub warning: rune_kit::StateColors,
+    pub danger: rune_kit::StateColors,
+    pub info: rune_kit::StateColors,
 }
 
 /// A diff's colours (`session-ui/src/pierre/index.ts`, `diff-changes.css`).
@@ -233,6 +263,30 @@ fn build(theme: usize, dark: bool) -> Pal {
         danger_bg: c("state-bg-danger"),
         danger_border: c("state-border-danger"),
         diff: diff_ink(&t, themed, dark, diff_add, diff_del, text, code_bg),
+        v2: {
+            let state = |n: &str| {
+                let fg = c(&format!("state-fg-{n}"));
+                rune_kit::StateColors { bg: c(&format!("state-bg-{n}")), fg, border: c(&format!("state-border-{n}")), icon: fg }
+            };
+            V2 {
+                bg_inverse: c("background-bg-inverse"),
+                bg_code_path: c("background-bg-code-path"),
+                text_inverse: c("text-text-inverse"),
+                text_code_accent: c("text-text-code-accent"),
+                text_code_path: c("text-text-code-path"),
+                icon_inverse: c("icon-icon-inverse"),
+                icon_accent: c("icon-icon-accent"),
+                icon_accent_hover: c("icon-icon-accent-hover"),
+                border_inverse: c("border-border-inverse"),
+                border_focus: c("border-border-focus"),
+                contrast_hover: c("overlay-simple-overlay-contrast-hover"),
+                contrast_pressed: c("overlay-simple-overlay-contrast-pressed"),
+                success: state("success"),
+                warning: state("warning"),
+                danger: state("danger"),
+                info: state("info"),
+            }
+        },
         standard: Standard {
             surface: c("surface-raised-stronger-non-alpha"),
             text: c("text-strong"),
@@ -282,14 +336,9 @@ fn build(theme: usize, dark: bool) -> Pal {
         ring: if dark { c("alpha-light-16") } else { c("alpha-dark-8") },
         shadow: if dark { c("alpha-dark-30") } else { c("alpha-dark-8") },
         shadow_far: if dark { c("alpha-dark-30") } else { c("alpha-dark-4") },
-        raised: {
-            let drop = |y, blur, spread, color| Shadow { y, blur, spread, color, ..Shadow::default() };
-            if dark {
-                [drop(2.0, 4.0, 0.0, c("alpha-dark-30")), drop(1.0, 2.0, 0.0, c("alpha-dark-30")), drop(0.0, 0.0, 0.5, c("alpha-light-16"))]
-            } else {
-                [drop(2.0, 4.0, 0.0, c("alpha-dark-4")), drop(1.0, 2.0, -1.0, c("alpha-dark-8")), drop(0.0, 0.0, 0.5, c("alpha-dark-12"))]
-            }
-        },
+        raised: elevation(&t, dark, 2.0),
+        floating: elevation(&t, dark, 8.0),
+        overlay: elevation(&t, dark, 16.0),
         frost: t.alpha(c("background-bg-base"), 0.92),
         success,
         danger,
@@ -329,10 +378,47 @@ fn build(theme: usize, dark: bool) -> Pal {
             submit_ring: if dark { c("alpha-light-40") } else { c("grey-800") },
             submit_text: if dark { c("text-text-inverse") } else { c("text-text-contrast") },
             contrast_text: c("text-text-contrast"),
-            focus: c("blue-500"),
+            focus: c("border-border-focus"),
             dot: c("grey-300"),
         },
     }
+}
+
+pub trait Elevate {
+    /// Lifts a surface by one of Desktop's elevations (`p.raised`, `p.floating`, `p.overlay`),
+    /// its first CSS shadow on top as CSS paints it.
+    fn elevate(self, elevation: [Shadow; 4]) -> Self;
+}
+
+impl Elevate for El {
+    fn elevate(self, elevation: [Shadow; 4]) -> El {
+        elevation.into_iter().rev().fold(self, El::box_shadow)
+    }
+}
+
+/// Desktop's `--v2-elevation-raised` (`far` 2), `-floating` (8) and `-overlay` (16), in each theme's
+/// alphas (`theme.css`, `mapping.ts`): a far and a near drop, the 0.5px ring outside the box,
+/// and dark's lit top edge, a copy of the box 0.5px up that shows above it.
+fn elevation(t: &Theme, dark: bool, far: f32) -> [Shadow; 4] {
+    let c = |n: &str| t.color(n);
+    let drop = |y: f32, blur: f32, spread: f32, color| Shadow { y, blur, spread, color, ..Shadow::default() };
+    let near = far / 2.0;
+    if dark {
+        return [
+            drop(far, far * 2.0, 0.0, c("alpha-dark-30")),
+            drop(near, near * 2.0, 0.0, c("alpha-dark-30")),
+            drop(0.0, 0.0, 0.5, c("alpha-light-16")),
+            drop(-0.5, 0.0, 0.0, c("alpha-light-6")),
+        ];
+    }
+    // Only raised pulls its near drop in by 1px.
+    let spread = if far == 2.0 { -1.0 } else { 0.0 };
+    [
+        drop(far, far * 2.0, 0.0, c("alpha-dark-4")),
+        drop(near, near * 2.0, spread, c("alpha-dark-8")),
+        drop(0.0, 0.0, 0.5, c("alpha-dark-12")),
+        Shadow::default(),
+    ]
 }
 
 /// Pierre's diff colours over Desktop's v2 green and red ramps; a theme without those ramps
@@ -412,8 +498,10 @@ fn kit_from(p: &Pal) -> Kit {
     (c.icon_base, c.icon_muted, c.icon_faint, c.icon_contrast) = (p.icon, p.icon_muted, p.icon_faint, p.icon_contrast);
     (c.border_base, c.border_muted, c.border_strong) = (p.border, p.border_muted, p.q.border_strong);
     (c.hover, c.pressed, c.scrim) = (p.hover, p.pressed, p.scrim);
-    for (state, fg) in [(&mut c.success, p.diff_add), (&mut c.danger, p.diff_del), (&mut c.warning, p.warning), (&mut c.info, p.info)] {
-        (state.fg, state.icon) = (fg, fg);
+    let v = &p.v2;
+    (c.bg_inverse, c.text_inverse, c.icon_inverse, c.icon_accent, c.border_focus) = (v.bg_inverse, v.text_inverse, v.icon_inverse, v.icon_accent, v.border_focus);
+    for (state, theirs, fg) in [(&mut c.success, v.success, p.diff_add), (&mut c.danger, v.danger, p.diff_del), (&mut c.warning, v.warning, p.warning), (&mut c.info, v.info, p.info)] {
+        *state = rune_kit::StateColors { fg, icon: fg, ..theirs };
     }
     k
 }

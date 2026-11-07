@@ -95,7 +95,7 @@ fn at_end<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) + 'static {
 /// The button as it stands: frosted glass, the timeline blurred at 2 pt under bg-base at 92%
 /// (`backdrop-blur-[2px]`), raised, with a soft bg-base halo under it (`0 2px 8px`).
 pub fn face(p: &Pal, radius: f32) -> El {
-    let [far, near, ring] = p.raised;
+    let [far, near, ring, edge] = p.raised;
     el()
         .key("jump-latest")
         .role("button")
@@ -108,6 +108,7 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .fill(p.frost)
         // Bottom first: CSS paints its first shadow on top.
         .shadow(2.0, 8.0, p.bg_base)
+        .box_shadow(edge)
         .box_shadow(ring)
         .box_shadow(near)
         .box_shadow(far)

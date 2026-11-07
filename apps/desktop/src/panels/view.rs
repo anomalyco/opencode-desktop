@@ -17,7 +17,7 @@ use super::state::{
 };
 use super::tabs::SessionTabs;
 use super::{CloseButtonMode, PanelRegion, PanelViewCtx, SessionPane};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::{UI, UI_MED, UI_SMALL};
 use crate::{App, Route};
 
@@ -235,20 +235,8 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         body = body.child(sized);
     }
 
-    col()
-        .w(width)
-        .radius(10.0)
-        .fill(p.bg_base)
-        .shadow(2.0, 4.0, p.shadow)
-        .shadow(1.0, 2.0, p.shadow)
-        .child(body)
-        .child(
-            el().key("side-ring")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .radius(10.0)
-                .border(0.5, p.ring)
-                .inert(),
-        )
+    // `side-region.tsx`: bg-base, 10 pt corners, `--v2-elevation-raised`.
+    col().w(width).radius(10.0).fill(p.bg_base).elevate(p.raised).child(body)
 }
 
 fn split_divider(s: &App, p: &Pal, col_h: f32) -> El {

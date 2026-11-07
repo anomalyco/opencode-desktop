@@ -13,7 +13,7 @@ use serde_json::Value;
 use opencode_kit::model::{Message, Part, ToolStatus, Transcript};
 
 use crate::App;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -304,9 +304,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
             .w(panel_width(&todos))
             .radius(10.0)
             .fill(p.layer1)
-            .border(0.5, p.ring)
-            .shadow(8.0, 16.0, p.shadow_far)
-            .shadow(4.0, 8.0, p.shadow)
+            .elevate(p.floating)
             .clip_soft(0.0)
             .transition(crate::popover::motion::transition(&s.knobs, rune::Side::Top, rune::Align::Start))
             .on_press(|_: &mut App| {})

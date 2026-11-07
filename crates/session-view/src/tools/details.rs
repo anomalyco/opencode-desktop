@@ -7,7 +7,7 @@ use rune::{Cx, El, ScrollSpec, Transition, Tx, col, el, icon, row, text};
 
 use super::Call;
 use crate::TimelineHost;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::style::{CODE, INSTANT, UI_MED, readable};
 
 /// The key in [`TimelineHost::expanded`] that holds the dialog open on call `id` of `session`.
@@ -91,9 +91,7 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         .max_h((win_h - 92.0).max(120.0))
         .radius(6.0)
         .fill(p.layer1)
-        .border(0.5, p.ring)
-        .shadow(16.0, 32.0, p.shadow_far)
-        .shadow(8.0, 16.0, p.shadow)
+        .elevate(p.overlay)
         .clip_rounded(6.0)
         .transition(Transition::none())
         .modal(true, close)

@@ -16,7 +16,7 @@ use rune::{
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::style::{DOCK_SIDE, DOCK_W, UI};
 use crate::user_parts::mention_pill_style;
 
@@ -378,11 +378,12 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
-    // Otherwise `--v2-elevation-raised` (`editor.tsx:248-251`): two drops and a 0.5 pt ring.
+    // Otherwise `--v2-elevation-raised` (`editor.tsx:248-251`): two drops, a 0.5 pt ring and
+    // dark's lit top edge.
     let box_el = if face.is_some() && s.composer_face_bare() {
         box_el
     } else {
-        p.raised.into_iter().fold(box_el.fill(composer_fill(p)), El::box_shadow).clip_soft(0.0)
+        box_el.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
     };
     match face {
         Some(face) => box_el.children(face),

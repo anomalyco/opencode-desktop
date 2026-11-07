@@ -10,7 +10,7 @@ use rune::{
 
 use rune_theme_opencode::icons as ic;
 use opencode_kit::model::{self, Message, SessionInfo, Transcript};
-use crate::palette::{Pal, pal};
+use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
 use crate::odometer::odometer_end;
 use crate::pickers::Kind;
@@ -153,6 +153,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(sidebar(s, p))
         .child(
+            // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
             col()
                 .key("panel")
                 .grow(1.0)
@@ -163,9 +164,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .mb(8.0 + bottom_reserve)
                 .radius(10.0)
                 .fill(p.bg_base)
-                .border(0.5, p.ring)
-                .shadow(2.0, 4.0, p.shadow)
-                .shadow(1.0, 2.0, p.shadow)
+                .elevate(p.raised)
                 .clip_soft(0.0)
                 .motion(crate::panels::view::SIDE_SPRING)
                 .on_press(|s: &mut App| {

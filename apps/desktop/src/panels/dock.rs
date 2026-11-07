@@ -7,7 +7,7 @@ use super::state::{
 };
 use super::view::pane_box;
 use super::{PanelRegion, PanelViewCtx, SessionPane};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::{App, Route};
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -62,11 +62,7 @@ pub(super) fn render_dock_card(
         reserve_top_right,
     };
     let content = (entry.provider.render)(s, p, &vctx);
-    col()
-        .radius(10.0)
-        .fill(p.bg_base)
-        .shadow(2.0, 4.0, p.shadow)
-        .shadow(1.0, 2.0, p.shadow)
+    col().radius(10.0).fill(p.bg_base).elevate(p.raised)
         .on_press(|s: &mut App| {
             s.side.dock_focused = true;
             s.side.focused = false;
@@ -81,13 +77,6 @@ pub(super) fn render_dock_card(
                 .clip_rounded(10.0)
                 .instant_changes()
                 .child(content),
-        )
-        .child(
-            el().key("dock-ring")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .radius(10.0)
-                .border(0.5, p.ring)
-                .inert(),
         )
 }
 
@@ -232,14 +221,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
                 .transition(rune::Transition::none()),
         );
 
-    let card = col()
-        .key("bottom-panel")
-        .w_full()
-        .h(h)
-        .radius(10.0)
-        .fill(p.bg_base)
-        .shadow(2.0, 4.0, p.shadow)
-        .shadow(1.0, 2.0, p.shadow)
+    let card = col().key("bottom-panel").w_full().h(h).radius(10.0).fill(p.bg_base).elevate(p.raised)
         .on_press(|s: &mut App| {
             s.side.focused = true;
             s.side.active_pane_focus = SessionPane::Bottom;
@@ -253,13 +235,6 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
                 .min_h(0.0)
                 .clip_rounded(10.0)
                 .child(pane_box(s, p, &reg, SessionPane::Bottom, (800.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
-        )
-        .child(
-            el().key("bottom-ring")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .radius(10.0)
-                .border(0.5, p.ring)
-                .inert(),
         );
 
     Some(col().key("bottom-dock").w_full().pl(8.0).pr(8.0).pb(8.0).child(handle).child(card))

@@ -20,7 +20,7 @@ use opencode_kit::model::{self, SessionInfo};
 
 use crate::keymap::Bind;
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::view::{UI, UI_MED, title_of};
 use crate::{App, Source};
 
@@ -656,9 +656,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, h: f32) -> El {
         .h(h)
         .radius(12.0)
         .fill(p.bg_base)
-        .border(0.5, p.ring)
-        .shadow(8.0, 16.0, p.shadow_far)
-        .shadow(4.0, 8.0, p.shadow)
+        .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
         .modal(true, |s: &mut App| s.close_switcher(true))
