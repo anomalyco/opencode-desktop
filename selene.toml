@@ -1,0 +1,5 @@
+# Luau plugin lints: `selene plugins crates/opencode-plugin-spec/samples`, run from the repository root.
+# The opencode std (task, warn) is generated from the plugin contract on top of selene's luau std.
+std = "luau+plugins/opencode-selene"
+# Definition files are not runnable Luau.
+exclude = ["**/*.d.luau"]

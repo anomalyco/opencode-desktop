@@ -1,0 +1,16 @@
+#:schema ../../../../plugins/plugin.schema.json
+id = "session-stats"
+name = "Session stats"
+version = "1.0.0"
+contract = "1.0"
+description = "A session's tokens, spend and last 20 tool calls, in a side panel of its own"
+
+[[stores]]
+name = "show-spend"
+scope = "global"
+
+[[settings_search]]
+id = "show-spend"
+page = "plugins"
+title = "Show session spend"
+keywords = "cost spend usd billing stats"

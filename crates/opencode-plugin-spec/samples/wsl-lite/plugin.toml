@@ -1,0 +1,19 @@
+#:schema ../../../../plugins/plugin.schema.json
+id = "wsl-lite"
+name = "WSL servers"
+version = "1.0.0"
+contract = "1.0"
+description = "OpenCode servers in your WSL distros: one app half watches them for every window, and each window adds them from Settings › Servers"
+entry = "init.luau"
+app = "app.luau"
+os = ["windows"]
+
+[[stores]]
+name = "auto-start"
+scope = "global"
+
+[[settings_search]]
+id = "wsl-auto-start"
+page = "servers"
+title = "Start WSL servers with the app"
+keywords = "wsl linux distro server start"

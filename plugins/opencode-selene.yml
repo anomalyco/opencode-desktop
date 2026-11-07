@@ -1,0 +1,32 @@
+# Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
+---
+base: luau
+name: opencode
+globals:
+  task.spawn:
+    args:
+      - type: any
+      - required: false
+        type: "..."
+  task.defer:
+    args:
+      - type: any
+      - required: false
+        type: "..."
+  task.delay:
+    args:
+      - type: number
+      - type: any
+      - required: false
+        type: "..."
+  task.wait:
+    args:
+      - required: false
+        type: number
+  task.cancel:
+    args:
+      - type: any
+  warn:
+    args:
+      - required: false
+        type: "..."

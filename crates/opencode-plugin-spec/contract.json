@@ -1,0 +1,1467 @@
+{
+  "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
+  "contract": "1.0",
+  "versioning": {
+    "format": "MAJOR.MINOR",
+    "rules": [
+      "A plugin names the contract it targets in plugin.toml: `contract = \"1.0\"`.",
+      "Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.",
+      "A host runs a plugin whose contract has the same major version. When the plugin targets a newer minor version than the host, the host still loads it and logs one warning in the console.",
+      "Unknown optional keys in a `ui.*` props table or a spec table log one warning per key in the console and fall back to the default. They never raise an error.",
+      "A deprecated property, method or token carries `@deprecated` in opencode.d.luau and in the docs, and keeps working for the whole 1.x line. Only contract 2.0 can remove it.",
+      "Names never change meaning within a major version: a token, enum value or method keeps its behavior and its type."
+    ]
+  },
+  "tokens": [
+    { "name": "bg-base", "group": "background", "doc": "The window's base background." },
+    { "name": "bg-weak", "group": "background", "doc": "A background one step quieter than `bg-base`, such as a sidebar." },
+    { "name": "bg-strong", "group": "background", "doc": "A background one step stronger than `bg-base`, such as a title bar." },
+    { "name": "surface-1", "group": "surface", "doc": "The first raised layer: cards and grouped lists." },
+    { "name": "surface-2", "group": "surface", "doc": "The second raised layer: controls on a card." },
+    { "name": "surface-3", "group": "surface", "doc": "The third raised layer: a control's track, such as an off switch." },
+    { "name": "surface-4", "group": "surface", "doc": "The fourth raised layer: the strongest fill a control uses." },
+    { "name": "surface-hover", "group": "surface", "doc": "The fill of a row or button under the pointer." },
+    { "name": "surface-press", "group": "surface", "doc": "The fill of a row or button while it is pressed." },
+    { "name": "surface-selected", "group": "surface", "doc": "The fill of a selected row or tab." },
+    { "name": "text-strong", "group": "text", "doc": "Headings and the most important text." },
+    { "name": "text-base", "group": "text", "doc": "Body text." },
+    { "name": "text-weak", "group": "text", "doc": "Secondary text: descriptions and labels." },
+    { "name": "text-weaker", "group": "text", "doc": "Tertiary text: hints, placeholders and timestamps." },
+    { "name": "text-on-accent", "group": "text", "doc": "Text on an `accent` fill." },
+    { "name": "text-interactive", "group": "text", "doc": "Links and other interactive text." },
+    { "name": "icon-strong", "group": "icon", "doc": "An icon that needs emphasis." },
+    { "name": "icon-base", "group": "icon", "doc": "The default icon color." },
+    { "name": "icon-weak", "group": "icon", "doc": "A secondary icon." },
+    { "name": "icon-weaker", "group": "icon", "doc": "A decorative or disabled icon." },
+    { "name": "icon-on-accent", "group": "icon", "doc": "An icon on an `accent` fill." },
+    { "name": "border-strong", "group": "border", "doc": "A strong border, such as a focused field's outline." },
+    { "name": "border-base", "group": "border", "doc": "The default border." },
+    { "name": "border-weak", "group": "border", "doc": "A hairline divider or a card's border." },
+    { "name": "border-focus", "group": "border", "doc": "The keyboard focus ring." },
+    { "name": "accent", "group": "accent", "doc": "The brand accent: primary buttons and switches that are on." },
+    { "name": "accent-hover", "group": "accent", "doc": "An `accent` fill under the pointer." },
+    { "name": "accent-subtle", "group": "accent", "doc": "A quiet accent tint, such as a selected chip's fill." },
+    { "name": "status-success", "group": "status", "doc": "Done or passing." },
+    { "name": "status-warning", "group": "status", "doc": "Needs attention." },
+    { "name": "status-danger", "group": "status", "doc": "Failed, blocked or destructive." },
+    { "name": "status-info", "group": "status", "doc": "Neutral information." }
+  ],
+  "enums": [
+    { "name": "Half", "rust": true, "doc": "Which half of a plugin runs the code.", "values": [
+      { "value": "window", "doc": "One instance per window: the plugin's UI." },
+      { "value": "app", "doc": "One instance per process: workers, processes and shared state." }
+    ] },
+    { "name": "Platform", "rust": true, "doc": "The operating system the host runs on.", "values": [
+      { "value": "windows", "doc": "Windows." },
+      { "value": "macos", "doc": "macOS." },
+      { "value": "linux", "doc": "Linux." },
+      { "value": "web", "doc": "A browser host." }
+    ] },
+    { "name": "Channel", "rust": true, "doc": "The app build's release channel.", "values": [
+      { "value": "local", "doc": "A development build." },
+      { "value": "beta", "doc": "A beta build." },
+      { "value": "prod", "doc": "A production build." }
+    ] },
+    { "name": "ColorScheme", "rust": true, "doc": "A light or dark color scheme.", "values": [
+      { "value": "light", "doc": "Light." },
+      { "value": "dark", "doc": "Dark." }
+    ] },
+    { "name": "Tone", "rust": true, "doc": "A status color for an icon or a pill.", "values": [
+      { "value": "success", "doc": "Done or passing." },
+      { "value": "warning", "doc": "Needs attention." },
+      { "value": "danger", "doc": "Failed or blocked." }
+    ] },
+    { "name": "ToastVariant", "rust": true, "doc": "A toast's tone.", "values": [
+      { "value": "default", "doc": "Neutral information." },
+      { "value": "success", "doc": "Something finished. Shows a check icon unless the toast sets `icon`." },
+      { "value": "error", "doc": "Something failed." },
+      { "value": "loading", "doc": "Something is in progress. Use it with `persistent` and dismiss the toast when the work ends." }
+    ] },
+    { "name": "CommandSection", "rust": true, "doc": "The section of Settings › Shortcuts that lists a command.", "values": [
+      { "value": "general", "doc": "App-wide commands." },
+      { "value": "session", "doc": "Commands on the current session." },
+      { "value": "navigation", "doc": "Moving between views and tabs." },
+      { "value": "model", "doc": "Model and agent choice." },
+      { "value": "terminal", "doc": "The terminal." },
+      { "value": "prompt", "doc": "The composer." }
+    ] },
+    { "name": "MenuName", "rust": true, "doc": "A host menu a menu item joins.", "values": [
+      { "value": "session.panel", "doc": "The + menu before the side panel's tabs, and the New tab view." },
+      { "value": "server.add", "doc": "The Add server menu in Settings › Servers." },
+      { "value": "server.row", "doc": "The menu of each server row in Settings › Servers. `run` receives the row's server key." }
+    ] },
+    { "name": "MenubarMenu", "rust": true, "doc": "A submenu of the app menu bar.", "values": [
+      { "value": "app", "doc": "The app menu." },
+      { "value": "file", "doc": "File." },
+      { "value": "edit", "doc": "Edit." },
+      { "value": "view", "doc": "View." },
+      { "value": "go", "doc": "Go." },
+      { "value": "window", "doc": "Window." },
+      { "value": "help", "doc": "Help." }
+    ] },
+    { "name": "SlotName", "rust": true, "doc": "A fixed place in the app's shell that a slot fills.", "values": [
+      { "value": "window.bottom", "doc": "A full-width strip under the window content, above toasts." },
+      { "value": "session.header", "doc": "The end of the session header, before the usage numbers." },
+      { "value": "session.location.menu", "doc": "Rows in the session's project and location menu." },
+      { "value": "session.panel.end", "doc": "The actions after the side panel's tabs." }
+    ] },
+    { "name": "HostSettingsPage", "rust": true, "doc": "A host settings page a settings page can add a section to.", "values": [
+      { "value": "general", "doc": "Settings › General." },
+      { "value": "servers", "doc": "Settings › Servers." }
+    ] },
+    { "name": "ServerState", "rust": true, "doc": "Where a contributed server stands.", "values": [
+      { "value": "stopped", "doc": "Not running." },
+      { "value": "starting", "doc": "Starting up." },
+      { "value": "auth", "doc": "Waiting for the user to sign in." },
+      { "value": "ready", "doc": "Reachable. `http` holds its endpoint." },
+      { "value": "failed", "doc": "Could not start." },
+      { "value": "incompatible", "doc": "Runs a version this app does not support." }
+    ] },
+    { "name": "PanelState", "rust": true, "doc": "Where a plugin's panel tab is in a session.", "values": [
+      { "value": "closed", "doc": "Not in the session's tab strip." },
+      { "value": "listed", "doc": "In the strip, not selected." },
+      { "value": "selected", "doc": "Selected in its pane, with the side region hidden." },
+      { "value": "visible", "doc": "Selected, with the side region on screen." }
+    ] },
+    { "name": "Transition", "rust": true, "doc": "How a layout change moves.", "values": [
+      { "value": "default", "doc": "The app's own motion." },
+      { "value": "none", "doc": "Lands at once, without motion." }
+    ] },
+    { "name": "HoverTransition", "rust": true, "doc": "How hover and press fills change.", "values": [
+      { "value": "default", "doc": "The app's own fade." },
+      { "value": "instant", "doc": "Lands at once." }
+    ] },
+    { "name": "Side", "rust": true, "doc": "A side of an anchor.", "values": [
+      { "value": "top", "doc": "Above." },
+      { "value": "bottom", "doc": "Below." },
+      { "value": "left", "doc": "Before, in left-to-right text." },
+      { "value": "right", "doc": "After, in left-to-right text." }
+    ] },
+    { "name": "Align", "rust": true, "doc": "Alignment along an edge or an axis.", "values": [
+      { "value": "start", "doc": "The start edge." },
+      { "value": "center", "doc": "Centered." },
+      { "value": "end", "doc": "The end edge." }
+    ] },
+    { "name": "UiAlign", "rust": true, "doc": "How a stack places its children across its axis.", "values": [
+      { "value": "start", "doc": "At the start." },
+      { "value": "center", "doc": "Centered." },
+      { "value": "end", "doc": "At the end." },
+      { "value": "stretch", "doc": "Stretched to fill. The default." }
+    ] },
+    { "name": "UiJustify", "rust": true, "doc": "How a stack places its children along its axis.", "values": [
+      { "value": "start", "doc": "Packed at the start. The default." },
+      { "value": "center", "doc": "Packed in the center." },
+      { "value": "end", "doc": "Packed at the end." },
+      { "value": "between", "doc": "The first and last child at the edges, equal space between." }
+    ] },
+    { "name": "FontWeight", "rust": true, "doc": "A text weight.", "values": [
+      { "value": "regular", "doc": "400." },
+      { "value": "medium", "doc": "500." },
+      { "value": "semibold", "doc": "600." },
+      { "value": "bold", "doc": "700." }
+    ] },
+    { "name": "FontFamily", "rust": true, "doc": "One of the user's font choices.", "values": [
+      { "value": "sans", "doc": "The interface font." },
+      { "value": "mono", "doc": "The code font." }
+    ] },
+    { "name": "ButtonVariant", "rust": true, "doc": "A button's look, as the app's own buttons.", "values": [
+      { "value": "neutral", "doc": "A filled neutral button. The default." },
+      { "value": "contrast", "doc": "A high-contrast filled button." },
+      { "value": "primary", "doc": "An `accent` filled button." },
+      { "value": "ghost", "doc": "No fill until hovered." },
+      { "value": "ghost-muted", "doc": "A ghost button with a muted label." },
+      { "value": "outline", "doc": "A bordered button." },
+      { "value": "danger", "doc": "A destructive action." }
+    ] },
+    { "name": "ControlSize", "rust": true, "doc": "A control's size.", "values": [
+      { "value": "small", "doc": "Compact." },
+      { "value": "normal", "doc": "The default." },
+      { "value": "large", "doc": "Large." }
+    ] },
+    { "name": "Elevation", "rust": true, "doc": "A shadow from the app's elevation scale.", "values": [
+      { "value": "raised", "doc": "Slightly above the page: cards." },
+      { "value": "floating", "doc": "Floats over content: popovers and menus." },
+      { "value": "overlay", "doc": "Over everything: dialogs." }
+    ] },
+    { "name": "Role", "rust": true, "doc": "An element's accessibility role.", "values": [
+      { "value": "none", "doc": "No role." },
+      { "value": "group", "doc": "A group of related elements." },
+      { "value": "region", "doc": "A landmark region. Give it a `label`." },
+      { "value": "button", "doc": "A button." },
+      { "value": "link", "doc": "A link." },
+      { "value": "switch", "doc": "An on and off switch." },
+      { "value": "checkbox", "doc": "A checkbox." },
+      { "value": "radio", "doc": "A radio button." },
+      { "value": "tab", "doc": "A tab." },
+      { "value": "list", "doc": "A list." },
+      { "value": "listitem", "doc": "A list item." },
+      { "value": "heading", "doc": "A heading." },
+      { "value": "img", "doc": "An image. Give it a `label`." },
+      { "value": "status", "doc": "A live status message." }
+    ] },
+    { "name": "LiveState", "rust": true, "doc": "The state of a contract another plugin provides.", "values": [
+      { "value": "pending", "doc": "Its provider is still loading or reloading." },
+      { "value": "active", "doc": "Provided. `Get` returns it." },
+      { "value": "inactive", "doc": "Its provider is off, absent, or does not run on this platform." },
+      { "value": "failed", "doc": "Its provider failed to load or stopped." }
+    ] },
+    { "name": "ResourceStatus", "rust": true, "doc": "The state of a cached server read.", "values": [
+      { "value": "loading", "doc": "Not answered yet. Holds the previous answer while a newer read loads." },
+      { "value": "ready", "doc": "Answered." },
+      { "value": "error", "doc": "Failed. `error` says why." }
+    ] },
+    { "name": "HttpMethod", "rust": true, "doc": "An HTTP method.", "values": [
+      { "value": "GET", "doc": "GET." },
+      { "value": "POST", "doc": "POST." },
+      { "value": "PUT", "doc": "PUT." },
+      { "value": "PATCH", "doc": "PATCH." },
+      { "value": "DELETE", "doc": "DELETE." },
+      { "value": "HEAD", "doc": "HEAD." }
+    ] },
+    { "name": "ProcessStream", "rust": true, "doc": "A process's output stream.", "values": [
+      { "value": "stdout", "doc": "Standard output." },
+      { "value": "stderr", "doc": "Standard error." }
+    ] },
+    { "name": "TextEncoding", "rust": true, "doc": "How a process encodes its output.", "values": [
+      { "value": "utf8", "doc": "UTF-8. The default." },
+      { "value": "utf16le", "doc": "UTF-16 little-endian, such as `wsl.exe` on Windows." }
+    ] },
+    { "name": "DiffMode", "rust": true, "doc": "How a diff lays out its changes.", "values": [
+      { "value": "split", "doc": "Old and new side by side." },
+      { "value": "unified", "doc": "One column." }
+    ] },
+    { "name": "DiffSource", "rust": true, "doc": "What a diff compares.", "values": [
+      { "value": "git", "doc": "The working tree against HEAD." },
+      { "value": "branch", "doc": "The branch against its merge base." },
+      { "value": "turn", "doc": "One session turn's changes." }
+    ] },
+    { "name": "ImageFit", "rust": true, "doc": "How an image fills its box.", "values": [
+      { "value": "contain", "doc": "Whole, aspect kept. The default." },
+      { "value": "cover", "doc": "Fills the box, aspect kept, cropped." },
+      { "value": "fill", "doc": "Stretched to the box." }
+    ] },
+    { "name": "OfficeKind", "rust": true, "doc": "An Office document's format.", "values": [
+      { "value": "docx", "doc": "Word." },
+      { "value": "xlsx", "doc": "Excel." },
+      { "value": "pptx", "doc": "PowerPoint." }
+    ] },
+    { "name": "UpdaterPhase", "rust": true, "doc": "Where the app updater stands.", "values": [
+      { "value": "idle", "doc": "Nothing checked yet." },
+      { "value": "checking", "doc": "Asking for a newer version." },
+      { "value": "up-to-date", "doc": "This is the newest version." },
+      { "value": "downloading", "doc": "Downloading the update. `progress` says how far." },
+      { "value": "ready", "doc": "Downloaded. `Install` restarts into it." },
+      { "value": "installing", "doc": "Installing." },
+      { "value": "error", "doc": "Failed. `error` says why." }
+    ] },
+    { "name": "UiEventKind", "rust": true, "doc": "What a `UiEvent` reports.", "values": [
+      { "value": "press", "doc": "A click, a tap, or Enter or Space on a focused element." },
+      { "value": "hover", "doc": "The pointer entered or left. `entered` says which." },
+      { "value": "submit", "doc": "Enter in a field. `text` holds its text." },
+      { "value": "change", "doc": "A switch or radio changed. `checked` holds the new state." },
+      { "value": "select", "doc": "A file tree row was picked. `path` holds it." },
+      { "value": "visible-rows", "doc": "A virtual list's visible rows changed. `first` and `last` hold them." }
+    ] },
+    { "name": "MenuEntryKind", "rust": true, "doc": "A kind of menu entry.", "values": [
+      { "value": "item", "doc": "A row the user can pick. The default." },
+      { "value": "group", "doc": "A group title over the rows that follow." },
+      { "value": "separator", "doc": "A divider." }
+    ] },
+    { "name": "DialogSize", "rust": true, "doc": "A dialog's width.", "values": [
+      { "value": "small", "doc": "A confirmation." },
+      { "value": "medium", "doc": "A form. The default." },
+      { "value": "large", "doc": "A list or a document." }
+    ] },
+    { "name": "StoreScope", "rust": true, "doc": "What a declared store keeps a value for.", "values": [
+      { "value": "global", "doc": "One value for the whole app." },
+      { "value": "session", "doc": "One value per session." }
+    ] }
+  ],
+  "types": [
+    { "name": "SemanticToken", "kind": "tokens", "doc": "A theme color by meaning. The host resolves it for the current theme and color scheme." },
+    { "name": "HexColor", "kind": "opaque", "doc": "A literal color from `ui.hex(\"#RRGGBB\")` or `ui.hex(\"#RRGGBBAA\")`. Prefer a `SemanticToken`: a literal color does not follow the theme." },
+    { "name": "Color", "kind": "alias", "type": "SemanticToken | HexColor", "doc": "A semantic token, or a literal color from `ui.hex`." },
+    { "name": "IconName", "kind": "alias", "type": "string", "doc": "The name of one of the app's icons, such as `\"circle-check\"`." },
+    { "name": "MemoVersion", "kind": "alias", "type": "string | number | boolean", "doc": "A memo's version. The host rebuilds the memo only when it changes." },
+    { "name": "UiSize", "kind": "alias", "type": "number | \"full\"", "doc": "A length in logical points, or `\"full\"` to fill the parent." },
+    { "name": "UiNode", "kind": "opaque", "doc": "An element a `ui.*` constructor built. Pass it to a parent or return it from a render." },
+    { "name": "UiHandler", "kind": "opaque", "doc": "An event handler `view:Handler` made. It runs as a coroutine, so it may yield." },
+    { "name": "ImageId", "kind": "opaque", "doc": "An image the host holds, for `ui.image`." },
+    { "name": "PluginHalf", "kind": "opaque", "doc": "What `plugin.defineWindow` and `plugin.defineApp` return. Return it from the entry module." },
+
+    { "name": "Signal", "kind": "object", "generics": "T...", "doc": "An event source. Connections disconnect on their own when the plugin half that made them goes away.", "members": [
+      { "name": "Connect", "kind": "method", "sig": "(callback: (T...) -> ()) -> Connection", "doc": "Calls `callback` on every fire, as a coroutine." },
+      { "name": "Once", "kind": "method", "sig": "(callback: (T...) -> ()) -> Connection", "doc": "Calls `callback` on the next fire only." },
+      { "name": "Wait", "kind": "method", "sig": "() -> T...", "yields": true, "doc": "Yields until the next fire and returns its values." }
+    ] },
+    { "name": "ScriptSignal", "kind": "object", "generics": "T...", "doc": "A signal a plugin fires itself, from `ctx:CreateSignal()`. Its version counts fires: put it in a memo's version.", "members": [
+      { "name": "Connect", "kind": "method", "sig": "(callback: (T...) -> ()) -> Connection", "doc": "Calls `callback` on every fire, as a coroutine." },
+      { "name": "Once", "kind": "method", "sig": "(callback: (T...) -> ()) -> Connection", "doc": "Calls `callback` on the next fire only." },
+      { "name": "Wait", "kind": "method", "sig": "() -> T...", "yields": true, "doc": "Yields until the next fire and returns its values." },
+      { "name": "Fire", "kind": "method", "sig": "(T...) -> ()", "doc": "Fires the signal, adds 1 to its version and asks the window to redraw." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "How many times the signal fired." }
+    ] },
+    { "name": "Connection", "kind": "object", "doc": "One connection to a signal.", "members": [
+      { "name": "Connected", "kind": "field", "type": "boolean", "doc": "False once disconnected." },
+      { "name": "Disconnect", "kind": "method", "sig": "() -> ()", "doc": "Stops the callback. Does nothing when already disconnected." }
+    ] },
+    { "name": "Contribution", "kind": "object", "doc": "A contribution a plugin added. The host withdraws it when the plugin half goes away.", "members": [
+      { "name": "Withdraw", "kind": "method", "sig": "() -> ()", "doc": "Removes the contribution now." },
+      { "name": "Refresh", "kind": "method", "sig": "() -> ()", "doc": "Asks the host to call the contribution's `show`, `list` or `render` again." }
+    ] },
+    { "name": "Live", "kind": "object", "generics": "T", "doc": "A contract another plugin provides, followed live.", "members": [
+      { "name": "State", "kind": "method", "sig": "() -> LiveState", "doc": "The provider's state." },
+      { "name": "Get", "kind": "method", "sig": "() -> T?", "doc": "The provided value while the state is `active`." },
+      { "name": "Generation", "kind": "method", "sig": "() -> number", "doc": "Changes on every state change and every new value: put it in a memo's version." },
+      { "name": "Changed", "kind": "signal", "payload": "LiveState", "doc": "Fires on every state change and every new value." }
+    ] },
+    { "name": "View", "kind": "object", "doc": "What a render callback receives first. Render callbacks must not yield.", "members": [
+      { "name": "Memo", "kind": "method", "sig": "(key: string, version: MemoVersion, build: () -> UiNode?) -> UiNode?", "doc": "Returns the subtree `build` returns, and calls `build` again only when `version` changes. An unchanged frame costs no Luau call. Keep `key` unique within the render." },
+      { "name": "Handler", "kind": "method", "sig": "(callback: (event: UiEvent) -> ()) -> UiHandler", "doc": "Wraps `callback` for an `on*` property. The handler runs as a coroutine, so it may call `Async` methods and `task.wait`." }
+    ] },
+    { "name": "UiEvent", "kind": "record", "rust": true, "doc": "What a handler receives.", "fields": [
+      { "name": "kind", "type": "UiEventKind", "doc": "What happened." },
+      { "name": "key", "type": "string?", "doc": "The `key` of the element the event came from." },
+      { "name": "entered", "type": "boolean?", "doc": "A `hover` event: true as the pointer enters, false as it leaves." },
+      { "name": "text", "type": "string?", "doc": "A `submit` event: the field's text." },
+      { "name": "checked", "type": "boolean?", "doc": "A `change` event: the new state." },
+      { "name": "path", "type": "string?", "doc": "A `select` event: the picked path." },
+      { "name": "first", "type": "integer?", "doc": "A `visible-rows` event: the first visible row, from 1." },
+      { "name": "last", "type": "integer?", "doc": "A `visible-rows` event: the last visible row." },
+      { "name": "shift", "type": "boolean?", "doc": "Shift was held." },
+      { "name": "alt", "type": "boolean?", "doc": "Alt (Option) was held." },
+      { "name": "mod", "type": "boolean?", "doc": "The platform's command key was held: Ctrl, or Cmd on macOS." }
+    ] },
+    { "name": "Editor", "kind": "object", "doc": "A host-owned text field's content: typing, IME, selection and undo stay in the host and survive a hot reload.", "members": [
+      { "name": "Text", "kind": "method", "sig": "() -> string", "doc": "The field's text." },
+      { "name": "SetText", "kind": "method", "sig": "(text: string) -> ()", "doc": "Replaces the text and puts the caret at its end." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes whenever the text, selection, composition or focus does: put it in a memo's version." },
+      { "name": "Focus", "kind": "method", "sig": "() -> ()", "doc": "Moves keyboard focus to the field." },
+      { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with the new text after each edit." },
+      { "name": "Submitted", "kind": "signal", "payload": "string", "doc": "Fires with the text when the user presses Enter." }
+    ] },
+
+    { "name": "UiLayoutProps", "kind": "record", "doc": "Size, spacing, position and accessibility: every `ui.*` node takes these.", "fields": [
+      { "name": "key", "type": "string?", "doc": "Identity among siblings across renders, and the anchor key for popovers and menus." },
+      { "name": "w", "type": "UiSize?", "doc": "Width." },
+      { "name": "h", "type": "UiSize?", "doc": "Height." },
+      { "name": "minW", "type": "number?", "doc": "Minimum width." },
+      { "name": "minH", "type": "number?", "doc": "Minimum height." },
+      { "name": "maxW", "type": "number?", "doc": "Maximum width." },
+      { "name": "maxH", "type": "number?", "doc": "Maximum height." },
+      { "name": "grow", "type": "number?", "doc": "Share of a stack's free space." },
+      { "name": "shrink", "type": "boolean?", "doc": "May shrink below its content size." },
+      { "name": "pad", "type": "number?", "doc": "Padding on every side." },
+      { "name": "px", "type": "number?", "doc": "Left and right padding." },
+      { "name": "py", "type": "number?", "doc": "Top and bottom padding." },
+      { "name": "pt", "type": "number?", "doc": "Top padding." },
+      { "name": "pr", "type": "number?", "doc": "Right padding." },
+      { "name": "pb", "type": "number?", "doc": "Bottom padding." },
+      { "name": "pl", "type": "number?", "doc": "Left padding." },
+      { "name": "m", "type": "number?", "doc": "Margin on every side." },
+      { "name": "mx", "type": "number?", "doc": "Left and right margin." },
+      { "name": "my", "type": "number?", "doc": "Top and bottom margin." },
+      { "name": "mt", "type": "number?", "doc": "Top margin." },
+      { "name": "mr", "type": "number?", "doc": "Right margin." },
+      { "name": "mb", "type": "number?", "doc": "Bottom margin." },
+      { "name": "ml", "type": "number?", "doc": "Left margin." },
+      { "name": "pin", "type": "UiPin?", "doc": "Takes the node out of flow, at these offsets from its parent's edges." },
+      { "name": "opacity", "type": "number?", "doc": "0 to 1." },
+      { "name": "role", "type": "Role?", "doc": "The accessibility role." },
+      { "name": "label", "type": "string?", "doc": "The accessible name." },
+      { "name": "help", "type": "string?", "doc": "A tooltip." },
+      { "name": "helpSide", "type": "Side?", "doc": "Where the tooltip shows. Defaults to below." }
+    ] },
+    { "name": "UiPin", "kind": "record", "rust": true, "doc": "Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.", "fields": [
+      { "name": "left", "type": "number?", "doc": "From the left edge." },
+      { "name": "top", "type": "number?", "doc": "From the top edge." },
+      { "name": "right", "type": "number?", "doc": "From the right edge." },
+      { "name": "bottom", "type": "number?", "doc": "From the bottom edge." }
+    ] },
+    { "name": "UiBoxProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "A container's props: `ui.box`, `ui.row` and `ui.col`.", "fields": [
+      { "name": "gap", "type": "number?", "doc": "Space between children." },
+      { "name": "align", "type": "UiAlign?", "doc": "How children sit across the axis." },
+      { "name": "justify", "type": "UiJustify?", "doc": "How children sit along the axis." },
+      { "name": "center", "type": "boolean?", "doc": "Centers children on both axes." },
+      { "name": "wrap", "type": "boolean?", "doc": "Children wrap onto more lines." },
+      { "name": "fill", "type": "Color?", "doc": "Background." },
+      { "name": "hover", "type": "Color?", "doc": "Background under the pointer." },
+      { "name": "press", "type": "Color?", "doc": "Background while pressed." },
+      { "name": "selected", "type": "boolean?", "doc": "Draws the `surface-selected` fill and reports the selected state to assistive technology." },
+      { "name": "border", "type": "Color?", "doc": "Border color." },
+      { "name": "borderWidth", "type": "number?", "doc": "Border width. Defaults to 1 when `border` is set." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius." },
+      { "name": "corners", "type": "{ number }?", "doc": "Per-corner radii: top-left, top-right, bottom-right, bottom-left." },
+      { "name": "shadow", "type": "Elevation?", "doc": "A shadow from the app's elevation scale." },
+      { "name": "clip", "type": "boolean?", "doc": "Clips children to the box." },
+      { "name": "scrollY", "type": "boolean?", "doc": "Scrolls vertical overflow." },
+      { "name": "scrollX", "type": "boolean?", "doc": "Scrolls horizontal overflow." },
+      { "name": "focusable", "type": "boolean?", "doc": "Takes keyboard focus." },
+      { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
+      { "name": "onHover", "type": "UiHandler?", "doc": "Runs as the pointer enters and leaves." },
+      { "name": "hoverTransition", "type": "HoverTransition?", "doc": "How hover and press fills change." },
+      { "name": "hoverGroup", "type": "boolean?", "doc": "Starts a hover group: descendants with `hoverGroupColor` or `revealOnHover` react while this box is hovered." },
+      { "name": "hoverGroupColor", "type": "Color?", "doc": "The text or icon color while the nearest hover group is hovered." },
+      { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered or focused." },
+      { "name": "color", "type": "Color?", "doc": "The default text and icon color for descendants." }
+    ] },
+    { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
+      { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
+      { "name": "weight", "type": "FontWeight?", "doc": "Weight." },
+      { "name": "lineHeight", "type": "number?", "doc": "Line height in points." },
+      { "name": "tracking", "type": "number?", "doc": "Letter spacing in points." },
+      { "name": "color", "type": "Color?", "doc": "Text color. Defaults to `text-base`." },
+      { "name": "mono", "type": "boolean?", "doc": "The code font." },
+      { "name": "tabular", "type": "boolean?", "doc": "Tabular figures." },
+      { "name": "wrap", "type": "boolean?", "doc": "Wraps onto more lines. The default for text in a column." },
+      { "name": "noWrap", "type": "boolean?", "doc": "Keeps to one line." },
+      { "name": "truncate", "type": "boolean?", "doc": "Ends with an ellipsis when it does not fit." },
+      { "name": "fadeOut", "type": "boolean?", "doc": "Fades out at the end when it does not fit, instead of an ellipsis." },
+      { "name": "selectable", "type": "boolean?", "doc": "The user can select and copy it." },
+      { "name": "textAlign", "type": "Align?", "doc": "Alignment within its box." },
+      { "name": "hoverGroupColor", "type": "Color?", "doc": "The color while the nearest hover group is hovered." },
+      { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered." }
+    ] },
+    { "name": "UiSpacerProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.spacer` props.", "fields": [] },
+    { "name": "UiDividerProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.divider` props.", "fields": [
+      { "name": "vertical", "type": "boolean?", "doc": "A vertical rule. Defaults to horizontal." },
+      { "name": "color", "type": "Color?", "doc": "Defaults to `border-weak`." }
+    ] },
+    { "name": "UiIconProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.icon` props.", "fields": [
+      { "name": "size", "type": "number?", "doc": "Width and height in points. Defaults to 16." },
+      { "name": "color", "type": "Color?", "doc": "Defaults to `icon-base`." },
+      { "name": "tone", "type": "Tone?", "doc": "A status color, instead of `color`." },
+      { "name": "hoverGroupColor", "type": "Color?", "doc": "The color while the nearest hover group is hovered." },
+      { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered." }
+    ] },
+    { "name": "UiImageProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.image` props.", "fields": [
+      { "name": "image", "type": "ImageId", "doc": "The image, from the `Images` service or an `Async` render." },
+      { "name": "fit", "type": "ImageFit?", "doc": "How it fills its box." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius." }
+    ] },
+    { "name": "UiMetricProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.metric` props: a number shown as text.", "fields": [
+      { "name": "value", "type": "number", "doc": "The number the text stands for. Hosts that animate compare it with the last value." },
+      { "name": "text", "type": "string", "doc": "What it reads, such as `\"12.4K\"`." },
+      { "name": "tabular", "type": "boolean?", "doc": "Tabular figures. Defaults to true." },
+      { "name": "animate", "type": "boolean?", "doc": "Animates changed digits where the host can. Defaults to true. Other hosts show the text." },
+      { "name": "size", "type": "number?", "doc": "Font size in points." },
+      { "name": "weight", "type": "FontWeight?", "doc": "Weight." },
+      { "name": "color", "type": "Color?", "doc": "Color." }
+    ] },
+    { "name": "UiButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.button` props: the app's own button.", "fields": [
+      { "name": "text", "type": "string?", "doc": "The visible label. Also the accessible name unless `label` is set." },
+      { "name": "icon", "type": "IconName?", "doc": "A leading icon." },
+      { "name": "variant", "type": "ButtonVariant?", "doc": "The look." },
+      { "name": "size", "type": "ControlSize?", "doc": "The size." },
+      { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
+      { "name": "loading", "type": "boolean?", "doc": "Shows the app's loader and takes no presses." },
+      { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
+    ] },
+    { "name": "UiIconButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.iconButton` props: a square button with an icon. Give it a `label`.", "fields": [
+      { "name": "icon", "type": "IconName", "doc": "The icon." },
+      { "name": "variant", "type": "ButtonVariant?", "doc": "The look. Defaults to `ghost`." },
+      { "name": "size", "type": "ControlSize?", "doc": "The size." },
+      { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
+      { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
+    ] },
+    { "name": "UiSwitchProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.switch` props: the app's own switch.", "fields": [
+      { "name": "checked", "type": "boolean", "doc": "On." },
+      { "name": "disabled", "type": "boolean?", "doc": "Cannot change." },
+      { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
+    ] },
+    { "name": "UiRadioProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.radio` props: a radio row with its label and description.", "fields": [
+      { "name": "text", "type": "string", "doc": "The row's label." },
+      { "name": "description", "type": "string?", "doc": "A line under the label." },
+      { "name": "checked", "type": "boolean", "doc": "Selected." },
+      { "name": "tone", "type": "Tone?", "doc": "Colors the label." },
+      { "name": "disabled", "type": "boolean?", "doc": "Cannot change." },
+      { "name": "onChange", "type": "UiHandler?", "doc": "Runs as the user picks the row." }
+    ] },
+    { "name": "UiFieldProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.field` props: the app's own text field over an `Editor`.", "fields": [
+      { "name": "editor", "type": "Editor", "doc": "The field's content, from `ctx:CreateEditor`." },
+      { "name": "placeholder", "type": "string?", "doc": "Shows while the field is empty." },
+      { "name": "size", "type": "ControlSize?", "doc": "The size." },
+      { "name": "invalid", "type": "boolean?", "doc": "Drawn as invalid." },
+      { "name": "secure", "type": "boolean?", "doc": "Hides the text, for a password." },
+      { "name": "disabled", "type": "boolean?", "doc": "Takes no typing." },
+      { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
+      { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
+    ] },
+    { "name": "UiLoaderProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.loader` props: the app's spinner.", "fields": [
+      { "name": "size", "type": "number?", "doc": "Width and height in points. Defaults to 16." }
+    ] },
+    { "name": "UiPillProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.pill` props: a status capsule like the composer's pills.", "fields": [
+      { "name": "text", "type": "string", "doc": "The capsule's label." },
+      { "name": "icon", "type": "IconName?", "doc": "A leading icon." },
+      { "name": "tone", "type": "Tone?", "doc": "Colors the icon." },
+      { "name": "pressed", "type": "boolean?", "doc": "Shows the capsule pressed." },
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
+    ] },
+    { "name": "UiKeybindProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.keybind` props: a shortcut chip.", "fields": [
+      { "name": "command", "type": "string?", "doc": "A published command id. The chip shows the user's current binding." },
+      { "name": "keys", "type": "string?", "doc": "A literal binding, such as `\"mod+shift+t\"`, when there is no command." }
+    ] },
+    { "name": "UiSettingsRowProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.settingsRow` props: one settings row, as the app's own.", "fields": [
+      { "name": "id", "type": "string", "doc": "The row's search id: settings search scrolls to it." },
+      { "name": "title", "type": "string", "doc": "The row's title." },
+      { "name": "description", "type": "string?", "doc": "A line under the title." }
+    ] },
+    { "name": "UiSettingsListProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.settingsList` props: a card of settings rows split by hairlines.", "fields": [
+      { "name": "title", "type": "string?", "doc": "A section title above the card." }
+    ] },
+    { "name": "UiFlyoutRowProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.flyoutRow` props: a popover row that opens a nested popover beside it. The host owns placement, hover intent and dismissal.", "fields": [
+      { "name": "text", "type": "string", "doc": "The row's label." },
+      { "name": "icon", "type": "IconName?", "doc": "A leading icon." },
+      { "name": "detail", "type": "string?", "doc": "Muted text at the row's end, such as a count." },
+      { "name": "popover", "type": "string", "doc": "The id of this plugin's popover the row opens." },
+      { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." }
+    ] },
+    { "name": "UiMarkdownProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.", "fields": [
+      { "name": "source", "type": "string", "doc": "The Markdown." },
+      { "name": "size", "type": "number?", "doc": "Body font size in points. Defaults to 14." },
+      { "name": "lineHeight", "type": "number?", "doc": "Body line height in points." },
+      { "name": "highlights", "type": "{ string }?", "doc": "Words to highlight, such as search matches." },
+      { "name": "selectable", "type": "boolean?", "doc": "The user can select and copy it. Defaults to true." },
+      { "name": "streaming", "type": "boolean?", "doc": "The source is still growing: the host keeps the last block open." }
+    ] },
+    { "name": "UiVirtualListProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.virtualList` props. Native: windowing, the height cache and scroll anchoring stay in the host; Luau builds only the rows that come into view.", "fields": [
+      { "name": "count", "type": "integer", "doc": "How many rows." },
+      { "name": "estimatedRowHeight", "type": "number", "doc": "A row's height before it is measured." },
+      { "name": "version", "type": "MemoVersion", "doc": "Change it when rows change. While it stays the same, scrolling builds only rows that enter the view." },
+      { "name": "renderRow", "type": "(index: number) -> UiNode", "doc": "Builds row `index`, from 1. It must not yield." },
+      { "name": "rowKey", "type": "((index: number) -> string)?", "doc": "A stable identity for row `index`, so rows keep their state as the list changes. Defaults to the index." },
+      { "name": "gap", "type": "number?", "doc": "Space between rows." },
+      { "name": "onVisibleRows", "type": "UiHandler?", "doc": "Runs as the visible rows change, with `event.first` and `event.last`." }
+    ] },
+    { "name": "UiTerminalSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.terminalSurface` props. Native: the VT parser, scrollback, glyph grid, IME and PTY stream stay in the host.", "fields": [
+      { "name": "session", "type": "PtySession", "doc": "The terminal session, from the `Terminal` service." },
+      { "name": "fontFamily", "type": "string?", "doc": "A font family. Defaults to the user's code font." },
+      { "name": "fontSize", "type": "number?", "doc": "Font size in points." },
+      { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." }
+    ] },
+    { "name": "UiBrowserSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.", "fields": [
+      { "name": "tab", "type": "BrowserTab", "doc": "The page, from the `Browser` service." },
+      { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." }
+    ] },
+    { "name": "UiCodeViewProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.codeView` props. Native: highlighting, the line buffer, the gutter, selection and find stay in the host.", "fields": [
+      { "name": "doc", "type": "CodeDocument", "doc": "The file, from `Workspace:OpenDocument`." },
+      { "name": "lineWrap", "type": "boolean?", "doc": "Wraps long lines." },
+      { "name": "showLineNumbers", "type": "boolean?", "doc": "Shows the gutter. Defaults to true." },
+      { "name": "revealLine", "type": "integer?", "doc": "Scrolls to this line, from 1, and highlights it." }
+    ] },
+    { "name": "UiDiffViewProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.diffView` props. Native: hunk layout, intraline diffing, highlighting and comment anchors stay in the host.", "fields": [
+      { "name": "diff", "type": "DiffDocument", "doc": "The changes, from `Diff:Open`." },
+      { "name": "mode", "type": "DiffMode", "doc": "Split or unified." },
+      { "name": "expand", "type": "boolean?", "doc": "Shows unchanged lines in full." },
+      { "name": "file", "type": "string?", "doc": "Shows only this file's changes." }
+    ] },
+    { "name": "UiFileTreeProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host.", "fields": [
+      { "name": "tree", "type": "FileTreeModel", "doc": "The tree, from `Workspace:OpenTree`." },
+      { "name": "selectedPath", "type": "string?", "doc": "The selected row." },
+      { "name": "highlightedPath", "type": "string?", "doc": "A row to highlight, such as the open file." },
+      { "name": "onSelect", "type": "UiHandler?", "doc": "Runs as the user picks a file, with `event.path`." },
+      { "name": "onContextMenu", "type": "UiHandler?", "doc": "Runs on a secondary click, with `event.path`." }
+    ] },
+    { "name": "UiGenUiProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.", "fields": [
+      { "name": "source", "type": "string", "doc": "The ```` ```ui ```` outline source." },
+      { "name": "streaming", "type": "boolean?", "doc": "The source is still growing." }
+    ] },
+
+    { "name": "SessionUsage", "kind": "record", "rust": true, "doc": "A session's token counts at its last step.", "fields": [
+      { "name": "input", "type": "integer", "doc": "Input tokens." },
+      { "name": "output", "type": "integer", "doc": "Output tokens." },
+      { "name": "reasoning", "type": "integer", "doc": "Reasoning tokens." },
+      { "name": "cacheRead", "type": "integer", "doc": "Tokens read from the cache." },
+      { "name": "cacheWrite", "type": "integer", "doc": "Tokens written to the cache." }
+    ] },
+    { "name": "Session", "kind": "record", "rust": true, "doc": "A session as the app holds it.", "fields": [
+      { "name": "id", "type": "string", "doc": "The session id." },
+      { "name": "serverId", "type": "string", "doc": "The key of the server that owns it." },
+      { "name": "directory", "type": "string", "doc": "Its workspace folder." },
+      { "name": "title", "type": "string", "doc": "Its title." },
+      { "name": "parentId", "type": "string?", "doc": "The parent session of a subagent's session." },
+      { "name": "busy", "type": "boolean", "doc": "A turn is running." },
+      { "name": "version", "type": "integer", "doc": "Changes whenever anything here does: put it in a memo's version." },
+      { "name": "cost", "type": "number", "doc": "What it cost in USD, its subagents' sessions included." },
+      { "name": "usage", "type": "SessionUsage?", "doc": "Token counts at the last step with tokens." },
+      { "name": "usageProviderId", "type": "string?", "doc": "The provider of the step `usage` came from." },
+      { "name": "usageModelId", "type": "string?", "doc": "The model of the step `usage` came from." }
+    ] },
+    { "name": "ModelInfo", "kind": "record", "rust": true, "doc": "A model as the server's catalog names it.", "fields": [
+      { "name": "providerName", "type": "string?", "doc": "The provider's name. Nil when the catalog does not list the provider." },
+      { "name": "modelName", "type": "string?", "doc": "The model's name. Nil when the catalog does not list it." },
+      { "name": "contextLimit", "type": "integer?", "doc": "Its context window in tokens." },
+      { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." }
+    ] },
+    { "name": "Resource", "kind": "record", "rust": true, "doc": "A cached server read.", "fields": [
+      { "name": "status", "type": "ResourceStatus", "doc": "Its state." },
+      { "name": "json", "type": "any?", "doc": "The answer as JSON, when it is JSON." },
+      { "name": "text", "type": "string?", "doc": "The answer as text." },
+      { "name": "error", "type": "string?", "doc": "Why it failed." },
+      { "name": "generation", "type": "integer", "doc": "Changes with every new answer: put it in a memo's version." }
+    ] },
+    { "name": "ServerResponse", "kind": "record", "rust": true, "doc": "A server's answer.", "fields": [
+      { "name": "ok", "type": "boolean", "doc": "A 2xx status." },
+      { "name": "status", "type": "integer", "doc": "The HTTP status. 0 when nothing answered." },
+      { "name": "json", "type": "any?", "doc": "The body as JSON, when it is JSON." },
+      { "name": "text", "type": "string", "doc": "The body as text." },
+      { "name": "error", "type": "string?", "doc": "Why it failed." }
+    ] },
+    { "name": "ServerEvent", "kind": "record", "rust": true, "doc": "One event from the server's event stream.", "fields": [
+      { "name": "type", "type": "string", "doc": "The event type, such as `\"session.updated\"`." },
+      { "name": "data", "type": "any", "doc": "The event's payload." },
+      { "name": "serverId", "type": "string", "doc": "The key of the server that sent it." },
+      { "name": "directory", "type": "string?", "doc": "The workspace folder it concerns." }
+    ] },
+    { "name": "ServerInfo", "kind": "record", "rust": true, "doc": "A server the app lists.", "fields": [
+      { "name": "key", "type": "string", "doc": "Its key: `local`, or `<plugin>:<id>` for a contributed server." },
+      { "name": "name", "type": "string", "doc": "Its display name." },
+      { "name": "label", "type": "string?", "doc": "Its badge, such as `\"SSH\"`." },
+      { "name": "state", "type": "ServerState", "doc": "Where it stands." },
+      { "name": "isLocal", "type": "boolean", "doc": "It runs on this machine." },
+      { "name": "current", "type": "boolean", "doc": "This window is connected to it." },
+      { "name": "version", "type": "string?", "doc": "The version it reported." }
+    ] },
+    { "name": "ServerHealth", "kind": "record", "rust": true, "doc": "A server's latest health check.", "fields": [
+      { "name": "healthy", "type": "boolean", "doc": "It answered." },
+      { "name": "version", "type": "string?", "doc": "The version it reported." },
+      { "name": "incompatible", "type": "boolean?", "doc": "This app does not support that version." },
+      { "name": "checking", "type": "boolean?", "doc": "A check is in flight." }
+    ] },
+    { "name": "ServerEndpoint", "kind": "record", "rust": true, "doc": "How to reach a ready server.", "fields": [
+      { "name": "url", "type": "string", "doc": "The base URL." },
+      { "name": "password", "type": "string?", "doc": "The HTTP basic password. The user name is always `opencode`." }
+    ] },
+    { "name": "ServerEntry", "kind": "record", "rust": true, "doc": "One server a server source lists. Its key is `<plugin>:<id>`.", "fields": [
+      { "name": "id", "type": "string", "doc": "The entry's id within the source." },
+      { "name": "name", "type": "string", "doc": "The display name." },
+      { "name": "label", "type": "string?", "doc": "A short badge after the name, such as `\"WSL\"`." },
+      { "name": "state", "type": "ServerState", "doc": "Where it stands." },
+      { "name": "listed", "type": "boolean?", "doc": "False keeps it out of the app's server list. Settings still shows it. Defaults to true." },
+      { "name": "http", "type": "ServerEndpoint?", "doc": "Its endpoint, once `ready`." }
+    ] },
+    { "name": "BasicAuth", "kind": "record", "rust": true, "doc": "HTTP basic credentials.", "fields": [
+      { "name": "user", "type": "string", "doc": "The user name." },
+      { "name": "password", "type": "string", "doc": "The password." }
+    ] },
+    { "name": "HttpRequest", "kind": "record", "rust": true, "doc": "An HTTP request.", "fields": [
+      { "name": "url", "type": "string", "doc": "The URL." },
+      { "name": "method", "type": "HttpMethod?", "doc": "Defaults to GET." },
+      { "name": "headers", "type": "{ [string]: string }?", "doc": "Request headers." },
+      { "name": "body", "type": "string?", "doc": "A text body." },
+      { "name": "json", "type": "any?", "doc": "A JSON body, instead of `body`. Sets the content type." },
+      { "name": "basicAuth", "type": "BasicAuth?", "doc": "Sends `Authorization: Basic`." },
+      { "name": "timeout", "type": "number?", "doc": "Seconds before it gives up. Defaults to 30." }
+    ] },
+    { "name": "HttpResponse", "kind": "record", "rust": true, "doc": "An HTTP answer.", "fields": [
+      { "name": "ok", "type": "boolean", "doc": "A 2xx status." },
+      { "name": "status", "type": "integer", "doc": "The HTTP status. 0 when nothing answered." },
+      { "name": "headers", "type": "{ [string]: string }", "doc": "Response headers, with lowercase names." },
+      { "name": "text", "type": "string", "doc": "The body as text." },
+      { "name": "json", "type": "any?", "doc": "The body as JSON, when it is JSON." },
+      { "name": "error", "type": "string?", "doc": "Why it failed." }
+    ] },
+    { "name": "ProcessSpec", "kind": "record", "rust": true, "doc": "A process to start.", "fields": [
+      { "name": "program", "type": "string", "doc": "The program, as a path or a name on PATH." },
+      { "name": "args", "type": "{ string }?", "doc": "Its arguments, passed as they are, without a shell." },
+      { "name": "env", "type": "{ [string]: string }?", "doc": "Variables to add to the app's environment." },
+      { "name": "cwd", "type": "string?", "doc": "Its working folder." },
+      { "name": "stdin", "type": "string?", "doc": "Written to its stdin first. Stdin then closes unless `keepStdin` is set." },
+      { "name": "keepStdin", "type": "boolean?", "doc": "Keeps stdin open for `Write`." },
+      { "name": "timeout", "type": "number?", "doc": "Seconds before the host kills it." },
+      { "name": "encoding", "type": "TextEncoding?", "doc": "How it encodes its output." }
+    ] },
+    { "name": "ProcessExit", "kind": "record", "rust": true, "doc": "How a process ended.", "fields": [
+      { "name": "code", "type": "integer?", "doc": "Its exit code, when it has one." },
+      { "name": "error", "type": "string?", "doc": "Why it could not start." },
+      { "name": "timedOut", "type": "boolean", "doc": "Its timeout killed it." },
+      { "name": "killed", "type": "boolean", "doc": "`Kill`, or the plugin going away, ended it." }
+    ] },
+    { "name": "ProcessOutput", "kind": "record", "rust": true, "doc": "A finished process and all its output.", "fields": [
+      { "name": "ok", "type": "boolean", "doc": "It ran and exited with 0." },
+      { "name": "code", "type": "integer?", "doc": "Its exit code." },
+      { "name": "stdout", "type": "string", "doc": "Everything it wrote to stdout." },
+      { "name": "stderr", "type": "string", "doc": "Everything it wrote to stderr." },
+      { "name": "error", "type": "string?", "doc": "Why it could not start." },
+      { "name": "timedOut", "type": "boolean", "doc": "Its timeout killed it." }
+    ] },
+    { "name": "ProcessHandle", "kind": "object", "doc": "A process the host supervises. The host kills it when the plugin half that started it goes away.", "members": [
+      { "name": "Id", "kind": "field", "type": "integer", "doc": "The host's id for it." },
+      { "name": "Running", "kind": "method", "sig": "() -> boolean", "doc": "It has not exited." },
+      { "name": "Write", "kind": "method", "sig": "(text: string, close: boolean?) -> boolean", "doc": "Writes to its stdin, then closes stdin when `close` is true. False when stdin is closed." },
+      { "name": "Kill", "kind": "method", "sig": "() -> ()", "doc": "Kills it. `Exited` follows." },
+      { "name": "WaitAsync", "kind": "method", "sig": "() -> ProcessExit", "yields": true, "doc": "Yields until it exits." },
+      { "name": "Output", "kind": "signal", "payload": "ProcessStream, string", "doc": "Fires with each chunk of output, line-buffered." },
+      { "name": "Exited", "kind": "signal", "payload": "ProcessExit", "doc": "Fires once as it exits." }
+    ] },
+    { "name": "StoreValue", "kind": "object", "generics": "T", "doc": "A value the host saves for this plugin with the app's state.", "members": [
+      { "name": "Get", "kind": "method", "sig": "() -> T", "doc": "The value, or the default." },
+      { "name": "Set", "kind": "method", "sig": "(value: T) -> ()", "doc": "Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes with every `Set`: put it in a memo's version." },
+      { "name": "Changed", "kind": "signal", "payload": "T", "doc": "Fires with the new value, also when another window sets it." }
+    ] },
+    { "name": "SessionStoreValue", "kind": "object", "generics": "T", "doc": "A value the host saves for this plugin per session.", "members": [
+      { "name": "Get", "kind": "method", "sig": "(sessionId: string) -> T", "doc": "The session's value, or the default." },
+      { "name": "Set", "kind": "method", "sig": "(sessionId: string, value: T) -> ()", "doc": "Saves a new value for the session. It must be plain data." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes with every `Set`: put it in a memo's version." },
+      { "name": "Changed", "kind": "signal", "payload": "string, T", "doc": "Fires with the session id and its new value." }
+    ] },
+    { "name": "ToastAction", "kind": "record", "rust": true, "doc": "A button on a toast.", "fields": [
+      { "name": "label", "type": "string", "doc": "The button's label." },
+      { "name": "revealPath", "type": "string?", "doc": "Shows this path in the system's file manager." },
+      { "name": "openUrl", "type": "string?", "doc": "Opens this URL in the system's browser." },
+      { "name": "run", "type": "(() -> ())?", "doc": "Runs when the user clicks it. The toast then closes." }
+    ] },
+    { "name": "ToastSpec", "kind": "record", "rust": true, "doc": "What a toast shows.", "fields": [
+      { "name": "title", "type": "string", "doc": "The headline." },
+      { "name": "description", "type": "string?", "doc": "More detail under the title." },
+      { "name": "variant", "type": "ToastVariant?", "doc": "The tone. Defaults to `default`." },
+      { "name": "icon", "type": "IconName?", "doc": "An icon before the title." },
+      { "name": "duration", "type": "number?", "doc": "Seconds before it closes. Ignored when `persistent`. Defaults to 5." },
+      { "name": "persistent", "type": "boolean?", "doc": "Stays until the user or `Dismiss` closes it." },
+      { "name": "actions", "type": "{ ToastAction }?", "doc": "Buttons, in order." }
+    ] },
+    { "name": "ToastHandle", "kind": "object", "doc": "One toast the plugin showed. It closes when the plugin goes away.", "members": [
+      { "name": "Dismiss", "kind": "method", "sig": "() -> ()", "doc": "Closes it. Does nothing once it closed." },
+      { "name": "Update", "kind": "method", "sig": "(spec: ToastSpec) -> ()", "doc": "Replaces what it shows, in place." }
+    ] },
+    { "name": "PopoverOpenSpec", "kind": "record", "rust": true, "doc": "Where to open one of this plugin's popovers.", "fields": [
+      { "name": "id", "type": "string", "doc": "The popover's id, from `ctx:AddPopover`." },
+      { "name": "anchorKey", "type": "string", "doc": "The `key` of the element it opens beside." },
+      { "name": "side", "type": "Side?", "doc": "The anchor's side. Defaults to below." },
+      { "name": "align", "type": "Align?", "doc": "Alignment along that side. Defaults to start." },
+      { "name": "gap", "type": "number?", "doc": "Points between the anchor and the popover." },
+      { "name": "data", "type": "{ [string]: any }?", "doc": "Passed to the popover's render as `props.data`." },
+      { "name": "transition", "type": "Transition?", "doc": "How it appears." }
+    ] },
+    { "name": "MenuEntry", "kind": "record", "rust": true, "doc": "One entry of a menu.", "fields": [
+      { "name": "kind", "type": "MenuEntryKind?", "doc": "Defaults to `item`." },
+      { "name": "id", "type": "string?", "doc": "An item's id, returned when the user picks it." },
+      { "name": "title", "type": "string?", "doc": "An item's label, or a group's title." },
+      { "name": "icon", "type": "IconName?", "doc": "An item's icon." },
+      { "name": "detail", "type": "string?", "doc": "Muted text at an item's end." },
+      { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut the item shows." },
+      { "name": "enabled", "type": "boolean?", "doc": "False shows the item disabled. Defaults to true." },
+      { "name": "danger", "type": "boolean?", "doc": "A destructive item." },
+      { "name": "checked", "type": "boolean?", "doc": "Shows a check mark." }
+    ] },
+    { "name": "MenuOpenSpec", "kind": "record", "rust": true, "doc": "A menu to open beside an element.", "fields": [
+      { "name": "anchorKey", "type": "string", "doc": "The `key` of the element it opens beside." },
+      { "name": "items", "type": "{ MenuEntry }", "doc": "Its entries." },
+      { "name": "label", "type": "string?", "doc": "Its accessible name." },
+      { "name": "side", "type": "Side?", "doc": "The anchor's side. Defaults to below." },
+      { "name": "align", "type": "Align?", "doc": "Alignment along that side. Defaults to start." },
+      { "name": "minWidth", "type": "number?", "doc": "Its minimum width in points." }
+    ] },
+    { "name": "OpenPanelOptions", "kind": "record", "rust": true, "doc": "How to open a panel tab.", "fields": [
+      { "name": "sessionId", "type": "string?", "doc": "The session. Defaults to the routed session." },
+      { "name": "instance", "type": "string?", "doc": "The tab of an instance panel." },
+      { "name": "background", "type": "boolean?", "doc": "Opens the tab without selecting it or switching the narrow-screen view." },
+      { "name": "transition", "type": "Transition?", "doc": "How the side region opens." }
+    ] },
+    { "name": "Link", "kind": "record", "rust": true, "doc": "A local link the app routes to a link handler.", "fields": [
+      { "name": "href", "type": "string", "doc": "The target: a path, a URL or a `file://` link." },
+      { "name": "origin", "type": "string?", "doc": "The plugin that produced the linked item." },
+      { "name": "exact", "type": "boolean?", "doc": "The path is a known workspace file, not a guess from text." },
+      { "name": "background", "type": "boolean?", "doc": "Must not switch the narrow-screen view." },
+      { "name": "base", "type": "string?", "doc": "The workspace-relative folder the link was written in." },
+      { "name": "sessionId", "type": "string?", "doc": "The session the link belongs to." }
+    ] },
+    { "name": "NotificationSpec", "kind": "record", "rust": true, "doc": "A system notification. It follows the user's notification settings.", "fields": [
+      { "name": "title", "type": "string", "doc": "The title." },
+      { "name": "body", "type": "string?", "doc": "The text under it." },
+      { "name": "sessionId", "type": "string?", "doc": "Clicking it opens this session." },
+      { "name": "sound", "type": "boolean?", "doc": "Plays the user's notification sound." }
+    ] },
+    { "name": "ThemeInfo", "kind": "record", "rust": true, "doc": "The window's theme.", "fields": [
+      { "name": "id", "type": "string", "doc": "The theme's key." },
+      { "name": "name", "type": "string", "doc": "Its display name." },
+      { "name": "scheme", "type": "ColorScheme", "doc": "The color scheme in use." }
+    ] },
+    { "name": "SaveResult", "kind": "record", "rust": true, "doc": "Where a file was saved.", "fields": [
+      { "name": "path", "type": "string?", "doc": "Its path." },
+      { "name": "error", "type": "string?", "doc": "Why it could not be saved." }
+    ] },
+    { "name": "ReadResult", "kind": "record", "rust": true, "doc": "A file's text.", "fields": [
+      { "name": "text", "type": "string?", "doc": "Its text, as UTF-8." },
+      { "name": "error", "type": "string?", "doc": "Why it could not be read." }
+    ] },
+    { "name": "OpenInApp", "kind": "record", "rust": true, "doc": "An app that can open a path, such as an editor or a file manager.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id, for `Workspace:OpenIn`." },
+      { "name": "name", "type": "string", "doc": "Its display name." },
+      { "name": "icon", "type": "ImageId?", "doc": "Its icon." }
+    ] },
+    { "name": "CodeDocument", "kind": "object", "doc": "A file open for `ui.codeView`. The host closes it when the plugin half goes away.", "members": [
+      { "name": "Path", "kind": "field", "type": "string", "doc": "Its path." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes when its content does: put it in a memo's version." },
+      { "name": "Missing", "kind": "method", "sig": "() -> boolean", "doc": "The file no longer exists." },
+      { "name": "Binary", "kind": "method", "sig": "() -> boolean", "doc": "The file is not text." },
+      { "name": "Reload", "kind": "method", "sig": "() -> ()", "doc": "Reads it again." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." },
+      { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when its content changes on disk." }
+    ] },
+    { "name": "FileTreeModel", "kind": "object", "doc": "A folder's tree for `ui.fileTree`.", "members": [
+      { "name": "Root", "kind": "field", "type": "string", "doc": "The root folder." },
+      { "name": "Expand", "kind": "method", "sig": "(path: string) -> ()", "doc": "Expands a folder." },
+      { "name": "Collapse", "kind": "method", "sig": "(path: string) -> ()", "doc": "Collapses a folder." },
+      { "name": "SetFilter", "kind": "method", "sig": "(query: string) -> ()", "doc": "Shows only paths that match a fuzzy query. An empty query shows all." },
+      { "name": "Refresh", "kind": "method", "sig": "() -> ()", "doc": "Reads the folder again." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes when the tree does." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." },
+      { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the tree changes." }
+    ] },
+    { "name": "DiffTotals", "kind": "record", "rust": true, "doc": "A diff's size.", "fields": [
+      { "name": "files", "type": "integer", "doc": "Changed files." },
+      { "name": "added", "type": "integer", "doc": "Added lines." },
+      { "name": "removed", "type": "integer", "doc": "Removed lines." }
+    ] },
+    { "name": "DiffFile", "kind": "record", "rust": true, "doc": "One changed file.", "fields": [
+      { "name": "path", "type": "string", "doc": "Its path." },
+      { "name": "status", "type": "string", "doc": "`added`, `modified`, `deleted` or `renamed`." },
+      { "name": "added", "type": "integer", "doc": "Added lines." },
+      { "name": "removed", "type": "integer", "doc": "Removed lines." }
+    ] },
+    { "name": "DiffOpenSpec", "kind": "record", "rust": true, "doc": "Which changes to open.", "fields": [
+      { "name": "sessionId", "type": "string", "doc": "The session." },
+      { "name": "source", "type": "DiffSource", "doc": "What to compare." },
+      { "name": "messageId", "type": "string?", "doc": "A `turn` source's user message." }
+    ] },
+    { "name": "DiffDocument", "kind": "object", "doc": "A set of changes for `ui.diffView`.", "members": [
+      { "name": "Totals", "kind": "method", "sig": "() -> DiffTotals", "doc": "Its size." },
+      { "name": "Files", "kind": "method", "sig": "() -> { DiffFile }", "doc": "Its files." },
+      { "name": "SetSource", "kind": "method", "sig": "(source: DiffSource, messageId: string?) -> ()", "doc": "Compares something else." },
+      { "name": "Loading", "kind": "method", "sig": "() -> boolean", "doc": "A read is in flight." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes when the changes do." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." },
+      { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the changes change." }
+    ] },
+    { "name": "TerminalSpec", "kind": "record", "rust": true, "doc": "A terminal session to start on the server.", "fields": [
+      { "name": "directory", "type": "string", "doc": "The workspace folder." },
+      { "name": "cwd", "type": "string?", "doc": "The shell's working folder. Defaults to `directory`." },
+      { "name": "title", "type": "string?", "doc": "Its initial title." },
+      { "name": "command", "type": "string?", "doc": "A program to run instead of the user's shell." },
+      { "name": "args", "type": "{ string }?", "doc": "Its arguments." }
+    ] },
+    { "name": "PtySession", "kind": "object", "doc": "A terminal session for `ui.terminalSurface`.", "members": [
+      { "name": "Id", "kind": "field", "type": "string", "doc": "The server's id for it." },
+      { "name": "Title", "kind": "method", "sig": "() -> string", "doc": "Its title, as the shell sets it." },
+      { "name": "Running", "kind": "method", "sig": "() -> boolean", "doc": "Its process has not exited." },
+      { "name": "Write", "kind": "method", "sig": "(text: string) -> ()", "doc": "Types text into it." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Ends it." },
+      { "name": "Exited", "kind": "signal", "payload": "number?", "doc": "Fires with the exit code as its process exits." },
+      { "name": "TitleChanged", "kind": "signal", "payload": "string", "doc": "Fires with the new title." }
+    ] },
+    { "name": "BrowserOpenSpec", "kind": "record", "rust": true, "doc": "A page to open.", "fields": [
+      { "name": "url", "type": "string", "doc": "The URL." },
+      { "name": "sessionId", "type": "string?", "doc": "The session the page belongs to." },
+      { "name": "background", "type": "boolean?", "doc": "Opens without showing it." }
+    ] },
+    { "name": "BrowserTab", "kind": "object", "doc": "A page in the app's browser, for `ui.browserSurface`.", "members": [
+      { "name": "Id", "kind": "field", "type": "string", "doc": "The host's id for it." },
+      { "name": "Url", "kind": "method", "sig": "() -> string", "doc": "The current URL." },
+      { "name": "Title", "kind": "method", "sig": "() -> string", "doc": "The page title." },
+      { "name": "Loading", "kind": "method", "sig": "() -> boolean", "doc": "A load is in flight." },
+      { "name": "CanGoBack", "kind": "method", "sig": "() -> boolean", "doc": "History has an earlier page." },
+      { "name": "CanGoForward", "kind": "method", "sig": "() -> boolean", "doc": "History has a later page." },
+      { "name": "Navigate", "kind": "method", "sig": "(url: string) -> ()", "doc": "Loads a URL." },
+      { "name": "Back", "kind": "method", "sig": "() -> ()", "doc": "Goes back." },
+      { "name": "Forward", "kind": "method", "sig": "() -> ()", "doc": "Goes forward." },
+      { "name": "Reload", "kind": "method", "sig": "() -> ()", "doc": "Reloads." },
+      { "name": "Stop", "kind": "method", "sig": "() -> ()", "doc": "Stops loading." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes the page." },
+      { "name": "DevtoolsAsync", "kind": "method", "sig": "(method: string, params: { [string]: any }?) -> any", "yields": true, "doc": "Sends one DevTools protocol command and returns its result." },
+      { "name": "ScreenshotAsync", "kind": "method", "sig": "() -> ImageId?", "yields": true, "doc": "Captures the visible page." },
+      { "name": "Navigated", "kind": "signal", "payload": "string", "doc": "Fires with the new URL." },
+      { "name": "TitleChanged", "kind": "signal", "payload": "string", "doc": "Fires with the new title." },
+      { "name": "LoadingChanged", "kind": "signal", "payload": "boolean", "doc": "Fires as a load starts and ends." },
+      { "name": "Closed", "kind": "signal", "payload": "()", "doc": "Fires as the page closes." }
+    ] },
+    { "name": "OfficeDocument", "kind": "object", "doc": "An Office file the host lays out and draws off the UI thread.", "members": [
+      { "name": "Kind", "kind": "field", "type": "OfficeKind", "doc": "Its format." },
+      { "name": "PageCount", "kind": "method", "sig": "() -> number", "doc": "Pages, slides, or the active sheet's pages." },
+      { "name": "Sheets", "kind": "method", "sig": "() -> { string }", "doc": "An `xlsx` file's sheet names." },
+      { "name": "SetSheet", "kind": "method", "sig": "(index: number) -> ()", "doc": "Shows sheet `index`, from 1." },
+      { "name": "Notes", "kind": "method", "sig": "(page: number) -> string?", "doc": "A slide's speaker notes." },
+      { "name": "RenderPageAsync", "kind": "method", "sig": "(page: number, scale: number?) -> ImageId?", "yields": true, "doc": "Draws page `page`, from 1, at `scale` (defaults to 2)." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." }
+    ] },
+    { "name": "UpdaterState", "kind": "record", "rust": true, "doc": "Where the app updater stands.", "fields": [
+      { "name": "phase", "type": "UpdaterPhase", "doc": "The phase." },
+      { "name": "version", "type": "string?", "doc": "The available version." },
+      { "name": "progress", "type": "number?", "doc": "Download progress, 0 to 1." },
+      { "name": "notes", "type": "string?", "doc": "The release notes, as Markdown." },
+      { "name": "error", "type": "string?", "doc": "Why it failed." }
+    ] },
+    { "name": "PowerLock", "kind": "object", "doc": "Keeps the display awake while held.", "members": [
+      { "name": "Release", "kind": "method", "sig": "() -> ()", "doc": "Lets the display sleep again." }
+    ] },
+    { "name": "QrCode", "kind": "record", "rust": true, "doc": "A QR code's module matrix.", "fields": [
+      { "name": "size", "type": "integer", "doc": "Modules per side." },
+      { "name": "modules", "type": "{ boolean }", "doc": "`size * size` modules, row by row: true is dark." }
+    ] },
+    { "name": "AskpassPrompt", "kind": "object", "doc": "A credential prompt from a child process.", "members": [
+      { "name": "Prompt", "kind": "field", "type": "string", "doc": "What the process asks." },
+      { "name": "Secret", "kind": "field", "type": "boolean", "doc": "The answer is a password." },
+      { "name": "Respond", "kind": "method", "sig": "(answer: string?) -> ()", "doc": "Answers it. Nil cancels." }
+    ] },
+    { "name": "AskpassListener", "kind": "object", "doc": "A loopback endpoint that turns `SSH_ASKPASS` prompts into signals.", "members": [
+      { "name": "Env", "kind": "field", "type": "{ [string]: string }", "doc": "Environment variables to give the child process." },
+      { "name": "Prompted", "kind": "signal", "payload": "AskpassPrompt", "doc": "Fires with each prompt." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Stops listening." }
+    ] },
+    { "name": "PluginMetrics", "kind": "record", "rust": true, "doc": "A plugin's live costs.", "fields": [
+      { "name": "memoryKb", "type": "number", "doc": "Luau heap in KB." },
+      { "name": "renderUs", "type": "number", "doc": "The last render's cost in microseconds." },
+      { "name": "memoHitRate", "type": "number", "doc": "Share of memo lookups that reused their subtree, 0 to 1." }
+    ] },
+
+    { "name": "CommandSlash", "kind": "record", "rust": true, "doc": "A command's slash form in the composer.", "fields": [
+      { "name": "name", "type": "string", "doc": "The name after the slash, such as `open` for `/open`." },
+      { "name": "arguments", "type": "boolean?", "doc": "The text after the name goes to `run`." },
+      { "name": "after", "type": "string?", "doc": "Lists the entry right after the slash entry with this name." }
+    ] },
+    { "name": "CommandSpec", "kind": "record", "rust": true, "official": "Command", "doc": "A command in the palette, with an optional keybind and slash command. Published as `<plugin>.<id>`.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string", "doc": "The palette label." },
+      { "name": "description", "type": "string?", "doc": "The palette's second line." },
+      { "name": "keywords", "type": "string?", "doc": "More words the palette matches, separated by spaces." },
+      { "name": "group", "type": "string?", "doc": "The palette category." },
+      { "name": "section", "type": "CommandSection?", "doc": "The Settings › Shortcuts section. Defaults to `general`." },
+      { "name": "bind", "type": "string?", "doc": "The default keybind, such as `\"mod+shift+t\"`." },
+      { "name": "slash", "type": "CommandSlash?", "doc": "Also offers it as a slash command." },
+      { "name": "hidden", "type": "boolean?", "doc": "Keeps it out of the palette. The keybind still works." },
+      { "name": "suggested", "type": "boolean?", "doc": "Also lists it under Suggested." },
+      { "name": "featured", "type": "boolean?", "doc": "Lists it when the palette opens without a query." },
+      { "name": "enabled", "type": "boolean?", "doc": "False takes it out of the palette and turns its keybind off. Defaults to true." },
+      { "name": "editable", "type": "boolean?", "doc": "The keybind also fires while a text field has focus." },
+      { "name": "requiresSession", "type": "boolean?", "doc": "Offered only while a session is open." },
+      { "name": "run", "type": "(input: string?) -> ...any", "doc": "Runs it, as a coroutine. `input` is the slash command's arguments. Return `false` before the first yield to decline the key, so it reaches its target; any other return handles it." }
+    ] },
+    { "name": "PanelProps", "kind": "record", "doc": "What a panel's render receives.", "fields": [
+      { "name": "sessionId", "type": "string", "doc": "The routed session." },
+      { "name": "directory", "type": "string", "doc": "Its workspace folder." },
+      { "name": "instance", "type": "string?", "doc": "An instance panel's tab." },
+      { "name": "active", "type": "boolean", "doc": "The tab is selected." },
+      { "name": "placement", "type": "\"side\" | \"mobile\"", "doc": "Where it renders." }
+    ] },
+    { "name": "PanelTabLabelProps", "kind": "record", "doc": "What a panel's `label` render receives.", "fields": [
+      { "name": "sessionId", "type": "string", "doc": "The routed session." },
+      { "name": "instance", "type": "string?", "doc": "An instance panel's tab." },
+      { "name": "active", "type": "boolean", "doc": "The tab is selected." },
+      { "name": "preview", "type": "boolean", "doc": "The tab is the replaceable preview tab." }
+    ] },
+    { "name": "PanelTab", "kind": "record", "rust": true, "doc": "One tab an instance panel lists.", "fields": [
+      { "name": "instance", "type": "string", "doc": "The instance id." },
+      { "name": "title", "type": "string", "doc": "The accessible name, and the label without a `label` render." },
+      { "name": "pinned", "type": "boolean?", "doc": "Listed before every other tab, never closed or dragged." },
+      { "name": "missing", "type": "boolean?", "doc": "Struck through, such as a deleted file." },
+      { "name": "file", "type": "string?", "doc": "The workspace file the tab shows." }
+    ] },
+    { "name": "PanelSpec", "kind": "record", "rust": true, "official": "Panel", "doc": "A panel: tabs in a session's side region.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string", "doc": "Its tab and launcher title." },
+      { "name": "description", "type": "string?", "doc": "The launcher card's second line." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon." },
+      { "name": "order", "type": "integer?", "doc": "Launcher order, ascending." },
+      { "name": "wide", "type": "boolean?", "doc": "Asks for the wider session minimum while open." },
+      { "name": "width", "type": "number?", "doc": "A width of its own for the side region, in points." },
+      { "name": "transient", "type": "boolean?", "doc": "Its tabs are not restored." },
+      { "name": "launcher", "type": "boolean?", "doc": "Offered in the + menu and the New tab view. Defaults to true." },
+      { "name": "list", "type": "((sessionId: string, open: { string }) -> { PanelTab })?", "doc": "Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`." },
+      { "name": "render", "type": "(view: View, props: PanelProps) -> UiNode?", "doc": "Draws a tab's content." },
+      { "name": "label", "type": "((view: View, props: PanelTabLabelProps) -> UiNode?)?", "doc": "Draws the tab's label in the strip, instead of its icon and title." },
+      { "name": "onClose", "type": "((props: PanelProps) -> ())?", "doc": "Runs after the tab leaves the strip." },
+      { "name": "onFocus", "type": "((props: PanelProps) -> ())?", "doc": "Runs as the tab becomes selected." }
+    ] },
+    { "name": "SettingSpec", "kind": "record", "rust": true, "doc": "A row in Settings › Plugins, under this plugin.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its search id." },
+      { "name": "title", "type": "string", "doc": "The row's title." },
+      { "name": "description", "type": "string?", "doc": "A line under the title." },
+      { "name": "keywords", "type": "string?", "doc": "More words settings search matches." },
+      { "name": "render", "type": "(view: View) -> UiNode?", "doc": "Draws the row's control." }
+    ] },
+    { "name": "SettingEntry", "kind": "record", "rust": true, "doc": "A settings search entry, indexed without drawing the page.", "fields": [
+      { "name": "id", "type": "string", "doc": "The `ui.settingsRow` id search reveals." },
+      { "name": "title", "type": "string", "doc": "The title in search results." },
+      { "name": "description", "type": "string?", "doc": "Its second line." },
+      { "name": "keywords", "type": "string?", "doc": "More words search matches." }
+    ] },
+    { "name": "SettingsPageProps", "kind": "record", "doc": "What a settings page's render receives.", "fields": [
+      { "name": "target", "type": "string?", "doc": "The entry id settings search is revealing." }
+    ] },
+    { "name": "SettingsPageSpec", "kind": "record", "rust": true, "official": "SettingsPage", "doc": "A settings page, or a section on a host page.", "fields": [
+      { "name": "id", "type": "string", "doc": "The page's id, also for `Layout:OpenSettings`." },
+      { "name": "title", "type": "string", "doc": "Its navigation label." },
+      { "name": "icon", "type": "IconName?", "doc": "Its navigation icon." },
+      { "name": "page", "type": "HostSettingsPage?", "doc": "Adds a section to this host page instead of a page of its own." },
+      { "name": "about", "type": "boolean?", "doc": "Lists the page in the About group, such as release notes." },
+      { "name": "entries", "type": "{ SettingEntry }?", "doc": "Search entries." },
+      { "name": "render", "type": "(view: View, props: SettingsPageProps) -> UiNode?", "doc": "Draws the page or section." }
+    ] },
+    { "name": "MenuItemSpec", "kind": "record", "rust": true, "official": "MenuItem", "doc": "An item of a host menu.", "fields": [
+      { "name": "menu", "type": "MenuName", "doc": "The menu." },
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string", "doc": "Its label." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order." },
+      { "name": "icon", "type": "IconName?", "doc": "`session.panel`: its icon." },
+      { "name": "keybind", "type": "string?", "doc": "`session.panel`: a published command id whose shortcut it shows." },
+      { "name": "description", "type": "string?", "doc": "`session.panel`: muted detail in launcher lists." },
+      { "name": "primary", "type": "boolean?", "doc": "`session.panel`: + runs this item directly." },
+      { "name": "when", "type": "((target: string) -> boolean)?", "doc": "`server.row`: lists it only for rows where it returns true." },
+      { "name": "enabled", "type": "((target: string) -> boolean)?", "doc": "`server.row`: shows it disabled while it returns false." },
+      { "name": "run", "type": "(target: string?) -> ()", "doc": "Runs it. `server.row` passes the row's server key." }
+    ] },
+    { "name": "MenubarItemSpec", "kind": "record", "rust": true, "official": "MenubarItem", "doc": "An item of the app menu bar.", "fields": [
+      { "name": "menu", "type": "MenubarMenu", "doc": "The submenu." },
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "label", "type": "string", "doc": "Its label." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order." },
+      { "name": "bind", "type": "string?", "doc": "Its accelerator, such as `\"mod+,\"`." },
+      { "name": "enabled", "type": "boolean?", "doc": "False shows it disabled." },
+      { "name": "run", "type": "() -> ()", "doc": "Runs it." }
+    ] },
+    { "name": "LinkHandlerSpec", "kind": "record", "rust": true, "official": "LinkHandler", "doc": "Opens local links it matches. The matching handler with the highest priority wins.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "priority", "type": "integer?", "doc": "Higher wins. Defaults to 0." },
+      { "name": "match", "type": "(link: Link) -> boolean", "doc": "Whether it opens the link. It must not yield." },
+      { "name": "open", "type": "(link: Link) -> ()", "doc": "Opens a link `match` accepted." },
+      { "name": "exists", "type": "((link: Link) -> boolean)?", "doc": "Whether the target exists, so text renders as a link. It must not read file contents." }
+    ] },
+    { "name": "TitlebarItemView", "kind": "record", "rust": true, "doc": "What a titlebar item shows.", "fields": [
+      { "name": "label", "type": "string", "doc": "The visible label." },
+      { "name": "title", "type": "string?", "doc": "The accessible name, when it differs from the label." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon. Defaults to a download arrow." },
+      { "name": "busy", "type": "boolean?", "doc": "Shows a spinner and disables it." },
+      { "name": "pressed", "type": "boolean?", "doc": "Shows it pressed." }
+    ] },
+    { "name": "TitlebarItemSpec", "kind": "record", "rust": true, "official": "TitlebarItem", "doc": "A pill at the titlebar's end.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "show", "type": "() -> TitlebarItemView?", "doc": "What it shows, or nil to hide it. Called again after `Contribution:Refresh` and after any signal the plugin fires." },
+      { "name": "run", "type": "(() -> ())?", "doc": "Runs when the user clicks it." }
+    ] },
+    { "name": "ComposerPillProps", "kind": "record", "doc": "What a composer pill receives.", "fields": [
+      { "name": "sessionId", "type": "string", "doc": "The session whose composer it sits above." },
+      { "name": "directory", "type": "string", "doc": "Its workspace folder." }
+    ] },
+    { "name": "ComposerPillRow", "kind": "record", "rust": true, "doc": "One row of the menu a composer pill opens.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the pill." },
+      { "name": "label", "type": "string", "doc": "Its text." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon." },
+      { "name": "tone", "type": "Tone?", "doc": "Colors its icon." },
+      { "name": "detail", "type": "string?", "doc": "Muted text at its end." },
+      { "name": "run", "type": "(() -> ())?", "doc": "Runs when the user picks it." }
+    ] },
+    { "name": "ComposerPillView", "kind": "record", "rust": true, "doc": "What a composer pill shows above one session's composer.", "fields": [
+      { "name": "label", "type": "string", "doc": "The capsule's text." },
+      { "name": "icon", "type": "IconName?", "doc": "The capsule's icon." },
+      { "name": "tone", "type": "Tone?", "doc": "Colors the icon." },
+      { "name": "title", "type": "string?", "doc": "The accessible name and the popover heading, when it differs from `label`." },
+      { "name": "rows", "type": "{ ComposerPillRow }?", "doc": "The menu it opens, when the pill has no `renderMenu`." }
+    ] },
+    { "name": "ComposerPillSpec", "kind": "record", "rust": true, "official": "ComposerPill", "doc": "A pill in the row above a session's composer.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order among plugin pills." },
+      { "name": "show", "type": "(props: ComposerPillProps) -> ComposerPillView?", "doc": "What it shows above this session's composer, or nil for nothing. It must not yield." },
+      { "name": "renderMenu", "type": "((view: View, props: ComposerPillProps) -> UiNode?)?", "doc": "Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal." },
+      { "name": "run", "type": "((props: ComposerPillProps) -> ())?", "doc": "Runs on a click when the pill has no menu." }
+    ] },
+    { "name": "CodeBlockProps", "kind": "record", "doc": "One complete fenced code block.", "fields": [
+      { "name": "code", "type": "string", "doc": "The source between the fences." },
+      { "name": "language", "type": "string", "doc": "The fence's language, lowercased. Empty when it has none." },
+      { "name": "sessionId", "type": "string?", "doc": "The session that shows it." }
+    ] },
+    { "name": "CodeBlockSpec", "kind": "record", "rust": true, "official": "CodeBlock", "doc": "Renders the fenced code blocks of some languages as your own UI.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "languages", "type": "{ string }", "doc": "The languages it renders. The host resolves no aliases." },
+      { "name": "render", "type": "(view: View, props: CodeBlockProps) -> UiNode?", "doc": "Draws a block. Return nil to keep the highlighted code." }
+    ] },
+    { "name": "CodeBlockActionSpec", "kind": "record", "rust": true, "official": "CodeBlockAction", "doc": "A button beside a code block's Copy button.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "languages", "type": "{ string }", "doc": "The languages whose blocks show it." },
+      { "name": "icon", "type": "IconName", "doc": "Its icon." },
+      { "name": "title", "type": "string", "doc": "Its accessible name and tooltip." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order, before Copy." },
+      { "name": "run", "type": "(props: CodeBlockProps) -> ()", "doc": "Runs on a click." }
+    ] },
+    { "name": "SlotProps", "kind": "record", "doc": "What a slot's render receives.", "fields": [
+      { "name": "sessionId", "type": "string?", "doc": "Session slots: the session." },
+      { "name": "directory", "type": "string?", "doc": "Session slots: its workspace folder." },
+      { "name": "active", "type": "boolean?", "doc": "`session.header`: the timeline is on screen." },
+      { "name": "compact", "type": "boolean?", "doc": "`session.header`: the title needs the room, so draw the compact form." },
+      { "name": "shown", "type": "boolean?", "doc": "`session.location.menu`: the menu is open." }
+    ] },
+    { "name": "SlotSpec", "kind": "record", "rust": true, "official": "Slot", "doc": "Content for one of the shell's slots.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "at", "type": "SlotName", "doc": "The slot." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order." },
+      { "name": "render", "type": "(view: View, props: SlotProps) -> UiNode?", "doc": "Draws its content, or nil for nothing." }
+    ] },
+    { "name": "ThemeSeeds", "kind": "record", "rust": true, "doc": "The seed colors a theme variant generates its scales from, as `#RRGGBB` strings.", "fields": [
+      { "name": "neutral", "type": "string", "doc": "The gray scale's base." },
+      { "name": "primary", "type": "string", "doc": "The brand and accent color." },
+      { "name": "success", "type": "string", "doc": "Success states." },
+      { "name": "warning", "type": "string", "doc": "Warning states." },
+      { "name": "error", "type": "string", "doc": "Error states." },
+      { "name": "info", "type": "string", "doc": "Informational states." },
+      { "name": "interactive", "type": "string", "doc": "Links and interactive elements." },
+      { "name": "diffAdd", "type": "string", "doc": "Added lines." },
+      { "name": "diffDelete", "type": "string", "doc": "Deleted lines." }
+    ] },
+    { "name": "ThemeVariant", "kind": "record", "rust": true, "doc": "One color scheme of a theme.", "fields": [
+      { "name": "seeds", "type": "ThemeSeeds", "doc": "The seed colors." },
+      { "name": "overrides", "type": "{ [string]: string }?", "doc": "Exact values for single tokens of the app's theme file format." }
+    ] },
+    { "name": "ThemeSpec", "kind": "record", "rust": true, "official": "Theme", "doc": "A color theme, listed in Settings › Appearance as `<plugin>:<id>`.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "name", "type": "string", "doc": "The name the theme list shows." },
+      { "name": "light", "type": "ThemeVariant", "doc": "The light scheme." },
+      { "name": "dark", "type": "ThemeVariant", "doc": "The dark scheme." }
+    ] },
+    { "name": "FileViewerProps", "kind": "record", "doc": "What a file viewer's render receives.", "fields": [
+      { "name": "path", "type": "string", "doc": "The file." },
+      { "name": "sessionId", "type": "string?", "doc": "The session that opened it." },
+      { "name": "directory", "type": "string", "doc": "Its workspace folder." }
+    ] },
+    { "name": "FileViewerSpec", "kind": "record", "rust": true, "official": "FileViewer", "doc": "Shows files with some extensions in the file panel.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string", "doc": "Its name, such as `\"Word document\"`." },
+      { "name": "extensions", "type": "{ string }", "doc": "The extensions it shows, without the dot." },
+      { "name": "render", "type": "(view: View, props: FileViewerProps) -> UiNode?", "doc": "Draws the file." }
+    ] },
+    { "name": "ServerRowProps", "kind": "record", "doc": "What a server source's row render receives.", "fields": [
+      { "name": "id", "type": "string", "doc": "The entry's id." },
+      { "name": "key", "type": "string", "doc": "Its key: `<plugin>:<id>`." },
+      { "name": "health", "type": "ServerHealth?", "doc": "Its latest health check." }
+    ] },
+    { "name": "ServerSourceSpec", "kind": "record", "rust": true, "official": "Server", "doc": "A source of servers, such as SSH hosts or WSL distributions.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string", "doc": "Its name in Settings › Servers." },
+      { "name": "order", "type": "integer?", "doc": "Ascending order among sources." },
+      { "name": "row", "type": "((view: View, props: ServerRowProps) -> UiNode?)?", "doc": "Draws an entry's connection row in Settings › Servers. Window halves only." },
+      { "name": "connect", "type": "((id: string) -> boolean)?", "doc": "Starts an entry that is not ready, as a coroutine. Return true once it is." },
+      { "name": "remove", "type": "((id: string) -> ())?", "doc": "Runs before the host forgets an entry." }
+    ] },
+    { "name": "ServerSource", "kind": "object", "doc": "A server source a plugin added.", "members": [
+      { "name": "SetEntries", "kind": "method", "sig": "(entries: { ServerEntry }, ready: boolean) -> ()", "doc": "Replaces its entries. Once `ready`, the list is complete and the host forgets servers it no longer lists." },
+      { "name": "Withdraw", "kind": "method", "sig": "() -> ()", "doc": "Removes the source." }
+    ] },
+    { "name": "DialogProps", "kind": "record", "doc": "What a dialog's render receives.", "fields": [
+      { "name": "data", "type": "{ [string]: any }?", "doc": "What `Dialog:Open` passed." }
+    ] },
+    { "name": "DialogSpec", "kind": "record", "rust": true, "doc": "A modal dialog, opened with `Dialog:Open`.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
+      { "name": "size", "type": "DialogSize?", "doc": "Its width." },
+      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame." },
+      { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
+    ] },
+    { "name": "PopoverProps", "kind": "record", "doc": "What a popover's render receives.", "fields": [
+      { "name": "data", "type": "{ [string]: any }?", "doc": "What `Popover:Open` or `ui.flyoutRow` passed." }
+    ] },
+    { "name": "PopoverSpec", "kind": "record", "rust": true, "doc": "Popover content, opened with `Popover:Open` or `ui.flyoutRow`. The host owns placement, focus and dismissal.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its id within the plugin." },
+      { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
+      { "name": "width", "type": "number?", "doc": "Its width in points." },
+      { "name": "render", "type": "(view: View, props: PopoverProps) -> UiNode?", "doc": "Draws its content." }
+    ] },
+    { "name": "McpToolSpec", "kind": "record", "rust": true, "official": "McpTool", "doc": "A tool on the app's client MCP server, named `<plugin>_<name>`.", "fields": [
+      { "name": "name", "type": "string", "doc": "Its name within the plugin." },
+      { "name": "description", "type": "string", "doc": "What it does, for the model." },
+      { "name": "inputSchema", "type": "{ [string]: any }", "doc": "Its arguments' JSON Schema." },
+      { "name": "call", "type": "(args: { [string]: any }) -> any", "doc": "Runs it as a coroutine and returns its result: a string, or a table sent as JSON. Raise an error to fail." }
+    ] }
+  ],
+  "context": {
+    "doc": "What a plugin half's setup function receives.",
+    "members": [
+      { "name": "id", "kind": "field", "type": "string", "halves": ["window", "app"], "doc": "The plugin's id." },
+      { "name": "half", "kind": "field", "type": "Half", "halves": ["window", "app"], "doc": "Which half this is." },
+      { "name": "contract", "kind": "field", "type": "string", "halves": ["window", "app"], "doc": "The contract version the host implements, such as `\"1.0\"`." },
+      { "name": "CreateSignal", "kind": "method", "generics": "T...", "sig": "() -> ScriptSignal<T...>", "halves": ["window", "app"], "doc": "A signal this plugin fires itself." },
+      { "name": "CreateEditor", "kind": "method", "sig": "(initial: string?) -> Editor", "halves": ["window"], "doc": "A host-owned text field's content. The n-th editor a setup creates is the same field after a hot reload." },
+      { "name": "BindHotState", "kind": "method", "sig": "(save: () -> any, load: (state: any) -> ()) -> ()", "halves": ["window", "app"], "doc": "Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new." }
+    ]
+  },
+  "contributions": [
+    { "kind": "command", "method": "AddCommand", "spec": "CommandSpec", "halves": ["window"], "doc": "Adds a command to the palette, its keybind and its slash command." },
+    { "kind": "panel", "method": "AddPanel", "spec": "PanelSpec", "halves": ["window"], "doc": "Adds a panel: tabs in the session's side region." },
+    { "kind": "setting", "method": "AddSetting", "spec": "SettingSpec", "halves": ["window"], "doc": "Adds a row to Settings › Plugins." },
+    { "kind": "settingsPage", "method": "AddSettingsPage", "spec": "SettingsPageSpec", "halves": ["window"], "doc": "Adds a settings page, or a section on a host page." },
+    { "kind": "menuItem", "method": "AddMenuItem", "spec": "MenuItemSpec", "halves": ["window"], "doc": "Adds an item to a host menu." },
+    { "kind": "menubarItem", "method": "AddMenubarItem", "spec": "MenubarItemSpec", "halves": ["app"], "doc": "Adds an item to the app menu bar." },
+    { "kind": "linkHandler", "method": "AddLinkHandler", "spec": "LinkHandlerSpec", "halves": ["window"], "doc": "Opens local links it matches." },
+    { "kind": "titlebarItem", "method": "AddTitlebarItem", "spec": "TitlebarItemSpec", "halves": ["window"], "doc": "Adds a pill at the titlebar's end." },
+    { "kind": "composerPill", "method": "AddComposerPill", "spec": "ComposerPillSpec", "halves": ["window"], "doc": "Adds a pill above the session composer." },
+    { "kind": "codeBlock", "method": "AddCodeBlock", "spec": "CodeBlockSpec", "halves": ["window"], "doc": "Renders fenced code blocks of some languages." },
+    { "kind": "codeBlockAction", "method": "AddCodeBlockAction", "spec": "CodeBlockActionSpec", "halves": ["window"], "doc": "Adds a button beside code blocks' Copy button." },
+    { "kind": "slot", "method": "AddSlot", "spec": "SlotSpec", "halves": ["window"], "doc": "Fills one of the shell's slots." },
+    { "kind": "theme", "method": "AddTheme", "spec": "ThemeSpec", "halves": ["window"], "doc": "Adds a color theme." },
+    { "kind": "fileViewer", "method": "AddFileViewer", "spec": "FileViewerSpec", "halves": ["window"], "doc": "Shows files with some extensions." },
+    { "kind": "serverSource", "method": "AddServerSource", "spec": "ServerSourceSpec", "returns": "ServerSource", "halves": ["window", "app"], "doc": "Adds a source of servers. Add it in the app half so every window shares one list." },
+    { "kind": "dialog", "method": "AddDialog", "spec": "DialogSpec", "halves": ["window"], "doc": "Adds a modal dialog, opened with `Dialog:Open`." },
+    { "kind": "popover", "method": "AddPopover", "spec": "PopoverSpec", "halves": ["window"], "doc": "Adds popover content, opened with `Popover:Open` or `ui.flyoutRow`." },
+    { "kind": "mcpTool", "method": "AddMcpTool", "spec": "McpToolSpec", "halves": ["window", "app"], "doc": "Adds a tool to the app's client MCP server." }
+  ],
+  "services": [
+    { "name": "Sessions", "halves": ["window", "app"], "doc": "The sessions the app holds.", "members": [
+      { "name": "Get", "kind": "method", "sig": "(sessionId: string) -> Session?", "doc": "A session by id." },
+      { "name": "Routed", "kind": "method", "sig": "() -> Session?", "doc": "The session this window shows. Always nil in the app half." },
+      { "name": "Open", "kind": "method", "sig": "() -> { Session }", "doc": "The sessions of open tabs." },
+      { "name": "Changed", "kind": "signal", "payload": "Session", "doc": "Fires with a session after it changes." },
+      { "name": "RoutedChanged", "kind": "signal", "payload": "Session?", "doc": "Fires as this window routes another session, or none." }
+    ] },
+    { "name": "Models", "halves": ["window", "app"], "doc": "The server's model catalog.", "members": [
+      { "name": "Get", "kind": "method", "sig": "(providerId: string, modelId: string) -> ModelInfo", "doc": "How the catalog names a model." },
+      { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the catalog changes." }
+    ] },
+    { "name": "Server", "halves": ["window", "app"], "doc": "The OpenCode server this window is connected to. In the app half, the app's own server.", "members": [
+      { "name": "RequestAsync", "kind": "method", "sig": "(method: HttpMethod, path: string, body: any?) -> ServerResponse", "yields": true, "doc": "Sends a request with a JSON body, off the UI thread." },
+      { "name": "Resource", "kind": "method", "sig": "(path: string, version: MemoVersion) -> Resource", "doc": "A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands." },
+      { "name": "Invalidate", "kind": "method", "sig": "(prefix: string) -> ()", "doc": "Drops this plugin's cached reads whose path starts with `prefix`." },
+      { "name": "OnEvent", "kind": "method", "sig": "(prefix: string) -> Signal<ServerEvent>", "doc": "A signal for the server's events whose type starts with `prefix`." },
+      { "name": "EncodeUri", "kind": "method", "sig": "(text: string) -> string", "doc": "Percent-encodes text for a path or query." },
+      { "name": "Version", "kind": "method", "sig": "() -> string?", "doc": "The version it reported." },
+      { "name": "IsLocal", "kind": "method", "sig": "() -> boolean", "doc": "It runs on this machine." },
+      { "name": "CanWrite", "kind": "method", "sig": "() -> boolean", "doc": "The app may change things on it." },
+      { "name": "Connected", "kind": "signal", "payload": "boolean", "doc": "Fires as its event connection goes up or down." }
+    ] },
+    { "name": "Servers", "halves": ["window", "app"], "doc": "The servers the app lists.", "members": [
+      { "name": "List", "kind": "method", "sig": "() -> { ServerInfo }", "doc": "Every listed server." },
+      { "name": "Current", "kind": "method", "sig": "() -> string?", "doc": "The key of the server this window is connected to." },
+      { "name": "Health", "kind": "method", "sig": "(key: string) -> ServerHealth?", "doc": "A server's latest health check." },
+      { "name": "Connect", "kind": "method", "sig": "(key: string) -> ()", "doc": "Connects this window to a server and goes to its Home." },
+      { "name": "Changed", "kind": "signal", "payload": "()", "doc": "Fires when the list or a server's state changes." }
+    ] },
+    { "name": "Http", "halves": ["window", "app"], "doc": "HTTP requests off the UI thread.", "members": [
+      { "name": "FetchAsync", "kind": "method", "sig": "(request: HttpRequest) -> HttpResponse", "yields": true, "doc": "Sends a request." }
+    ] },
+    { "name": "Process", "halves": ["window", "app"], "doc": "Child processes the host supervises.", "members": [
+      { "name": "Spawn", "kind": "method", "sig": "(spec: ProcessSpec) -> ProcessHandle", "doc": "Starts a process. A program that cannot start still returns a handle, whose `Exited` fires with the error." },
+      { "name": "RunAsync", "kind": "method", "sig": "(spec: ProcessSpec) -> ProcessOutput", "yields": true, "doc": "Starts a process and yields until it exits, with all its output." }
+    ] },
+    { "name": "Store", "halves": ["window", "app"], "doc": "Values the host saves for this plugin. Both halves and every window share one copy.", "members": [
+      { "name": "Value", "kind": "method", "generics": "T", "sig": "(name: string, default: T) -> StoreValue<T>", "doc": "A global value." },
+      { "name": "SessionValue", "kind": "method", "generics": "T", "sig": "(name: string, default: T) -> SessionStoreValue<T>", "doc": "A value per session." }
+    ] },
+    { "name": "Contracts", "halves": ["window", "app"], "doc": "Typed values plugins share. A plugin may provide only ids under its own id.", "members": [
+      { "name": "Provide", "kind": "method", "sig": "(id: string, value: any) -> Contribution", "doc": "Provides `value` under `id` (`<plugin>` or `<plugin>.<name>`). From the app half, for the whole process; from a window half, for that window." },
+      { "name": "Use", "kind": "method", "sig": "(id: string) -> Live<any>", "doc": "Follows a contract another plugin provides. Keep working while it is not active." },
+      { "name": "Summary", "kind": "method", "sig": "() -> { [string]: LiveState }", "doc": "Every contract id this half sees, with its state." }
+    ] },
+    { "name": "Console", "halves": ["window", "app"], "doc": "The Studio console. `print` and `warn` write here too.", "members": [
+      { "name": "Log", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes an information line." },
+      { "name": "Warn", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes a warning." },
+      { "name": "Error", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes an error, without raising one." }
+    ] },
+    { "name": "Toast", "halves": ["window", "app"], "doc": "Short messages in a corner of the window. From the app half, in the focused window.", "members": [
+      { "name": "Show", "kind": "method", "sig": "(spec: ToastSpec) -> ToastHandle", "doc": "Shows a toast." },
+      { "name": "Info", "kind": "method", "sig": "(title: string, description: string?) -> ToastHandle", "doc": "Shows a `default` toast." },
+      { "name": "Success", "kind": "method", "sig": "(title: string, description: string?) -> ToastHandle", "doc": "Shows a `success` toast." },
+      { "name": "Error", "kind": "method", "sig": "(title: string, description: string?) -> ToastHandle", "doc": "Shows an `error` toast that stays until dismissed." }
+    ] },
+    { "name": "Popover", "halves": ["window"], "doc": "This plugin's popovers. The host places them, moves focus and closes them.", "members": [
+      { "name": "Open", "kind": "method", "sig": "(spec: PopoverOpenSpec) -> ()", "doc": "Opens a popover beside an element, closing any other of this plugin's." },
+      { "name": "Toggle", "kind": "method", "sig": "(spec: PopoverOpenSpec) -> ()", "doc": "Opens it, or closes it when it is open." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes this plugin's open popover." },
+      { "name": "IsOpen", "kind": "method", "sig": "(id: string) -> boolean", "doc": "Whether a popover is open." }
+    ] },
+    { "name": "Dialog", "halves": ["window"], "doc": "This plugin's modal dialogs.", "members": [
+      { "name": "Open", "kind": "method", "sig": "(id: string, data: { [string]: any }?) -> ()", "doc": "Opens a dialog, closing any other of this plugin's." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes this plugin's open dialog." },
+      { "name": "IsOpen", "kind": "method", "sig": "(id: string) -> boolean", "doc": "Whether a dialog is open." }
+    ] },
+    { "name": "Menu", "halves": ["window"], "doc": "The app's own menus.", "members": [
+      { "name": "OpenAsync", "kind": "method", "sig": "(spec: MenuOpenSpec) -> string?", "yields": true, "doc": "Opens a menu beside an element and yields until it closes. Returns the picked item's id, or nil." }
+    ] },
+    { "name": "Layout", "halves": ["window"], "doc": "Panels, settings and drafts in this window.", "members": [
+      { "name": "OpenPanel", "kind": "method", "sig": "(panelId: string, options: OpenPanelOptions?) -> ()", "doc": "Opens or selects one of this plugin's panels." },
+      { "name": "TogglePanel", "kind": "method", "sig": "(panelId: string, options: OpenPanelOptions?) -> ()", "doc": "Opens a panel, or closes it when it shows." },
+      { "name": "ClosePanel", "kind": "method", "sig": "(panelId: string, options: OpenPanelOptions?) -> ()", "doc": "Closes a panel's tab." },
+      { "name": "PanelState", "kind": "method", "sig": "(panelId: string, sessionId: string?) -> PanelState", "doc": "Where a panel is in a session. Defaults to the routed session." },
+      { "name": "OpenSettings", "kind": "method", "sig": "(pageId: string?) -> ()", "doc": "Opens Settings at one of this plugin's pages, or at the top." },
+      { "name": "NewDraft", "kind": "method", "sig": "(directory: string, prompt: string?) -> ()", "doc": "Opens a new session's draft in a folder, with a prompt typed in." },
+      { "name": "Narrow", "kind": "method", "sig": "() -> boolean", "doc": "The window is narrow-screen sized." }
+    ] },
+    { "name": "Links", "halves": ["window"], "doc": "Routes local links to the plugins that handle them.", "members": [
+      { "name": "Open", "kind": "method", "sig": "(link: Link) -> boolean", "doc": "Opens a link with the best handler. False when no handler matches." },
+      { "name": "Exists", "kind": "method", "sig": "(link: Link) -> boolean", "doc": "Whether a handler matches and says the target exists." }
+    ] },
+    { "name": "Commands", "halves": ["window"], "doc": "Published commands, as the palette runs them.", "members": [
+      { "name": "Run", "kind": "method", "sig": "(commandId: string, input: string?) -> boolean", "doc": "Runs a command by id: `<plugin>.<id>` or one of the app's. False when it is unknown or disabled." },
+      { "name": "Keybind", "kind": "method", "sig": "(commandId: string) -> string?", "doc": "A command's effective keybind." }
+    ] },
+    { "name": "Theme", "halves": ["window", "app"], "doc": "The theme and the user's appearance settings.", "members": [
+      { "name": "Current", "kind": "method", "sig": "() -> ThemeInfo", "doc": "The theme in use." },
+      { "name": "IsDark", "kind": "method", "sig": "() -> boolean", "doc": "The dark scheme is in use." },
+      { "name": "Resolve", "kind": "method", "sig": "(color: Color) -> string", "doc": "A color as `#RRGGBBAA` for the current theme." },
+      { "name": "Font", "kind": "method", "sig": "(family: FontFamily) -> string", "doc": "The user's font family name." },
+      { "name": "Changed", "kind": "signal", "payload": "ThemeInfo", "doc": "Fires when the theme or scheme changes." }
+    ] },
+    { "name": "App", "halves": ["window", "app"], "doc": "The running app.", "members": [
+      { "name": "Version", "kind": "field", "type": "string", "doc": "The app's version." },
+      { "name": "Channel", "kind": "field", "type": "Channel", "doc": "Its release channel." },
+      { "name": "Platform", "kind": "field", "type": "Platform", "doc": "The operating system." },
+      { "name": "Locale", "kind": "method", "sig": "() -> string", "doc": "The interface language, such as `\"en\"`." },
+      { "name": "Arg", "kind": "method", "sig": "(name: string) -> string?", "doc": "The value of command-line option `--name`." },
+      { "name": "LogsDir", "kind": "method", "sig": "() -> string?", "doc": "The folder the app writes its logs to." },
+      { "name": "DownloadsDir", "kind": "method", "sig": "() -> string?", "doc": "The folder the app saves downloads to." },
+      { "name": "LocaleChanged", "kind": "signal", "payload": "string", "doc": "Fires with the new interface language." }
+    ] },
+    { "name": "System", "halves": ["window", "app"], "doc": "The clipboard, the system browser and file manager, and the clock.", "members": [
+      { "name": "CopyText", "kind": "method", "sig": "(text: string) -> ()", "doc": "Puts text on the clipboard." },
+      { "name": "OpenExternal", "kind": "method", "sig": "(url: string) -> ()", "doc": "Opens a URL in the system's browser." },
+      { "name": "Reveal", "kind": "method", "sig": "(path: string) -> ()", "doc": "Shows a path in the system's file manager." },
+      { "name": "Now", "kind": "method", "sig": "() -> number", "doc": "The wall clock in milliseconds since the Unix epoch." },
+      { "name": "UtcOffset", "kind": "method", "sig": "(ms: number) -> number", "doc": "The local time zone's offset from UTC in seconds, at that time." }
+    ] },
+    { "name": "Notifications", "halves": ["window", "app"], "doc": "System notifications that follow the user's notification settings.", "members": [
+      { "name": "Notify", "kind": "method", "sig": "(spec: NotificationSpec) -> ()", "doc": "Shows a notification when the window is not in front." }
+    ] },
+    { "name": "Workspace", "halves": ["window", "app"], "doc": "Files in the workspace and the apps that open them.", "members": [
+      { "name": "ReadFileAsync", "kind": "method", "sig": "(path: string) -> ReadResult", "yields": true, "doc": "Reads a text file through the server." },
+      { "name": "SaveDownloadAsync", "kind": "method", "sig": "(name: string, content: string) -> SaveResult", "yields": true, "doc": "Saves content as a file in the downloads folder." },
+      { "name": "OpenDocument", "kind": "method", "sig": "(path: string) -> CodeDocument", "doc": "Opens a file for `ui.codeView`." },
+      { "name": "OpenTree", "kind": "method", "sig": "(directory: string) -> FileTreeModel", "doc": "Opens a folder for `ui.fileTree`." },
+      { "name": "OpenInApps", "kind": "method", "sig": "() -> { OpenInApp }", "doc": "The installed apps that can open a path." },
+      { "name": "OpenIn", "kind": "method", "sig": "(appId: string, path: string) -> ()", "doc": "Opens a path in one of those apps." },
+      { "name": "FileChanged", "kind": "signal", "payload": "string", "doc": "Fires with a workspace path after it changes on disk." }
+    ] },
+    { "name": "Diff", "halves": ["window"], "doc": "Session changes for `ui.diffView`.", "members": [
+      { "name": "Open", "kind": "method", "sig": "(spec: DiffOpenSpec) -> DiffDocument", "doc": "Opens a set of changes." }
+    ] },
+    { "name": "Terminal", "halves": ["window", "app"], "doc": "Terminal sessions on the server, for `ui.terminalSurface`.", "members": [
+      { "name": "Create", "kind": "method", "sig": "(spec: TerminalSpec) -> PtySession", "doc": "Starts a terminal session." },
+      { "name": "Attach", "kind": "method", "sig": "(id: string) -> PtySession?", "doc": "Reattaches to a running session by id." }
+    ] },
+    { "name": "Browser", "halves": ["window", "app"], "doc": "Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them.", "members": [
+      { "name": "Open", "kind": "method", "sig": "(spec: BrowserOpenSpec) -> BrowserTab", "doc": "Opens a page." },
+      { "name": "Tabs", "kind": "method", "sig": "() -> { BrowserTab }", "doc": "This plugin's open pages." },
+      { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "The browser engine is installed and runs on this platform." }
+    ] },
+    { "name": "Office", "halves": ["window", "app"], "doc": "Office documents laid out and drawn by the host.", "members": [
+      { "name": "OpenAsync", "kind": "method", "sig": "(path: string) -> OfficeDocument?", "yields": true, "doc": "Opens a `.docx`, `.xlsx` or `.pptx` file. Nil when it cannot." }
+    ] },
+    { "name": "Updater", "halves": ["window", "app"], "doc": "The app's own updates.", "members": [
+      { "name": "State", "kind": "method", "sig": "() -> UpdaterState", "doc": "Where it stands." },
+      { "name": "Check", "kind": "method", "sig": "() -> ()", "doc": "Checks for a newer version now." },
+      { "name": "Download", "kind": "method", "sig": "() -> ()", "doc": "Downloads the available version." },
+      { "name": "Install", "kind": "method", "sig": "() -> ()", "doc": "Restarts into the downloaded version." },
+      { "name": "StateChanged", "kind": "signal", "payload": "UpdaterState", "doc": "Fires with each new state." }
+    ] },
+    { "name": "Diagnostics", "halves": ["window", "app"], "doc": "Developer diagnostics. Local and beta builds only; elsewhere every method returns nil.", "members": [
+      { "name": "Memory", "kind": "method", "sig": "() -> { [string]: any }?", "doc": "The process's memory counters." },
+      { "name": "Metrics", "kind": "method", "sig": "(pluginId: string?) -> PluginMetrics?", "doc": "A plugin's live costs. Defaults to this plugin." },
+      { "name": "Get", "kind": "method", "sig": "(name: string) -> any", "doc": "A developer setting, such as an experiment." },
+      { "name": "Set", "kind": "method", "sig": "(name: string, value: any) -> ()", "doc": "Changes a developer setting." },
+      { "name": "HeapSnapshotAsync", "kind": "method", "sig": "() -> SaveResult", "yields": true, "doc": "Writes a heap snapshot to the downloads folder." }
+    ] },
+    { "name": "Power", "halves": ["window", "app"], "doc": "Display sleep.", "members": [
+      { "name": "KeepAwake", "kind": "method", "sig": "(reason: string) -> PowerLock", "doc": "Keeps the display awake until the lock is released or the plugin goes away." }
+    ] },
+    { "name": "Qr", "halves": ["window", "app"], "doc": "QR codes.", "members": [
+      { "name": "Encode", "kind": "method", "sig": "(text: string) -> QrCode", "doc": "Encodes text, at medium error correction." }
+    ] },
+    { "name": "Askpass", "halves": ["app"], "doc": "Credential prompts from child processes such as `ssh`.", "members": [
+      { "name": "Listen", "kind": "method", "sig": "() -> AskpassListener", "doc": "Starts a loopback prompt endpoint." }
+    ] },
+    { "name": "Images", "halves": ["window", "app"], "doc": "Images handed to the host for `ui.image`.", "members": [
+      { "name": "FromEncoded", "kind": "method", "sig": "(data: buffer | string) -> ImageId?", "doc": "A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused." },
+      { "name": "FromSvg", "kind": "method", "sig": "(svg: string) -> ImageId?", "doc": "An SVG image." },
+      { "name": "FromRgba", "kind": "method", "sig": "(pixels: buffer, width: number, height: number) -> ImageId?", "doc": "Straight-alpha RGBA8 pixels." },
+      { "name": "Release", "kind": "method", "sig": "(image: ImageId) -> ()", "doc": "Frees an image once nothing draws it." }
+    ] }
+  ],
+  "events": [
+    { "name": "Disposing", "halves": ["window", "app"], "payload": "()", "doc": "Fires as the half goes away: the plugin turns off, reloads, or its window closes. The host disconnects every connection afterwards." },
+    { "name": "FocusChanged", "halves": ["window"], "payload": "boolean", "doc": "Fires as the window gains or loses focus." }
+  ],
+  "nodes": [
+    { "name": "box", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A container with no direction of its own: children stack on top of each other." },
+    { "name": "row", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A horizontal stack." },
+    { "name": "col", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A vertical stack." },
+    { "name": "spacer", "category": "layout", "sig": "(props: UiSpacerProps?) -> UiNode", "props": "UiSpacerProps", "doc": "Flexible space in a stack." },
+    { "name": "divider", "category": "layout", "sig": "(props: UiDividerProps?) -> UiNode", "props": "UiDividerProps", "doc": "A hairline rule." },
+    { "name": "text", "category": "content", "sig": "(content: string, props: UiTextProps?) -> UiNode", "props": "UiTextProps", "doc": "Text." },
+    { "name": "icon", "category": "content", "sig": "(name: IconName, props: UiIconProps?) -> UiNode", "props": "UiIconProps", "doc": "One of the app's icons." },
+    { "name": "image", "category": "content", "sig": "(props: UiImageProps) -> UiNode", "props": "UiImageProps", "doc": "An image the host holds." },
+    { "name": "metric", "category": "content", "sig": "(props: UiMetricProps) -> UiNode", "props": "UiMetricProps", "doc": "A number shown as text. Hosts that can animate changed digits do." },
+    { "name": "shimmer", "category": "content", "sig": "(content: string, props: UiTextProps?) -> UiNode", "props": "UiTextProps", "doc": "Text with the app's loading shimmer." },
+    { "name": "keybind", "category": "content", "sig": "(props: UiKeybindProps) -> UiNode", "props": "UiKeybindProps", "doc": "A keyboard shortcut chip." },
+    { "name": "button", "category": "control", "sig": "(props: UiButtonProps) -> UiNode", "props": "UiButtonProps", "doc": "The app's own button." },
+    { "name": "iconButton", "category": "control", "sig": "(props: UiIconButtonProps) -> UiNode", "props": "UiIconButtonProps", "doc": "The app's own icon button." },
+    { "name": "switch", "category": "control", "sig": "(props: UiSwitchProps) -> UiNode", "props": "UiSwitchProps", "doc": "The app's own switch." },
+    { "name": "radio", "category": "control", "sig": "(props: UiRadioProps) -> UiNode", "props": "UiRadioProps", "doc": "A radio row." },
+    { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
+    { "name": "loader", "category": "control", "sig": "(props: UiLoaderProps?) -> UiNode", "props": "UiLoaderProps", "doc": "The app's spinner." },
+    { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
+    { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
+    { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },
+    { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
+    { "name": "markdown", "category": "native", "sig": "(props: UiMarkdownProps) -> UiNode", "props": "UiMarkdownProps", "doc": "Markdown, as the timeline draws a reply.", "native": { "engine": "Markdown renderer with Mermaid diagrams", "native": "Parsing and AST caching, paragraph shaping, code fences, Mermaid layout", "luau": "What to show, streaming state, highlights" } },
+    { "name": "virtualList", "category": "native", "sig": "(props: UiVirtualListProps) -> UiNode", "props": "UiVirtualListProps", "doc": "A long list that builds only its visible rows.", "native": { "engine": "Virtualized rows", "native": "Viewport windowing, height cache, scroll anchoring, incremental mounting", "luau": "Row count, version and each row's content" } },
+    { "name": "terminalSurface", "category": "native", "sig": "(props: UiTerminalSurfaceProps) -> UiNode", "props": "UiTerminalSurfaceProps", "doc": "A terminal.", "native": { "engine": "Terminal emulator over the server's PTY stream", "native": "VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream", "luau": "Tabs, numbering and renaming, commands, persistence, MCP tools" } },
+    { "name": "browserSurface", "category": "native", "sig": "(props: UiBrowserSurfaceProps) -> UiNode", "props": "UiBrowserSurfaceProps", "doc": "A web page.", "native": { "engine": "Embedded browser engine", "native": "The out-of-process browser, GPU texture sharing, the DevTools transport, input forwarding", "luau": "Address bar, history, element picker notes, commands, MCP tools" } },
+    { "name": "codeView", "category": "native", "sig": "(props: UiCodeViewProps) -> UiNode", "props": "UiCodeViewProps", "doc": "A highlighted file.", "native": { "engine": "Code view with an asynchronous highlighter", "native": "Highlighting, the line buffer, the virtualized gutter, selection, find in file", "luau": "Tab routing, breadcrumb header, line links, viewer choice, MCP tools" } },
+    { "name": "diffView", "category": "native", "sig": "(props: UiDiffViewProps) -> UiNode", "props": "UiDiffViewProps", "doc": "Changes, split or unified.", "native": { "engine": "Diff engine and code view", "native": "Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors", "luau": "Source switcher, totals, split and unified toggle, contracts, MCP tools" } },
+    { "name": "fileTree", "category": "native", "sig": "(props: UiFileTreeProps) -> UiNode", "props": "UiFileTreeProps", "doc": "A folder's file tree.", "native": { "engine": "Tree model", "native": "Tree flattening, file icons, keyboard navigation", "luau": "Folder loading, filter input, expanded state, open and context menus" } },
+    { "name": "genUi", "category": "native", "sig": "(props: UiGenUiProps) -> UiNode", "props": "UiGenUiProps", "doc": "An interactive UI outline, from a ```` ```ui ```` code block.", "native": { "engine": "UI outline renderer", "native": "Outline parsing, widget primitives and their motion", "luau": "Which blocks render, through `AddCodeBlock`" } }
+  ],
+  "uiExtras": [
+    { "name": "hex", "kind": "function", "sig": "(color: string) -> HexColor", "doc": "A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme." }
+  ],
+  "pluginModule": [
+    { "name": "contract", "kind": "field", "type": "string", "doc": "The contract version the host implements, such as `\"1.0\"`." },
+    { "name": "defineWindow", "kind": "function", "sig": "(setup: (ctx: WindowContext) -> ()) -> PluginHalf", "doc": "Defines the window half: `setup` runs once per window. Return the result from `init.luau`." },
+    { "name": "defineApp", "kind": "function", "sig": "(setup: (ctx: AppContext) -> ()) -> PluginHalf", "doc": "Defines the app half: `setup` runs once per process, before any window half. Return the result from `app.luau`." }
+  ],
+  "globals": [
+    { "name": "task", "kind": "library", "doc": "Cooperative scheduling on the host's frame clock. Waiting costs no CPU.", "members": [
+      { "name": "spawn", "kind": "function", "generics": "A..., R...", "sig": "(callback: ((A...) -> R...) | thread, A...) -> thread", "doc": "Runs a function or thread now, until it first yields." },
+      { "name": "defer", "kind": "function", "generics": "A..., R...", "sig": "(callback: ((A...) -> R...) | thread, A...) -> thread", "doc": "Runs a function or thread at the end of the current handler or event batch, before the frame commits." },
+      { "name": "delay", "kind": "function", "generics": "A..., R...", "sig": "(seconds: number, callback: ((A...) -> R...) | thread, A...) -> thread", "doc": "Runs a function or thread after `seconds`." },
+      { "name": "wait", "kind": "function", "sig": "(seconds: number?) -> number", "yields": true, "doc": "Yields for `seconds`, or until the next frame without it. Returns the seconds that passed. Not allowed in a render." },
+      { "name": "cancel", "kind": "function", "sig": "(thread: thread) -> ()", "doc": "Cancels a scheduled or waiting thread and its pending request." }
+    ] },
+    { "name": "warn", "kind": "function", "sig": "(...any) -> ()", "doc": "Writes a warning to the console." }
+  ],
+  "manifest": {
+    "doc": "plugin.toml: a plugin folder's manifest.",
+    "fields": [
+      { "name": "id", "type": "string", "required": true, "pattern": "^[a-z][a-z0-9-]{0,63}$", "doc": "The plugin's id: lowercase letters, digits and hyphens. It prefixes commands (`<id>.<command>`) and contracts." },
+      { "name": "name", "type": "string", "required": true, "doc": "The display name." },
+      { "name": "version", "type": "string", "required": true, "pattern": "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$", "doc": "The plugin's own version, as semver." },
+      { "name": "contract", "type": "string", "required": true, "pattern": "^\\d+\\.\\d+$", "doc": "The contract version the plugin targets, such as `\"1.0\"`." },
+      { "name": "description", "type": "string", "doc": "One sentence about what the plugin adds." },
+      { "name": "entry", "type": "string", "default": "init.luau", "pattern": "^[A-Za-z0-9_./-]+\\.luau$", "doc": "The window half's module, relative to the plugin folder." },
+      { "name": "app", "type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.luau$", "doc": "The app half's module, such as `\"app.luau\"`. Omit it for a plugin with no app half." },
+      { "name": "os", "type": "enum[]", "enum": "Platform", "doc": "The platforms it runs on. Omit it for all." },
+      { "name": "channels", "type": "enum[]", "enum": "Channel", "doc": "The app channels it loads in. Omit it for all." },
+      { "name": "authors", "type": "string[]", "doc": "Its authors." },
+      { "name": "homepage", "type": "string", "format": "uri", "doc": "Its homepage." },
+      { "name": "license", "type": "string", "doc": "An SPDX license expression." },
+      { "name": "stores", "type": "table[]", "doc": "Stores to load before setup, so their first read has the saved value.", "fields": [
+        { "name": "name", "type": "string", "required": true, "doc": "The name passed to `Store:Value` or `Store:SessionValue`." },
+        { "name": "scope", "type": "enum", "enum": "StoreScope", "default": "global", "doc": "One value for the app, or one per session." }
+      ] },
+      { "name": "settings_search", "type": "table[]", "doc": "Settings search entries found without loading the plugin.", "fields": [
+        { "name": "id", "type": "string", "required": true, "doc": "The `ui.settingsRow` id search reveals." },
+        { "name": "page", "type": "string", "required": true, "doc": "The page: `plugins`, a host page, or one of this plugin's settings pages." },
+        { "name": "title", "type": "string", "required": true, "doc": "The title in search results." },
+        { "name": "description", "type": "string", "doc": "Its second line." },
+        { "name": "keywords", "type": "string", "doc": "More words search matches." }
+      ] }
+    ]
+  },
+  "leaks": [
+    { "old": "`ElKind::Odometer`: a Rune rolling-digit widget as a core node.", "replacement": "`ui.metric({ value, text, tabular, animate })`. Rune rolls the digits; other hosts show the text." },
+    { "old": "`ActionCx::instant()` and the `INSTANT_HOVER` flag: Rune's transaction flag.", "replacement": "Semantic motion: `transition = \"none\"` on layout calls and `hoverTransition = \"instant\"` on boxes." },
+    { "old": "`HOVER_GROUP` and `group_color`: Rune's single-color hover group.", "replacement": "Declarative hover groups: `hoverGroup`, `hoverGroupColor` and `revealOnHover`." },
+    { "old": "`ElSpec::anchored`: overlays drawn after a sibling key.", "replacement": "Host-managed overlays: `Popover:Open({ id, anchorKey, side, align, gap })`, `Menu:OpenAsync` and `ui.flyoutRow`." },
+    { "old": "Positional `AbiPalette` (`layer1`…`layer4`, `switch_thumb`) and Desktop CSS variable names.", "replacement": "32 versioned semantic tokens and `ui.hex` for literal colors." },
+    { "old": "Strings packed with `\\n`, `\\t` and NUL (`id\\nanchor`, toast fields, process args and env).", "replacement": "Typed Luau records: `ToastSpec`, `ProcessSpec`, `PopoverOpenSpec`, `ServerEntry` and the rest." },
+    { "old": "No virtual list: long lists built every row on every commit.", "replacement": "`ui.virtualList({ count, estimatedRowHeight, version, renderRow })`." }
+  ]
+}

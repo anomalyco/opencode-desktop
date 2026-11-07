@@ -6,6 +6,7 @@ members = [
     "crates/hex-client",
     "crates/opencode-kit",
     "crates/opencode-plugin",
+    "crates/opencode-plugin-spec",
     "crates/otlp-lite",
     "crates/project-icon",
     "crates/rune-parts",

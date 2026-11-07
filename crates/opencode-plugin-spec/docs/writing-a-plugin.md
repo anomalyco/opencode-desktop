@@ -1,0 +1,188 @@
+# Writing a plugin
+
+An OpenCode plugin is a folder of `--!strict` Luau source and a `plugin.toml`. There is nothing to compile: the app loads the source, and saving a file reloads the plugin in place. The full API is in the [reference](api.md); every name below links into it.
+
+```mermaid
+flowchart LR
+  subgraph Folder["plugins/&lt;id&gt;/"]
+    TOML["plugin.toml"]
+    WIN["init.luau<br/>window half"]
+    APP["app.luau<br/>app half (optional)"]
+    MOD["*.luau<br/>local modules"]
+  end
+  WIN -->|"ctx:Add*"| HOST["Host: contributions,<br/>services, native nodes"]
+  APP -->|"ctx:Add*"| HOST
+  WIN <-->|"Contracts:Provide / Use"| APP
+  WIN -->|"require('@self/…')"| MOD
+```
+
+## 1. Lay out the folder
+
+```text
+plugins/session-stats/
+  plugin.toml
+  init.luau
+  format.luau
+```
+
+```toml
+#:schema ../plugin.schema.json
+id = "session-stats"
+name = "Session stats"
+version = "1.0.0"
+contract = "1.0"
+description = "A session's tokens, spend and last 20 tool calls"
+
+[[stores]]
+name = "show-spend"
+```
+
+- `contract` names the [contract version](api.md#versioning) the plugin targets. Any 1.x host runs a 1.0 plugin.
+- `entry` defaults to `init.luau`, the window half. Add `app = "app.luau"` for an app half.
+- The `#:schema` line gives TOML editors completion and checks from [`plugin.schema.json`](../../../plugins/plugin.schema.json).
+
+## 2. Define a half
+
+```luau
+--!strict
+local plugin = require("@opencode/plugin")
+local ui = require("@opencode/ui")
+
+return plugin.defineWindow(function(ctx)
+    local Layout = ctx:GetService("Layout")
+
+    ctx:AddCommand({
+        id = "open",
+        title = "Session stats: Toggle panel",
+        bind = "mod+shift+s",
+        slash = { name = "stats" },
+        run = function()
+            Layout:TogglePanel("main")
+        end,
+    })
+
+    ctx:AddPanel({
+        id = "main",
+        title = "Session stats",
+        render = function(view, props)
+            return ui.text(`Session {props.sessionId}`, { color = "text-weak" })
+        end,
+    })
+end)
+```
+
+| Half | Defined with | Runs | Use it for |
+|---|---|---|---|
+| Window | [`plugin.defineWindow`](api.md#requireopencodeplugin) in `init.luau` | Once per window | UI: panels, pills, dialogs, commands |
+| App | [`plugin.defineApp`](api.md#requireopencodeplugin) in `app.luau` | Once per process | Processes, server sources, menu bar items, shared state |
+
+- `ctx:GetService("Name")` returns a typed [service](api.md#services). A typo in the name is a type error.
+- Each `ctx:Add*` call adds a [contribution](api.md#contributions). The host withdraws it when the half goes away.
+- The halves share values through [`Contracts`](api.md#contracts): `Contracts:Provide("my-plugin", api)` in one, `Contracts:Use("my-plugin")` in the other.
+
+## 3. Build UI with `ui.*`
+
+```luau
+render = function(view, props)
+    return view:Memo("panel", `{props.sessionId}:{changed:Version()}`, function()
+        return ui.col({ w = "full", pad = 16, gap = 12, fill = "bg-base" }, {
+            ui.text("Context tokens", { size = 12, color = "text-weak" }),
+            ui.metric({ value = total, text = format.int(total), weight = "semibold" }),
+            ui.button({
+                text = "Compact",
+                size = "small",
+                onPress = view:Handler(function()
+                    Commands:Run("session.compact")
+                end),
+            }),
+        })
+    end)
+end,
+```
+
+- Nodes are declarative: build the tree you want, return it, and never mutate it.
+- Wrap each render in [`view:Memo`](api.md#view) with a version that changes only when the output should. An unchanged frame then runs no Luau at all.
+- Colors are [semantic tokens](api.md#semantic-tokens) such as `"surface-1"` or `"status-danger"`. They follow the theme. Use `ui.hex("#RRGGBB")` only for a literal color.
+- Long lists go in [`ui.virtualList`](api.md#uivirtuallistprops), which builds only the rows on screen.
+- Heavy views are [native nodes](api.md#native-nodes): `ui.terminalSurface`, `ui.browserSurface`, `ui.codeView`, `ui.diffView`, `ui.fileTree`, `ui.markdown` and `ui.genUi`. Get their handles from a service, such as `Terminal:Create` or `Workspace:OpenDocument`.
+
+## 4. React to events and do async work
+
+```luau
+local Server = ctx:GetService("Server")
+local changed = ctx:CreateSignal()
+
+Server:OnEvent("session.updated"):Connect(function(event)
+    changed:Fire() -- redraws, and bumps changed:Version()
+end)
+
+local function refresh(sessionId: string)
+    task.spawn(function()
+        local res = Server:RequestAsync("GET", `/api/session/{sessionId}`)
+        if res.ok then
+            changed:Fire()
+        end
+    end)
+end
+```
+
+```mermaid
+sequenceDiagram
+  participant H as Handler or task
+  participant S as Host service
+  participant W as Worker thread
+  H->>S: Server:RequestAsync(...)
+  S->>W: send off the UI thread
+  Note over H: coroutine yields, the frame goes on
+  W-->>S: response
+  S-->>H: resume with ServerResponse
+  H->>H: changed:Fire() redraws
+```
+
+- Every event source is a [`Signal`](api.md#signal): `:Connect`, `:Once` and `:Wait`. Connections end with the half.
+- Methods named `…Async` yield. Call them from a handler, a signal callback or a [`task`](api.md#task) function.
+- Render callbacks (`render`, `label`, `show`, `match`) must not yield. Read cached data there, such as [`Server:Resource`](api.md#server).
+- `task.delay` and `task.wait` cost no CPU while they wait.
+
+## 5. Keep state
+
+| State | Use |
+|---|---|
+| Saved with the app, shared by every window | [`Store:Value`](api.md#store) and `Store:SessionValue`; declare the names under `[[stores]]` |
+| Text the user types | [`ctx:CreateEditor`](api.md#windowcontext) with `ui.field`; text, caret and undo survive a reload |
+| Plain Luau tables | Locals in the setup function; `ctx:BindHotState` carries them across a hot reload |
+
+## 6. Check it
+
+Run these from the repository root:
+
+```sh
+luau-lsp analyze --platform=standard --definitions=@opencode=plugins/opencode.d.luau plugins
+selene plugins
+stylua --check --glob "**/*.luau" --glob "!**/*.d.luau" plugins
+```
+
+- `luau-lsp` 1.70 or later checks types under both of Luau's solvers. In an editor, add `plugins/opencode.d.luau` to the `luau-lsp.types.definitionFiles` setting. `plugins/.luaurc` already turns on strict mode and maps `@opencode/*`.
+- From `init.luau`, require a sibling module as `require("@self/format")`.
+- Luau's older type solver widens string unions in two places. Annotate the local (`local mode: DiffMode = store:Get()`), and cast a union-typed store through `any`: `Store:Value("mode", "split" :: any) :: StoreValue<DiffMode>`.
+
+The samples in [`samples/`](../samples) pass all three checks: `session-stats` (command, setting, panel, virtual list), `goal` (composer pill and popover, server events), `workbench` (every native node, MCP tool, link handler) and `wsl-lite` (app half, processes, server source, dialog).
+
+## Change the contract
+
+`contract.json` is the single source of truth. After you edit it, regenerate everything and check that nothing drifted:
+
+```sh
+cargo run -p opencode-plugin-spec -- --write
+cargo run -p opencode-plugin-spec -- --check
+```
+
+| Output | Read by |
+|---|---|
+| `plugins/opencode.d.luau`, `plugins/types/*.luau`, `plugins/.luaurc` | `luau-lsp` and editors |
+| `plugins/plugin.schema.json` | TOML editors |
+| `plugins/opencode-selene.yml` | `selene` |
+| `docs/api.md` | People and models |
+| `src/generated/*.rs` | The host: tokens, enums, spec records, node props, registry, manifest |
+
+Keep a change within the [versioning rules](api.md#versioning): a 1.x contract only adds.

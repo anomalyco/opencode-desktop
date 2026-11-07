@@ -1,0 +1,2610 @@
+# OpenCode plugin API reference (contract 1.0)
+
+> Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
+
+Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-globals) · [Contexts](#contexts) · [Contributions](#contributions) · [Services](#services) · [UI nodes](#ui-nodes) · [Semantic tokens](#semantic-tokens) · [Enums](#enums) · [Types](#types) · [plugin.toml](#plugintoml) · [What 1.0 removed](#what-10-removed)
+
+## Versioning
+
+Contract versions are `MAJOR.MINOR`. This is contract `1.0`.
+
+- A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
+- Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
+- A host runs a plugin whose contract has the same major version. When the plugin targets a newer minor version than the host, the host still loads it and logs one warning in the console.
+- Unknown optional keys in a `ui.*` props table or a spec table log one warning per key in the console and fall back to the default. They never raise an error.
+- A deprecated property, method or token carries `@deprecated` in opencode.d.luau and in the docs, and keeps working for the whole 1.x line. Only contract 2.0 can remove it.
+- Names never change meaning within a major version: a token, enum value or method keeps its behavior and its type.
+
+## Modules and globals
+
+### `require("@opencode/plugin")`
+
+| Member | Type | Description |
+|---|---|---|
+| `.contract` | `string` | The contract version the host implements, such as `"1.0"`. |
+| `.defineWindow` | `(setup: (ctx: WindowContext) -> ()) -> PluginHalf` | Defines the window half: `setup` runs once per window. Return the result from `init.luau`. |
+| `.defineApp` | `(setup: (ctx: AppContext) -> ()) -> PluginHalf` | Defines the app half: `setup` runs once per process, before any window half. Return the result from `app.luau`. |
+
+### `require("@opencode/ui")`
+
+Every [UI node](#ui-nodes) constructor, and:
+
+| Member | Type | Description |
+|---|---|---|
+| `.hex` | `(color: string) -> HexColor` | A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme. |
+
+The module also exports the `Ui*` types without their prefix: `ui.Node`, `ui.BoxProps`, `ui.Event`. Every other contract type is a global type.
+
+### `task`
+
+Cooperative scheduling on the host's frame clock. Waiting costs no CPU.
+
+| Member | Type | Description |
+|---|---|---|
+| `.spawn` | `<A..., R...>(callback: ((A...) -> R...) \| thread, A...) -> thread` | Runs a function or thread now, until it first yields. |
+| `.defer` | `<A..., R...>(callback: ((A...) -> R...) \| thread, A...) -> thread` | Runs a function or thread at the end of the current handler or event batch, before the frame commits. |
+| `.delay` | `<A..., R...>(seconds: number, callback: ((A...) -> R...) \| thread, A...) -> thread` | Runs a function or thread after `seconds`. |
+| `.wait` | `(seconds: number?) -> number` | Yields for `seconds`, or until the next frame without it. Returns the seconds that passed. Not allowed in a render. Yields. |
+| `.cancel` | `(thread: thread) -> ()` | Cancels a scheduled or waiting thread and its pending request. |
+
+### `warn`
+
+Writes a warning to the console.
+
+`warn(...any) -> ()`
+
+## Contexts
+
+What a plugin half's setup function receives.
+
+### `WindowContext`
+
+| Member | Type | Description |
+|---|---|---|
+| `id` | `string` | The plugin's id. |
+| `half` | `Half` | Which half this is. |
+| `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
+| `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
+| `CreateEditor` | `(initial: string?) -> Editor` | A host-owned text field's content. The n-th editor a setup creates is the same field after a hot reload. |
+| `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Popover`](#popover), [`Dialog`](#dialog), [`Menu`](#menu), [`Layout`](#layout), [`Links`](#links), [`Commands`](#commands), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Diff`](#diff), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Images`](#images). |
+| `AddCommand` | `(spec: CommandSpec) -> Contribution` | Adds a command to the palette, its keybind and its slash command. |
+| `AddPanel` | `(spec: PanelSpec) -> Contribution` | Adds a panel: tabs in the session's side region. |
+| `AddSetting` | `(spec: SettingSpec) -> Contribution` | Adds a row to Settings › Plugins. |
+| `AddSettingsPage` | `(spec: SettingsPageSpec) -> Contribution` | Adds a settings page, or a section on a host page. |
+| `AddMenuItem` | `(spec: MenuItemSpec) -> Contribution` | Adds an item to a host menu. |
+| `AddLinkHandler` | `(spec: LinkHandlerSpec) -> Contribution` | Opens local links it matches. |
+| `AddTitlebarItem` | `(spec: TitlebarItemSpec) -> Contribution` | Adds a pill at the titlebar's end. |
+| `AddComposerPill` | `(spec: ComposerPillSpec) -> Contribution` | Adds a pill above the session composer. |
+| `AddCodeBlock` | `(spec: CodeBlockSpec) -> Contribution` | Renders fenced code blocks of some languages. |
+| `AddCodeBlockAction` | `(spec: CodeBlockActionSpec) -> Contribution` | Adds a button beside code blocks' Copy button. |
+| `AddSlot` | `(spec: SlotSpec) -> Contribution` | Fills one of the shell's slots. |
+| `AddTheme` | `(spec: ThemeSpec) -> Contribution` | Adds a color theme. |
+| `AddFileViewer` | `(spec: FileViewerSpec) -> Contribution` | Shows files with some extensions. |
+| `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
+| `AddDialog` | `(spec: DialogSpec) -> Contribution` | Adds a modal dialog, opened with `Dialog:Open`. |
+| `AddPopover` | `(spec: PopoverSpec) -> Contribution` | Adds popover content, opened with `Popover:Open` or `ui.flyoutRow`. |
+| `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
+| `Disposing` | `Signal<()>` | Fires as the half goes away: the plugin turns off, reloads, or its window closes. The host disconnects every connection afterwards. |
+| `FocusChanged` | `Signal<boolean>` | Fires as the window gains or loses focus. |
+
+### `AppContext`
+
+| Member | Type | Description |
+|---|---|---|
+| `id` | `string` | The plugin's id. |
+| `half` | `Half` | Which half this is. |
+| `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
+| `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
+| `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images). |
+| `AddMenubarItem` | `(spec: MenubarItemSpec) -> Contribution` | Adds an item to the app menu bar. |
+| `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
+| `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
+| `Disposing` | `Signal<()>` | Fires as the half goes away: the plugin turns off, reloads, or its window closes. The host disconnects every connection afterwards. |
+
+## Contributions
+
+Every `Add*` method returns a handle the host withdraws with the plugin half. Callbacks run on the UI thread; render callbacks (`render`, `label`, `show`, `match`) must not yield, and the rest run as coroutines that may.
+
+| Kind | Method | Halves | Spec | Desktop's name |
+|---|---|---|---|---|
+| `command` | `AddCommand` | window | [`CommandSpec`](#commandspec) | Command |
+| `panel` | `AddPanel` | window | [`PanelSpec`](#panelspec) | Panel |
+| `setting` | `AddSetting` | window | [`SettingSpec`](#settingspec) | — |
+| `settingsPage` | `AddSettingsPage` | window | [`SettingsPageSpec`](#settingspagespec) | SettingsPage |
+| `menuItem` | `AddMenuItem` | window | [`MenuItemSpec`](#menuitemspec) | MenuItem |
+| `menubarItem` | `AddMenubarItem` | app | [`MenubarItemSpec`](#menubaritemspec) | MenubarItem |
+| `linkHandler` | `AddLinkHandler` | window | [`LinkHandlerSpec`](#linkhandlerspec) | LinkHandler |
+| `titlebarItem` | `AddTitlebarItem` | window | [`TitlebarItemSpec`](#titlebaritemspec) | TitlebarItem |
+| `composerPill` | `AddComposerPill` | window | [`ComposerPillSpec`](#composerpillspec) | ComposerPill |
+| `codeBlock` | `AddCodeBlock` | window | [`CodeBlockSpec`](#codeblockspec) | CodeBlock |
+| `codeBlockAction` | `AddCodeBlockAction` | window | [`CodeBlockActionSpec`](#codeblockactionspec) | CodeBlockAction |
+| `slot` | `AddSlot` | window | [`SlotSpec`](#slotspec) | Slot |
+| `theme` | `AddTheme` | window | [`ThemeSpec`](#themespec) | Theme |
+| `fileViewer` | `AddFileViewer` | window | [`FileViewerSpec`](#fileviewerspec) | FileViewer |
+| `serverSource` | `AddServerSource` | window, app | [`ServerSourceSpec`](#serversourcespec) | Server |
+| `dialog` | `AddDialog` | window | [`DialogSpec`](#dialogspec) | — |
+| `popover` | `AddPopover` | window | [`PopoverSpec`](#popoverspec) | — |
+| `mcpTool` | `AddMcpTool` | window, app | [`McpToolSpec`](#mcptoolspec) | McpTool |
+
+## Services
+
+Get one with `ctx:GetService("Name")`. Methods named `…Async` yield: call them from a handler, a task or a signal callback, never from a render.
+
+### Sessions
+
+The sessions the app holds. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Get` | `(sessionId: string) -> Session?` | A session by id. |
+| `:Routed` | `() -> Session?` | The session this window shows. Always nil in the app half. |
+| `:Open` | `() -> { Session }` | The sessions of open tabs. |
+| `.Changed` | `Signal<Session>` | Fires with a session after it changes. |
+| `.RoutedChanged` | `Signal<Session?>` | Fires as this window routes another session, or none. |
+
+### Models
+
+The server's model catalog. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Get` | `(providerId: string, modelId: string) -> ModelInfo` | How the catalog names a model. |
+| `.Changed` | `Signal<()>` | Fires when the catalog changes. |
+
+### Server
+
+The OpenCode server this window is connected to. In the app half, the app's own server. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:RequestAsync` | `(method: HttpMethod, path: string, body: any?) -> ServerResponse` | Sends a request with a JSON body, off the UI thread. Yields. |
+| `:Resource` | `(path: string, version: MemoVersion) -> Resource` | A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands. |
+| `:Invalidate` | `(prefix: string) -> ()` | Drops this plugin's cached reads whose path starts with `prefix`. |
+| `:OnEvent` | `(prefix: string) -> Signal<ServerEvent>` | A signal for the server's events whose type starts with `prefix`. |
+| `:EncodeUri` | `(text: string) -> string` | Percent-encodes text for a path or query. |
+| `:Version` | `() -> string?` | The version it reported. |
+| `:IsLocal` | `() -> boolean` | It runs on this machine. |
+| `:CanWrite` | `() -> boolean` | The app may change things on it. |
+| `.Connected` | `Signal<boolean>` | Fires as its event connection goes up or down. |
+
+### Servers
+
+The servers the app lists. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:List` | `() -> { ServerInfo }` | Every listed server. |
+| `:Current` | `() -> string?` | The key of the server this window is connected to. |
+| `:Health` | `(key: string) -> ServerHealth?` | A server's latest health check. |
+| `:Connect` | `(key: string) -> ()` | Connects this window to a server and goes to its Home. |
+| `.Changed` | `Signal<()>` | Fires when the list or a server's state changes. |
+
+### Http
+
+HTTP requests off the UI thread. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:FetchAsync` | `(request: HttpRequest) -> HttpResponse` | Sends a request. Yields. |
+
+### Process
+
+Child processes the host supervises. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Spawn` | `(spec: ProcessSpec) -> ProcessHandle` | Starts a process. A program that cannot start still returns a handle, whose `Exited` fires with the error. |
+| `:RunAsync` | `(spec: ProcessSpec) -> ProcessOutput` | Starts a process and yields until it exits, with all its output. Yields. |
+
+### Store
+
+Values the host saves for this plugin. Both halves and every window share one copy. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Value` | `<T>(name: string, default: T) -> StoreValue<T>` | A global value. |
+| `:SessionValue` | `<T>(name: string, default: T) -> SessionStoreValue<T>` | A value per session. |
+
+### Contracts
+
+Typed values plugins share. A plugin may provide only ids under its own id. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Provide` | `(id: string, value: any) -> Contribution` | Provides `value` under `id` (`<plugin>` or `<plugin>.<name>`). From the app half, for the whole process; from a window half, for that window. |
+| `:Use` | `(id: string) -> Live<any>` | Follows a contract another plugin provides. Keep working while it is not active. |
+| `:Summary` | `() -> { [string]: LiveState }` | Every contract id this half sees, with its state. |
+
+### Console
+
+The Studio console. `print` and `warn` write here too. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Log` | `(...any) -> ()` | Writes an information line. |
+| `:Warn` | `(...any) -> ()` | Writes a warning. |
+| `:Error` | `(...any) -> ()` | Writes an error, without raising one. |
+
+### Toast
+
+Short messages in a corner of the window. From the app half, in the focused window. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Show` | `(spec: ToastSpec) -> ToastHandle` | Shows a toast. |
+| `:Info` | `(title: string, description: string?) -> ToastHandle` | Shows a `default` toast. |
+| `:Success` | `(title: string, description: string?) -> ToastHandle` | Shows a `success` toast. |
+| `:Error` | `(title: string, description: string?) -> ToastHandle` | Shows an `error` toast that stays until dismissed. |
+
+### Popover
+
+This plugin's popovers. The host places them, moves focus and closes them. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Open` | `(spec: PopoverOpenSpec) -> ()` | Opens a popover beside an element, closing any other of this plugin's. |
+| `:Toggle` | `(spec: PopoverOpenSpec) -> ()` | Opens it, or closes it when it is open. |
+| `:Close` | `() -> ()` | Closes this plugin's open popover. |
+| `:IsOpen` | `(id: string) -> boolean` | Whether a popover is open. |
+
+### Dialog
+
+This plugin's modal dialogs. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Open` | `(id: string, data: { [string]: any }?) -> ()` | Opens a dialog, closing any other of this plugin's. |
+| `:Close` | `() -> ()` | Closes this plugin's open dialog. |
+| `:IsOpen` | `(id: string) -> boolean` | Whether a dialog is open. |
+
+### Menu
+
+The app's own menus. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:OpenAsync` | `(spec: MenuOpenSpec) -> string?` | Opens a menu beside an element and yields until it closes. Returns the picked item's id, or nil. Yields. |
+
+### Layout
+
+Panels, settings and drafts in this window. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:OpenPanel` | `(panelId: string, options: OpenPanelOptions?) -> ()` | Opens or selects one of this plugin's panels. |
+| `:TogglePanel` | `(panelId: string, options: OpenPanelOptions?) -> ()` | Opens a panel, or closes it when it shows. |
+| `:ClosePanel` | `(panelId: string, options: OpenPanelOptions?) -> ()` | Closes a panel's tab. |
+| `:PanelState` | `(panelId: string, sessionId: string?) -> PanelState` | Where a panel is in a session. Defaults to the routed session. |
+| `:OpenSettings` | `(pageId: string?) -> ()` | Opens Settings at one of this plugin's pages, or at the top. |
+| `:NewDraft` | `(directory: string, prompt: string?) -> ()` | Opens a new session's draft in a folder, with a prompt typed in. |
+| `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
+
+### Links
+
+Routes local links to the plugins that handle them. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Open` | `(link: Link) -> boolean` | Opens a link with the best handler. False when no handler matches. |
+| `:Exists` | `(link: Link) -> boolean` | Whether a handler matches and says the target exists. |
+
+### Commands
+
+Published commands, as the palette runs them. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Run` | `(commandId: string, input: string?) -> boolean` | Runs a command by id: `<plugin>.<id>` or one of the app's. False when it is unknown or disabled. |
+| `:Keybind` | `(commandId: string) -> string?` | A command's effective keybind. |
+
+### Theme
+
+The theme and the user's appearance settings. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Current` | `() -> ThemeInfo` | The theme in use. |
+| `:IsDark` | `() -> boolean` | The dark scheme is in use. |
+| `:Resolve` | `(color: Color) -> string` | A color as `#RRGGBBAA` for the current theme. |
+| `:Font` | `(family: FontFamily) -> string` | The user's font family name. |
+| `.Changed` | `Signal<ThemeInfo>` | Fires when the theme or scheme changes. |
+
+### App
+
+The running app. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Version` | `string` | The app's version. |
+| `.Channel` | `Channel` | Its release channel. |
+| `.Platform` | `Platform` | The operating system. |
+| `:Locale` | `() -> string` | The interface language, such as `"en"`. |
+| `:Arg` | `(name: string) -> string?` | The value of command-line option `--name`. |
+| `:LogsDir` | `() -> string?` | The folder the app writes its logs to. |
+| `:DownloadsDir` | `() -> string?` | The folder the app saves downloads to. |
+| `.LocaleChanged` | `Signal<string>` | Fires with the new interface language. |
+
+### System
+
+The clipboard, the system browser and file manager, and the clock. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:CopyText` | `(text: string) -> ()` | Puts text on the clipboard. |
+| `:OpenExternal` | `(url: string) -> ()` | Opens a URL in the system's browser. |
+| `:Reveal` | `(path: string) -> ()` | Shows a path in the system's file manager. |
+| `:Now` | `() -> number` | The wall clock in milliseconds since the Unix epoch. |
+| `:UtcOffset` | `(ms: number) -> number` | The local time zone's offset from UTC in seconds, at that time. |
+
+### Notifications
+
+System notifications that follow the user's notification settings. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Notify` | `(spec: NotificationSpec) -> ()` | Shows a notification when the window is not in front. |
+
+### Workspace
+
+Files in the workspace and the apps that open them. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:ReadFileAsync` | `(path: string) -> ReadResult` | Reads a text file through the server. Yields. |
+| `:SaveDownloadAsync` | `(name: string, content: string) -> SaveResult` | Saves content as a file in the downloads folder. Yields. |
+| `:OpenDocument` | `(path: string) -> CodeDocument` | Opens a file for `ui.codeView`. |
+| `:OpenTree` | `(directory: string) -> FileTreeModel` | Opens a folder for `ui.fileTree`. |
+| `:OpenInApps` | `() -> { OpenInApp }` | The installed apps that can open a path. |
+| `:OpenIn` | `(appId: string, path: string) -> ()` | Opens a path in one of those apps. |
+| `.FileChanged` | `Signal<string>` | Fires with a workspace path after it changes on disk. |
+
+### Diff
+
+Session changes for `ui.diffView`. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Open` | `(spec: DiffOpenSpec) -> DiffDocument` | Opens a set of changes. |
+
+### Terminal
+
+Terminal sessions on the server, for `ui.terminalSurface`. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Create` | `(spec: TerminalSpec) -> PtySession` | Starts a terminal session. |
+| `:Attach` | `(id: string) -> PtySession?` | Reattaches to a running session by id. |
+
+### Browser
+
+Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Open` | `(spec: BrowserOpenSpec) -> BrowserTab` | Opens a page. |
+| `:Tabs` | `() -> { BrowserTab }` | This plugin's open pages. |
+| `:Available` | `() -> boolean` | The browser engine is installed and runs on this platform. |
+
+### Office
+
+Office documents laid out and drawn by the host. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:OpenAsync` | `(path: string) -> OfficeDocument?` | Opens a `.docx`, `.xlsx` or `.pptx` file. Nil when it cannot. Yields. |
+
+### Updater
+
+The app's own updates. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:State` | `() -> UpdaterState` | Where it stands. |
+| `:Check` | `() -> ()` | Checks for a newer version now. |
+| `:Download` | `() -> ()` | Downloads the available version. |
+| `:Install` | `() -> ()` | Restarts into the downloaded version. |
+| `.StateChanged` | `Signal<UpdaterState>` | Fires with each new state. |
+
+### Diagnostics
+
+Developer diagnostics. Local and beta builds only; elsewhere every method returns nil. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Memory` | `() -> { [string]: any }?` | The process's memory counters. |
+| `:Metrics` | `(pluginId: string?) -> PluginMetrics?` | A plugin's live costs. Defaults to this plugin. |
+| `:Get` | `(name: string) -> any` | A developer setting, such as an experiment. |
+| `:Set` | `(name: string, value: any) -> ()` | Changes a developer setting. |
+| `:HeapSnapshotAsync` | `() -> SaveResult` | Writes a heap snapshot to the downloads folder. Yields. |
+
+### Power
+
+Display sleep. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:KeepAwake` | `(reason: string) -> PowerLock` | Keeps the display awake until the lock is released or the plugin goes away. |
+
+### Qr
+
+QR codes. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Encode` | `(text: string) -> QrCode` | Encodes text, at medium error correction. |
+
+### Askpass
+
+Credential prompts from child processes such as `ssh`. Halves: app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Listen` | `() -> AskpassListener` | Starts a loopback prompt endpoint. |
+
+### Images
+
+Images handed to the host for `ui.image`. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:FromEncoded` | `(data: buffer \| string) -> ImageId?` | A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused. |
+| `:FromSvg` | `(svg: string) -> ImageId?` | An SVG image. |
+| `:FromRgba` | `(pixels: buffer, width: number, height: number) -> ImageId?` | Straight-alpha RGBA8 pixels. |
+| `:Release` | `(image: ImageId) -> ()` | Frees an image once nothing draws it. |
+
+## UI nodes
+
+`ui.*` constructors build host elements straight into the frame's arena. Wrap subtrees in `view:Memo` so unchanged frames call no Luau at all.
+
+| Constructor | Category | Props | Description |
+|---|---|---|---|
+| `ui.box(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A container with no direction of its own: children stack on top of each other. |
+| `ui.row(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A horizontal stack. |
+| `ui.col(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A vertical stack. |
+| `ui.spacer(props: UiSpacerProps?) -> UiNode` | layout | [`UiSpacerProps`](#uispacerprops) | Flexible space in a stack. |
+| `ui.divider(props: UiDividerProps?) -> UiNode` | layout | [`UiDividerProps`](#uidividerprops) | A hairline rule. |
+| `ui.text(content: string, props: UiTextProps?) -> UiNode` | content | [`UiTextProps`](#uitextprops) | Text. |
+| `ui.icon(name: IconName, props: UiIconProps?) -> UiNode` | content | [`UiIconProps`](#uiiconprops) | One of the app's icons. |
+| `ui.image(props: UiImageProps) -> UiNode` | content | [`UiImageProps`](#uiimageprops) | An image the host holds. |
+| `ui.metric(props: UiMetricProps) -> UiNode` | content | [`UiMetricProps`](#uimetricprops) | A number shown as text. Hosts that can animate changed digits do. |
+| `ui.shimmer(content: string, props: UiTextProps?) -> UiNode` | content | [`UiTextProps`](#uitextprops) | Text with the app's loading shimmer. |
+| `ui.keybind(props: UiKeybindProps) -> UiNode` | content | [`UiKeybindProps`](#uikeybindprops) | A keyboard shortcut chip. |
+| `ui.button(props: UiButtonProps) -> UiNode` | control | [`UiButtonProps`](#uibuttonprops) | The app's own button. |
+| `ui.iconButton(props: UiIconButtonProps) -> UiNode` | control | [`UiIconButtonProps`](#uiiconbuttonprops) | The app's own icon button. |
+| `ui.switch(props: UiSwitchProps) -> UiNode` | control | [`UiSwitchProps`](#uiswitchprops) | The app's own switch. |
+| `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
+| `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
+| `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
+| `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
+| `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
+| `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
+| `ui.flyoutRow(props: UiFlyoutRowProps) -> UiNode` | control | [`UiFlyoutRowProps`](#uiflyoutrowprops) | A popover row that opens a nested popover. |
+| `ui.markdown(props: UiMarkdownProps) -> UiNode` | native | [`UiMarkdownProps`](#uimarkdownprops) | Markdown, as the timeline draws a reply. |
+| `ui.virtualList(props: UiVirtualListProps) -> UiNode` | native | [`UiVirtualListProps`](#uivirtuallistprops) | A long list that builds only its visible rows. |
+| `ui.terminalSurface(props: UiTerminalSurfaceProps) -> UiNode` | native | [`UiTerminalSurfaceProps`](#uiterminalsurfaceprops) | A terminal. |
+| `ui.browserSurface(props: UiBrowserSurfaceProps) -> UiNode` | native | [`UiBrowserSurfaceProps`](#uibrowsersurfaceprops) | A web page. |
+| `ui.codeView(props: UiCodeViewProps) -> UiNode` | native | [`UiCodeViewProps`](#uicodeviewprops) | A highlighted file. |
+| `ui.diffView(props: UiDiffViewProps) -> UiNode` | native | [`UiDiffViewProps`](#uidiffviewprops) | Changes, split or unified. |
+| `ui.fileTree(props: UiFileTreeProps) -> UiNode` | native | [`UiFileTreeProps`](#uifiletreeprops) | A folder's file tree. |
+| `ui.genUi(props: UiGenUiProps) -> UiNode` | native | [`UiGenUiProps`](#uigenuiprops) | An interactive UI outline, from a ```` ```ui ```` code block. |
+
+### Native nodes
+
+Heavy engines stay native in the host. Luau composes them as opaque nodes and drives them through services.
+
+| Node | Engine | Stays native | Moves to Luau |
+|---|---|---|---|
+| `ui.markdown` | Markdown renderer with Mermaid diagrams | Parsing and AST caching, paragraph shaping, code fences, Mermaid layout | What to show, streaming state, highlights |
+| `ui.virtualList` | Virtualized rows | Viewport windowing, height cache, scroll anchoring, incremental mounting | Row count, version and each row's content |
+| `ui.terminalSurface` | Terminal emulator over the server's PTY stream | VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream | Tabs, numbering and renaming, commands, persistence, MCP tools |
+| `ui.browserSurface` | Embedded browser engine | The out-of-process browser, GPU texture sharing, the DevTools transport, input forwarding | Address bar, history, element picker notes, commands, MCP tools |
+| `ui.codeView` | Code view with an asynchronous highlighter | Highlighting, the line buffer, the virtualized gutter, selection, find in file | Tab routing, breadcrumb header, line links, viewer choice, MCP tools |
+| `ui.diffView` | Diff engine and code view | Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors | Source switcher, totals, split and unified toggle, contracts, MCP tools |
+| `ui.fileTree` | Tree model | Tree flattening, file icons, keyboard navigation | Folder loading, filter input, expanded state, open and context menus |
+| `ui.genUi` | UI outline renderer | Outline parsing, widget primitives and their motion | Which blocks render, through `AddCodeBlock` |
+
+## Semantic tokens
+
+A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves tokens for the current theme and color scheme.
+
+| Token | Group | Meaning |
+|---|---|---|
+| `bg-base` | background | The window's base background. |
+| `bg-weak` | background | A background one step quieter than `bg-base`, such as a sidebar. |
+| `bg-strong` | background | A background one step stronger than `bg-base`, such as a title bar. |
+| `surface-1` | surface | The first raised layer: cards and grouped lists. |
+| `surface-2` | surface | The second raised layer: controls on a card. |
+| `surface-3` | surface | The third raised layer: a control's track, such as an off switch. |
+| `surface-4` | surface | The fourth raised layer: the strongest fill a control uses. |
+| `surface-hover` | surface | The fill of a row or button under the pointer. |
+| `surface-press` | surface | The fill of a row or button while it is pressed. |
+| `surface-selected` | surface | The fill of a selected row or tab. |
+| `text-strong` | text | Headings and the most important text. |
+| `text-base` | text | Body text. |
+| `text-weak` | text | Secondary text: descriptions and labels. |
+| `text-weaker` | text | Tertiary text: hints, placeholders and timestamps. |
+| `text-on-accent` | text | Text on an `accent` fill. |
+| `text-interactive` | text | Links and other interactive text. |
+| `icon-strong` | icon | An icon that needs emphasis. |
+| `icon-base` | icon | The default icon color. |
+| `icon-weak` | icon | A secondary icon. |
+| `icon-weaker` | icon | A decorative or disabled icon. |
+| `icon-on-accent` | icon | An icon on an `accent` fill. |
+| `border-strong` | border | A strong border, such as a focused field's outline. |
+| `border-base` | border | The default border. |
+| `border-weak` | border | A hairline divider or a card's border. |
+| `border-focus` | border | The keyboard focus ring. |
+| `accent` | accent | The brand accent: primary buttons and switches that are on. |
+| `accent-hover` | accent | An `accent` fill under the pointer. |
+| `accent-subtle` | accent | A quiet accent tint, such as a selected chip's fill. |
+| `status-success` | status | Done or passing. |
+| `status-warning` | status | Needs attention. |
+| `status-danger` | status | Failed, blocked or destructive. |
+| `status-info` | status | Neutral information. |
+
+## Enums
+
+### Half
+
+Which half of a plugin runs the code.
+
+| Value | Meaning |
+|---|---|
+| `"window"` | One instance per window: the plugin's UI. |
+| `"app"` | One instance per process: workers, processes and shared state. |
+
+### Platform
+
+The operating system the host runs on.
+
+| Value | Meaning |
+|---|---|
+| `"windows"` | Windows. |
+| `"macos"` | macOS. |
+| `"linux"` | Linux. |
+| `"web"` | A browser host. |
+
+### Channel
+
+The app build's release channel.
+
+| Value | Meaning |
+|---|---|
+| `"local"` | A development build. |
+| `"beta"` | A beta build. |
+| `"prod"` | A production build. |
+
+### ColorScheme
+
+A light or dark color scheme.
+
+| Value | Meaning |
+|---|---|
+| `"light"` | Light. |
+| `"dark"` | Dark. |
+
+### Tone
+
+A status color for an icon or a pill.
+
+| Value | Meaning |
+|---|---|
+| `"success"` | Done or passing. |
+| `"warning"` | Needs attention. |
+| `"danger"` | Failed or blocked. |
+
+### ToastVariant
+
+A toast's tone.
+
+| Value | Meaning |
+|---|---|
+| `"default"` | Neutral information. |
+| `"success"` | Something finished. Shows a check icon unless the toast sets `icon`. |
+| `"error"` | Something failed. |
+| `"loading"` | Something is in progress. Use it with `persistent` and dismiss the toast when the work ends. |
+
+### CommandSection
+
+The section of Settings › Shortcuts that lists a command.
+
+| Value | Meaning |
+|---|---|
+| `"general"` | App-wide commands. |
+| `"session"` | Commands on the current session. |
+| `"navigation"` | Moving between views and tabs. |
+| `"model"` | Model and agent choice. |
+| `"terminal"` | The terminal. |
+| `"prompt"` | The composer. |
+
+### MenuName
+
+A host menu a menu item joins.
+
+| Value | Meaning |
+|---|---|
+| `"session.panel"` | The + menu before the side panel's tabs, and the New tab view. |
+| `"server.add"` | The Add server menu in Settings › Servers. |
+| `"server.row"` | The menu of each server row in Settings › Servers. `run` receives the row's server key. |
+
+### MenubarMenu
+
+A submenu of the app menu bar.
+
+| Value | Meaning |
+|---|---|
+| `"app"` | The app menu. |
+| `"file"` | File. |
+| `"edit"` | Edit. |
+| `"view"` | View. |
+| `"go"` | Go. |
+| `"window"` | Window. |
+| `"help"` | Help. |
+
+### SlotName
+
+A fixed place in the app's shell that a slot fills.
+
+| Value | Meaning |
+|---|---|
+| `"window.bottom"` | A full-width strip under the window content, above toasts. |
+| `"session.header"` | The end of the session header, before the usage numbers. |
+| `"session.location.menu"` | Rows in the session's project and location menu. |
+| `"session.panel.end"` | The actions after the side panel's tabs. |
+
+### HostSettingsPage
+
+A host settings page a settings page can add a section to.
+
+| Value | Meaning |
+|---|---|
+| `"general"` | Settings › General. |
+| `"servers"` | Settings › Servers. |
+
+### ServerState
+
+Where a contributed server stands.
+
+| Value | Meaning |
+|---|---|
+| `"stopped"` | Not running. |
+| `"starting"` | Starting up. |
+| `"auth"` | Waiting for the user to sign in. |
+| `"ready"` | Reachable. `http` holds its endpoint. |
+| `"failed"` | Could not start. |
+| `"incompatible"` | Runs a version this app does not support. |
+
+### PanelState
+
+Where a plugin's panel tab is in a session.
+
+| Value | Meaning |
+|---|---|
+| `"closed"` | Not in the session's tab strip. |
+| `"listed"` | In the strip, not selected. |
+| `"selected"` | Selected in its pane, with the side region hidden. |
+| `"visible"` | Selected, with the side region on screen. |
+
+### Transition
+
+How a layout change moves.
+
+| Value | Meaning |
+|---|---|
+| `"default"` | The app's own motion. |
+| `"none"` | Lands at once, without motion. |
+
+### HoverTransition
+
+How hover and press fills change.
+
+| Value | Meaning |
+|---|---|
+| `"default"` | The app's own fade. |
+| `"instant"` | Lands at once. |
+
+### Side
+
+A side of an anchor.
+
+| Value | Meaning |
+|---|---|
+| `"top"` | Above. |
+| `"bottom"` | Below. |
+| `"left"` | Before, in left-to-right text. |
+| `"right"` | After, in left-to-right text. |
+
+### Align
+
+Alignment along an edge or an axis.
+
+| Value | Meaning |
+|---|---|
+| `"start"` | The start edge. |
+| `"center"` | Centered. |
+| `"end"` | The end edge. |
+
+### UiAlign
+
+How a stack places its children across its axis.
+
+| Value | Meaning |
+|---|---|
+| `"start"` | At the start. |
+| `"center"` | Centered. |
+| `"end"` | At the end. |
+| `"stretch"` | Stretched to fill. The default. |
+
+### UiJustify
+
+How a stack places its children along its axis.
+
+| Value | Meaning |
+|---|---|
+| `"start"` | Packed at the start. The default. |
+| `"center"` | Packed in the center. |
+| `"end"` | Packed at the end. |
+| `"between"` | The first and last child at the edges, equal space between. |
+
+### FontWeight
+
+A text weight.
+
+| Value | Meaning |
+|---|---|
+| `"regular"` | 400. |
+| `"medium"` | 500. |
+| `"semibold"` | 600. |
+| `"bold"` | 700. |
+
+### FontFamily
+
+One of the user's font choices.
+
+| Value | Meaning |
+|---|---|
+| `"sans"` | The interface font. |
+| `"mono"` | The code font. |
+
+### ButtonVariant
+
+A button's look, as the app's own buttons.
+
+| Value | Meaning |
+|---|---|
+| `"neutral"` | A filled neutral button. The default. |
+| `"contrast"` | A high-contrast filled button. |
+| `"primary"` | An `accent` filled button. |
+| `"ghost"` | No fill until hovered. |
+| `"ghost-muted"` | A ghost button with a muted label. |
+| `"outline"` | A bordered button. |
+| `"danger"` | A destructive action. |
+
+### ControlSize
+
+A control's size.
+
+| Value | Meaning |
+|---|---|
+| `"small"` | Compact. |
+| `"normal"` | The default. |
+| `"large"` | Large. |
+
+### Elevation
+
+A shadow from the app's elevation scale.
+
+| Value | Meaning |
+|---|---|
+| `"raised"` | Slightly above the page: cards. |
+| `"floating"` | Floats over content: popovers and menus. |
+| `"overlay"` | Over everything: dialogs. |
+
+### Role
+
+An element's accessibility role.
+
+| Value | Meaning |
+|---|---|
+| `"none"` | No role. |
+| `"group"` | A group of related elements. |
+| `"region"` | A landmark region. Give it a `label`. |
+| `"button"` | A button. |
+| `"link"` | A link. |
+| `"switch"` | An on and off switch. |
+| `"checkbox"` | A checkbox. |
+| `"radio"` | A radio button. |
+| `"tab"` | A tab. |
+| `"list"` | A list. |
+| `"listitem"` | A list item. |
+| `"heading"` | A heading. |
+| `"img"` | An image. Give it a `label`. |
+| `"status"` | A live status message. |
+
+### LiveState
+
+The state of a contract another plugin provides.
+
+| Value | Meaning |
+|---|---|
+| `"pending"` | Its provider is still loading or reloading. |
+| `"active"` | Provided. `Get` returns it. |
+| `"inactive"` | Its provider is off, absent, or does not run on this platform. |
+| `"failed"` | Its provider failed to load or stopped. |
+
+### ResourceStatus
+
+The state of a cached server read.
+
+| Value | Meaning |
+|---|---|
+| `"loading"` | Not answered yet. Holds the previous answer while a newer read loads. |
+| `"ready"` | Answered. |
+| `"error"` | Failed. `error` says why. |
+
+### HttpMethod
+
+An HTTP method.
+
+| Value | Meaning |
+|---|---|
+| `"GET"` | GET. |
+| `"POST"` | POST. |
+| `"PUT"` | PUT. |
+| `"PATCH"` | PATCH. |
+| `"DELETE"` | DELETE. |
+| `"HEAD"` | HEAD. |
+
+### ProcessStream
+
+A process's output stream.
+
+| Value | Meaning |
+|---|---|
+| `"stdout"` | Standard output. |
+| `"stderr"` | Standard error. |
+
+### TextEncoding
+
+How a process encodes its output.
+
+| Value | Meaning |
+|---|---|
+| `"utf8"` | UTF-8. The default. |
+| `"utf16le"` | UTF-16 little-endian, such as `wsl.exe` on Windows. |
+
+### DiffMode
+
+How a diff lays out its changes.
+
+| Value | Meaning |
+|---|---|
+| `"split"` | Old and new side by side. |
+| `"unified"` | One column. |
+
+### DiffSource
+
+What a diff compares.
+
+| Value | Meaning |
+|---|---|
+| `"git"` | The working tree against HEAD. |
+| `"branch"` | The branch against its merge base. |
+| `"turn"` | One session turn's changes. |
+
+### ImageFit
+
+How an image fills its box.
+
+| Value | Meaning |
+|---|---|
+| `"contain"` | Whole, aspect kept. The default. |
+| `"cover"` | Fills the box, aspect kept, cropped. |
+| `"fill"` | Stretched to the box. |
+
+### OfficeKind
+
+An Office document's format.
+
+| Value | Meaning |
+|---|---|
+| `"docx"` | Word. |
+| `"xlsx"` | Excel. |
+| `"pptx"` | PowerPoint. |
+
+### UpdaterPhase
+
+Where the app updater stands.
+
+| Value | Meaning |
+|---|---|
+| `"idle"` | Nothing checked yet. |
+| `"checking"` | Asking for a newer version. |
+| `"up-to-date"` | This is the newest version. |
+| `"downloading"` | Downloading the update. `progress` says how far. |
+| `"ready"` | Downloaded. `Install` restarts into it. |
+| `"installing"` | Installing. |
+| `"error"` | Failed. `error` says why. |
+
+### UiEventKind
+
+What a `UiEvent` reports.
+
+| Value | Meaning |
+|---|---|
+| `"press"` | A click, a tap, or Enter or Space on a focused element. |
+| `"hover"` | The pointer entered or left. `entered` says which. |
+| `"submit"` | Enter in a field. `text` holds its text. |
+| `"change"` | A switch or radio changed. `checked` holds the new state. |
+| `"select"` | A file tree row was picked. `path` holds it. |
+| `"visible-rows"` | A virtual list's visible rows changed. `first` and `last` hold them. |
+
+### MenuEntryKind
+
+A kind of menu entry.
+
+| Value | Meaning |
+|---|---|
+| `"item"` | A row the user can pick. The default. |
+| `"group"` | A group title over the rows that follow. |
+| `"separator"` | A divider. |
+
+### DialogSize
+
+A dialog's width.
+
+| Value | Meaning |
+|---|---|
+| `"small"` | A confirmation. |
+| `"medium"` | A form. The default. |
+| `"large"` | A list or a document. |
+
+### StoreScope
+
+What a declared store keeps a value for.
+
+| Value | Meaning |
+|---|---|
+| `"global"` | One value for the whole app. |
+| `"session"` | One value per session. |
+
+## Types
+
+### HexColor
+
+A literal color from `ui.hex("#RRGGBB")` or `ui.hex("#RRGGBBAA")`. Prefer a `SemanticToken`: a literal color does not follow the theme.
+
+Opaque: the host owns it, and Luau sees no fields.
+
+### Color
+
+A semantic token, or a literal color from `ui.hex`.
+
+`type Color = SemanticToken | HexColor`
+
+### IconName
+
+The name of one of the app's icons, such as `"circle-check"`.
+
+`type IconName = string`
+
+### MemoVersion
+
+A memo's version. The host rebuilds the memo only when it changes.
+
+`type MemoVersion = string | number | boolean`
+
+### UiSize
+
+A length in logical points, or `"full"` to fill the parent.
+
+`type UiSize = number | "full"`
+
+### UiNode
+
+An element a `ui.*` constructor built. Pass it to a parent or return it from a render.
+
+Opaque: the host owns it, and Luau sees no fields.
+
+### UiHandler
+
+An event handler `view:Handler` made. It runs as a coroutine, so it may yield.
+
+Opaque: the host owns it, and Luau sees no fields.
+
+### ImageId
+
+An image the host holds, for `ui.image`.
+
+Opaque: the host owns it, and Luau sees no fields.
+
+### PluginHalf
+
+What `plugin.defineWindow` and `plugin.defineApp` return. Return it from the entry module.
+
+Opaque: the host owns it, and Luau sees no fields.
+
+### Signal
+
+An event source. Connections disconnect on their own when the plugin half that made them goes away. Written `Signal<T...>`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Connect` | `(callback: (T...) -> ()) -> Connection` | Calls `callback` on every fire, as a coroutine. |
+| `:Once` | `(callback: (T...) -> ()) -> Connection` | Calls `callback` on the next fire only. |
+| `:Wait` | `() -> T...` | Yields until the next fire and returns its values. Yields. |
+
+### ScriptSignal
+
+A signal a plugin fires itself, from `ctx:CreateSignal()`. Its version counts fires: put it in a memo's version. Written `ScriptSignal<T...>`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Connect` | `(callback: (T...) -> ()) -> Connection` | Calls `callback` on every fire, as a coroutine. |
+| `:Once` | `(callback: (T...) -> ()) -> Connection` | Calls `callback` on the next fire only. |
+| `:Wait` | `() -> T...` | Yields until the next fire and returns its values. Yields. |
+| `:Fire` | `(T...) -> ()` | Fires the signal, adds 1 to its version and asks the window to redraw. |
+| `:Version` | `() -> number` | How many times the signal fired. |
+
+### Connection
+
+One connection to a signal.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Connected` | `boolean` | False once disconnected. |
+| `:Disconnect` | `() -> ()` | Stops the callback. Does nothing when already disconnected. |
+
+### Contribution
+
+A contribution a plugin added. The host withdraws it when the plugin half goes away.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Withdraw` | `() -> ()` | Removes the contribution now. |
+| `:Refresh` | `() -> ()` | Asks the host to call the contribution's `show`, `list` or `render` again. |
+
+### Live
+
+A contract another plugin provides, followed live. Written `Live<T>`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:State` | `() -> LiveState` | The provider's state. |
+| `:Get` | `() -> T?` | The provided value while the state is `active`. |
+| `:Generation` | `() -> number` | Changes on every state change and every new value: put it in a memo's version. |
+| `.Changed` | `Signal<LiveState>` | Fires on every state change and every new value. |
+
+### View
+
+What a render callback receives first. Render callbacks must not yield.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Memo` | `(key: string, version: MemoVersion, build: () -> UiNode?) -> UiNode?` | Returns the subtree `build` returns, and calls `build` again only when `version` changes. An unchanged frame costs no Luau call. Keep `key` unique within the render. |
+| `:Handler` | `(callback: (event: UiEvent) -> ()) -> UiHandler` | Wraps `callback` for an `on*` property. The handler runs as a coroutine, so it may call `Async` methods and `task.wait`. |
+
+### UiEvent
+
+What a handler receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `UiEventKind` | What happened. |
+| `key` | `string?` | The `key` of the element the event came from. |
+| `entered` | `boolean?` | A `hover` event: true as the pointer enters, false as it leaves. |
+| `text` | `string?` | A `submit` event: the field's text. |
+| `checked` | `boolean?` | A `change` event: the new state. |
+| `path` | `string?` | A `select` event: the picked path. |
+| `first` | `number?` | A `visible-rows` event: the first visible row, from 1. |
+| `last` | `number?` | A `visible-rows` event: the last visible row. |
+| `shift` | `boolean?` | Shift was held. |
+| `alt` | `boolean?` | Alt (Option) was held. |
+| `mod` | `boolean?` | The platform's command key was held: Ctrl, or Cmd on macOS. |
+
+### Editor
+
+A host-owned text field's content: typing, IME, selection and undo stay in the host and survive a hot reload.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Text` | `() -> string` | The field's text. |
+| `:SetText` | `(text: string) -> ()` | Replaces the text and puts the caret at its end. |
+| `:Version` | `() -> number` | Changes whenever the text, selection, composition or focus does: put it in a memo's version. |
+| `:Focus` | `() -> ()` | Moves keyboard focus to the field. |
+| `.Changed` | `Signal<string>` | Fires with the new text after each edit. |
+| `.Submitted` | `Signal<string>` | Fires with the text when the user presses Enter. |
+
+### UiLayoutProps
+
+Size, spacing, position and accessibility: every `ui.*` node takes these.
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | `string?` | Identity among siblings across renders, and the anchor key for popovers and menus. |
+| `w` | `UiSize?` | Width. |
+| `h` | `UiSize?` | Height. |
+| `minW` | `number?` | Minimum width. |
+| `minH` | `number?` | Minimum height. |
+| `maxW` | `number?` | Maximum width. |
+| `maxH` | `number?` | Maximum height. |
+| `grow` | `number?` | Share of a stack's free space. |
+| `shrink` | `boolean?` | May shrink below its content size. |
+| `pad` | `number?` | Padding on every side. |
+| `px` | `number?` | Left and right padding. |
+| `py` | `number?` | Top and bottom padding. |
+| `pt` | `number?` | Top padding. |
+| `pr` | `number?` | Right padding. |
+| `pb` | `number?` | Bottom padding. |
+| `pl` | `number?` | Left padding. |
+| `m` | `number?` | Margin on every side. |
+| `mx` | `number?` | Left and right margin. |
+| `my` | `number?` | Top and bottom margin. |
+| `mt` | `number?` | Top margin. |
+| `mr` | `number?` | Right margin. |
+| `mb` | `number?` | Bottom margin. |
+| `ml` | `number?` | Left margin. |
+| `pin` | `UiPin?` | Takes the node out of flow, at these offsets from its parent's edges. |
+| `opacity` | `number?` | 0 to 1. |
+| `role` | `Role?` | The accessibility role. |
+| `label` | `string?` | The accessible name. |
+| `help` | `string?` | A tooltip. |
+| `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
+
+### UiPin
+
+Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.
+
+| Field | Type | Description |
+|---|---|---|
+| `left` | `number?` | From the left edge. |
+| `top` | `number?` | From the top edge. |
+| `right` | `number?` | From the right edge. |
+| `bottom` | `number?` | From the bottom edge. |
+
+### UiBoxProps
+
+A container's props: `ui.box`, `ui.row` and `ui.col`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `gap` | `number?` | Space between children. |
+| `align` | `UiAlign?` | How children sit across the axis. |
+| `justify` | `UiJustify?` | How children sit along the axis. |
+| `center` | `boolean?` | Centers children on both axes. |
+| `wrap` | `boolean?` | Children wrap onto more lines. |
+| `fill` | `Color?` | Background. |
+| `hover` | `Color?` | Background under the pointer. |
+| `press` | `Color?` | Background while pressed. |
+| `selected` | `boolean?` | Draws the `surface-selected` fill and reports the selected state to assistive technology. |
+| `border` | `Color?` | Border color. |
+| `borderWidth` | `number?` | Border width. Defaults to 1 when `border` is set. |
+| `radius` | `number?` | Corner radius. |
+| `corners` | `{ number }?` | Per-corner radii: top-left, top-right, bottom-right, bottom-left. |
+| `shadow` | `Elevation?` | A shadow from the app's elevation scale. |
+| `clip` | `boolean?` | Clips children to the box. |
+| `scrollY` | `boolean?` | Scrolls vertical overflow. |
+| `scrollX` | `boolean?` | Scrolls horizontal overflow. |
+| `focusable` | `boolean?` | Takes keyboard focus. |
+| `disabled` | `boolean?` | Takes no presses. |
+| `onPress` | `UiHandler?` | Runs on a press. |
+| `onHover` | `UiHandler?` | Runs as the pointer enters and leaves. |
+| `hoverTransition` | `HoverTransition?` | How hover and press fills change. |
+| `hoverGroup` | `boolean?` | Starts a hover group: descendants with `hoverGroupColor` or `revealOnHover` react while this box is hovered. |
+| `hoverGroupColor` | `Color?` | The text or icon color while the nearest hover group is hovered. |
+| `revealOnHover` | `boolean?` | Shows only while the nearest hover group is hovered or focused. |
+| `color` | `Color?` | The default text and icon color for descendants. |
+
+### UiTextProps
+
+Text styling: `ui.text` and `ui.shimmer`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `size` | `number?` | Font size in points. Defaults to 13. |
+| `weight` | `FontWeight?` | Weight. |
+| `lineHeight` | `number?` | Line height in points. |
+| `tracking` | `number?` | Letter spacing in points. |
+| `color` | `Color?` | Text color. Defaults to `text-base`. |
+| `mono` | `boolean?` | The code font. |
+| `tabular` | `boolean?` | Tabular figures. |
+| `wrap` | `boolean?` | Wraps onto more lines. The default for text in a column. |
+| `noWrap` | `boolean?` | Keeps to one line. |
+| `truncate` | `boolean?` | Ends with an ellipsis when it does not fit. |
+| `fadeOut` | `boolean?` | Fades out at the end when it does not fit, instead of an ellipsis. |
+| `selectable` | `boolean?` | The user can select and copy it. |
+| `textAlign` | `Align?` | Alignment within its box. |
+| `hoverGroupColor` | `Color?` | The color while the nearest hover group is hovered. |
+| `revealOnHover` | `boolean?` | Shows only while the nearest hover group is hovered. |
+
+### UiSpacerProps
+
+`ui.spacer` props.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+### UiDividerProps
+
+`ui.divider` props.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `vertical` | `boolean?` | A vertical rule. Defaults to horizontal. |
+| `color` | `Color?` | Defaults to `border-weak`. |
+
+### UiIconProps
+
+`ui.icon` props.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `size` | `number?` | Width and height in points. Defaults to 16. |
+| `color` | `Color?` | Defaults to `icon-base`. |
+| `tone` | `Tone?` | A status color, instead of `color`. |
+| `hoverGroupColor` | `Color?` | The color while the nearest hover group is hovered. |
+| `revealOnHover` | `boolean?` | Shows only while the nearest hover group is hovered. |
+
+### UiImageProps
+
+`ui.image` props.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `image` | `ImageId` | The image, from the `Images` service or an `Async` render. |
+| `fit` | `ImageFit?` | How it fills its box. |
+| `radius` | `number?` | Corner radius. |
+
+### UiMetricProps
+
+`ui.metric` props: a number shown as text.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `value` | `number` | The number the text stands for. Hosts that animate compare it with the last value. |
+| `text` | `string` | What it reads, such as `"12.4K"`. |
+| `tabular` | `boolean?` | Tabular figures. Defaults to true. |
+| `animate` | `boolean?` | Animates changed digits where the host can. Defaults to true. Other hosts show the text. |
+| `size` | `number?` | Font size in points. |
+| `weight` | `FontWeight?` | Weight. |
+| `color` | `Color?` | Color. |
+
+### UiButtonProps
+
+`ui.button` props: the app's own button.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string?` | The visible label. Also the accessible name unless `label` is set. |
+| `icon` | `IconName?` | A leading icon. |
+| `variant` | `ButtonVariant?` | The look. |
+| `size` | `ControlSize?` | The size. |
+| `disabled` | `boolean?` | Takes no presses. |
+| `loading` | `boolean?` | Shows the app's loader and takes no presses. |
+| `pressed` | `boolean?` | A toggle button's pressed state. |
+| `onPress` | `UiHandler?` | Runs on a press. |
+
+### UiIconButtonProps
+
+`ui.iconButton` props: a square button with an icon. Give it a `label`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `icon` | `IconName` | The icon. |
+| `variant` | `ButtonVariant?` | The look. Defaults to `ghost`. |
+| `size` | `ControlSize?` | The size. |
+| `disabled` | `boolean?` | Takes no presses. |
+| `pressed` | `boolean?` | A toggle button's pressed state. |
+| `onPress` | `UiHandler?` | Runs on a press. |
+
+### UiSwitchProps
+
+`ui.switch` props: the app's own switch.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `checked` | `boolean` | On. |
+| `disabled` | `boolean?` | Cannot change. |
+| `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
+
+### UiRadioProps
+
+`ui.radio` props: a radio row with its label and description.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The row's label. |
+| `description` | `string?` | A line under the label. |
+| `checked` | `boolean` | Selected. |
+| `tone` | `Tone?` | Colors the label. |
+| `disabled` | `boolean?` | Cannot change. |
+| `onChange` | `UiHandler?` | Runs as the user picks the row. |
+
+### UiFieldProps
+
+`ui.field` props: the app's own text field over an `Editor`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `editor` | `Editor` | The field's content, from `ctx:CreateEditor`. |
+| `placeholder` | `string?` | Shows while the field is empty. |
+| `size` | `ControlSize?` | The size. |
+| `invalid` | `boolean?` | Drawn as invalid. |
+| `secure` | `boolean?` | Hides the text, for a password. |
+| `disabled` | `boolean?` | Takes no typing. |
+| `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
+| `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
+
+### UiLoaderProps
+
+`ui.loader` props: the app's spinner.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `size` | `number?` | Width and height in points. Defaults to 16. |
+
+### UiPillProps
+
+`ui.pill` props: a status capsule like the composer's pills.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The capsule's label. |
+| `icon` | `IconName?` | A leading icon. |
+| `tone` | `Tone?` | Colors the icon. |
+| `pressed` | `boolean?` | Shows the capsule pressed. |
+| `onPress` | `UiHandler?` | Runs on a press. |
+
+### UiKeybindProps
+
+`ui.keybind` props: a shortcut chip.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `command` | `string?` | A published command id. The chip shows the user's current binding. |
+| `keys` | `string?` | A literal binding, such as `"mod+shift+t"`, when there is no command. |
+
+### UiSettingsRowProps
+
+`ui.settingsRow` props: one settings row, as the app's own.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The row's search id: settings search scrolls to it. |
+| `title` | `string` | The row's title. |
+| `description` | `string?` | A line under the title. |
+
+### UiSettingsListProps
+
+`ui.settingsList` props: a card of settings rows split by hairlines.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string?` | A section title above the card. |
+
+### UiFlyoutRowProps
+
+`ui.flyoutRow` props: a popover row that opens a nested popover beside it. The host owns placement, hover intent and dismissal.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The row's label. |
+| `icon` | `IconName?` | A leading icon. |
+| `detail` | `string?` | Muted text at the row's end, such as a count. |
+| `popover` | `string` | The id of this plugin's popover the row opens. |
+| `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
+
+### UiMarkdownProps
+
+`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | `string` | The Markdown. |
+| `size` | `number?` | Body font size in points. Defaults to 14. |
+| `lineHeight` | `number?` | Body line height in points. |
+| `highlights` | `{ string }?` | Words to highlight, such as search matches. |
+| `selectable` | `boolean?` | The user can select and copy it. Defaults to true. |
+| `streaming` | `boolean?` | The source is still growing: the host keeps the last block open. |
+
+### UiVirtualListProps
+
+`ui.virtualList` props. Native: windowing, the height cache and scroll anchoring stay in the host; Luau builds only the rows that come into view.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `count` | `number` | How many rows. |
+| `estimatedRowHeight` | `number` | A row's height before it is measured. |
+| `version` | `MemoVersion` | Change it when rows change. While it stays the same, scrolling builds only rows that enter the view. |
+| `renderRow` | `(index: number) -> UiNode` | Builds row `index`, from 1. It must not yield. |
+| `rowKey` | `((index: number) -> string)?` | A stable identity for row `index`, so rows keep their state as the list changes. Defaults to the index. |
+| `gap` | `number?` | Space between rows. |
+| `onVisibleRows` | `UiHandler?` | Runs as the visible rows change, with `event.first` and `event.last`. |
+
+### UiTerminalSurfaceProps
+
+`ui.terminalSurface` props. Native: the VT parser, scrollback, glyph grid, IME and PTY stream stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `session` | `PtySession` | The terminal session, from the `Terminal` service. |
+| `fontFamily` | `string?` | A font family. Defaults to the user's code font. |
+| `fontSize` | `number?` | Font size in points. |
+| `focused` | `boolean?` | Takes keyboard focus. |
+
+### UiBrowserSurfaceProps
+
+`ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `tab` | `BrowserTab` | The page, from the `Browser` service. |
+| `focused` | `boolean?` | Takes keyboard focus. |
+
+### UiCodeViewProps
+
+`ui.codeView` props. Native: highlighting, the line buffer, the gutter, selection and find stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `doc` | `CodeDocument` | The file, from `Workspace:OpenDocument`. |
+| `lineWrap` | `boolean?` | Wraps long lines. |
+| `showLineNumbers` | `boolean?` | Shows the gutter. Defaults to true. |
+| `revealLine` | `number?` | Scrolls to this line, from 1, and highlights it. |
+
+### UiDiffViewProps
+
+`ui.diffView` props. Native: hunk layout, intraline diffing, highlighting and comment anchors stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `diff` | `DiffDocument` | The changes, from `Diff:Open`. |
+| `mode` | `DiffMode` | Split or unified. |
+| `expand` | `boolean?` | Shows unchanged lines in full. |
+| `file` | `string?` | Shows only this file's changes. |
+
+### UiFileTreeProps
+
+`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `tree` | `FileTreeModel` | The tree, from `Workspace:OpenTree`. |
+| `selectedPath` | `string?` | The selected row. |
+| `highlightedPath` | `string?` | A row to highlight, such as the open file. |
+| `onSelect` | `UiHandler?` | Runs as the user picks a file, with `event.path`. |
+| `onContextMenu` | `UiHandler?` | Runs on a secondary click, with `event.path`. |
+
+### UiGenUiProps
+
+`ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `source` | `string` | The ```` ```ui ```` outline source. |
+| `streaming` | `boolean?` | The source is still growing. |
+
+### SessionUsage
+
+A session's token counts at its last step.
+
+| Field | Type | Description |
+|---|---|---|
+| `input` | `number` | Input tokens. |
+| `output` | `number` | Output tokens. |
+| `reasoning` | `number` | Reasoning tokens. |
+| `cacheRead` | `number` | Tokens read from the cache. |
+| `cacheWrite` | `number` | Tokens written to the cache. |
+
+### Session
+
+A session as the app holds it.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The session id. |
+| `serverId` | `string` | The key of the server that owns it. |
+| `directory` | `string` | Its workspace folder. |
+| `title` | `string` | Its title. |
+| `parentId` | `string?` | The parent session of a subagent's session. |
+| `busy` | `boolean` | A turn is running. |
+| `version` | `number` | Changes whenever anything here does: put it in a memo's version. |
+| `cost` | `number` | What it cost in USD, its subagents' sessions included. |
+| `usage` | `SessionUsage?` | Token counts at the last step with tokens. |
+| `usageProviderId` | `string?` | The provider of the step `usage` came from. |
+| `usageModelId` | `string?` | The model of the step `usage` came from. |
+
+### ModelInfo
+
+A model as the server's catalog names it.
+
+| Field | Type | Description |
+|---|---|---|
+| `providerName` | `string?` | The provider's name. Nil when the catalog does not list the provider. |
+| `modelName` | `string?` | The model's name. Nil when the catalog does not list it. |
+| `contextLimit` | `number?` | Its context window in tokens. |
+| `outputLimit` | `number?` | Its output limit in tokens. |
+
+### Resource
+
+A cached server read.
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `ResourceStatus` | Its state. |
+| `json` | `any?` | The answer as JSON, when it is JSON. |
+| `text` | `string?` | The answer as text. |
+| `error` | `string?` | Why it failed. |
+| `generation` | `number` | Changes with every new answer: put it in a memo's version. |
+
+### ServerResponse
+
+A server's answer.
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `boolean` | A 2xx status. |
+| `status` | `number` | The HTTP status. 0 when nothing answered. |
+| `json` | `any?` | The body as JSON, when it is JSON. |
+| `text` | `string` | The body as text. |
+| `error` | `string?` | Why it failed. |
+
+### ServerEvent
+
+One event from the server's event stream.
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `string` | The event type, such as `"session.updated"`. |
+| `data` | `any` | The event's payload. |
+| `serverId` | `string` | The key of the server that sent it. |
+| `directory` | `string?` | The workspace folder it concerns. |
+
+### ServerInfo
+
+A server the app lists.
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | `string` | Its key: `local`, or `<plugin>:<id>` for a contributed server. |
+| `name` | `string` | Its display name. |
+| `label` | `string?` | Its badge, such as `"SSH"`. |
+| `state` | `ServerState` | Where it stands. |
+| `isLocal` | `boolean` | It runs on this machine. |
+| `current` | `boolean` | This window is connected to it. |
+| `version` | `string?` | The version it reported. |
+
+### ServerHealth
+
+A server's latest health check.
+
+| Field | Type | Description |
+|---|---|---|
+| `healthy` | `boolean` | It answered. |
+| `version` | `string?` | The version it reported. |
+| `incompatible` | `boolean?` | This app does not support that version. |
+| `checking` | `boolean?` | A check is in flight. |
+
+### ServerEndpoint
+
+How to reach a ready server.
+
+| Field | Type | Description |
+|---|---|---|
+| `url` | `string` | The base URL. |
+| `password` | `string?` | The HTTP basic password. The user name is always `opencode`. |
+
+### ServerEntry
+
+One server a server source lists. Its key is `<plugin>:<id>`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The entry's id within the source. |
+| `name` | `string` | The display name. |
+| `label` | `string?` | A short badge after the name, such as `"WSL"`. |
+| `state` | `ServerState` | Where it stands. |
+| `listed` | `boolean?` | False keeps it out of the app's server list. Settings still shows it. Defaults to true. |
+| `http` | `ServerEndpoint?` | Its endpoint, once `ready`. |
+
+### BasicAuth
+
+HTTP basic credentials.
+
+| Field | Type | Description |
+|---|---|---|
+| `user` | `string` | The user name. |
+| `password` | `string` | The password. |
+
+### HttpRequest
+
+An HTTP request.
+
+| Field | Type | Description |
+|---|---|---|
+| `url` | `string` | The URL. |
+| `method` | `HttpMethod?` | Defaults to GET. |
+| `headers` | `{ [string]: string }?` | Request headers. |
+| `body` | `string?` | A text body. |
+| `json` | `any?` | A JSON body, instead of `body`. Sets the content type. |
+| `basicAuth` | `BasicAuth?` | Sends `Authorization: Basic`. |
+| `timeout` | `number?` | Seconds before it gives up. Defaults to 30. |
+
+### HttpResponse
+
+An HTTP answer.
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `boolean` | A 2xx status. |
+| `status` | `number` | The HTTP status. 0 when nothing answered. |
+| `headers` | `{ [string]: string }` | Response headers, with lowercase names. |
+| `text` | `string` | The body as text. |
+| `json` | `any?` | The body as JSON, when it is JSON. |
+| `error` | `string?` | Why it failed. |
+
+### ProcessSpec
+
+A process to start.
+
+| Field | Type | Description |
+|---|---|---|
+| `program` | `string` | The program, as a path or a name on PATH. |
+| `args` | `{ string }?` | Its arguments, passed as they are, without a shell. |
+| `env` | `{ [string]: string }?` | Variables to add to the app's environment. |
+| `cwd` | `string?` | Its working folder. |
+| `stdin` | `string?` | Written to its stdin first. Stdin then closes unless `keepStdin` is set. |
+| `keepStdin` | `boolean?` | Keeps stdin open for `Write`. |
+| `timeout` | `number?` | Seconds before the host kills it. |
+| `encoding` | `TextEncoding?` | How it encodes its output. |
+
+### ProcessExit
+
+How a process ended.
+
+| Field | Type | Description |
+|---|---|---|
+| `code` | `number?` | Its exit code, when it has one. |
+| `error` | `string?` | Why it could not start. |
+| `timedOut` | `boolean` | Its timeout killed it. |
+| `killed` | `boolean` | `Kill`, or the plugin going away, ended it. |
+
+### ProcessOutput
+
+A finished process and all its output.
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `boolean` | It ran and exited with 0. |
+| `code` | `number?` | Its exit code. |
+| `stdout` | `string` | Everything it wrote to stdout. |
+| `stderr` | `string` | Everything it wrote to stderr. |
+| `error` | `string?` | Why it could not start. |
+| `timedOut` | `boolean` | Its timeout killed it. |
+
+### ProcessHandle
+
+A process the host supervises. The host kills it when the plugin half that started it goes away.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Id` | `number` | The host's id for it. |
+| `:Running` | `() -> boolean` | It has not exited. |
+| `:Write` | `(text: string, close: boolean?) -> boolean` | Writes to its stdin, then closes stdin when `close` is true. False when stdin is closed. |
+| `:Kill` | `() -> ()` | Kills it. `Exited` follows. |
+| `:WaitAsync` | `() -> ProcessExit` | Yields until it exits. Yields. |
+| `.Output` | `Signal<ProcessStream, string>` | Fires with each chunk of output, line-buffered. |
+| `.Exited` | `Signal<ProcessExit>` | Fires once as it exits. |
+
+### StoreValue
+
+A value the host saves for this plugin with the app's state. Written `StoreValue<T>`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Get` | `() -> T` | The value, or the default. |
+| `:Set` | `(value: T) -> ()` | Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them. |
+| `:Version` | `() -> number` | Changes with every `Set`: put it in a memo's version. |
+| `.Changed` | `Signal<T>` | Fires with the new value, also when another window sets it. |
+
+### SessionStoreValue
+
+A value the host saves for this plugin per session. Written `SessionStoreValue<T>`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Get` | `(sessionId: string) -> T` | The session's value, or the default. |
+| `:Set` | `(sessionId: string, value: T) -> ()` | Saves a new value for the session. It must be plain data. |
+| `:Version` | `() -> number` | Changes with every `Set`: put it in a memo's version. |
+| `.Changed` | `Signal<string, T>` | Fires with the session id and its new value. |
+
+### ToastAction
+
+A button on a toast.
+
+| Field | Type | Description |
+|---|---|---|
+| `label` | `string` | The button's label. |
+| `revealPath` | `string?` | Shows this path in the system's file manager. |
+| `openUrl` | `string?` | Opens this URL in the system's browser. |
+| `run` | `(() -> ())?` | Runs when the user clicks it. The toast then closes. |
+
+### ToastSpec
+
+What a toast shows.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | The headline. |
+| `description` | `string?` | More detail under the title. |
+| `variant` | `ToastVariant?` | The tone. Defaults to `default`. |
+| `icon` | `IconName?` | An icon before the title. |
+| `duration` | `number?` | Seconds before it closes. Ignored when `persistent`. Defaults to 5. |
+| `persistent` | `boolean?` | Stays until the user or `Dismiss` closes it. |
+| `actions` | `{ ToastAction }?` | Buttons, in order. |
+
+### ToastHandle
+
+One toast the plugin showed. It closes when the plugin goes away.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Dismiss` | `() -> ()` | Closes it. Does nothing once it closed. |
+| `:Update` | `(spec: ToastSpec) -> ()` | Replaces what it shows, in place. |
+
+### PopoverOpenSpec
+
+Where to open one of this plugin's popovers.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The popover's id, from `ctx:AddPopover`. |
+| `anchorKey` | `string` | The `key` of the element it opens beside. |
+| `side` | `Side?` | The anchor's side. Defaults to below. |
+| `align` | `Align?` | Alignment along that side. Defaults to start. |
+| `gap` | `number?` | Points between the anchor and the popover. |
+| `data` | `{ [string]: any }?` | Passed to the popover's render as `props.data`. |
+| `transition` | `Transition?` | How it appears. |
+
+### MenuEntry
+
+One entry of a menu.
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `MenuEntryKind?` | Defaults to `item`. |
+| `id` | `string?` | An item's id, returned when the user picks it. |
+| `title` | `string?` | An item's label, or a group's title. |
+| `icon` | `IconName?` | An item's icon. |
+| `detail` | `string?` | Muted text at an item's end. |
+| `keybind` | `string?` | A published command id whose shortcut the item shows. |
+| `enabled` | `boolean?` | False shows the item disabled. Defaults to true. |
+| `danger` | `boolean?` | A destructive item. |
+| `checked` | `boolean?` | Shows a check mark. |
+
+### MenuOpenSpec
+
+A menu to open beside an element.
+
+| Field | Type | Description |
+|---|---|---|
+| `anchorKey` | `string` | The `key` of the element it opens beside. |
+| `items` | `{ MenuEntry }` | Its entries. |
+| `label` | `string?` | Its accessible name. |
+| `side` | `Side?` | The anchor's side. Defaults to below. |
+| `align` | `Align?` | Alignment along that side. Defaults to start. |
+| `minWidth` | `number?` | Its minimum width in points. |
+
+### OpenPanelOptions
+
+How to open a panel tab.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string?` | The session. Defaults to the routed session. |
+| `instance` | `string?` | The tab of an instance panel. |
+| `background` | `boolean?` | Opens the tab without selecting it or switching the narrow-screen view. |
+| `transition` | `Transition?` | How the side region opens. |
+
+### Link
+
+A local link the app routes to a link handler.
+
+| Field | Type | Description |
+|---|---|---|
+| `href` | `string` | The target: a path, a URL or a `file://` link. |
+| `origin` | `string?` | The plugin that produced the linked item. |
+| `exact` | `boolean?` | The path is a known workspace file, not a guess from text. |
+| `background` | `boolean?` | Must not switch the narrow-screen view. |
+| `base` | `string?` | The workspace-relative folder the link was written in. |
+| `sessionId` | `string?` | The session the link belongs to. |
+
+### NotificationSpec
+
+A system notification. It follows the user's notification settings.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | The title. |
+| `body` | `string?` | The text under it. |
+| `sessionId` | `string?` | Clicking it opens this session. |
+| `sound` | `boolean?` | Plays the user's notification sound. |
+
+### ThemeInfo
+
+The window's theme.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The theme's key. |
+| `name` | `string` | Its display name. |
+| `scheme` | `ColorScheme` | The color scheme in use. |
+
+### SaveResult
+
+Where a file was saved.
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | `string?` | Its path. |
+| `error` | `string?` | Why it could not be saved. |
+
+### ReadResult
+
+A file's text.
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string?` | Its text, as UTF-8. |
+| `error` | `string?` | Why it could not be read. |
+
+### OpenInApp
+
+An app that can open a path, such as an editor or a file manager.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id, for `Workspace:OpenIn`. |
+| `name` | `string` | Its display name. |
+| `icon` | `ImageId?` | Its icon. |
+
+### CodeDocument
+
+A file open for `ui.codeView`. The host closes it when the plugin half goes away.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Path` | `string` | Its path. |
+| `:Version` | `() -> number` | Changes when its content does: put it in a memo's version. |
+| `:Missing` | `() -> boolean` | The file no longer exists. |
+| `:Binary` | `() -> boolean` | The file is not text. |
+| `:Reload` | `() -> ()` | Reads it again. |
+| `:Close` | `() -> ()` | Releases it. |
+| `.Changed` | `Signal<()>` | Fires when its content changes on disk. |
+
+### FileTreeModel
+
+A folder's tree for `ui.fileTree`.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Root` | `string` | The root folder. |
+| `:Expand` | `(path: string) -> ()` | Expands a folder. |
+| `:Collapse` | `(path: string) -> ()` | Collapses a folder. |
+| `:SetFilter` | `(query: string) -> ()` | Shows only paths that match a fuzzy query. An empty query shows all. |
+| `:Refresh` | `() -> ()` | Reads the folder again. |
+| `:Version` | `() -> number` | Changes when the tree does. |
+| `:Close` | `() -> ()` | Releases it. |
+| `.Changed` | `Signal<()>` | Fires when the tree changes. |
+
+### DiffTotals
+
+A diff's size.
+
+| Field | Type | Description |
+|---|---|---|
+| `files` | `number` | Changed files. |
+| `added` | `number` | Added lines. |
+| `removed` | `number` | Removed lines. |
+
+### DiffFile
+
+One changed file.
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | `string` | Its path. |
+| `status` | `string` | `added`, `modified`, `deleted` or `renamed`. |
+| `added` | `number` | Added lines. |
+| `removed` | `number` | Removed lines. |
+
+### DiffOpenSpec
+
+Which changes to open.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string` | The session. |
+| `source` | `DiffSource` | What to compare. |
+| `messageId` | `string?` | A `turn` source's user message. |
+
+### DiffDocument
+
+A set of changes for `ui.diffView`.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Totals` | `() -> DiffTotals` | Its size. |
+| `:Files` | `() -> { DiffFile }` | Its files. |
+| `:SetSource` | `(source: DiffSource, messageId: string?) -> ()` | Compares something else. |
+| `:Loading` | `() -> boolean` | A read is in flight. |
+| `:Version` | `() -> number` | Changes when the changes do. |
+| `:Close` | `() -> ()` | Releases it. |
+| `.Changed` | `Signal<()>` | Fires when the changes change. |
+
+### TerminalSpec
+
+A terminal session to start on the server.
+
+| Field | Type | Description |
+|---|---|---|
+| `directory` | `string` | The workspace folder. |
+| `cwd` | `string?` | The shell's working folder. Defaults to `directory`. |
+| `title` | `string?` | Its initial title. |
+| `command` | `string?` | A program to run instead of the user's shell. |
+| `args` | `{ string }?` | Its arguments. |
+
+### PtySession
+
+A terminal session for `ui.terminalSurface`.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Id` | `string` | The server's id for it. |
+| `:Title` | `() -> string` | Its title, as the shell sets it. |
+| `:Running` | `() -> boolean` | Its process has not exited. |
+| `:Write` | `(text: string) -> ()` | Types text into it. |
+| `:Close` | `() -> ()` | Ends it. |
+| `.Exited` | `Signal<number?>` | Fires with the exit code as its process exits. |
+| `.TitleChanged` | `Signal<string>` | Fires with the new title. |
+
+### BrowserOpenSpec
+
+A page to open.
+
+| Field | Type | Description |
+|---|---|---|
+| `url` | `string` | The URL. |
+| `sessionId` | `string?` | The session the page belongs to. |
+| `background` | `boolean?` | Opens without showing it. |
+
+### BrowserTab
+
+A page in the app's browser, for `ui.browserSurface`.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Id` | `string` | The host's id for it. |
+| `:Url` | `() -> string` | The current URL. |
+| `:Title` | `() -> string` | The page title. |
+| `:Loading` | `() -> boolean` | A load is in flight. |
+| `:CanGoBack` | `() -> boolean` | History has an earlier page. |
+| `:CanGoForward` | `() -> boolean` | History has a later page. |
+| `:Navigate` | `(url: string) -> ()` | Loads a URL. |
+| `:Back` | `() -> ()` | Goes back. |
+| `:Forward` | `() -> ()` | Goes forward. |
+| `:Reload` | `() -> ()` | Reloads. |
+| `:Stop` | `() -> ()` | Stops loading. |
+| `:Close` | `() -> ()` | Closes the page. |
+| `:DevtoolsAsync` | `(method: string, params: { [string]: any }?) -> any` | Sends one DevTools protocol command and returns its result. Yields. |
+| `:ScreenshotAsync` | `() -> ImageId?` | Captures the visible page. Yields. |
+| `.Navigated` | `Signal<string>` | Fires with the new URL. |
+| `.TitleChanged` | `Signal<string>` | Fires with the new title. |
+| `.LoadingChanged` | `Signal<boolean>` | Fires as a load starts and ends. |
+| `.Closed` | `Signal<()>` | Fires as the page closes. |
+
+### OfficeDocument
+
+An Office file the host lays out and draws off the UI thread.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Kind` | `OfficeKind` | Its format. |
+| `:PageCount` | `() -> number` | Pages, slides, or the active sheet's pages. |
+| `:Sheets` | `() -> { string }` | An `xlsx` file's sheet names. |
+| `:SetSheet` | `(index: number) -> ()` | Shows sheet `index`, from 1. |
+| `:Notes` | `(page: number) -> string?` | A slide's speaker notes. |
+| `:RenderPageAsync` | `(page: number, scale: number?) -> ImageId?` | Draws page `page`, from 1, at `scale` (defaults to 2). Yields. |
+| `:Close` | `() -> ()` | Releases it. |
+
+### UpdaterState
+
+Where the app updater stands.
+
+| Field | Type | Description |
+|---|---|---|
+| `phase` | `UpdaterPhase` | The phase. |
+| `version` | `string?` | The available version. |
+| `progress` | `number?` | Download progress, 0 to 1. |
+| `notes` | `string?` | The release notes, as Markdown. |
+| `error` | `string?` | Why it failed. |
+
+### PowerLock
+
+Keeps the display awake while held.
+
+| Member | Type | Description |
+|---|---|---|
+| `:Release` | `() -> ()` | Lets the display sleep again. |
+
+### QrCode
+
+A QR code's module matrix.
+
+| Field | Type | Description |
+|---|---|---|
+| `size` | `number` | Modules per side. |
+| `modules` | `{ boolean }` | `size * size` modules, row by row: true is dark. |
+
+### AskpassPrompt
+
+A credential prompt from a child process.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Prompt` | `string` | What the process asks. |
+| `.Secret` | `boolean` | The answer is a password. |
+| `:Respond` | `(answer: string?) -> ()` | Answers it. Nil cancels. |
+
+### AskpassListener
+
+A loopback endpoint that turns `SSH_ASKPASS` prompts into signals.
+
+| Member | Type | Description |
+|---|---|---|
+| `.Env` | `{ [string]: string }` | Environment variables to give the child process. |
+| `.Prompted` | `Signal<AskpassPrompt>` | Fires with each prompt. |
+| `:Close` | `() -> ()` | Stops listening. |
+
+### PluginMetrics
+
+A plugin's live costs.
+
+| Field | Type | Description |
+|---|---|---|
+| `memoryKb` | `number` | Luau heap in KB. |
+| `renderUs` | `number` | The last render's cost in microseconds. |
+| `memoHitRate` | `number` | Share of memo lookups that reused their subtree, 0 to 1. |
+
+### CommandSlash
+
+A command's slash form in the composer.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | The name after the slash, such as `open` for `/open`. |
+| `arguments` | `boolean?` | The text after the name goes to `run`. |
+| `after` | `string?` | Lists the entry right after the slash entry with this name. |
+
+### CommandSpec
+
+A command in the palette, with an optional keybind and slash command. Published as `<plugin>.<id>`. Desktop's plugin API calls it `Command`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string` | The palette label. |
+| `description` | `string?` | The palette's second line. |
+| `keywords` | `string?` | More words the palette matches, separated by spaces. |
+| `group` | `string?` | The palette category. |
+| `section` | `CommandSection?` | The Settings › Shortcuts section. Defaults to `general`. |
+| `bind` | `string?` | The default keybind, such as `"mod+shift+t"`. |
+| `slash` | `CommandSlash?` | Also offers it as a slash command. |
+| `hidden` | `boolean?` | Keeps it out of the palette. The keybind still works. |
+| `suggested` | `boolean?` | Also lists it under Suggested. |
+| `featured` | `boolean?` | Lists it when the palette opens without a query. |
+| `enabled` | `boolean?` | False takes it out of the palette and turns its keybind off. Defaults to true. |
+| `editable` | `boolean?` | The keybind also fires while a text field has focus. |
+| `requiresSession` | `boolean?` | Offered only while a session is open. |
+| `run` | `(input: string?) -> ...any` | Runs it, as a coroutine. `input` is the slash command's arguments. Return `false` before the first yield to decline the key, so it reaches its target; any other return handles it. |
+
+### PanelProps
+
+What a panel's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string` | The routed session. |
+| `directory` | `string` | Its workspace folder. |
+| `instance` | `string?` | An instance panel's tab. |
+| `active` | `boolean` | The tab is selected. |
+| `placement` | `"side" \| "mobile"` | Where it renders. |
+
+### PanelTabLabelProps
+
+What a panel's `label` render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string` | The routed session. |
+| `instance` | `string?` | An instance panel's tab. |
+| `active` | `boolean` | The tab is selected. |
+| `preview` | `boolean` | The tab is the replaceable preview tab. |
+
+### PanelTab
+
+One tab an instance panel lists.
+
+| Field | Type | Description |
+|---|---|---|
+| `instance` | `string` | The instance id. |
+| `title` | `string` | The accessible name, and the label without a `label` render. |
+| `pinned` | `boolean?` | Listed before every other tab, never closed or dragged. |
+| `missing` | `boolean?` | Struck through, such as a deleted file. |
+| `file` | `string?` | The workspace file the tab shows. |
+
+### PanelSpec
+
+A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string` | Its tab and launcher title. |
+| `description` | `string?` | The launcher card's second line. |
+| `icon` | `IconName?` | Its icon. |
+| `order` | `number?` | Launcher order, ascending. |
+| `wide` | `boolean?` | Asks for the wider session minimum while open. |
+| `width` | `number?` | A width of its own for the side region, in points. |
+| `transient` | `boolean?` | Its tabs are not restored. |
+| `launcher` | `boolean?` | Offered in the + menu and the New tab view. Defaults to true. |
+| `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. |
+| `render` | `(view: View, props: PanelProps) -> UiNode?` | Draws a tab's content. |
+| `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |
+| `onClose` | `((props: PanelProps) -> ())?` | Runs after the tab leaves the strip. |
+| `onFocus` | `((props: PanelProps) -> ())?` | Runs as the tab becomes selected. |
+
+### SettingSpec
+
+A row in Settings › Plugins, under this plugin.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its search id. |
+| `title` | `string` | The row's title. |
+| `description` | `string?` | A line under the title. |
+| `keywords` | `string?` | More words settings search matches. |
+| `render` | `(view: View) -> UiNode?` | Draws the row's control. |
+
+### SettingEntry
+
+A settings search entry, indexed without drawing the page.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The `ui.settingsRow` id search reveals. |
+| `title` | `string` | The title in search results. |
+| `description` | `string?` | Its second line. |
+| `keywords` | `string?` | More words search matches. |
+
+### SettingsPageProps
+
+What a settings page's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `target` | `string?` | The entry id settings search is revealing. |
+
+### SettingsPageSpec
+
+A settings page, or a section on a host page. Desktop's plugin API calls it `SettingsPage`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The page's id, also for `Layout:OpenSettings`. |
+| `title` | `string` | Its navigation label. |
+| `icon` | `IconName?` | Its navigation icon. |
+| `page` | `HostSettingsPage?` | Adds a section to this host page instead of a page of its own. |
+| `about` | `boolean?` | Lists the page in the About group, such as release notes. |
+| `entries` | `{ SettingEntry }?` | Search entries. |
+| `render` | `(view: View, props: SettingsPageProps) -> UiNode?` | Draws the page or section. |
+
+### MenuItemSpec
+
+An item of a host menu. Desktop's plugin API calls it `MenuItem`.
+
+| Field | Type | Description |
+|---|---|---|
+| `menu` | `MenuName` | The menu. |
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string` | Its label. |
+| `order` | `number?` | Ascending order. |
+| `icon` | `IconName?` | `session.panel`: its icon. |
+| `keybind` | `string?` | `session.panel`: a published command id whose shortcut it shows. |
+| `description` | `string?` | `session.panel`: muted detail in launcher lists. |
+| `primary` | `boolean?` | `session.panel`: + runs this item directly. |
+| `when` | `((target: string) -> boolean)?` | `server.row`: lists it only for rows where it returns true. |
+| `enabled` | `((target: string) -> boolean)?` | `server.row`: shows it disabled while it returns false. |
+| `run` | `(target: string?) -> ()` | Runs it. `server.row` passes the row's server key. |
+
+### MenubarItemSpec
+
+An item of the app menu bar. Desktop's plugin API calls it `MenubarItem`.
+
+| Field | Type | Description |
+|---|---|---|
+| `menu` | `MenubarMenu` | The submenu. |
+| `id` | `string` | Its id within the plugin. |
+| `label` | `string` | Its label. |
+| `order` | `number?` | Ascending order. |
+| `bind` | `string?` | Its accelerator, such as `"mod+,"`. |
+| `enabled` | `boolean?` | False shows it disabled. |
+| `run` | `() -> ()` | Runs it. |
+
+### LinkHandlerSpec
+
+Opens local links it matches. The matching handler with the highest priority wins. Desktop's plugin API calls it `LinkHandler`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `priority` | `number?` | Higher wins. Defaults to 0. |
+| `match` | `(link: Link) -> boolean` | Whether it opens the link. It must not yield. |
+| `open` | `(link: Link) -> ()` | Opens a link `match` accepted. |
+| `exists` | `((link: Link) -> boolean)?` | Whether the target exists, so text renders as a link. It must not read file contents. |
+
+### TitlebarItemView
+
+What a titlebar item shows.
+
+| Field | Type | Description |
+|---|---|---|
+| `label` | `string` | The visible label. |
+| `title` | `string?` | The accessible name, when it differs from the label. |
+| `icon` | `IconName?` | Its icon. Defaults to a download arrow. |
+| `busy` | `boolean?` | Shows a spinner and disables it. |
+| `pressed` | `boolean?` | Shows it pressed. |
+
+### TitlebarItemSpec
+
+A pill at the titlebar's end. Desktop's plugin API calls it `TitlebarItem`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `show` | `() -> TitlebarItemView?` | What it shows, or nil to hide it. Called again after `Contribution:Refresh` and after any signal the plugin fires. |
+| `run` | `(() -> ())?` | Runs when the user clicks it. |
+
+### ComposerPillProps
+
+What a composer pill receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string` | The session whose composer it sits above. |
+| `directory` | `string` | Its workspace folder. |
+
+### ComposerPillRow
+
+One row of the menu a composer pill opens.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the pill. |
+| `label` | `string` | Its text. |
+| `icon` | `IconName?` | Its icon. |
+| `tone` | `Tone?` | Colors its icon. |
+| `detail` | `string?` | Muted text at its end. |
+| `run` | `(() -> ())?` | Runs when the user picks it. |
+
+### ComposerPillView
+
+What a composer pill shows above one session's composer.
+
+| Field | Type | Description |
+|---|---|---|
+| `label` | `string` | The capsule's text. |
+| `icon` | `IconName?` | The capsule's icon. |
+| `tone` | `Tone?` | Colors the icon. |
+| `title` | `string?` | The accessible name and the popover heading, when it differs from `label`. |
+| `rows` | `{ ComposerPillRow }?` | The menu it opens, when the pill has no `renderMenu`. |
+
+### ComposerPillSpec
+
+A pill in the row above a session's composer. Desktop's plugin API calls it `ComposerPill`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `order` | `number?` | Ascending order among plugin pills. |
+| `show` | `(props: ComposerPillProps) -> ComposerPillView?` | What it shows above this session's composer, or nil for nothing. It must not yield. |
+| `renderMenu` | `((view: View, props: ComposerPillProps) -> UiNode?)?` | Content for the popover the pill opens. The host owns the capsule, the popover, its heading and its dismissal. |
+| `run` | `((props: ComposerPillProps) -> ())?` | Runs on a click when the pill has no menu. |
+
+### CodeBlockProps
+
+One complete fenced code block.
+
+| Field | Type | Description |
+|---|---|---|
+| `code` | `string` | The source between the fences. |
+| `language` | `string` | The fence's language, lowercased. Empty when it has none. |
+| `sessionId` | `string?` | The session that shows it. |
+
+### CodeBlockSpec
+
+Renders the fenced code blocks of some languages as your own UI. Desktop's plugin API calls it `CodeBlock`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `languages` | `{ string }` | The languages it renders. The host resolves no aliases. |
+| `render` | `(view: View, props: CodeBlockProps) -> UiNode?` | Draws a block. Return nil to keep the highlighted code. |
+
+### CodeBlockActionSpec
+
+A button beside a code block's Copy button. Desktop's plugin API calls it `CodeBlockAction`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `languages` | `{ string }` | The languages whose blocks show it. |
+| `icon` | `IconName` | Its icon. |
+| `title` | `string` | Its accessible name and tooltip. |
+| `order` | `number?` | Ascending order, before Copy. |
+| `run` | `(props: CodeBlockProps) -> ()` | Runs on a click. |
+
+### SlotProps
+
+What a slot's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string?` | Session slots: the session. |
+| `directory` | `string?` | Session slots: its workspace folder. |
+| `active` | `boolean?` | `session.header`: the timeline is on screen. |
+| `compact` | `boolean?` | `session.header`: the title needs the room, so draw the compact form. |
+| `shown` | `boolean?` | `session.location.menu`: the menu is open. |
+
+### SlotSpec
+
+Content for one of the shell's slots. Desktop's plugin API calls it `Slot`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `at` | `SlotName` | The slot. |
+| `order` | `number?` | Ascending order. |
+| `render` | `(view: View, props: SlotProps) -> UiNode?` | Draws its content, or nil for nothing. |
+
+### ThemeSeeds
+
+The seed colors a theme variant generates its scales from, as `#RRGGBB` strings.
+
+| Field | Type | Description |
+|---|---|---|
+| `neutral` | `string` | The gray scale's base. |
+| `primary` | `string` | The brand and accent color. |
+| `success` | `string` | Success states. |
+| `warning` | `string` | Warning states. |
+| `error` | `string` | Error states. |
+| `info` | `string` | Informational states. |
+| `interactive` | `string` | Links and interactive elements. |
+| `diffAdd` | `string` | Added lines. |
+| `diffDelete` | `string` | Deleted lines. |
+
+### ThemeVariant
+
+One color scheme of a theme.
+
+| Field | Type | Description |
+|---|---|---|
+| `seeds` | `ThemeSeeds` | The seed colors. |
+| `overrides` | `{ [string]: string }?` | Exact values for single tokens of the app's theme file format. |
+
+### ThemeSpec
+
+A color theme, listed in Settings › Appearance as `<plugin>:<id>`. Desktop's plugin API calls it `Theme`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `name` | `string` | The name the theme list shows. |
+| `light` | `ThemeVariant` | The light scheme. |
+| `dark` | `ThemeVariant` | The dark scheme. |
+
+### FileViewerProps
+
+What a file viewer's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | `string` | The file. |
+| `sessionId` | `string?` | The session that opened it. |
+| `directory` | `string` | Its workspace folder. |
+
+### FileViewerSpec
+
+Shows files with some extensions in the file panel. Desktop's plugin API calls it `FileViewer`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string` | Its name, such as `"Word document"`. |
+| `extensions` | `{ string }` | The extensions it shows, without the dot. |
+| `render` | `(view: View, props: FileViewerProps) -> UiNode?` | Draws the file. |
+
+### ServerRowProps
+
+What a server source's row render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The entry's id. |
+| `key` | `string` | Its key: `<plugin>:<id>`. |
+| `health` | `ServerHealth?` | Its latest health check. |
+
+### ServerSourceSpec
+
+A source of servers, such as SSH hosts or WSL distributions. Desktop's plugin API calls it `Server`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string` | Its name in Settings › Servers. |
+| `order` | `number?` | Ascending order among sources. |
+| `row` | `((view: View, props: ServerRowProps) -> UiNode?)?` | Draws an entry's connection row in Settings › Servers. Window halves only. |
+| `connect` | `((id: string) -> boolean)?` | Starts an entry that is not ready, as a coroutine. Return true once it is. |
+| `remove` | `((id: string) -> ())?` | Runs before the host forgets an entry. |
+
+### ServerSource
+
+A server source a plugin added.
+
+| Member | Type | Description |
+|---|---|---|
+| `:SetEntries` | `(entries: { ServerEntry }, ready: boolean) -> ()` | Replaces its entries. Once `ready`, the list is complete and the host forgets servers it no longer lists. |
+| `:Withdraw` | `() -> ()` | Removes the source. |
+
+### DialogProps
+
+What a dialog's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `data` | `{ [string]: any }?` | What `Dialog:Open` passed. |
+
+### DialogSpec
+
+A modal dialog, opened with `Dialog:Open`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string?` | Its heading and accessible name. |
+| `size` | `DialogSize?` | Its width. |
+| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame. |
+| `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
+
+### PopoverProps
+
+What a popover's render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `data` | `{ [string]: any }?` | What `Popover:Open` or `ui.flyoutRow` passed. |
+
+### PopoverSpec
+
+Popover content, opened with `Popover:Open` or `ui.flyoutRow`. The host owns placement, focus and dismissal.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its id within the plugin. |
+| `title` | `string?` | Its heading and accessible name. |
+| `width` | `number?` | Its width in points. |
+| `render` | `(view: View, props: PopoverProps) -> UiNode?` | Draws its content. |
+
+### McpToolSpec
+
+A tool on the app's client MCP server, named `<plugin>_<name>`. Desktop's plugin API calls it `McpTool`.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Its name within the plugin. |
+| `description` | `string` | What it does, for the model. |
+| `inputSchema` | `{ [string]: any }` | Its arguments' JSON Schema. |
+| `call` | `(args: { [string]: any }) -> any` | Runs it as a coroutine and returns its result: a string, or a table sent as JSON. Raise an error to fail. |
+
+## plugin.toml
+
+plugin.toml: a plugin folder's manifest. Editors validate it with `plugins/plugin.schema.json`: add `#:schema ../plugin.schema.json` as its first line.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | The plugin's id: lowercase letters, digits and hyphens. It prefixes commands (`<id>.<command>`) and contracts. |
+| `name` | `string` | yes | The display name. |
+| `version` | `string` | yes | The plugin's own version, as semver. |
+| `contract` | `string` | yes | The contract version the plugin targets, such as `"1.0"`. |
+| `description` | `string` | no | One sentence about what the plugin adds. |
+| `entry` | `string` | no | The window half's module, relative to the plugin folder. Defaults to `"init.luau"`. |
+| `app` | `string` | no | The app half's module, such as `"app.luau"`. Omit it for a plugin with no app half. |
+| `os` | array of [`Platform`](#platform) | no | The platforms it runs on. Omit it for all. |
+| `channels` | array of [`Channel`](#channel) | no | The app channels it loads in. Omit it for all. |
+| `authors` | `string[]` | no | Its authors. |
+| `homepage` | `string` | no | Its homepage. |
+| `license` | `string` | no | An SPDX license expression. |
+| `stores` | `table[]` | no | Stores to load before setup, so their first read has the saved value. |
+| `stores.name` | `string` | yes | The name passed to `Store:Value` or `Store:SessionValue`. |
+| `stores.scope` | [`StoreScope`](#storescope) | no | One value for the app, or one per session. Defaults to `"global"`. |
+| `settings_search` | `table[]` | no | Settings search entries found without loading the plugin. |
+| `settings_search.id` | `string` | yes | The `ui.settingsRow` id search reveals. |
+| `settings_search.page` | `string` | yes | The page: `plugins`, a host page, or one of this plugin's settings pages. |
+| `settings_search.title` | `string` | yes | The title in search results. |
+| `settings_search.description` | `string` | no | Its second line. |
+| `settings_search.keywords` | `string` | no | More words search matches. |
+
+## What 1.0 removed
+
+The native plugin ABI leaked Rune and Desktop internals. Contract 1.0 replaces each leak:
+
+| Leak | Replacement |
+|---|---|
+| `ElKind::Odometer`: a Rune rolling-digit widget as a core node. | `ui.metric({ value, text, tabular, animate })`. Rune rolls the digits; other hosts show the text. |
+| `ActionCx::instant()` and the `INSTANT_HOVER` flag: Rune's transaction flag. | Semantic motion: `transition = "none"` on layout calls and `hoverTransition = "instant"` on boxes. |
+| `HOVER_GROUP` and `group_color`: Rune's single-color hover group. | Declarative hover groups: `hoverGroup`, `hoverGroupColor` and `revealOnHover`. |
+| `ElSpec::anchored`: overlays drawn after a sibling key. | Host-managed overlays: `Popover:Open({ id, anchorKey, side, align, gap })`, `Menu:OpenAsync` and `ui.flyoutRow`. |
+| Positional `AbiPalette` (`layer1`…`layer4`, `switch_thumb`) and Desktop CSS variable names. | 32 versioned semantic tokens and `ui.hex` for literal colors. |
+| Strings packed with `\n`, `\t` and NUL (`id\nanchor`, toast fields, process args and env). | Typed Luau records: `ToastSpec`, `ProcessSpec`, `PopoverOpenSpec`, `ServerEntry` and the rest. |
+| No virtual list: long lists built every row on every commit. | `ui.virtualList({ count, estimatedRowHeight, version, renderRow })`. |

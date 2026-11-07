@@ -1,0 +1,10 @@
+# Luau plugin style for plugins/**/*.luau and the contract's samples. Definition files are not
+# runnable Luau, so skip them:
+#   stylua --check --glob "**/*.luau" --glob "!**/*.d.luau" plugins crates/opencode-plugin-spec/samples
+syntax = "Luau"
+column_width = 120
+line_endings = "Unix"
+indent_type = "Spaces"
+indent_width = 4
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"

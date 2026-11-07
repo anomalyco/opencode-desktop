@@ -1,0 +1,15 @@
+#:schema ../../../../plugins/plugin.schema.json
+id = "workbench"
+name = "Workbench"
+version = "1.0.0"
+contract = "1.0"
+description = "Scratch terminals, a changes tab, a source viewer and a page preview: the native nodes driven from Luau"
+os = ["windows", "macos", "linux"]
+
+[[stores]]
+name = "diff-mode"
+scope = "global"
+
+[[stores]]
+name = "terminals"
+scope = "session"

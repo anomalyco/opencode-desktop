@@ -1,0 +1,407 @@
+//! The `ui.*` node vocabulary and each node's props, for decoding props tables by key.
+//! Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
+
+use crate::{PropSpec, PropType, PropsSpec, string_enum};
+
+string_enum! {
+    /// A `ui.*` node constructor.
+    pub enum NodeKind {
+        /// A container with no direction of its own: children stack on top of each other.
+        Box = "box",
+        /// A horizontal stack.
+        Row = "row",
+        /// A vertical stack.
+        Col = "col",
+        /// Flexible space in a stack.
+        Spacer = "spacer",
+        /// A hairline rule.
+        Divider = "divider",
+        /// Text.
+        Text = "text",
+        /// One of the app's icons.
+        Icon = "icon",
+        /// An image the host holds.
+        Image = "image",
+        /// A number shown as text. Hosts that can animate changed digits do.
+        Metric = "metric",
+        /// Text with the app's loading shimmer.
+        Shimmer = "shimmer",
+        /// A keyboard shortcut chip.
+        Keybind = "keybind",
+        /// The app's own button.
+        Button = "button",
+        /// The app's own icon button.
+        IconButton = "iconButton",
+        /// The app's own switch.
+        Switch = "switch",
+        /// A radio row.
+        Radio = "radio",
+        /// The app's own text field.
+        Field = "field",
+        /// The app's spinner.
+        Loader = "loader",
+        /// A status capsule.
+        Pill = "pill",
+        /// A settings row: title and description beside a control.
+        SettingsRow = "settingsRow",
+        /// A card of settings rows.
+        SettingsList = "settingsList",
+        /// A popover row that opens a nested popover.
+        FlyoutRow = "flyoutRow",
+        /// Markdown, as the timeline draws a reply.
+        Markdown = "markdown",
+        /// A long list that builds only its visible rows.
+        VirtualList = "virtualList",
+        /// A terminal.
+        TerminalSurface = "terminalSurface",
+        /// A web page.
+        BrowserSurface = "browserSurface",
+        /// A highlighted file.
+        CodeView = "codeView",
+        /// Changes, split or unified.
+        DiffView = "diffView",
+        /// A folder's file tree.
+        FileTree = "fileTree",
+        /// An interactive UI outline, from a ```` ```ui ```` code block.
+        GenUi = "genUi",
+    }
+}
+
+string_enum! {
+    /// What a node is for.
+    pub enum NodeCategory {
+        /// `layout` nodes.
+        Layout = "layout",
+        /// `content` nodes.
+        Content = "content",
+        /// `control` nodes.
+        Control = "control",
+        /// `native` nodes.
+        Native = "native",
+    }
+}
+
+impl NodeKind {
+    pub fn category(self) -> NodeCategory {
+        match self {
+            Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
+            Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind => NodeCategory::Content,
+            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
+            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::GenUi => NodeCategory::Native,
+        }
+    }
+
+    /// The host renders it with a native engine.
+    pub fn is_native(self) -> bool {
+        self.category() == NodeCategory::Native
+    }
+
+    /// Its props, by key.
+    pub fn props(self) -> &'static PropsSpec {
+        match self {
+            Self::Box | Self::Row | Self::Col => &UI_BOX_PROPS,
+            Self::Spacer => &UI_SPACER_PROPS,
+            Self::Divider => &UI_DIVIDER_PROPS,
+            Self::Text | Self::Shimmer => &UI_TEXT_PROPS,
+            Self::Icon => &UI_ICON_PROPS,
+            Self::Image => &UI_IMAGE_PROPS,
+            Self::Metric => &UI_METRIC_PROPS,
+            Self::Keybind => &UI_KEYBIND_PROPS,
+            Self::Button => &UI_BUTTON_PROPS,
+            Self::IconButton => &UI_ICON_BUTTON_PROPS,
+            Self::Switch => &UI_SWITCH_PROPS,
+            Self::Radio => &UI_RADIO_PROPS,
+            Self::Field => &UI_FIELD_PROPS,
+            Self::Loader => &UI_LOADER_PROPS,
+            Self::Pill => &UI_PILL_PROPS,
+            Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
+            Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
+            Self::FlyoutRow => &UI_FLYOUT_ROW_PROPS,
+            Self::Markdown => &UI_MARKDOWN_PROPS,
+            Self::VirtualList => &UI_VIRTUAL_LIST_PROPS,
+            Self::TerminalSurface => &UI_TERMINAL_SURFACE_PROPS,
+            Self::BrowserSurface => &UI_BROWSER_SURFACE_PROPS,
+            Self::CodeView => &UI_CODE_VIEW_PROPS,
+            Self::DiffView => &UI_DIFF_VIEW_PROPS,
+            Self::FileTree => &UI_FILE_TREE_PROPS,
+            Self::GenUi => &UI_GEN_UI_PROPS,
+        }
+    }
+}
+
+/// `UiBoxProps`.
+pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("gap", PropType::Number, false),
+    PropSpec::new("align", PropType::Enum("UiAlign"), false),
+    PropSpec::new("justify", PropType::Enum("UiJustify"), false),
+    PropSpec::new("center", PropType::Bool, false),
+    PropSpec::new("wrap", PropType::Bool, false),
+    PropSpec::new("fill", PropType::Color, false),
+    PropSpec::new("hover", PropType::Color, false),
+    PropSpec::new("press", PropType::Color, false),
+    PropSpec::new("selected", PropType::Bool, false),
+    PropSpec::new("border", PropType::Color, false),
+    PropSpec::new("borderWidth", PropType::Number, false),
+    PropSpec::new("radius", PropType::Number, false),
+    PropSpec::new("corners", PropType::List("number"), false),
+    PropSpec::new("shadow", PropType::Enum("Elevation"), false),
+    PropSpec::new("clip", PropType::Bool, false),
+    PropSpec::new("scrollY", PropType::Bool, false),
+    PropSpec::new("scrollX", PropType::Bool, false),
+    PropSpec::new("focusable", PropType::Bool, false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onPress", PropType::Handler, false),
+    PropSpec::new("onHover", PropType::Handler, false),
+    PropSpec::new("hoverTransition", PropType::Enum("HoverTransition"), false),
+    PropSpec::new("hoverGroup", PropType::Bool, false),
+    PropSpec::new("hoverGroupColor", PropType::Color, false),
+    PropSpec::new("revealOnHover", PropType::Bool, false),
+    PropSpec::new("color", PropType::Color, false),
+]);
+
+/// `UiBrowserSurfaceProps`.
+pub static UI_BROWSER_SURFACE_PROPS: PropsSpec = PropsSpec::new("UiBrowserSurfaceProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("tab", PropType::Handle("BrowserTab"), true),
+    PropSpec::new("focused", PropType::Bool, false),
+]);
+
+/// `UiButtonProps`.
+pub static UI_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiButtonProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, false),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("variant", PropType::Enum("ButtonVariant"), false),
+    PropSpec::new("size", PropType::Enum("ControlSize"), false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("loading", PropType::Bool, false),
+    PropSpec::new("pressed", PropType::Bool, false),
+    PropSpec::new("onPress", PropType::Handler, false),
+]);
+
+/// `UiCodeViewProps`.
+pub static UI_CODE_VIEW_PROPS: PropsSpec = PropsSpec::new("UiCodeViewProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("doc", PropType::Handle("CodeDocument"), true),
+    PropSpec::new("lineWrap", PropType::Bool, false),
+    PropSpec::new("showLineNumbers", PropType::Bool, false),
+    PropSpec::new("revealLine", PropType::Integer, false),
+]);
+
+/// `UiDiffViewProps`.
+pub static UI_DIFF_VIEW_PROPS: PropsSpec = PropsSpec::new("UiDiffViewProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("diff", PropType::Handle("DiffDocument"), true),
+    PropSpec::new("mode", PropType::Enum("DiffMode"), true),
+    PropSpec::new("expand", PropType::Bool, false),
+    PropSpec::new("file", PropType::String, false),
+]);
+
+/// `UiDividerProps`.
+pub static UI_DIVIDER_PROPS: PropsSpec = PropsSpec::new("UiDividerProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("vertical", PropType::Bool, false),
+    PropSpec::new("color", PropType::Color, false),
+]);
+
+/// `UiFieldProps`.
+pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("editor", PropType::Handle("Editor"), true),
+    PropSpec::new("placeholder", PropType::String, false),
+    PropSpec::new("size", PropType::Enum("ControlSize"), false),
+    PropSpec::new("invalid", PropType::Bool, false),
+    PropSpec::new("secure", PropType::Bool, false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("multiline", PropType::Bool, false),
+    PropSpec::new("onSubmit", PropType::Handler, false),
+]);
+
+/// `UiFileTreeProps`.
+pub static UI_FILE_TREE_PROPS: PropsSpec = PropsSpec::new("UiFileTreeProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("tree", PropType::Handle("FileTreeModel"), true),
+    PropSpec::new("selectedPath", PropType::String, false),
+    PropSpec::new("highlightedPath", PropType::String, false),
+    PropSpec::new("onSelect", PropType::Handler, false),
+    PropSpec::new("onContextMenu", PropType::Handler, false),
+]);
+
+/// `UiFlyoutRowProps`.
+pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("detail", PropType::String, false),
+    PropSpec::new("popover", PropType::String, true),
+    PropSpec::new("props", PropType::Map, false),
+]);
+
+/// `UiGenUiProps`.
+pub static UI_GEN_UI_PROPS: PropsSpec = PropsSpec::new("UiGenUiProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("source", PropType::String, true),
+    PropSpec::new("streaming", PropType::Bool, false),
+]);
+
+/// `UiIconButtonProps`.
+pub static UI_ICON_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiIconButtonProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("icon", PropType::String, true),
+    PropSpec::new("variant", PropType::Enum("ButtonVariant"), false),
+    PropSpec::new("size", PropType::Enum("ControlSize"), false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("pressed", PropType::Bool, false),
+    PropSpec::new("onPress", PropType::Handler, false),
+]);
+
+/// `UiIconProps`.
+pub static UI_ICON_PROPS: PropsSpec = PropsSpec::new("UiIconProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("size", PropType::Number, false),
+    PropSpec::new("color", PropType::Color, false),
+    PropSpec::new("tone", PropType::Enum("Tone"), false),
+    PropSpec::new("hoverGroupColor", PropType::Color, false),
+    PropSpec::new("revealOnHover", PropType::Bool, false),
+]);
+
+/// `UiImageProps`.
+pub static UI_IMAGE_PROPS: PropsSpec = PropsSpec::new("UiImageProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("image", PropType::Handle("ImageId"), true),
+    PropSpec::new("fit", PropType::Enum("ImageFit"), false),
+    PropSpec::new("radius", PropType::Number, false),
+]);
+
+/// `UiKeybindProps`.
+pub static UI_KEYBIND_PROPS: PropsSpec = PropsSpec::new("UiKeybindProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("command", PropType::String, false),
+    PropSpec::new("keys", PropType::String, false),
+]);
+
+/// `UiLayoutProps`.
+pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
+    PropSpec::new("key", PropType::String, false),
+    PropSpec::new("w", PropType::Size, false),
+    PropSpec::new("h", PropType::Size, false),
+    PropSpec::new("minW", PropType::Number, false),
+    PropSpec::new("minH", PropType::Number, false),
+    PropSpec::new("maxW", PropType::Number, false),
+    PropSpec::new("maxH", PropType::Number, false),
+    PropSpec::new("grow", PropType::Number, false),
+    PropSpec::new("shrink", PropType::Bool, false),
+    PropSpec::new("pad", PropType::Number, false),
+    PropSpec::new("px", PropType::Number, false),
+    PropSpec::new("py", PropType::Number, false),
+    PropSpec::new("pt", PropType::Number, false),
+    PropSpec::new("pr", PropType::Number, false),
+    PropSpec::new("pb", PropType::Number, false),
+    PropSpec::new("pl", PropType::Number, false),
+    PropSpec::new("m", PropType::Number, false),
+    PropSpec::new("mx", PropType::Number, false),
+    PropSpec::new("my", PropType::Number, false),
+    PropSpec::new("mt", PropType::Number, false),
+    PropSpec::new("mr", PropType::Number, false),
+    PropSpec::new("mb", PropType::Number, false),
+    PropSpec::new("ml", PropType::Number, false),
+    PropSpec::new("pin", PropType::Record("UiPin"), false),
+    PropSpec::new("opacity", PropType::Number, false),
+    PropSpec::new("role", PropType::Enum("Role"), false),
+    PropSpec::new("label", PropType::String, false),
+    PropSpec::new("help", PropType::String, false),
+    PropSpec::new("helpSide", PropType::Enum("Side"), false),
+]);
+
+/// `UiLoaderProps`.
+pub static UI_LOADER_PROPS: PropsSpec = PropsSpec::new("UiLoaderProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("size", PropType::Number, false),
+]);
+
+/// `UiMarkdownProps`.
+pub static UI_MARKDOWN_PROPS: PropsSpec = PropsSpec::new("UiMarkdownProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("source", PropType::String, true),
+    PropSpec::new("size", PropType::Number, false),
+    PropSpec::new("lineHeight", PropType::Number, false),
+    PropSpec::new("highlights", PropType::List("string"), false),
+    PropSpec::new("selectable", PropType::Bool, false),
+    PropSpec::new("streaming", PropType::Bool, false),
+]);
+
+/// `UiMetricProps`.
+pub static UI_METRIC_PROPS: PropsSpec = PropsSpec::new("UiMetricProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("value", PropType::Number, true),
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("tabular", PropType::Bool, false),
+    PropSpec::new("animate", PropType::Bool, false),
+    PropSpec::new("size", PropType::Number, false),
+    PropSpec::new("weight", PropType::Enum("FontWeight"), false),
+    PropSpec::new("color", PropType::Color, false),
+]);
+
+/// `UiPillProps`.
+pub static UI_PILL_PROPS: PropsSpec = PropsSpec::new("UiPillProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("tone", PropType::Enum("Tone"), false),
+    PropSpec::new("pressed", PropType::Bool, false),
+    PropSpec::new("onPress", PropType::Handler, false),
+]);
+
+/// `UiRadioProps`.
+pub static UI_RADIO_PROPS: PropsSpec = PropsSpec::new("UiRadioProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("description", PropType::String, false),
+    PropSpec::new("checked", PropType::Bool, true),
+    PropSpec::new("tone", PropType::Enum("Tone"), false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onChange", PropType::Handler, false),
+]);
+
+/// `UiSettingsListProps`.
+pub static UI_SETTINGS_LIST_PROPS: PropsSpec = PropsSpec::new("UiSettingsListProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("title", PropType::String, false),
+]);
+
+/// `UiSettingsRowProps`.
+pub static UI_SETTINGS_ROW_PROPS: PropsSpec = PropsSpec::new("UiSettingsRowProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("id", PropType::String, true),
+    PropSpec::new("title", PropType::String, true),
+    PropSpec::new("description", PropType::String, false),
+]);
+
+/// `UiSpacerProps`.
+pub static UI_SPACER_PROPS: PropsSpec = PropsSpec::new("UiSpacerProps", Some(&UI_LAYOUT_PROPS), &[
+]);
+
+/// `UiSwitchProps`.
+pub static UI_SWITCH_PROPS: PropsSpec = PropsSpec::new("UiSwitchProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("checked", PropType::Bool, true),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onChange", PropType::Handler, false),
+]);
+
+/// `UiTerminalSurfaceProps`.
+pub static UI_TERMINAL_SURFACE_PROPS: PropsSpec = PropsSpec::new("UiTerminalSurfaceProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("session", PropType::Handle("PtySession"), true),
+    PropSpec::new("fontFamily", PropType::String, false),
+    PropSpec::new("fontSize", PropType::Number, false),
+    PropSpec::new("focused", PropType::Bool, false),
+]);
+
+/// `UiTextProps`.
+pub static UI_TEXT_PROPS: PropsSpec = PropsSpec::new("UiTextProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("size", PropType::Number, false),
+    PropSpec::new("weight", PropType::Enum("FontWeight"), false),
+    PropSpec::new("lineHeight", PropType::Number, false),
+    PropSpec::new("tracking", PropType::Number, false),
+    PropSpec::new("color", PropType::Color, false),
+    PropSpec::new("mono", PropType::Bool, false),
+    PropSpec::new("tabular", PropType::Bool, false),
+    PropSpec::new("wrap", PropType::Bool, false),
+    PropSpec::new("noWrap", PropType::Bool, false),
+    PropSpec::new("truncate", PropType::Bool, false),
+    PropSpec::new("fadeOut", PropType::Bool, false),
+    PropSpec::new("selectable", PropType::Bool, false),
+    PropSpec::new("textAlign", PropType::Enum("Align"), false),
+    PropSpec::new("hoverGroupColor", PropType::Color, false),
+    PropSpec::new("revealOnHover", PropType::Bool, false),
+]);
+
+/// `UiVirtualListProps`.
+pub static UI_VIRTUAL_LIST_PROPS: PropsSpec = PropsSpec::new("UiVirtualListProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("count", PropType::Integer, true),
+    PropSpec::new("estimatedRowHeight", PropType::Number, true),
+    PropSpec::new("version", PropType::MemoVersion, true),
+    PropSpec::new("renderRow", PropType::Function, true),
+    PropSpec::new("rowKey", PropType::Function, false),
+    PropSpec::new("gap", PropType::Number, false),
+    PropSpec::new("onVisibleRows", PropType::Handler, false),
+]);

@@ -1,0 +1,153 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenCode plugin manifest (contract 1.0)",
+  "description": "plugin.toml: a plugin folder's manifest. Generated from crates/opencode-plugin-spec/contract.json.",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "contract"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The plugin's id: lowercase letters, digits and hyphens. It prefixes commands (<id>.<command>) and contracts.",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "description": "The display name."
+    },
+    "version": {
+      "type": "string",
+      "description": "The plugin's own version, as semver.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+([-+][0-9A-Za-z.-]+)?$"
+    },
+    "contract": {
+      "type": "string",
+      "description": "The contract version the plugin targets, such as \"1.0\".",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string",
+      "description": "One sentence about what the plugin adds."
+    },
+    "entry": {
+      "type": "string",
+      "description": "The window half's module, relative to the plugin folder.",
+      "pattern": "^[A-Za-z0-9_./-]+\\.luau$",
+      "default": "init.luau"
+    },
+    "app": {
+      "type": "string",
+      "description": "The app half's module, such as \"app.luau\". Omit it for a plugin with no app half.",
+      "pattern": "^[A-Za-z0-9_./-]+\\.luau$"
+    },
+    "os": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "windows",
+          "macos",
+          "linux",
+          "web"
+        ]
+      },
+      "description": "The platforms it runs on. Omit it for all."
+    },
+    "channels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "local",
+          "beta",
+          "prod"
+        ]
+      },
+      "description": "The app channels it loads in. Omit it for all."
+    },
+    "authors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Its authors."
+    },
+    "homepage": {
+      "type": "string",
+      "description": "Its homepage.",
+      "format": "uri"
+    },
+    "license": {
+      "type": "string",
+      "description": "An SPDX license expression."
+    },
+    "stores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name passed to Store:Value or Store:SessionValue."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "global",
+              "session"
+            ],
+            "description": "One value for the app, or one per session.",
+            "default": "global"
+          }
+        }
+      },
+      "description": "Stores to load before setup, so their first read has the saved value."
+    },
+    "settings_search": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "page",
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The ui.settingsRow id search reveals."
+          },
+          "page": {
+            "type": "string",
+            "description": "The page: plugins, a host page, or one of this plugin's settings pages."
+          },
+          "title": {
+            "type": "string",
+            "description": "The title in search results."
+          },
+          "description": {
+            "type": "string",
+            "description": "Its second line."
+          },
+          "keywords": {
+            "type": "string",
+            "description": "More words search matches."
+          }
+        }
+      },
+      "description": "Settings search entries found without loading the plugin."
+    }
+  }
+}

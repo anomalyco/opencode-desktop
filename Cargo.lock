@@ -2594,6 +2594,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-plugin-spec"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "opencode-plugin-ssh"
 version = "0.1.0"
 dependencies = [

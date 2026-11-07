@@ -1,0 +1,6 @@
+#:schema ../../../../plugins/plugin.schema.json
+id = "goal"
+name = "Goal"
+version = "1.0.0"
+contract = "1.0"
+description = "The session's /goal above its composer: whether it's active, paused or met, with Pause, Resume and Clear"
