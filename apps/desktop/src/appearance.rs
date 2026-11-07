@@ -59,7 +59,7 @@ impl Motion {
 }
 
 /// The Terminal font knob's choices (`terminal::TERM_FONT`), which the setting picks.
-pub const TERMINAL_FONTS: [&str; 3] = ["Commit Mono", "IBM Plex Mono", "SF Mono"];
+pub const TERMINAL_FONTS: [&str; 4] = ["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"];
 
 /// A font a row offers: its name, and the family list behind Rune's sans or mono slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

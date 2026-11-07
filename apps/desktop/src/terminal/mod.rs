@@ -37,14 +37,15 @@ pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",
-    &["Commit Mono", "IBM Plex Mono", "SF Mono"],
-    1,
+    &["Commit Mono", "IBM Plex Mono", "SF Mono", "JetBrains Mono"],
+    3,
 )
 .about("Monospace font family in the terminal")
 .hints(&[
     "Kit's Ghostty Commit Mono face",
     "OpenCode bundled IBM Plex Mono",
     "macOS SF Mono system face",
+    "Desktop's JetBrainsMono Nerd Font Mono",
 ]);
 
 pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 14.0)

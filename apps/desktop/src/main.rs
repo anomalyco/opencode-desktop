@@ -1208,6 +1208,9 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
             include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
             include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
             include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
+            // Desktop's terminal face (	erminalDefault), Nerd Font glyphs included for prompts.
+            include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
+            include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
         ],
         families: (appearance::UI_FONTS[0].family, appearance::CODE_FONTS[0].family),
         setup: Some(setup),

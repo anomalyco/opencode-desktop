@@ -50,6 +50,7 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
         // By name, so the code font (the mono slot) doesn't change the terminal's.
         1 => Family::Named("IBM Plex Mono"),
         2 => Family::SystemMono,
+        3 => Family::Named("JetBrainsMono Nerd Font Mono"),
         _ => Family::Named("CommitMono"),
     };
     let mut st = TextStyle::new(size, 400.0).lh(lh);
