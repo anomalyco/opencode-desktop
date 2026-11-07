@@ -281,12 +281,18 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
             crate::copied::mark_copied(s, mark.clone(), tx);
         })
         .child(icon(if done { &ic::CHECK } else { &ic::OUTLINE_COPY }, 16.0).color(p.icon_muted));
+    let actions = if c.open { Vec::new() } else { S::code_block_actions(p, c.language, c.source) };
+    let buttons = if actions.is_empty() {
+        button.pin(None, Some(4.0), Some(4.0), None)
+    } else {
+        row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).children(actions).child(button)
+    };
     col()
         .w_full()
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .child(card)
-        .child(button.pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0))
+        .child(buttons.group_opacity(0.0, 1.0))
 }
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.

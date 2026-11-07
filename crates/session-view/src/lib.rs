@@ -182,6 +182,12 @@ pub trait TimelineHost: Sized + 'static {
     fn rewrite_markdown(_src: &str) -> Option<String> {
         None
     }
+    /// Extra hover buttons for a finished code block in `language` holding `source`, drawn left
+    /// of its Copy button (a host's plugins' code block actions). Markdown draws code blocks
+    /// without the host's state, so these come from what the host registered up front.
+    fn code_block_actions(_p: &palette::Pal, _language: Option<&str>, _source: &str) -> Vec<El> {
+        Vec::new()
+    }
     fn send_request(&self, _req: Request) {}
     fn can_switch_model(&self) -> bool {
         false

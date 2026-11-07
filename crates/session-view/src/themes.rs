@@ -7,7 +7,7 @@
 //! `palette::pal`, and tests on other threads keep the default.
 
 use std::cell::Cell;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use serde_json::{Map, Value};
 
@@ -23,8 +23,7 @@ pub struct Info {
     tokens: [Map<String, Value>; 2],
 }
 
-/// Every theme in Desktop's picker order: OpenCode, then the rest by id.
-pub fn all() -> &'static [Info] {
+fn desktop() -> &'static [Info] {
     static ALL: OnceLock<Vec<Info>> = OnceLock::new();
     ALL.get_or_init(|| {
         let list: Vec<Value> = serde_json::from_str(THEMES).unwrap_or_else(|e| panic!("themes.json: {e}"));
@@ -39,6 +38,47 @@ pub fn all() -> &'static [Info] {
             }))
             .collect()
     })
+}
+
+/// The list, Desktop's themes then the ones the host registered. Each list is built once per
+/// registration and kept, so a `&'static` slice stays valid.
+static LIST: RwLock<Option<&'static [&'static Info]>> = RwLock::new(None);
+
+/// Every theme in Desktop's picker order (OpenCode, then the rest by id), then the host's own
+/// (a plugin's, registered at run time).
+pub fn all() -> &'static [&'static Info] {
+    if let Some(list) = *LIST.read().unwrap_or_else(|e| e.into_inner()) {
+        return list;
+    }
+    let mut list = LIST.write().unwrap_or_else(|e| e.into_inner());
+    list.get_or_insert_with(|| Box::leak(desktop().iter().collect::<Vec<_>>().into_boxed_slice()))
+}
+
+/// Adds theme `id` (or replaces the one with that id, keeping its place, so its index stays
+/// put) with `light` and `dark` tokens laid over OpenCode's own, so a theme may set only the
+/// tokens it changes. A theme's colours are built once per index, so a replaced theme repaints
+/// on the next launch.
+pub fn register(id: &str, name: &str, tokens: [Map<String, Value>; 2]) {
+    let [light, dark] = tokens;
+    // Only colours: a token that doesn't read as one keeps OpenCode's, so a theme can't break
+    // the palette.
+    let over = |m: usize, own: Map<String, Value>| {
+        let mut full = desktop()[0].tokens[m].clone();
+        full.extend(own.into_iter().filter(|(_, v)| v.as_str().and_then(rune::color::hex).is_some()));
+        full
+    };
+    let tokens = [over(0, light), over(1, dark)];
+    let mut list: Vec<&'static Info> = all().to_vec();
+    let at = list.iter().position(|t| t.id == id);
+    if at.is_some_and(|i| list[i].name == name && list[i].tokens == tokens) {
+        return;
+    }
+    let info: &'static Info = Box::leak(Box::new(Info { id: id.to_owned(), name: name.to_owned(), tokens }));
+    match at {
+        Some(i) => list[i] = info,
+        None => list.push(info),
+    }
+    *LIST.write().unwrap_or_else(|e| e.into_inner()) = Some(Box::leak(list.into_boxed_slice()));
 }
 
 /// The index of `id` in [`all`], or the default's (0) for an unknown id.
