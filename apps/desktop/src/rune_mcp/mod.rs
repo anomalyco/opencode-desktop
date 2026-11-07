@@ -64,6 +64,8 @@ struct HubInner {
     windows: HashMap<u64, WindowEntry>,
     connections: HashMap<FolderKey, ClientMcp>,
     routers: HashMap<ServerKey, Sender<McpCall>>,
+    /// The plugin tools generation the open connections listed (`plugin_host::mcp_tools_generation`).
+    tools_generation: u64,
     reconnect_min: Duration,
     reconnect_max: Duration,
     unsupported_retry: Duration,
@@ -85,6 +87,7 @@ impl RuneMcpHub {
                 windows: HashMap::new(),
                 connections: HashMap::new(),
                 routers: HashMap::new(),
+                tools_generation: crate::plugin_host::mcp_tools_generation(),
                 reconnect_min,
                 reconnect_max,
                 unsupported_retry,
@@ -142,7 +145,12 @@ impl RuneMcpHub {
         }
 
         let mut removed = Vec::new();
-        let stale: Vec<FolderKey> = inner.connections.keys().filter(|k| !wanted.contains_key(*k)).cloned().collect();
+        // A connection lists its tools once, and advertises no `listChanged` (as Desktop's
+        // `connectClientMcp`), so a plugin adding, removing or reloading a tool reconnects every
+        // folder, as Desktop's client MCP reconnects when what it serves changes.
+        let generation = crate::plugin_host::mcp_tools_generation();
+        let retool = std::mem::replace(&mut inner.tools_generation, generation) != generation;
+        let stale: Vec<FolderKey> = inner.connections.keys().filter(|k| retool || !wanted.contains_key(*k)).cloned().collect();
         for k in stale {
             if let Some(conn) = inner.connections.remove(&k) {
                 removed.push(conn);
@@ -469,6 +477,7 @@ fn sync_stamp(s: &App, active_srv: Option<&Server>) -> u64 {
         }
         None => 0u8.hash(&mut h),
     }
+    crate::plugin_host::mcp_tools_generation().hash(&mut h);
     s.route.hash(&mut h);
     s.draft_dir().hash(&mut h);
     s.project_state.used.hash(&mut h);

@@ -58,7 +58,7 @@ use std::sync::Arc;
 use opencode_plugin::abi::PluginEntryFn;
 use rune::Waker;
 
-pub use contrib::{code_block_actions, mcp_call, mcp_tools, menubar_items, open_link, run_menubar};
+pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command};

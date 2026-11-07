@@ -6,6 +6,7 @@
 
 use std::cell::RefCell;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use opencode_kit::client_mcp::{McpCall, McpResult, McpTool};
 use opencode_plugin::abi::{EVENT_CODE_BLOCK, EVENT_MENU, contrib as kinds};
@@ -57,14 +58,28 @@ pub(super) fn sync(host: &PluginHost) {
         (name.clone(), c.key, McpTool::new(name, c.description.clone(), schema))
     });
     if let Ok(mut all) = MCP_TOOLS.lock() {
-        *all = tools.collect();
+        let tools: Vec<_> = tools.collect();
+        if *all != tools {
+            *all = tools;
+            MCP_TOOLS_GENERATION.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
+/// Bumped each time the plugins' MCP tools change.
+static MCP_TOOLS_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// The plugins' tools on the app's client MCP (`rune_mcp::tools::catalog`), named
-/// `<plugin>_<tool>`. A connection lists the tools there were when it opened.
+/// `<plugin>_<tool>`. A connection lists the tools there were when it opened, so the hub
+/// reconnects when `mcp_tools_generation` moves.
 pub fn mcp_tools() -> Vec<McpTool> {
     MCP_TOOLS.lock().map(|t| t.iter().map(|(_, _, tool)| tool.clone()).collect()).unwrap_or_default()
+}
+
+/// Which list of plugin MCP tools `mcp_tools` returns: it changes when a plugin adds,
+/// removes or reloads one.
+pub fn mcp_tools_generation() -> u64 {
+    MCP_TOOLS_GENERATION.load(Ordering::Relaxed)
 }
 
 /// Runs a plugin's MCP tool, or hands `call` back when no plugin has one by its name.
