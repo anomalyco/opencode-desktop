@@ -86,7 +86,8 @@ pub struct Display {
 }
 
 impl Display {
-    /// Call `c`'s display: open when its key is in `expanded` and `opens` says it may be.
+    /// Call `c`'s display: open when it was opened, or by default (a shell, where Timeline
+    /// detail expands shells), and `opens` says it may be.
     pub fn of<S: TimelineHost>(s: &S, cx: Ctx, c: &Call, opens: bool) -> Self {
         let phase = match c.status {
             ToolStatus::Pending if cx.live => Phase::Pending,
@@ -95,7 +96,7 @@ impl Display {
             ToolStatus::Completed => Phase::Completed,
             ToolStatus::Error => Phase::Errored,
         };
-        let fold = if opens && s.expanded().contains(&key(c.id)) { Fold::Expanded } else { Fold::Collapsed };
+        let fold = if opens && crate::disclosure::is_open(s, &key(c.id), default_open(s, c)) { Fold::Expanded } else { Fold::Collapsed };
         Display { phase, fold }
     }
 
@@ -107,6 +108,17 @@ impl Display {
     pub fn open(self) -> bool {
         self.fold == Fold::Expanded
     }
+}
+
+/// Whether call `c` shows open until pressed (`contentDefaultOpen`): a shell where Timeline
+/// detail expands shells, and a call failed where its category is hidden.
+pub fn default_open<S: TimelineHost>(s: &S, c: &Call) -> bool {
+    let d = s.timeline_detail();
+    let category = crate::detail::tool_category(c.name);
+    if d.placement(category) == crate::detail::Placement::Hidden && crate::detail::failed(c.name, c.status, c.metadata) {
+        return true;
+    }
+    category == crate::detail::Category::Shell && c.name != "execute" && d.expanded(category)
 }
 
 /// Whether `status` is still under way in a turn that is `live`.
@@ -156,7 +168,7 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         return build();
     }
     let mut h = std::hash::DefaultHasher::new();
-    (cx.session, cx.live, p.theme, p.generation, p.dark, s.reduced_motion(), s.session_directory(cx.session)).hash(&mut h);
+    (cx.session, cx.live, p.theme, p.generation, p.dark, s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
@@ -259,7 +271,7 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .hover_group()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).
             .hover_motion(HOVER_FADE, HOVER_FADE)
-            .on_press_tx(crate::disclosure::toggle::<S>(k, id));
+            .on_press_tx(crate::disclosure::set::<S>(k, d.open(), id));
     }
     let host = s.tool_row_action(p, cx.session, c, None);
     let actions: Vec<El> = action.into_iter().chain(host).collect();

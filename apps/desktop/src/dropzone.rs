@@ -110,7 +110,7 @@ fn stripes(w: f32, h: f32, ink: Color) -> rune::Shape {
     const PERIOD: f32 = 24.0;
     const STEP: f32 = 12.0;
     let k = std::f32::consts::FRAC_1_SQRT_2;
-    let cw = w.min(crate::view::CONTENT_W + 48.0);
+    let cw = w.min(session_view::style::content_w() + 48.0);
     let (cx, cy) = (w / 2.0, h / 2.0);
     let at = |t: f32, u: f32| [cx + (t + u) * k, cy + (t - u) * k];
     let mask = |[x, y]: [f32; 2]| {

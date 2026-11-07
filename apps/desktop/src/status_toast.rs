@@ -330,7 +330,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
 
 /// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the
 /// 0.5px lit top edge (`theme.css`).
-fn neutral_lift(p: &Pal) -> [Shadow; 4] {
+pub(crate) fn neutral_lift(p: &Pal) -> [Shadow; 4] {
     let (y, blur) = if p.dark { (1.0, 2.0) } else { (1.0, 1.5) };
     let top = if p.dark { Shadow { y: -0.5, color: Color::WHITE.alpha(0.1), ..Shadow::default() } } else { Shadow::default() };
     [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]

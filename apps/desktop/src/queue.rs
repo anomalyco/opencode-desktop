@@ -203,7 +203,7 @@ const SINK: f32 = 6.0;
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let queued: Vec<&InboxItem> = if s.dock_shown() { Vec::new() } else { s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default() };
     let shadow = if queued.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
-    let shell = col().key("queue").w_full().max_w(crate::view::DOCK_W).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
+    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
     let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).box_shadow(Pal::ring_in(p.ring));
     let clip = col().key("queue-clip").w_full().clip_soft(0.0);
     let tuck = el().key("queue-tuck").mx(0.5).fill(crate::view::composer_fill(p));

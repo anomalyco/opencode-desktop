@@ -24,7 +24,7 @@ use rune_parts::view::PartsTheme;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CONTENT_W, markdown_mark, markdown_style, markdown_styled};
+use crate::style::{markdown_mark, markdown_style, markdown_styled};
 
 /// A slice of a reply: Markdown as written, or an outline.
 #[derive(Debug, PartialEq)]
@@ -195,8 +195,8 @@ fn md_edges(src: &str) -> (f32, f32) {
 /// The width an outline lays out in: the timeline's content column, narrower in a narrow window.
 /// Layout rects are in the zoomed shell's points already.
 pub fn width<S: TimelineHost>(s: &S) -> f32 {
-    let Some(id) = s.active_session_id() else { return CONTENT_W };
-    rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - 48.0).clamp(0.0, CONTENT_W)).unwrap_or(CONTENT_W)
+    let Some(id) = s.active_session_id() else { return crate::style::content_w() };
+    rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - 48.0).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
 }
 
 /// Parts in the timeline's colours: status tones from the theme's diff and state colours, frames

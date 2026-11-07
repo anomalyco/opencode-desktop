@@ -45,6 +45,26 @@ choice! {
 }
 
 choice! {
+    /// The timeline's column (`general.timelineWidth`).
+    TimelineWidth { Focused => "focused", "Focused", Comfortable => "comfortable", "Comfortable", Wide => "wide", "Wide" } default Comfortable
+}
+
+impl TimelineWidth {
+    pub fn width(self) -> session_view::style::Width {
+        match self {
+            TimelineWidth::Focused => session_view::style::Width::Focused,
+            TimelineWidth::Comfortable => session_view::style::Width::Comfortable,
+            TimelineWidth::Wide => session_view::style::Width::Wide,
+        }
+    }
+}
+
+choice! {
+    /// Where running subagents and shells show over the composer (`general.backgroundActivity`).
+    BackgroundActivity { Off => "off", "Hidden", Left => "left", "Left", Center => "center", "Center", Right => "right", "Right" } default Left
+}
+
+choice! {
     /// How side tabs list sessions (`general.sidebarOrganize`).
     Organize { List => "list", "One list", Projects => "projects", "Projects" } default List
 }

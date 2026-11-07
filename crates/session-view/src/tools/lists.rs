@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{CONTENT_W, HOVER_FADE, INSTANT, MD, UI, UI_MED, arrow, readable};
+use crate::style::{HOVER_FADE, INSTANT, MD, UI, UI_MED, arrow, readable};
 
 /// A search's results scroll past 240 px, as a console's do.
 const MAX_H: f32 = super::console::MAX_H;
@@ -17,7 +17,7 @@ const LINKS: usize = 10;
 
 /// The width of session `session`'s timeline column, as laid out.
 pub fn column(session: &str) -> f32 {
-    rune::memo::layout_with(&format!("scroll-{session}"), |r| (r[2] - 48.0).clamp(0.0, CONTENT_W)).unwrap_or(CONTENT_W)
+    rune::memo::layout_with(&format!("scroll-{session}"), |r| (r[2] - 48.0).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
 }
 
 /// A read that doesn't share a line with others (an image, a failed one, or one that loaded

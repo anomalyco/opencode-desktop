@@ -44,9 +44,9 @@ pub fn place<'a, S: TimelineHost>(s: &'a S, session: &str) -> impl Fn(&str) -> F
     let fold_user = s.fold_user_messages();
     let any_open = fold_user && s.expanded().iter().any(|k| k.starts_with("user-expanded:"));
     let viewport = fold_user
-        .then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[2].min(CONTENT_W + 48.0)))
+        .then(|| rune::memo::layout_with(&format!("scroll-{session}"), |r| r[2].min(crate::style::content_w() + 48.0)))
         .flatten()
-        .unwrap_or(CONTENT_W + 48.0);
+        .unwrap_or(crate::style::content_w() + 48.0);
     VIEWPORT_W.set(viewport);
     let top = any_open.then(|| rune::memo::window_layout_with(&format!("scroll-{session}"), |r| r[1])).flatten();
     move |id| {
@@ -67,7 +67,7 @@ pub fn text_width(viewport: f32, quotes: bool) -> f32 {
     if quotes {
         return 342.0 - 24.0;
     }
-    let row = (viewport - 48.0).clamp(0.0, CONTENT_W);
+    let row = (viewport - 48.0).clamp(0.0, crate::style::content_w());
     (row * 0.82).min(BUBBLE_MAX) - 24.0
 }
 

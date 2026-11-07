@@ -8,8 +8,8 @@ use crate::TimelineHost;
 use crate::compaction::Run;
 use crate::fold::Fold;
 use crate::palette::Pal;
-use crate::style::{CONTENT_W, UI, activity_ring};
-use crate::turns::{self, Block, Step};
+use crate::style::{UI, activity_ring};
+use crate::turns::{self, Block, Entry, Step};
 
 mod dividers;
 #[cfg(test)]
@@ -70,7 +70,7 @@ impl RowSpec {
     /// line at a time: a reply with a fenced block in it, whose diagram, outline or code can
     /// grow by many lines in one build.
     fn wrap_paced<S: TimelineHost>(&self, s: &S, el: El, paced: bool) -> El {
-        let row = col().w_full().max_w(CONTENT_W).child(el);
+        let row = col().w_full().max_w(crate::style::content_w()).child(el);
         let k = s.knobs();
         if self.streaming && (paced || crate::line_reveal::reveal(k) == crate::line_reveal::Reveal::HeldRoom) {
             row.streaming(true)
@@ -124,7 +124,7 @@ impl RowSpec {
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()))
                         });
                         let footer = footer_text(t, *message, *part);
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits()));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer)
@@ -138,17 +138,15 @@ impl RowSpec {
                     // A live Thinking group's time ticks: the row rebuilds once a second, and not
                     // at all once the turn ends.
                     let tick = if *live { thinking_tick(s, t, *start, *end, *block) } else { None };
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick));
+                    let detail = s.timeline_detail();
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                        let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
-                            Message::Assistant(a) => Some(a), _ => None,
-                        }).collect();
-                        let blocks = turns::fold(&steps, *live);
+                        let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
                         let busy = *live && *block + 1 == blocks.len();
-                        let el = match &blocks[*block] {
-                            Block::Group { key, steps } => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
-                            _ => unreachable!(),
+                        let el = match blocks.get(*block) {
+                            Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
+                            _ => col(),
                         };
                         self.wrap(s, el)
                     });
@@ -163,7 +161,7 @@ impl RowSpec {
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta);
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
@@ -243,17 +241,18 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::Turn { start, end, block, live, pt } => {
-                let steps: Vec<&Assistant> = t.messages[*start..*end].iter().filter_map(|m| match m {
-                    Message::Assistant(a) => Some(a), _ => None,
-                }).collect();
-                let blocks = turns::fold(&steps, *live);
+                let detail = s.timeline_detail();
+                let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
                 let busy = *live && *block + 1 == blocks.len();
-                match &blocks[*block] {
-                    Block::Group { key, steps } => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
-                    Block::Text { body, live, .. } => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
-                    Block::Agent { .. } => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
-                    Block::Question { id, status, input, metadata } =>
+                match blocks.get(*block) {
+                    Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
+                    Some(Block::Text { body, live, .. }) => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
+                    Some(Block::Agent { .. }) => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
+                    Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
+                    Some(Block::Thought { step, .. }) => turns::thought(s, p, step, *live, fade).pt(*pt),
+                    Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
+                    None => col(),
                 }
             }
         };
@@ -263,20 +262,31 @@ impl RowSpec {
 
 /// The seconds a live turn's group `block` has been thinking, when it reads Thinking.
 fn thinking_tick<S: TimelineHost>(s: &S, t: &Transcript, start: usize, end: usize, block: usize) -> Option<i64> {
-    let steps: Vec<&Assistant> = t.messages[start..end].iter().filter_map(|m| match m {
-        Message::Assistant(a) => Some(a), _ => None,
-    }).collect();
-    let blocks = turns::fold(&steps, true);
+    let detail = s.timeline_detail();
+    let blocks = turns::fold_with(&entries(&t.messages[start..end], &detail), true, &detail);
     match blocks.get(block)? {
         Block::Group { steps, .. } => turns::thinking_since(steps, block + 1 == blocks.len()).map(|at| turns::thinking_secs(at, s.now_ms())),
         _ => None,
     }
 }
 
+/// A turn's messages as its entries, one for each: its steps, the notices that fold with its
+/// work, and what it passes over.
+pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> Vec<Entry<'a>> {
+    messages.iter().map(|m| match m {
+        Message::Assistant(a) => Entry::Step(a),
+        Message::Notice(n) if crate::detail::notice_placement(n, detail) == crate::detail::Placement::Grouped => Entry::Notice(n),
+        _ => Entry::Skip,
+    }).collect()
+}
+
 fn group_hash(messages: &[Message]) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
     for m in messages {
+        if let Message::Notice(n) = m {
+            (3u8, &n.id).hash(&mut h);
+        }
         if let Message::Assistant(a) = m {
             (&a.id, a.completed, a.parts.len()).hash(&mut h);
             for p in &a.parts {
@@ -352,7 +362,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
             row()
                 .key("loading")
                 .w_full()
-                .max_w(CONTENT_W)
+                .max_w(crate::style::content_w())
                 .h(40.0)
                 .gap(8.0)
                 .center()
@@ -392,23 +402,46 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let runs_off = actions.is_some() || queued.is_some();
     // Not the session's start while older messages remain to land above.
     let older = s.more_above(&t.session);
-    // A turn's consecutive steps fold together (see `turns`); prompts and notes end them.
-    let mut steps: Vec<&Assistant> = Vec::new();
+    // A turn's consecutive steps fold together (see `turns`), with the notices Timeline detail
+    // groups; prompts, notes and notices on their own rows end them, and hidden notices don't.
+    let detail = s.timeline_detail();
+    let mut steps: Vec<Entry> = Vec::new();
     let mut start = 0;
     for (mi, m) in t.messages[..shown].iter().enumerate() {
         match m {
             Message::Assistant(a) => {
                 if steps.is_empty() { start = mi; }
-                steps.push(a);
+                steps.push(Entry::Step(a));
                 // Steps after an interrupted one (the run went on after a stop) sit under an
-                // Interrupted divider (`projection.ts:554-582`, `session-timeline-row.tsx:1162-1182`).
+                // Interrupted divider (`projection.ts:554-582`, `session-timeline-row.tsx:1162-1182`),
+                // which hidden notices hide too.
                 if a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) && matches!(t.messages[..shown].get(mi + 1), Some(Message::Assistant(_))) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false);
-                    out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false, &detail);
+                    if detail.placement(crate::detail::Category::Notices) != crate::detail::Placement::Hidden {
+                        out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
+                    }
+                }
+            }
+            Message::Notice(n) if !steps.is_empty() || crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Grouped => {
+                match crate::detail::notice_placement(n, &detail) {
+                    crate::detail::Placement::Grouped => {
+                        if steps.is_empty() { start = mi; }
+                        steps.push(Entry::Notice(n));
+                    }
+                    crate::detail::Placement::Hidden => steps.push(Entry::Skip),
+                    crate::detail::Placement::Separate => {
+                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
+                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
+                    }
+                }
+            }
+            Message::Notice(n) => {
+                if crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Separate {
+                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
                 }
             }
             Message::User { id, text: body, .. } => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
                 let above = mi > 0 && joins(&t.messages[mi - 1], m);
                 // The last prompt runs on into the pending steers under it, unless Working
                 // stands between them.
@@ -421,23 +454,23 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
                 }
             }
-            Message::Note { id, .. } => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
-                out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
-            }
-            Message::Notice(n) => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
-                out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
+            Message::Note { id, failed, .. } => {
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
+                // A shell command run from the composer shows unless Shell is hidden, and a failed
+                // one always.
+                if *failed || detail.placement(crate::detail::Category::Shell) != crate::detail::Placement::Hidden {
+                    out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
+                }
             }
             Message::Compaction(c) => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false);
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
                 for piece in crate::compaction::pieces(c) {
                     out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming: false });
                 }
             }
         }
     }
-    turn_rows(&mut out, &steps, start, shown, busy && revert.is_none());
+    turn_rows(&mut out, &steps, start, shown, busy && revert.is_none(), &detail);
     if let Some(last) = actions {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
@@ -496,9 +529,10 @@ pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
     }
 }
 
-/// `live`: these steps end the transcript and the last one is still running.
-pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end: usize, live: bool) {
-    let blocks = turns::fold(steps, live);
+/// A turn's rows, `steps` being its messages `start..end` one for one. `live`: these steps end
+/// the transcript and the last one is still running.
+pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usize, live: bool, detail: &crate::detail::Detail) {
+    let blocks = turns::fold_with(steps, live, detail);
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
     for (i, b) in blocks.into_iter().enumerate() {
@@ -526,13 +560,17 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[&Assistant], start: usize, end
             }
             Block::Agent { id, .. } => out.push(RowSpec { key: format!("a-{id}"), content, streaming: false }),
             Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
+            Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false }),
         }
         prev = Some(tool);
     }
     // Like Desktop, only the turn's last step reports its error, 24 below the work above it,
     // and only the running one its retry.
-    let Some(a) = steps.last() else { return };
-    let message = start + steps.len() - 1;
+    let Some((at, a)) = steps.iter().enumerate().rev().find_map(|(i, e)| match e {
+        Entry::Step(a) => Some((i, *a)),
+        _ => None,
+    }) else { return };
+    let message = start + at;
     let pt = if prev.is_some() { 24.0 } else { 0.0 };
     if live && a.retry.is_some() {
         out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false });

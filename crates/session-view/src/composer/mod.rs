@@ -17,7 +17,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
 use crate::palette::{Elevate as _, Pal};
-use crate::style::{DOCK_SIDE, DOCK_W, UI};
+use crate::style::{DOCK_SIDE, UI};
 use crate::user_parts::mention_pill_style;
 
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
@@ -372,7 +372,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     let box_el = col()
         .key(key)
         .w_full()
-        .max_w(DOCK_W)
+        .max_w(crate::style::dock_w())
         .min_h(88.0)
         .corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
         .hover_group()

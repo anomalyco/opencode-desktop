@@ -140,7 +140,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
         }
         summary = summary.child(part);
     }
-    let mut line = row().key("subagent-bar").w_full().max_w(crate::view::DOCK_W).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
+    let mut line = row().key("subagent-bar").w_full().max_w(session_view::style::dock_w()).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
     if status.is_some() {
         let mark = el().key("status-icon").size(16.0, 16.0).center();
         line = line.child(match glyph {

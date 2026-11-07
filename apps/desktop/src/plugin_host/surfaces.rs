@@ -62,7 +62,7 @@ pub fn composer_pills(app: &App, p: &Pal, session: &str) -> Option<El> {
         .into_iter()
         .filter_map(|(i, c)| draw(app, p, i, c, &Props { session, directory, ..Props::new(SURFACE_PILL, &c.id) }, true))
         .collect();
-    (!pills.is_empty()).then(|| row().key("plugin-composer-pills").w_full().max_w(crate::view::CONTENT_W).pb(8.0).gap(6.0).center().children(pills))
+    (!pills.is_empty()).then(|| row().key("plugin-composer-pills").w_full().max_w(session_view::style::content_w()).pb(8.0).gap(6.0).center().children(pills))
 }
 
 /// What plugins put in shell slot `name` (`window.bottom`, `session.header`; `session.panel.end`

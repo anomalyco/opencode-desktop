@@ -43,7 +43,9 @@ pub(crate) use session::*;
 pub use sidebar::*;
 
 pub(crate) use session_view::composer::PROMPT;
-pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, DOCK_SIDE, DOCK_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
+pub(crate) use session_view::style::{BUBBLE, CODE, DOCK_SIDE, H2, INSTANT, UI, UI_MED, UI_SMALL};
+#[cfg(test)]
+pub(crate) use session_view::style::CONTENT_W;
 
 /// What a layout switch flies its tabs and controls on (`layouts-design.md`'s GLIDE).
 pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
@@ -54,6 +56,8 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
+    // Timeline width sets the session column for everything this frame builds.
+    session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     let layout = s.tab_layout();

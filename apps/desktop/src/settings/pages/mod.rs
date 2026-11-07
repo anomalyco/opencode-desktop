@@ -14,6 +14,7 @@ pub mod projects;
 pub mod providers;
 pub mod servers;
 pub mod shortcuts;
+pub mod timeline;
 pub mod whats_new;
 pub mod worktrees;
 
@@ -169,6 +170,8 @@ pub struct State {
     pub worktrees: worktrees::State,
     pub servers: servers::State,
     pub pairing: pairing::State,
+    /// Preferences' Timeline section.
+    pub timeline: timeline::State,
 }
 
 impl State {

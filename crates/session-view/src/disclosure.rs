@@ -36,6 +36,41 @@ pub fn toggle_expanded<S: TimelineHost>(s: &mut S, key: &str) -> bool {
     opening
 }
 
+/// The mark that holds `key` shut where it would show open by default.
+fn shut_key(key: &str) -> String {
+    format!("{key}!shut")
+}
+
+/// Whether disclosure `key` is open: as last opened or shut, else `default` (Timeline detail's
+/// Collapse setting for shells, edits and thinking, as Desktop's `disclosure.value(id) ?? default`).
+pub fn is_open<S: TimelineHost>(s: &S, key: &str, default: bool) -> bool {
+    let e = s.expanded();
+    e.contains(key) || (default && !e.contains(&shut_key(key)))
+}
+
+/// Opens or shuts `key` whatever its default.
+pub fn set_open<S: TimelineHost>(s: &mut S, key: &str, open: bool) {
+    let shut = shut_key(key);
+    let e = s.expanded_mut();
+    if open {
+        e.remove(&shut);
+        e.insert(key.to_owned());
+    } else {
+        e.remove(key);
+        e.insert(shut);
+    }
+}
+
+/// A press handler that opens or shuts `key` at once, as [`toggle`] flips it, for a disclosure
+/// with a default (`open`: whether it shows open now).
+pub fn set<S: TimelineHost>(key: String, open: bool, hold: String) -> impl Fn(&mut S, &mut Tx) + 'static {
+    move |s: &mut S, tx: &mut Tx| {
+        tx.instant();
+        set_open(s, &key, !open);
+        tx.keep_on_screen(hold.clone());
+    }
+}
+
 /// Whether fold `key` (a tool group, a Compacted summary) is springing shut, what it showed
 /// still laid out under the clip.
 pub fn is_shutting<S: TimelineHost>(s: &S, key: &str) -> bool {

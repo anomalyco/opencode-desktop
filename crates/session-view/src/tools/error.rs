@@ -12,7 +12,7 @@ use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 /// The card of failed call `c` in session `session`.
 pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
     let k = super::key(c.id);
-    let open = s.expanded().contains(&k);
+    let open = crate::disclosure::is_open(s, &k, super::default_open(s, c));
     let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
     let cleaned = raw.trim_start().strip_prefix("Error:").unwrap_or(raw).trim().to_owned();
     let id = format!("tool-{}", c.id);
@@ -45,7 +45,7 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
         .role("button")
         .label(format!("{title} failed"))
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(crate::disclosure::toggle::<S>(k, id))
+        .on_press_tx(crate::disclosure::set::<S>(k, open, id))
         .child(el().key("icon").size(16.0, 16.0).center().child(icon(&rune_theme_opencode::icons::OUTLINE_HEXAGONAL_WARNING, 16.0).color(p.danger)))
         .child(words)
         .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));

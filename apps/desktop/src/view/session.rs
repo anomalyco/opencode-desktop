@@ -47,7 +47,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
 
 /// The pills over the composer: the subagent capsule, then the todo pill beside it.
 fn pills(s: &App, p: &Pal, id: &str) -> Vec<El> {
-    let capsule = crate::subagents::capsule(s, p, id);
+    // Background activity's Hidden takes the running work's capsule away (`activity-chips.tsx`).
+    let capsule = (s.settings.background_activity != crate::settings::BackgroundActivity::Off).then(|| crate::subagents::capsule(s, p, id)).flatten();
     let gap = if capsule.is_some() { crate::jump::GAP } else { 0.0 };
     // The timeline's edge rises over their row first, so a pill fades in only once nothing is
     // under it, and goes at once so the edge can come back down (t1129).
@@ -76,6 +77,6 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     col().key("session")
         .w_full()
         .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(DOCK_SIDE).pb(8.0)
-            .child(row().key("activity-lane").w_full().max_w(DOCK_W).children(pills))))
+            .child(row().key("activity-lane").w_full().max_w(session_view::style::dock_w()).children(pills))))
         .child(composer_dock(s, p))
 }

@@ -195,7 +195,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
 fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, first: bool, last: bool) -> El {
     let shown = super::session_relative(s, cx.session, item.path);
     let k = sub_key(group, format!("file:{shown}"));
-    let open = s.expanded().contains(&k);
+    // Timeline detail's Edits › Collapse decides how a file shows until pressed.
+    let open = crate::disclosure::is_open(s, &k, s.timeline_detail().expanded(crate::detail::Category::Edit));
     let owner = item.entries[0].call;
     let closed_bottom = last && !open;
     let top = if first { RADIUS } else { 0.0 };
@@ -210,7 +211,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     }
     words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
     let change = change(p, item);
-    let toggle = || crate::disclosure::toggle::<S>(k.clone(), row_key.clone());
+    let toggle = || crate::disclosure::set::<S>(k.clone(), open, row_key.clone());
     let info = row()
         .key("info")
         .h_full()

@@ -230,7 +230,8 @@ pub enum Message {
     User { id: String, text: String },
     Assistant(Assistant),
     /// Shell commands and notices: shown as a quiet one-line row.
-    Note { id: String, text: String },
+    /// `failed`: it timed out or exited non-zero.
+    Note { id: String, text: String, failed: bool },
     Compaction(Compaction),
     /// A switched agent or model, a move, updated instructions, a restart.
     Notice(Notice),
@@ -390,7 +391,11 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             model: model_of(&m["model"]),
             agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
         }),
-        "shell" => Message::Note { id, text: format!("$ {}", s(&m["command"])) },
+        "shell" => Message::Note {
+            id,
+            text: format!("$ {}", s(&m["command"])),
+            failed: m["status"] == "timeout" || (m["status"] == "exited" && m["exit"].as_i64().is_some_and(|e| e != 0)),
+        },
         "compaction" => Message::Compaction(Compaction::parse(m)),
         _ => return notice::parse(m),
     })

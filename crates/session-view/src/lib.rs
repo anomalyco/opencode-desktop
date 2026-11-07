@@ -12,6 +12,7 @@ pub mod arrivals;
 pub mod compaction;
 pub mod composer;
 pub mod copied;
+pub mod detail;
 pub mod diagram;
 pub mod disclosure;
 pub mod dock;
@@ -296,11 +297,29 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_tail_extra(&self, _p: &palette::Pal, _session: &str, _busy: bool) -> Option<El> {
         None
     }
+
+    /// Settings › Preferences › Timeline detail: what of a turn's work shows, and how.
+    fn timeline_detail(&self) -> detail::Detail {
+        detail::Detail::default()
+    }
+    /// Settings › Preferences › Changed files: a finished turn lists the files it changed.
+    fn turn_diffs(&self) -> bool {
+        false
+    }
+    /// Settings › Preferences › Background activity: where the pills over the composer sit.
+    fn lane_align(&self) -> jump::Align {
+        jump::Align::Start
+    }
+    /// Settings › Preferences › Timeline width: the column the timeline draws at.
+    fn content_width(&self) -> f32 {
+        style::CONTENT_W
+    }
 }
 
 /// Full timeline region: virtualized message stack, linear bottom fade, live overlay scroll bar,
 /// and floating `pills` + "Jump to latest" button.
 pub fn timeline_area<S: TimelineHost>(s: &S, p: &palette::Pal, id: &str, t: Option<&Transcript>, pills: Vec<El>) -> El {
+    style::set_content_w(s.content_width());
     let lane = jump::lane(!pills.is_empty());
     jump::over(s, p, id, timeline::timeline(s, p, id, t, lane), pills)
 }

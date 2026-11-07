@@ -503,6 +503,22 @@ impl session_view::TimelineHost for App {
     fn zoom(&self) -> f32 {
         self.zoom
     }
+    fn timeline_detail(&self) -> session_view::detail::Detail {
+        self.settings.timeline_detail
+    }
+    fn turn_diffs(&self) -> bool {
+        self.settings.turn_diffs
+    }
+    fn lane_align(&self) -> session_view::jump::Align {
+        match self.settings.background_activity {
+            settings::BackgroundActivity::Center => session_view::jump::Align::Center,
+            settings::BackgroundActivity::Right => session_view::jump::Align::End,
+            settings::BackgroundActivity::Left | settings::BackgroundActivity::Off => session_view::jump::Align::Start,
+        }
+    }
+    fn content_width(&self) -> f32 {
+        self.settings.timeline_width.width().content()
+    }
     fn active_session_id(&self) -> Option<&str> {
         match &self.route {
             Route::Session(id) => Some(id.as_str()),

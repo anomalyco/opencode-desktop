@@ -43,6 +43,46 @@ pub const CONTENT_W: f32 = 696.0;
 pub const DOCK_SIDE: f32 = 12.0;
 pub const DOCK_W: f32 = CONTENT_W + 2.0 * DOCK_SIDE;
 
+thread_local! {
+    /// The column this frame draws at (Timeline width): `CONTENT_W` unless the host says otherwise.
+    static SESSION_W: std::cell::Cell<f32> = const { std::cell::Cell::new(CONTENT_W) };
+}
+
+/// Settings › Preferences › Timeline width (`timelineWidth`), as `--container-session` less its
+/// 24 px sides: Focused 488, Comfortable 744 (Desktop's default) and Wide 1000.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Width {
+    Focused,
+    #[default]
+    Comfortable,
+    Wide,
+}
+
+impl Width {
+    pub fn content(self) -> f32 {
+        match self {
+            Width::Focused => 488.0 - 48.0,
+            Width::Comfortable => CONTENT_W,
+            Width::Wide => 1000.0 - 48.0,
+        }
+    }
+}
+
+/// The timeline's column this frame: the reply text's measure, where its rows stop growing.
+pub fn content_w() -> f32 {
+    SESSION_W.get()
+}
+
+/// The composer and its docks' width this frame, 12 pt wider than the column each side.
+pub fn dock_w() -> f32 {
+    content_w() + 2.0 * DOCK_SIDE
+}
+
+/// Sets the column the frame's session views draw at; the host calls it before building them.
+pub fn set_content_w(w: f32) {
+    SESSION_W.set(w);
+}
+
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
 pub const BUBBLE_MAX: f32 = 565.0;
 
@@ -97,13 +137,13 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         .hover_motion(HOVER_FADE, HOVER_FADE)
         // "Thinking" crossfades to "Thought" while the triangle slides over.
         .animate_layout()
-        .on_press_tx(crate::disclosure::toggle::<S>(key.to_owned(), format!("{key}/trigger")))
+        .on_press_tx(crate::disclosure::set::<S>(key.to_owned(), open, format!("{key}/trigger")))
         .child(title.key(if streaming { "thinking" } else { "thought" }))
         .children(subtitle.map(|t| text(t).key("subtitle").font(UI).color(p.faint).shrink().min_w(0.0).truncate_fade()))
         .child(if open { a } else { a.group_opacity(0.0, 1.0) });
     let mut c = col().w_full().child(trigger);
     if open {
-        let style = markdown_style(p, p.muted, CONTENT_W - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
+        let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
         let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), None, None);
         c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }

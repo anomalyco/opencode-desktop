@@ -200,7 +200,7 @@ fn a_sent_prompt_shows_badges_in_its_bubble_and_sends_the_same_payload() {
     // The chips' padding takes room: the same words without badges are narrower.
     let badged = text.rect[2];
     mention::set_user_mentions(id, Vec::new());
-    rt.state.transcripts.get_mut(SESSION).unwrap().messages.push(opencode_kit::model::Message::Note { id: "n-relayout".into(), text: String::new() });
+    rt.state.transcripts.get_mut(SESSION).unwrap().messages.push(opencode_kit::model::Message::Note { id: "n-relayout".into(), text: String::new(), failed: false });
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }

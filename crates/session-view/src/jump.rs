@@ -8,7 +8,17 @@ use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{DOCK_SIDE, DOCK_W, activity_ring};
+use crate::style::{DOCK_SIDE, activity_ring};
+
+/// Where the pills over the composer sit (Settings › Preferences › Background activity,
+/// `useComposerLaneAlignment`): at the lane's start, centred, or at its end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Align {
+    #[default]
+    Start,
+    Center,
+    End,
+}
 
 /// Desktop's `jumpThreshold`: more than the viewport's height, and at least 400 above the end.
 const THRESHOLD: f32 = 400.0;
@@ -139,7 +149,13 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         button = button.inert();
     }
     let edge = fade(s, lane(!pills.is_empty()));
-    let lane = row().key("activity-lane").w_full().max_w(DOCK_W).center_y().children(pills).child(spacer());
+    let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).center_y();
+    let lane = match s.lane_align() {
+        Align::Start => lane.children(pills).child(spacer()),
+        Align::End => lane.child(spacer()).children(pills),
+        // Centred on the lane whatever sits at its end: over it, out of its flow.
+        Align::Center => lane.child(spacer()).children((!pills.is_empty()).then(|| row().key("activity-centre").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().children(pills))),
+    };
     let (lane, centred) = if s.knobs().get(&crate::knobs::JUMP_PLACE) as usize == 1 {
         (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
     } else {

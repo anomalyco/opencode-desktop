@@ -4,7 +4,7 @@ use rune::{Color, El, TextStyle, Tx, col, el, row, text};
 use crate::TimelineHost;
 use crate::fold::Fold;
 use crate::palette::Pal;
-use crate::style::{BUBBLE, CONTENT_W, INSTANT, interrupted_label};
+use crate::style::{BUBBLE, INSTANT, interrupted_label};
 pub use crate::style::{BUBBLE_MAX, markdown_style, markdown_tinted, markdown_with_highlights, readable};
 
 /// Where a prompt's bubble sits in its run (see `user_bubble`), and where it lays out.
@@ -339,7 +339,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
 // Markdown
 
 pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
-    markdown_tinted::<S>(p, src, fade, streaming, p.text, CONTENT_W)
+    markdown_tinted::<S>(p, src, fade, streaming, p.text, crate::style::content_w())
 }
 
 pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {

@@ -46,6 +46,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let general = super::section(p, "settings-general-section", Some("General"), settings::list(p, "settings-list", rows));
     let body = col().w_full().gap(32.0)
         .child(general)
+        .child(super::timeline::section(s, p))
         .children(crate::plugin_host::settings_pages(s, p, "general"))
         .children(crate::updater::settings_section(s, p));
     page_with(p, "settings-general-page", header(p, Page::General.label(), "Customize preferences and theme and default behavior"), body, true)
