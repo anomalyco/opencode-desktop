@@ -9,13 +9,18 @@ use crate::short_group::{GROUP, add_short_group};
 
 const DT: f64 = 1.0 / 60.0;
 
-/// Steps of group `key` that show below its row, as `key@bottom` against the row's bottom.
+/// Steps of group `key` that show below its row, as `key@bottom` against the pixel its row ends
+/// on (at scale 1). Paint rounds a scroll's translation as a whole and each edge under it on
+/// its own, so at a fractional scroll (a zoomed window) the row's clip ends up to a pixel past
+/// its exact bottom, on the pixel where the row below starts.
 pub fn overhang(els: &[ElementInfo], key: &str) -> Vec<String> {
     let Some(row) = els.iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)) else { return vec![] };
-    let bottom = row.rect[1] + row.rect[3];
+    let pixel = |v: f32| (v + 0.5).floor();
+    let scrolled = row.scrolled[1];
+    let bottom = pixel(row.rect[1] + row.rect[3] + scrolled) + pixel(-scrolled);
     els.iter()
         .filter(|e| e.path.starts_with(&row.path) && e.path.contains("/steps-box") && e.opacity > 0.01)
-        .filter(|e| e.visible[2] > 0.5 && e.visible[3] > 0.5 && e.visible[1] + e.visible[3] > bottom + 0.5)
+        .filter(|e| e.visible[2] > 0.5 && e.visible[3] > 0.5 && e.visible[1] + e.visible[3] > bottom + 1.0 / 64.0)
         .filter_map(|e| Some(format!("{}@{} below {bottom}", e.key.as_deref()?, e.visible[1] + e.visible[3])))
         .collect()
 }
