@@ -68,8 +68,7 @@ pub fn init_story(s: &mut App) {
     s.terminal.story_built_variant = Some(s.variant);
     s.terminal.reset_blink(s.clock);
 
-    let dark = s.settings.scheme != crate::settings::Scheme::Light;
-    let theme = theme_from_pal(pal(dark));
+    let theme = theme_from_pal(pal(s.terminal_dark()));
     let (choice, style) = terminal_font_style(&s.knobs);
     let (cw, ch) = cell_metrics(choice, style);
     let (card_w, card_h) = story_card_size(s.zoom);
@@ -178,6 +177,7 @@ fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
+    s.terminal.painted_dark.set(Some(p.dark));
     let (card_w, card_h) = story_card_size(s.zoom);
     let inner = render_terminal_pane(
         s,

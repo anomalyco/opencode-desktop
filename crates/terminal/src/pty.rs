@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use rune::Waker;
 
 use crate::core::VtCore;
+use crate::persistent_pty::run_persistent_worker;
 use crate::server_pty::run_server_worker;
 use crate::theme::TerminalTheme;
 use crate::types::{
@@ -236,6 +237,33 @@ impl TerminalSession {
             })
             .map_err(|e| format!("failed to spawn terminal PTY worker: {e}"))?;
 
+        Ok(Self { shared, cmd_tx })
+    }
+
+    /// Attaches to an OpenCode session terminal (`persistent_pty.rs`): restores its screen from
+    /// the server's snapshot, then streams it. An observer watches without taking control.
+    pub fn spawn_persistent_pty(
+        server: Server,
+        pty_id: String,
+        config: TerminalConfig,
+        observer: bool,
+        waker: Waker,
+    ) -> Result<Self, String> {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (init_snap, _, _) = bootstrap_initial(&config, None)?;
+        let shared = Arc::new(SharedState {
+            snapshot: Mutex::new(init_snap),
+            status: Mutex::new(SessionStatus::Connecting),
+            selected_text: Mutex::new(None),
+            events: Mutex::new(Vec::new()),
+            cursor: AtomicI64::new(0),
+            revealed: AtomicBool::new(false),
+        });
+        let worker_shared = shared.clone();
+        std::thread::Builder::new()
+            .name("terminal-persistent-pty".into())
+            .spawn(move || run_persistent_worker(server, pty_id, config, observer, cmd_rx, worker_shared, waker))
+            .map_err(|e| format!("failed to spawn terminal PTY worker: {e}"))?;
         Ok(Self { shared, cmd_tx })
     }
 

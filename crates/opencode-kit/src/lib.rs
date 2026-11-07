@@ -8,6 +8,7 @@ pub mod mention;
 pub mod model;
 pub mod pairing;
 pub mod path;
+pub mod persistent_pty;
 pub mod plain_error;
 pub mod project;
 pub mod prompt;

@@ -5,6 +5,7 @@ pub mod core;
 pub mod ffi;
 mod ffi_fns;
 mod input;
+pub mod persistent_pty;
 pub mod pty;
 mod render_extract;
 pub mod server_pty;

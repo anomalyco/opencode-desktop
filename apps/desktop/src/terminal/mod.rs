@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use opencode_kit::pty::PtyCreate;
+use opencode_kit::persistent_pty::{PersistentPtyInfo, TerminalCreate};
 use rune::{Tx, Waker};
 use rune_knobs::{Group, Knob};
 use terminal::{
@@ -38,7 +38,7 @@ pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",
     &["Commit Mono", "IBM Plex Mono", "SF Mono"],
-    0,
+    1,
 )
 .about("Monospace font family in the terminal")
 .hints(&[
@@ -47,7 +47,7 @@ pub const TERM_FONT: Knob = Knob::choice(
     "macOS SF Mono system face",
 ]);
 
-pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 13.0)
+pub const TERM_SIZE: Knob = Knob::new("Font size", 11.0, 18.0, 14.0)
     .step(0.5)
     .about("Terminal font size in points");
 
@@ -105,11 +105,15 @@ impl TerminalTab {
     }
 }
 
+/// One session's terminals (Desktop keeps them per session, on the server).
 #[derive(Default)]
 pub struct TerminalWorkspace {
+    /// Where the session's shells start.
     pub directory: String,
     pub active: Option<String>,
     pub tabs: Vec<TerminalTab>,
+    /// Why the server's terminals couldn't be listed or started; shown instead of a shell.
+    pub failure: Option<String>,
 }
 
 impl TerminalWorkspace {
@@ -138,6 +142,9 @@ pub struct TerminalPane {
     pub last_blink_lit: bool,
     /// The appearance and theme (`Pal::theme`) the open terminals were last painted in.
     pub last_dark: Option<(bool, usize)>,
+    /// The appearance the window last drew in, resolved from the System setting; state
+    /// updates have no `Cx` to ask.
+    pub painted_dark: Cell<Option<bool>>,
     pub dirty_flag: Arc<AtomicBool>,
     pub story_focused: bool,
     pub story_built_variant: Option<usize>,
@@ -153,6 +160,7 @@ impl Default for TerminalPane {
             bell_until: 0.0,
             last_blink_lit: true,
             last_dark: None,
+            painted_dark: Cell::new(None),
             dirty_flag: Arc::new(AtomicBool::new(false)),
             story_focused: true,
             story_built_variant: None,
@@ -200,8 +208,14 @@ pub fn theme_from_pal(p: &Pal) -> TerminalTheme {
     }
 }
 
-pub fn workspace_key(server_base: &str, directory: &str) -> String {
-    format!("{server_base}\0{directory}")
+/// A session's terminals, keyed by server and session (`TerminalModel.load(session)`).
+pub fn workspace_key(server_base: &str, session_id: &str) -> String {
+    format!("{server_base}\0{session_id}")
+}
+
+/// The last path segment of a Windows or POSIX directory.
+pub(crate) fn dir_name(directory: &str) -> &str {
+    Some(opencode_kit::path::basename(directory)).filter(|d| !d.is_empty()).unwrap_or("workspace")
 }
 
 impl App {
@@ -212,16 +226,31 @@ impl App {
         }
     }
 
-    pub(crate) fn use_live_pty(&self) -> bool {
-        matches!(
-            &self.source,
-            Source::Live {
-                allow_send: true,
-                ..
-            }
-        ) && !crate::headless()
-            && !cfg!(test)
-            && self.stage.is_none()
+    /// The server whose session terminals this window shows, and whether it may only watch
+    /// them: `--read-only` and headless runs never start a shell or type into one.
+    pub(crate) fn live_terminals(&self) -> Option<(opencode_kit::client::Server, bool)> {
+        if cfg!(test) || self.stage.is_some() {
+            return None;
+        }
+        match &self.source {
+            Source::Live { server, allow_send, .. } => Some((server.clone(), !allow_send)),
+            Source::Fixture => None,
+        }
+    }
+
+    /// The appearance the terminals paint in: the one the window last drew, else the setting.
+    pub(crate) fn terminal_dark(&self) -> bool {
+        self.terminal
+            .painted_dark
+            .get()
+            .unwrap_or(self.settings.scheme == crate::settings::Scheme::Dark)
+    }
+
+    /// The session a terminal workspace belongs to, and the directory its shells start in.
+    fn terminal_session_dir(&self, ws_key: &str) -> (String, String) {
+        let sid = ws_key.split_once('\0').map_or("", |(_, s)| s).to_owned();
+        let dir = self.session(&sid).map_or_else(|| self.draft_dir.clone(), |s| s.directory.clone());
+        (sid, dir)
     }
 
     pub fn terminal_waker(&self) -> Waker {
@@ -236,11 +265,7 @@ impl App {
     }
 
     pub fn terminal_workspace_key_for_session(&self, session_id: &str) -> String {
-        let dir = self
-            .session(session_id)
-            .map(|s| s.directory.as_str())
-            .unwrap_or(&self.draft_dir);
-        workspace_key(self.server_id_str(), dir)
+        workspace_key(self.server_id_str(), session_id)
     }
 
     pub fn active_terminal_workspace_key(&self) -> Option<String> {
@@ -253,14 +278,17 @@ impl App {
         Some(self.terminal_workspace_key_for_session(sid))
     }
 
+    /// Loads a session's terminals and, when it has none, starts one, as opening Desktop's
+    /// terminal panel does. A read-only window only shows the ones the server already has.
     pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
         self.ensure_terminal_workspace_hydrated(ws_key);
         let empty = self
             .terminal
             .workspaces
             .get(ws_key)
-            .is_none_or(|ws| ws.tabs.is_empty());
-        if empty {
+            .is_none_or(|ws| ws.tabs.is_empty() && ws.failure.is_none());
+        let watch_only = self.live_terminals().is_some_and(|(_, observer)| observer);
+        if empty && !watch_only {
             self.new_terminal_in(ws_key);
         }
     }
@@ -334,9 +362,7 @@ impl App {
 
     pub fn close_terminal_tab(&mut self, ws_key: &str, tab_id: &str, tx: &mut Tx) {
         let mut became_empty = false;
-        let mut directory = String::new();
         if let Some(ws) = self.terminal.workspaces.get_mut(ws_key) {
-            directory.clone_from(&ws.directory);
             if let Some(idx) = ws.tabs.iter().position(|t| t.id == tab_id) {
                 ws.tabs.remove(idx);
                 if ws.active.as_deref() == Some(tab_id) {
@@ -350,17 +376,13 @@ impl App {
             became_empty = ws.tabs.is_empty();
         }
 
-        if let Source::Live {
-            server,
-            allow_send: true,
-            ..
-        } = &self.source
+        // Closing a tab ends its shell on the server, as Desktop's close does.
+        if let Some((srv, false)) = self.live_terminals()
             && tab_id.starts_with("pty_")
         {
-            let srv = server.clone();
             let id = tab_id.to_owned();
             std::thread::spawn(move || {
-                let _ = srv.pty_remove(&directory, &id);
+                let _ = srv.terminal_remove(&id);
             });
         }
 
@@ -373,110 +395,67 @@ impl App {
         self.queue_terminal_save();
     }
 
+    /// Starts a terminal: on a live server, a session shell (`persistentPty.create`) named
+    /// after the lowest free "Terminal N"; in a fixture scene, a recorded prompt.
     pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
-        let dark = self.settings.scheme != crate::settings::Scheme::Light;
-        let theme = theme_from_pal(pal(dark));
-        let directory = ws_key
-            .split_once('\0')
-            .map_or_else(String::new, |(_, d)| d.to_owned());
+        let theme = theme_from_pal(pal(self.terminal_dark()));
+        let (session_id, directory) = self.terminal_session_dir(ws_key);
         self.terminal.touch_lru(ws_key);
         let num = self
             .terminal
             .workspaces
             .entry(ws_key.to_owned())
-            .or_insert_with(|| TerminalWorkspace {
-                directory: directory.clone(),
-                active: None,
-                tabs: Vec::new(),
-            })
+            .or_insert_with(|| TerminalWorkspace { directory: directory.clone(), ..TerminalWorkspace::default() })
             .next_title_number();
         let title = format!("Terminal {num}");
-        let waker = self.terminal_waker();
+        let (init_cols, init_rows) = self.estimated_terminal_grid();
 
-        if self.use_live_pty()
-            && let Source::Live { server, .. } = &self.source
-        {
-            let srv = server.clone();
-            let dir_for_create = directory.clone();
-            let create_title = title.clone();
-            if let Ok(info) = srv.pty_create(
-                &dir_for_create,
-                &PtyCreate {
-                    title: Some(create_title),
-                    cwd: (!dir_for_create.is_empty()).then_some(dir_for_create.clone()),
-                    ..PtyCreate::default()
-                },
-            ) && let Ok(session) = TerminalSession::spawn_server_pty(
-                srv,
-                directory.clone(),
-                info.id.clone(),
-                TerminalConfig {
-                    theme: theme.clone(),
-                    ..TerminalConfig::default()
-                },
-                None,
-                waker,
-            ) {
-                let id = info.id;
-                let ws = self.terminal.workspaces.get_mut(ws_key)?;
-                ws.tabs.push(TerminalTab {
-                    id: id.clone(),
-                    title: if info.title.is_empty() { title } else { info.title },
-                    title_number: num,
-                    custom_title: false,
-                    session,
-                    stream: None,
-                    fixture_shell: false,
-                    scroll_px_accum: 0.0,
-                    drag_anchor: None,
-                    needs_recovery: false,
-                    recovery_buffer: Vec::new(),
-                    last_fit: Cell::new((80, 24, 8, 18)),
-                });
-                ws.active = Some(id.clone());
-                self.focus_terminal_surface();
-                self.queue_terminal_save();
-                return Some(id);
+        if let Some((srv, observer)) = self.live_terminals() {
+            if observer {
+                return None;
             }
+            let created = srv.terminal_create(
+                &session_id,
+                &TerminalCreate { title, cwd: Some(directory), size: Some((init_cols, init_rows)) },
+            );
+            let tab = created.and_then(|info| self.persistent_tab(srv, info));
+            let ws = self.terminal.workspaces.get_mut(ws_key)?;
+            return match tab {
+                Ok(tab) => {
+                    let id = tab.id.clone();
+                    ws.failure = None;
+                    ws.tabs.push(tab);
+                    ws.active = Some(id.clone());
+                    self.focus_terminal_surface();
+                    self.queue_terminal_save();
+                    Some(id)
+                }
+                Err(_) if !ws.tabs.is_empty() => None,
+                Err(e) => {
+                    ws.failure = Some(e);
+                    None
+                }
+            };
         }
 
-        let (font_choice, style) = grid::terminal_font_style(&self.knobs);
-        let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
-        let est_w = (self.side.width - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
-        let est_bar = if self.side_open() { grid::BAR_H } else { 48.0 };
-        let est_pane_h = if self.side_open() || self.dock_placement() == crate::panels::DockPlacement::Bottom {
-            self.side.dock_height
-        } else {
-            804.0 / self.zoom
-        };
-        let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
-        let init_cols = ((est_w / cell_w).floor() as u16).clamp(10, 500);
-        let init_rows = ((est_h / cell_h).floor() as u16).clamp(2, 240);
-
-        let short_dir = Some(opencode_kit::path::basename(&directory)).filter(|d| !d.is_empty()).unwrap_or("workspace");
+        let short_dir = dir_name(&directory);
+        let prompt = format!(
+            "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
+        );
         let banner = if num == 1 {
             format!(
-                "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m cargo test --quiet\r\n\
-                 \x1b[1;32m   Finished\x1b[0m `test` profile in 0.42s\r\n\
-                 \x1b[1;32mtest result: ok.\x1b[0m 14 passed; 0 failed\r\n\r\n\
-                 \x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
+                "{prompt}cargo test --quiet\r\n\x1b[1;32m   Finished\x1b[0m `test` profile in 0.42s\r\n\
+                 \x1b[1;32mtest result: ok.\x1b[0m 14 passed; 0 failed\r\n\r\n{prompt}"
             )
         } else {
-            format!(
-                "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
-            )
+            prompt
         };
         let id = self.insert_stream_terminal(
             ws_key,
             &format!("term_{num}"),
             &title,
             num,
-            TerminalConfig {
-                cols: init_cols,
-                rows: init_rows,
-                theme,
-                ..TerminalConfig::default()
-            },
+            TerminalConfig { cols: init_cols, rows: init_rows, theme, ..TerminalConfig::default() },
             Some(RestoreState {
                 buffer: banner.into_bytes(),
                 cols: Some(init_cols),
@@ -494,6 +473,51 @@ impl App {
         Some(id)
     }
 
+    /// The grid a new terminal starts at, before the pane first measures itself.
+    fn estimated_terminal_grid(&self) -> (u16, u16) {
+        let (font_choice, style) = grid::terminal_font_style(&self.knobs);
+        let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
+        let est_w = (self.side.width - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
+        let est_bar = if self.side_open() { grid::BAR_H } else { 48.0 };
+        let est_pane_h = if self.side_open() || self.dock_placement() == crate::panels::DockPlacement::Bottom {
+            self.side.dock_height
+        } else {
+            804.0 / self.zoom
+        };
+        let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
+        (((est_w / cell_w).floor() as u16).clamp(10, 500), ((est_h / cell_h).floor() as u16).clamp(2, 240))
+    }
+
+    /// A tab attached to one of the server's session terminals.
+    pub(crate) fn persistent_tab(
+        &self,
+        srv: opencode_kit::client::Server,
+        info: PersistentPtyInfo,
+    ) -> Result<TerminalTab, String> {
+        let observer = self.live_terminals().is_none_or(|(_, observer)| observer);
+        let config = TerminalConfig {
+            cols: info.size.0,
+            rows: info.size.1,
+            theme: theme_from_pal(pal(self.terminal_dark())),
+            ..TerminalConfig::default()
+        };
+        let session = TerminalSession::spawn_persistent_pty(srv, info.id.clone(), config, observer, self.terminal_waker())?;
+        Ok(TerminalTab {
+            title_number: persist::number_from_title(&info.title).unwrap_or(0),
+            id: info.id,
+            title: info.title,
+            custom_title: false,
+            session,
+            stream: None,
+            fixture_shell: false,
+            scroll_px_accum: 0.0,
+            drag_anchor: None,
+            needs_recovery: false,
+            recovery_buffer: Vec::new(),
+            last_fit: Cell::new((0, 0, 0, 0)),
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn insert_stream_terminal(
         &mut self,
@@ -505,9 +529,7 @@ impl App {
         restore: Option<RestoreState>,
         initial_bytes: &[u8],
     ) -> Option<String> {
-        let directory = ws_key
-            .split_once('\0')
-            .map_or_else(String::new, |(_, d)| d.to_owned());
+        let (_, directory) = self.terminal_session_dir(ws_key);
         self.terminal.touch_lru(ws_key);
         let (session, handle) =
             TerminalSession::spawn_stream(config, restore, self.terminal_waker()).ok()?;
@@ -518,11 +540,7 @@ impl App {
             .terminal
             .workspaces
             .entry(ws_key.to_owned())
-            .or_insert_with(|| TerminalWorkspace {
-                directory,
-                active: None,
-                tabs: Vec::new(),
-            });
+            .or_insert_with(|| TerminalWorkspace { directory, ..TerminalWorkspace::default() });
         ws.tabs.push(TerminalTab {
             id: id.to_owned(),
             title: title.to_owned(),
@@ -559,18 +577,14 @@ impl App {
                 .is_some_and(|st| st.dock_open);
         if dock_open_in_session
             && let Some(wk) = self.active_terminal_workspace_key()
-            && self
-                .terminal
-                .workspaces
-                .get(&wk)
-                .is_none_or(|ws| ws.tabs.is_empty())
+            && !self.terminal.workspaces.contains_key(&wk)
         {
             self.ensure_workspace_ready(&wk);
             return true;
         }
 
         if !self.terminal.workspaces.is_empty() {
-            let dark = self.settings.scheme != crate::settings::Scheme::Light;
+            let dark = self.terminal_dark();
             let painted = Some((dark, crate::themes::active()));
             if self.terminal.last_dark != painted {
                 self.terminal.last_dark = painted;
@@ -589,10 +603,9 @@ impl App {
             let now = self.clock;
             let mut bell = false;
             let mut title_changed = false;
-            let mut to_recover: Vec<(String, String)> = Vec::new();
             let mut to_remove: Vec<String> = Vec::new();
 
-            for (wk, ws) in &mut self.terminal.workspaces {
+            for ws in self.terminal.workspaces.values_mut() {
                 for tab in &mut ws.tabs {
                     for ev in tab.session.drain_events() {
                         match ev {
@@ -608,28 +621,12 @@ impl App {
                             _ => {}
                         }
                     }
-                    match tab.session.status() {
-                        SessionStatus::Connected if tab.needs_recovery => {
-                            tab.needs_recovery = false;
-                            tab.recovery_buffer.clear();
-                        }
-                        SessionStatus::Exited { .. } | SessionStatus::Failed(_)
-                            if tab.needs_recovery =>
-                        {
-                            tab.needs_recovery = false;
-                            to_recover.push((wk.clone(), tab.id.clone()));
-                        }
-                        SessionStatus::Exited { .. } if self.stage.is_none() => {
-                            to_remove.push(tab.id.clone());
-                        }
-                        _ => {}
+                    if matches!(tab.session.status(), SessionStatus::Exited { .. }) && self.stage.is_none() {
+                        to_remove.push(tab.id.clone());
                     }
                 }
             }
 
-            for (wk, tid) in to_recover {
-                let _ = self.recover_restored_tab(&wk, &tid);
-            }
             for tid in to_remove {
                 let _ = self.remove_exited_pty(&tid);
             }

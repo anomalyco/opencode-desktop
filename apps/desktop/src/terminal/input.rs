@@ -29,7 +29,7 @@ pub fn handle_key(
         .as_ref()
         .and_then(|k| s.terminal.workspaces.get(k))
         .and_then(|w| w.active.clone());
-    match dispatch_key(session, None, false, ws_key, tab_id, ev, viewport_rows, tx) {
+    match dispatch_key(session, None, None, ws_key, tab_id, ev, viewport_rows, tx) {
         KeyOutcome::Ignored => false,
         KeyOutcome::Consumed => true,
         KeyOutcome::ConsumedResetBlink => {
@@ -43,7 +43,7 @@ pub fn handle_key(
 pub fn dispatch_key(
     session: &TerminalSession,
     stream: Option<&StreamHandle>,
-    fixture_shell: bool,
+    fixture_dir: Option<&str>,
     ws_key: Option<String>,
     tab_id: Option<String>,
     ev: &KeyEvent,
@@ -65,27 +65,7 @@ pub fn dispatch_key(
     }
 
     if Bind::TerminalPaste.matches_tx(ev, tx) {
-        tx.read_clipboard(move |app: &mut App, content, _tx| {
-            let text = content.text();
-            if text.is_empty() {
-                return;
-            }
-            if let (Some(wk), Some(tid)) = (&ws_key, &tab_id)
-                && let Some(tab) = app
-                    .terminal
-                    .workspaces
-                    .get(wk)
-                    .and_then(|w| w.tabs.iter().find(|t| &t.id == tid))
-            {
-                tab.session.paste(text);
-                if tab.fixture_shell
-                    && let Some(st) = &tab.stream
-                {
-                    st.feed(text.as_bytes());
-                }
-                app.terminal.reset_blink(app.clock);
-            }
-        });
+        paste_clipboard(ws_key, tab_id, tx);
         return KeyOutcome::Consumed;
     }
 
@@ -154,19 +134,35 @@ pub fn dispatch_key(
     }
     session.send_key(ki);
 
-    if fixture_shell
-        && let Some(st) = stream
-    {
-        let short_dir = ws_key
-            .as_deref()
-            .and_then(|k| k.split_once('\0'))
-            .map(|(_, d)| opencode_kit::path::basename(d))
-            .filter(|d| !d.is_empty())
-            .unwrap_or("workspace");
-        echo_fixture_key(st, ev, short_dir);
+    if let (Some(dir), Some(st)) = (fixture_dir, stream) {
+        echo_fixture_key(st, ev, super::dir_name(dir));
     }
 
     KeyOutcome::ConsumedResetBlink
+}
+
+fn paste_clipboard(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) {
+    tx.read_clipboard(move |app: &mut App, content, _tx| {
+        let text = content.text();
+        if text.is_empty() {
+            return;
+        }
+        if let (Some(wk), Some(tid)) = (&ws_key, &tab_id)
+            && let Some(tab) = app
+                .terminal
+                .workspaces
+                .get(wk)
+                .and_then(|w| w.tabs.iter().find(|t| &t.id == tid))
+        {
+            tab.session.paste(text);
+            if tab.fixture_shell
+                && let Some(st) = &tab.stream
+            {
+                st.feed(text.as_bytes());
+            }
+            app.terminal.reset_blink(app.clock);
+        }
+    });
 }
 
 pub fn dispatch_ime(

@@ -7,7 +7,6 @@ mod tests;
 pub mod view;
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 use rune_kit::diff::{DiffMode, Expand};
@@ -42,9 +41,9 @@ pub enum ChangeMode {
 impl ChangeMode {
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Git => "Uncommitted",
-            Self::Branch => "Branch",
-            Self::Turn => "Last turn",
+            Self::Git => "Git changes",
+            Self::Branch => "Branch changes",
+            Self::Turn => "Last turn changes",
         }
     }
 
@@ -148,7 +147,9 @@ impl Default for ReviewPane {
             filter: TextEdit::new(""),
             dirty: false,
             revision: 1,
-            diff_fetch: Latest::default().debounce(Duration::from_millis(100)),
+            // No debounce: opening the panel asks at once, as Desktop does, and a burst of file
+            // events only supersedes the request in flight (`Latest` keeps the newest answer).
+            diff_fetch: Latest::default(),
             file_fetch: Latest::default(),
             asked: None,
         }

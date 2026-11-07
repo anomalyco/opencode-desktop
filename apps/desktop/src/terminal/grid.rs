@@ -20,13 +20,22 @@ use super::draw::{detect_url_in_row, draw_box_or_block, draw_special_underline};
 use super::{TERM_FONT, TERM_SIZE, TerminalTab};
 use crate::App;
 use crate::palette::Pal;
-use crate::view::{UI_MED, UI_SMALL};
+use crate::view::{UI, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
-pub const BAR_H: f32 = 38.0;
-pub const PAD_X: f32 = 12.0;
-pub const PAD_Y: f32 = 8.0;
+/// Desktop's panel strip (`--tabs-bar-height`).
+pub const BAR_H: f32 = 48.0;
+/// The terminal's inset in Desktop's panel (`px-[14px] py-3`).
+pub const PAD_X: f32 = 14.0;
+pub const PAD_Y: f32 = 12.0;
 const SCROLLBAR_W: f32 = 8.0;
+
+/// Desktop's `terminal` icon (`additional-icons.ts`): a prompt in a box.
+static TERMINAL_ICON: rune::Icon = rune::Icon {
+    name: "terminal-tab",
+    view: 20.0,
+    body: r#"<path d="M6.5 8L8.64286 10L6.5 12M10.9286 12H13.5M2 18H18V2H2V18Z" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
+};
 
 thread_local! {
     static METRIC_CACHE: RefCell<HashMap<(u8, u32, u64), (f32, f32)>> = RefCell::new(HashMap::new());
@@ -35,7 +44,8 @@ thread_local! {
 pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
     let choice = knobs.get(&TERM_FONT).round() as u8;
     let size = knobs.get(&TERM_SIZE).clamp(10.0, 22.0);
-    let lh = (size * 1.45).round();
+    // ghostty-web's cell: the face's ascent and descent, 18 px at Desktop's 14 px.
+    let lh = (size * 1.3).round();
     let family = match choice {
         // By name, so the code font (the mono slot) doesn't change the terminal's.
         1 => Family::Named("IBM Plex Mono"),
@@ -86,7 +96,7 @@ pub fn render_terminal_pane(
     let (cell_w, cell_h) = cell_metrics(font_choice, style);
     let (pane_w, pane_h) = (pane_size.0.max(200.0), pane_size.1.max(100.0));
     let bar_h = if reserve_top_right { 48.0 } else { BAR_H };
-    let body_w = (pane_w - PAD_X * 2.0 - SCROLLBAR_W).max(cell_w * 10.0);
+    let body_w = (pane_w - PAD_X * 2.0).max(cell_w * 10.0);
     let body_h = (pane_h - bar_h - PAD_Y * 2.0).max(cell_h * 2.0);
     let fit_cols = ((body_w / cell_w).floor() as u16).clamp(10, 500);
     let fit_rows = ((body_h / cell_h).floor() as u16).clamp(2, 240);
@@ -100,9 +110,21 @@ pub fn render_terminal_pane(
             .h_full()
             .fill(p.bg_base)
             .child(tab_bar(s, p, ws_key, &[], None, reserve_top_right, show_close_dock))
-            .child(el().w_full().h(0.5).fill(p.border_muted))
-            .child(el().grow(1.0).w_full());
+            .child(el().w_full().h(0.5).fill(p.border))
+            .child(notice(p, "Loading terminal…", None));
     };
+    if ws.tabs.is_empty()
+        && let Some(err) = &ws.failure
+    {
+        return col()
+            .key("terminal-failed")
+            .w_full()
+            .h_full()
+            .fill(p.bg_base)
+            .child(tab_bar(s, p, ws_key, &[], None, reserve_top_right, show_close_dock))
+            .child(el().w_full().h(0.5).fill(p.border))
+            .child(notice(p, "Couldn't load terminals", Some(err)));
+    }
 
     let active_tab = ws
         .active
@@ -127,7 +149,7 @@ pub fn render_terminal_pane(
             .h_full()
             .fill(p.bg_base)
             .child(header)
-            .child(el().w_full().h(0.5).fill(p.border_muted))
+            .child(el().w_full().h(0.5).fill(p.border))
             .child(el().grow(1.0).w_full());
     };
 
@@ -136,7 +158,7 @@ pub fn render_terminal_pane(
 
     let snap = tab.session.snapshot();
     let bell_active = s.clock < s.terminal.bell_until;
-    let divider_color = if bell_active { p.accent } else { p.border_muted };
+    let divider_color = if bell_active { p.accent } else { p.border };
 
     let viewport = render_viewport(
         s,
@@ -153,6 +175,23 @@ pub fn render_terminal_pane(
         focused,
     );
 
+    // A stopped attachment keeps its last screen under Desktop's notice (`text-12-regular
+    // text-text-danger-base`, `px-6 py-3` on the terminal's background).
+    let failure = match tab.session.status() {
+        terminal::SessionStatus::Failed(why) => Some(why),
+        _ => None,
+    };
+    let body = col().key("terminal-body").w_full().grow(1.0).min_h(0.0).child(viewport).children(failure.map(|why| {
+        el().key("terminal-failure")
+            .absolute(0.0, 0.0)
+            .w_full()
+            .px(24.0)
+            .py(12.0)
+            .fill(p.bg_base)
+            .inert()
+            .child(text(why).font(UI_SMALL).color(p.danger))
+    }));
+
     col()
         .key("terminal-pane")
         .role("region")
@@ -163,11 +202,24 @@ pub fn render_terminal_pane(
         .instant_changes()
         .child(header)
         .child(el().key("terminal-divider").w_full().h(0.5).fill(divider_color))
-        .child(viewport)
+        .child(body)
+}
+
+/// Desktop's centred panel notice: a 13 px strong line over a 12 px weak one.
+fn notice(p: &Pal, title: &str, detail: Option<&str>) -> El {
+    col()
+        .key("terminal-notice")
+        .w_full()
+        .grow(1.0)
+        .center()
+        .gap(4.0)
+        .px(16.0)
+        .child(text(title.to_owned()).font(UI).color(if detail.is_some() { p.text } else { p.faint }))
+        .children(detail.map(|d| text(d.to_owned()).font(UI_SMALL).color(p.faint)))
 }
 
 fn tab_bar(
-    _s: &App,
+    s: &App,
     p: &Pal,
     ws_key: &str,
     tabs: &[TerminalTab],
@@ -175,9 +227,12 @@ fn tab_bar(
     reserve_top_right: bool,
     show_close_dock: bool,
 ) -> El {
+    // Desktop's panel strip (`tabs.css`, `#review-panel` / `#terminal-panel`): 28 px tabs 8 px
+    // apart from a 12 px inset, the selected one on `layer-02`, labels 13/440, the close button
+    // 20 px and 4 px from the tab's end.
     let mut strip = row()
         .key("terminal-tabs")
-        .gap(4.0)
+        .gap(8.0)
         .center_y()
         .grow(1.0)
         .min_w(0.0)
@@ -196,32 +251,38 @@ fn tab_bar(
             .key(format!("ttab-{}", t.id))
             .role("tab")
             .label(label.clone())
-            .h(26.0)
-            .max_w(176.0)
-            .pl(8.0)
+            .h(28.0)
+            .min_w(72.0)
+            .max_w(222.0)
+            .pl(10.0)
             .pr(4.0)
             .gap(6.0)
             .center_y()
             .radius(6.0)
-            .fill(if active { p.pressed } else { Color::TRANSPARENT })
-            .hover(p.hover)
+            .hover_group()
+            .fill(if active { p.layer2 } else { Color::TRANSPARENT })
+            .hover(if active { p.layer2 } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(move |app: &mut App, tx: &mut Tx| {
                 tx.instant();
                 app.select_terminal_tab(&wk_select, &tid);
             })
-            .child(icon(&ic::CONSOLE, 13.0).color(if active { p.icon } else { p.icon_muted }))
+            .child(icon(&TERMINAL_ICON, 16.0).color(if active { p.icon } else { p.icon_muted }))
             .child(
                 text(label)
-                    .font(if active { UI_MED } else { UI_SMALL })
+                    .font(UI)
                     .color(if active { p.text } else { p.muted })
-                    .truncate_fade(),
+                    .max_w(160.0)
+                    .shrink()
+                    .min_w(0.0)
+                    .truncate(),
             )
+            .child(el().grow(1.0))
             .child(
                 el().key(format!("ttab-close-{}", t.id))
                     .role("button")
                     .label("Close terminal")
-                    .size(18.0, 18.0)
+                    .size(20.0, 20.0)
                     .radius(4.0)
                     .center()
                     .hover(p.hover)
@@ -229,28 +290,34 @@ fn tab_bar(
                     .on_press_tx(move |app: &mut App, tx: &mut Tx| {
                         app.close_terminal_tab(&wk_close, &close_tid, tx);
                     })
-                    .child(icon(&ic::XMARK_SMALL, 12.0).color(p.faint)),
+                    .child(
+                        icon(&ic::XMARK_SMALL, 16.0)
+                            .color(if active { p.icon_muted } else { Color::TRANSPARENT })
+                            .group_color(p.icon_muted),
+                    ),
             );
         strip = strip.child(pill);
     }
 
     let wk_new = ws_key.to_owned();
-    strip = strip.child(
-        bar_btn(p, "terminal-new-tab", &crate::keymap::Bind::TerminalNew.tip("New terminal"), &ic::PLUS, 14.0).on_press_tx(
-            move |app: &mut App, tx: &mut Tx| {
-                tx.instant();
-                app.new_terminal_in(&wk_new);
-            },
-        ),
-    );
+    if s.live_terminals().is_none_or(|(_, observer)| !observer) {
+        strip = strip.child(
+            bar_btn(p, "terminal-new-tab", &crate::keymap::Bind::TerminalNew.tip("New terminal"), &ic::PLUS, 16.0).on_press_tx(
+                move |app: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    app.new_terminal_in(&wk_new);
+                },
+            ),
+        );
+    }
 
     let mut bar = row()
         .key("terminal-tabbar")
         .w_full()
-        .h(if reserve_top_right { 48.0 } else { BAR_H })
-        .pl(8.0)
-        .pr(8.0)
-        .gap(4.0)
+        .h(BAR_H)
+        .pl(12.0)
+        .pr(12.0)
+        .gap(8.0)
         .center_y()
         .child(strip);
     if reserve_top_right {
@@ -353,7 +420,7 @@ fn render_viewport(
         .grow(1.0)
         .min_h(0.0)
         .pl(PAD_X)
-        .pr(4.0)
+        .pr(PAD_X - SCROLLBAR_W)
         .pt(PAD_Y)
         .pb(PAD_Y)
         .cursor(Cursor::Text)
@@ -755,7 +822,7 @@ fn bar_btn(p: &Pal, key: &str, label: &str, glyph: &'static rune::Icon, sz: f32)
     el().key(key)
         .role("button")
         .label(label)
-        .size(26.0, 26.0)
+        .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .hover(p.hover)

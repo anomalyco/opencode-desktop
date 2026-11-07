@@ -332,10 +332,15 @@ impl App {
         });
     }
 
-    /// Hydrates a lazy `StoredWorkspace` into live/stream `TerminalTab`s on first dock access.
+    /// Loads a workspace on first dock access: on a live server, the session's running
+    /// terminals in the order this window last kept them (others the server has join at the
+    /// end, as in Desktop's strip); elsewhere, the stored recordings.
     pub fn ensure_terminal_workspace_hydrated(&mut self, ws_key: &str) -> bool {
         if self.terminal.workspaces.contains_key(ws_key) {
             return false;
+        }
+        if let Some((srv, _)) = self.live_terminals() {
+            return self.hydrate_from_server(ws_key, &srv);
         }
         let Some(stored) = self.terminal.stored.remove(ws_key) else {
             return false;
@@ -344,60 +349,24 @@ impl App {
             return false;
         }
 
-        let dark = self.settings.scheme != crate::settings::Scheme::Light;
-        let theme = theme_from_pal(pal(dark));
-        let directory = ws_key
-            .split_once('\0')
-            .map_or_else(String::new, |(_, d)| d.to_owned());
+        let theme = theme_from_pal(pal(self.terminal_dark()));
+        let (_, directory) = self.terminal_session_dir(ws_key);
         self.terminal.touch_lru(ws_key);
         let waker = self.terminal_waker();
-        let use_live = self.use_live_pty();
 
-        let mut tabs = Vec::with_capacity(stored.all.len());
-        for item in stored.all {
-            let restore = item.to_restore_state();
-            let cfg = TerminalConfig {
-                cols: item.cols.unwrap_or(80),
-                rows: item.rows.unwrap_or(24),
-                theme: theme.clone(),
-                ..TerminalConfig::default()
-            };
-
-            if use_live
-                && item.id.starts_with("pty_")
-                && let Source::Live { server, .. } = &self.source
-            {
-                let recovery_buf = restore.buffer.clone();
-                if let Ok(session) = TerminalSession::spawn_server_pty(
-                    server.clone(),
-                    directory.clone(),
-                    item.id.clone(),
-                    cfg.clone(),
-                    Some(restore.clone()),
-                    waker.clone(),
-                ) {
-                    tabs.push(TerminalTab {
-                        id: item.id,
-                        title: item.title,
-                        title_number: item.title_number,
-                        custom_title: item.custom_title,
-                        session,
-                        stream: None,
-                        fixture_shell: false,
-                        scroll_px_accum: 0.0,
-                        drag_anchor: None,
-                        needs_recovery: true,
-                        recovery_buffer: recovery_buf,
-                        last_fit: std::cell::Cell::new((0, 0, 0, 0)),
-                    });
-                    continue;
-                }
-            }
-
-            if let Ok((session, handle)) =
-                TerminalSession::spawn_stream(cfg, Some(restore), waker.clone())
-            {
-                tabs.push(TerminalTab {
+        let tabs: Vec<TerminalTab> = stored
+            .all
+            .into_iter()
+            .filter_map(|item| {
+                let cfg = TerminalConfig {
+                    cols: item.cols.unwrap_or(80),
+                    rows: item.rows.unwrap_or(24),
+                    theme: theme.clone(),
+                    ..TerminalConfig::default()
+                };
+                let (session, handle) =
+                    TerminalSession::spawn_stream(cfg, Some(item.to_restore_state()), waker.clone()).ok()?;
+                Some(TerminalTab {
                     id: item.id,
                     title: item.title,
                     title_number: item.title_number,
@@ -410,9 +379,9 @@ impl App {
                     needs_recovery: false,
                     recovery_buffer: Vec::new(),
                     last_fit: std::cell::Cell::new((0, 0, 0, 0)),
-                });
-            }
-        }
+                })
+            })
+            .collect();
 
         if tabs.is_empty() {
             return false;
@@ -423,12 +392,31 @@ impl App {
             .or_else(|| tabs.first().map(|t| t.id.clone()));
         self.terminal.workspaces.insert(
             ws_key.to_owned(),
-            TerminalWorkspace {
-                directory,
-                active,
-                tabs,
-            },
+            TerminalWorkspace { directory, active, tabs, failure: None },
         );
         true
+    }
+
+    fn hydrate_from_server(&mut self, ws_key: &str, srv: &opencode_kit::client::Server) -> bool {
+        let stored = self.terminal.stored.remove(ws_key).unwrap_or_default();
+        let (session_id, directory) = self.terminal_session_dir(ws_key);
+        self.terminal.touch_lru(ws_key);
+        let mut ws = TerminalWorkspace { directory, ..TerminalWorkspace::default() };
+        match srv.terminal_list(&session_id) {
+            Err(e) => ws.failure = Some(e),
+            Ok(mut list) => {
+                list.retain(|info| info.status == opencode_kit::pty::PtyStatus::Running);
+                let rank = |id: &str| stored.all.iter().position(|p| p.id == id).unwrap_or(usize::MAX);
+                list.sort_by_key(|info| rank(&info.id));
+                ws.tabs = list.into_iter().filter_map(|info| self.persistent_tab(srv.clone(), info).ok()).collect();
+                ws.active = stored
+                    .active
+                    .filter(|id| ws.tabs.iter().any(|t| &t.id == id))
+                    .or_else(|| ws.tabs.first().map(|t| t.id.clone()));
+            }
+        }
+        let loaded = !ws.tabs.is_empty();
+        self.terminal.workspaces.insert(ws_key.to_owned(), ws);
+        loaded
     }
 }

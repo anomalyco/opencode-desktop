@@ -104,7 +104,7 @@ impl App {
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= self.apply_status(ty, data, &sid);
         changed |= self.note_review_event(ty);
-        if ty.starts_with("pty.") {
+        if ty.starts_with("pty.") || ty.starts_with("persistent-pty.") {
             changed |= self.apply_pty_event(ty, data);
         }
         crate::notifications::event(self, ty, data, &sid);

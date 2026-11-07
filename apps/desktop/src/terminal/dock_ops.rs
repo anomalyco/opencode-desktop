@@ -1,18 +1,17 @@
 //! Dock key/IME dispatch, SSE `pty.exited` / `pty.updated` cleanup, and stale-PTY recovery.
 
-use opencode_kit::pty::PtyCreate;
+use opencode_kit::persistent_pty::parse_persistent_pty_info;
 use rune::{El, Ime, Key, KeyEvent, Tx};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
-use terminal::{RestoreState, TerminalConfig, TerminalSession};
 
-use super::{grid, input, theme_from_pal, workspace_key};
+use super::{grid, input, workspace_key};
+use crate::App;
 use crate::keymap::Bind;
-use crate::palette::{Pal, pal};
+use crate::palette::Pal;
 use crate::panels::{
     PanelLauncherDesc, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SessionPane,
 };
-use crate::{App, Source};
 
 pub(super) fn list_dock_tabs(_s: &App, _ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     vec![PanelTabDesc::new("main", "Terminal").icon(&ic::CONSOLE)]
@@ -63,7 +62,8 @@ pub(super) fn shortcut_new_terminal(s: &mut App, tx: &mut Tx) {
 }
 
 pub(super) fn render_dock(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
-    let ws_key = workspace_key(s.server_id_str(), ctx.directory);
+    s.terminal.painted_dark.set(Some(p.dark));
+    let ws_key = workspace_key(s.server_id_str(), ctx.session_id);
     grid::render_terminal_pane(
         s,
         p,
@@ -72,7 +72,8 @@ pub(super) fn render_dock(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         ctx.env_scale,
         (ctx.focused || !ctx.visible) && !s.composer.focused,
         ctx.reserve_top_right,
-        true,
+        // Alone in the right column, the strip is Desktop's: no hide button, the side toggle ends it.
+        !ctx.reserve_top_right,
     )
 }
 
@@ -137,7 +138,7 @@ pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         input::dispatch_key(
             &tab.session,
             tab.stream.as_ref(),
-            tab.fixture_shell,
+            tab.fixture_shell.then_some(ws.directory.as_str()),
             Some(wk),
             Some(tab.id.clone()),
             ev,
@@ -185,7 +186,40 @@ pub(super) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
 impl App {
     /// Handles server SSE `pty.exited` and `pty.updated` events (`packages/schema/src/pty.ts`).
     pub fn apply_pty_event(&mut self, ty: &str, data: &Value) -> bool {
+        let terminal = if data["terminal"].is_object() { &data["terminal"] } else { &data["properties"]["terminal"] };
         match ty {
+            // Another client's terminal joins the session's strip at the end.
+            "persistent-pty.added" => {
+                let Some(info) = parse_persistent_pty_info(terminal) else { return false };
+                let wk = self.terminal_workspace_key_for_session(&info.session_id);
+                let Some((srv, _)) = self.live_terminals() else { return false };
+                let known = self.terminal.workspaces.get(&wk).map(|ws| ws.tabs.iter().any(|t| t.id == info.id));
+                if known != Some(false) {
+                    return false;
+                }
+                let Ok(tab) = self.persistent_tab(srv, info) else { return false };
+                if let Some(ws) = self.terminal.workspaces.get_mut(&wk) {
+                    ws.failure = None;
+                    ws.active.get_or_insert_with(|| tab.id.clone());
+                    ws.tabs.push(tab);
+                }
+                true
+            }
+            "persistent-pty.removed" => {
+                let id = data["ptyID"].as_str().or_else(|| data["properties"]["ptyID"].as_str()).unwrap_or_default();
+                !id.is_empty() && self.remove_exited_pty(id)
+            }
+            "persistent-pty.updated" => {
+                let Some(info) = parse_persistent_pty_info(terminal) else { return false };
+                let mut changed = false;
+                for tab in self.terminal.workspaces.values_mut().flat_map(|ws| ws.tabs.iter_mut()) {
+                    if tab.id == info.id && !info.title.is_empty() && tab.title != info.title {
+                        tab.title.clone_from(&info.title);
+                        changed = true;
+                    }
+                }
+                changed
+            }
             "pty.exited" => {
                 let Some(pty_id) = data["id"]
                     .as_str()
@@ -271,84 +305,5 @@ impl App {
             self.queue_terminal_save();
         }
         removed
-    }
-
-    pub(super) fn recover_restored_tab(&mut self, ws_key: &str, tab_id: &str) -> bool {
-        let Source::Live {
-            server,
-            allow_send: true,
-            ..
-        } = &self.source
-        else {
-            return false;
-        };
-        let srv = server.clone();
-        let waker = self.terminal_waker();
-        let dark = self.settings.scheme != crate::settings::Scheme::Light;
-        let theme = theme_from_pal(pal(dark));
-
-        let Some(ws) = self.terminal.workspaces.get(ws_key) else {
-            return false;
-        };
-        let directory = ws.directory.clone();
-        let Some(idx) = ws.tabs.iter().position(|t| t.id == tab_id) else {
-            return false;
-        };
-        let old_title = ws.tabs[idx].title.clone();
-        let buf = ws.tabs[idx].recovery_buffer.clone();
-        let snap = ws.tabs[idx].session.snapshot();
-        let (cols, rows) = (snap.cols, snap.rows);
-
-        let Ok(info) = srv.pty_create(
-            &directory,
-            &PtyCreate {
-                title: (!old_title.is_empty()).then_some(old_title.clone()),
-                cwd: (!directory.is_empty()).then_some(directory.clone()),
-                ..PtyCreate::default()
-            },
-        ) else {
-            return false;
-        };
-        let Ok(new_session) = TerminalSession::spawn_server_pty(
-            srv,
-            directory,
-            info.id.clone(),
-            TerminalConfig {
-                cols,
-                rows,
-                theme,
-                ..TerminalConfig::default()
-            },
-            Some(RestoreState {
-                buffer: buf,
-                cols: Some(cols),
-                rows: Some(rows),
-                scroll_y: None,
-                cursor: None,
-            }),
-            waker,
-        ) else {
-            return false;
-        };
-
-        if let Some(ws_mut) = self.terminal.workspaces.get_mut(ws_key)
-            && let Some(tab) = ws_mut.tabs.get_mut(idx)
-        {
-            let was_active = ws_mut.active.as_deref() == Some(tab_id);
-            tab.id = info.id.clone();
-            if !info.title.is_empty() && !tab.custom_title {
-                tab.title = info.title;
-            }
-            tab.session = new_session;
-            tab.needs_recovery = false;
-            tab.recovery_buffer.clear();
-            tab.last_fit.set((0, 0, 0, 0));
-            if was_active {
-                ws_mut.active = Some(info.id);
-            }
-            self.queue_terminal_save();
-            return true;
-        }
-        false
     }
 }
