@@ -25,6 +25,14 @@ use crate::wire::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
 };
 
+/// What a page that paints no background of its own shows through (ARGB). On Windows it's
+/// Chromium's default, opaque white, as Desktop's browser shows such a page; without it black
+/// text lands on the dark pane. macOS keeps the dark base it has always had.
+#[cfg(target_os = "windows")]
+const BASE_COLOR: u32 = 0xFFFF_FFFF;
+#[cfg(not(target_os = "windows"))]
+const BASE_COLOR: u32 = 0xFF11_1318;
+
 pub struct CefRuntime {
     profile: Profile,
     #[cfg(target_os = "macos")]
@@ -603,7 +611,7 @@ impl EngineManager {
 
         let browser_settings = BrowserSettings {
             windowless_frame_rate: 60,
-            background_color: 0xFF11_1318,
+            background_color: BASE_COLOR,
             ..Default::default()
         };
 
