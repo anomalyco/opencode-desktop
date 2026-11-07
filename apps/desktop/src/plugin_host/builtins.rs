@@ -23,6 +23,7 @@ pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
     all.extend([
         (include_str!("../../../../plugins/ssh/plugin.toml"), opencode_plugin_ssh_impl::__opencode_plugin_entry as PluginEntryFn),
         (include_str!("../../../../plugins/wsl/plugin.toml"), opencode_plugin_wsl_impl::__opencode_plugin_entry),
+        (include_str!("../../../../plugins/sources/plugin.toml"), opencode_plugin_sources_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/goal/plugin.toml"), opencode_plugin_goal_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/btw/plugin.toml"), opencode_plugin_btw_impl::__opencode_plugin_entry),
     ]);

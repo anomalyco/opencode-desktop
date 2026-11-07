@@ -2389,6 +2389,7 @@ dependencies = [
  "opencode-plugin-details-impl",
  "opencode-plugin-goal-impl",
  "opencode-plugin-hello-impl",
+ "opencode-plugin-sources-impl",
  "opencode-plugin-ssh-impl",
  "opencode-plugin-wsl-impl",
  "otlp-lite",
@@ -2521,6 +2522,22 @@ version = "0.1.0"
 dependencies = [
  "opencode-plugin",
  "opencode-plugin-hello-api",
+]
+
+[[package]]
+name = "opencode-plugin-sources"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "opencode-plugin-sources-impl",
+]
+
+[[package]]
+name = "opencode-plugin-sources-impl"
+version = "0.1.0"
+dependencies = [
+ "opencode-plugin",
+ "serde_json",
 ]
 
 [[package]]

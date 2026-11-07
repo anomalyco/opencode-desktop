@@ -1,0 +1,21 @@
+[package]
+name = "opencode-plugin-sources"
+version = "0.1.0"
+description = "Sources's plugin library: exports the plugin in `impl/` as `opencode_plugin_v1`"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# A built-in the app can also link in (`--features static-builtins`) keeps its code in an rlib
+# (`impl/`) and exports it from this one-line cdylib, so the library always exports its entry
+# point and the app never links a second allocator.
+[lib]
+name = "opencode_plugin_sources"
+crate-type = ["cdylib"]
+
+[dependencies]
+opencode-plugin = { path = "../../crates/opencode-plugin" }
+opencode-plugin-sources-impl = { path = "impl" }
+
+[lints]
+workspace = true

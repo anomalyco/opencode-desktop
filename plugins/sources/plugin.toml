@@ -1,0 +1,6 @@
+id = "sources"
+name = "Sources"
+version = "0.1.0"
+description = "A turn's web searches and the pages it opened, in a tab of their own (an experiment)"
+api = "0.1-experimental"
+library = "opencode_plugin_sources"
