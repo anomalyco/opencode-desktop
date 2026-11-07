@@ -330,7 +330,6 @@ fn border_runs_all_the_way_around_over_opaque_native_surface() {
         .unwrap();
 
     rt.update(|s, tx| {
-        s.side.width = 480.0;
         s.register_existing_browser_tab(tab_id);
         tx.settle();
     });
@@ -440,8 +439,10 @@ fn holds_the_last_frame_at(zoom: f32) {
     );
     let resize = |rt: &mut Runtime<App>, width: f32| {
         rt.update(|s, tx| {
-            s.side.width = width;
-            s.side.resized = true;
+            // The side region takes what the chat panel leaves.
+            let chat = s.session_row_available(size.0 / s.zoom) - width;
+            let sid = s.active_session_id().unwrap_or_default().to_owned();
+            s.session_side_mut(&sid).session_width = Some(chat);
             tx.settle();
         });
         rt.frame(1.0 / 60.0);

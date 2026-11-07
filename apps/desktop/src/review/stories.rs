@@ -64,10 +64,7 @@ pub fn init_review(s: &mut App) {
     s.side = Default::default();
     s.review = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    s.side.mounted = true;
-    s.session_side_mut(&sid).open = true;
-    let mut tx = rune::Tx::default();
-    s.select_side_tab(&panel_key("review", "changes"), &mut tx);
+    s.show_side_tab(&sid, &panel_key("review", "changes"), None);
     match s.variant {
         0 => s.set_review_diff_mode(DiffMode::Unified),
         1 => s.set_review_diff_mode(DiffMode::Split),

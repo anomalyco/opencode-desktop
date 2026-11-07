@@ -11,14 +11,12 @@ pub use super::dock::{bottom_dock, bottom_reserve_height};
 use super::dock::{dock_resize_handle, render_dock_card};
 use super::menus::new_tab_view;
 pub use super::menus::context_menus;
-use super::state::{
-    DOCK_MAX_H, DOCK_MIN_H, ResolvedEntry, ResolvedRegion, SIDE_DEFAULT_W, SIDE_MAX_W, SIDE_MIN_W,
-    SPLIT_MIN_H,
-};
+use super::state::{DOCK_MAX_H, DOCK_MIN_H, ResolvedEntry, ResolvedRegion, SPLIT_MIN_H};
+use super::width::SESSION_MIN_W;
 use super::tabs::SessionTabs;
 use super::{CloseButtonMode, PanelRegion, PanelViewCtx, SessionPane};
 use crate::palette::{Elevate as _, Pal};
-use crate::view::{UI, UI_MED, UI_SMALL};
+use crate::view::{UI, UI_SMALL};
 use crate::{App, Route};
 
 /// Shared panel spring matching `view/sidebar.rs::SIDEBAR_SPRING` and `panel-motion.ts`.
@@ -53,9 +51,12 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
     let on_session = matches!(s.route, Route::Session(_)) && !s.settings.open;
     let reg = if on_session { s.resolve_side_region() } else { None };
     let dock_entry = if on_session { s.resolve_dock_entry() } else { None };
-    let wide = reg.as_ref().is_some_and(|r| r.wide);
-    let left_w = s.sidebar_shown_w();
-    let w = s.side.effective_width(zoomed_w, left_w, wide);
+    super::drag::note_zones(s);
+    // Until the window is first measured, the last width it had.
+    if zoomed_w > 0.0 {
+        s.side.laid_w.set(zoomed_w);
+    }
+    let w = s.side_width(s.side.laid_w.get());
 
     let tabs_open = on_session && s.side_open();
     let dock_side_open = on_session && s.dock_side_open() && dock_entry.is_some();
@@ -200,7 +201,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         (true, true) => &[SessionPane::Side, SessionPane::Split],
     };
 
-    let split_h = (col_h * (1.0 - s.side.split_ratio)).clamp(SPLIT_MIN_H, (col_h - SPLIT_MIN_H).max(SPLIT_MIN_H));
+    let split_h = (col_h * (1.0 - s.split_ratio())).round();
 
     let mut body = col()
         .key("side-body")
@@ -218,60 +219,80 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         });
 
     for (idx, &pane) in panes.iter().enumerate() {
-        if idx > 0 {
-            body = body.child(split_divider(s, p, col_h));
-        }
         let ph = if panes.len() == 1 {
             col_h
         } else if idx == 0 {
-            (col_h - split_h - 6.0).max(SPLIT_MIN_H)
+            (col_h - split_h).max(0.0)
         } else {
             split_h
         };
         let pane_el = pane_box(s, p, reg, pane, (width, ph), env_scale, idx == 0);
+        // The lower pane takes its height from the split, under a 1 px `border-base` rule.
         let sized = if idx == 0 {
             pane_el.grow(1.0).min_h(0.0)
         } else {
-            pane_el.h(split_h)
+            col().w_full().h(split_h).child(el().w_full().h(1.0).fill(p.border)).child(pane_el.grow(1.0).min_h(0.0))
         };
         body = body.child(sized);
+    }
+    if panes.len() > 1 {
+        body = body.child(split_handle(s, p, col_h, split_h));
     }
 
     // `side-region.tsx`: bg-base, 10 pt corners, `--v2-elevation-raised`.
     col().w(width).radius(10.0).fill(p.bg_base).elevate(p.raised).child(body)
 }
 
-fn split_divider(s: &App, p: &Pal, col_h: f32) -> El {
+/// The split's `ResizeHandle` (`direction="vertical" edge="start"`): 8 tall across the lower
+/// pane's top edge, sizing it between `SPLIT_MIN_H` and the column less `SPLIT_MIN_H`.
+fn split_handle(s: &App, p: &Pal, col_h: f32, split_h: f32) -> El {
     let dragging = s.side.split_drag_origin.is_some();
-    el().key("side-split-resize")
+    resize_pill(p, dragging, false)
+        .key("side-split-resize")
+        .absolute(0.0, col_h - split_h - 4.0)
         .w_full()
-        .h(6.0)
-        .center()
+        .h(8.0)
         .cursor(Cursor::ResizeRow)
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
+            let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
             match d.phase {
-                Phase::Down => s.side.split_drag_origin = Some(s.side.split_ratio),
+                Phase::Down => s.side.split_drag_origin = Some((split_h, s.session_side_mut(&sid).split_ratio)),
                 Phase::Move => {
-                    if let Some(orig) = s.side.split_drag_origin
+                    if let Some((start, _)) = s.side.split_drag_origin
                         && col_h > 1.0
                     {
-                        s.side.split_ratio = (orig + (d.dy / s.zoom) / col_h).clamp(0.2, 0.8);
+                        let h = (start - d.dy / s.zoom).clamp(SPLIT_MIN_H, SPLIT_MIN_H.max(col_h - SPLIT_MIN_H));
+                        s.session_side_mut(&sid).split_ratio = Some(1.0 - h / col_h);
                     }
                 }
                 Phase::Up => {
                     if d.cancelled()
-                        && let Some(orig) = s.side.split_drag_origin
+                        && let Some((_, stored)) = s.side.split_drag_origin
                     {
-                        s.side.split_ratio = orig;
+                        s.session_side_mut(&sid).split_ratio = stored;
                     }
                     s.side.split_drag_origin = None;
                 }
             }
         })
-        .child(el().w_full().h(0.5).fill(if dragging { p.border } else { p.border_muted }))
+}
+
+/// A `ResizeHandle`'s hit area with its pill centred (4 by 40 across its length): `icon-muted`
+/// after a 200 ms hover, `icon-base` while it drags.
+pub(super) fn resize_pill(p: &Pal, dragging: bool, horizontal: bool) -> El {
+    let enter = Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)).delay(0.2);
+    let exit = Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0));
+    let (w, h) = if horizontal { (4.0, 40.0) } else { (40.0, 4.0) };
+    el().center()
+        .hover_group()
+        .hover_motion(enter, exit)
+        .child(
+            el().size(w, h)
+                .radius(2.0)
+                .fill(if dragging { p.icon } else { p.icon_muted })
+                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
+        )
 }
 
 pub(super) fn pane_box(
@@ -313,7 +334,7 @@ pub(super) fn pane_box(
             SessionPane::Bottom => s.bottom_open(),
             _ => s.side_open() || s.stage.is_some(),
         };
-        let bar_h = if pane == SessionPane::Side { 48.5 } else { 38.5 };
+        let bar_h = 48.5;
         let vctx = PanelViewCtx {
             session_id: &reg.session_id,
             directory: &reg.directory,
@@ -365,25 +386,29 @@ fn tab_bar(
     pane: SessionPane,
     entries: &[&ResolvedEntry],
     pane_active: Option<&str>,
-    preview_key: Option<&str>,
+    _preview_key: Option<&str>,
     shown_new_id: Option<&str>,
     live_new: &[&super::state::NewTabEntry],
     reserve_toggle: bool,
 ) -> El {
+    // Desktop's panel strip (`tabs.css`, `#review-panel` / `#bottom-panel`): 28 tall tabs 8 apart
+    // from a 12 inset, the "+" flush after the last, fading at the strip's end.
     let mut strip = row()
         .key(format!("side-tabs-{}", pane_slug(pane)))
-        .gap(4.0)
+        .gap(8.0)
         .center_y()
         .grow(1.0)
         .min_w(0.0)
         .scroll(ScrollSpec { stick_bottom: false })
-        .clip_fade(0.0, 0.0, 12.0, 0.0);
+        .clip_fade(0.0, 0.0, 8.0, 0.0);
 
+    // While the keyboard is the chat's, the selected tab rests at the strip's muted ink.
+    let focused = s.side.focused && s.side.active_pane_focus == pane;
     for entry in entries {
         let key = entry.key.clone();
         let active = shown_new_id.is_none() && pane_active == Some(key.as_str());
-        let is_preview = preview_key == Some(key.as_str());
-        strip = strip.child(tab_trigger(s, p, entry, active, is_preview));
+        let dragging = s.side.pane_drag.dragging() == Some(key.as_str());
+        strip = strip.child(tab_trigger(s, p, entry, active, focused, dragging));
     }
 
     for nt in live_new {
@@ -395,14 +420,15 @@ fn tab_bar(
             .role("tab")
             .label("New tab")
             .h(28.0)
-            .pl(8.0)
+            .min_w(72.0)
+            .pl(10.0)
             .pr(4.0)
             .gap(6.0)
             .center_y()
             .radius(6.0)
             .hover_group()
-            .fill(if active { p.pressed } else { Color::TRANSPARENT })
-            .hover(p.hover)
+            .fill(if active { p.layer2 } else { Color::TRANSPARENT })
+            .hover(if active { p.layer2 } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -412,29 +438,15 @@ fn tab_bar(
             })
             .child(
                 text("New tab")
-                    .font(if active { UI_MED } else { UI })
-                    .color(if active { p.text } else { p.muted })
-                    .truncate_fade(),
+                    .font(UI)
+                    .color(if active && focused { p.text } else { p.muted })
+                    .truncate_fade()
+                    .grow(1.0),
             )
-            .child(
-                el().key(format!("side-new-close-{}", close_nid))
-                    .role("button")
-                    .label("Close tab")
-                    .size(18.0, 18.0)
-                    .radius(4.0)
-                    .center()
-                    .hover(p.hover)
-                    .hover_motion(INSTANT, INSTANT)
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        tx.instant();
-                        s.dismiss_side_new_tab(&close_nid);
-                    })
-                    .child(
-                        icon(&ic::XMARK_SMALL, 12.0)
-                            .color(if active { p.faint } else { Color::TRANSPARENT })
-                            .group_color(p.icon_muted),
-                    ),
-            );
+            .child(close_button(p, format!("side-new-close-{close_nid}"), active, move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.dismiss_side_new_tab(&close_nid);
+            }));
         strip = strip.child(trigger);
     }
 
@@ -457,16 +469,17 @@ fn tab_bar(
                 tx.instant();
                 s.side.add_menu = Some((pane, ev.x / s.zoom, ev.y / s.zoom));
             })
-            .child(icon(&ic::PLUS, 14.0).color(p.icon_muted)),
+            .child(icon(&ic::PLUS, 16.0).color(p.icon_muted)),
     );
 
+    // Every pane's strip is `--tabs-bar-height` tall; its controls end at the header's inset.
     let mut bar = row()
         .key(format!("side-tabbar-{}", pane_slug(pane)))
         .w_full()
-        .h(if pane == SessionPane::Side { 48.0 } else { 38.0 })
-        .pl(10.0)
-        .pr(10.0)
-        .gap(4.0)
+        .h(48.0)
+        .pl(12.0)
+        .pr(12.0)
+        .gap(8.0)
         .center_y()
         .window_drag()
         .child(strip);
@@ -483,30 +496,38 @@ fn tab_bar(
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_bottom_region(tx))
-                .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted)),
+                .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted)),
         );
     } else if reserve_toggle {
         // Reserves space at the end of the top tab bar for the floating `side-toggle` button (`size-7`).
-        bar = bar.child(el().key("side-toggle-slot").size(30.0, 28.0));
+        bar = bar.child(el().key("side-toggle-slot").size(28.0, 28.0));
     }
 
     bar
 }
 
-fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview: bool) -> El {
-    let key = entry.key.clone();
+/// A tab key as an element key.
+pub(super) fn safe_id(key: &str) -> String {
+    key.replace(':', "-").replace('/', "_")
+}
+
+/// One tab of a pane's strip (`PanelTrigger`): 28 tall, 10 in, 72 at the narrowest, the
+/// selected one on `layer-02`; 13/440 labels in the muted ink, the selected one's in the base
+/// ink while its pane has the keyboard; the 20 pt close button 4 from its end. A press selects
+/// it, a drag moves it between panes, a right click opens its menu.
+fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: bool, dragging: bool) -> El {
     let select_key = entry.key.clone();
     let promote_key = entry.key.clone();
     let menu_key = entry.key.clone();
     let close_key = entry.key.clone();
-    let safe_id = key.replace(':', "-").replace('/', "_");
+    let drag_key = entry.key.clone();
+    let drag_title = entry.tab.title.clone();
+    let safe_id = safe_id(&entry.key);
 
     let label_color = if entry.tab.missing {
         p.faint
-    } else if active {
+    } else if active && focused {
         p.text
-    } else if is_preview {
-        p.muted
     } else {
         p.muted
     };
@@ -516,18 +537,24 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview
         .role("tab")
         .label(entry.tab.title.clone())
         .h(28.0)
-        .max_w(188.0)
-        .pl(8.0)
-        .pr(if entry.tab.can_close() { 4.0 } else { 8.0 })
+        .min_w(72.0)
+        .max_w(320.0)
+        .shrink()
+        .pl(10.0)
+        .pr(if entry.tab.can_close() { 4.0 } else { 10.0 })
         .gap(6.0)
         .center_y()
         .radius(6.0)
         .hover_group()
-        .fill(if active { p.pressed } else { Color::TRANSPARENT })
-        .hover(p.hover)
+        .fill(if active { p.layer2 } else { Color::TRANSPARENT })
+        .hover(if active { p.layer2 } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
+        .opacity(if dragging { 0.4 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            s.select_side_tab(&select_key, tx);
+            // The release that ends a drag isn't a click on the tab under it.
+            if !s.side.pane_drag.take_suppressed() {
+                s.select_side_tab(&select_key, tx);
+            }
         })
         .on_double_press(move |s: &mut App| {
             s.promote_preview_tab(&promote_key);
@@ -536,19 +563,20 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview
             tx.instant();
             s.side.tab_menu = Some((menu_key.clone(), ev.x / s.zoom, ev.y / s.zoom));
         });
+    if !entry.tab.pinned {
+        pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx));
+    }
 
     // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
     if let Some(label) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
-        pill = pill.child(label);
+        pill = pill.child(label.shrink().min_w(0.0));
     } else {
         if let Some(glyph) = entry.tab.icon {
-            pill = pill.child(
-                icon(glyph, 14.0).color(if active { p.icon } else { p.icon_muted }),
-            );
+            pill = pill.child(icon(glyph, 16.0).color(if active { p.icon } else { p.icon_muted }));
         }
         pill = pill.child(
             text(entry.tab.title.clone())
-                .font(if active { UI_MED } else { UI })
+                .font(UI)
                 .color(label_color)
                 .truncate_fade()
                 .shrink(),
@@ -561,39 +589,56 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, is_preview
 
     if entry.tab.can_close() {
         let always_visible = entry.tab.closable == CloseButtonMode::Standard || active;
-        let close_btn = el()
-            .key(format!("side-tab-close-{safe_id}"))
-            .role("button")
-            .label("Close tab")
-            .size(18.0, 18.0)
-            .radius(4.0)
-            .center()
-            .hover(p.hover)
-            .hover_motion(INSTANT, INSTANT)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                s.close_side_tab(&close_key, tx);
-            })
-            .child(
-                icon(&ic::XMARK_SMALL, 12.0)
-                    .color(if always_visible { p.faint } else { Color::TRANSPARENT })
-                    .group_color(p.icon_muted),
-            );
-        pill = pill.child(close_btn);
+        pill = pill.child(el().grow(1.0)).child(close_button(p, format!("side-tab-close-{safe_id}"), always_visible, move |s: &mut App, tx: &mut Tx| {
+            s.close_side_tab(&close_key, tx);
+        }));
     }
 
     pill
 }
 
+/// A tab's close button (`tabs-trigger-close-button`): 20 pt, the 16 pt small cross, shown on
+/// the selected tab and on hover.
+fn close_button(p: &Pal, key: String, shown: bool, close: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    el().key(key)
+        .role("button")
+        .label("Close tab")
+        .size(20.0, 20.0)
+        .radius(4.0)
+        .center()
+        .hover(p.hover)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(close)
+        .child(icon(&ic::XMARK_SMALL, 16.0).color(if shown { p.icon_muted } else { Color::TRANSPARENT }).group_color(p.icon_muted))
+}
+
+/// A pane that shows nothing (`side-region.tsx`'s empty state): OpenCode's mark, 56 wide at 10%,
+/// over "Select a file to open", raised a little off centre.
 fn empty_pane_view(p: &Pal) -> El {
+    // `Mark` on its 16 by 20 grid at 3.5×: the O in `icon-strong`, its shadow in `icon-weak`.
+    let u = 3.5;
+    let bar = |x: f32, y: f32, w: f32, h: f32, c: Color| el().absolute(x * u, y * u).size(w * u, h * u).fill(c);
+    let mark = el()
+        .key("side-empty-mark")
+        .size(16.0 * u, 20.0 * u)
+        .opacity(0.1)
+        .child(bar(4.0, 8.0, 8.0, 8.0, p.icon_faint))
+        .child(bar(0.0, 0.0, 16.0, 4.0, p.icon))
+        .child(bar(0.0, 16.0, 16.0, 4.0, p.icon))
+        .child(bar(0.0, 4.0, 4.0, 12.0, p.icon))
+        .child(bar(12.0, 4.0, 4.0, 12.0, p.icon));
     col()
         .key("side-empty")
         .w_full()
         .grow(1.0)
         .min_h(0.0)
         .center()
-        .padding(24.0)
-        .gap(8.0)
-        .child(text(format!("Open a tab with + or {}", crate::keymap::Bind::PaneTabNew.label())).font(UI).color(p.faint))
+        .px(24.0)
+        // `pt-2`, `-mt-4` and `pb-42`: the centre sits 8 above where `pb-42` alone puts it.
+        .pb(168.0 + 16.0)
+        .gap(24.0)
+        .child(mark)
+        .child(text("Select a file to open").font(rune::TextStyle::new(14.0, 400.0).lh(20.0)).color(p.muted).max_w(224.0))
 }
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
@@ -632,61 +677,44 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
     )
 }
 
-/// Horizontal resize handle across the 8pt gap between `panel` and `side-region`.
-/// Dragging tracks the pointer 1:1 (`tx.instant()`); double-clicking resets to default width on `SIDE_SPRING`.
+/// The chat panel's `ResizeHandle` (`screen.tsx`): 8 wide across the gap after the chat panel.
+/// A drag sets the session's chat width, 1:1 with the pointer, between `SESSION_MIN_W` and what
+/// leaves the side region `SIDE_PANE_MIN_W`; the side region takes the rest. A double press
+/// does nothing, as Desktop's handle ignores one.
 pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
     if !matches!(s.route, Route::Session(_)) || s.settings.open || !s.right_column_open() || zoomed_w <= 0.0 {
         return None;
     }
-    let wide = s.resolve_side_region().is_some_and(|r| r.wide);
-    let left_w = s.sidebar_shown_w();
-    let w = s.side.effective_width(zoomed_w, left_w, wide);
-    let x = (zoomed_w - w - 16.0).max(0.0);
-
-    let enter = Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)).delay(0.2);
-    let exit = Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0));
+    let x = (zoomed_w - s.side_width(zoomed_w) - 16.0).max(0.0);
+    let chat = s.chat_width(zoomed_w);
+    let max = s.chat_width_max(zoomed_w);
     let dragging = s.side.drag_origin.is_some();
 
     Some(
-        el().key("side-resize")
-            .absolute(x, crate::view::chrome().row_h)
+        resize_pill(p, dragging, true)
+            .key("side-resize")
+            .pin(Some(x), Some(crate::view::chrome().top()), None, Some(8.0))
             .w(8.0)
-            .h_full()
-            .center()
             .cursor(Cursor::ResizeColumn)
-            .hover_group()
-            .hover_motion(enter, exit)
-            .on_drag(|s: &mut App, d: &mut Drag, tx: &mut Tx| {
+            .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
                 tx.instant();
+                let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
                 match d.phase {
-                    Phase::Down => s.side.drag_origin = Some(s.side.width),
+                    Phase::Down => s.side.drag_origin = Some((chat, s.session_side_mut(&sid).session_width)),
                     Phase::Move => {
-                        if let Some(orig) = s.side.drag_origin {
-                            s.side.resized = true;
-                            s.side.width = (orig - d.dx / s.zoom).clamp(SIDE_MIN_W, SIDE_MAX_W);
+                        if let Some((start, _)) = s.side.drag_origin {
+                            s.session_side_mut(&sid).session_width = Some((start + d.dx / s.zoom).clamp(SESSION_MIN_W, max.max(SESSION_MIN_W)));
                         }
                     }
                     Phase::Up => {
                         if d.cancelled()
-                            && let Some(orig) = s.side.drag_origin
+                            && let Some((_, stored)) = s.side.drag_origin
                         {
-                            s.side.width = orig;
+                            s.session_side_mut(&sid).session_width = stored;
                         }
                         s.side.drag_origin = None;
                     }
                 }
-            })
-            .on_double_press(|s: &mut App| {
-                // Smooth spring return to default width on double-click (`PaneState::reset_width`).
-                s.side.resized = false;
-                s.side.width = SIDE_DEFAULT_W;
-            })
-            .child(
-                el().key("side-resize-pill")
-                    .size(4.0, 40.0)
-                    .radius(2.0)
-                    .fill(if dragging { p.icon } else { p.icon_muted })
-                    .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
-            ),
+            }),
     )
 }

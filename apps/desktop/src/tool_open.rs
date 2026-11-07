@@ -339,9 +339,7 @@ impl App {
     /// Opens Changes at `path`'s change, or Files at its line when Changes doesn't list it.
     /// Returns the tab it opened.
     fn open_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> String {
-        self.side.mounted = true;
-        self.session_side_mut(sid).open = true;
-        self.select_side_tab(REVIEW_KEY, tx);
+        self.show_side_tab(sid, REVIEW_KEY, None);
         self.ensure_session_review(sid);
         let Some(sr) = self.review.sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
         if !sr.ready {

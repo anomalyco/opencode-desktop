@@ -20,6 +20,7 @@ mod composer;
 mod draft;
 pub(crate) mod draft_location;
 mod header;
+mod header_fit;
 mod home;
 pub(crate) mod location;
 mod inbox;
@@ -119,6 +120,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::quote_cards::editor(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
+    inner = inner.children(crate::panels::drag::layer(s, p));
     if s.fork.open {
         inner = inner.children(crate::fork::view(s, p, cx));
     }
@@ -151,7 +153,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let w = s.sidebar_w;
     let side_tabs = s.tab_layout().has_sidebar();
     let open = s.sidebar_open && side_tabs;
-    let win_w = if s.right_column_open() {
+    // The side region keeps its open width as the far end of a close's travel, so the row's width
+    // is read whenever a session shows.
+    let win_w = if matches!(s.route, Route::Session(_)) {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
     } else {
         0.0

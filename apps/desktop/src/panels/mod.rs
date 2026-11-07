@@ -7,6 +7,7 @@
 //! exact same region state without changing built-ins or `view.rs`.
 
 pub mod dock;
+pub mod drag;
 pub mod keys;
 pub mod menus;
 pub mod persist;
@@ -15,6 +16,7 @@ pub mod tabs;
 #[cfg(test)]
 mod tests;
 pub mod view;
+pub mod width;
 
 use std::sync::OnceLock;
 
@@ -550,7 +552,8 @@ pub fn icon_by_name(name: Option<&str>) -> &'static Icon {
     match name {
         Some("globe") => &ic::GLOBE,
         Some("terminal") | Some("console") => &ic::CONSOLE,
-        Some("review") | Some("code") => &ic::CODE_LINES,
+        Some("review") => &ic::REVIEW,
+        Some("code") => &ic::CODE_LINES,
         Some("file-tree") => &ic::FILE_TREE,
         _ => &ic::FOLDER,
     }

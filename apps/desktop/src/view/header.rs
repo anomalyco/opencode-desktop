@@ -1,6 +1,7 @@
 use std::cell::Cell;
 
-use super::narrow::{self, HeaderDrop, TITLE_FLOOR, TITLE_MIN, text_w};
+use super::header_fit::{HeaderFit, Measured};
+use super::narrow::text_w;
 use super::*;
 use crate::session_menu::{Spot, Target};
 
@@ -8,52 +9,50 @@ use crate::session_menu::{Spot, Target};
 const SLASH: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0);
 /// A crumb title (`text-[13px] font-[530] leading-4 tracking-[-0.04px]`).
 const CRUMB: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
-/// What the header's actions are thought to give back when they draw compact.
-const DETAILS_W: f32 = 40.0;
+/// The title section's gap (`.session-header-title`).
+const TITLE_GAP: f32 = 2.0;
 
 /// The key of what plugins' header popovers hang from (Desktop's `Popover.Anchor`, 12 from the
 /// header's end, 10 down, 28 tall): `session-header-anchor`.
 pub(crate) const ANCHOR: &str = "session-header-anchor";
 
 thread_local! {
-    /// Whether the header's actions drew compact at the last layout, so the fit doesn't flip back
-    /// the frame after they shrank.
-    static COMPACT: Cell<bool> = const { Cell::new(false) };
+    /// The routed header's fit at the last layout (`createSessionHeaderFit`).
+    static FIT: Cell<HeaderFit> = const { Cell::new(HeaderFit::Full) };
 }
 
 pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
     header_in(s, p, info, t, "")
 }
 
-/// The session header (`SessionIdentityHeader`), keyed `{scope}-header` when `scope` isn't empty
-/// (copies on one stage): the location, a subagent's ancestors, the title, then the actions
-/// (the Find bar and plugins' `session.header` slots: the context ring, Session details). In a
-/// narrow window it drops its lower items, in `HeaderDrop`'s order, until the title has
-/// `TITLE_FLOOR` (p263); the title takes what's left, fading at its edge.
+/// The session header (`SessionIdentityHeader`, `SessionHeaderLayout`), keyed `{scope}-header`
+/// when `scope` isn't empty (copies on one stage): the location, a subagent's parent, the title
+/// section, then the actions (the Find bar and plugins' `session.header` slots: the context ring,
+/// Session details). In a narrow window the location's worktree name hides, then its project
+/// name, then the actions drop their details; only then does the title truncate.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option<&Transcript>, scope: &str) -> El {
     let reserve_side = !s.right_column_open() && s.stage.is_none();
     let project = info.and_then(|i| s.project(&i.project));
     let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
     let parent = info.and_then(|i| i.parent.as_deref()).and_then(|pid| s.session(pid));
-    let (k, titled) = drops(s, info, parent, &proj, reserve_side, scope);
-    let keep = |d: HeaderDrop| d as usize >= k;
-    let compact = !keep(HeaderDrop::Tokens);
-    if scope.is_empty() {
-        COMPACT.set(compact);
-    }
+    let worktree = info.filter(|i| i.parent.is_none()).and_then(|i| super::location::worktree_name(project, &i.directory));
+    let fit = fit(s, info, &proj, worktree.as_deref(), scope);
+    let compact = fit.compact();
 
-    let mut crumbs = row().key("crumbs").gap(0.0).center_y().shrink().min_w(0.0);
+    let mut location = row().key("header-location").gap(0.0).center_y();
+    let mut title_box = row().key("header-title").gap(TITLE_GAP).center_y().grow(1.0).min_w(0.0);
     if let Some(info) = info {
-        if keep(HeaderDrop::Badge) {
-            crumbs = crumbs.child(super::location::trigger(s, p, project, &proj, keep(HeaderDrop::Name)));
-            // The separator after the location: 8 of space each side, less the trigger's 6 and the
-            // title's 4 padding (`SessionHeaderSeparator gap 8 before 6 after 4`), and the glyph's
-            // own side bearing, which Desktop's `Slash` cancels.
-            crumbs = crumbs.child(slash(p, 0.5, 3.5));
-        }
-        if let Some(parent) = parent.filter(|_| keep(HeaderDrop::Parent)) {
+        location = location.child(super::location::trigger(s, p, project, &proj, worktree.as_deref(), fit.collapse()));
+        // The separator after the location: 8 of space each side, less the trigger's 6 and the
+        // title's 4 padding (`SessionHeaderSeparator gap 8 before 6 after 4`), and the glyph's
+        // own side bearing, which Desktop's `Slash` cancels.
+        location = location.child(slash(p, 0.5, 3.5));
+        if let Some(parent) = parent {
             let pid = parent.id.clone();
-            crumbs = crumbs
+            // Beside a subagent's ancestors the location takes at most 60% and gives way first.
+            location = location
+                .shrink()
+                .min_w(0.0)
                 .child(
                     row()
                         .key("parent-crumb")
@@ -74,14 +73,13 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                 )
                 .child(slash(p, 6.5, 3.5));
         }
-        if titled {
-            crumbs = crumbs.children(header_title(s, p, info, keep(HeaderDrop::More)));
-        }
         // A running subagent's header spins beside its title (`SessionWorkingIndicator`).
         if info.parent.is_some() && s.subtree_running(&info.id) {
-            crumbs = crumbs.child(activity_ring(p).key("working").ml(6.0));
+            title_box = title_box.child(activity_ring(p).key("working"));
         }
+        title_box = title_box.children(header_title(s, p, info));
     }
+    let crumbs = row().key("crumbs").gap(0.0).center_y().grow(1.0).min_w(0.0).child(location).child(title_box);
     let sid = info.map(|i| i.id.as_str()).unwrap_or("");
     // The actions: the Find bar and the plugins' `session.header` slots, 8 apart, 6 after the
     // title (`.session-header-actions`).
@@ -110,7 +108,6 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
         .motion(crate::panels::view::SIDE_SPRING)
         .child(collapsed_slot(s))
         .child(crumbs)
-        .child(spacer())
         .child(actions)
         .children(scope.is_empty().then(|| el().key(ANCHOR).size(0.0, 28.0).pin(None, Some(10.0), Some(12.0), None)))
 }
@@ -120,31 +117,42 @@ fn slash(p: &Pal, before: f32, after: f32) -> El {
     text("/").font(SLASH).color(p.icon_faint).ml(before).mr(after)
 }
 
-/// How many of `HEADER_DROPS` the header drops to fit the width it had at the last layout, and
-/// whether the title still has `TITLE_MIN` (a sliver of it would read as a glitch). The first
-/// two steps draw the actions compact rather than dropping them.
-fn drops(s: &App, info: Option<&SessionInfo>, parent: Option<&SessionInfo>, proj: &str, reserve_side: bool, scope: &str) -> (usize, bool) {
-    let Some(info) = info else { return (0, true) };
-    let room = rune::memo::layout_with(&scoped(scope, "header"), |r| r[2] - 22.0);
-    let actions = rune::memo::layout_with("header-actions", |r| r[2]).unwrap_or(0.0) + 6.0;
-    // What the actions take drawn in full: what they measured, plus what compact gave back.
-    let actions = actions + if COMPACT.get() { DETAILS_W } else { 0.0 };
-    let slash = text_w("/", SLASH) + 5.0;
+/// The header's fit for the width its pieces had at the last layout (`fit.ts`): the routed
+/// header keeps its machine's state from one layout to the next; a copy on a stage starts full.
+fn fit(s: &App, info: Option<&SessionInfo>, proj: &str, worktree: Option<&str>, scope: &str) -> HeaderFit {
+    let Some(info) = info else { return HeaderFit::Full };
+    let width = |key: &str| rune::memo::layout_with(&scoped(scope, key), |r| r[2]);
+    let (Some(location), Some(title_box)) = (width("header-location"), width("header-title")) else { return HeaderFit::Full };
+    let actions = rune::memo::layout_with("header-actions", |r| r[2]).unwrap_or(0.0);
+    let header = width("header").unwrap_or(0.0) - 22.0;
+    let label = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
+    let measured = Measured {
+        location,
+        title_box,
+        title: title_width(s, info),
+        project: text_w(proj, label) + 8.0,
+        worktree: worktree.map(|w| text_w(w, label) + 8.0),
+        limit: if info.parent.is_some() { header * 0.6 } else { f32::INFINITY },
+        actions,
+    };
+    let state = if scope.is_empty() { FIT.get() } else { HeaderFit::Full };
+    let next = state.settled(actions).measured(measured);
+    if scope.is_empty() {
+        FIT.set(next);
+    }
+    next
+}
+
+/// What the title section's content needs with the title whole (`measureTitleWidth`): the title
+/// and its 4 padding each side, the ⋯ button, a subagent's working ring, and the section's gaps
+/// (the header gap after them counts as one).
+fn title_width(s: &App, info: &SessionInfo) -> f32 {
+    let title = text_w(&title_of(info), CRUMB) + 8.0;
     let root = info.parent.is_none();
-    let name = text_w(proj, TextStyle::new(13.0, 400.0)) + 8.0;
-    let parent = parent.map_or(0.0, |p| 4.0 + text_w(&title_of(p), CRUMB).min(200.0) + 11.0 + slash);
-    let whole = text_w(&title_of(info), CRUMB) + 8.0;
-    let title = whole.min(TITLE_FLOOR);
-    let working = if !root && s.subtree_running(&info.id) { 20.0 } else { 0.0 };
     let more = if root { 28.0 } else { 0.0 };
-    let toggle = chrome().toggle_space(s.sidebar_open);
-    let side = if reserve_side { 0.0 } else { -28.0 };
-    let fixed = toggle + side + actions - DETAILS_W + title + working + 28.0 + slash;
-    let widths = [name, DETAILS_W, parent, more, 0.0];
-    let need = |k: usize| fixed + widths[k..].iter().sum::<f32>();
-    let k = narrow::steps(room, widths.len(), need);
-    let left = room.map_or(f32::INFINITY, |room| room - (need(k) - title));
-    (k, left >= TITLE_MIN.min(whole))
+    let working = if !root && s.subtree_running(&info.id) { 14.0 } else { 0.0 };
+    let count = 2 + usize::from(root) + usize::from(working > 0.0);
+    title + more + working + (count - 1) as f32 * TITLE_GAP
 }
 
 /// `key`, or `{scope}-{key}` for a copy on a stage.
@@ -152,10 +160,10 @@ pub(super) fn scoped(scope: &str, key: &str) -> String {
     if scope.is_empty() { key.to_owned() } else { format!("{scope}-{key}") }
 }
 
-/// The header's session title (`h1`: 13/530, 4 by 6 padding). A root session's has Desktop's
-/// menu (a right-click, or the ⋯ button beside it when `more`) and renames when clicked; a
-/// subagent's is plain.
-fn header_title(s: &App, p: &Pal, info: &SessionInfo, more: bool) -> Vec<El> {
+/// The header's session title (`h1`: 13/530, 4 by 6 padding), truncating last. A root
+/// session's has Desktop's menu (a right-click, or the ⋯ button beside it) and renames when
+/// clicked; a subagent's is plain and takes at most 45% of the header.
+fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     if info.parent.is_some() {
         return vec![text(title_of(info)).key("title").font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0)];
     }
@@ -178,10 +186,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo, more: bool) -> Vec<El> {
             crate::session_menu::on(t, target)
         }
     };
-    if !more {
-        return vec![title];
-    }
-    let dots = el().key("header-more").role("button").label("More options").size(28.0, 28.0).ml(2.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
+    let dots = el().key("header-more").role("button").label("More options").size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     vec![title, dots]

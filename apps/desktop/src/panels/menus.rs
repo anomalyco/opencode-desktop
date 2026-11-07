@@ -8,12 +8,13 @@ use crate::App;
 use crate::keymap::{self, Bind};
 use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
-use crate::view::{UI, UI_MED, UI_SMALL};
+use crate::view::{UI, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
 
 pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: SessionPane) -> El {
-    let mut list = col().key("side-launchers").w_full().max_w(520.0).pt(28.0).pb(24.0).gap(8.0);
+    // `Launchers`: rows 12 apart in a 560 column, 48 from the strip.
+    let mut list = col().key("side-launchers").w_full().max_w(560.0).pt(48.0).pb(40.0).gap(12.0);
 
     for &(plugin, ref desc, launch) in &reg.launchers {
         if desc.opened {
@@ -22,18 +23,13 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
         let id = desc.id;
         let mut left = row().gap(8.0).center_y().grow(1.0).min_w(0.0);
         left = left
-            .child(icon(desc.icon, 15.0).color(p.icon_muted))
-            .child(text(desc.title.clone()).font(UI_MED).color(p.text));
+            .child(icon(desc.icon, 16.0).color(p.icon_muted))
+            .child(text(desc.title.clone()).font(UI).color(p.text));
         if let Some(detail) = &desc.description {
-            left = left.child(
-                text(detail.clone())
-                    .font(UI_SMALL)
-                    .color(p.muted)
-                    .truncate_fade()
-                    .shrink(),
-            );
+            left = left.child(text(detail.clone()).font(UI).color(p.muted).truncate_fade().shrink());
         }
 
+        // `LauncherRow`: 41 tall, 8 corners, a 0.5 `border-base` edge on `layer-01`.
         let mut card = row()
             .key(format!("side-launch-{plugin}-{}", desc.id))
             .role("button")
@@ -41,13 +37,12 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
             .w_full()
             .h(41.0)
             .px(14.0)
-            .gap(12.0)
+            .gap(16.0)
             .center_y()
             .radius(8.0)
             .fill(p.layer1)
-            .border(0.5, p.border_muted)
+            .border(0.5, p.border)
             .hover(p.layer2)
-            .press(p.pressed)
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -131,7 +126,7 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .px(20.0)
+        .px(24.0)
         .scroll(ScrollSpec { stick_bottom: false })
         .child(row().w_full().center().child(list))
 }
@@ -139,11 +134,10 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
 /// The side panel's tab and `+` menus, drawn on every platform with the one popover every menu
 /// is built from (`popover::MENU`), at the right-click.
 pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
+    // Desktop's strip menu (`side-region.tsx`): Close tab and Close other tabs, each disabled
+    // when there's nothing it closes; tabs move between panes by dragging.
     if let Some((ref target_key, x, y)) = s.side.tab_menu {
         let tk = target_key.clone();
-        let tk_split = target_key.clone();
-        let tk_side = target_key.clone();
-        let tk_bottom = target_key.clone();
         let reg = s.resolve_side_region();
         let entry = reg.as_ref().and_then(|r| r.entry(target_key));
         let can_close = entry.is_some_and(|e| e.tab.can_close());
@@ -158,41 +152,24 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                     .collect()
             })
             .unwrap_or_default();
+        let has_others = !others.is_empty();
 
-        let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
-        if can_close {
-            rows = rows.child(menu_row(p, "side-tab-menu-close", None, "Close tab", &Bind::TabClose.label(), move |s: &mut App, tx: &mut Tx| {
+        let rows = col()
+            .key("side-tab-menu-rows")
+            .w_full()
+            .padding(MENU.inset)
+            .child(menu_row(p, "side-tab-menu-close", None, "Close tab", "", can_close, move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.close_side_tab(&tk, tx);
-            }));
-        }
-        let has_others = !others.is_empty();
-        if has_others {
-            rows = rows.child(menu_row(p, "side-tab-menu-close-others", None, "Close other tabs", "", move |s: &mut App, tx: &mut Tx| {
+            }))
+            .child(menu_row(p, "side-tab-menu-close-others", None, "Close other tabs", "", has_others, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.tab_menu = None;
                 for k in &others {
                     s.close_side_tab(k, tx);
                 }
             }));
-        }
-        if can_close || has_others {
-            rows = rows.child(separator(p));
-        }
-        rows = rows
-            .child(menu_row(p, "side-tab-menu-split", None, "Move to split below", "", move |s: &mut App, tx: &mut Tx| {
-                s.side.tab_menu = None;
-                s.move_side_tab(&tk_split, SessionPane::Split, None, tx);
-            }))
-            .child(menu_row(p, "side-tab-menu-top", None, "Move to top pane", "", move |s: &mut App, tx: &mut Tx| {
-                s.side.tab_menu = None;
-                s.move_side_tab(&tk_side, SessionPane::Side, None, tx);
-            }))
-            .child(menu_row(p, "side-tab-menu-bottom", None, "Move to bottom dock", &Bind::BottomToggle.label(), move |s: &mut App, tx: &mut Tx| {
-                s.side.tab_menu = None;
-                s.move_side_tab(&tk_bottom, SessionPane::Bottom, None, tx);
-            }));
-        let menu = popover::surface::<App>(p, MENU, "side-tab-menu", "Tab").w(196.0).child(rows);
+        let menu = popover::surface::<App>(p, MENU, "side-tab-menu", "Tab").min_w(160.0).child(rows);
         return Some(layer(s, (x, y), menu, |s| s.side.tab_menu = None));
     }
 
@@ -202,7 +179,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
         for &(_pl, ref desc, launch) in &reg.launchers {
             let key = format!("side-add-menu-{}", desc.id);
             let id = desc.id;
-            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &keymap::first_label(desc.shortcut), move |s: &mut App, tx: &mut Tx| {
+            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &keymap::first_label(desc.shortcut), true, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.add_menu = None;
                 launch.run(s, id, pane, tx);
@@ -232,8 +209,9 @@ fn layer(s: &App, (x, y): (f32, f32), menu: El, close: fn(&mut App)) -> El {
 }
 
 /// A menu row as the shared popover draws one: lit while the pointer is on it.
-fn menu_row(p: &Pal, key: &str, glyph: Option<&'static Icon>, label: &str, hint: &str, pick: impl Fn(&mut App, &mut Tx) + 'static) -> El {
-    let mut o = Opt::new(key.to_owned(), label.to_owned()).role("menuitem");
+#[allow(clippy::too_many_arguments)]
+fn menu_row(p: &Pal, key: &str, glyph: Option<&'static Icon>, label: &str, hint: &str, enabled: bool, pick: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    let mut o = Opt::new(key.to_owned(), label.to_owned()).role("menuitem").disabled(!enabled);
     if let Some(glyph) = glyph {
         o = o.lead(icon(glyph, popover::SLOT).color(p.icon_muted));
     }
@@ -241,8 +219,4 @@ fn menu_row(p: &Pal, key: &str, glyph: Option<&'static Icon>, label: &str, hint:
         o = o.trailing(popover::hint(p, hint));
     }
     popover::option::<App>(p, MENU, o, |_| {}, pick).hover(p.row_active).hover_motion(INSTANT, INSTANT)
-}
-
-fn separator(p: &Pal) -> El {
-    col().key("side-menu-separator").w_full().py(2.0).child(popover::divider(p, "line"))
 }

@@ -16,10 +16,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
 use crate::code_view::{DiffDocState, ExpandMode};
-use crate::panels::{
-    CloseButtonMode, PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane,
-    panel_key,
-};
+use crate::panels::{PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane};
 use crate::{App, Route, Source};
 use data::{
     FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs,
@@ -169,27 +166,51 @@ impl ReviewPane {
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::new("review", list_tabs, view::render)
         .order(5)
-        .transient(true)
         .legacy(&[("review", "changes")])
         .wide(is_split_wide)
-        .command("Review changes", Bind::ReviewOpen)
-        .launcher(no_launcher, open_review_command)
+        .command("Open review", Bind::ReviewOpen)
+        .launcher(launcher, open_review_command)
+        .closed(closed_tab)
         .on_enter(on_enter_review)
         .on_focus(on_focus_review)
         .poll(poll_review)
         .on_key(key_review),
 ]);
 
-fn no_launcher(_s: &App, _ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLauncherDesc> {
-    None
+/// The `+` menu's and New tab's Review row (order 10): its change count once there are any,
+/// marked opened while the strip holds the tab.
+fn launcher(s: &App, ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLauncherDesc> {
+    if ctx.project_id.is_empty() {
+        return None;
+    }
+    let count = change_count(s, ctx.session_id);
+    Some(crate::panels::PanelLauncherDesc {
+        id: "open",
+        title: "Review".into(),
+        description: (count > 0).then(|| format!("{count} file{} changed", if count == 1 { "" } else { "s" })),
+        icon: &ic::REVIEW,
+        shortcut: &[Bind::ReviewOpen],
+        order: 10,
+        opened: !ctx.open_ids.is_empty(),
+    })
+}
+
+/// Closed, the tab lists as "Review" rather than its change count.
+fn closed_tab(_s: &App, _sid: &str, _tab: &PanelTabDesc) -> crate::panels::ClosedTabInfo {
+    crate::panels::ClosedTabInfo::Allow(crate::panels::ClosedPanelTab { title: Some("Review".into()), icon_name: Some("review".into()), ..Default::default() })
 }
 
 fn open_review_command(s: &mut App, _pane: SessionPane, tx: &mut Tx) {
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    s.side.mounted = true;
-    s.session_side_mut(&sid).open = true;
-    s.select_side_tab(&panel_key("review", "changes"), tx);
-    s.ensure_session_review(&sid);
+    s.show_review(&sid, tx);
+}
+
+fn change_count(s: &App, session_id: &str) -> usize {
+    match s.review.sessions.get(session_id) {
+        Some(r) => r.meta.len(),
+        None if matches!(s.source, Source::Fixture) => fixture_diff_count(&s.fixture, session_id),
+        None => 0,
+    }
 }
 
 fn is_split_wide(s: &App) -> bool {
@@ -200,23 +221,11 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     if ctx.project_id.is_empty() {
         return Vec::new();
     }
-    let count = match s.review.sessions.get(ctx.session_id) {
-        Some(r) => r.meta.len(),
-        None if matches!(s.source, Source::Fixture) => fixture_diff_count(&s.fixture, ctx.session_id),
-        None => 0,
-    };
-    let title = if count > 0 {
-        format!("Files Changed {count}")
-    } else {
-        "Review".to_owned()
-    };
-    vec![
-        PanelTabDesc::new("changes", title)
-            .icon(&ic::CODE_LINES)
-            .pinned()
-            .closable(CloseButtonMode::None)
-            .fallback(),
-    ]
+    // Listed for every session with a project, but in the strip only once opened, as Desktop's
+    // review tab is: neither pinned nor a fallback.
+    let count = change_count(s, ctx.session_id);
+    let title = if count > 0 { format!("Files Changed {count}") } else { "Review".to_owned() };
+    vec![PanelTabDesc::new("changes", title).icon(&ic::REVIEW)]
 }
 
 fn on_enter_review(s: &mut App, session_id: &str, _tab_id: &str) {
@@ -358,6 +367,18 @@ fn key_review(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 impl App {
+    /// Opens the review tab, and the side region with it (Desktop's `show`): added to the
+    /// strip when it isn't there, selected, its changes read.
+    pub fn show_review(&mut self, sid: &str, tx: &mut Tx) {
+        tx.instant();
+        self.show_side_tab(sid, REVIEW_KEY, None);
+        self.side.focused = true;
+        self.side.dock_focused = false;
+        self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, REVIEW_KEY);
+        self.composer.focused = false;
+        self.ensure_session_review(sid);
+    }
+
     pub fn is_review_active(&self) -> bool {
         if !(self.side_open() || self.stage.is_some()) {
             return false;
@@ -644,14 +665,7 @@ impl App {
                 self.review.asked = None;
             }
         }
-        self.side.mounted = true;
-        {
-            let st = self.session_side_mut(sid);
-            st.open = true;
-            st.tab_state.tabs.active = Some(REVIEW_KEY.to_owned());
-            st.tab_state.tabs.selected.insert(SessionPane::Side, REVIEW_KEY.to_owned());
-        }
-        self.side.adding.retain(|n| !(n.session_id == sid && n.pane == SessionPane::Side));
+        self.show_side_tab(sid, REVIEW_KEY, None);
         self.ensure_session_review(sid);
         if let Some(p) = path {
             let anchor = line.map(|n| crate::tool_open::Anchor {

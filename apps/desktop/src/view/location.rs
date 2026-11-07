@@ -24,15 +24,21 @@ pub struct Location {
     branches: HashMap<String, Option<String>>,
 }
 
-/// The trigger: the 16 pt project avatar and the project's name, muted until hovered or open.
-pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>, name: &str, show_name: bool) -> El {
+/// The trigger: the 16 pt project avatar, the project's name, and for a session in one of the
+/// project's worktrees a slash, the worktree glyph and its name, muted until hovered or open.
+/// `collapse` is the header's fit: 1 hides the worktree's name, 2 the project's too.
+pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>, name: &str, worktree: Option<&str>, collapse: u8) -> El {
     let open = s.popup.open_at(TRIGGER);
     let ink = if open { p.text } else { p.muted };
+    let label = match worktree {
+        Some(w) => format!("{name} / {w}"),
+        None => name.to_owned(),
+    };
     let mut t = row()
         .key(TRIGGER)
         .role("button")
-        .label(name.to_owned())
-        .help(name.to_owned())
+        .label(label.clone())
+        .help(label)
         .h(28.0)
         .px(6.0)
         .gap(8.0)
@@ -45,10 +51,40 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
         .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
         .on_press_tx(|s: &mut App, tx: &mut Tx| open_card(s, tx))
         .child(crate::icons::badge(s, p, project, name));
-    if show_name {
-        t = t.child(text(name.to_owned()).font(LABEL).color(ink).group_color(p.text).single_line());
+    if collapse < 2 {
+        t = t.child(text(name.to_owned()).key("location-project").font(LABEL).color(ink).group_color(p.text).single_line());
+    }
+    if let Some(w) = worktree {
+        // `SessionHeaderSeparator gap 0`: the trigger's own gap each side, less the glyph's bearing.
+        t = t
+            .child(text("/").font(TextStyle::new(13.0, 400.0).lh(16.0)).color(p.icon_faint).mx(-0.5))
+            .child(rune::icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted));
+        if collapse < 1 {
+            t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line());
+        }
     }
     if open { t.fill(p.hover) } else { t }
+}
+
+/// The worktree a session in `dir` runs in, by its folder's name: one of the project's sandboxes
+/// (its root left out) holding `dir` (`worktree()` in `SessionLocation`).
+pub fn worktree_name(project: Option<&opencode_kit::model::Project>, dir: &str) -> Option<String> {
+    let project = project?;
+    // Windows' paths compare without case, as Desktop's `pathKey` does there.
+    let norm = |d: &str| {
+        let d = d.trim_end_matches(['/', '\\']).replace('\\', "/");
+        if cfg!(windows) { d.to_lowercase() } else { d }
+    };
+    let root = norm(&project.directory);
+    let dir = norm(dir);
+    opencode_kit::model::project_sandboxes(&project.id)
+        .into_iter()
+        .filter(|w| norm(w) != root)
+        .find(|w| {
+            let w = norm(w);
+            dir == w || dir.starts_with(&format!("{w}/"))
+        })
+        .map(|w| opencode_kit::path::basename(w.trim_end_matches(['/', '\\'])).to_owned())
 }
 
 /// Opens the location card for the routed session, and reads its folder's branch for it.
@@ -86,7 +122,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &info.directory), |p| p.name.clone());
     let dir = info.directory.clone();
     let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir).is_some_and(Option::is_some);
-    let worktree = project.as_ref().filter(|p| p.directory != dir).map(|_| dir.rsplit(['/', '\\']).next().unwrap_or_default().to_owned());
+    let worktree = worktree_name(project.as_ref(), &dir);
     let mut menu = Menu::new(name.clone()).width(320.0);
     let mut head = Item::new("project", name.clone()).enabled(project.is_some());
     if let Some(p) = &project {

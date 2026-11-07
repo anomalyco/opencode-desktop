@@ -251,8 +251,6 @@ fn per_session_persistence_roundtrips_and_isolates_sessions() {
     let s2 = rt.state.tabs.iter().map(|t| t.id.clone()).find(|id| id != &s1).unwrap();
 
     rt.update(|s, _| {
-        s.side.resized = true;
-        s.side.width = 540.0;
         s.open_new_browser_tab("http://localhost:4000/");
     });
     rt.frame(1.0 / 60.0);
@@ -273,8 +271,6 @@ fn per_session_persistence_roundtrips_and_isolates_sessions() {
     let saved = rt.state.side.to_json();
     let mut restored = SideState::default();
     restored.restore_json(&saved);
-    assert_eq!(restored.width, 540.0);
-    assert!(restored.resized);
     assert!(restored.sessions.get(&s1).is_some_and(|st| st.open));
 }
 

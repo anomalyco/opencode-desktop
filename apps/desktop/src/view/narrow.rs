@@ -1,7 +1,7 @@
-//! What gives way in a narrow window (p263). The header drops its lower items so the title
-//! keeps room and the cost keeps its place; the composer's toolbar folds its pickers before
-//! Send could clip. Each picks the fewest steps that fit the width its row had at the last
-//! layout (a read that settles in the same frame), from the widths its pieces measure to.
+//! What gives way in a narrow window (p263). The composer's toolbar folds its pickers before
+//! Send could clip, picking the fewest steps that fit the width its row had at the last layout
+//! (a read that settles in the same frame), from the widths its pieces measure to. The session
+//! header's fit is `header_fit`.
 
 use std::cell::Cell;
 
@@ -18,29 +18,6 @@ pub(super) fn steps(room: Option<f32>, last: usize, need: impl Fn(usize) -> f32)
     let Some(room) = room else { return 0 };
     (0..=last).find(|&k| need(k) <= room + 0.5).unwrap_or(last)
 }
-
-/// The header's pieces in the order they go, the first first. The title takes what's left.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) enum HeaderDrop {
-    /// The project's name and the slash after it (its badge stays).
-    Name,
-    /// The actions' details: plugins' header slots draw compact (the context ring alone).
-    Tokens,
-    /// A subagent's parent crumb.
-    Parent,
-    /// The ⋯ button (the title's right-click still opens its menu).
-    More,
-    /// The project's badge.
-    Badge,
-}
-
-pub(crate) const HEADER_DROPS: [HeaderDrop; 5] = [HeaderDrop::Name, HeaderDrop::Tokens, HeaderDrop::Parent, HeaderDrop::More, HeaderDrop::Badge];
-
-/// How much of the title must show before the header drops anything else for it.
-pub(super) const TITLE_FLOOR: f32 = 96.0;
-
-/// Narrower than this, the title goes rather than show a sliver.
-pub(super) const TITLE_MIN: f32 = 40.0;
 
 /// How the composer's toolbar folds, a step at a time.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -15,20 +15,21 @@ use super::{
 };
 use crate::{App, Route};
 
-pub const SIDE_DEFAULT_W: f32 = 460.0;
-pub const SIDE_WIDE_W: f32 = 620.0;
-pub const SIDE_MIN_W: f32 = 280.0;
-pub const SIDE_MAX_W: f32 = 960.0;
-pub const SESSION_MIN_W: f32 = 380.0;
+/// `PANE_HEIGHT_MIN` (`side-region.tsx`): each pane of a split side region keeps this much.
 pub const SPLIT_MIN_H: f32 = 120.0;
+/// The side pane's share of a split side region until the divider is dragged.
+pub const SPLIT_DEFAULT_RATIO: f32 = 0.5;
 pub const DOCK_DEFAULT_H: f32 = 260.0;
 pub const DOCK_MIN_H: f32 = 100.0;
 pub const DOCK_COLLAPSE_H: f32 = 50.0;
 pub const DOCK_MAX_H: f32 = 560.0;
-pub const BOTTOM_DEFAULT_H: f32 = 220.0;
+/// `DEFAULT_DOCK_HEIGHT` (`shell/state/layout.tsx`): the bottom pane's height until dragged.
+pub const BOTTOM_DEFAULT_H: f32 = 280.0;
+/// `BOTTOM_PANE_HEIGHT_MIN` (`session/screen.tsx`).
 pub const BOTTOM_MIN_H: f32 = 120.0;
-pub const BOTTOM_MAX_H: f32 = 520.0;
 
+/// One session's side region, as Desktop keeps it per shell tab (`TabRegions`): whether its
+/// panes show, its strip, and the sizes the user dragged (none until they do).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSideState {
     pub open: bool,
@@ -36,6 +37,12 @@ pub struct SessionSideState {
     pub bottom_open: bool,
     pub tab_state: SessionTabState,
     pub closed: Vec<ClosedSideTab>,
+    /// The chat panel's width beside the side region (`sessionWidth`).
+    pub session_width: Option<f32>,
+    /// The side pane's share of the side region's height while a pane splits below it.
+    pub split_ratio: Option<f32>,
+    /// The bottom pane's height.
+    pub bottom_height: Option<f32>,
 }
 
 impl Default for SessionSideState {
@@ -46,6 +53,9 @@ impl Default for SessionSideState {
             bottom_open: true,
             tab_state: SessionTabState::default(),
             closed: Vec::new(),
+            session_width: None,
+            split_ratio: None,
+            bottom_height: None,
         }
     }
 }
@@ -59,15 +69,18 @@ pub struct NewTabEntry {
 }
 
 pub struct SideState {
-    pub width: f32,
-    pub resized: bool,
-    pub drag_origin: Option<f32>,
-    pub split_ratio: f32,
-    pub split_drag_origin: Option<f32>,
+    /// The chat panel's width as a divider drag began, and what the session stored then.
+    pub drag_origin: Option<(f32, Option<f32>)>,
+    /// The side pane's share as a split divider drag began, and what the session stored then.
+    pub split_drag_origin: Option<(f32, Option<f32>)>,
     pub dock_height: f32,
     pub dock_drag_origin: Option<f32>,
-    pub bottom_height: f32,
-    pub bottom_drag_origin: Option<f32>,
+    /// The bottom pane's height as a drag began, and what the session stored then.
+    pub bottom_drag_origin: Option<(f32, Option<f32>)>,
+    /// The window's width at the last layout, for sizes estimated outside the view.
+    pub laid_w: std::cell::Cell<f32>,
+    /// A tab dragged between panes.
+    pub pane_drag: super::drag::PaneDrag,
     /// Once shown, the side region keeps its DOM/Rune subtree mounted while closed so springs
     /// never mount or unmount mid-flight (`side-region.tsx` `contentMounted`).
     pub mounted: bool,
@@ -94,15 +107,13 @@ pub struct SideState {
 impl Default for SideState {
     fn default() -> Self {
         Self {
-            width: SIDE_DEFAULT_W,
-            resized: false,
             drag_origin: None,
-            split_ratio: 0.55,
             split_drag_origin: None,
             dock_height: DOCK_DEFAULT_H,
             dock_drag_origin: None,
-            bottom_height: BOTTOM_DEFAULT_H,
             bottom_drag_origin: None,
+            laid_w: std::cell::Cell::new(1280.0),
+            pane_drag: Default::default(),
             mounted: false,
             dock_mounted: false,
             dock_last_solo: false,
@@ -405,10 +416,7 @@ impl App {
             .as_deref()
             .and_then(|k| strip.iter().find(|e| e.key == k))
             .map_or(SessionPane::Side, |e| e.pane);
-        let wide = active
-            .as_deref()
-            .and_then(|k| strip.iter().find(|e| e.key == k))
-            .is_some_and(|e| (e.provider.wide)(self));
+        let wide = self.side_wide();
 
         Some(ResolvedRegion {
             session_id,
@@ -600,6 +608,41 @@ impl App {
         self.side.dock_last_solo = false;
         self.side.active_pane_focus = actual_pane;
 
+        if let Some((plugin, tab_id)) = split_panel_key(key)
+            && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
+            && let Some(on_focus) = prov.on_focus_tab
+        {
+            on_focus(self, session_id, tab_id, false);
+        }
+    }
+
+    /// Desktop's `layout.open(key, session, { tab: "select" })`: adds `key` at the strip's end
+    /// when it isn't there, without replacing a preview tab, selects it, and shows its pane. A
+    /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
+    /// pane.
+    pub fn show_side_tab(&mut self, session_id: &str, key: &str, target: Option<SessionPane>) {
+        let fallback = split_panel_key(key)
+            .and_then(|(pl, _)| self.all_panels().into_iter().find(|p| p.plugin == pl))
+            .map(|p| p.default_pane);
+        let st = self.session_side_mut(session_id);
+        let prefix = split_panel_key(key).map(|(pl, _)| format!("{pl}:")).unwrap_or_default();
+        let sibling = st.tab_state.tabs.all.iter().any(|k| k.starts_with(&prefix));
+        let mut next = st.tab_state.tabs.clone();
+        if !next.all.iter().any(|k| k == key) {
+            next.all.push(key.to_owned());
+        }
+        next.active = Some(key.to_owned());
+        let target = target.or(if sibling { None } else { fallback });
+        st.tab_state.tabs = super::tabs::place_session_tabs(&st.tab_state.tabs, next, target);
+        let pane = session_tab_pane(&st.tab_state.tabs, key);
+        if pane == SessionPane::Bottom {
+            st.bottom_open = true;
+        } else {
+            st.open = true;
+            self.side.mounted = true;
+        }
+        self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
+        self.side.dock_last_solo = false;
         if let Some((plugin, tab_id)) = split_panel_key(key)
             && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
             && let Some(on_focus) = prov.on_focus_tab

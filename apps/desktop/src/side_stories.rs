@@ -83,8 +83,11 @@ pub const REGION_KEYS: &[Trigger] = &[
         label: "Toggle wide split",
         run: |s, play| {
             play.animated();
-            s.side.resized = true;
-            s.side.width = if s.side.width > 520.0 { 380.0 } else { 580.0 };
+            // The side region takes what the chat panel leaves: widen the chat to narrow it.
+            if let Some(sid) = s.active_session_id().map(str::to_owned) {
+                let st = s.session_side_mut(&sid);
+                st.session_width = if st.session_width.is_some() { None } else { Some(856.0) };
+            }
         },
     },
 ];
@@ -227,7 +230,7 @@ pub fn setup_install(s: &mut App, _play: &mut Play<'_, App>) {
 }
 
 pub fn view_card(s: &App, p: &Pal) -> El {
-    crate::panels::view::story_card(s, p, s.side.width.min(640.0), 540.0)
+    crate::panels::view::story_card(s, p, s.side_width(s.side.laid_w.get()).min(640.0), 540.0)
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

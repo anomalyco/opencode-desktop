@@ -2,7 +2,7 @@ use rune::{Env, Key, KeyEvent, Mods, Runtime};
 use rune_kit::diff::DiffMode;
 
 use super::{ChangeMode, REVIEW_KEY};
-use crate::panels::state::SIDE_WIDE_W;
+const SIDE_WIDE_W: f32 = 620.0;
 use crate::{App, FIXTURE, open_scene, spec};
 
 fn test_runtime() -> Runtime<App> {

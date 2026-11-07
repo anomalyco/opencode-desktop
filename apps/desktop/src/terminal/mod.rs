@@ -478,7 +478,7 @@ impl App {
     fn estimated_terminal_grid(&self) -> (u16, u16) {
         let (font_choice, style) = grid::terminal_font_style(&self.knobs);
         let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
-        let est_w = (self.side.width - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
+        let est_w = (self.side_width(self.side.laid_w.get()) - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
         let est_bar = if self.side_open() { grid::BAR_H } else { 48.0 };
         let est_pane_h = if self.side_open() || self.dock_placement() == crate::panels::DockPlacement::Bottom {
             self.side.dock_height

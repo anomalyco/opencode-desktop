@@ -2,9 +2,7 @@
 
 use rune::{Anim, Cursor, Cx, Drag, El, Phase, Tx, col, el};
 
-use super::state::{
-    BOTTOM_MAX_H, BOTTOM_MIN_H, DOCK_COLLAPSE_H, DOCK_MAX_H, DOCK_MIN_H, ResolvedEntry,
-};
+use super::state::{BOTTOM_MIN_H, DOCK_COLLAPSE_H, DOCK_MAX_H, DOCK_MIN_H, ResolvedEntry};
 use super::view::pane_box;
 use super::{PanelRegion, PanelViewCtx, SessionPane};
 use crate::palette::{Elevate as _, Pal};
@@ -30,10 +28,20 @@ pub fn bottom_reserve_height(s: &App, cx: &mut Cx<App>) -> f32 {
                 .iter()
                 .any(|n| n.session_id == reg.session_id && n.pane == SessionPane::Bottom);
         if has_bottom && s.bottom_open() {
-            return s.side.bottom_height + 8.0;
+            return bottom_pane_height(s, cx) + 8.0;
         }
     }
     0.0
+}
+
+/// The bottom pane's height: the session's own once dragged, else Desktop's 280.
+fn bottom_pane_height(s: &App, _cx: &mut Cx<App>) -> f32 {
+    s.bottom_height()
+}
+
+/// The tallest a drag takes the bottom pane: 70% of the window (`window.innerHeight * 0.7`).
+fn bottom_pane_max(s: &App, cx: &mut Cx<App>) -> f32 {
+    (cx.layout_size("zoom").map_or(820.0, |[_, h]| h / s.zoom) * 0.7).round()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -183,43 +191,34 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         return None;
     }
 
-    let h = s.side.bottom_height;
+    let h = bottom_pane_height(s, cx);
+    let max_h = bottom_pane_max(s, cx);
     let dragging = s.side.bottom_drag_origin.is_some();
-    let handle = el()
+    let handle = super::view::resize_pill(p, dragging, false)
         .key("bottom-resize")
         .w_full()
         .h(8.0)
-        .center()
         .cursor(Cursor::ResizeRow)
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
-        .on_drag(|s: &mut App, d: &mut Drag, tx: &mut Tx| {
+        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
+            let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
             match d.phase {
-                Phase::Down => s.side.bottom_drag_origin = Some(s.side.bottom_height),
+                Phase::Down => s.side.bottom_drag_origin = Some((h, s.session_side_mut(&sid).bottom_height)),
                 Phase::Move => {
-                    if let Some(orig) = s.side.bottom_drag_origin {
-                        s.side.bottom_height =
-                            (orig - d.dy / s.zoom).clamp(BOTTOM_MIN_H, BOTTOM_MAX_H);
+                    if let Some((start, _)) = s.side.bottom_drag_origin {
+                        s.session_side_mut(&sid).bottom_height = Some((start - d.dy / s.zoom).clamp(BOTTOM_MIN_H, max_h.max(BOTTOM_MIN_H)));
                     }
                 }
                 Phase::Up => {
                     if d.cancelled()
-                        && let Some(orig) = s.side.bottom_drag_origin
+                        && let Some((_, stored)) = s.side.bottom_drag_origin
                     {
-                        s.side.bottom_height = orig;
+                        s.session_side_mut(&sid).bottom_height = stored;
                     }
                     s.side.bottom_drag_origin = None;
                 }
             }
-        })
-        .child(
-            el().size(40.0, 4.0)
-                .radius(2.0)
-                .fill(if dragging { p.icon } else { p.icon_muted })
-                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0)
-                .transition(rune::Transition::none()),
-        );
+        });
 
     let card = col().key("bottom-panel").w_full().h(h).radius(10.0).fill(p.bg_base).elevate(p.raised)
         .on_press(|s: &mut App| {
