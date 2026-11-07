@@ -1,7 +1,6 @@
 {
   "scene": "session", "secs": 7.5,
   "events": [
-    {"t": 0.2, "type": "tap", "key": "sidebar-toggle"},
     {"t": 1.0, "type": "tap", "key": "side-toggle"},
     {"t": 1.8, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},
     {"t": 2.3, "type": "tap", "key": "review-tree-toggle", "expect": "instant", "scope": "side-panel"},

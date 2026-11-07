@@ -1,4 +1,8 @@
 [
+  {"trace": "switch", "element": "toolbar/submit/send-glyph", "kind": "cut-exit",
+   "reason": "a top tab opens on the press, as Desktop navigates on mousedown (tab-nav.tsx); the release then lands the outgoing session's submit glyph, which a session switch swaps at once"},
+  {"trace": "switch", "element": "#0/trigger/arrow", "kind": "invisible-work",
+   "reason": "a top tab opens on the press, so the session it opens mounts a beat before the release; its tool group's hover-only arrow settles hidden meanwhile"},
   {"element": "/separator", "kind": ["pop-in", "pop-out"],
    "reason": "a titlebar tab's separator shows and hides at once beside the hovered, active or dragged tab, as tab-nav.css's display: none does (rune_kit TabStrip)"},
   {"element": "pill/status/", "kind": "pop-out",

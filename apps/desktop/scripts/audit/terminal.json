@@ -1,7 +1,6 @@
 {
   "scene": "session", "secs": 8.4,
   "events": [
-    {"t": 0.2, "type": "tap", "key": "sidebar-toggle"},
     {"t": 0.9, "type": "key", "name": "j", "cmd": true},
     {"t": 1.7, "type": "tap", "key": "terminal-new-tab", "expect": "instant", "scope": "dock-panel"},
     {"t": 2.1, "type": "tap", "key": "ttab-term_1", "expect": "instant", "scope": "dock-panel"},
