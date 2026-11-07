@@ -82,7 +82,10 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32, window: [f32; 2]) -> El {
         .scroll(ScrollSpec { stick_bottom: false })
         .clip_soft(0.0)
         .child(col().key("home-content").w_full().items_center().child(grid))
-        .scroll_bar_styled(ScrollBarStyle::scroll_view(&crate::palette::kit(p)))
+        // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a
+        // track as long as the page below it, shown while the pointer is on that column
+        // (`route.tsx:34-40`, `sessions/view.tsx`'s `home-session-scroll-track`).
+        .scroll_bar_styled(ScrollBarStyle::scroll_view(&crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad)))
         .grow(1.0);
     let mut page = col().key("home-page").grow(1.0).w_full().h_full();
     if tier == Tier::Narrow {
@@ -96,6 +99,13 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32, window: [f32; 2]) -> El {
         page = page.child(projects::utility(p, false).key("home-utility-foot").px(12.0).py(8.0));
     }
     page
+}
+
+/// How far in from the page's end the sessions column's gutter ends: the grid is centred at most
+/// `GRID_MAX` wide, the column ends `pad` in from it, and its 12 pt track lies past the column
+/// (`-mr-3`).
+fn gutter_end(panel: f32, pad: f32) -> f32 {
+    (panel - panel.min(GRID_MAX)) / 2.0 + pad - 12.0
 }
 
 /// `HomeSessionsView`: the sticky search header, then the sessions grouped by day.
@@ -128,6 +138,11 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     if count > 0 {
         list = list.pt(if tier == Tier::Narrow { 4.0 } else { 12.0 }).pb(64.0);
     }
+    // Headers and rows are siblings, as Desktop's are, so a stuck header stays until the next
+    // one, drawn over it, takes its place; its title fades out as that one comes up
+    // (`home/scroll.ts`: by `stickyTop + 16` against the next header's offset in the list, which
+    // starts `list_top` down the page, over 16).
+    let list_top = tier.header_top() - if tier == Tier::Narrow { 4.0 } else { 12.0 };
     for (n, (title, items)) in groups.into_iter().enumerate() {
         // `sticky h-7 ps-1.5 md:ps-3`, the label `text-muted [font-weight:440]`.
         let head = row()
@@ -138,20 +153,21 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             .center_y()
             .fill(p.bg_base)
             .sticky_top(tier.header_top())
+            .stuck_fade(list_top + 16.0, 16.0)
             .child(text(title).font(UI).color(p.muted));
         // `gap-px pt-2 md:pt-4`, `mb-6` but the last.
-        let mut rows = col().key("rows").w_full().gap(1.0).pt(if tier == Tier::Narrow { 8.0 } else { 16.0 });
+        let mut rows = col().key(format!("rows-{title}")).w_full().gap(1.0).pt(if tier == Tier::Narrow { 8.0 } else { 16.0 });
         for ses in items {
             let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
             rows = rows.child(list_row(s, p, ses, &nav_ids, index, show_project, labels_w, tier));
         }
-        let group = col().key(format!("g-{title}")).w_full().child(head).child(rows);
-        list = list.child(if n + 1 < count { group.mb(24.0) } else { group });
+        list = list.child(head).child(if n + 1 < count { rows.mb(24.0) } else { rows });
     }
     if count == 0 && !s.launch.waiting {
         list = list.child(empty(p, can_create));
     }
-    col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(SESSIONS_MAX).child(header).child(list)
+    // `HomeSessionsView`'s `<section>` reveals the page's thumb (`thumbHoverTarget`).
+    col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(SESSIONS_MAX).child(header).child(list).scroll_bar_hover("home")
 }
 
 /// `groupSessions`: Today, Yesterday and the rest by the local calendar day each was last
@@ -302,6 +318,16 @@ pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
     tx.live_only();
 }
 
+/// `createAltHold`: while Alt is held on Desktop, every Home row and search result shows its
+/// worktree and branch, and their branches load (`alt-hold.ts`, `onRevealLocations`).
+pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
+    if s.home_search.alt_held == mods.alt {
+        return tx.live_only();
+    }
+    s.home_search.alt_held = mods.alt;
+    tx.instant();
+}
+
 /// What a session row and a search result share.
 pub(super) struct Parts {
     pub avatar: El,
@@ -332,7 +358,7 @@ impl Parts {
         }
         let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
         let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title).children(project_el.clone());
-        if s.home_search.hovered.as_deref() == Some(ses.id.as_str()) {
+        if s.home_search.alt_held || s.home_search.hovered.as_deref() == Some(ses.id.as_str()) {
             labels = labels.child(location(s, p, ses, labels_w));
         }
         Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) }

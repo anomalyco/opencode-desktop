@@ -1320,6 +1320,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .gpu_backend(rune::GpuBackend::Metal)
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
+            .on_modifiers(view::home_modifiers)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,

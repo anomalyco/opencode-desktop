@@ -38,7 +38,7 @@ pub use composer::*;
 pub(crate) use draft::*;
 pub(crate) use header::*;
 pub(crate) use narrow::{Agent as ToolbarAgent, toolbar_shown};
-pub(crate) use home::{home, session_row};
+pub(crate) use home::{home, home_modifiers, session_row};
 pub(crate) use session::*;
 pub use sidebar::*;
 

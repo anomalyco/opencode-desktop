@@ -29,6 +29,8 @@ pub struct HomeSearch {
     active: Highlight,
     /// The Home row under the pointer: it shows its worktree and branch (`HomeSessionLocation`).
     pub(crate) hovered: Option<String>,
+    /// Alt is held: every row shows its worktree and branch (`alt-hold.ts`, Desktop only).
+    pub(crate) alt_held: bool,
     /// Sessions fetched from the server while searching on Home.
     pub(crate) loaded: Vec<SessionInfo>,
     searched: String,
@@ -40,6 +42,7 @@ impl Default for HomeSearch {
         HomeSearch {
             active: Highlight::default(),
             hovered: None,
+            alt_held: false,
             loaded: Vec::new(),
             searched: String::new(),
             fetch: Latest::default().debounce(Duration::from_millis(100)),

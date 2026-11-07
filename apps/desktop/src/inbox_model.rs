@@ -448,9 +448,17 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         .flatten()
         .map(|i| i.directory.clone());
     let draft: Option<String> = draft.or(hovered);
+    // Alt held on Home shows every row's location, so their branches load (`alt-hold.ts`).
+    let revealed: Vec<String> = if s.route == crate::Route::Home && s.home_search.alt_held {
+        s.home_sessions(None).iter().map(|i| i.directory.clone()).collect()
+    } else {
+        Vec::new()
+    };
     if s.tab_layout() != TabLayout::Inbox {
-        let Some(dir) = draft else { return false };
-        s.sidebar_inbox.branches.enqueue([dir]);
+        if draft.is_none() && revealed.is_empty() {
+            return false;
+        }
+        s.sidebar_inbox.branches.enqueue(draft.into_iter().chain(revealed));
         let waker = s.waker.clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
@@ -467,7 +475,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let tick = s.now_ms.div_euclid(step);
     changed |= std::mem::replace(&mut s.sidebar_inbox.tick, tick) != tick;
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.enqueue(dirs.into_iter().chain(draft));
+    s.sidebar_inbox.branches.enqueue(dirs.into_iter().chain(draft).chain(revealed));
     let waker = s.waker.clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
