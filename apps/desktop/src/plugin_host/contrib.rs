@@ -238,6 +238,26 @@ pub fn settings_search(app: &App) -> Vec<SearchEntry> {
 /// own yet (settings search, server sources and their menus, MCP tools, themes), for checking a
 /// plugin from the command line.
 pub(super) fn print_index(app: &App) {
+    for slot in &app.plugins.slots {
+        let how = match &slot.source {
+            super::Source::Library(path) => path.display().to_string(),
+            super::Source::Static(_) => "linked in (static-builtins)".to_owned(),
+        };
+        eprintln!("plugin index: plugin: {} {} ({}, {}) from {how}", slot.manifest.id, slot.manifest.version, slot.tier.label(), slot.state.label());
+        let Some(inst) = slot.active() else { continue };
+        for p in &inst.contributions.panels {
+            let launcher = if p.flags & opencode_plugin::abi::PANEL_NO_LAUNCHER != 0 { ", no launcher" } else { "" };
+            let label = if p.label.is_some() { ", own tab label" } else { "" };
+            eprintln!("plugin index: panel: {} {}{launcher}{label}", p.tab, p.title);
+        }
+        for c in &inst.contributions.commands {
+            eprintln!("plugin index: command: {} {} [{}]", c.id, c.title, c.keybind.as_ref().map(|k| format!("{k:?}")).unwrap_or_default());
+        }
+        for c in inst.contributions.contribs.iter().filter(|c| matches!(c.kind, kinds::SLOT | kinds::POPOVER)) {
+            let kind = if c.kind == kinds::SLOT { "slot" } else { "popover" };
+            eprintln!("plugin index: {kind}: {} {} (order {})", c.key, c.target, c.order);
+        }
+    }
     for e in settings_search(app) {
         eprintln!("plugin index: settings search: {} › {} › {} ({}): {} [{}]", e.owner, e.page, e.title, e.id, e.description, e.keywords);
     }

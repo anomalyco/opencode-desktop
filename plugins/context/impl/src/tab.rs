@@ -83,10 +83,31 @@ fn stats(cx: &mut ViewCx<Context>, session: Option<&Session>, sid: &str, raws: &
     let weak = cx.token("text-weak").unwrap_or(p.faint);
     let strong = cx.token("text-strong").unwrap_or(p.text);
     let last = last_with_usage(raws);
-    let tokens = |k: &str| last.map(|m| &m.value["tokens"]).map(|t| if k.contains('.') { &t["cache"][k.split('.').nth(1).unwrap_or_default()] } else { &t[k] }).and_then(Value::as_u64);
-    let model = last.map(|m| (m.value["model"]["providerID"].as_str().unwrap_or_default().to_owned(), m.value["model"]["id"].as_str().unwrap_or_default().to_owned()));
+    // The step's tokens and model: off the server's messages, or, before they're read (a run
+    // without a server), as the app holds the session.
+    let step = match last {
+        Some(m) => {
+            let t = &m.value["tokens"];
+            let n = |v: &Value| v.as_u64().unwrap_or(0);
+            let tokens = opencode_plugin::abi::TokensAbi { input: n(&t["input"]), output: n(&t["output"]), reasoning: n(&t["reasoning"]), cache_read: n(&t["cache"]["read"]), cache_write: n(&t["cache"]["write"]) };
+            let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
+            Some((tokens, s(&m.value["model"]["providerID"]), s(&m.value["model"]["id"])))
+        }
+        None if raws.is_empty() => session.and_then(|s| Some((s.usage?, s.usage_provider_id.clone(), s.usage_model_id.clone()))),
+        None => None,
+    };
+    let tokens = |k: &str| {
+        step.as_ref().map(|(t, _, _)| match k {
+            "input" => t.input,
+            "output" => t.output,
+            "reasoning" => t.reasoning,
+            "cache.read" => t.cache_read,
+            _ => t.cache_write,
+        })
+    };
+    let model = step.as_ref().map(|(_, provider, id)| (provider.clone(), id.clone()));
     let catalog = model.as_ref().map(|(provider, id)| cx.model(provider, id));
-    let total = last.map(|_| ["input", "output", "reasoning", "cache.read", "cache.write"].iter().filter_map(|k| tokens(k)).sum::<u64>());
+    let total = step.as_ref().map(|(t, _, _)| t.input + t.output + t.reasoning + t.cache_read + t.cache_write);
     let limit = catalog.as_ref().and_then(|c| c.context_limit);
     let usage = total.zip(limit).map(|(t, l)| (t as f64 / l as f64 * 100.0).round() as u64);
     let dash = || "-".to_owned();
@@ -104,7 +125,7 @@ fn stats(cx: &mut ViewCx<Context>, session: Option<&Session>, sid: &str, raws: &
     };
     let rows = [
         ("Session", session.map_or_else(|| if sid.is_empty() { dash() } else { sid.to_owned() }, |s| s.title.clone())),
-        ("Messages", number(raws.len() as u64)),
+        ("Messages", number(if raws.is_empty() { session.map_or(0, |s| u64::from(s.messages)) } else { raws.len() as u64 })),
         ("Provider", provider),
         ("Model", model_name),
         ("Context Limit", num(limit)),
