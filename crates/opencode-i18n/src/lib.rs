@@ -2,9 +2,11 @@
 //!
 //! `locales/official/<id>.json` are Desktop's own catalogs, its app and UI messages merged per
 //! locale, copied by `sync.ts` from the opencode repository; keys keep Desktop's names
-//! (`settings.general.row.language.title`, `ui.sessionReview.title`). `locales/rune/<id>.json`
-//! holds this app's strings Desktop doesn't have, under `rune.` keys, and wins over the official
-//! layer. The build turns both into one static catalog (`rune_i18n::codegen`), so lookups are a
+//! (`settings.general.row.language.title`, `ui.sessionReview.title`), with the catalogs of the GUI
+//! plugins this app builds in under `plugin.<id>.`. `locales/intl/<id>.json` holds the number
+//! patterns ICU gives each locale (`intl.percent`), also written by `sync.ts`.
+//! `locales/rune/<id>.json` holds this app's strings Desktop doesn't have, under `rune.` keys,
+//! and wins over the other layers. The build turns both into one static catalog (`rune_i18n::codegen`), so lookups are a
 //! slice of an embedded blob and a key Desktop renames fails the build where it's used.
 //!
 //! - [`t!`]: a message, `t!("key")` as `&'static str` or `t!("key", name = value)` filled in.
@@ -125,6 +127,12 @@ pub fn ui_list<S: AsRef<str>>(items: &[S]) -> String {
 /// `n` with the locale's digits and grouping, as `Intl.NumberFormat(locale).format(n)`.
 pub fn integer(n: i64) -> String {
     I18N.integer(n)
+}
+
+/// `n` as a whole percentage in the locale's format (`150%`, `150 %`, `%150`), as`
+/// `Intl.NumberFormat(locale, { style: "percent" }).format(n)`.
+pub fn percent(n: f64) -> String {
+    t!("intl.percent", value = integer((n * 100.0).round() as i64))
 }
 
 /// `n` with at most `max_fraction` fraction digits in the locale's format.

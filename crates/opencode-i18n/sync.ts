@@ -31,13 +31,39 @@ const official = path.join(out, "official")
 const sorted = (dict: Record<string, string>) =>
   Object.fromEntries(Object.entries(dict).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 
+// Desktop's GUI plugins this app builds in rather than loading as plugins; each keeps its own
+// catalog there (packages/gui-plugins/src/<id>/i18n), which joins here under `plugin.<id>.`.
+const builtIn = ["browser", "file", "review", "terminal", "updater"]
+const plugins = path.join(root, "packages/gui-plugins/src")
+const plugin = async (name: string, id: string) => {
+  const file = path.join(plugins, name, "i18n", `${id}.ts`)
+  if (!(await Bun.file(file).exists())) return {}
+  const dict: Record<string, string> = (await import(file)).default
+  return Object.fromEntries(Object.entries(dict).map(([key, value]) => [`plugin.${name}.${key}`, value]))
+}
+
 for (const id of ids) {
   const messages = {
     ...(await import(path.join(app, `${id}.ts`))).dict,
     ...(await import(path.join(ui, `${id}.ts`))).dict,
+    ...Object.assign({}, ...(await Promise.all(builtIn.map((name) => plugin(name, id))))),
   }
   await Bun.write(path.join(official, `${id}.json`), JSON.stringify(sorted(messages), null, 2) + "\n")
 }
+// Number patterns ICU gives each locale's tag, as Desktop's Intl.NumberFormat calls show them,
+// with the digits left to the app's own formatter: `{{value}}%`, `{{value}} %`, `%{{value}}`.
+const intl = path.join(out, "intl")
+for (const id of ids) {
+  const parts = new Intl.NumberFormat(native.DESKTOP_NATIVE_LOCALE_TAGS[id], { style: "percent" }).formatToParts(12.5)
+  const digits = new Set(["integer", "group", "decimal", "fraction"])
+  const percent = parts.reduce(
+    (text, part, index) =>
+      digits.has(part.type) ? (index > 0 && digits.has(parts[index - 1].type) ? text : text + "{{value}}") : text + part.value,
+    "",
+  )
+  await Bun.write(path.join(intl, `${id}.json`), JSON.stringify({ "intl.percent": percent }, null, 2) + "\n")
+}
+
 for (const file of await readdir(official)) {
   if (!ids.includes(path.basename(file, ".json"))) await rm(path.join(official, file))
 }
@@ -50,6 +76,6 @@ const locales = ids.map((id) => ({
 }))
 await Bun.write(
   path.join(out, "locales.json"),
-  JSON.stringify({ layers: ["official", "rune"], locales }, null, 2) + "\n",
+  JSON.stringify({ layers: ["official", "intl", "rune"], locales }, null, 2) + "\n",
 )
 console.log(`${ids.length} locales, ${rtl.size} right to left`)

@@ -1,1 +1,17 @@
-{}
+{
+  "rune.dialog.images": "Images",
+  "rune.jobs.readOnly": "This window is read-only. Relaunch without --read-only to act.",
+  "rune.settings.developer.rewind.title": "Rewind",
+  "rune.settings.developer.title": "Developer",
+  "rune.settings.general.row.prefetchBrowser.title": "Download browser in the background",
+  "rune.settings.general.row.terminalPlacement.bottom": "Bottom",
+  "rune.settings.general.row.terminalPlacement.description": "Choose where the terminal opens in sessions.",
+  "rune.settings.general.row.terminalPlacement.side": "Side",
+  "rune.settings.general.row.terminalPlacement.title": "Terminal placement",
+  "rune.settings.project.menu": "Project",
+  "rune.settings.project.saveFailed": "The project couldn't be saved.",
+  "rune.settings.server.copyAddress": "Copy address",
+  "rune.settings.server.local": "Local server",
+  "rune.settings.workspaces.active": "Active",
+  "rune.status.openFolderFailed": "Couldn't open the folder"
+}

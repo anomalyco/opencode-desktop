@@ -1,6 +1,7 @@
 {
   "layers": [
     "official",
+    "intl",
     "rune"
   ],
   "locales": [
