@@ -25,6 +25,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("settings-sidebar-closed", |s| {
         crate::open_scene(s);
         s.finish_stream();
+        crate::scenes::side_tabs(s);
         s.sidebar_open = false;
         s.open_settings();
     }),

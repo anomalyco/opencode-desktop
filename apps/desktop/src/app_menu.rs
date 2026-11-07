@@ -125,15 +125,18 @@ const MENUS: [(&str, &[Row]); 6] = [
     ]),
 ];
 
-/// The button at the titlebar row's start (`IconButton` ghost-muted, large), at `(x, y)`: lit
-/// as pressed while its menu is open.
-pub fn button(s: &App, p: &Pal, (x, y): (f32, f32)) -> El {
+/// The button at the titlebar row's start (`IconButton` ghost-muted, large) in its 36pt slot
+/// (`h-7 w-9 px-1`): lit as pressed while its menu is open.
+pub fn button(s: &App, p: &Pal) -> El {
+    rune::row().key("app-menu-slot").size(36.0, 28.0).center().child(glyph_button(s, p))
+}
+
+fn glyph_button(s: &App, p: &Pal) -> El {
     let open = s.popup.open_at(KEY);
     rune::el()
         .key(KEY)
         .role("button")
         .label("OpenCode menu")
-        .absolute(x, y)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -204,9 +207,14 @@ fn label(keys: Keys) -> String {
     }
 }
 
-/// Toggle Terminal needs a session, as Desktop's `terminal.toggle` command does.
+/// Toggle Terminal needs a session, as Desktop's `terminal.toggle` command does, and Toggle
+/// Sidebar a sidebar, which top tabs don't have.
 fn enabled(s: &App, act: Act) -> bool {
-    act != Act::ToggleTerminal || s.active_session_id().is_some()
+    match act {
+        Act::ToggleTerminal => s.active_session_id().is_some(),
+        Act::ToggleSidebar => s.tab_layout().has_sidebar(),
+        _ => true,
+    }
 }
 
 fn run(s: &mut App, act: Act, tx: &mut Tx) {
@@ -220,8 +228,7 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::CloseWindow => tx.close_window(),
         Act::Edit(key) => tx.send_key(edit_key(key)),
         Act::ToggleSidebar => {
-            tx.instant();
-            s.sidebar_open = !s.sidebar_open;
+            s.toggle_sidebar(tx);
         }
         Act::ToggleTerminal => s.toggle_dock(tx),
         Act::Reload => s.resync(),

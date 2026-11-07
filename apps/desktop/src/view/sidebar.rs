@@ -1,22 +1,38 @@
+use rune_kit::shell::TabOrientation;
+
 use super::*;
-use crate::session_menu::{Spot, Target};
+use crate::layout_state::{PeekEvent, SidebarPeekState};
 
 // ---------------------------------------------------------------------------------------------
-// Sidebar: Desktop's vertical tabs (`shell/titlebar/titlebar.tsx`, `tab-nav.tsx`).
+// Sidebar: Desktop's vertical tabs (`shell.tsx`, `titlebar.tsx`, `tab-strip.tsx`). Top tabs have
+// none: the aside narrows to nothing and its tabs fly to the titlebar.
 
-/// Default, minimum and maximum widths (`shell.tsx`'s ResizeHandle).
-pub const SIDEBAR_W: f32 = 260.0;
-pub const SIDEBAR_MIN: f32 = 120.0;
+/// Default, minimum and maximum widths (`shell.tsx`'s `tabsWidth` and its ResizeHandle).
+pub const SIDEBAR_W: f32 = 240.0;
+pub const SIDEBAR_MIN: f32 = 136.0;
 pub const SIDEBAR_MAX: f32 = 640.0;
 /// The sidebar's start and end padding (`--sidebar-inset-start`, `--sidebar-inset-end`).
-pub(super) const INSET_START: f32 = 10.0;
-pub(super) const INSET_END: f32 = 2.0;
+pub(super) const INSET_START: f32 = 11.0;
+pub(super) const INSET_END: f32 = 3.0;
 /// The sidebars' shared spring, "smooth" (`panel-motion.ts`).
 pub(super) const SIDEBAR_SPRING: Spring = Spring::new(0.3, 0.0);
+/// A peek slides in and out on this (`sidebar-peek.ts`'s 0.18 s, no bounce).
+const PEEK_SPRING: Spring = Spring::new(0.18, 0.0);
+/// Under Reduce Motion a peek fades in place (`0.15s`).
+const PEEK_FADE: Spring = Spring::new(0.15, 0.0);
 /// How far a closed panel's contents dim at the end of the flight.
 pub(super) const FADE_FLOOR: f32 = 0.5;
+/// A side tab's height plus the strip's 3pt gap: one row of the vertical strip.
+#[cfg(test)]
+pub(super) const TAB_PITCH: f32 = 28.0 + 3.0;
+/// The peek's edge zone (`sidebar-peek.ts`): 24pt in from the window's start, from 56pt below
+/// the sidebar's top, and the corridor around the toggle and the peek that holds it open.
+const EDGE_W: f32 = 24.0;
+const EDGE_TOP: f32 = 56.0;
+const CORRIDOR: f32 = 15.0;
 
-/// Home, Search sessions and New session (`data-titlebar-tab-action`).
+/// Home, Search sessions and New session (`data-titlebar-tab-action`): 28pt rows, `px-2 gap-2`,
+/// faint until hovered or pressed, their keys showing on hover.
 pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, hint: &str, pressed: bool) -> El {
     let ink = if pressed { p.text } else { p.faint };
     let mut r = row()
@@ -25,12 +41,11 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         .label(label)
         .h(28.0)
         .w_full()
-        .pl(6.0)
-        .pr(8.0)
-        .gap(6.0)
+        .px(8.0)
+        .gap(8.0)
         .center_y()
         .radius(6.0)
-        .hover(p.hover)
+        .hover(if pressed { p.pressed } else { p.hover })
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(ink).group_color(p.text))
@@ -39,37 +54,45 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         r = r.fill(p.pressed);
     }
     if !hint.is_empty() {
-        r = r.child(spacer()).child(text(hint).font(UI).color(p.faint).group_opacity(0.0, 1.0));
+        // `hidden group-hover:block`: no room is kept for it at rest, so the label never fades early.
+        r = r.child(row().key("hint").pin(None, Some(0.0), Some(8.0), Some(0.0)).center_y().child(text(hint).font(UI).color(p.faint)).group_opacity(0.0, 1.0));
     }
     r
 }
 
+/// The docked sidebar: its aside's width moves the panel's edge while its contents keep their
+/// width, pinned to that edge. Top tabs keep the aside at no width, empty.
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
-    let current = match &s.route {
-        Route::Session(id) if !s.settings.open => Some(s.root_of(id)),
-        Route::Draft(id) if !s.settings.open => Some(id.as_str()),
-        _ => None,
-    };
-    // No gap: each tab's hit area takes half the space to its neighbours (see `tab_row`).
-    let mut list = col().key("tabs").w_full().pb(16.0);
-    for (i, t) in s.tabs.iter().enumerate() {
-        list = list.child(tab_row(s, p, t, i, current == Some(t.id.as_str()), s.tabs.len()));
+    let aside = el().key("sidebar").role("navigation").h_full().clip_soft(0.0).motion(SIDEBAR_SPRING);
+    if !s.tab_layout().has_sidebar() {
+        return aside.w(0.0);
     }
-
     let w = s.sidebar_w;
-    let chrome = chrome();
-    let inner = col()
+    let open = s.sidebar_open;
+    // A peek shows the contents over the panel instead; the aside keeps none meanwhile.
+    if !open && s.layout.peek.shown() {
+        return aside.w(0.0);
+    }
+    let inner = contents(s, p, chrome().top())
         .key("sidebar-inner")
-        // Pinned to the aside's end edge: it slides out as the aside narrows.
-        .absolute(if s.sidebar_open { 0.0 } else { -w }, 0.0)
-        .w(w)
+        .absolute(if open { 0.0 } else { -w }, 0.0)
+        .opacity(if open { 1.0 } else { FADE_FLOOR })
+        .opacity_motion(SIDEBAR_SPRING);
+    aside.w(if open { w } else { 0.0 }).child(inner)
+}
+
+/// What the sidebar holds, `w` wide from `top` down: the header line where the traffic lights
+/// share it, Home, Search sessions and New session, then the tabs (or the inbox).
+fn contents(s: &App, p: &Pal, top: f32) -> El {
+    let chrome = chrome();
+    let home = s.route == Route::Home && !s.settings.open;
+    col()
+        .w(s.sidebar_w)
         .h_full()
-        .pt(chrome.top())
+        .pt(top)
         .pl(INSET_START)
         .pr(INSET_END)
         .pb(10.0)
-        .opacity(if s.sidebar_open { 1.0 } else { FADE_FLOOR })
-        .opacity_motion(SIDEBAR_SPRING)
         // Shares the session header's 48px centre line with the traffic lights; drags the window.
         // A titlebar row above holds the toggle instead (`titlebar.tsx` on Windows).
         .children(chrome.sidebar_header().then(|| {
@@ -77,250 +100,119 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
                 .key("sidebar-header")
                 .w_full()
                 .h(48.0)
-                .mb(8.0)
+                .mb(2.0)
                 .gap(8.0)
                 .center_y()
                 .window_drag()
-                // The lights' end, less the sidebar's 10pt padding.
-                .child(el().key("lights").w((chrome.lights_end - 10.0).max(0.0)).h(28.0))
+                // The lights' end, less the sidebar's start padding.
+                .child(el().key("lights").w((chrome.lights_end - INSET_START).max(0.0)).h(28.0))
                 .child(spacer())
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
                 .child(el().key("toggle-slot").size(28.0, 28.0))
-        }));
-    let inner = inner.child(
-        col()
-            .key("actions")
-            .w_full()
-            .gap(4.0)
-            .child(action_row(p, "home", &ic::GRID_PLUS, "Home", &crate::keymap::Bind::Home.label(), s.route == Route::Home && !s.settings.open).on_press_tx(
-                |s: &mut App, tx: &mut Tx| s.go_home(tx),
-            ))
-            .child(action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", &crate::keymap::Bind::SessionSearch.label(), false).on_press_tx(
-                |s: &mut App, tx: &mut Tx| {
-                    s.close_settings();
-                    s.open_session_search(tx)
-                },
-            ))
-            .child(
-                action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false)
-                    .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
-                    // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
-                    .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx)),
-            ),
-    )
-    .child(el().key("tabs-gap").w_full().h(16.0))
-    .child(if s.tab_layout() == crate::layout_state::TabLayout::Inbox {
-        super::inbox::inbox(s, p, (INSET_START, INSET_END))
-    } else {
-        col()
-            .key("tabs-scroll")
-            .role("list")
-            .focus_group()
-            .w_full()
-            .grow(1.0)
-            .shrink()
-            .scroll(ScrollSpec { stick_bottom: false })
-            .clip_fade(0.0, 0.0, 0.0, 16.0)
-            .child(list)
-    })
-    .children(crate::updater::sidebar_pill(s, p));
-
-    // The aside's width moves the panel's edge; its contents keep their width, pinned to that edge.
-    el().key("sidebar")
-        .role("navigation")
-        .w(if s.sidebar_open { w } else { 0.0 })
-        .h_full()
-        
-        .clip_soft(0.0)
-        .motion(SIDEBAR_SPRING)
-        .child(inner)
-}
-
-/// A draft tab's pencil, drawn inline in `DraftTabItem` (not the catalog's `edit`).
-static DRAFT_PENCIL: Icon = Icon {
-    name: "draft-pencil",
-    view: 16.0,
-    body: r#"<path d="M9.00002 13.5H14M2.60419 10.9167V13.3958H5.08335L13.3959 5.08333L10.9167 2.60416L2.60419 10.9167Z" stroke="currentColor"/>"#,
-};
-
-pub(super) const TAB_H: f32 = 28.0;
-pub(super) const TAB_GAP: f32 = 4.0;
-/// How far a tab steps aside for a dragged one.
-pub(super) const TAB_PITCH: f32 = TAB_H + TAB_GAP;
-/// The tabs a dragged one passes step aside, and a dropped one settles, on this: Beta's
-/// sortable transition (250 ms, `cubic-bezier(0.25, 1, 0.5, 1)`) as a spring with no bounce.
-pub(super) const REORDER_SPRING: Spring = Spring::new(0.25, 0.0);
-
-/// Source-over of straight-alpha colours, for a lifted tab that hides the rows it passes.
-pub(super) fn over(top: Color, bottom: Color) -> Color {
-    let a = top.a + bottom.a * (1.0 - top.a);
-    if a <= 0.0 {
-        return Color::TRANSPARENT;
-    }
-    let mix = |t: f32, b: f32| (t * top.a + b * bottom.a * (1.0 - top.a)) / a;
-    Color { r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a }
-}
-
-/// A tab's hit area spans half the gap to each neighbour, so the pointer is always over one tab
-/// (Beta's "fill vertical tab hover gaps"). Only the 28pt pill inside it paints.
-pub(crate) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, active: bool, count: usize) -> El {
-    let draft = t.is_draft();
-    let info = s.session(&t.id);
-    let title = match info {
-        _ if draft => crate::tabs::tab_title(""),
-        Some(i) => crate::tabs::tab_title(&i.title),
-        None => crate::tabs::tab_title(&t.title),
-    };
-    let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
-    let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
-    let proj = project_or_dir(project, dir);
-    let status = s.tab_status(&t.id);
-    // The title fades out before the status/close slot (`--tab-title-fade-offset`).
-    let fade_offset = if active || status.is_some() { 24.0 } else { 4.0 };
-    // 4px from the row's end; the row spans the sidebar less its 10 + 2 padding.
-    let slot_x = s.sidebar_w - 12.0 - 24.0;
-    let id = t.id.clone();
-    let hover_id = t.id.clone();
-    let nav_ids: Vec<_> = s.tabs.iter().map(|t| t.id.clone()).collect();
-    let close_id = t.id.clone();
-    let before = if index > 0 { TAB_GAP / 2.0 } else { 0.0 };
-    let after = if index + 1 < count { TAB_GAP / 2.0 } else { 0.0 };
-    let dragging = s.tab_drag.dragging() == Some(index);
-    let target = Target::new(&t.id, Spot::Tab);
-    let marked = s.menus.on.as_ref() == Some(&target);
-    let rename_id = target.clone();
-    let mut hit = col()
-        .key(format!("t-{}", t.id))
-        .role("button")
-        .label(title.clone())
-        .w_full()
-        .h(before + TAB_H + after)
-        .pt(before)
-        .pb(after)
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            tx.live_only();
-            if inside { s.prefetch_session(&hover_id); }
-        })
-        .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev))
-        // Desktop's tab title: a double click renames it in place.
-        .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.begin_rename(&rename_id);
-        })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            // A drag's release lands on the lifted tab, which isn't a click (Beta's vertical
-            // tabs don't open on a drag either).
-            if !s.tab_drag.was_drag() {
-                s.select_tab(&id, tx);
-            }
-        })
-        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| match d.phase {
-            Phase::Down => s.tab_drag.press(),
-            Phase::Move => {
-                tx.animated();
-                let count = s.tabs.len();
-                s.tab_drag.follow(index, count, d.dy / s.zoom, TAB_PITCH);
-            }
-            Phase::Up => {
-                let on_tab = (0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y);
-                if let Some((from, to)) = s.tab_drag.end(d.cancelled(), on_tab) {
-                    s.move_tab(from, to);
-                }
-            }
-        });
-    let mut r = row()
-        .key("pill")
-        .w_full()
-        .h(TAB_H)
-        .radius(6.0)
+        }))
         .child(
-            el().key("hover")
-                .absolute(0.0, 0.0)
+            col()
+                .key("actions")
                 .w_full()
-                .h(TAB_H)
-                .radius(6.0)
-                .fill(p.hover)
-                .group_opacity(0.0, if dragging { 0.0 } else { 1.0 }),
-        )
-        .child(
-            row()
-                .key("link")
-                .grow(1.0)
-                .shrink()
-                .min_w(0.0)
-                .h_full()
-                .pl(6.0)
-                .mr(fade_offset + 6.0)
-                .gap(6.0)
-                .center_y()
-                .clip_fade(0.0, 0.0, 16.0, 0.0)
-                .child(if draft {
-                    icon(&DRAFT_PENCIL, 16.0).color(if active { p.icon } else { p.icon_muted })
-                } else {
-                    crate::icons::badge(s, p, project, &proj)
-                })
-                .child(match crate::session_menu_view::field(s, p, &target, UI_MED) {
-                    Some(field) => field,
-                    None => text(title).font(UI_MED).color(if active { p.text } else { p.faint }),
-                }),
-        )
-        .child(
-            // Status and close share the slot; hovering the row swaps one for the other.
-            el().key("status")
-                .absolute(slot_x, 4.0)
-                .size(20.0, 20.0)
-                .center()
-                .group_opacity(1.0, 0.0)
-                .child(match status {
-                    Some(TabStatus::Busy) => activity_ring(p),
-                    Some(TabStatus::Attention) => el().size(7.0, 7.0).radius(3.5).fill(p.warning),
-                    Some(TabStatus::Unread) => el().size(7.0, 7.0).radius(3.5).fill(p.bg_accent),
-                    None => el(),
-                }),
-        )
-        .child(
-            el().key("close")
-                .role("button")
-                .label("Close tab")
-                .absolute(slot_x, 4.0)
-                .size(20.0, 20.0)
-                .radius(4.0)
-                .center()
-                .fill(p.bg_deep)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .group_opacity(0.0, 1.0)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&close_id, tx))
+                .gap(3.0)
                 .child(
-                    el().key("close-ink")
-                        .size(20.0, 20.0)
-                        .radius(4.0)
-                        .center()
-                        .fill(if active { p.pressed } else { p.hover })
-                        .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted)),
+                    action_row(p, "home", &ic::GRID_PLUS, "Home", &crate::keymap::Bind::Home.label(), home)
+                        .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
+                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                            s.toggle_home(tx);
+                        }),
+                )
+                .child(
+                    action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", &crate::keymap::Bind::SessionSearch.label(), false)
+                        .matched(super::titlebar::NAV_SEARCH).matched_crop().motion(GLIDE)
+                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                            s.close_settings();
+                            s.open_session_search(tx)
+                        }),
+                )
+                .child(
+                    action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false)
+                        .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
+                        .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
+                        // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
+                        .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx)),
                 ),
-        );
-    if active {
-        r = r.fill(p.pressed);
-    } else if marked {
-        r = r.fill(p.hover);
+        )
+        .child(el().key("tabs-gap").w_full().h(16.0))
+        .child(list(s, p))
+        .children(crate::updater::sidebar_pill(s, p))
+}
+
+/// The sidebar's list: the side tabs, or the inbox.
+fn list(s: &App, p: &Pal) -> El {
+    match s.tab_layout() {
+        // A switch crossfades the whole list: its rows, most out of view, don't each fade in.
+        crate::layout_state::TabLayout::Inbox if s.switching_layout() => super::inbox::inbox(s, p, (INSET_START, INSET_END)).instant_changes(),
+        crate::layout_state::TabLayout::Inbox => super::inbox::inbox(s, p, (INSET_START, INSET_END)),
+        _ => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
     }
-    if dragging {
-        // Beta lifts it with the pressed overlay alone; here it's opaque on the sidebar's deep
-        // background so the rows it passes don't show through.
-        r = r.fill(over(p.pressed, p.bg_deep));
+}
+
+/// The collapsed sidebar's hover peek (`sidebar-peek.ts`): the sidebar slides over the panel
+/// from the window's start, lifted on the deep background, without moving the panel. The
+/// pointer resting at the start edge or on the toggle brings it; straying past the corridor
+/// around it and the toggle sends it back. None while the sidebar is docked or has no peek.
+pub(crate) fn peek(s: &App, p: &Pal) -> Vec<El> {
+    if !s.tab_layout().has_sidebar() || s.sidebar_open && !s.layout.peek.handed_off() {
+        return vec![];
     }
-    // Its layout and its step aside share one spring, so a drop that swaps one for the other
-    // leaves a passed tab still and slides the dropped one from where it was drawn.
-    // Tab visits the open tab; the arrows rove from there, and the menu key opens its menu.
-    hit = crate::session_menu::on(hit.focusable(true).focus_selected(active), Target::new(&t.id, Spot::Tab)).child(r).motion(REORDER_SPRING).offset(0.0, s.tab_drag.shift(index, TAB_PITCH));
-    if dragging {
-        // It follows the pointer exactly.
-        hit = hit.raise().offset_motion(INSTANT);
+    let chrome = chrome();
+    let below = chrome.row_h;
+    let edge = el()
+        .key("peek-edge")
+        .pin(Some(0.0), Some(chrome.top() + EDGE_TOP), None, Some(0.0))
+        .w(EDGE_W)
+        .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
+            tx.live_only();
+            let keep_open = s.popup.is_open();
+            let can_start_edge = inside && can_peek(s);
+            s.queue_peek(PeekEvent::Pointer { can_start_edge, keep_open }, tx);
+        });
+    let state = s.layout.peek;
+    if !state.shown() {
+        return vec![edge];
     }
-    hit
+    let w = s.sidebar_w;
+    let reduced = s.reduced_motion;
+    let leaving = matches!(state, SidebarPeekState::Leaving { .. });
+    let (x, opacity) = match (leaving, reduced) {
+        (true, false) => (-w, 1.0),
+        (true, true) => (0.0, 0.0),
+        _ => (0.0, 1.0),
+    };
+    let mut surface = contents(s, p, chrome.top() - below)
+        .key("peek-surface")
+        .fill(p.bg_deep)
+        .offset(x, 0.0)
+        .offset_motion(PEEK_SPRING)
+        .opacity(opacity)
+        .opacity_motion(if reduced { PEEK_FADE } else { PEEK_SPRING })
+        .transition(if reduced { rune::Transition::opacity() } else { rune::Transition::offset(-w, 0.0) });
+    if !state.handed_off() {
+        surface = surface.shadow(12.0, 16.0, p.shadow).shadow(1.0, 2.0, p.shadow);
+    }
+    // The corridor: the peek and the room around it hold it open.
+    let corridor = el()
+        .key("peek-corridor")
+        .pin(Some(0.0), Some(below), None, Some(0.0))
+        .w(w + CORRIDOR)
+        .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
+            tx.live_only();
+            let keep_open = inside || s.popup.is_open() || s.menus.rename.is_some();
+            s.queue_peek(PeekEvent::Pointer { can_start_edge: false, keep_open }, tx);
+        })
+        .child(surface);
+    vec![corridor]
+}
+
+/// Nothing holds the pointer elsewhere: no drag, resize or menu.
+fn can_peek(s: &App) -> bool {
+    !s.popup.is_open() && s.tab_drag.dragging().is_none() && s.sidebar_drag.is_none() && s.menus.confirm.is_none()
 }
 
 /// The sidebar edge's resize handle: an 8px hit area across the gap, with a pill that waits a
@@ -361,30 +253,52 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
         )
 }
 
-/// One toggle that reads as the header's and the collapsed one: it rides the sidebar's edge
-/// to the collapsed spot past the traffic lights while its glyph turns (`sidebar-toggle.tsx`).
-pub(super) fn sidebar_toggle(p: &Pal, open: bool, w: f32) -> El {
-    let (x, y) = chrome().toggle_at(open, w);
-    el().key("sidebar-toggle")
+/// The sidebar toggle (`SidebarToggle`, ghost-muted large): the open glyph or the closed one,
+/// with the unread badge while the closed sidebar hides an unread tab. Resting on it while the
+/// sidebar is closed peeks it; a press docks it.
+pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
+    let unread = !open && s.tabs.iter().any(|t| Some(&t.id) != s.current_tab().as_ref() && s.tab_unread(&t.id));
+    let mut b = el()
+        .key("sidebar-toggle")
         .role("button")
-        .label("Toggle sidebar")
-        .absolute(x, y)
+        .label(if unread { "Toggle sidebar, unread sessions" } else { "Toggle sidebar" })
+        .help(crate::keymap::Bind::Sidebar.hint("Toggle sidebar"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .motion(SIDEBAR_SPRING)
-        .on_press(|s: &mut App| s.sidebar_open = !s.sidebar_open)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            s.toggle_sidebar(tx);
+        })
+        .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
+            tx.live_only();
+            let event = if inside { PeekEvent::ToggleEnter { can_peek: !s.sidebar_open && can_peek(s) } } else { PeekEvent::ToggleLeave };
+            s.queue_peek(event, tx);
+        })
         .child(icon(&ic::LAYOUT_LEFT_FULL, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
-        .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING))
+        .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING));
+    if unread {
+        // `UnreadBadge`: a 7pt accent dot on the glyph's corner in a 1.5pt ring of the ground.
+        let ring = 7.0 + 3.0;
+        b = b.child(el().key("unread").absolute(6.0 + 16.0 - ring / 2.0 - 1.0, 6.0 - ring / 2.0 + 1.0).size(ring, ring).radius(ring / 2.0).fill(p.bg_deep).center().child(el().size(7.0, 7.0).radius(3.5).fill(p.bg_accent)));
+    }
+    b
+}
+
+/// One toggle that reads as the header's and the collapsed one: it rides the sidebar's edge
+/// to the collapsed spot past the traffic lights while its glyph turns (`sidebar-toggle.tsx`).
+pub(super) fn sidebar_toggle(s: &App, p: &Pal, open: bool, w: f32) -> El {
+    let (x, y) = chrome().toggle_at(open, w);
+    toggle_button(s, p, open).absolute(x, y).motion(SIDEBAR_SPRING)
 }
 
 /// Room the session header keeps for the collapsed toggle.
 pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
-    el().key("toggle-space").w(chrome().toggle_space(s.sidebar_open)).h(28.0).motion(SIDEBAR_SPRING)
+    let open = s.sidebar_open || !s.tab_layout().has_sidebar();
+    el().key("toggle-space").w(chrome().toggle_space(open)).h(28.0).motion(SIDEBAR_SPRING)
 }
 
 /// Desktop's activity spinner, "Soft Radar": a 5×5 dot matrix whose sweep head steps clockwise

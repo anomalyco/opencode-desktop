@@ -100,14 +100,9 @@ pub fn view(s: &App, p: &Pal) -> El {
 
 /// The sidebar's tabs, as the app draws them.
 fn tabs(s: &App, p: &Pal, menu: Option<El>) -> El {
-    let mut list = col().key("story-tabs").w_full().pb(16.0);
-    let current = first(s);
-    let count = s.tabs.len().min(4);
-    for (i, tab) in s.tabs.iter().take(count).enumerate() {
-        list = list.child(view::tab_row(s, p, tab, i, tab.id == current, count));
-    }
-    let side = col().key("story-sidebar").w(s.sidebar_w).pt(8.0).pl(10.0).pr(2.0).fill(p.bg_deep).radius(10.0).child(list);
-    let stage = el().key("story-stage").w_full().h(300.0).child(side).child(row().key("story-tab-0").absolute(10.0, 8.0).w(s.sidebar_w - 12.0).h(28.0));
+    let list = view::tab_strip(s, p, "story-tabs", rune_kit::shell::TabOrientation::Vertical, None, None);
+    let side = col().key("story-sidebar").w(s.sidebar_w).h(280.0).pt(8.0).pl(11.0).pr(3.0).fill(p.bg_deep).radius(10.0).child(list);
+    let stage = el().key("story-stage").w_full().h(300.0).child(side).child(row().key("story-tab-0").absolute(11.0, 8.0).w(s.sidebar_w - 14.0).h(28.0));
     place(stage, menu, 36.0 + 8.0, 40.0)
 }
 

@@ -15,7 +15,7 @@ pub enum Action {
     Tab(i32),
     /// Previous or next tab with an unread mark, wrapping.
     UnreadTab(i32),
-    /// ⌘1 to ⌘8 pick that tab, ⌘9 the last.
+    /// ⌘1 to ⌘9 pick the tab, or inbox row, with that number.
     TabAt(usize),
     NewSession,
     OpenProject,

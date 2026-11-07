@@ -139,7 +139,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         let [win_w, win_h] = cx
             .layout_size("window")
             .unwrap_or([1280.0 / s.zoom, 820.0 / s.zoom]);
-        let left_w = if s.sidebar_open { s.sidebar_w } else { 0.0 };
+        let left_w = s.sidebar_shown_w();
         let max_h = (win_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
         let h = s.side.dock_height.clamp(DOCK_MIN_H, max_h);
         let slot_h = if open { h + 16.0 } else { 0.0 };

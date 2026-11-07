@@ -179,7 +179,7 @@ fn table() -> Vec<Binding> {
         hidden(Tab6, "tab.6", "Go to tab 6", Navigation, on("mod+6")),
         hidden(Tab7, "tab.7", "Go to tab 7", Navigation, on("mod+7")),
         hidden(Tab8, "tab.8", "Go to tab 8", Navigation, on("mod+8")),
-        hidden(Tab9, "tab.9", "Go to last tab", Navigation, on("mod+9")),
+        hidden(Tab9, "tab.9", "Go to tab 9", Navigation, on("mod+9")),
         row(GoBack, "common.goBack", "Back", Navigation, on("mod+[")),
         row(GoForward, "common.goForward", "Forward", Navigation, on("mod+]")),
         row(Find, "session.find", "Find in session", Session, on("mod+f")),

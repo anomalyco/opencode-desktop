@@ -32,6 +32,11 @@ impl Scheme {
     fn label(self) -> &'static str {
         match self { Self::System => "System", Self::Light => "Light", Self::Dark => "Dark" }
     }
+
+    /// `"system"`, `"light"` or `"dark"`; the system's otherwise.
+    pub fn parse(name: &str) -> Scheme {
+        Self::ALL.into_iter().find(|s| s.name() == name).unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -245,7 +250,9 @@ const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const SECTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 
 pub fn page(s: &App, p: &Pal) -> El {
-    let general = settings_card(p, "settings-list", [
+    // Desktop's first General row, its control at the row's top (`align="start"`).
+    let layout = setting_at(p, "interface-mode", "Interface layout", "Choose how you switch between sessions and keep track of what's running", interface_mode::control(s, p), true, false);
+    let general = settings_card_led(p, "settings-list", Some(layout), [
         ("agent-picker", "Show agent picker", "Choose the agent from the composer. Hidden, the last agent still applies.",
             switch(p, "show-agent", s.settings.show_agent).on_press(|s: &mut App| s.set_show_agent(!s.settings.show_agent))),
         ("fold-user", "Fold long messages", "Fold your messages past 12 lines behind a Read more button",
@@ -358,9 +365,14 @@ fn notification_list(s: &App, p: &Pal) -> El {
 }
 
 pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
+    settings_card_led(p, key, None, items)
+}
+
+/// A card whose first row, `lead`, is built apart.
+fn settings_card_led<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str, lead: Option<El>, items: impl IntoIterator<Item = (K, &'a str, D, El)>) -> El {
     let items: Vec<_> = items.into_iter().collect();
     let n = items.len();
-    let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
+    let mut list = col().key(key).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).children(lead);
     for (i, (k, title, description, control)) in items.into_iter().enumerate() {
         list = list.child(setting(p, k.as_ref(), title, description.as_ref(), control, i + 1 < n));
     }
@@ -368,12 +380,17 @@ pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str
 }
 
 fn setting(p: &Pal, key: &str, title: &str, description: &str, control: El, divider: bool) -> El {
+    setting_at(p, key, title, description, control, divider, true)
+}
+
+/// A row; its control centred on the text, or at its top (`SettingsRow align="start"`).
+fn setting_at(p: &Pal, key: &str, title: &str, description: &str, control: El, divider: bool, centred: bool) -> El {
     let r = row()
         .key(format!("setting-{key}"))
         .w_full()
         .gap(16.0)
-        .py(20.0)
-        .center_y()
+        .py(20.0);
+    let r = if centred { r.center_y() } else { r }
         .child(
             col()
                 .grow(1.0)
@@ -471,6 +488,7 @@ pub(crate) fn zoom_control(s: &App, p: &Pal) -> El {
         .child(step("zoom-in", "+", 1))
 }
 
+mod interface_mode;
 pub mod pages;
 mod stories;
 #[cfg(test)]

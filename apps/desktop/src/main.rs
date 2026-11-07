@@ -269,6 +269,8 @@ pub enum TabStatus {
     Busy,
     Attention,
     Unread,
+    /// Unread, and its run failed.
+    Failed,
 }
 
 #[derive(Default)]
@@ -304,8 +306,8 @@ pub struct App {
     pub diagram: diagram::Diagrams,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
     pub tabs: Vec<Tab>,
-    /// A tab being dragged to a new place in the sidebar.
-    pub tab_drag: tabs::Reorder,
+    /// The tab strip's gestures: a press, a drag to a new place, the width a close holds.
+    pub tab_drag: rune_kit::shell::TabDragState,
     /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
     pub closed: tabs::Closed,
     /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
@@ -758,6 +760,10 @@ impl App {
     fn new() -> App {
         let mut app = Self::load();
         appearance::apply_args(&mut app);
+        if let Some(layout) = arg("--tab-layout") {
+            app.settings.tab_layout = layout_state::TabLayout::parse(Some(&layout));
+            app.layout = layout_state::Shell::at_rest(app.settings.tab_layout);
+        }
         app.apply_appearance();
         if let Some(name) = arg("--preset") {
             knobs::apply_preset(&mut app, &name);
@@ -893,12 +899,8 @@ impl App {
             Action::ZoomReset => self.zoom_by(0, tx),
             Action::Tab(offset) => self.select_adjacent(offset, false, tx),
             Action::UnreadTab(offset) => self.select_adjacent(offset, true, tx),
-            Action::TabAt(i) => {
-                let id = if i == 8 { self.tabs.last() } else { self.tabs.get(i) }.map(|t| t.id.clone());
-                if let Some(id) = id {
-                    self.select_tab(&id, tx);
-                }
-            }
+            // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
+            Action::TabAt(i) => self.select_nth(i, tx),
             Action::NewSession => self.new_session(tx),
             Action::OpenProject => self.open_project_dialog(tx),
             Action::SelectProject => self.toggle_project_switcher(tx),

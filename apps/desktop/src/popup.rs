@@ -6,7 +6,7 @@
 //! they take the theme, the keyboard, the window's zoom and headless captures. A menu drawn on
 //! every platform (the side panel's) opens with [`open_drawn`].
 
-use rune::{Align, El, Icon, Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, Side, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, El, Icon, Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, Side, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
@@ -104,6 +104,13 @@ enum Look {
     Standard,
 }
 
+/// A search field over a drawn menu's rows, which `rows` rebuilds from what's typed.
+#[derive(Clone, Debug, PartialEq)]
+struct Search {
+    placeholder: String,
+    rows: fn(&App, &str) -> Menu,
+}
+
 /// A menu's rows, where it opens beside an element, and how narrow it may be.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Menu {
@@ -122,12 +129,20 @@ pub struct Menu {
     side: Side,
     /// Presses on it leave the focused field focused (`El::keeps_text_selection`).
     keeps_focus: bool,
+    search: Option<Search>,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false, search: None }
+    }
+
+    /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
+    /// menu for what's typed, and the arrows and Enter move through what it lists.
+    pub fn search(mut self, placeholder: impl Into<String>, rows: fn(&App, &str) -> Menu) -> Menu {
+        self.search = Some(Search { placeholder: placeholder.into(), rows });
+        self
     }
 
     /// A picker: one checked-when-current row per `(id, title)`, lined up with the end of the
@@ -242,6 +257,9 @@ struct SubOpen {
 #[derive(Default)]
 pub struct Popup {
     shown: Option<Shown>,
+    /// A searchable menu's field, and the query its rows were last lit for.
+    query: TextEdit,
+    lit_for: String,
 }
 
 impl Popup {
@@ -270,7 +288,15 @@ pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &
     if let Some(id) = menu.selected.clone() {
         tx.scroll_into_view(row_key(&id));
     }
+    // The search field takes the keys while it's open, as Desktop's does once it opens.
+    s.popup.query = TextEdit::new("");
+    s.popup.query.focused = menu.search.is_some();
+    s.popup.lit_for.clear();
+    if menu.search.is_some() {
+        s.composer.focused = false;
+    }
     s.popup.shown = Some(Shown { menu, anchor: anchor.into(), active, sub: None, pick: Box::new(pick) });
+    refresh(s);
     popover::motion::opening(&s.knobs, tx);
 }
 
@@ -279,15 +305,32 @@ pub fn dismiss(s: &mut App, tx: &mut Tx) {
     close(s, None, tx);
 }
 
+/// A searchable menu's rows for what's typed now; when the query changed since its rows were
+/// lit, the first one it lists lights.
+fn refresh(s: &mut App) {
+    let Some(search) = s.popup.shown.as_ref().and_then(|m| m.menu.search.clone()) else { return };
+    let query = s.popup.query.text.clone();
+    let menu = Menu { search: Some(search.clone()), ..(search.rows)(s, &query) };
+    let Some(shown) = s.popup.shown.as_mut() else { return };
+    let changed = s.popup.lit_for != query || shown.menu.entries != menu.entries;
+    shown.menu = menu;
+    if changed {
+        shown.active = shown.menu.offered().first().copied();
+        s.popup.lit_for = query;
+    }
+}
+
 /// Closes the drawn menu, answering `picked`. Nothing when none is open.
 fn close(s: &mut App, picked: Option<&str>, tx: &mut Tx) {
     let Some(shown) = s.popup.shown.take() else { return };
+    s.popup.query.focused = false;
     popover::motion::closing(&s.knobs, tx);
     (shown.pick)(s, picked, tx);
 }
 
 /// Picks row `n`, if it's offered.
 fn choose(s: &mut App, n: usize, tx: &mut Tx) {
+    refresh(s);
     let Some(id) = s.popup.shown.as_ref().and_then(|m| m.menu.item_at(n)).filter(|i| i.enabled).map(|i| i.id.clone()) else { return };
     close(s, Some(&id), tx);
 }
@@ -315,6 +358,14 @@ fn open_sub(s: &mut App, n: usize, keys: bool, tx: &mut Tx) {
 /// → or Enter opens a submenu and ← closes it, Enter or Space picks, Esc and Tab dismiss. It
 /// takes every key while it's open.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if s.popup.shown.as_ref().is_some_and(|m| m.menu.search.is_some()) {
+        refresh(s);
+        // Typing and moving in the search field are the field's; the rest move in the menu.
+        let field = !matches!(ev.key, Key::Escape | Key::Tab | Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Enter);
+        if field {
+            return false;
+        }
+    }
     let Some(shown) = s.popup.shown.as_mut() else { return false };
     let in_sub = shown.sub.is_some_and(|o| o.active.is_some());
     match &ev.key {
@@ -419,8 +470,19 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         }
         return layer;
     }
+    // A searchable menu lists what matches the field as it is now.
+    let fresh = shown.menu.search.as_ref().map(|search| {
+        let query = &s.popup.query.text;
+        let menu = Menu { search: Some(search.clone()), ..(search.rows)(s, query) };
+        let active = if s.popup.lit_for == *query { shown.active } else { menu.offered().first().copied() };
+        (menu, active)
+    });
+    let (listed, active) = match &fresh {
+        Some((menu, active)) => (menu, *active),
+        None => (&shown.menu, shown.active),
+    };
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
-    let menu = drawn(s, p, &shown.menu, shown.active);
+    let menu = drawn(s, p, listed, active);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
     layer.push(popover::place(&s.knobs, menu, &anchor, side, align, gap));
     layer
@@ -439,6 +501,9 @@ fn drawn(s: &App, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
 
 fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
     let mut list = popover::List::new("popup-rows", MENU);
+    if let (Some(s), Some(search)) = (s, &menu.search) {
+        list.other(search_field(s, p, &search.placeholder), SEARCH_H);
+    }
     let role = if menu.selected.is_some() { "menuitemradio" } else { "menuitem" };
     for (n, entry) in menu.entries.iter().enumerate() {
         match entry {
@@ -490,8 +555,76 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
     surface.child(list.build("popup-scroll", menu.max_h))
 }
 
+/// A searchable menu's field and the 4pt around it (`recently-closed-search m-1`): Desktop's
+/// 28pt `TextInput` with the magnifying glass, clear until hovered, focused or typed in, where it
+/// takes the hover wash, and its clear button once there's a query.
+const SEARCH_H: f32 = 28.0 + 8.0;
+
+fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
+    use rune_theme_opencode::icons as ic;
+    let k = crate::palette::kit(p);
+    let edit = &s.popup.query;
+    let typed = !edit.text.is_empty();
+    let input = rune::text_input(edit, INPUT)
+        .key("popup-search-input")
+        .single_line()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .color(p.text)
+        .placeholder(placeholder.to_owned(), p.faint)
+        .caret(p.text, p.selection)
+        .on_edit(|s: &mut App| &mut s.popup.query)
+        .on_input_key(|s: &mut App, ev, tx: &mut Tx| matches!(ev.key, Key::Up | Key::Down | Key::Escape | Key::Tab | Key::PageUp | Key::PageDown) && key(s, ev, tx))
+        .on_submit(|s: &mut App, tx: &mut Tx| {
+            refresh(s);
+            if let Some(n) = s.popup.shown.as_ref().and_then(|m| m.active) {
+                choose(s, n, tx);
+            }
+        });
+    let mut field = row()
+        .key("popup-search")
+        .role("search")
+        .w_full()
+        .h(28.0)
+        .pl(8.0)
+        .pr(8.0)
+        .gap(6.0)
+        .center_y()
+        .radius(6.0)
+        .hover(p.hover)
+        .child(rune::icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
+        .child(input);
+    if typed || edit.focused {
+        field = field.fill(p.hover);
+    }
+    if edit.focused {
+        field = field.border(1.0, k.c.border_focus);
+    }
+    if typed {
+        field = field.child(
+            el().key("popup-search-clear")
+                .role("button")
+                .label("Clear")
+                .size(16.0, 16.0)
+                .center()
+                .on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.popup.query = TextEdit::new("");
+                    s.popup.query.focused = true;
+                })
+                .child(rune::icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint).group_color(p.icon)),
+        );
+    }
+    row().key("popup-search-wrap").w_full().padding(4.0).child(field)
+}
+
+/// The search field's text: 13/440, the compact line height.
+const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
+
 /// The pointer over row `n`: it lights, and opens its submenu or closes the open one.
 fn hover(s: &mut App, n: usize) {
+    refresh(s);
     let Some(shown) = &mut s.popup.shown else { return };
     shown.active = Some(n);
     let opens = shown.menu.sub_at(n).is_some();

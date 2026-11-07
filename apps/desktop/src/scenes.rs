@@ -18,6 +18,12 @@ pub(crate) fn busy_scene(s: &mut App) {
     }
 }
 
+/// Shows the scene in side tabs rather than Desktop's default top tabs.
+pub(crate) fn side_tabs(s: &mut App) {
+    s.settings.tab_layout = crate::layout_state::TabLayout::Vertical;
+    s.layout = crate::layout_state::Shell::at_rest(s.settings.tab_layout);
+}
+
 /// A named scene: `--snap SCENE` and `--list-scenes`.
 pub(crate) type Scene = (&'static str, fn(&mut App));
 
@@ -43,6 +49,8 @@ const ORDER: &[&str] = &[
     "question-morph",
     "question-long",
     "sidebar-closed",
+    "layout-side-tabs",
+    "tab-overflow",
     "status",
     "tab-badges",
     "demo",
@@ -90,7 +98,23 @@ rune_register::register!(SCENE_LIST: Scene = [
     ("sidebar-closed", |s| {
         open_scene(s);
         s.finish_stream();
+        side_tabs(s);
         s.sidebar_open = false;
+    }),
+    // Settings › Interface layout: Side tabs, with the session open.
+    ("layout-side-tabs", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+    }),
+    // Top tabs past what the titlebar holds: they shrink to icons, then scroll.
+    ("tab-overflow", |s| {
+        open_scene(s);
+        s.finish_stream();
+        let dir = s.default_dir.clone();
+        for n in 1..=24 {
+            s.tabs.push(crate::tabs::Tab::session(format!("ses_overflow_{n:02}"), format!("Overflow tab {n}"), dir.clone()));
+        }
     }),
     ("status", |s| {
         open_scene(s);

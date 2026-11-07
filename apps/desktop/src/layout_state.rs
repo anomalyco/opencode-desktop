@@ -236,12 +236,14 @@ impl SidebarPeekState {
 }
 
 /// The two machines, kept on `App::layout`.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Shell {
     pub motion: LayoutMotionState,
     pub peek: SidebarPeekState,
     /// The pointer's last sample, for deadlines that ask whether it still qualifies.
     pointer: (bool, bool),
+    /// Events heard between polls, applied on the next one at its clock.
+    queued: Vec<PeekEvent>,
 }
 
 impl Shell {
@@ -264,29 +266,53 @@ impl App {
         self.layout.motion.target()
     }
 
-    /// Settings' Interface layout: saves the choice and starts the switch, which cancels any
-    /// peek when the new layout has no sidebar.
+    /// Settings' Interface layout: saves the choice and starts the switch. It ends a tab drag,
+    /// a rename and the peek first, so nothing is mid-gesture while the tabs fly.
     pub fn set_tab_layout(&mut self, layout: TabLayout, tx: &mut Tx) {
         if !self.layout.motion.switch(layout, self.clock) {
             return;
         }
         self.change_settings(|s| s.tab_layout = layout);
-        if !layout.has_sidebar() {
-            self.layout.peek_event(PeekEvent::Disabled, self.clock);
-        }
+        self.tab_drag.cancel();
+        self.finish_rename(true);
+        self.layout.peek_event(PeekEvent::Disabled, self.clock);
+        tx.animated();
+        // The tabs and Home, Search and New session fly between the titlebar and the sidebar,
+        // which clip them at either end; they fly above both.
+        tx.unclipped_flights();
         tx.wake_after(Duration::from_secs_f64(SWITCH_SECS));
+    }
+
+    /// Whether a layout switch's flights are still running.
+    pub fn switching_layout(&self) -> bool {
+        matches!(self.layout.motion, LayoutMotionState::Switching { .. })
+    }
+
+    /// Hands the peek `event`, applied on the next poll at its clock: handlers don't see the
+    /// clock, and a dwell must count from now.
+    pub fn queue_peek(&mut self, event: PeekEvent, tx: &mut Tx) {
+        if !self.tab_layout().has_sidebar() {
+            return;
+        }
+        self.layout.queued.push(event);
+        tx.wake_after(Duration::ZERO);
     }
 }
 
 /// Runs out the machines' deadlines on the poll clock, and wakes for the next one.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let shell = &mut s.layout;
+    let was = shell.peek;
+    for event in std::mem::take(&mut shell.queued) {
+        shell.peek_event(event, now);
+    }
+    let heard = shell.peek != was;
     let (edge, keep_open) = shell.pointer;
     let ready = match shell.peek {
         SidebarPeekState::Dwelling { from: PeekTrigger::Edge, .. } => edge,
         _ => true,
     };
-    let changed = shell.motion.tick(now) | shell.peek.tick(now, ready, keep_open);
+    let changed = heard | shell.motion.tick(now) | shell.peek.tick(now, ready, keep_open);
     if let Some(at) = [shell.motion.due(), shell.peek.due()].into_iter().flatten().reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64((at - now).max(0.0)));
     }

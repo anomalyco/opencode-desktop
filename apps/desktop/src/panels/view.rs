@@ -54,7 +54,7 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
     let reg = if on_session { s.resolve_side_region() } else { None };
     let dock_entry = if on_session { s.resolve_dock_entry() } else { None };
     let wide = reg.as_ref().is_some_and(|r| r.wide);
-    let left_w = if s.sidebar_open { s.sidebar_w } else { 0.0 };
+    let left_w = s.sidebar_shown_w();
     let w = s.side.effective_width(zoomed_w, left_w, wide);
 
     let tabs_open = on_session && s.side_open();
@@ -639,7 +639,7 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
         return None;
     }
     let wide = s.resolve_side_region().is_some_and(|r| r.wide);
-    let left_w = if s.sidebar_open { s.sidebar_w } else { 0.0 };
+    let left_w = s.sidebar_shown_w();
     let w = s.side.effective_width(zoomed_w, left_w, wide);
     let x = (zoomed_w - w - 16.0).max(0.0);
 

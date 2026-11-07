@@ -2,7 +2,7 @@
   "scene": "session", "secs": 3.0,
   "events": [
     {"t": 0.3, "type": "move", "key": "t-ses_fx0004aaaaaaaaaaaaaaaaaa"},
-    {"t": 0.5, "type": "tap", "key": "t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/close", "expect": "leaves", "element": "t-ses_fx0004aaaaaaaaaaaaaaaaaa"},
+    {"t": 0.5, "type": "tap", "key": "t-ses_fx0004aaaaaaaaaaaaaaaaaa/pill/status/close", "expect": "leaves", "element": "t-ses_fx0004aaaaaaaaaaaaaaaaaa"},
     {"t": 1.6, "type": "move", "x": 700, "y": 300}
   ]
 }

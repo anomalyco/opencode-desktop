@@ -11,7 +11,7 @@
       "t": 0.5,
       "type": "drag",
       "key": "t-ses_fx0003aaaaaaaaaaaaaaaaaa",
-      "dy": 110,
+      "dx": 260,
       "dur": 0.6,
       "expect": [
         "follow",
@@ -23,7 +23,7 @@
       "t": 1.8,
       "type": "drag",
       "key": "t-ses_fx0004aaaaaaaaaaaaaaaaaa",
-      "dy": -70,
+      "dx": -150,
       "dur": 0.4,
       "expect": "follow",
       "element": "t-ses_fx0004aaaaaaaaaaaaaaaaaa"

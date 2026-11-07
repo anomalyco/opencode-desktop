@@ -134,7 +134,7 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32) -> El {
     let effective_w = if panel_w > 0.0 {
         panel_w
     } else {
-        1280.0 / s.zoom.max(1e-3) - if s.sidebar_open { s.sidebar_w } else { 0.0 } - 16.0
+        1280.0 / s.zoom.max(1e-3) - s.sidebar_shown_w() - 16.0
     };
     let wide = effective_w >= WIDE_HOME_MIN_W;
 

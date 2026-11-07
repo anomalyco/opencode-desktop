@@ -9,6 +9,16 @@ use super::Run;
 pub fn open_zoom_close(r: &mut Run) {
     r.rt.update(|s, _| crate::diagram::stories::add(s));
     r.idle(1.0);
+    // A wide window draws the diagram taller (top tabs leave the column the whole width): bring
+    // its top, where the open button sits, into view.
+    for _ in 0..8 {
+        let top = r.timeline_rect()[1];
+        let open = r.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("diagram-open")).map(|e| e.rect);
+        if open.is_none_or(|b| b[1] >= top + 8.0) {
+            break;
+        }
+        r.scroll_up(120.0);
+    }
     let card = r.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("card") && e.path.contains("t-msg_zzwide1")).map(|e| e.rect).expect("the diagram's card");
     r.act("hover the diagram", |rt| rt.pointer_move(card[0] + card[2] / 2.0, card[1] + card[3] / 2.0));
     r.play(0.2);

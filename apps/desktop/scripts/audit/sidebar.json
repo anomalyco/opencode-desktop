@@ -1,5 +1,5 @@
 {
-  "scene": "session", "secs": 6.0,
+  "scene": "layout-side-tabs", "secs": 6.0,
   "events": [
     {"t": 0.3, "type": "move", "key": "sidebar-resize"},
     {"t": 0.9, "type": "drag", "key": "sidebar-resize", "dx": 140, "dur": 0.5, "expect": "follow", "element": "sidebar-resize"},

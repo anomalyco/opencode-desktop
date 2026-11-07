@@ -58,7 +58,43 @@ impl App {
         if attention {
             return Some(TabStatus::Attention);
         }
-        self.session(id).is_some_and(SessionInfo::unread).then_some(TabStatus::Unread)
+        let info = self.session(id).filter(|i| i.unread())?;
+        // As in the inbox, an unread run that failed gets the danger dot.
+        Some(if info.outcome.as_deref() == Some("failed") { TabStatus::Failed } else { TabStatus::Unread })
+    }
+
+    /// Whether tab `id` shows a dot for something new, failed or not.
+    pub(crate) fn tab_unread(&self, id: &str) -> bool {
+        matches!(self.tab_status(id), Some(TabStatus::Unread | TabStatus::Failed))
+    }
+
+    /// Home's button and ⌘B: Home, or back from it to the last tab.
+    pub(crate) fn toggle_home(&mut self, tx: &mut Tx) -> bool {
+        if self.route == Route::Home && !self.settings.open {
+            self.opening = None;
+            self.route = self.tabs.last().map_or(Route::Home, crate::tabs::Tab::route);
+            tx.settle();
+            return false;
+        }
+        self.go_home(tx);
+        true
+    }
+
+    /// ⇧⌘B and the sidebar toggle. Top tabs have no sidebar, so it does nothing there.
+    pub(crate) fn toggle_sidebar(&mut self, tx: &mut Tx) -> bool {
+        if !self.tab_layout().has_sidebar() {
+            return false;
+        }
+        self.sidebar_open = !self.sidebar_open;
+        let event = if self.sidebar_open { crate::layout_state::PeekEvent::DockOpened } else { crate::layout_state::PeekEvent::DockClosed };
+        self.layout.peek_event(event, self.clock);
+        tx.wake_after(std::time::Duration::from_secs_f64(crate::layout_state::PEEK_HANDOFF_TIMEOUT));
+        true
+    }
+
+    /// How wide the docked sidebar is: none for top tabs, or while it's closed.
+    pub(crate) fn sidebar_shown_w(&self) -> f32 {
+        if self.sidebar_open && self.tab_layout().has_sidebar() { self.sidebar_w } else { 0.0 }
     }
 
     /// The open draft's folder, where its session will start; off a draft, the folder last picked.
@@ -211,14 +247,53 @@ impl App {
         }
     }
 
+    /// The order the tab keys step through: the tabs, or in the inbox its rows as they show,
+    /// top to bottom, the Working shelf's while it's open.
+    pub(crate) fn nav_order(&self) -> Vec<String> {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
+            return self.tabs.iter().map(|t| t.id.clone()).collect();
+        }
+        let sections = self.inbox_sections();
+        let shelf = if self.restore.inbox.working_expanded { sections.working.len() } else { 0 };
+        let listed = sections.current.len() + sections.needs.len() + sections.unread.len() + sections.recent.len();
+        sections.rows().take(listed + shelf).map(|e| e.session.id.clone()).collect()
+    }
+
+    /// The tab, or inbox row, the open page belongs to.
+    fn nav_current(&self) -> Option<String> {
+        match (&self.route, self.tab_layout()) {
+            (Route::Session(id), crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(self.root_of(id).to_owned()),
+            _ => self.current_tab(),
+        }
+    }
+
+    /// Shows `id` from the tab keys: its tab, or in the inbox its row's session.
+    fn nav_select(&mut self, id: &str, tx: &mut Tx) {
+        match self.tab_layout() {
+            crate::layout_state::TabLayout::Inbox => self.open_inbox_session(id, tx),
+            _ => self.select_tab(id, tx),
+        }
+    }
+
+    /// ⌘1–⌘9: the `n`th tab, or inbox row, from the top.
+    pub(crate) fn select_nth(&mut self, n: usize, tx: &mut Tx) {
+        if let Some(id) = self.nav_order().get(n).cloned() {
+            self.nav_select(&id, tx);
+        }
+    }
+
+    /// ⌃Tab, ⌥↑ and ⌥↓, and with ⇧ the ones with something new: the next tab or inbox row that
+    /// way, wrapping (`adjacentTabKey`).
     pub(crate) fn select_adjacent(&mut self, offset: i32, unread_only: bool, tx: &mut Tx) {
-        let order: Vec<&str> = self.tabs.iter().map(|t| t.id.as_str()).collect();
-        let current = self.current_tab();
+        let order = self.nav_order();
+        let order: Vec<&str> = order.iter().map(String::as_str).collect();
+        let current = self.nav_current();
+        let inbox = self.tab_layout() == crate::layout_state::TabLayout::Inbox;
         let next = shortcuts::adjacent(&order, current.as_deref(), offset, |k| {
-            !unread_only || (Some(k) != current.as_deref() && self.tab_status(k) == Some(TabStatus::Unread))
+            !unread_only || (Some(k) != current.as_deref() && (self.tab_unread(k) || inbox && self.tab_status(k) == Some(TabStatus::Attention)))
         });
         if let Some(id) = next {
-            self.select_tab(&id, tx);
+            self.nav_select(&id, tx);
         }
     }
 }

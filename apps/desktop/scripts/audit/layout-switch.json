@@ -1,0 +1,12 @@
+{
+  "scene": "settings", "secs": 6.0,
+  "events": [
+    {"t": 0.6, "type": "move", "key": "interface-mode-side"},
+    {"t": 0.8, "type": "tap", "key": "interface-mode-side"},
+    {"t": 2.2, "type": "move", "key": "interface-mode-inbox"},
+    {"t": 2.4, "type": "tap", "key": "interface-mode-inbox"},
+    {"t": 3.8, "type": "move", "key": "interface-mode-top"},
+    {"t": 4.0, "type": "tap", "key": "interface-mode-top"},
+    {"t": 5.4, "type": "move", "x": 640, "y": 600}
+  ]
+}

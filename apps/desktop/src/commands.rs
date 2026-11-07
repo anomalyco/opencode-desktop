@@ -225,15 +225,19 @@ fn rename(s: &mut App, tx: &mut Tx) {
 }
 
 fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
-    tx.instant();
-    s.sidebar_open = !s.sidebar_open;
+    s.toggle_sidebar(tx);
+}
+
+/// Top tabs have no sidebar to toggle (`shell.tsx` registers the command for side tabs only).
+fn has_sidebar(s: &App) -> bool {
+    s.tab_layout().has_sidebar()
 }
 
 rune_register::register!(COMMANDS: Cmd = [
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
     Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new"),
     Cmd::new("home", "Home", |s, tx| s.go_home(tx)).keys(Bind::Home),
-    Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys(Bind::Sidebar),
+    Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
     Cmd::new("settings", "Open settings", |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
     Cmd::new("side", "Toggle review", |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
     Cmd::new("open-project", "Open project", |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),

@@ -322,7 +322,7 @@ impl Run {
         self.play(secs);
     }
 
-    fn timeline_rect(&self) -> [f32; 4] {
+    pub fn timeline_rect(&self) -> [f32; 4] {
         let key = format!("scroll-{SID}");
         self.rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).map(|e| e.rect).expect("a timeline")
     }

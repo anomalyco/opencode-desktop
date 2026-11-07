@@ -27,8 +27,11 @@ mod narrow;
 mod narrow_story;
 mod session;
 mod sidebar;
+mod tab_strip;
+mod titlebar;
 
 pub(crate) use chrome::*;
+pub(crate) use tab_strip::tab_strip;
 pub use composer::*;
 pub(crate) use draft::*;
 pub(crate) use header::*;
@@ -40,6 +43,9 @@ pub use sidebar::*;
 pub(crate) use session_view::composer::PROMPT;
 pub(crate) use session_view::style::{BUBBLE, CODE, CONTENT_W, DOCK_SIDE, DOCK_W, H2, INSTANT, UI, UI_MED, UI_SMALL};
 
+/// What a layout switch flies its tabs and controls on (`layouts-design.md`'s GLIDE).
+pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
+
 /// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
 /// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The
 /// outer, unscaled element is always mounted (it reports the window's size and keeps every
@@ -48,9 +54,15 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
-    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale);
-    // The caption buttons line up with the titlebar row at every zoom.
-    cx.titlebar_height(titlebar_height(s.zoom));
+    let layout = s.tab_layout();
+    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout);
+    // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
+    // lights move to the layout's titlebar.
+    if cfg!(target_os = "macos") {
+        cx.set_titlebar(mac_titlebar(layout, s.zoom));
+    } else {
+        cx.titlebar_height(titlebar_height(s.zoom));
+    }
     cx.caption_color(caption_color(p.bg_deep));
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
     // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
@@ -137,7 +149,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.reduced_motion(s.reduced_motion);
     let w = s.sidebar_w;
-    let open = s.sidebar_open;
+    let side_tabs = s.tab_layout().has_sidebar();
+    let open = s.sidebar_open && side_tabs;
     let win_w = if s.right_column_open() {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
     } else {
@@ -192,10 +205,12 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
         // it's the titlebar row itself.
         .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag());
+    if let Some(bar) = titlebar::titlebar(s, p, cx) {
+        root = root.child(el().key("titlebar-band").pin(Some(0.0), Some(0.0), Some(0.0), None).h(chrome().row_h).child(bar));
+    }
     if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
-        let left = if open { w } else { 0.0 };
         root = root.child(
-            dock.pin(Some(left), None, Some(0.0), Some(0.0))
+            dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
                 .motion(crate::panels::view::SIDE_SPRING),
         );
     }
@@ -208,9 +223,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(toggle) = crate::panels::view::side_toggle(s, p) {
         root = root.child(toggle);
     }
-    root = root.child(sidebar_toggle(p, open, w));
-    if let Some(at) = chrome().menu_at() {
-        root = root.child(crate::app_menu::button(s, p, at));
+    root = root.children(sidebar::peek(s, p));
+    // Without a titlebar row, the toggle rides the sidebar header's line (`sidebar-toggle.tsx`).
+    if side_tabs && chrome().sidebar_header() {
+        root = root.child(sidebar_toggle(s, p, s.sidebar_open, w));
     }
     root = root.children(crate::plugin_host::titlebar_items(s, p));
     // Plugins' `window.bottom` slot (a debug bar) runs across the window's foot.

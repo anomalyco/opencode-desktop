@@ -116,12 +116,16 @@ fn apply_font_args(settings: &mut crate::settings::Settings) {
     }
 }
 
-/// `--color-theme <id>` paints a run in one of Desktop's themes (`themes::all`); `--ui-font`
-/// and `--code-font` pick its fonts.
+/// `--color-theme <id>` paints a run in one of Desktop's themes (`themes::all`), `--scheme
+/// light|dark|system` in one of its modes; `--ui-font` and `--code-font` pick its fonts.
 pub fn apply_args(app: &mut App) {
     let args = rune::extra_args();
-    if let Some(id) = args.iter().position(|a| a == "--color-theme").and_then(|i| args.get(i + 1)) {
+    let value = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
+    if let Some(id) = value("--color-theme") {
         app.settings.theme = id.clone();
+    }
+    if let Some(name) = value("--scheme") {
+        app.settings.scheme = crate::settings::Scheme::parse(name);
     }
     apply_font_args(&mut app.settings);
 }

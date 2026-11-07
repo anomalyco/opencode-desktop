@@ -87,7 +87,8 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
             let close = [
                 item("close", "Close tab", true),
                 item("close-others", "Close other tabs", s.tabs.iter().any(|x| x.id != t.id)),
-                item("close-right", "Close tabs to the right", at.is_some_and(|i| i + 1 < s.tabs.len())),
+                // Side tabs run down the sidebar (`TabCloseMenuItems`).
+                item("close-right", if s.tab_layout().has_sidebar() { "Close tabs below" } else { "Close tabs to the right" }, at.is_some_and(|i| i + 1 < s.tabs.len())),
             ];
             // A draft has no session to rename or delete: only the close items (`DraftTabItem`).
             if draft {

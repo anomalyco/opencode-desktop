@@ -1,7 +1,8 @@
 //! `+` and New session's right-click: Desktop's "Recently closed" menu
-//! (`recently-closed-tabs-menu.tsx`), 224 pt wide. Up to ten closed tabs that had a prompt,
-//! newest first, reopen at the end of the strip; recent sessions without a tab fill the rest of
-//! ten and open as a new tab. Each row leads with its project's avatar.
+//! (`recently-closed-tabs-menu.tsx`), 224 pt wide, under its "Search recently closed" field. Up
+//! to ten closed tabs that had a prompt, newest first, reopen at the end of the strip; recent
+//! sessions without a tab fill the rest of ten and open as a new tab. Each row leads with its
+//! project's avatar, and the field narrows both lists by title.
 
 use rune::{PopupAnchor, Tx};
 
@@ -16,10 +17,11 @@ const LIMIT: usize = 10;
 /// Desktop's two-thirds-of-the-window cap.
 const WIDTH: f32 = 224.0;
 
-/// Opens the menu at `at`.
+/// Opens the menu at `at`, drawn on every platform for its search field, as Desktop draws it.
 pub fn open(s: &mut App, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     tx.instant();
-    popup::open(s, menu(s), at, tx, |s: &mut App, picked, tx| {
+    let menu = menu(s, "").search("Search recently closed", menu);
+    popup::open_drawn(s, menu, at, tx, |s: &mut App, picked, tx| {
         tx.instant();
         let Some(picked) = picked else { return };
         if let Some(id) = picked.strip_prefix("closed:") {
@@ -30,9 +32,18 @@ pub fn open(s: &mut App, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     });
 }
 
-fn menu(s: &App) -> Menu {
+/// The rows whose titles hold `query`, ignoring case.
+fn menu(s: &App, query: &str) -> Menu {
+    let query = query.trim().to_lowercase();
+    let matches = |title: &str| query.is_empty() || tab_title(title).to_lowercase().contains(&query);
     let row = |key: &str, id: &str, title: &str, dir: &str| Item::new(format!("{key}:{id}"), tab_title(title)).project(dir);
-    let entries: Vec<_> = s.closed.list(&s.tabs).filter(|e| e.prompted).take(LIMIT).collect();
+    let entries: Vec<_> = s
+        .closed
+        .list(&s.tabs)
+        .filter(|e| e.prompted)
+        .filter(|e| matches(s.session(&e.tab.id).map_or(e.tab.title.as_str(), |i| i.title.as_str())))
+        .take(LIMIT)
+        .collect();
     let closed: Vec<Item> = entries
         .iter()
         .map(|e| {
@@ -45,13 +56,13 @@ fn menu(s: &App) -> Menu {
     let mut recent: Vec<_> = s
         .sessions
         .iter()
-        .filter(|i| i.parent.is_none() && !s.tabs.iter().any(|t| t.id == i.id) && !entries.iter().any(|e| e.tab.id == i.id))
+        .filter(|i| i.parent.is_none() && !s.tabs.iter().any(|t| t.id == i.id) && !entries.iter().any(|e| e.tab.id == i.id) && matches(&i.title))
         .collect();
     // Newest first (`compareSessionTime`).
     recent.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
     let recent: Vec<Item> = recent.into_iter().take(LIMIT - closed.len()).map(|i| row("recent", &i.id, &i.title, &i.directory)).collect();
     let none = closed.is_empty() && recent.is_empty();
-    let mut menu = Menu::new("Recently closed").width(WIDTH).rows_before_scroll(12.0);
+    let mut menu = Menu::new("Recently closed").width(WIDTH).rows_before_scroll(13.5);
     if !closed.is_empty() {
         menu = menu.group("Recently closed").items(closed);
     }
@@ -59,7 +70,8 @@ fn menu(s: &App) -> Menu {
         menu = menu.group("Recent sessions").items(recent);
     }
     if none {
-        menu = menu.item(Item::new("empty", "No recently closed sessions").enabled(false));
+        let empty = if query.is_empty() { "No recently closed sessions" } else { "No matches" };
+        menu = menu.item(Item::new("empty", empty).enabled(false));
     }
     menu
 }

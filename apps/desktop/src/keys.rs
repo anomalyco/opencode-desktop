@@ -4,19 +4,16 @@ use crate::keymap::Bind;
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if crate::popup::key(s, ev, tx) || crate::plugin_host::popover_key(s, ev, tx) || crate::connect::key(s, ev, tx) || crate::mcp::key(s, ev, tx) || crate::glitch::key(s, ev, tx) || crate::demo::key(s, ev, tx) || crate::diagram::key(s, ev, tx) || s.fork_key(ev, tx) || crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.project_switcher_key(ev, tx) || s.settings_key(ev, tx) || s.panels_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || crate::app_menu::accelerator(ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) { return true; }
     match &ev.key {
-        _ if Bind::Sidebar.matches_tx(ev, tx) => {
-            s.sidebar_open = !s.sidebar_open;
-            true
-        }
+        // Top tabs have no sidebar: the keys pass through, as Desktop registers no command there.
+        _ if s.tab_layout().has_sidebar() && Bind::Sidebar.matches_tx(ev, tx) => s.toggle_sidebar(tx),
         _ if Bind::Home.matches_tx(ev, tx) => {
-            if s.route == Route::Home {
-                s.opening = None;
-                s.route = s.tabs.last().map_or(Route::Home, crate::tabs::Tab::route);
-                tx.settle();
-            } else {
-                s.go_home(tx);
+            if s.toggle_home(tx) {
                 s.focus_home_search(tx);
             }
+            true
+        }
+        Key::Escape if !s.sidebar_open && s.layout.peek.shown() => {
+            s.queue_peek(crate::layout_state::PeekEvent::Escape, tx);
             true
         }
         Key::Escape if crate::quote::dismiss(s) => {
