@@ -9,7 +9,7 @@ use super::markdown::{self, READ_ICON};
 use crate::App;
 use crate::code_view::CodeViewer;
 use crate::palette::Pal;
-use crate::view::{UI_MED, UI_SMALL};
+use crate::view::{UI, UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
 const MONO_TINY: TextStyle = TextStyle::new(11.0, 450.0).mono().lh(15.0).features("'tnum' 1");
@@ -18,6 +18,13 @@ static WRAP_ICON: Icon = Icon {
     name: "files-wrap-lines",
     view: 16.0,
     body: r#"<path d="M2.5 4.5H13.5M2.5 8.5H11C12.38 8.5 13.5 9.62 13.5 11C13.5 12.38 12.38 13.5 11 13.5H8.5M10 11.75L8.25 13.5L10 15.25M2.5 12.5H6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+};
+
+/// Desktop's `file-tree` icon: a folder with a pane inside.
+static PLACEHOLDER_ICON: Icon = Icon {
+    name: "files-placeholder-tree",
+    view: 20.0,
+    body: r#"<path d="M18 18V5H9.5L7.5 2H2L2 18H5M18 18H5M18 18V8.5H5V18" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
 };
 
 /// A toolbar button: `glyph`, filled while `on`, saying `help` on hover.
@@ -49,17 +56,20 @@ pub(super) fn files_main(
     sidebar_open: bool,
 ) -> El {
     let Some(path) = active_path.filter(|_| !placeholder) else {
+        // `SessionFilePanelV2Empty` at the panel's top: the 20 px `file-tree` icon 8 px above a
+        // 13/500 title and the 13/440 hint, 8 px apart, in `text-weak`.
         return col()
             .key("files-placeholder")
             .grow(1.0)
             .min_w(0.0)
             .h_full()
-            .center()
-            .gap(8.0)
             .padding(24.0)
-            .child(icon(&ic::FILE_TREE, 24.0).color(p.icon_faint))
+            .items_center()
+            .child(icon(&PLACEHOLDER_ICON, 20.0).color(p.muted))
+            .child(el().h(16.0))
             .child(text("Open file").font(UI_MED).color(p.text))
-            .child(text(crate::keymap::Bind::FileOpen.hint("Select a file to open or press")).font(UI_SMALL).color(p.muted));
+            .child(el().h(8.0))
+            .child(el().h(20.0).center().child(text("Select a file to open").font(UI).color(p.muted)));
     };
 
     let doc = ws.docs.get(path);
@@ -95,29 +105,13 @@ pub(super) fn files_main(
     let toolbar = row()
         .key("files-toolbar")
         .w_full()
-        .h(38.0)
-        .px(8.0)
+        .h(crate::review::chrome::BAR_H)
+        // The tree toggle floats over the panel's corner; a closed tree's toolbar starts past it.
+        .pl(if sidebar_open { 12.0 } else { crate::review::chrome::TOGGLE_INSET })
+        .pr(12.0)
         .gap(6.0)
         .center_y()
         .fill(p.bg_base)
-        .child(
-            el().key("files-tree-toggle")
-                .size(26.0, 26.0)
-                .radius(6.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .fill(if sidebar_open { p.row_active } else { Color::TRANSPARENT })
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label("Toggle file tree")
-                .help(crate::keymap::Bind::TreeToggle.hint("Toggle file tree"))
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.files.sidebar_open = !s.files.sidebar_open;
-                })
-                .child(icon(&ic::FILE_TREE, 14.0).color(if sidebar_open { p.icon } else { p.icon_muted })),
-        )
         .child(crumb)
         .children(markdown_doc.then(|| {
             let (glyph, label) = if rendered { (&ic::CODE_LINES, "Show source") } else { (&READ_ICON, "Show rendered") };

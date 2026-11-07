@@ -4,12 +4,10 @@
 use std::borrow::Cow;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, TextEdit, TextStyle, Tx, col,
-    el, icon, row, text, text_input,
+    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, TextEdit, Tx, col,
+    el, icon, row, text,
 };
-use rune_kit::diff::FileStatus;
 use rune_kit::file_icon;
-use rune_theme_opencode::icons as ic;
 
 use super::data::{OPEN_TAB_ID, file_tab_path};
 use super::{
@@ -18,12 +16,12 @@ use super::{
 use crate::App;
 use crate::palette::Pal;
 use crate::panels::PanelViewCtx;
+use crate::review::chrome;
 use crate::view::{UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
-const TREE_ROW_H: f32 = 26.0;
+const TREE_ROW_H: f32 = chrome::ROW_H;
 const LIST_ROW_H: f32 = 28.0;
-const MONO_TINY: TextStyle = TextStyle::new(11.0, 450.0).mono().lh(15.0).features("'tnum' 1");
 
 pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     if !ctx.visible && !s.side.mounted && s.stage.is_none() {
@@ -38,12 +36,8 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         file_tab_path(&ctx.tab.id)
     };
     let sidebar_open = placeholder || s.files.sidebar_open;
-    let max_sb_w = (ctx.pane_size.0 * 0.52).clamp(FILES_SIDEBAR_MIN_W, FILES_SIDEBAR_MAX_W);
-    let sb_w = if s.files.sidebar_resized {
-        s.files.sidebar_w.clamp(FILES_SIDEBAR_MIN_W, max_sb_w)
-    } else {
-        (ctx.pane_size.0 * 0.40).clamp(FILES_SIDEBAR_MIN_W, FILES_SIDEBAR_DEFAULT_W)
-    };
+    let max_sb_w = (ctx.pane_size.0 * 0.6).clamp(FILES_SIDEBAR_MIN_W, FILES_SIDEBAR_MAX_W);
+    let sb_w = if s.files.sidebar_resized { s.files.sidebar_w } else { FILES_SIDEBAR_DEFAULT_W }.clamp(FILES_SIDEBAR_MIN_W, max_sb_w);
 
     let proj_title = s
         .project(ctx.project_id)
@@ -85,6 +79,11 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         .min_h(0.0)
         .fill(p.bg_base)
         .child(body_row)
+        // While browsing ("Open file"), the tree stays open and its toggle is disabled.
+        .child(chrome::sidebar_toggle(p, "files-tree-toggle", sidebar_open, placeholder, |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.files.sidebar_open = !s.files.sidebar_open;
+        }))
 }
 
 fn files_sidebar(
@@ -96,90 +95,30 @@ fn files_sidebar(
     active_path: Option<&str>,
     width: f32,
 ) -> El {
-    let header = row()
-        .key("files-sidebar-header")
-        .w_full()
-        .h(38.0)
-        .pl(10.0)
-        .pr(6.0)
-        .gap(6.0)
-        .center_y()
-        .child(
-            text(proj_title.to_owned())
-                .font(UI_MED)
-                .color(p.text)
-                .grow(1.0)
-                .shrink()
-                .min_w(0.0)
-                .truncate_fade(),
-        )
-        .child(
-            el().key("files-open-palette-btn")
-                .size(24.0, 24.0)
-                .radius(5.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label(crate::keymap::Bind::FileOpen.hint("Quick open file"))
-                .help(crate::keymap::Bind::FileOpen.hint("Quick open file"))
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_file_palette(tx))
-                .child(icon(&ic::MAGNIFYING_GLASS, 13.0).color(p.icon_muted)),
-        );
-
-    let has_query = !s.files.filter.text.is_empty();
-    let filter_box = row()
-        .key("files-filter-box")
-        .w_full()
-        .px(8.0)
-        .pb(6.0)
-        .child(
-            row()
-                .key("files-filter-inner")
-                .w_full()
-                .h(26.0)
-                .px(7.0)
-                .gap(5.0)
-                .center_y()
-                .radius(6.0)
-                .clip_rounded(6.0)
-                .fill(p.bg_deep)
-                .border(0.5, if s.files.filter.focused { p.border } else { p.border_muted })
-                .motion(rune::Spring::NONE)
-                .child(icon(&ic::MAGNIFYING_GLASS, 12.0).color(p.faint))
-                .child(
-                    text_input(&s.files.filter, UI_SMALL)
-                        .key("files-filter")
-                        .placeholder("Filter files…", p.faint)
-                        .color(p.text)
-                        .grow(1.0)
-                        .shrink()
-                        .on_edit(|s: &mut App| {
-                            s.request_sidebar_file_search();
-                            &mut s.files.filter
-                        })
-                        .on_submit(|s: &mut App, tx: &mut Tx| s.submit_files_filter(tx)),
-                )
-                .children(has_query.then(|| {
-                    el().key("files-filter-clear")
-                        .size(16.0, 16.0)
-                        .radius(4.0)
-                        .center()
-                        .cursor(Cursor::Pointer)
-                        .hover(p.hover)
-                        .hover_motion(INSTANT, INSTANT)
-                        .role("button")
-                        .label("Clear filter")
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                            tx.instant();
-                            let f = s.files.filter.focused;
-                            s.files.filter = TextEdit::new("");
-                            s.files.filter.focused = f;
-                        })
-                        .child(icon(&ic::XMARK_SMALL, 11.0).color(p.icon_muted))
-                })),
-        );
+    // `SessionReviewV2Sidebar`'s header: the project's name past the tree toggle. Desktop has no
+    // quick-open button here; Ctrl+P (Cmd+P) opens the palette.
+    let header = chrome::sidebar_header(
+        "files-sidebar-header",
+        text(proj_title.to_owned()).font(UI_MED).color(p.text).truncate_fade(),
+        None,
+    );
+    let filter_box = chrome::filter_field(
+        p,
+        "files-filter",
+        &s.files.filter,
+        "files-filter-inner",
+        |s: &mut App| {
+            s.request_sidebar_file_search();
+            &mut s.files.filter
+        },
+        |s: &mut App, tx: &mut Tx| s.submit_files_filter(tx),
+        |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            let f = s.files.filter.focused;
+            s.files.filter = TextEdit::new("");
+            s.files.filter.focused = f;
+        },
+    );
 
     let list_area = if !ws.ready {
         col()
@@ -202,7 +141,7 @@ fn files_sidebar(
         .fill(p.bg_base)
         .child(header)
         .child(filter_box)
-        .child(list_area)
+        .child(list_area.pt(4.0))
 }
 
 fn workspace_tree_view(
@@ -225,8 +164,8 @@ fn workspace_tree_view(
     let list = col()
         .key("files-tree-rows")
         .w_full()
-        .px(4.0)
-        .pb(8.0)
+        .px(8.0)
+        .pb(12.0)
         .growth(GrowthSpec::default())
         .role("tree")
         .label("Workspace files")
@@ -260,34 +199,9 @@ fn workspace_tree_view(
                 let id_click = tr.id.to_owned();
                 let id_dbl = tr.id.to_owned();
                 let id_ctx = tr.id.to_owned();
-                let indent = 6.0 + tr.depth as f32 * 12.0;
-
-                let chev = match tr.expanded {
-                    Some(true) => el()
-                        .size(14.0, 14.0)
-                        .center()
-                        .child(icon(&ic::CHEVRON_DOWN, 11.0).color(pal.icon_muted)),
-                    Some(false) => el()
-                        .size(14.0, 14.0)
-                        .center()
-                        .child(icon(&ic::CHEVRON_RIGHT, 11.0).color(pal.icon_muted)),
-                    None => el().size(14.0, 14.0),
-                };
-                let ic_glyph = if is_dir { &ic::FOLDER } else { file_icon(&node.name) };
-                let mut r = row()
-                    .w_full()
-                    .h(TREE_ROW_H)
-                    .pl(indent)
-                    .pr(6.0)
-                    .gap(4.0)
-                    .center_y()
-                    .radius(5.0)
-                    .fill(if active { pal.row_active } else { Color::TRANSPARENT })
-                    .hover(pal.hover)
-                    .hover_motion(INSTANT, INSTANT)
-                    .cursor(Cursor::Pointer)
-                    .role("treeitem")
-                    .label(node.name.clone())
+                let glyph = (!is_dir).then(|| file_icon(&node.name));
+                let expanded = if is_dir { Some(tr.expanded.unwrap_or(false)) } else { None };
+                let mut r = chrome::tree_row(&pal, &node.name, tr.depth, expanded, glyph, active)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
                         if is_dir {
@@ -295,31 +209,13 @@ fn workspace_tree_view(
                         } else {
                             s.open_workspace_file(&id_click, true, None, tx);
                         }
-                    })
-                    .child(chev)
-                    .child(icon(ic_glyph, 14.0).color(if active { pal.icon } else { pal.icon_muted }))
-                    .child(
-                        text(node.name.clone())
-                            .font(if active { UI_MED } else { UI_SMALL })
-                            .color(if active { pal.text } else { pal.muted })
-                            .grow(1.0)
-                            .shrink()
-                            .min_w(0.0)
-                            .truncate_fade(),
-                    );
+                    });
                 if !is_dir {
                     r = r.on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
                         s.open_workspace_file(&id_dbl, false, None, tx);
                     });
                 }
-                if let Some(st) = status {
-                    let (lbl, col_fg) = match st {
-                        FileStatus::Added => ("A", pal.success),
-                        FileStatus::Deleted => ("D", pal.danger),
-                        _ => ("M", pal.warning),
-                    };
-                    r = r.child(text(lbl).font(MONO_TINY).color(col_fg));
-                }
+                let r = r.children(status.map(|st| chrome::change_letter(&pal, st)));
                 crate::open_in::context(r, id_ctx)
             },
         );

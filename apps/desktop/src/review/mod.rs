@@ -1,5 +1,6 @@
 //! Changes / Review panel (`packages/gui-extensions/src/review/`), registered on `panels::PANELS`.
 
+pub mod chrome;
 pub mod data;
 mod stories;
 #[cfg(test)]
@@ -26,9 +27,10 @@ use data::{
 };
 
 pub const REVIEW_KEY: &str = "review:changes";
-pub const SIDEBAR_DEFAULT_W: f32 = 216.0;
-pub const SIDEBAR_MIN_W: f32 = 190.0;
-pub const SIDEBAR_MAX_W: f32 = 360.0;
+/// The file tree's width until dragged (`SESSION_REVIEW_V2_SIDEBAR_WIDTH_*`).
+pub const SIDEBAR_DEFAULT_W: f32 = 240.0;
+pub const SIDEBAR_MIN_W: f32 = 200.0;
+pub const SIDEBAR_MAX_W: f32 = 480.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ChangeMode {
@@ -142,7 +144,8 @@ impl Default for ReviewPane {
             sidebar_resized: false,
             sidebar_drag: None,
             mode_menu_open: false,
-            diff_mode: DiffMode::Unified,
+            // Desktop's `review.diffStyle` starts split.
+            diff_mode: DiffMode::Split,
             expand_mode: ExpandMode::Collapse,
             filter: TextEdit::new(""),
             dirty: false,

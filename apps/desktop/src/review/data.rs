@@ -224,7 +224,7 @@ pub fn build_change_tree(
     metas: &[ReviewFileMeta],
     collapsed: &HashSet<String>,
 ) -> TreeModel<FileNode<ReviewFileMeta>> {
-    let mut tree = FileTree::new().build(metas.iter().map(|m| (m.path.as_str(), m.clone())));
+    let mut tree = FileTree::new().compact_folders(false).build(metas.iter().map(|m| (m.path.as_str(), m.clone())));
     tree.expand_all();
     for id in collapsed {
         tree.set_expanded(id, false);

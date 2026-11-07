@@ -39,9 +39,10 @@ use data::{
     fetch_live_find, file_tab_key, file_tab_path, load_fixture_workspace, rank_file_query,
 };
 
-pub const FILES_SIDEBAR_DEFAULT_W: f32 = 216.0;
-pub const FILES_SIDEBAR_MIN_W: f32 = 186.0;
-pub const FILES_SIDEBAR_MAX_W: f32 = 360.0;
+/// The tree's width until dragged: the same sidebar as Review's.
+pub const FILES_SIDEBAR_DEFAULT_W: f32 = crate::review::SIDEBAR_DEFAULT_W;
+pub const FILES_SIDEBAR_MIN_W: f32 = crate::review::SIDEBAR_MIN_W;
+pub const FILES_SIDEBAR_MAX_W: f32 = crate::review::SIDEBAR_MAX_W;
 
 pub struct SessionFiles {
     pub docs: HashMap<String, CodeDocState>,
