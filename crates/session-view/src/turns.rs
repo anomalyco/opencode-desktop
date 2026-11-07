@@ -298,10 +298,12 @@ pub fn thinking_since(steps: &[Step], busy: bool) -> Option<i64> {
     if !label(steps, busy).thinking {
         return None;
     }
+    // A thought the server hasn't stamped yet (a streamed part's first delta) has no start:
+    // nothing ticks until it has one, rather than counting from the epoch.
     steps.iter().find_map(|st| match st {
-        Step::Thought { started, .. } => Some(*started),
+        Step::Thought { started, .. } => Some((*started > 0).then_some(*started)),
         _ => None,
-    })
+    }).flatten()
 }
 
 /// When the live turn's Thinking group started thinking (ms): the transcript is busy and its
