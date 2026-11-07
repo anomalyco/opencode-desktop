@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use rune_kit::Switch;
 use rune_theme_opencode::icons as ic;
 
-use super::{NAME, NAME_REGULAR, catalog, header, page};
+use super::{NAME, NAME_REGULAR, catalog, header_with, page};
 use crate::App;
 use crate::palette::{Pal, kit};
 use crate::pickers::Model;
@@ -107,7 +107,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         body = body.child(group(s, p, provider, models, open, searching));
     }
     let head = col().w_full().gap(24.0)
-        .child(super::header_with(p, "Models", "Choose which models appear in model picker", super::servers::switcher(s, p)))
+        .child(header_with(p, "Models", "Choose which models appear in model picker", super::servers::switcher(s, p)))
         .child(search(s, p));
     page(p, "settings-models-page", head, body)
 }

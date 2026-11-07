@@ -7,7 +7,7 @@ use rune::{Color, El, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 
-use super::{BODY, NAME, catalog, header, page, section};
+use super::{BODY, NAME, catalog, header_with, page, section};
 use crate::App;
 use crate::connect::catalog::ProviderInfo;
 use crate::palette::{Pal, kit};
@@ -83,7 +83,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(col().w_full()
             .child(section(p, "popular-providers-section", Some("Popular providers"), catalog(p, "popular-providers", popular.iter().map(|(id, name)| popular_row(p, id, name)).collect())))
             .child(more));
-    page(p, "settings-providers-page", super::header_with(p, "Providers", "Connect and manage model providers", super::servers::switcher(s, p)), body)
+    page(p, "settings-providers-page", header_with(p, "Providers", "Connect and manage model providers", super::servers::switcher(s, p)), body)
 }
 
 /// A connected provider: its mark, name and how it connects; then its accounts, Disconnect, or

@@ -8,7 +8,7 @@ use rune::{El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::json;
 
-use super::{header, page};
+use super::{header_with, page};
 use crate::App;
 use crate::jobs::Apply;
 use crate::palette::Pal;
@@ -53,7 +53,7 @@ pub fn view(s: &App, p: &Pal) -> El {
                 .child(text(format!("{n} worktree{}", if n == 1 { "" } else { "s" })).font(BODY).color(p.muted)))
             .child(col().key("settings-workspaces-inventory").w_full().padding(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
     };
-    page(p, "settings-workspaces-page", super::header_with(p, "Worktrees", "Review worktrees and manage disk usage", super::servers::switcher(s, p)), body)
+    page(p, "settings-workspaces-page", header_with(p, "Worktrees", "Review worktrees and manage disk usage", super::servers::switcher(s, p)), body)
 }
 
 fn worktree_row(s: &App, p: &Pal, project: &str, project_name: &str, dir: &str, active: Option<&str>, divided: bool) -> El {

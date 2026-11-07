@@ -5,7 +5,7 @@
 use rune::{El, TextStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
-use super::{ExtensionsTab, LINE, NAME, catalog, header, page};
+use super::{ExtensionsTab, LINE, NAME, catalog, header_with, page};
 use crate::App;
 use crate::jobs::Apply;
 use crate::palette::Pal;
@@ -51,7 +51,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(tabs(p, tab))
         .child(col().w_full().pt(24.0).gap(16.0).child(heading).children(content))
         .children((tab == ExtensionsTab::Plugins).then(|| crate::plugin_host::settings_section(s, p)).flatten().map(|e| e.mt(32.0)));
-    page(p, "settings-extensions-page", super::header_with(p, "Extensions", "Manage extensions available on this server", super::servers::switcher(s, p)), body)
+    page(p, "settings-extensions-page", header_with(p, "Extensions", "Manage extensions available on this server", super::servers::switcher(s, p)), body)
 }
 
 /// Pill tabs (`tabs-v2` pill in `.settings-subtabs`): 24 pt pills 6 apart, the picked one on
