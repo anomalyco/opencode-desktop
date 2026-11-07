@@ -239,8 +239,10 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
         .child(glyph(p, now.status, 0.0, None))
         .child(text(now.content.clone()).key("todo-now").font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
     if more > 0 {
+        // Desktop's compact `Badge`: 16 tall, a hairline over `layer-02`.
+        let hairline = rune::Shadow { spread: 0.5, color: p.border, inset: true, ..rune::Shadow::default() };
         chip = chip.child(
-            row().key("todo-more").h(18.0).px(5.0).center().radius(4.0).fill(p.layer2)
+            row().key("todo-more").h(16.0).px(4.0).center().radius(2.0).fill(p.layer2).box_shadow(hairline)
                 .child(text(format!("+{more}")).font(BADGE).color(p.muted)),
         );
     }
@@ -434,7 +436,8 @@ const WIDEST: f32 = 400.0;
 const TALLEST: f32 = 2000.0;
 /// A list row's words: 13 pt on the base line height.
 const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
-const BADGE: TextStyle = TextStyle::new(11.0, 500.0).lh(16.0);
+/// `[data-component="tag"]`: 11 pt at weight 530, set solid, tabular.
+const BADGE: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"");
 
 #[cfg(test)]
 #[path = "todos_tests.rs"]
