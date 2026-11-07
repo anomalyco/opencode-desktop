@@ -13,7 +13,7 @@ hot = ["rune/hot"]
 # Built-in plugins linked into the binary through their own entry points, for headless and
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
 # rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports.
-static-builtins = ["dep:opencode-plugin-hello-impl", "dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl"]
+static-builtins = ["dep:opencode-plugin-hello-impl", "dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl", "dep:opencode-plugin-goal-impl"]
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -35,6 +35,7 @@ opencode-plugin-details-impl = { path = "../../plugins/details/impl", optional =
 opencode-plugin-hello-impl = { path = "../../plugins/hello/impl", optional = true }
 opencode-plugin-ssh-impl = { path = "../../plugins/ssh/impl", optional = true }
 opencode-plugin-wsl-impl = { path = "../../plugins/wsl/impl", optional = true }
+opencode-plugin-goal-impl = { path = "../../plugins/goal/impl", optional = true }
 opencode-plugin-btw-impl = { path = "../../plugins/btw/impl", optional = true }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }

@@ -23,6 +23,8 @@ members = [
     "plugins/ssh/impl",
     "plugins/wsl",
     "plugins/wsl/impl",
+    "plugins/goal",
+    "plugins/goal/impl",
     "plugins/btw",
     "plugins/btw/impl",
 ]
@@ -127,6 +129,15 @@ opt-level = "s"
 strip = "symbols"
 
 [profile.release.package.opencode-plugin-btw-impl]
+codegen-units = 1
+opt-level = "s"
+
+[profile.release.package.opencode-plugin-goal]
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
+[profile.release.package.opencode-plugin-goal-impl]
 codegen-units = 1
 opt-level = "s"
 
