@@ -37,6 +37,9 @@ pub enum SwitcherMode {
     Sessions,
     /// ⇧⌘P: commands only.
     Commands,
+    /// The Inbox's Archived button: archived sessions, each restored as it opens
+    /// (`DialogSessionSearch archived`).
+    Archived,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -85,6 +88,8 @@ pub struct Switcher {
     searched: String,
     failed: Option<String>,
     fetch: Latest<Found>,
+    /// The archived search has asked for its first list.
+    listed_archived: bool,
 }
 
 impl Default for Switcher {
@@ -99,6 +104,7 @@ impl Default for Switcher {
             searched: String::new(),
             failed: None,
             fetch: Latest::default().debounce(Duration::from_millis(100)),
+            listed_archived: false,
         }
     }
 }
@@ -242,9 +248,15 @@ impl App {
         if self.switcher.mode == SwitcherMode::Commands {
             return all.iter().filter(|c| c.id != crate::commands::SEARCH).map(command).filter(|e| matches(e, q)).collect();
         }
-        let group = if q.is_empty() { "Recent sessions" } else { "Session" };
+        let archived = self.switcher.mode == SwitcherMode::Archived;
+        let group = match () {
+            _ if archived => "Archived sessions",
+            _ if q.is_empty() => "Recent sessions",
+            _ => "Session",
+        };
         // A project's tasks live in its inbox.
-        let sessions = self.merged_roots(&self.switcher.loaded).into_iter().map(|s| Entry {
+        let roots = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| s.archived.is_some() == archived);
+        let sessions = roots.map(|s| Entry {
             key: format!("session:{}", s.id),
             action: Action::Session(s.id.clone()),
             title: title_of(s),
@@ -256,7 +268,7 @@ impl App {
             updated: Some(s.updated),
             open: self.tabs.iter().any(|t| t.id == s.id),
         });
-        if self.switcher.mode == SwitcherMode::Sessions {
+        if matches!(self.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
             if q.is_empty() {
                 return sessions.take(RECENT_SESSIONS).collect();
             }
@@ -291,6 +303,12 @@ impl App {
         self.open_switcher_mode(SwitcherMode::Commands);
     }
 
+    /// The Inbox's Archived button: session search over archived sessions.
+    pub fn open_archived_search(&mut self, tx: &mut Tx) {
+        tx.instant();
+        self.open_switcher_mode(SwitcherMode::Archived);
+    }
+
     fn open_switcher_mode(&mut self, mode: SwitcherMode) {
         if self.switcher.open && self.switcher.mode == mode {
             return;
@@ -317,6 +335,7 @@ impl App {
         self.switcher.searched.clear();
         self.switcher.fetch.cancel();
         self.switcher.failed = None;
+        self.switcher.listed_archived = false;
     }
 
     /// Closes it; `restore` gives the composer back its focus if it had it.
@@ -333,8 +352,19 @@ impl App {
 
     pub fn switcher_choose(&mut self, key: &str, tx: &mut Tx) {
         let Some(entry) = self.switcher_entries().into_iter().find(|e| e.key == key) else { return };
+        let restore = self.switcher.mode == SwitcherMode::Archived;
         self.close_switcher(false);
         match entry.action {
+            // An archived session is restored as it opens.
+            Action::Session(id) if restore => {
+                if self.session(&id).is_none()
+                    && let Some(s) = self.switcher.loaded.iter().find(|s| s.id == id).cloned()
+                {
+                    self.sessions.push(s);
+                }
+                self.unarchive_session(&id);
+                self.open_inbox_session(&id, tx);
+            }
             Action::Session(id) => {
                 // A session only the search knows joins the list, so its tab has a title.
                 if self.session(&id).is_none()
@@ -435,21 +465,24 @@ impl App {
             tx.instant();
         }
         let q = self.switcher.query().to_owned();
-        if q == self.switcher.searched {
+        let archived = self.switcher.mode == SwitcherMode::Archived;
+        if q == self.switcher.searched && !(archived && !self.switcher.listed_archived) {
             return changed;
         }
+        self.switcher.listed_archived |= archived;
         self.switcher.searched = q.clone();
         self.switcher.failed = None;
         tx.scroll_to_y("switcher-scroll", 0.0);
         self.switcher.fetch.cancel();
         let Source::Live { server, .. } = &self.source else { return true };
-        if q.is_empty() {
+        // Archived sessions aren't loaded, so the archived search lists the newest with no query.
+        if q.is_empty() && !archived {
             return true;
         }
         // Typed searches wait for a pause, and a newer keystroke cancels this one.
         let server = server.clone();
         self.switcher.fetch.request(q, move |q| {
-            let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", encode(&q));
+            let path = format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(&q));
             let listed = server.get(&path);
             // `looksLikeSessionID`: a pasted id finds its session even when no title matches.
             let exact = (q.len() > 20 && q.starts_with("ses_"))
@@ -551,7 +584,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, h: f32) -> El {
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
 
-    let sessions_only = s.switcher.mode == SwitcherMode::Sessions;
+    let sessions_only = matches!(s.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived);
     let placeholder = match s.switcher.mode {
         _ if sessions_only => "Search sessions",
         SwitcherMode::Commands => "Search commands",

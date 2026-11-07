@@ -59,7 +59,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             el().key("inbox-archived").w_full().pt(12.0).child(
                 ghost_button(p, "inbox-archived-button", "Archived").on_press_tx(|s: &mut App, tx: &mut Tx| {
                     s.close_settings();
-                    s.open_session_search(tx);
+                    s.open_archived_search(tx);
                 }),
             ),
         );

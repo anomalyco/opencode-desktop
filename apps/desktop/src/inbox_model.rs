@@ -173,7 +173,9 @@ impl App {
         });
         let shown = |e: &Entry<'_>| [&needs, &unread, &read, &working].iter().any(|g| g.iter().any(|x| x.session.id == e.session.id));
         let current = list.iter().find(|e| self.inbox_selected(e)).filter(|e| !shown(e)).copied().into_iter().collect();
-        Sections { current, needs, unread, recent: read, more, archived: list.iter().any(|e| e.session.archived.is_some()), working }
+        let archived = list.iter().any(|e| e.session.archived.is_some())
+            || self.sidebar_inbox.archived.iter().any(|a| self.session(&a.id).is_none_or(|i| i.archived.is_some()));
+        Sections { current, needs, unread, recent: read, more, archived, working }
     }
 
     /// The Working shelf opens or shuts (`workingExpanded`).
@@ -209,6 +211,7 @@ impl App {
 
     /// Unarchive: it comes back to its group (`inbox.unarchive`).
     pub fn unarchive_session(&mut self, id: &str) {
+        self.sidebar_inbox.archived.retain(|a| a.id != id);
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
         info.archived = None;
         self.write(opencode_kit::client::Write::Unarchive(id.to_owned()));
@@ -231,6 +234,11 @@ pub struct SidebarInbox {
     tick: i64,
     /// Sessions whose pending requests have been read.
     probed: HashSet<String>,
+    /// The newest archived root sessions (the list leaves them out): the Archived button shows
+    /// while there are any.
+    pub archived: Vec<SessionInfo>,
+    archived_asked: bool,
+    archived_landed: Arc<Mutex<Option<Vec<SessionInfo>>>>,
     pub branches: Branches,
 }
 
@@ -405,17 +413,41 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             s.sidebar_inbox.probed.insert(id);
         }
     }
+    let mut changed = load_archived(s);
     let sections = s.inbox_sections();
     let working = sections.rows().any(|e| e.status == InboxStatus::Working);
     let dirs: Vec<String> = sections.rows().map(|e| e.session.directory.clone()).collect();
     let step = if working { 1000 } else { 60_000 };
     let tick = s.now_ms.div_euclid(step);
-    let mut changed = std::mem::replace(&mut s.sidebar_inbox.tick, tick) != tick;
+    changed |= std::mem::replace(&mut s.sidebar_inbox.tick, tick) != tick;
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
     s.sidebar_inbox.branches.enqueue(dirs);
     let waker = s.waker.clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
+}
+
+/// Reads the newest archived root sessions once (`ARCHIVED_LIMIT`), and takes them in. True
+/// when they land.
+fn load_archived(s: &mut App) -> bool {
+    let inbox = &mut s.sidebar_inbox;
+    if let Some(list) = inbox.archived_landed.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        inbox.archived = list;
+        return true;
+    }
+    let Source::Live { server, .. } = &s.source else { return false };
+    if std::mem::replace(&mut inbox.archived_asked, true) {
+        return false;
+    }
+    let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), s.waker.clone());
+    let _ = std::thread::Builder::new().name("inbox-archived".into()).spawn(move || {
+        let Ok(v) = server.get("/api/session?parentID=null&archived=true&limit=50") else { return };
+        *landed.lock().unwrap_or_else(|e| e.into_inner()) = Some(opencode_kit::model::parse_sessions(&v));
+        if let Some(w) = wake {
+            w();
+        }
+    });
+    false
 }
 
 /// The age beside a row: "now" under a minute ("12s" while working), then m, h, d.
