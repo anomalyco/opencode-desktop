@@ -17,8 +17,6 @@ pub mod shortcuts;
 pub mod whats_new;
 pub mod worktrees;
 
-use std::collections::HashSet;
-
 use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
@@ -152,7 +150,7 @@ pub struct State {
     /// Models' search (`settings-filter-search`).
     pub search: TextEdit,
     /// Providers folded shut on Models.
-    pub collapsed: HashSet<String>,
+    pub collapsed: models::Folds,
     pub tab: ExtensionsTab,
     /// The server's plugins and skills, once read.
     pub plugins: Option<Vec<String>>,

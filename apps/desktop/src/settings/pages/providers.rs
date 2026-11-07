@@ -143,6 +143,15 @@ fn account_menu(s: &App, p: &Pal, id: &str, name: &str, integration: Option<&Int
         return rune_kit::TextInput::new(&s.settings_pages.rename).label("Account name").width(Some(240.0))
             .on_edit(|s: &mut App| &mut s.settings_pages.rename)
             .on_submit(move |s: &mut App, tx: &mut Tx| s.rename_account(&credential, tx))
+            // Escape drops the edit and keeps the name (`rename.ts`'s `cancelled`).
+            .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+                if ev.key != rune::Key::Escape || ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.shift {
+                    return false;
+                }
+                tx.instant();
+                s.settings_pages.renaming = None;
+                true
+            })
             .build(kit(p));
     }
     let (menu_id, options_id) = (id.to_owned(), id.to_owned());

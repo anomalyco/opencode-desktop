@@ -76,10 +76,15 @@ fn manage(p: &Pal) -> El {
     text("Manage in opencode.json").font(LINE).color(p.muted)
 }
 
+/// `.settings-extension-link`: underlined in `text-accent`, `text-accent-hover` under the pointer.
 fn skills_link(p: &Pal) -> El {
-    text("How to add skills").key("settings-extension-link").role("link").font(LINE).color(p.accent).hover_motion(crate::view::INSTANT, crate::view::INSTANT)
-        .on_press_tx(|_: &mut App, tx: &mut Tx| {
-            let _ = tx.open_url("https://opencode.ai/v2/docs/skills");
+    const WORDS: &str = "How to add skills";
+    const URL: &str = "https://opencode.ai/v2/docs/skills";
+    text(WORDS).key("settings-extension-link").font(LINE).color(p.accent)
+        .spans(vec![rune::Span::new(0, WORDS.len()).underline(p.accent)])
+        .link(rune::Link::new(0..WORDS.len(), URL).role("link").label(WORDS).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
+        .on_link(|_: &mut App, url: &str, tx: &mut Tx| {
+            let _ = tx.open_url(url);
         })
 }
 

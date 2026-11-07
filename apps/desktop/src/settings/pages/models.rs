@@ -3,7 +3,12 @@
 //! provider folding shut. The switches are the model list's own (`ModelPrefs` visibility), as
 //! Manage models sets them.
 
+use std::cell::OnceCell;
+use std::collections::HashSet;
+use std::path::PathBuf;
+
 use rune::{El, Tx, col, el, icon, row, text};
+use serde_json::{Value, json};
 use rune_kit::Switch;
 use rune_theme_opencode::icons as ic;
 
@@ -12,6 +17,52 @@ use crate::App;
 use crate::palette::{Pal, kit};
 use crate::pickers::Model;
 use crate::widgets;
+
+/// The providers folded shut, kept per server as Desktop's `settings-v2.models.providers`
+/// (`collapsed`, by provider) is: read from `settings-models.json` in the app's data folder
+/// the first time Models draws, written on each fold.
+#[derive(Default)]
+pub struct Folds(OnceCell<HashSet<String>>);
+
+impl Folds {
+    fn get(&self, s: &App) -> &HashSet<String> {
+        self.0.get_or_init(|| server(s).map(|server| read()[server]["collapsed"].as_object().into_iter().flatten()
+            .filter(|(_, shut)| shut.as_bool() == Some(true)).map(|(provider, _)| provider.clone()).collect()).unwrap_or_default())
+    }
+
+    /// Folds `provider` shut, or open again, and saves the folds.
+    fn toggle(s: &mut App, provider: &str) {
+        let mut shut = s.settings_pages.collapsed.get(s).clone();
+        if !shut.remove(provider) {
+            shut.insert(provider.to_owned());
+        }
+        if let (Some(server), Some(path)) = (server(s), file()) {
+            let collapsed: serde_json::Map<String, Value> = shut.iter().map(|p| (p.clone(), Value::Bool(true))).collect();
+            crate::disk::later("settings-models", move || {
+                let mut all = read();
+                all[server] = json!({ "collapsed": collapsed });
+                crate::disk::replace(&path, all.to_string().as_bytes());
+            });
+        }
+        s.settings_pages.collapsed = Folds(OnceCell::from(shut));
+    }
+}
+
+fn file() -> Option<PathBuf> {
+    crate::dirs::data().map(|d| d.join("settings-models.json"))
+}
+
+fn read() -> Value {
+    file().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
+}
+
+/// The server the folds are kept for; none while nothing persists (headless, a fixture).
+fn server(s: &App) -> Option<String> {
+    match &s.source {
+        crate::Source::Live { server, .. } if s.persists() => Some(server.base.clone()),
+        _ => None,
+    }
+}
 
 const POPULAR: [&str; 8] = ["opencode-go", "opencode", "anthropic", "github-copilot", "openai", "google", "openrouter", "vercel"];
 
@@ -52,7 +103,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         body = body.child(status);
     }
     for (provider, models) in &groups {
-        let open = searching || !s.settings_pages.collapsed.contains(provider);
+        let open = searching || !s.settings_pages.collapsed.get(s).contains(provider);
         body = body.child(group(s, p, provider, models, open, searching));
     }
     let head = col().w_full().gap(24.0)
@@ -85,9 +136,7 @@ fn group(s: &App, p: &Pal, provider: &str, models: &[&Model], open: bool, search
     if !searching {
         trigger = trigger.hover(p.layer2).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            if !s.settings_pages.collapsed.remove(&fold) {
-                s.settings_pages.collapsed.insert(fold.clone());
-            }
+            Folds::toggle(s, &fold);
         });
     }
     let mut section = col().key(format!("settings-models-provider-{provider}")).w_full().gap(12.0).pb(if open { 12.0 } else { 0.0 })
