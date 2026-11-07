@@ -533,8 +533,9 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>) -> El {
                 list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx)));
             }
             Entry::Separator => {
-                // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`).
-                let line = col().key(format!("popup-sep-{n}")).w_full().py(2.0).mx(-MENU.inset)
+                // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`):
+                // stretched past the inset on both sides, as `width: calc(100% + 4px)` is.
+                let line = col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset)
                     .child(el().key("line").h(1.0).w_full().fill(p.border_muted));
                 list.other(line, 5.0);
             }

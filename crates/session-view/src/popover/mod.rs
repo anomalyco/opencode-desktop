@@ -2,7 +2,8 @@
 //! row, group headers, option rows, dividers, keys and dismissal. Extend it here (and in its
 //! story) when a menu needs something new; never draw a local copy beside the feature.
 //!
-//! One surface for all of them: layer 1, a 0.5 pt ring, `shadow(4, 12)`, and corners of the
+//! One surface for all of them: layer 1, `--v2-elevation-floating` (two drops and a 0.5 pt ring),
+//! placed at whole points as Kobalte places it, and corners of the
 //! inset plus a row's corners, so the highlight sits concentric in it. Two looks set the
 //! metrics, both Desktop's: [`MENU`] (`menu-v2`, a short list of actions or choices; 6 pt
 //! corners) and [`LIST`] (the model dialog's `search-list`, a long list with a search field;
@@ -24,7 +25,7 @@ use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::style::UI;
 
 pub use nav::{Highlight, Nav, cycle, nav, nav_step};
@@ -87,7 +88,7 @@ pub fn lit(p: &Pal, on: bool) -> Color {
     if on { p.row_active } else { Color::TRANSPARENT }
 }
 
-/// The surface: fill, a 0.5 pt ring, the drop shadow and corners. It takes presses on its own
+/// The surface: fill, Desktop's floating elevation (`menu-v2`'s `box-shadow`) and corners. It takes presses on its own
 /// empty space, so they don't reach the dismiss layer under it.
 pub fn surface<S: 'static>(p: &Pal, look: Look, key: impl Into<String>, label: impl Into<String>) -> El {
     col()
@@ -96,8 +97,7 @@ pub fn surface<S: 'static>(p: &Pal, look: Look, key: impl Into<String>, label: i
         .label(label)
         .radius(look.radius())
         .fill(p.layer1)
-        .box_shadow(Pal::ring_out(p.ring))
-        .shadow(4.0, 12.0, p.shadow)
+        .elevate(p.floating)
         .transition(Transition::none())
         // Its height and rows follow a filter in the keystroke, and what it holds comes and goes
         // with it, in commits that play its entrance or exit.
@@ -110,7 +110,7 @@ pub fn surface<S: 'static>(p: &Pal, look: Look, key: impl Into<String>, label: i
 /// fit, stays 8 pt inside the window, and is at most as tall as the room it has (its scroll
 /// shrinks to fit). It opens and closes as the Popover knobs say ([`motion`]).
 pub fn place(k: &Knobs, surface: El, anchor: &str, side: Side, align: Align, gap: f32) -> El {
-    surface.transition(motion::transition(k, side, align)).anchored_fit(anchor.to_owned(), side, align, gap)
+    surface.transition(motion::transition(k, side, align)).anchored_fit(anchor.to_owned(), side, align, gap).anchored_round()
 }
 
 /// A window-sized layer under the popover (mount it just before): a press outside closes it

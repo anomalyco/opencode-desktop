@@ -53,11 +53,11 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 
 /// The bubble's corner button (`Menu.Trigger` as a small ghost-muted `IconButton`,
 /// `icon-button.css`): 20 pt with 4 pt corners, the overlay's hover and press fills, and the
-/// pressed fill while its menu is `open`. The host adds the glyph and the press.
+/// pressed fill while its menu is `open`, which no hover or press adds to, as
+/// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0)
-        .hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
-    if open { b.fill(p.pressed) } else { b }
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0);
+    if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
 /// The meta line under a prompt (`user-message-meta-wrap`): 12/18 at 440, tracking 0.05, faint
