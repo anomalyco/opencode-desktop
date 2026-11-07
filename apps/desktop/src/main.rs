@@ -87,6 +87,7 @@ mod commands_stories;
 mod compaction_stories;
 #[cfg(test)]
 mod compaction_fold_tests;
+mod connect;
 mod demo;
 mod demo_script;
 mod diagnostics;
@@ -124,11 +125,13 @@ mod inbox_model;
 mod interaction_fuzz;
 #[cfg(test)]
 mod jump_tests;
+mod jobs;
 mod keymap;
 mod keys;
 mod knobs;
 mod launch;
 mod layout_state;
+mod mcp;
 mod mention_stories;
 mod mentions;
 mod menu_stories;
@@ -236,6 +239,7 @@ mod turn_errors_stories;
 mod updater;
 mod view;
 mod web_fetch;
+mod widgets;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{Receiver, Sender};
@@ -360,6 +364,14 @@ pub struct App {
     pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
     pub settings: settings::Settings,
+    /// The connect dialog (`connect`).
+    pub connect: connect::Connect,
+    /// The integrations and providers it and Settings read, by folder.
+    pub catalogs: connect::catalog::Catalogs,
+    /// The MCP servers' toggles and the MCPs dialog (`mcp`).
+    pub mcp: mcp::Mcp,
+    /// Server requests on their way back (`jobs`).
+    jobs: jobs::Jobs,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
     /// The open session and composer drafts, saved for the next launch.
@@ -992,6 +1004,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_pages(tx);
     changed |= s.poll_sends();
     changed |= s.poll_open_in();
+    changed |= s.poll_jobs(tx);
     let mut arrivals = None;
     let asked = s.dock_face();
     if let Some(inbox) = s.inbox.take() {

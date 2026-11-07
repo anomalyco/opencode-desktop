@@ -49,6 +49,15 @@ impl PickerHost for App {
     fn picker_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
     }
+    /// `+` connects an integration (`select-dialog.tsx:1010-1034`), then the sliders.
+    fn picker_model_actions(&self) -> Vec<ModelAction> {
+        vec![ModelAction::Connect, ModelAction::Manage]
+    }
+    fn picker_model_action(&mut self, action: ModelAction, tx: &mut Tx) {
+        if action == ModelAction::Connect {
+            self.open_connect(None, false, tx);
+        }
+    }
     fn picker_projects(&self) -> Vec<Item> {
         self.projects.iter().map(|p| Item::new(p.id.clone(), p.name.clone()))
             .chain(std::iter::once(Item::new(ADD_PROJECT_KEY, "Add project")))

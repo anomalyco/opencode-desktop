@@ -94,6 +94,7 @@ pub enum Bind {
     DemoPause,
     WindowNew,
     WindowClose,
+    McpToggle,
 }
 
 /// Settings > Shortcuts' groups (Desktop's `CommandSection`).
@@ -231,6 +232,7 @@ fn table() -> Vec<Binding> {
         // The app menu's accelerators off macOS (`desktop-menu.ts`), which no command binds.
         hidden(WindowNew, "window.new", "New window", General, on("ctrl+shift+n").on(Mac, "none")),
         hidden(WindowClose, "window.close", "Close window", General, on("ctrl+shift+w").on(Mac, "none")),
+        row(McpToggle, "mcp.toggle", "Toggle MCPs", Session, on("mod+semicolon")),
     ];
     assert!(rows.iter().enumerate().all(|(i, r)| r.bind as usize == i), "keymap rows follow `Bind`'s order");
     rows

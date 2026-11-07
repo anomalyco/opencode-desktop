@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use rune::{Color, El, Key, ScrollSpec, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
-use super::{Model, PickerHost, host, rail, search};
+use super::{Model, ModelAction, PickerHost, host, rail, search};
 use crate::palette::Pal;
 use crate::style::{UI, UI_MED};
 
@@ -126,10 +126,13 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .transition(Transition::none())
         .motion(rune::Spring::NONE)
         .modal(true, |s: &mut S| s.pickers_mut().close_manage())
-        // `dialog-header`: 10 pt above, 14 before, 6 below the title and its description.
-        .child(col().key("manage-models-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0).gap(2.0)
-            .child(text("Manage models").font(TITLE).color(p.text))
-            .child(text("Customize which models appear in the model selector.").font(DESCRIPTION).color(p.muted)))
+        // `dialog-header`: 10 pt above, 14 before, 6 below the title and its description, and
+        // Connect an integration at its end where the host can connect one.
+        .child(row().key("manage-models-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
+            .child(col().grow(1.0).shrink().gap(2.0)
+                .child(text("Manage models").font(TITLE).color(p.text))
+                .child(text("Customize which models appear in the model selector.").font(DESCRIPTION).color(p.muted)))
+            .children(s.picker_model_actions().contains(&ModelAction::Connect).then(|| connect::<S>(p))))
         .child(search_row)
         .child(hairline)
         .child(col().key("manage-models-scroll").w_full().grow(1.0).shrink().min_h(0.0)
@@ -207,6 +210,22 @@ fn switch<S: PickerHost>(p: &Pal, key: &str, on: bool, flip: impl Fn(&mut S) + '
             flip(s);
         })
         .child(if on { row().w_full().child(spacer()).child(thumb) } else { row().w_full().child(thumb) })
+}
+
+/// The header's `button-v2` neutral at size small with its plus (`manage.tsx:107-109`): it
+/// closes Manage models and hands Connect to the host.
+#[allow(deprecated)]
+fn connect<S: PickerHost>(p: &Pal) -> El {
+    rune_kit::Button::new(ModelAction::Connect.label())
+        .size(rune_kit::ButtonSize::Small)
+        .icon(&ic::PLUS)
+        .on_press_tx(|s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            s.pickers_mut().close_manage();
+            s.picker_model_action(ModelAction::Connect, tx);
+        })
+        .build(crate::palette::kit(p))
+        .key("manage-models-connect")
 }
 
 /// `--v2-elevation-overlay` (`theme.css:112-114`, `:230-234`): two drops and a 0.5 pt ring.
