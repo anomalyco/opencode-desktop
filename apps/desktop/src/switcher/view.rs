@@ -2,7 +2,7 @@
 //! dialog (`dialog.css:141-234`) over `SearchList` (`ui/forms/search-list/search-list.css`), its
 //! rows `PaletteRow` with `palette-menu.css`'s title and `keybind.css`'s chips.
 
-use rune::{Color, Cx, El, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cx, El, PointerEvent, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_kit::ScrollBar as _;
 use rune_theme_opencode::{file_icons, icons as ic};
 
@@ -191,13 +191,14 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         .transition(Transition::none())
         .motion(Spring::NONE)
-        // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if inside {
-                tx.instant();
-                s.switcher.activate(hover.clone());
-                if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
+        // Only a moving pointer takes the row (`SearchList`'s `onMouseMove`), and not `on_hover`:
+        // its commit would animate the highlight's fill from row to row.
+        .on_pointer_move_local(move |s: &mut App, ev: PointerEvent, tx: &mut Tx| {
+            if !s.switcher.point(&hover, [ev.window_x, ev.window_y]) {
+                return tx.live_only();
             }
+            tx.instant();
+            if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
         .child(main);

@@ -90,6 +90,10 @@ pub struct Switcher {
     pub search: TextEdit,
     /// The highlighted row and the query it was picked under; a new query starts from its first row.
     active: Highlight,
+    /// The row the pointer took and the query it took it under, and the pointer's last point on
+    /// a row (`SearchList`'s `pointed`): late results leave the list where it is for that row.
+    pointed: Option<(String, String)>,
+    pointer: Option<[f32; 2]>,
     restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes.
     pub(crate) loaded: Vec<SessionInfo>,
@@ -113,6 +117,8 @@ impl Default for Switcher {
             mode: SwitcherMode::All,
             search: TextEdit::new(""),
             active: Highlight::default(),
+            pointed: None,
+            pointer: None,
             restore_composer: false,
             loaded: Vec::new(),
             searched: String::new(),
@@ -132,8 +138,27 @@ impl Switcher {
         self.files_fetch = Latest::new(waker);
     }
 
+    /// The keys highlight row `key`.
     pub fn activate(&mut self, key: String) {
+        self.pointed = None;
         self.active.set(key, self.search.text.clone());
+    }
+
+    /// The pointer moved on row `key` to `at`, in window points (`SearchList`'s `onMouseMove`):
+    /// only a moving pointer takes the row, so rows the keys, the wheel or late results carry
+    /// under a still one leave the highlight alone. True when the highlight changed.
+    pub fn point(&mut self, key: &str, at: [f32; 2]) -> bool {
+        if self.pointer.replace(at) == Some(at) || self.pointed(key) {
+            return false;
+        }
+        self.active.set(key.to_owned(), self.search.text.clone());
+        self.pointed = Some((key.to_owned(), self.search.text.clone()));
+        true
+    }
+
+    /// The pointer took row `key` under this query, and the keys haven't moved on since.
+    fn pointed(&self, key: &str) -> bool {
+        self.pointed.as_ref().is_some_and(|(k, q)| k == key && *q == self.search.text)
     }
 
     pub fn query(&self) -> &str {
@@ -444,6 +469,8 @@ impl App {
         self.switcher.search = TextEdit::new("");
         self.switcher.search.focused = true;
         self.switcher.active.clear();
+        self.switcher.pointed = None;
+        self.switcher.pointer = None;
         self.switcher.loaded.clear();
         self.switcher.searched.clear();
         self.switcher.fetch.cancel();
@@ -600,12 +627,18 @@ impl App {
             return changed;
         }
         let entries = self.switcher_entries();
-        if let Some(active) = self.switcher_active(&entries)
-            && let Some(Entry { action: Action::Session(id), .. }) = entries.iter().find(|e| e.key == active)
+        let active = self.switcher_active(&entries);
+        if let Some(active) = &active
+            && let Some(Entry { action: Action::Session(id), .. }) = entries.iter().find(|e| &e.key == active)
         { self.prefetch_session(id); }
         // Results land at once: no row fades in or slides to its place.
         if changed {
             tx.instant();
+            // They bring a row the keys chose back into view (`SearchList`), but leave the list
+            // where the wheel put it while the first row is the highlight or the pointer took it.
+            if let Some(key) = active.filter(|k| entries.first().is_some_and(|e| &e.key != k) && !self.switcher.pointed(k)) {
+                tx.scroll_into_view_in("switcher-scroll", format!("sw-{key}"));
+            }
         }
         changed |= self.request_switcher_files();
         let q = self.switcher.query().to_owned();
