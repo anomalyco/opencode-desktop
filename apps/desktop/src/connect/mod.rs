@@ -13,6 +13,7 @@ mod run;
 mod scenes;
 mod steps;
 pub mod view;
+pub mod welcome;
 
 use rune::{Key, KeyEvent, TextEdit, Tx};
 
@@ -44,6 +45,8 @@ pub struct Open {
 #[derive(Default)]
 pub struct Connect {
     pub open: Option<Open>,
+    /// The ChatGPT plan welcome shows.
+    pub welcome: bool,
 }
 
 fn focused(text: &str) -> TextEdit {
@@ -86,9 +89,13 @@ impl App {
             return;
         }
         tx.instant();
+        let welcome = self.connect.open.as_ref().is_some_and(|o| o.dialog.chatgpt_welcome);
         self.connect_event(Event::Disposed, tx);
         self.connect.open = None;
         self.composer.focused = self.has_composer() && !self.settings.open;
+        if welcome {
+            self.welcome_chatgpt_plan();
+        }
     }
 
     /// The folder a sign-in from the composer belongs to: the open session's, or the draft's.
@@ -159,6 +166,9 @@ impl App {
 
 /// The dialog's keys: Escape closes it, and the list's arrows and Enter pick a provider.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if welcome::key(s, ev, tx) {
+        return true;
+    }
     let Some(open) = &s.connect.open else { return false };
     if ev.key == Key::Escape {
         if open.menu.is_some() {

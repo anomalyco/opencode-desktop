@@ -135,6 +135,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.children(crate::fork::view(s, p, cx));
     }
     inner = inner.children(crate::connect::view::layer(s, p, cx));
+    inner = inner.children(crate::connect::welcome::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
     inner = inner.children(move_recovery::view(s, p));
     inner = inner.children(crate::plugin_host::dialog_view(s, p));

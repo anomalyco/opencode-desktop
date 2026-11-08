@@ -6,6 +6,8 @@
 
 use std::collections::HashSet;
 
+use opencode_kit::integration::MethodKind;
+
 use super::machine::{self as conn, Effect as ConnEffect, Event as ConnEvent, Screen, State as Conn};
 
 /// The OpenCode Console account is the `opencode` integration.
@@ -102,6 +104,8 @@ pub struct Dialog {
     pub standalone: bool,
     /// The user picked a model to start with.
     pub completed: bool,
+    /// OpenAI connected through ChatGPT token sharing, so the plan's welcome follows the close.
+    pub chatgpt_welcome: bool,
     pub provider: Option<Provider>,
 }
 
@@ -454,6 +458,9 @@ fn connect_transition(d: &Dialog, p: &Provider, step: &Step, (next, effects): co
         ConnEffect::Complete { method } => Some(method.clone()),
         _ => None,
     });
+    let sharing = complete.as_ref().is_some_and(|m| p.id == "openai" && m.kind == MethodKind::Oauth && m.id.as_deref() == Some("chatgpt-token-sharing"));
+    let marked = Dialog { chatgpt_welcome: d.chatgpt_welcome || sharing, ..d.clone() };
+    let d = &marked;
     let out = wrap(d.session, &p.id, effects);
     if Some(&next) == step.connect() && complete.is_none() {
         return (d.clone(), out);
