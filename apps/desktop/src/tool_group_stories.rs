@@ -113,6 +113,23 @@ fn tour_running(s: &mut App) {
     s.expanded.extend(["c-call_live_shell".to_owned(), "tool:call_live_shell".to_owned()]);
 }
 
+/// The tour's shell with a command that wraps over several lines, as in Kit's capture of a
+/// console whose command and capped output both ran long.
+fn long_command(s: &mut App) {
+    let Some(t) = s.transcripts.get_mut(crate::fixture_ids::TOUR) else { return };
+    let command = "D=/tmp/kiln-shots; perl -e 'alarm 60; exec @ARGV' \"/Applications/Browser.app/Contents/MacOS/Browser\" --headless=new --disable-gpu --no-first-run --user-data-dir=$(mktemp -d) --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,3400 --screenshot=$D/full.png \"file://$D/index.html\" 2>&1 | tail -3; ls -la $D";
+    for m in &mut t.messages {
+        let Message::Assistant(a) = m else { continue };
+        for part in &mut a.parts {
+            if let Part::Tool { id, input, .. } = part
+                && id == "call_shell_tour"
+            {
+                input["command"] = command.into();
+            }
+        }
+    }
+}
+
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("tools", |s| tour(s, None, &[])),
     ("tools-list", |s| tour(s, Some("c-call_list_tour"), &["tool:call_list_tour"])),
@@ -127,6 +144,10 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("tools-execute-code", |s| {
         let open = format!("execute-details:{}:call_execute_tour", crate::fixture_ids::TOUR);
         tour(s, Some("c-call_shell_tour"), &[&open]);
+    }),
+    ("tools-shell-long", |s| {
+        tour(s, Some("c-call_shell_tour"), &["tool:call_shell_tour"]);
+        long_command(s);
     }),
     ("tools-error", |s| tour(s, Some("c-call_shellerr_tour"), &["tool:call_shellerr_tour"])),
     ("tools-running", tour_running),

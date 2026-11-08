@@ -1,7 +1,7 @@
 //! Shell: "Shell" and its command; open, Desktop's console card (`ConsoleOutput`) of the command
 //! over its output, which Execute's output row opens too.
 
-use rune::{Color, El, ScrollSpec, Tx, col, el, row, text};
+use rune::{Color, El, ScrollFade, ScrollSpec, Tx, col, el, row, text};
 
 use super::plain::{clean, linked, one_line};
 use super::{Call, Ctx, Display, Phase, Press, Trigger, body, disclosure, field, output, trigger};
@@ -30,28 +30,34 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     })
 }
 
-/// Desktop's console card: the command over its result, each with a copy button that stays in
-/// view while its section scrolls, in one region that scrolls past [`MAX_H`].
+/// A console's command scrolls past this, eight lines and its padding.
+const COMMAND_MAX_H: f32 = 8.0 * 20.0 + 2.0 * PAD;
+/// The inset of a section's text, kept while it scrolls.
+const PAD: f32 = 12.0;
+const RADIUS: f32 = 6.0;
+/// The ring's width: the sections sit inside it, rounded concentrically.
+const RING: f32 = 0.5;
+
+/// Desktop's console card: the command over its result, each with a copy button. Each section
+/// scrolls on its own past its cap, its text held 12 pt in from every edge and fading where
+/// it's cut; the ring stays whole round all four corners, the sections inside it.
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>, out: &str) -> El {
-    let mut inner = col().key("console-text").w_full();
+    let mut card = col().key("console").w_full().radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group();
+    let inner = RADIUS - RING;
+    let result = !out.is_empty();
     if let Some(cmd) = command {
-        inner = inner.child(section(s, p, id, "command", text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere(), cmd, p.bg_base, opencode_i18n::t!("ui.message.copy"), false));
+        let words = text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere();
+        let corners = [inner, inner, if result { 0.0 } else { inner }, if result { 0.0 } else { inner }];
+        card = card.child(section(s, p, id, Part { name: "command", copy: cmd, fill: p.bg_base, label: opencode_i18n::t!("ui.message.copy"), corners, cap: COMMAND_MAX_H, rule: false }, words));
     }
-    if !out.is_empty() {
+    if result {
         // A line break that ends the output opens no empty line, as in a `pre`.
         let words = linked::<S>(p, out.strip_suffix('\n').unwrap_or(out), TOOL_CODE, p.muted);
-        inner = inner.child(section(s, p, id, "result", words, out, p.layer1, opencode_i18n::t!("ui.message.copyOutput"), command.is_some()));
+        let top = if command.is_some() { 0.0 } else { inner };
+        let corners = [top, top, inner, inner];
+        card = card.child(section(s, p, id, Part { name: "result", copy: out, fill: p.layer1, label: opencode_i18n::t!("ui.message.copyOutput"), corners, cap: MAX_H, rule: command.is_some() }, words));
     }
-    col()
-        .key("console")
-        .w_full()
-        .radius(6.0)
-        .padding(0.5)
-        .border(0.5, p.border)
-        .fill(p.bg_base)
-        .clip_rounded(6.0)
-        .hover_group()
-        .child(capped(inner))
+    card
 }
 
 /// `content` in a region at most [`MAX_H`] tall that scrolls the rest, with no scroll bar, as Desktop hides it.
@@ -59,14 +65,29 @@ pub fn capped(content: El) -> El {
     col().key("scroll").w_full().max_h(MAX_H).scroll(ScrollSpec { stick_bottom: false }).child(content)
 }
 
-/// One section of the console: its text on `fill`, a hairline over it when it follows the
-/// command, and its copy button 4 pt in from the top right, held there while the section
-/// scrolls (`position: sticky; top: 4px`). A backdrop of the section's fill sits behind the
-/// button, fading out to its left, top and bottom, so text under it softens rather than being cut.
-#[allow(clippy::too_many_arguments)]
-fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, words: El, copy: &str, fill: Color, label: &'static str, rule: bool) -> El {
-    let copy_key = format!("copy-tool-{id}-{part}");
-    let copied = copy.to_owned();
+/// One section of a console.
+struct Part<'a> {
+    name: &'static str,
+    /// What its copy button copies.
+    copy: &'a str,
+    fill: Color,
+    label: &'static str,
+    /// `[top_left, top_right, bottom_right, bottom_left]`, concentric with the ring.
+    corners: [f32; 4],
+    /// Its height, past which its text scrolls.
+    cap: f32,
+    /// A hairline over it, as it follows the command.
+    rule: bool,
+}
+
+/// One section of the console: its text on its fill, 12 pt in from each edge, in a viewport
+/// capped at its height that scrolls the rest and feathers its text out into the padding where
+/// it's cut, and its copy button 4 pt in from the top right, still while the text scrolls. A
+/// backdrop of the section's fill sits behind the button, fading out to its left, top and
+/// bottom, so text under it softens rather than being cut.
+fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> El {
+    let copy_key = format!("copy-tool-{id}-{}", part.name);
+    let (copied, fill, label) = (part.copy.to_owned(), part.fill, part.label);
     let done = crate::copied::is_copied(s, &copy_key);
     let button = row()
         .key("copy")
@@ -88,18 +109,13 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, words: El, cop
         })
         .child(crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted));
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
-    let holder = el()
-        .key("copy-holder")
-        .size(24.0, 24.0)
-        .pin(None, Some(4.0), Some(4.0), None)
-        .sticky_top(4.0)
-        .group_opacity(0.0, 1.0)
-        .child(backdrop)
-        .child(button);
-    let mut sec = col().key(part.to_owned()).w_full().fill(fill).padding(12.0).child(readable(p, words).w_full()).child(holder);
+    let holder = el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0).child(backdrop).child(button);
+    let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
+    let viewport = col().key("scroll").w_full().max_h(part.cap).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(ScrollFade::feather(PAD + 4.0)).child(inset);
+    let mut sec = col().key(part.name).w_full().fill(fill).corners(part.corners).clip_corners(part.corners).child(viewport).child(holder);
     // `border-block-start: 0.5px`, drawn after the copy button's backdrop, which stops below it.
-    if rule {
-        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(0.5).fill(p.border));
+    if part.rule {
+        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(RING).fill(p.ring));
     }
     sec
 }
