@@ -494,7 +494,7 @@ fn tab_bar(
                 .hover(p.hover)
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_bottom_region(tx))
+                .on_press(|s: &mut App| s.toggle_bottom_region())
                 .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted)),
         );
     } else if reserve_toggle {

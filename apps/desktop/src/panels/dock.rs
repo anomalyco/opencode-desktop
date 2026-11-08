@@ -187,9 +187,10 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             .adding
             .iter()
             .any(|n| n.session_id == reg.session_id && n.pane == SessionPane::Bottom);
-    if !has_bottom || !s.bottom_open() {
+    if !has_bottom {
         return None;
     }
+    let open = s.bottom_open();
 
     let h = bottom_pane_height(s, cx);
     let max_h = bottom_pane_max(s, cx);
@@ -236,5 +237,16 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
                 .child(pane_box(s, p, &reg, SessionPane::Bottom, (800.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
         );
 
-    Some(col().key("bottom-dock").w_full().pl(8.0).pr(8.0).pb(8.0).child(handle).child(card))
+    // Hidden rather than unmounted, so its terminals keep their screens (`screen.tsx:544`); its
+    // height flies shut and open on the side region's spring.
+    let outer = col()
+        .key("bottom-dock")
+        .w_full()
+        .h(if open { h + 16.0 } else { 0.0 })
+        .clip_soft(0.0)
+        .motion(super::view::SIDE_SPRING)
+        .pl(8.0)
+        .pr(8.0)
+        .child(col().w_full().pb(8.0).child(handle).child(card));
+    Some(if open { outer } else { outer.inert() })
 }

@@ -173,7 +173,7 @@ impl App {
                 .resolve_side_region()
                 .is_some_and(|r| r.strip.iter().any(|e| e.pane == SessionPane::Bottom))
             {
-                self.toggle_bottom_region(tx);
+                self.toggle_bottom_region();
                 return true;
             }
         }

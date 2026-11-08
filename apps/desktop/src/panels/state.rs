@@ -560,9 +560,8 @@ impl App {
         }
     }
 
-    pub fn toggle_bottom_region(&mut self, tx: &mut Tx) {
+    pub fn toggle_bottom_region(&mut self) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        tx.instant();
         let next = {
             let st = self.session_side_mut(&sid);
             st.bottom_open = !st.bottom_open;
@@ -647,7 +646,6 @@ impl App {
     pub fn hide_side_tab(&mut self, key: &str, tx: &mut Tx) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         if session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, key) == SessionPane::Bottom {
-            tx.instant();
             self.session_side_mut(&sid).bottom_open = false;
             self.side.focused = false;
             return;
