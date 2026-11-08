@@ -64,64 +64,65 @@ enum Keys {
 }
 
 /// One item, or a separator (`None`).
-type Row = Option<(&'static str, Act, Keys)>;
+type Row = Option<(opencode_i18n::Key, Act, Keys)>;
 
-const fn it(title: &'static str, act: Act, keys: Keys) -> Row {
+const fn it(title: opencode_i18n::Key, act: Act, keys: Keys) -> Row {
     Some((title, act, keys))
 }
 
-/// `DESKTOP_MENU`, as Windows shows it: the app menu is macOS's alone.
-const MENUS: [(&str, &[Row]); 6] = [
-    ("File", &[
-        it("New Session", Act::NewSession, Keys::Command(Bind::TabNew)),
-        it("Settings", Act::Settings, Keys::Command(Bind::Settings)),
-        it("New Window", Act::NewWindow, Keys::Fixed("Ctrl+Shift+N")),
+/// `DESKTOP_MENU`, as Windows shows it: the app menu is macOS's alone. A submenu's English
+/// name is what plugins' menubar items name it by.
+const MENUS: [(&str, opencode_i18n::Key, &[Row]); 6] = [
+    ("File", opencode_i18n::key!("desktop.menu.file"), &[
+        it(opencode_i18n::key!("desktop.menu.newSession"), Act::NewSession, Keys::Command(Bind::TabNew)),
+        it(opencode_i18n::key!("desktop.menu.settings"), Act::Settings, Keys::Command(Bind::Settings)),
+        it(opencode_i18n::key!("desktop.menu.newWindow"), Act::NewWindow, Keys::Fixed("Ctrl+Shift+N")),
         None,
-        it("Close Window", Act::CloseWindow, Keys::Fixed("Ctrl+Shift+W")),
+        it(opencode_i18n::key!("desktop.menu.closeWindow"), Act::CloseWindow, Keys::Fixed("Ctrl+Shift+W")),
     ]),
-    ("Edit", &[
-        it("Undo", Act::Edit(EditKey::Undo), Keys::Fixed("Ctrl+Z")),
-        it("Redo", Act::Edit(EditKey::Redo), Keys::Fixed("Ctrl+Y")),
+    ("Edit", opencode_i18n::key!("desktop.menu.edit"), &[
+        it(opencode_i18n::key!("desktop.menu.undo"), Act::Edit(EditKey::Undo), Keys::Fixed("Ctrl+Z")),
+        it(opencode_i18n::key!("desktop.menu.redo"), Act::Edit(EditKey::Redo), Keys::Fixed("Ctrl+Y")),
         None,
-        it("Cut", Act::Edit(EditKey::Cut), Keys::Fixed("Ctrl+X")),
-        it("Copy", Act::Edit(EditKey::Copy), Keys::Fixed("Ctrl+C")),
-        it("Paste", Act::Edit(EditKey::Paste), Keys::Fixed("Ctrl+V")),
-        it("Delete", Act::Edit(EditKey::Delete), Keys::None),
-        it("Select All", Act::Edit(EditKey::SelectAll), Keys::Fixed("Ctrl+A")),
+        it(opencode_i18n::key!("desktop.menu.cut"), Act::Edit(EditKey::Cut), Keys::Fixed("Ctrl+X")),
+        it(opencode_i18n::key!("desktop.menu.copy"), Act::Edit(EditKey::Copy), Keys::Fixed("Ctrl+C")),
+        it(opencode_i18n::key!("desktop.menu.paste"), Act::Edit(EditKey::Paste), Keys::Fixed("Ctrl+V")),
+        it(opencode_i18n::key!("desktop.menu.delete"), Act::Edit(EditKey::Delete), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.selectAll"), Act::Edit(EditKey::SelectAll), Keys::Fixed("Ctrl+A")),
     ]),
-    ("View", &[
-        it("Toggle Sidebar", Act::ToggleSidebar, Keys::Command(Bind::Sidebar)),
-        it("Toggle Terminal", Act::ToggleTerminal, Keys::Command(Bind::DockToggle)),
+    ("View", opencode_i18n::key!("desktop.menu.view"), &[
+        it(opencode_i18n::key!("desktop.menu.toggleSidebar"), Act::ToggleSidebar, Keys::Command(Bind::Sidebar)),
+        it(opencode_i18n::key!("desktop.menu.toggleTerminal"), Act::ToggleTerminal, Keys::Command(Bind::DockToggle)),
         None,
-        it("Reload", Act::Reload, Keys::None),
-        it("Toggle Developer Tools", Act::DevTools, Keys::None),
+        it(opencode_i18n::key!("desktop.menu.reload"), Act::Reload, Keys::None),
+        it(opencode_i18n::key!("desktop.menu.toggleDeveloperTools"), Act::DevTools, Keys::None),
         None,
-        it("Actual Size", Act::ActualSize, Keys::Fixed("Ctrl+0")),
-        it("Zoom In", Act::ZoomIn, Keys::Fixed("Ctrl++")),
-        it("Zoom Out", Act::ZoomOut, Keys::Fixed("Ctrl+-")),
+        it(opencode_i18n::key!("desktop.menu.actualSize"), Act::ActualSize, Keys::Fixed("Ctrl+0")),
+        it(opencode_i18n::key!("desktop.menu.zoomIn"), Act::ZoomIn, Keys::Fixed("Ctrl++")),
+        it(opencode_i18n::key!("desktop.menu.zoomOut"), Act::ZoomOut, Keys::Fixed("Ctrl+-")),
         None,
-        it("Toggle Full Screen", Act::FullScreen, Keys::None),
+        it(opencode_i18n::key!("desktop.menu.toggleFullScreen"), Act::FullScreen, Keys::None),
     ]),
-    ("Go", &[
-        it("Back", Act::Back, Keys::Command(Bind::GoBack)),
-        it("Forward", Act::Forward, Keys::Command(Bind::GoForward)),
+    ("Go", opencode_i18n::key!("desktop.menu.go"), &[
+        it(opencode_i18n::key!("desktop.menu.back"), Act::Back, Keys::Command(Bind::GoBack)),
+        it(opencode_i18n::key!("desktop.menu.forward"), Act::Forward, Keys::Command(Bind::GoForward)),
         None,
-        it("Previous Session", Act::PreviousSession, Keys::Command(Bind::SessionPrev)),
-        it("Next Session", Act::NextSession, Keys::Command(Bind::SessionNext)),
+        it(opencode_i18n::key!("desktop.menu.previousSession"), Act::PreviousSession, Keys::Command(Bind::SessionPrev)),
+        it(opencode_i18n::key!("desktop.menu.nextSession"), Act::NextSession, Keys::Command(Bind::SessionNext)),
     ]),
-    ("Window", &[
-        it("Minimize", Act::Minimize, Keys::None),
-        it("Maximize", Act::Maximize, Keys::None),
+    ("Window", opencode_i18n::key!("desktop.menu.window"), &[
+        it(opencode_i18n::key!("desktop.menu.minimize"), Act::Minimize, Keys::None),
+        it(opencode_i18n::key!("desktop.menu.maximize"), Act::Maximize, Keys::None),
         None,
-        it("Close Window", Act::CloseWindow, Keys::None),
+        it(opencode_i18n::key!("desktop.menu.closeWindow"), Act::CloseWindow, Keys::None),
     ]),
-    ("Help", &[
-        it("OpenCode Documentation", Act::Open("https://opencode.ai/v2/docs"), Keys::None),
-        it("Support Forum", Act::Open("https://discord.com/invite/opencode"), Keys::None),
-        it("Export Logs…", Act::ExportLogs, Keys::None),
+    ("Help", opencode_i18n::key!("desktop.menu.help"), &[
+        it(opencode_i18n::key!("desktop.menu.documentation"), Act::Open("https://opencode.ai/v2/docs"), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.supportForum"), Act::Open("https://discord.com/invite/opencode"), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.exportLogs"), Act::ExportLogs, Keys::None),
         None,
-        it("Share Feedback", Act::Open("https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml"), Keys::None),
-        it("Report a Bug", Act::Open("https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml"), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.shareFeedback"), Act::Open("https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml"), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.reportBug"), Act::Open("https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml"), Keys::None),
     ]),
 ];
 
@@ -136,7 +137,7 @@ fn glyph_button(s: &App, p: &Pal) -> El {
     rune::el()
         .key(KEY)
         .role("button")
-        .label("OpenCode menu")
+        .label(opencode_i18n::t!("desktop.menu.ariaLabel"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -173,17 +174,18 @@ const PLUGIN: &str = "app-menu-plugin-";
 /// items follow each submenu's own, after a separator.
 fn menu(s: &App) -> Menu {
     let plugin_items = crate::plugin_host::menubar_items(s);
-    let menus = MENUS.iter().enumerate().map(|(m, (title, rows))| {
-        let sub = rows.iter().enumerate().fold(Menu::new(*title), |menu, (r, row)| match row {
+    let menus = MENUS.iter().enumerate().map(|(m, (name, title, rows))| {
+        let title = opencode_i18n::I18N.text(*title);
+        let sub = rows.iter().enumerate().fold(Menu::new(title), |menu, (r, row)| match row {
             None => menu.separator(),
-            Some((title, act, keys)) => menu.item(Item::new(id(m, r), *title).shortcut(label(*keys)).enabled(enabled(s, *act))),
+            Some((title, act, keys)) => menu.item(Item::new(id(m, r), opencode_i18n::I18N.text(*title)).shortcut(label(*keys)).enabled(enabled(s, *act))),
         });
-        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _)| menu.eq_ignore_ascii_case(title)).collect();
+        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _)| menu.eq_ignore_ascii_case(name)).collect();
         let sub = if theirs.is_empty() { sub } else { sub.separator() };
         let sub = theirs.into_iter().fold(sub, |menu, (_, key, title)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone())));
-        (m, *title, sub)
+        (m, title, sub)
     });
-    menus.fold(Menu::new("OpenCode").standard(W).keeps_focus().group("OpenCode"), |menu, (m, title, sub)| {
+    menus.fold(Menu::new(opencode_i18n::t!("desktop.menu.app")).standard(W).keeps_focus().group(opencode_i18n::t!("desktop.menu.app")), |menu, (m, title, sub)| {
         menu.submenu(format!("app-menu-{m}"), title, sub)
     })
 }
@@ -196,7 +198,7 @@ fn id(m: usize, r: usize) -> String {
 fn find(id: &str) -> Option<Act> {
     let mut parts = id.strip_prefix("app-menu-")?.split('-').map(str::parse::<usize>);
     let (m, r) = (parts.next()?.ok()?, parts.next()?.ok()?);
-    MENUS.get(m)?.1.get(r)?.map(|(_, act, _)| act)
+    MENUS.get(m)?.2.get(r)?.map(|(_, act, _)| act)
 }
 
 fn label(keys: Keys) -> String {
