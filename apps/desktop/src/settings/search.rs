@@ -408,27 +408,41 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     let (list, _) = shown(s);
-    let at = s.settings_pages.find.highlighted.as_ref().and_then(|id| list.iter().position(|e| &e.id == id));
-    match ev.key {
-        Key::Down | Key::Up if !list.is_empty() => {
-            tx.instant();
-            let next = match (at, ev.key == Key::Down) {
-                (None, true) => 0,
-                (None, false) => list.len() - 1,
-                (Some(i), true) => (i + 1).min(list.len() - 1),
-                (Some(i), false) => i.saturating_sub(1),
-            };
-            s.settings_pages.find.highlighted = Some(list[next].id.clone());
+    let at = active_index(&list, s.settings_pages.find.highlighted.as_deref());
+    // `searchListMove` and `searchListTarget` (`search-list/navigation.ts`): the arrows wrap,
+    // Home and End go to the ends.
+    let next = match ev.key {
+        _ if list.is_empty() || ev.mods.shift || ev.mods.ctrl || ev.mods.cmd || ev.mods.alt => None,
+        Key::Down => Some((at + 1) % list.len()),
+        Key::Up => Some(if at == 0 { list.len() - 1 } else { at - 1 }),
+        Key::Home => Some(0),
+        Key::End => Some(list.len() - 1),
+        _ => None,
+    };
+    if let Some(next) = next {
+        tx.instant();
+        s.settings_pages.find.highlighted = Some(list[next].id.clone());
+        // The first row shows from the top, so its header is never hidden (`search-list.tsx:133-140`).
+        if next == 0 {
+            tx.scroll_to_instant("settings-results-scroll", 0.0, 0.0);
+        } else {
             tx.scroll_into_view(format!("settings-result-{next}"));
-            true
         }
-        Key::Enter => {
-            let Some(e) = at.or((!list.is_empty()).then_some(0)).map(|i| list[i].clone()) else { return false };
-            open(s, &e, tx);
-            true
-        }
-        _ => false,
+        return true;
     }
+    if ev.key == Key::Enter
+        && let Some(e) = list.get(at).cloned()
+    {
+        open(s, &e, tx);
+        return true;
+    }
+    false
+}
+
+/// The active row (`createTypeahead`'s `activeItem`): the one picked while it's still listed,
+/// else the first (`typeahead/controller.ts:17-22`).
+fn active_index(list: &[Entry], highlighted: Option<&str>) -> usize {
+    highlighted.and_then(|id| list.iter().position(|e| e.id == id)).unwrap_or(0)
 }
 
 /// The rail's field (`.settings-search`): 28 pt, transparent until hovered, focused or typed in,
@@ -445,9 +459,15 @@ pub fn field(s: &App, p: &Pal) -> El {
             })
             .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
     });
-    row().key("settings-search").w_full().h(28.0).pr(4.0).gap(6.0).center_y().radius(6.0)
+    // `text-input-v2`'s 8 at its end, the clear button its own child (`text-input.css:11`,
+    // `text-input.tsx:82-108`).
+    let field = row().key("settings-search").w_full().h(28.0).pr(8.0).gap(6.0).center_y().radius(6.0)
         .fill(if lit { p.hover } else { rune::Color::TRANSPARENT })
-        .hover(p.hover)
+        .hover(p.hover);
+    // Focused, `text-input-v2` draws its 1 pt `border-focus` outline inside its edge
+    // (`text-input.css:17-18, 62-65`).
+    let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
+    field
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(rune::text_input(q, ROW).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint).caret(p.text, p.selection).label(t!("settings.search.placeholder"))
@@ -455,8 +475,7 @@ pub fn field(s: &App, p: &Pal) -> El {
             // Enter opens the lit result, else the first (`search-machine.ts`).
             .on_submit(|s: &mut App, tx: &mut Tx| {
                 let (list, _) = shown(s);
-                let lit = s.settings_pages.find.highlighted.as_ref().and_then(|id| list.iter().find(|e| &e.id == id)).or(list.first()).cloned();
-                if let Some(e) = lit {
+                if let Some(e) = list.get(active_index(&list, s.settings_pages.find.highlighted.as_deref())).cloned() {
                     open(s, &e, tx);
                 }
             })
@@ -476,7 +495,9 @@ pub fn results(s: &App, p: &Pal) -> El {
         return row().key("settings-results").w_full().h(120.0).center()
             .child(super::pages::no_results(p, "settings-search-empty", &query));
     }
-    let find = &s.settings_pages.find;
+    let active = active_index(&list, s.settings_pages.find.highlighted.as_deref());
+    // `[data-active]` (`search-list.css:155-158, 222-224`): the hover overlay, `alpha-light-10` in dark.
+    let active_fill = if p.dark { rune::Color::WHITE.alpha(0.10) } else { p.hover };
     let mut body = col().key("settings-results-list").w_full().pt(6.0).px(6.0).pb(8.0);
     let mut at = 0;
     let groups: Vec<&'static str> = list.iter().map(category).fold(Vec::new(), |mut v, c| {
@@ -492,14 +513,20 @@ pub fn results(s: &App, p: &Pal) -> El {
             .child(row().key("header").w_full().h(28.0).mx(-6.0).px(18.0).center_y().fill(p.bg_base).sticky_top(0.0)
                 .child(text(category_label(group)).font(ROW).color(p.muted)));
         for e in entries {
-            let lit = find.highlighted.as_deref() == Some(&e.id);
-            let current = find.selected.as_deref() == Some(&e.id);
             let entry = e.clone();
+            let id = e.id.clone();
+            // The pointer takes the active row as it moves over one (`search-list.tsx:281-286`);
+            // the row has no hover of its own.
             let mut r = row().key(format!("settings-result-{at}")).role("option").label(e.title.clone()).w_full().h(36.0).px(12.0).gap(8.0).center_y().radius(6.0)
-                .hover(p.hover)
+                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                    if inside && s.settings_pages.find.highlighted.as_deref() != Some(id.as_str()) {
+                        tx.instant();
+                        s.settings_pages.find.highlighted = Some(id.clone());
+                    }
+                })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| open(s, &entry, tx));
-            if lit || current {
-                r = r.fill(p.hover);
+            if at == active {
+                r = r.fill(active_fill);
             }
             if icons {
                 let mark = match &e.project {
@@ -524,17 +551,14 @@ pub fn results(s: &App, p: &Pal) -> El {
         .children(footer)
 }
 
-/// A title with the query's first match in the accent (`SearchHighlight`).
+/// A title with the query's first match in the accent (`SearchHighlight`), one run that shrinks
+/// and truncates beside the page as the row's `min-w-0 truncate` spans do.
 fn highlight(p: &Pal, title: &str, query: &str) -> El {
     let lower = title.to_lowercase();
-    let q = query.to_lowercase();
-    let Some(at) = (!q.is_empty()).then(|| lower.find(&q)).flatten().filter(|at| title.is_char_boundary(*at) && title.is_char_boundary(at + q.len())) else {
-        return text(title.to_owned()).font(ROW).color(p.text).truncate();
-    };
-    let (a, rest) = title.split_at(at);
-    let (m, b) = rest.split_at(q.len());
-    row()
-        .children((!a.is_empty()).then(|| text(a.to_owned()).font(ROW).color(p.text)))
-        .child(text(m.to_owned()).font(ROW).color(p.accent))
-        .children((!b.is_empty()).then(|| text(b.to_owned()).font(ROW).color(p.text)))
+    let q = query.trim().to_lowercase();
+    let t = text(title.to_owned()).font(ROW).color(p.text).truncate().shrink().min_w(0.0);
+    match (!q.is_empty() && lower.len() == title.len()).then(|| lower.find(&q)).flatten() {
+        Some(at) => t.spans(vec![rune::Span::new(at, at + q.len()).color(p.accent)]),
+        None => t,
+    }
 }

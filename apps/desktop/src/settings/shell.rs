@@ -61,7 +61,8 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     }
     let wide = width <= 0.0 || width >= 1048.0;
     let (rail_w, pad_start, pad_end, gutter) = if wide { (328.0, 24.0, 64.0, 0.0) } else { (240.0, 16.0, 24.0, 24.0) };
-    let rail = col().key("settings-sidebar").w(rail_w).pt(50.0).pb(48.0).pl(pad_start).pr(pad_end).sticky_top(0.0).child(nav(s, p, height));
+    // `.settings-nav` is 240 wide at most (`settings.css:70-78`): all of the narrow rail's 200.
+    let rail = col().key("settings-sidebar").w(rail_w).pt(50.0).pb(48.0).pl(pad_start).pr(pad_end).sticky_top(0.0).child(nav(s, p, rail_w - pad_start - pad_end, height));
     let page = col().key("settings-content").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(content);
     col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
         .child(screen.child(row().w_full().px(gutter).justify_center().child(row().w_full().max_w(1048.0).items_start().child(rail).child(page))))
@@ -69,20 +70,30 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
 
 /// `.settings-nav`: Back, the search, then the page groups (or the search's results). A
 /// project's pages have Back to projects and their tabs, without the search.
-fn nav(s: &App, p: &Pal, height: f32) -> El {
+fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
     if let Page::Project(dir, _) = &s.settings_pages.page {
         let tabs = pages::project::Tab::ALL.iter().fold(col().key("settings-nav-group-0").w_full().gap(4.0), |c, tab| c.child(nav_item(s, p, &Page::Project(dir.clone(), *tab))));
-        return col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(col().key("settings-nav-groups").w_full().child(tabs));
+        return col().key("settings-nav").w(width).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(col().key("settings-nav-groups").w_full().child(tabs));
     }
-    let nav = col().key("settings-nav").w(240.0).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(search::field(s, p));
+    let nav = col().key("settings-nav").w(width).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0));
     // The results, or the page groups, scroll in what the rail leaves them: the screen less its
-    // insets, Back and the field.
-    let room = if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - 16.0).max(120.0) } else { 480.0 };
+    // insets, Back and the field (and the nav's 16 after it, which the results don't take).
+    let room = |gap: f32| if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - gap).max(120.0) } else { 480.0 };
+    // `.settings-search` holds the field and its results (`search.tsx:124`), so they meet without
+    // the nav's gap.
+    let field = col().key("settings-search-list").w_full().child(search::field(s, p));
     if search::active(s) {
-        return nav.child(search::results(s, p).max_h(room));
+        return nav.child(field.child(search::results(s, p).max_h(room(0.0))));
     }
-    let mut list = col().key("settings-nav-list").w_full().gap(16.0);
-    for (g, group) in groups(s).into_iter().enumerate() {
+    let nav = nav.child(field);
+    let room = room(16.0);
+    let groups = groups(s);
+    // An overflowing list gives Chromium's 8 pt scroll bar its own room at its end
+    // (`styles/scrollbar.css:25-28`), so its triggers are 8 narrower: 192 in the narrow rail.
+    let content_h: f32 = groups.iter().map(|g| g.len() as f32 * 28.0 + g.len().saturating_sub(1) as f32 * 4.0).sum::<f32>() + groups.len().saturating_sub(1) as f32 * 16.0;
+    let gutter = if content_h > room + 0.5 { 8.0 } else { 0.0 };
+    let mut list = col().key("settings-nav-list").w_full().pr(gutter).gap(16.0);
+    for (g, group) in groups.into_iter().enumerate() {
         let items = group.iter().fold(col().key(format!("settings-nav-group-{g}")).w_full().gap(4.0), |c, page| c.child(nav_item(s, p, page)));
         list = list.child(items);
     }
