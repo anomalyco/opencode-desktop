@@ -152,7 +152,7 @@ pub fn index(s: &App) -> Vec<Entry> {
         e.subtab = Some(tab);
         out.push(e);
     }
-    for b in crate::keymap::all().iter().filter(|b| !b.hidden) {
+    for b in crate::keymap::all().iter().filter(|b| b.listed) {
         let mut e = entry(&Page::Shortcuts, &b.title(), Page::Shortcuts.label(), Some(&format!("shortcut-{}", b.id)), "shortcut keybind", "", false);
         e.id = format!("shortcut:{}", b.id);
         out.push(e);
@@ -386,7 +386,7 @@ pub fn palette(s: &App, query: &str, max: usize) -> Vec<Entry> {
 /// The field's and results' keys: ↑↓ light a result, Enter opens it, Escape clears the query;
 /// ⌘F focuses the field from anywhere in Settings.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if crate::keymap::Bind::Find.matches_tx(ev, tx) {
+    if crate::keymap::Bind::SettingsSearch.matches_tx(ev, tx) {
         tx.instant();
         let q = &mut s.settings_pages.find.query;
         s.settings_pages.search.focused = false;

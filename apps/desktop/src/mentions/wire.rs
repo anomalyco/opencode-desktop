@@ -48,6 +48,17 @@ pub(super) fn filename(path: &str) -> &str {
     opencode_kit::path::basename(path)
 }
 
+/// A file's lines sent as context without a mention (`request.ts:187-196`):
+/// `file://<path>?start=<a>&end=<b>`.
+pub fn context_input(directory: &str, path: &str, start: u32, end: u32) -> FileInput {
+    FileInput {
+        uri: format!("file://{}?start={start}&end={end}", encode_path(&absolute(directory, path))),
+        name: filename(path).to_owned(),
+        mime: Some("text/plain".into()),
+        mention: None,
+    }
+}
+
 /// What a prompt sends for its pills.
 #[derive(Debug, Default, PartialEq)]
 pub struct Wire {

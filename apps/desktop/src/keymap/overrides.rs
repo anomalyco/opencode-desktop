@@ -43,6 +43,7 @@ fn view_bind(b: Bind) -> Option<session_view::keymap::Bind> {
         Bind::Variant => V::Variant,
         Bind::Attach => V::Attach,
         Bind::SubmitAnswer => V::QuestionAdvance,
+        Bind::QuestionBack => V::QuestionBack,
         Bind::Stop => V::Stop,
         _ => return None,
     })

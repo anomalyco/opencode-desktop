@@ -22,7 +22,7 @@ pub mod badge;
 pub mod list;
 mod wire;
 
-pub use wire::{Wire, wire};
+pub use wire::{Wire, context_input, wire};
 use wire::session_id_ok;
 #[cfg(test)]
 use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};

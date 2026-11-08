@@ -265,9 +265,25 @@ fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade())
 }
 
+/// A file sent as context without a mention (`editor.tsx:802-830`): the card on the base
+/// surface (the hover overlay in dark, `attachment-card.css`), its subtitle the file's 12 pt
+/// icon, then its type and lines (`TypeScript:12-20`).
+pub fn context_card(p: &Pal, title: &str, icon: El, label: String) -> El {
+    col()
+        .key("card")
+        .w(160.0)
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .fill(if p.dark { p.hover } else { p.bg_base })
+        .box_shadow(Pal::ring_in(p.border))
+        .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
+        .child(row().h(16.0).gap(4.0).center_y().child(icon).child(text(label).font(CARD_SUBTITLE).color(p.muted).truncate_fade().shrink().min_w(0.0)))
+}
+
 /// Desktop's `typeLabel` (`message-file.ts`): a source file's language by its extension, any
 /// other extension in capitals, and File without one (a dotfile has none).
-fn type_label(name: &str) -> String {
+pub fn type_label(name: &str) -> String {
     let base = opencode_kit::path::basename(name);
     let ext = match base.rfind('.') {
         Some(i) if i > 0 => base[i + 1..].to_ascii_lowercase(),

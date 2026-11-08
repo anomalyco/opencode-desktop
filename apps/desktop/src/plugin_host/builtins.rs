@@ -12,12 +12,13 @@ use opencode_plugin::abi::PluginEntryFn;
 /// Each linked built-in: its `plugin.toml` and its entry point.
 #[cfg(any(test, feature = "static-builtins"))]
 pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
-    #[cfg_attr(not(feature = "static-builtins"), allow(unused_mut))]
     let mut all: Vec<(&'static str, PluginEntryFn)> = vec![
         (include_str!("../../../../plugins/context/plugin.toml"), opencode_plugin_context_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/details/plugin.toml"), opencode_plugin_details_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry),
     ];
+    // Hello is the host's test plugin: the app's tests load it; no build a person runs lists it.
+    #[cfg(test)]
+    all.push((include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry));
     // The server plugins run wsl.exe and ssh: the app's own tests leave them out.
     #[cfg(feature = "static-builtins")]
     all.extend([

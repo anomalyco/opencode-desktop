@@ -338,7 +338,8 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
 }
 
 rune_register::register!(crate::commands::COMMANDS: Cmd = [
-    Cmd::new("updater.check", opencode_i18n::key!("plugin.updater.check.title"), |s, tx| {
+    // Desktop's title, as its catalog lists it (`gui-plugins/src/updater/renderer.tsx:120`).
+    Cmd::new("updater.check", opencode_i18n::key!("plugin.updater.menu.check"), |s, tx| {
         s.open_settings();
         s.updater.check(tx);
     })

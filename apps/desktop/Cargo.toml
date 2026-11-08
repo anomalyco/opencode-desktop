@@ -12,8 +12,9 @@ browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
 # Built-in plugins linked into the binary through their own entry points, for headless and
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
-# rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports.
-static-builtins = ["dep:opencode-plugin-hello-impl", "dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl", "dep:opencode-plugin-goal-impl", "dep:opencode-plugin-sources-impl", "dep:opencode-plugin-pairing-impl", "dep:opencode-plugin-debug-impl"]
+# rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports. The Hello
+# test plugin is the tests' alone (a dev-dependency).
+static-builtins = ["dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl", "dep:opencode-plugin-goal-impl", "dep:opencode-plugin-sources-impl", "dep:opencode-plugin-pairing-impl", "dep:opencode-plugin-debug-impl"]
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -33,7 +34,6 @@ opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
 opencode-plugin-context-impl = { path = "../../plugins/context/impl", optional = true }
 opencode-plugin-details-impl = { path = "../../plugins/details/impl", optional = true }
-opencode-plugin-hello-impl = { path = "../../plugins/hello/impl", optional = true }
 opencode-plugin-ssh-impl = { path = "../../plugins/ssh/impl", optional = true }
 opencode-plugin-wsl-impl = { path = "../../plugins/wsl/impl", optional = true }
 opencode-plugin-debug-impl = { path = "../../plugins/debug/impl", optional = true }

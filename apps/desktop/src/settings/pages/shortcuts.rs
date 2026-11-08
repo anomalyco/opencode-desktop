@@ -52,15 +52,19 @@ fn group_for(id: &str) -> Section {
     }
 }
 
-/// The table's listed rows, then every palette command without one (Unassigned unless bound).
+/// The table's listed rows, then every command without one, offered here or not (`listFor` over
+/// `command.catalog`), Unassigned unless bound. A command with a row goes by its row, so an
+/// unlisted row (zoom) keeps its command out too; two commands may share a title, as Desktop's
+/// New session and Open file do.
 fn entries(s: &App) -> Vec<Entry> {
-    let mut out: Vec<Entry> = all().iter().filter(|b| !b.hidden).map(|b| Entry { id: b.id.to_owned(), title: b.title(), section: b.section, keybind: b.bind.keybind().clone() }).collect();
-    for c in s.commands() {
-        if c.keys.is_some() || out.iter().any(|e| e.id == c.id || e.title == c.title) {
+    let mut out: Vec<Entry> = all().iter().filter(|b| b.listed).map(|b| Entry { id: b.id.to_owned(), title: b.title(), section: b.section, keybind: b.bind.keybind().clone() }).collect();
+    for c in s.catalog() {
+        if c.keys.is_some() || out.iter().any(|e| e.id == c.id) {
             continue;
         }
         let keybind = overrides::command(c.id).cloned().or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
-        out.push(Entry { id: c.id.to_owned(), title: c.title.to_owned(), section: group_for(c.id), keybind });
+        let section = crate::commands::section_of(c.id).unwrap_or_else(|| group_for(c.id));
+        out.push(Entry { id: c.id.to_owned(), title: c.title.to_owned(), section, keybind });
     }
     out
 }
@@ -88,12 +92,15 @@ pub fn view(s: &App, p: &Pal) -> El {
             continue;
         }
         any = true;
-        rows.sort_by_key(|e| e.title.to_lowercase());
+        // By title (`localeCompare`); two of one title in Desktop's catalog order, which their ids keep.
+        rows.sort_by_key(|e| (e.title.to_lowercase(), e.id.clone()));
         let n = rows.len();
         let mut card = col().key(format!("settings-shortcuts-{}", section.title())).w_full().padding(20.0).radius(6.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
         for (i, e) in rows.into_iter().enumerate() {
             let target = format!("shortcut-{}", e.id);
-            let r = row().key(format!("setting-{target}")).w_full().gap(16.0).center_y().pb(if i + 1 < n { 16.0 } else { 0.0 }).mb(if i + 1 < n { 16.0 } else { 0.0 })
+            // 16 below, then the rule in the row's box as Desktop's `border-b` is (`py-3` the
+            // settings list sets to 16 below), then 16 to the next.
+            let r = row().key(format!("setting-{target}")).w_full().gap(16.0).center_y().pb(if i + 1 < n { 16.5 } else { 0.0 }).mb(if i + 1 < n { 16.0 } else { 0.0 })
                 .child(text(e.title.clone()).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
                 .child(controls(s, p, e))
                 .children((i + 1 < n).then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)));
@@ -119,7 +126,7 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
         (keys.clone(), p.text, KEYS)
     };
     let id = e.id.clone();
-    let button = row().key(format!("shortcut-button-{}", e.id)).role("button").label(format!("{}: {words}", e.title)).h(24.0).px(8.0).center_y().radius(4.0)
+    let button = row().key(format!("shortcut-button-{}", e.id)).role("button").label(format!("{}: {words}", e.title)).h(24.0).px(9.0).center_y().radius(4.0)
         .fill(if recording { p.pressed } else { rune::Color::TRANSPARENT })
         .hover(if recording { p.pressed } else { p.hover })
         .press(p.pressed)
@@ -133,7 +140,7 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
         .child(text(words).font(font).color(ink));
     let id = e.id.clone();
     let unbind = (recording && !keys.is_empty()).then(|| {
-        row().key("shortcut-unbind").role("button").label(t!("settings.shortcuts.unbind")).h(24.0).px(8.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
+        row().key("shortcut-unbind").role("button").label(t!("settings.shortcuts.unbind")).h(24.0).px(9.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 bind(s, &id, "none");

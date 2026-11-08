@@ -11,7 +11,7 @@ use crate::pickers::PickerHost as _;
 use rune::{KeyEvent, Tx};
 use rune_register::{collect, slice};
 
-use crate::keymap::Bind;
+use crate::keymap::{Bind, Section};
 use crate::panels::PanelRegion;
 use crate::pickers::Kind;
 use crate::{App, Route};
@@ -31,6 +31,8 @@ pub struct Cmd {
     pub keys: Option<Bind>,
     /// Listed only while this holds (Desktop's `disabled`).
     pub enabled: fn(&App) -> bool,
+    /// Its group in Settings › Shortcuts when Desktop's id would place it elsewhere (`groupFor`).
+    pub section: Option<Section>,
     pub run: fn(&mut App, &mut Tx),
 }
 
@@ -40,7 +42,12 @@ fn always(_: &App) -> bool {
 
 impl Cmd {
     pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, run }
+        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, run }
+    }
+
+    pub const fn section(mut self, section: Section) -> Cmd {
+        self.section = Some(section);
+        self
     }
 
     pub const fn describe(mut self, description: opencode_i18n::Key) -> Cmd {
@@ -100,7 +107,17 @@ pub const SEARCH: &str = "commands";
 impl App {
     /// Every enabled command: the registered ones, the panels', then the plugins'.
     pub fn commands(&self) -> Vec<Command> {
-        let own = collect(&COMMANDS).into_iter().filter(|c| (c.enabled)(self)).map(|c| Command {
+        self.listing(true)
+    }
+
+    /// Every command, offered here or not, as Desktop's `command.catalog` remembers them:
+    /// Settings › Shortcuts lists a session's commands even when it opens from Home.
+    pub fn catalog(&self) -> Vec<Command> {
+        self.listing(false)
+    }
+
+    fn listing(&self, offered: bool) -> Vec<Command> {
+        let own = collect(&COMMANDS).into_iter().filter(|c| !offered || (c.enabled)(self)).map(|c| Command {
             id: c.id,
             title: opencode_i18n::I18N.text(c.title),
             description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
@@ -179,9 +196,39 @@ impl App {
     }
 }
 
-/// ⌃L, as Desktop binds `input.focus`. A focused panel (the terminal's clear screen) takes it first.
+/// Its Settings › Shortcuts group, when a registered command names one.
+pub fn section_of(id: &str) -> Option<Section> {
+    collect(&COMMANDS).into_iter().find(|c| c.id == id).and_then(|c| c.section)
+}
+
+/// ⌃L, as Desktop binds `input.focus` (a focused panel, the terminal's clear screen, takes it
+/// first); ⇧⌘L adds the open file's selected lines; ⇧⌘X switches the composer's shell mode.
+/// Each declines its key where Desktop's command is disabled.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    Bind::FocusInput.matches_tx(ev, tx) && s.focus_composer(tx)
+    if Bind::FocusInput.matches_tx(ev, tx) {
+        return s.focus_composer(tx);
+    }
+    if Bind::AddSelection.matches_tx(ev, tx) && s.can_add_selection() {
+        s.add_selection(tx);
+        return true;
+    }
+    if Bind::PromptModeToggle.matches_tx(ev, tx) && s.has_composer() {
+        toggle_shell(s, tx);
+        return true;
+    }
+    false
+}
+
+fn toggle_shell(s: &mut App, tx: &mut Tx) {
+    tx.instant();
+    if s.add.shell { s.exit_shell() } else { s.enter_shell() }
+}
+
+/// Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
+fn delete(s: &mut App, tx: &mut Tx) {
+    let Some(id) = s.open_root() else { return };
+    tx.instant();
+    s.menus.confirm = Some(id);
 }
 
 fn in_session(s: &App) -> bool {
@@ -238,7 +285,7 @@ fn has_sidebar(s: &App) -> bool {
 
 rune_register::register!(COMMANDS: Cmd = [
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
-    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new"),
+    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new").section(Section::Session),
     Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home),
     Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
     Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
@@ -273,24 +320,28 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("compact", opencode_i18n::key!("command.session.compact"), compact)
         .describe(opencode_i18n::key!("command.session.compact.description"))
         .slash("compact")
+        .section(Section::Session)
         .when(in_session),
     Cmd::new("undo", opencode_i18n::key!("command.session.undo"), |s, tx| {
         s.undo_last(tx);
     })
     .describe(opencode_i18n::key!("command.session.undo.description"))
     .slash("undo")
+    .section(Section::Session)
     .when(App::can_undo_session),
     Cmd::new("redo", opencode_i18n::key!("command.session.redo"), |s, tx| {
         s.redo_revert(tx);
     })
     .describe(opencode_i18n::key!("command.session.redo.description"))
     .slash("redo")
+    .section(Section::Session)
     .when(App::can_redo_session),
     Cmd::new("fork", opencode_i18n::key!("command.session.fork"), |s, tx| {
         s.open_fork_dialog(tx);
     })
     .describe(opencode_i18n::key!("command.session.fork.description"))
     .slash("fork")
+    .section(Section::Session)
     .when(App::can_fork_session),
     // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
     Cmd::new("background", opencode_i18n::key!("command.session.background"), |s, tx| {
@@ -302,8 +353,10 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("export", opencode_i18n::key!("command.session.export"), export)
         .describe(opencode_i18n::key!("command.session.export.description"))
         .slash("export")
+        .section(Section::Session)
         .when(in_session),
-    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| s.copy_id(s.open_session(), tx)).when(|s| s.open_session().is_some()),
+    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| s.copy_id(s.open_session(), tx)).section(Section::Session).when(|s| s.open_session().is_some()),
+    Cmd::new("session.delete", opencode_i18n::key!("command.session.delete"), delete).when(in_session),
     Cmd::new("copy-project", opencode_i18n::key!("command.project.copyID"), |s, tx| {
         let id = s.open_session().and_then(|id| s.session(&id)).map(|i| i.project.clone());
         s.copy_id(id, tx);
@@ -330,6 +383,18 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
     Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),
     Cmd::new("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset),
+    // The composer's modes (`composer/model.ts:579-599`).
+    Cmd::new("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), toggle_shell).keys(Bind::PromptModeToggle).when(App::has_composer),
+    Cmd::new("prompt.mode.shell", opencode_i18n::key!("command.prompt.mode.shell"), |s, tx| {
+        tx.instant();
+        s.enter_shell();
+    })
+    .when(|s| s.has_composer() && !s.add.shell),
+    Cmd::new("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
+        tx.instant();
+        s.exit_shell();
+    })
+    .when(|s| s.has_composer() && s.add.shell),
 ]);
 
 #[cfg(test)]

@@ -33,6 +33,7 @@ impl App {
         // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
         let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
         let quotes = if command.is_none() { self.quote.quotes() } else { Vec::new() };
+        let context = if command.is_none() { crate::add_selection::take(self) } else { Vec::new() };
         let text = match &command {
             Some((_, args)) => args.clone(),
             None => {
@@ -50,7 +51,7 @@ impl App {
         let prompt = Prompt {
             id: Some(opencode_kit::client::message_id()),
             text: text.clone(),
-            files: wire.files.into_iter().chain(attachments::inputs(&self.attach.files)).collect(),
+            files: wire.files.into_iter().chain(context).chain(attachments::inputs(&self.attach.files)).collect(),
             agents: wire.agents,
             skills: wire.skills,
             display_text: Some(wire.display.clone()),

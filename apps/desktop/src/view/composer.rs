@@ -126,7 +126,7 @@ impl ComposerHost for App {
         &self.attach.uploading
     }
     fn composer_quote_chips(&self, p: &Pal) -> Vec<El> {
-        crate::quote_cards::chips(self, p).into_iter().collect()
+        crate::quote_cards::chips(self, p).into_iter().chain(crate::add_selection::chips(self, p)).collect()
     }
     fn composer_has_extra_payload(&self) -> bool {
         self.quote.any()

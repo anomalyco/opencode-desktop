@@ -35,6 +35,8 @@ pub struct Attach {
     pub files: Vec<Attachment>,
     /// Waiting in the composer for the next send, by path on the server.
     pub paths: Vec<PathAttachment>,
+    /// Files' selected lines waiting for the next send as context (Add selection to context).
+    pub context: Vec<crate::add_selection::ContextFile>,
     /// Uploads still copying to a remote server; sending waits for them.
     pub uploading: Vec<String>,
     uploads_tx: Sender<Result<PathAttachment, Failed>>,
@@ -53,6 +55,7 @@ impl Default for Attach {
         Attach {
             files: Vec::new(),
             paths: Vec::new(),
+            context: Vec::new(),
             uploading: Vec::new(),
             uploads_tx,
             uploads,

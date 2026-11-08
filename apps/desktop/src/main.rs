@@ -66,6 +66,7 @@ mod working {
 }
 
 mod add_menu;
+mod add_selection;
 mod agent_rows;
 mod agent_start_stories;
 mod agent_stories;
