@@ -151,6 +151,8 @@ mod tool_group_shut_tests;
 #[cfg(test)]
 mod shell_fold_tests;
 #[cfg(test)]
+mod console_tests;
+#[cfg(test)]
 mod motion_gate;
 mod motion_log;
 mod new_session;
