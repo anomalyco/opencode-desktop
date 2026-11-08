@@ -14,6 +14,7 @@
 //! they show at.
 
 mod find;
+mod finish;
 mod funky;
 mod retro;
 mod sprites;
@@ -31,6 +32,7 @@ use rune::{Color, El, Image, ImageCache, SurfaceFit, TextStyle, Waker, el, text}
 
 use find::{Data, Key};
 use pixels::Buf;
+pub use finish::Finish;
 pub use styles::{Family, Look, Style};
 
 /// The theme colours icons are built from.
@@ -85,8 +87,10 @@ pub struct Icons {
     no_repo: bool,
     scale: Cell<f32>,
     look: Cell<Look>,
+    finish: Cell<Finish>,
     inner: RefCell<Option<Inner>>,
-    marks: RefCell<HashMap<(String, bool, usize, u32, (Style, i32, i32)), Image>>,
+    marks: RefCell<HashMap<(String, bool, usize, u32, (Style, i32, i32), Finish), Image>>,
+    lights: RefCell<HashMap<(Finish, bool, u32, u32), Image>>,
     vectors: RefCell<HashMap<(u64, u32), Image>>,
 }
 
@@ -159,6 +163,15 @@ impl Icons {
 
     pub fn look(&self) -> Look {
         self.look.get()
+    }
+
+    /// How images and letter tiles catch the light (default: Flat, Desktop's own).
+    pub fn set_finish(&self, finish: Finish) {
+        self.finish.set(finish);
+    }
+
+    pub fn finish(&self) -> Finish {
+        self.finish.get()
     }
 
     fn scale(&self) -> f32 {
@@ -251,6 +264,39 @@ impl Icons {
         self.image(pal, project, size_pt).unwrap_or_else(|| self.mark(pal, project, size_pt, self.look()))
     }
 
+    /// What lies over a tile in the current finish: Desktop's inset ring in `ring`, or the light,
+    /// which draws its own edge.
+    fn top(&self, size_pt: f32, image: bool, ring_color: Color) -> El {
+        let finish = self.finish();
+        let radius = size_pt * styles::RADIUS;
+        let mut top = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius);
+        if finish.ringed() && ring_color.a > 0.0 {
+            top = top.box_shadow(ring(ring_color));
+        }
+        if !finish.lit() {
+            return top;
+        }
+        let px = (size_pt * self.scale()).ceil().clamp(1.0, 1024.0) as u32;
+        let key = (finish, image, px, (size_pt * 4.0).round() as u32);
+        let cached = self.lights.borrow().get(&key).cloned();
+        let img = cached.unwrap_or_else(|| {
+            let img = self.with(|inner| inner.cache.rgba(px, px, finish::light(finish, image, size_pt, px)));
+            if self.sync {
+                let _ = img.wait();
+            }
+            self.lights.borrow_mut().insert(key, img.clone());
+            img
+        });
+        let light = el().key("light").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
+        top.child(light)
+    }
+
+    /// A finished tile: lit finishes cast a shadow.
+    fn lift(&self, pal: &Palette, tile: El, size_pt: f32) -> El {
+        let finish = self.finish();
+        if finish.lit() { finish::shadows(finish, tile, size_pt, pal.dark) } else { tile }
+    }
+
     /// The project's real icon at `size_pt` square, or None while there's none (no mark).
     pub fn image<'a>(&self, pal: &Palette, project: impl Into<Project<'a>>, size_pt: f32) -> Option<El> {
         let project = project.into();
@@ -258,20 +304,20 @@ impl Icons {
         let variant = chosen_color(project.color);
         Some(match self.found(&project)? {
             Shown::Tile(img) => {
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(pal.ring));
-                el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring)
+                let tile = el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
+                self.lift(pal, tile.child(self.top(size_pt, true, pal.ring)), size_pt)
             }
             Shown::Mark(img) => {
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(pal.ring));
                 let inner = el().size(size_pt * 0.75, size_pt * 0.75).pixels_fit(img.pixels(), SurfaceFit::Fit);
-                el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner).child(ring)
+                let tile = el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner);
+                self.lift(pal, tile.child(self.top(size_pt, true, pal.ring)), size_pt)
             }
             Shown::Vector(bytes, hash) => {
                 let img = self.vector(&bytes, hash, size_pt);
                 let (bg, border) = pal.avatars[variant.unwrap_or(8)];
                 let pic = el().absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
-                let ring = el().key("ring").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).box_shadow(ring(border));
-                el().size(size_pt, size_pt).radius(radius).fill(bg).child(pic).child(ring)
+                let tile = el().size(size_pt, size_pt).radius(radius).fill(bg).child(pic);
+                self.lift(pal, tile.child(self.top(size_pt, true, border)), size_pt)
             }
         })
     }
@@ -282,15 +328,18 @@ impl Icons {
         let seed = if project.name.is_empty() { project.id } else { project.name };
         let chosen = chosen_color(project.color);
         // Desktop shows gray unless a colour is chosen; the others pick one from the name.
+        let finish = self.finish();
         let variant = match look.style {
             Style::Desktop => chosen.unwrap_or(8),
             _ => chosen.unwrap_or((styles::hash(seed) % 8) as usize),
         };
+        // Desktop's letter tile under a light that draws its own edge gets a ringless body.
+        let lit_body = look.style == Style::Desktop && !finish.ringed();
         let px = (size_pt * self.scale()).ceil().clamp(1.0, 1024.0) as u32;
-        let key = (seed.to_owned(), pal.dark, variant, px, look.key());
+        let key = (seed.to_owned(), pal.dark, variant, px, look.key(), if look.style == Style::Desktop { finish } else { Finish::Flat });
         let cached = self.marks.borrow().get(&key).cloned();
         let img = cached.unwrap_or_else(|| {
-            let rgba = styles::draw(pal, seed, variant, &look, size_pt, px);
+            let rgba = if lit_body { finish::body(pal, variant, finish, px) } else { styles::draw(pal, seed, variant, &look, size_pt, px) };
             let img = self.with(|inner| inner.cache.rgba(px, px, rgba));
             if self.sync {
                 let _ = img.wait();
@@ -328,6 +377,11 @@ impl Icons {
                 el().absolute(dx, dx).size(size_pt, size_pt).center().child(text(letter.clone()).font(font).color(color))
             };
             tile = tile.child(layer(off * 0.5, shadow)).child(layer(-off * 0.5, ink));
+        }
+        if look.style == Style::Desktop && finish.lit() {
+            // The light goes over the letter, as iOS's does.
+            tile = tile.child(self.top(size_pt, false, Color::TRANSPARENT));
+            return self.lift(pal, tile, size_pt);
         }
         tile
     }

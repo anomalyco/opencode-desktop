@@ -1,20 +1,40 @@
-//! Project icons (`project-icon`) in this app's palette: Desktop's image or letter tile.
+//! Project icons (`project-icon`) in this app's palette: Desktop's image or letter tile,
+//! lit in the finish the Project icons knob picks.
 
 use opencode_kit::model::Project;
-use project_icon::{Look, Palette, Style};
+use project_icon::{Finish, Look, Palette, Style};
 use rune::{Cx, El, el};
+use rune_knobs::{Group, Knob};
 
 use crate::App;
 use crate::palette::Pal;
+
+mod stories;
+
+/// How project icons catch the light (`project_icon::Finish`), for Kit to pick one.
+pub const FINISH: Knob = Knob::choice("Icon finish", &Finish::NAMES, 0).about("How project icons catch the light").hints(&[
+    "Glossy top band, deep body, shadow",
+    "iOS's soft highlight and fading edge",
+    "Desktop's flat tile, as before",
+]);
+
+pub const GROUP: Group = Group::new("Project icons", "sidebar", &[FINISH]);
+
+rune_register::register!(crate::knobs::GROUP_LIST: Group = [GROUP]);
+
+pub fn finish(s: &App) -> Finish {
+    Finish::ALL.get(s.knobs.get(&FINISH).round() as usize).copied().unwrap_or_default()
+}
 
 pub fn palette(p: &Pal) -> Palette {
     Palette { dark: p.dark, avatars: p.avatars, fg: p.avatar_fg, tile: p.layer3, ring: p.ring }
 }
 
-/// Before a frame: images and SVGs rasterize for the screen and zoom.
+/// Before a frame: images and SVGs rasterize for the screen and zoom, in the knob's finish.
 pub fn prepare(s: &App, cx: &Cx<App>) {
     s.icons.set_scale(cx.env().scale * s.zoom);
     s.icons.set_look(Look::style(Style::Desktop));
+    s.icons.set_finish(finish(s));
 }
 
 /// A project's 16 pt icon, or its letter tile for `name` when the project isn't known.

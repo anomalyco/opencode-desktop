@@ -203,7 +203,7 @@ fn registered_lists_keep_their_order() {
     let paths: Vec<_> = stories().iter().map(|s| s.path).collect();
     assert_eq!(paths, STORY_PATHS);
     let groups: Vec<_> = crate::knobs::groups().iter().map(|g| g.name).collect();
-    assert_eq!(groups, ["Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal", "Header", "Dividers", "Copy", "Popover", "Stream", "Todo pill"]);
+    assert_eq!(groups, ["Global", "Composer", "Question dock", "Timeline", "Tool groups", "Working", "Terminal", "Header", "Dividers", "Copy", "Popover", "Stream", "Todo pill", "Project icons", "Experiments"]);
     let scenes: Vec<_> = super::scenes().iter().map(|s| s.0).collect();
     let all: Vec<_> = APP_SCENES.iter().chain(STORY_PATHS).copied().collect();
     assert_eq!(scenes, all);
@@ -268,6 +268,7 @@ const STORY_PATHS: &[&str] = &[
     "Question dock/Morph",
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
+    "Sidebar/Project icons",
     "Home/Session search",
     "Home/No server",
     "Components/Odometer",
