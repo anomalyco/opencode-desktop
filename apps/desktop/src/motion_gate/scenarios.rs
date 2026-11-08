@@ -5,6 +5,7 @@ use serde_json::json;
 
 use rune::motion_gate::{self, Allow, Job};
 use super::{Circ, DT, Dock, Length, Prompt, Run, SID};
+use super::pending::pending_holds;
 use crate::App;
 
 /// Findings that are the design, matched on kind, element and cell (substrings, "" for any).
@@ -30,6 +31,7 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "steer/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "steer-lands/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "steers-land/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
+    ("stop-start", "", "steers-pending/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "sends-behind-steers/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
@@ -315,6 +317,26 @@ const ACTIONS: &[Action] = &[
         r.enter(false);
         r.play(0.8);
         r.event("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+        r.play_out(1.0);
+    } },
+    // Two steers fly in and wait, then the server takes each mid-turn. Pending stays out of the
+    // flight: it sits under its row's bubble from the start, never moves on its own, and goes at
+    // once on delivery, without the hidden model line crossfading into view.
+    Action { name: "steers-pending", circs: || places(streaming()), run: |r| {
+        r.start_stream();
+        r.play(1.2);
+        r.type_prompt();
+        r.enter(false);
+        pending_holds(r, 0.6);
+        r.type_prompt();
+        r.enter(false);
+        pending_holds(r, 0.6);
+        let ids: Vec<String> = r.rt.state.inboxes.get(SID).map(|i| i.steering().map(|i| i.id.clone()).collect()).unwrap_or_default();
+        assert_eq!(ids.len(), 2, "two steers wait");
+        for id in ids {
+            r.event_now("session.inbox.delivered", json!({ "sessionID": SID, "inboxID": id }));
+            pending_holds(r, 0.6);
+        }
         r.play_out(1.0);
     } },
     // A steer waits, the run stops, and a second send joins it under Working (t1361); then the
