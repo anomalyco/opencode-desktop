@@ -52,7 +52,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
     let placeholder = match s.switcher.mode {
-        SwitcherMode::Sessions | SwitcherMode::Archived => t!("command.session.search"),
+        SwitcherMode::Sessions | SwitcherMode::Archived => t!("home.sessions.search.placeholder"),
         SwitcherMode::Commands => t!("command.commands.search"),
         // `palette.search.placeholder.home` on Home (`HomeCommandPalette`).
         _ if s.route == crate::Route::Home => t!("palette.search.placeholder.home"),
