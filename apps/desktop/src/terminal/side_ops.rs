@@ -4,7 +4,7 @@
 //! `pty.*` events.
 
 use opencode_kit::persistent_pty::parse_persistent_pty_info;
-use rune::{El, Ime, KeyEvent, Tx, icon, row, text};
+use rune::{El, Ime, KeyEvent, PointerPress, Tx, icon, row, text};
 use serde_json::Value;
 
 use super::{grid, input, workspace_key};
@@ -60,15 +60,31 @@ pub(super) fn shortcut_new_terminal(s: &mut App, tx: &mut Tx) {
     s.create_terminal_tab(None, tx);
 }
 
-/// A terminal's label (`TerminalTabLabel`): Desktop's prompt glyph, then its title, at most 160 wide.
-pub(super) fn tab_lead(_s: &App, p: &Pal, tab: &PanelTabDesc, active: bool) -> Option<El> {
+/// A terminal's label (`TerminalTabLabel`): Desktop's prompt glyph, then its title, at most 160
+/// wide; a double-click on the title or the label's own menu renames it in a field over it.
+pub(super) fn tab_lead(s: &App, p: &Pal, tab: &PanelTabDesc, active: bool) -> Option<El> {
+    let field = super::rename::field(s, p, &tab.id);
+    let (rename_id, menu_id) = (tab.id.clone(), tab.id.clone());
     Some(
         row()
+            .key(format!("terminal-label-{}", tab.id))
             .gap(6.0)
             .center_y()
             .min_w(0.0)
+            .on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| super::rename::menu(s, &menu_id, press, tx))
             .child(icon(&grid::TERMINAL_ICON, 16.0).color(if active { p.icon } else { p.icon_muted }))
-            .child(text(tab.title.clone()).font(crate::view::UI).color(if active { p.text } else { p.muted }).truncate().max_w(160.0).shrink()),
+            .child(
+                text(tab.title.clone())
+                    .key("terminal-tab-title")
+                    .font(crate::view::UI)
+                    .color(if active { p.text } else { p.muted })
+                    .truncate()
+                    .max_w(160.0)
+                    .shrink()
+                    .opacity(if field.is_some() { 0.0 } else { 1.0 })
+                    .on_double_press_tx(move |s: &mut App, tx: &mut Tx| super::rename::start(s, &rename_id, tx)),
+            )
+            .children(field),
     )
 }
 
@@ -105,7 +121,7 @@ pub(super) fn on_close(s: &mut App, session_id: &str, tab_id: &str, tx: &mut Tx)
 }
 
 pub(super) fn poll_panel(s: &mut App, tx: &mut Tx) -> bool {
-    s.poll_terminal(tx)
+    super::rename::poll(s, tx) | s.poll_terminal(tx)
 }
 
 pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -234,6 +250,7 @@ impl App {
                 for tab in self.terminal.workspaces.values_mut().flat_map(|ws| ws.tabs.iter_mut()) {
                     if tab.id == info.id && !info.title.is_empty() && tab.title != info.title {
                         tab.title.clone_from(&info.title);
+                        tab.custom_title = info.user_title.is_some();
                         changed = true;
                     }
                 }

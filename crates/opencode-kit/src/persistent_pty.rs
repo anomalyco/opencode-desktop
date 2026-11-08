@@ -17,6 +17,8 @@ pub struct PersistentPtyInfo {
     pub session_id: String,
     /// The shell's own title (OSC 0/2), or the one a user gave it.
     pub title: String,
+    /// The title a user gave it, if any (`userTitle`).
+    pub user_title: Option<String>,
     pub cwd: String,
     pub status: PtyStatus,
     /// The canonical grid every attachment renders at.
@@ -48,6 +50,7 @@ pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
         id,
         session_id: d["sessionID"].as_str().unwrap_or_default().to_owned(),
         title: d["title"].as_str().unwrap_or_default().to_owned(),
+        user_title: d["userTitle"].as_str().map(str::to_owned),
         cwd: d["cwd"].as_str().unwrap_or_default().to_owned(),
         status: if d["status"].as_str() == Some("exited") { PtyStatus::Exited } else { PtyStatus::Running },
         size: (dim("cols").unwrap_or(80), dim("rows").unwrap_or(24)),

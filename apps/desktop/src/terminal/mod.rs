@@ -7,6 +7,7 @@ mod draw;
 pub mod grid;
 pub mod input;
 pub mod persist;
+mod rename;
 mod side_ops;
 pub mod story;
 pub mod streams;
@@ -156,6 +157,8 @@ pub struct TerminalPane {
     pub dirty_flag: Arc<AtomicBool>,
     pub story_focused: bool,
     pub story_built_variant: Option<usize>,
+    /// The tab whose title is a field (`TerminalTabLabel`'s inline rename).
+    pub renaming: Option<rename::Renaming>,
 }
 
 impl Default for TerminalPane {
@@ -172,6 +175,7 @@ impl Default for TerminalPane {
             dirty_flag: Arc::new(AtomicBool::new(false)),
             story_focused: true,
             story_built_variant: None,
+            renaming: None,
         }
     }
 }
@@ -507,9 +511,9 @@ impl App {
         let session = TerminalSession::spawn_persistent_pty(srv, info.id.clone(), config, observer, self.terminal_waker())?;
         Ok(TerminalTab {
             title_number: persist::number_from_title(&info.title).unwrap_or(0),
+            custom_title: info.user_title.is_some(),
             id: info.id,
             title: info.title,
-            custom_title: false,
             session,
             stream: None,
             fixture_shell: false,
