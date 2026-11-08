@@ -8,6 +8,7 @@ use crate::prompt_history::Entry;
 use crate::{App, Source};
 
 mod receipt;
+mod reason;
 mod outbox;
 mod view;
 pub(crate) mod stories;
@@ -26,7 +27,7 @@ pub enum State {
     Waiting,
 }
 
-#[derive(Clone,Copy,serde::Serialize,serde::Deserialize,PartialEq,Eq)]
+#[derive(Clone,Copy,serde::Serialize,serde::Deserialize,PartialEq,Eq,Hash)]
 pub enum AfterCheck { Edit, Delete }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -46,6 +47,8 @@ pub struct Sent {
     operation: outbox::Operation,
     #[serde(default)]
     pub after_check: Option<AfterCheck>,
+    #[serde(default)]
+    restored_to_composer: bool,
 }
 
 #[derive(Default)]
@@ -101,7 +104,7 @@ impl Log {
 
 impl Sent {
     pub fn new(session: &str, id: &str, draft: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, inbox: bool) -> Self {
-        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), state: State::Sending, prompt: None, durable: false, operation:Default::default(),after_check:None }
+        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), state: State::Sending, prompt: None, durable: false, operation:Default::default(),after_check:None,restored_to_composer:false }
     }
 
     pub fn with_prompt(mut self, prompt: &Prompt) -> Self { self.prompt = Some(prompt.clone()); self }
@@ -116,10 +119,10 @@ impl App {
         let why = error.split_once(": ").map_or(error, |(_, why)| why);
         sent.why = crate::status_toast::plain(why);
         if sent.durable {
-            let code = error.split_once("http status: ").and_then(|(_, e)| e.get(..3)).and_then(|s| s.parse::<u16>().ok());
+            let code = reason::status(error);
+            sent.why = reason::words(error).into();
             crate::telemetry::send_receipt(&sent.session,id,"write failed",code.unwrap_or(0));
-            if let Some(code) = code.filter(|n| (400..500).contains(n) && !matches!(n,408|425|429)) {
-                sent.why = match code { 401|403 => "Permission denied",404=>"Session not found",409=>"The session rejected this message",413=>"Message is too large",_=>"OpenCode rejected this message" }.into();
+            if code.is_some_and(|n| (400..500).contains(&n) && !matches!(n,408|425|429)) {
                 self.fail_send(id);
                 if !self.finish_outbox_action(id) { self.restore_rejection(id); }
             } else {
@@ -189,7 +192,7 @@ impl App {
                     if let Some(inbox) = self.inboxes.get_mut(&session) { inbox.remove(&id); }
                     self.accept_send(&id);
                 }
-                Ok(receipt::Receipt::Admitted) => { self.accept_send(&id); }
+                Ok(receipt::Receipt::Admitted) => { self.admitted_send(&id); }
                 Ok(receipt::Receipt::Missing) if self.unsent.sent.iter().any(|s| s.id == id && s.durable) => {
                     let s=self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap();
                     if matches!(s.operation,outbox::Operation::Revert) {
@@ -211,7 +214,14 @@ impl App {
                         self.fail_send(&id); if !self.finish_outbox_action(&id) {self.restore_rejection(&id);} self.unsent.save();
                     }
                 }
-                Err(error) => eprintln!("opencode-rune: prompt receipt unavailable: {error}"),
+                Err(error) => {
+                    // No receipt is not a missing receipt: retain the ID and never POST here.
+                    if let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id && s.durable) {
+                        let why = reason::words(&error);
+                        if s.why != why { s.why = why.into(); self.unsent.save(); }
+                    }
+                    eprintln!("opencode-rune: prompt receipt unavailable: {error}");
+                }
             }
         }
         if std::mem::take(&mut self.unsent.check_again) { self.check_sends(); }
@@ -225,8 +235,22 @@ impl App {
 
     pub fn judge_sends_by_inbox(&mut self, _session: &str, ids: &[String]) -> bool {
         let mut changed = false;
-        for id in ids { changed |= self.accept_send(id); }
+        for id in ids { changed |= self.admitted_send(id); }
         changed
+    }
+
+    /// An accepted follow-up still waits for the busy session. Move its offline echo
+    /// into the inbox until delivery; an already delivered message must never move back.
+    pub(crate) fn admitted_send(&mut self, id: &str) -> bool {
+        if let Some(s) = self.unsent.durable(id).filter(|s| s.inbox) {
+            if let Some(t) = self.transcripts.get_mut(&s.session) { t.messages.retain(|m| m.id() != id); }
+            let inbox = self.inboxes.entry(s.session.clone()).or_default();
+            if !inbox.items.iter().any(|item| item.id == id) {
+                inbox.upsert(opencode_kit::model::InboxItem { id: id.into(), text: s.draft.text.clone(), files: s.files.clone(),
+                    delivery: s.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(opencode_kit::model::Delivery::Steer) });
+            }
+        }
+        self.accept_send(id)
     }
 
     pub(crate) fn accept_send(&mut self, id: &str) -> bool {

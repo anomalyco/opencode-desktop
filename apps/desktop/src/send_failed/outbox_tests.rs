@@ -31,6 +31,163 @@ fn post(writes: &Receiver<Write>) -> (String, Prompt) {
 }
 
 #[test]
+fn enter_on_a_restored_rejection_retries_the_original_bubble_once() {
+    let path = path();
+    let (mut app, writes) = fresh(&path);
+    let id = send(&mut app, "try this");
+    let (session, original) = post(&writes);
+    app.send_failed(&id, "http status: 422");
+    assert_eq!(app.composer.text, "try this");
+    app.send(&mut rune::Tx::default());
+    let (_, retry) = post(&writes);
+    assert_eq!(retry, original);
+    assert_eq!(app.unsent.sent.len(), 1);
+    assert!(app.composer.text.is_empty());
+    app.admitted_send(&id);
+    app.outbox_action(&id, "outbox-retry");
+    assert!(writes.try_recv().is_err());
+    assert_eq!(app.transcripts[&session].messages.iter().filter(|m| m.id() == id).count(), 1);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn server_restart_on_either_side_of_admission_delivers_one_message() {
+    use crate::new_session::mock::request;
+    for committed in [false, true] {
+        let path = path();
+        let (mut app, writes) = fresh(&path);
+        let id = send(&mut app, "survive a server restart");
+        let (session, mut prompt) = post(&writes);
+        prompt.model = None;
+        prompt.agent = None;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = Server::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let old = listener.try_clone().unwrap();
+        let first = std::thread::spawn(move || {
+            let (mut stream, _) = old.accept().unwrap();
+            let (method, _, body) = request(&mut stream).unwrap();
+            assert_eq!(method, "POST");
+            // On either side of the commit boundary the client sees the same EOF.
+            committed.then_some(body)
+        });
+        let error = server.send(&session, &prompt).unwrap_err();
+        app.send_failed(&id, &error);
+        let stored = first.join().unwrap();
+        drop(app);
+        let (mut app, writes) = fresh(&path);
+        let expected = prompt.body();
+        let next = std::thread::spawn(move || {
+            let mut records = stored.into_iter().collect::<Vec<_>>();
+            for _ in 0..if committed { 2 } else { 3 } {
+                let (mut stream, _) = listener.accept().unwrap();
+                let (method, path, body) = request(&mut stream).unwrap();
+                let (code, reply) = if method == "GET" && path.ends_with("/inbox") {
+                    ("200 OK", json!({"data":[]}))
+                } else if method == "GET" {
+                    assert!(path.ends_with(expected["id"].as_str().unwrap()));
+                    if records.is_empty() {
+                        ("404 Not Found", json!({}))
+                    } else {
+                        ("200 OK", json!({"data":{"id":expected["id"],"type":"user","text":expected["text"],"time":{"created":1}}}))
+                    }
+                } else {
+                    assert_eq!(body, expected);
+                    records.push(body);
+                    ("200 OK", json!({"data":{"id":expected["id"]}}))
+                };
+                let body = reply.to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 {code}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            records
+        });
+        app.receipts_from(&|p| server.read(p), vec![(session.clone(), id.clone())]);
+        app.pump_outbox();
+        if !committed {
+            let (_, mut retry) = post(&writes);
+            retry.model = None;
+            retry.agent = None;
+            assert_eq!(retry, prompt);
+            server.send(&session, &retry).unwrap();
+            app.admitted_send(&id);
+        }
+        app.pump_outbox();
+        assert!(writes.try_recv().is_err());
+        assert_eq!(app.unsent.state(&id), Some(State::Accepted));
+        assert_eq!(next.join().unwrap(), [prompt.body()]);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn accepted_busy_followup_returns_to_pending_until_delivery() {
+    let path = path();
+    let (mut app, _) = fresh(&path);
+    let crate::Route::Session(session) = app.route.clone() else { unreachable!() };
+    app.running.insert(session.clone());
+    if let Source::Live { writes, .. } = &mut app.source {
+        *writes = None;
+    }
+    let id = send(&mut app, "a follow-up");
+    let writes = app.fake_writes();
+    app.pump_outbox();
+    let _ = post(&writes);
+    app.admitted_send(&id);
+    assert_eq!(app.inboxes[&session].items.iter().filter(|i| i.id == id).count(), 1);
+    assert!(!app.transcripts[&session].messages.iter().any(|m| m.id() == id));
+    app.apply_inbox("session.inbox.delivered", &json!({"sessionID":session,"inboxID":id}), &session);
+    app.admitted_send(&id); // A late HTTP response cannot undo delivery.
+    assert!(app.inboxes[&session].items.is_empty());
+    assert_eq!(app.transcripts[&session].messages.iter().filter(|m| m.id() == id).count(), 1);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn recovery_reason_is_visible_beside_the_bubble_without_a_toast() {
+    for (error, checking, reason) in [
+        ("io: Connection refused", false, "can’t reach OpenCode"),
+        ("timeout: global", true, "server didn’t answer in time"),
+        ("io: Connection reset", true, "connection interrupted"),
+        ("http status: 429", true, "server is busy"),
+        ("http status: 500", true, "server error"),
+        ("http status: 503", true, "server is busy"),
+        ("http status: 409", false, "the session rejected this message"),
+        ("http status: 403", false, "permission denied"),
+    ] {
+        let path = path();
+        let (mut app, writes) = fresh(&path);
+        let id = send(&mut app, "keep this bubble");
+        let (session, _) = post(&writes);
+        app.send_failed(&id, error);
+        let failed = app.unsent.state(&id) == Some(State::Failed);
+        let mut rt = app.into_runtime();
+        rt.poll = None;
+        let assert_label = |rt: &mut rune::Runtime<App>, prefix: &str| {
+            rt.frame(0.);
+            assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|s| s.starts_with(prefix) && s.contains(reason))), "{error}");
+            assert_eq!(rt.find("retry-send").is_some(), failed);
+            assert!(rt.state.toast.current.is_none());
+            assert!(rt.state.transcripts[&session].messages.iter().any(|m| m.id() == id));
+        };
+        assert_label(&mut rt, if checking { "Checking delivery" } else { "Not sent" });
+        if checking {
+            rt.update(|app, _| {
+                app.receipts_from(
+                    &|p| if p.ends_with("/inbox") { Ok(json!({"data":[]})) } else { Err("http status: 404".into()) },
+                    vec![(session.clone(), id.clone())],
+                )
+            });
+            assert_label(&mut rt, "Not sent");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn restart_with_two_offline_messages_preserves_order_and_identity() {
     let path = path();
     let (mut app, _) = fresh(&path);

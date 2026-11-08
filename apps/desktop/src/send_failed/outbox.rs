@@ -2,6 +2,7 @@
 //! until its complete request and editable draft have been committed locally.
 use super::*;
 use crate::Route;
+use crate::pickers::PickerHost as _;
 use opencode_kit::client::Write;
 use std::time::Duration;
 
@@ -137,6 +138,9 @@ impl App {
         };
         sent.durable = true;
         sent.state = State::Waiting;
+        if crate::reconnect::down(self) || matches!(self.source, Source::Live { writes: None, .. }) {
+            sent.why = "waiting for connection".into();
+        }
         let id = sent.id.clone();
         self.unsent.note(sent);
         if !self.unsent.save() {
@@ -155,57 +159,97 @@ impl App {
         self.unsent.retry_at = self.clock + delay;
     }
 
-    pub(crate) fn tick_outbox(&mut self, tx: &mut rune::Tx) {
+    pub(crate) fn tick_outbox(&mut self, tx: &mut rune::Tx) -> bool {
         if !self.unsent.waiting_for_link() {
-            return;
+            return false;
         }
+        let mut changed = false;
         if self.clock >= self.unsent.retry_at {
-            self.pump_outbox();
+            changed = self.pump_outbox();
             self.defer_outbox();
         }
         tx.wake_after(Duration::from_secs_f64((self.unsent.retry_at - self.clock).max(0.01)));
+        changed
     }
 
-    pub(crate) fn pump_outbox(&mut self) {
+    pub(crate) fn pump_outbox(&mut self) -> bool {
         if crate::reconnect::down(self) {
-            return;
+            return false;
         }
         let Source::Live { writes: Some(writer), allow_send: true, .. } = &self.source else {
-            return;
+            return false;
         };
         let writer = writer.clone();
         let Some(s) = self.unsent.sent.iter_mut().find(|s| s.durable && !matches!(s.state, State::Accepted | State::Failed)) else {
-            return;
+            return false;
         };
         if s.state == State::Sending || s.state == State::Unconfirmed {
             // A successful POST may have lost its SSE echo; check before releasing the next prompt.
             if s.state == State::Unconfirmed && !self.unsent.checking {
                 self.check_sends();
             }
-            return;
+            return false;
         }
         let (session, Some(prompt), id) = (s.session.clone(), s.prompt.clone(), s.id.clone()) else {
-            return;
+            return false;
         };
         let write = s.operation.write(session, prompt);
         if s.after_check.is_some() {
-            self.finish_outbox_action(&id);
-            return;
+            return self.finish_outbox_action(&id);
         }
         s.state = State::Sending;
-        if !self.unsent.save() || writer.send(write).is_err() {
-            self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap().state = State::Waiting;
+        let why = if !self.unsent.save() { "couldn’t save retry" } else if writer.send(write).is_err() { "waiting for connection" } else { return true };
+        if let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id) {
+            s.state = State::Waiting;
+            if s.why != why { s.why=why.into(); return true; }
         }
+        false
     }
 
     pub(super) fn restore_rejection(&mut self, id: &str) {
         if let Some(s) = self.unsent.sent.iter().find(|s| s.id == id).cloned() {
             if self.route == Route::Session(s.session.clone()) {
+                if self.composer.text.is_empty() && !self.attach.any() && !self.quote.any() {
+                    for entry in self.unsent.sent.iter_mut().filter(|entry| entry.session == s.session) {
+                        entry.restored_to_composer = entry.id == id;
+                    }
+                }
                 self.restore_draft(s);
             } else {
                 self.restore.drafts.entry(s.session).or_insert(s.draft.text);
             }
         }
+    }
+
+    fn matches_restored(&self, s: &Sent) -> bool {
+        self.route == Route::Session(s.session.clone())
+            && Entry::of(&self.composer) == s.draft
+            && self.attach.files == s.files
+            && self.attach.paths == s.paths
+            && self.attach.context.is_empty()
+            && self.attach.uploading.is_empty()
+            && s.prompt.as_ref().is_some_and(|p| p.quotes == self.quote.quotes())
+    }
+
+    /// Enter on the untouched restored draft is Retry, not a second independently retryable bubble.
+    pub(crate) fn retry_restored(&mut self) -> bool {
+        let Some(id) = self
+            .unsent
+            .sent
+            .iter()
+            .rev()
+            .find(|s| {
+                s.restored_to_composer
+                    && s.state == State::Failed
+                    && self.matches_restored(s)
+                    && s.prompt.as_ref().is_some_and(|p| (p.agent.clone(), p.model.clone()) == self.picked_choice())
+            })
+            .map(|s| s.id.clone())
+        else {
+            return false;
+        };
+        self.outbox_action(&id, "outbox-retry");
+        true
     }
 
     pub(super) fn finish_outbox_action(&mut self, id: &str) -> bool {
@@ -228,8 +272,16 @@ impl App {
         if action == "outbox-retry" {
             if s.state == State::Failed {
                 self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap().state = State::Waiting;
-                if self.route == Route::Session(s.session.clone()) && self.composer.text == s.draft.text && !self.attach.any() {
+                if !self.unsent.save() {
+                    self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap().state = State::Failed;
+                    crate::status_toast::fail(self, "Couldn't save retry", "Your message hasn't changed.");
+                    return;
+                }
+                if s.restored_to_composer && self.matches_restored(&s) {
                     self.composer.clear();
+                    self.attach.files.clear();
+                    self.attach.paths.clear();
+                    self.quote.take();
                 }
             }
             self.unsent.retry_at = 0.;

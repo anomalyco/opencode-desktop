@@ -17,6 +17,7 @@ impl App {
         if self.add.shell {
             return self.submit_shell(alternate, tx);
         }
+        if !alternate && self.retry_restored() { return; }
         let wire = self.mention_wire();
         if wire.text.is_empty() && !self.attach.any() && !self.quote.any() {
             return;

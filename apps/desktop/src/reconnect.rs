@@ -1,6 +1,6 @@
 //! A lost link after the app has connected: the event stream dropped, went silent past
 //! [`STREAM_IDLE`], or a read or write failed on the way (a timeout, a refusal). Everything stays
-//! on screen; once it has lasted [`QUIET`] a calm "Reconnecting…" toast says so, and it leaves
+//! on screen; once it has lasted [`QUIET`] a quiet session header label says so, and it leaves
 //! the moment the server answers again (`Incoming::Reconnected` also resyncs). The stream thread
 //! in `opencode_kit::client` retries on its own with backoff.
 
@@ -26,8 +26,8 @@ pub struct Link {
     down_at: Option<f64>,
     /// When a read or write failed for want of a link, while the stream hasn't said either way.
     suspect_at: Option<f64>,
-    /// The "Reconnecting…" toast, while it shows.
-    toast: Option<u64>,
+    /// A short drop never appears. A longer one marks the header without interrupting typing.
+    pub visible: bool,
     /// Subagents whose pages were asked for again after a reconnect: their step logs give way to
     /// the fresh page when it lands.
     refreshing: HashSet<String>,
@@ -67,14 +67,10 @@ pub fn back(s: &mut App) {
 }
 
 /// The server answered something: a suspect link is fine.
-pub fn heard(s: &mut App) {
+pub fn heard(s: &mut App) -> bool {
     let link = &mut s.launch.link;
     link.suspect_at = None;
-    if link.down_at.is_none()
-        && let Some(id) = link.toast.take()
-    {
-        crate::status_toast::dismiss_id(s, id);
-    }
+    link.down_at.is_none() && std::mem::take(&mut link.visible)
 }
 
 /// The link is down or in doubt.
@@ -82,7 +78,7 @@ pub fn down(s: &App) -> bool {
     s.launch.link.down_at.is_some() || s.launch.link.suspect_at.is_some()
 }
 
-/// Shows the toast once the trouble has lasted [`QUIET`]. A suspect link whose stream outlives
+/// Marks the header once trouble has lasted [`QUIET`]. A suspect link whose stream outlives
 /// [`STREAM_IDLE`] without dropping is alive after all.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let link = &mut s.launch.link;
@@ -94,12 +90,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         return true;
     }
     let Some(at) = link.down_at.or(link.suspect_at) else { return false };
-    if s.unsent.waiting_for_link() {
-        // Each affected bubble already states what's waiting. Don't also announce it.
-        if let Some(id)=link.toast.take() { crate::status_toast::dismiss_id(s,id);return true; }
-        return false;
-    }
-    if link.toast.is_some() {
+    if link.visible {
         return false;
     }
     let left = at + QUIET - s.clock;
@@ -108,7 +99,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         return false;
     }
     tx.instant();
-    s.launch.link.toast = Some(crate::status_toast::waiting(s, RECONNECTING));
+    s.launch.link.visible = true;
     if s.launch.link.down_at.is_none() {
         tx.wake_after(STREAM_IDLE);
     }

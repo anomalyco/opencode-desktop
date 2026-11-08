@@ -748,10 +748,13 @@ impl session_view::TimelineHost for App {
         send_failed::footer(self, p, id)
     }
     fn user_status_version(&self, id: &str) -> u64 {
-        if let Some(action)=self.unsent.durable(id).and_then(|s|s.after_check) { return if action==send_failed::AfterCheck::Edit {6} else {7}; }
+        if let Some(s) = self.unsent.durable(id) {
+            use std::hash::{DefaultHasher, Hash, Hasher};
+            let mut version = DefaultHasher::new();
+            (s.state, s.after_check, &s.why).hash(&mut version);
+            return version.finish() | 8;
+        }
         match self.unsent.state(id) {
-            Some(send_failed::State::Sending) if self.unsent.durable(id).is_some() => 5,
-            Some(send_failed::State::Waiting) => 4,
             Some(send_failed::State::Unconfirmed) => 1,
             Some(send_failed::State::Failed) => if self.composer.text.is_empty() && !self.attach.any() { 2 } else { 3 },
             _ => 0,
@@ -1106,7 +1109,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     changed |= s.poll_sends();
-    s.tick_outbox(tx);
+    changed |= s.tick_outbox(tx);
     changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
     let mut arrivals = None;
@@ -1116,7 +1119,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             arrivals = Some(arrivals::Arrivals::before(s));
             for m in std::iter::once(first_in).chain(inbox.try_iter()) {
                 if !matches!(m, Incoming::Status(_) | Incoming::SendFailed { .. }) {
-                    reconnect::heard(s);
+                    changed |= reconnect::heard(s);
                 }
                 match m {
                     Incoming::Sessions(mut list) => {
@@ -1172,7 +1175,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     // Most events are other sessions' streams: they redraw only what they change.
                     Incoming::Event { ty, data } => {
                         if ty == "client.prompt.accepted" {
-                            changed |= s.accept_send(data["id"].as_str().unwrap_or(""));
+                            changed |= s.admitted_send(data["id"].as_str().unwrap_or(""));
                             s.pump_outbox();
                             continue;
                         }
