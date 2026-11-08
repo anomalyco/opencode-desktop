@@ -101,6 +101,7 @@ const ALLOW: &[Allow] = &[
     ("pop-in", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("jerk", "editor-pad/prompt", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
+    ("jump", "picker-options/lit-", "model-efforts", "the pointer lights its row in the frame it gets there, as Desktop's list paints its active row's background with no transition (list.css:289-292); only the arrow keys slide the fill (popover::slide, p169)"),
     ("jump", "option-", "model-efforts", "the lit row shows its effort and star at once, so its words give them the room in that frame, as Desktop's row does (session_view::pickers::view::picker)"),
     ("pop-in", "option-", "model-efforts", "the lit row's effort and star show at once with its highlight, as Desktop's row does (session_view::pickers::view::picker)"),
     ("pop-out", "option-", "model-efforts", "the row the pointer leaves drops its effort and star at once with its highlight (session_view::pickers::view::picker)"),
@@ -609,10 +610,15 @@ const ACTIONS: &[Action] = &[
     }, run: |r| {
         let Some(to) = r.rt.state.transcripts.get(SID).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, opencode_kit::model::Message::User { .. }))).map(|m| m.id().to_owned()) else { return };
         let staged = json!({ "sessionID": SID, "revert": { "messageID": to } });
+        // Each step answers a person's Undo or Redo, so what it moves (the Context header's
+        // counts, then the actions beside them) sets off from that input, not from data alone.
+        r.gate.input("Undo");
         r.event("session.revert.staged", staged.clone());
         r.play(0.8);
+        r.gate.input("Redo");
         r.event("session.revert.cleared", json!({ "sessionID": SID }));
         r.play(0.8);
+        r.gate.input("Undo");
         r.event("session.revert.staged", staged);
         r.play(0.5);
         r.event("session.revert.committed", json!({ "sessionID": SID, "to": to }));
@@ -737,6 +743,10 @@ const ACTIONS: &[Action] = &[
         r.play_out(0.6);
     } },
     Action { name: "jump-latest", circs: || vec![Circ::default(), Circ { narrow: true, ..Circ::default() }], run: |r| {
+        // The hand that wheels rests on the timeline, so its thumb stays up under the pointer
+        // (Desktop's hover thumb) until the pointer moves to Jump to latest in the same area.
+        let v = r.timeline_rect();
+        r.act("pointer on the timeline", |rt| rt.pointer_move(v[0] + v[2] / 2.0, v[1] + v[3] / 2.0));
         r.swipe_up(1400.0, 1.0);
         if r.rt.find("jump-latest").is_none() { return; }
         r.act("tap jump-latest", |rt| Run::tap(rt, "jump-latest"));
