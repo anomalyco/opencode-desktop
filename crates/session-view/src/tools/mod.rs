@@ -35,7 +35,7 @@ use crate::palette::Pal;
 use crate::style::{HOVER_FADE, TOOL_CODE, UI, UI_MED, arrow, readable};
 
 pub use details::overlay as details_overlay;
-pub use files::{group as file_group, is_file_tool};
+pub use files::{group as file_group, is_file_tool, shut_group};
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
 

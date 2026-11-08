@@ -150,8 +150,19 @@ fn changed<'a>(c: &Call<'a>, f: &'a Value) -> Option<Entry<'a>> {
     (additions + deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
 }
 
-/// A run of file tools: one card of a row per path they changed.
+/// A run of file tools: one card of a row per path they changed, each shut until pressed or
+/// open as Timeline detail's Edits say.
 pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
+    group_with(s, p, cx, calls, s.timeline_detail().expanded(crate::detail::Category::Edit))
+}
+
+/// [`group`] with each file shut until pressed, whatever Timeline detail says, as Changed files
+/// lists them (its `fileOpen` is only what was pressed).
+pub fn shut_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
+    group_with(s, p, cx, calls, false)
+}
+
+fn group_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], open: bool) -> El {
     let Some(first) = calls.first() else { return col() };
     let mut items: Vec<Item> = Vec::new();
     for e in calls.iter().flat_map(entries) {
@@ -179,18 +190,18 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
         // The first row a call shows carries its key, so a press on the host's button keeps it in view.
         let row_key = if keyed.contains(&owner.id) { format!("file-{}-{i}", first.id) } else { format!("tool-{}", owner.id) };
         keyed.push(owner.id);
-        card = card.child(file_item(s, p, cx, first.id, item, row_key, i == 0, i + 1 == n));
+        card = card.child(file_item(s, p, cx, first.id, item, row_key, (i == 0, i + 1 == n), open));
     }
     card
 }
 
 /// One row of the card, and under it the change while open, and the file's errors.
 #[allow(clippy::too_many_arguments)]
-fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, first: bool, last: bool) -> El {
+fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, (first, last): (bool, bool), default_open: bool) -> El {
     let shown = super::session_relative(s, cx.session, item.path);
     let k = sub_key(group, format!("file:{shown}"));
-    // Timeline detail's Edits › Collapse decides how a file shows until pressed.
-    let open = crate::disclosure::is_open(s, &k, s.timeline_detail().expanded(crate::detail::Category::Edit));
+    // Until pressed, `default_open` decides: Timeline detail's Edits, or shut in Changed files.
+    let open = crate::disclosure::is_open(s, &k, default_open);
     let owner = item.entries[0].call;
     let errors = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path));
     // The card's bottom corners round whichever section ends it: the errors, the change or the row.

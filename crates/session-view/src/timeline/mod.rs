@@ -51,7 +51,8 @@ pub enum RowContent {
     ToolImages { start: usize, end: usize, tool: String },
     /// Changed files: the run that ended at message `idle` (its idle marker), from prompt
     /// `from`, which changed `files`.
-    TurnDiff { idle: usize, from: String, files: Vec<String> },
+    /// `pt`: the room over Changed files (`pt-4`, less what the reply's footer leaves under it).
+    TurnDiff { idle: usize, from: String, files: Vec<String>, pt: f32 },
     /// Room at the timeline's end for the pills' lane, so its last row stands clear over them
     /// (t1129); a row, so the pinned timeline glides up as it opens rather than jumping.
     Lane(f32),
@@ -215,7 +216,7 @@ impl RowSpec {
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
             RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text(opencode_i18n::t!("ui.message.interrupted")).key("label").font(UI).color(p.faint), *run),
             RowContent::Lane(h) => el().w_full().h(*h),
-            RowContent::TurnDiff { idle, from, files } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files),
+            RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
             RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
@@ -451,7 +452,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                 Some((from, files)) => {
                     turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
                     diff_at = Some(out.len());
-                    out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect() }, streaming: false });
+                    out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
                 }
                 None if !steps.is_empty() => steps.push(Entry::Skip),
                 None => {}
@@ -525,7 +526,15 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false };
         // The reply's footer stays with its words, above the run's Changed files.
         match diff_at.filter(|at| at + 1 == out.len()) {
-            Some(at) => out.insert(at, actions),
+            Some(at) => {
+                out.insert(at, actions);
+                // Desktop's footer ends at its Copy (`text-part-copy-wrapper`, 8 over a 20 high
+                // row); the lane reserved for Working runs on 8 under it, which Changed files takes
+                // from its own 16.
+                if let Some(RowSpec { content: RowContent::TurnDiff { pt, .. }, .. }) = out.get_mut(at + 1) {
+                    *pt -= crate::working::LANE - crate::working::COPY_AT.1 - crate::working::COPY;
+                }
+            }
             None => out.push(actions),
         }
     }

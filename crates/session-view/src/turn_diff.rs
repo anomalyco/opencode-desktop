@@ -29,8 +29,9 @@ const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(11.0).tracking(0.05);
 /// Diff unavailable: 13 at 440 on the compact line.
 const NOTE: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 
-/// The run that ended at message `id`, from prompt `from`, which changed `files`.
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str, files: &[String]) -> El {
+/// The run that ended at message `id`, from prompt `from`, which changed `files`, `pt` under
+/// the row above.
+pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str, files: &[String], pt: f32) -> El {
     let state = s.turn_diff(session, from);
     let diffs = match state {
         State::Ready(d) => Some(d),
@@ -69,14 +70,14 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
             }));
         head = head.child(rune::spacer()).child(row().gap(12.0).center_y().children(retry).children(more));
     }
-    let mut c = col().key("session-turn-diffs").w_full().gap(8.0).pt(16.0).child(head);
+    let mut c = col().key("session-turn-diffs").w_full().gap(8.0).pt(pt).child(head);
     if let Some(d) = diffs {
         let shown: Vec<Value> = if all { d.to_vec() } else { d.iter().take(LIMIT).cloned().collect() };
         let metadata = serde_json::json!({ "files": shown });
         let call_id = format!("turn-diff-{id}");
         let call = crate::tools::Call { id: &call_id, name: "patch", status: &opencode_kit::model::ToolStatus::Completed, input: &Value::Null, metadata: &metadata };
         let cx = crate::tools::Ctx { session, live: false };
-        c = c.child(crate::tools::file_group(s, p, cx, &[call]));
+        c = c.child(crate::tools::shut_group(s, p, cx, &[call]));
     }
     c
 }
