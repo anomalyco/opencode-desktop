@@ -216,7 +216,8 @@ pub fn start_if_packaged(s: &mut App) {
 }
 
 /// Feeds the service's results to this window on the app's thread; zero allocations when idle.
-/// An install that handed off quits the app (saving what this window keeps first).
+/// An install that handed off quits the app, which saves every window first (`App::on_quit`),
+/// so the update opens each of them again.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let Driver::Service(service) = &s.updater.driver else { return false };
     let (quit, state, revision) = {
@@ -229,7 +230,6 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     };
     s.updater.seen = revision;
     if quit {
-        s.save_on_close();
         tx.quit();
     }
     if s.updater.state == state {

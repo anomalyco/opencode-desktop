@@ -172,9 +172,9 @@ impl App {
         })
     }
 
-    /// The window is closing. Unless it's the last one open, it's forgotten, files and all
-    /// (Desktop's `registry.closed`); closing the last window quits, and it opens again next
-    /// launch where it was.
+    /// The window is closing. Unless it's the last one open or the app is quitting
+    /// (`rune::quitting`: macOS Quit, the end of a Windows session), it's forgotten, files and
+    /// all (Desktop's `registry.closed`); otherwise it opens again next launch where it was.
     pub(crate) fn window_closed(&mut self) {
         let id = self.window.id.clone();
         if id.is_empty() {
@@ -186,13 +186,27 @@ impl App {
         if !self.persists() {
             return;
         }
-        if !others.is_empty() {
+        if !rune::quitting() && !others.is_empty() {
             store::save_ids(others);
             store::forget(&id);
             return;
         }
         if let Some(frame) = frame {
             store::save_frame_later(&id, frame);
+        }
+    }
+
+    /// The app starts to quit (`App::on_quit`, in every open window): the open windows' ids,
+    /// this window's frame and everything it keeps go out now, so a quit, an update's restart or
+    /// a Windows logoff opens every window again where it was.
+    pub(crate) fn window_quitting(&mut self) {
+        if self.window.id.is_empty() || !self.persists() {
+            return;
+        }
+        store::save_ids(OPEN.with(|o| o.borrow().iter().map(|w| w.id.clone()).collect()));
+        if let Some(frame) = self.window_frame() {
+            self.window.saved = Some(frame);
+            store::save_frame_later(&self.window.id, frame);
         }
     }
 }

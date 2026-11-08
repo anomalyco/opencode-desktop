@@ -212,6 +212,17 @@ impl App {
         crate::disk::flush();
     }
 
+    /// When the app starts to quit (`App::on_quit`, every window): what the window keeps goes
+    /// out and lands before the process may end, the window list and its frame with it.
+    pub fn save_on_quit(&mut self) {
+        if self.persists() {
+            self.poll_restore();
+            self.queue_terminal_save();
+        }
+        self.window_quitting();
+        crate::disk::flush();
+    }
+
     /// Swaps the composer's text when the route moves to another draft.
     pub(crate) fn show_draft(&mut self) {
         let key = draft_key(&self.route);

@@ -151,6 +151,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             }
             motion_log.frame(rt);
         })
+        .on_quit(|s, _| s.save_on_quit())
         .on_close(|s, _| {
             s.updater.closing();
             s.save_on_close();
