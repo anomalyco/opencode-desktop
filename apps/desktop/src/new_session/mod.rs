@@ -124,10 +124,11 @@ impl App {
     /// Puts a prompt that never went back in the composer, when that's empty.
     pub(crate) fn restore_draft(&mut self, sent: Sent) {
         self.attach.echoes.retain(|e| e.1 != sent.id);
-        if self.composer.text.is_empty() && !self.attach.any() {
+        if self.composer.text.is_empty() && !self.attach.any() && !self.quote.any() {
             sent.draft.put(&mut self.composer, sent.draft.text.len());
             for f in sent.files { self.attach.add(f); }
             for p in sent.paths { self.attach.add_path(p); }
+            if let Some(prompt)=sent.prompt { for quote in prompt.quotes { self.quote.push(quote); } }
         }
     }
 }
@@ -136,6 +137,6 @@ mod stories;
 #[cfg(test)]
 mod bench;
 #[cfg(test)]
-mod mock;
+pub(crate) mod mock;
 #[cfg(test)]
 mod tests;

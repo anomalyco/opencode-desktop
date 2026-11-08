@@ -8,6 +8,20 @@ use super::{First, Ready, poll};
 use crate::{App, FIXTURE, Route, Source};
 
 #[test]
+fn reconnect_time_on_a_delayed_server() {
+    use crate::new_session::mock::{serve,Latency};
+    use std::time::Instant;
+    let mock=serve(Latency{name:"reconnect",create:0,switch:0,prompt:0,read:50,rtt:0});
+    let server=Server::new(&mock.base);
+    let start=Instant::now();
+    for path in ["/api/project","/api/session?limit=120","/api/model","/api/agent","/api/provider","/api/session/active","/api/config"] {server.get(path).unwrap();}
+    let serial=start.elapsed(); let start=Instant::now();
+    First::fetch(&server).unwrap(); let parallel=start.elapsed();
+    println!("reconnect startup inventory (50 ms/read): before {} ms, after {} ms",serial.as_millis(),parallel.as_millis());
+    assert!(parallel < serial);
+}
+
+#[test]
 fn first_reads_land_in_one_poll() {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let mut app = App::empty();

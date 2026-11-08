@@ -156,6 +156,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     };
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
+        .on_window_focus(|s: &mut App, focused, tx| { if focused { crate::launch::network_available(s, tx); } })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
         // context menu does (`spellcheck.ts`).

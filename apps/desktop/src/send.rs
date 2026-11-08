@@ -114,8 +114,13 @@ impl App {
                 } else {
                     self.send_write(&id, prompt)
                 };
-                if !self.write(w) {
-                    return;
+                if matches!(self.source, Source::Live {allow_send:true,..}) && self.stage.is_none() {
+                    let paths=sent.paths.clone();
+                    if !self.enqueue_prompt(sent,w) {self.attach.paths.extend(paths);return;}
+                } else {
+                    if !self.write(w) {self.attach.paths.extend(sent.paths);return;}
+                    self.unsent.note(sent);
+                    self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
                 }
                 if starting {
                     self.start(&id, tx);
@@ -123,8 +128,6 @@ impl App {
                 if staged {
                     self.commit_staged_revert(&id);
                 }
-                self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
-                self.unsent.note(sent);
                 local
             }
             Source::Fixture => {

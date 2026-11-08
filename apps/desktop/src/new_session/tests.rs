@@ -82,21 +82,17 @@ fn the_servers_session_lands_without_a_reload() {
 }
 
 #[test]
-fn a_failed_start_goes_back_to_the_new_session_page_with_the_words() {
+fn a_disconnected_start_keeps_its_tab_and_prompt_for_reconnect() {
     let mut l = draft();
     let (id, prompt) = send(&mut l);
     l.rt.frame(DT);
-    l.server.send(Incoming::SendFailed { session: id.clone(), id: prompt, error: "POST /api/session: Connection refused".into() }).unwrap();
+    l.server.send(Incoming::SendFailed { session: id.clone(), id: prompt.clone(), error: "POST /api/session: Connection refused".into() }).unwrap();
     l.rt.frame(DT);
     let s = &l.rt.state;
-    assert!(matches!(s.route, Route::Draft(_)));
-    assert_eq!(s.draft_dir(), DIR);
-    assert_eq!(s.composer.text, "start", "the prompt is back in the composer");
-    assert!(s.session(&id).is_none() && !s.tabs.iter().any(|t| t.id == id) && !s.transcripts.contains_key(&id), "the session is gone");
-    assert!(!s.starts.has(&id));
-    let toast = s.toast.current.clone().unwrap();
-    assert_eq!(toast.title, super::FAILED);
-    assert_eq!(toast.description.as_deref(), Some("OpenCode isn't running"));
+    assert_eq!(s.route, Route::Session(id.clone()));
+    assert_eq!(s.unsent.state(&prompt),Some(crate::send_failed::State::Waiting));
+    assert!(s.transcripts[&id].messages.iter().any(|m| m.id()==prompt));
+    assert!(s.toast.current.is_none());
 }
 
 #[test]

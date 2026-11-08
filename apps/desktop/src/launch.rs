@@ -145,13 +145,13 @@ impl First {
             r
         };
         let projects = get("/api/project")?;
-        let sessions = get("/api/session?limit=120").ok();
-        let models = get("/api/model").ok().map(|m| (m, get("/api/agent").unwrap_or_default()));
-        // The model list names a provider by its id; this names it as a person reads it.
-        let providers = get("/api/provider").ok();
-        let active = get("/api/session/active").ok();
-        let config = get("/api/config").ok();
-        Ok(First { projects, sessions, models, providers, active, config })
+        // Once the project probe succeeds these reads are independent. A slow catalog
+        // mustn't add its whole round trip to each successive startup read.
+        Ok(std::thread::scope(|scope| {
+            let [sessions, models, agents, providers, active, config] = ["/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"]
+                .map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().unwrap());
+            First { projects, sessions, models: models.map(|m| (m,agents.unwrap_or_default())), providers, active, config }
+        }))
     }
 }
 
@@ -180,6 +180,8 @@ pub struct Ready {
 
 #[derive(Default)]
 pub struct Launch {
+    network_change: Option<std::sync::Arc<network::Change>>,
+    retries: u32,
     started: bool,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
@@ -215,7 +217,15 @@ pub struct Launch {
 /// a tunnel or a server that is just starting comes up in this time.
 pub const GRACE: Duration = Duration::from_secs(5);
 /// How often the setup card tries again on its own.
-const RETRY_EVERY: f64 = 3.0;
+fn retry_delay(attempt: u32) -> f64 { (0.25 * 2_f64.powi(attempt.min(4) as i32)).min(3.0) }
+
+mod network;
+pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
+    if !s.live() { return; }
+    Server::wake_reconnects();
+    if s.launch.offline && s.launch.first.is_none() { s.launch.retries=0; s.launch.quiet=true; again(s,tx); }
+    s.pump_outbox();
+}
 
 /// The server `server` stands for (`service.json` when `discover`), probed until it answers or
 /// `grace` runs out; true when it answered.
@@ -263,6 +273,7 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) {
+    if s.live() { s.launch.network_change = s.waker.clone().and_then(network::subscribe); }
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
@@ -278,10 +289,6 @@ pub fn retry(s: &mut App, tx: &mut Tx) {
 }
 
 fn again(s: &mut App, tx: &mut Tx) {
-    if let Source::Live { server, .. } = &mut s.source {
-        let addr = crate::arg("--server").unwrap_or_else(opencode_kit::client::default_server);
-        *server = Server::new(&addr).with_media_refs();
-    }
     s.launch.started = false;
     s.launch.waiting = true;
     tx.instant();
@@ -296,7 +303,7 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
     let (out, rx) = std::sync::mpsc::channel();
     let (server, wake) = (server.clone(), s.waker.clone());
     let (fallback, beta_tabs) = (s.launch.fallback_fixture, std::mem::take(&mut s.launch.beta_tabs));
-    let discover_local = crate::arg("--server").is_none();
+    let discover_local = s.server_key.is_none() && crate::arg("--server").is_none();
     let grace = if s.launch.quiet { Duration::ZERO } else { s.launch.grace.unwrap_or(GRACE) };
     std::thread::Builder::new()
         .name("opencode-first".into())
@@ -325,6 +332,7 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
     if s.launch.offline && s.launch.first.is_none() && s.live() && !crate::headless() {
         if s.clock + 1e-3 < s.launch.next_retry {
             return false;
@@ -365,19 +373,28 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     match result {
         Ok(first) => {
             s.launch.offline = false;
+            s.launch.retries = 0;
             if s.tabs.is_empty() && !s.launch.held_tabs.is_empty() {
                 s.tabs = std::mem::take(&mut s.launch.held_tabs);
             }
             s.apply_first(first);
             connect(s, tx);
+            s.show_outbox();
+            s.pump_outbox();
         }
         Err(e) => {
-            s.launch.next_retry = s.clock + RETRY_EVERY;
-            tx.wake_after(Duration::from_secs_f64(RETRY_EVERY));
+            let delay = retry_delay(s.launch.retries);
+            s.launch.retries = s.launch.retries.saturating_add(1);
+            s.launch.next_retry = s.clock + delay;
+            tx.wake_after(Duration::from_secs_f64(delay));
             if quiet {
                 return false;
             }
             s.launch.offline = true;
+            if matches!(s.route, Route::Session(_)) && !s.transcripts.is_empty() {
+                s.status = e;
+                return true;
+            }
             s.launch.cold_transcript = None;
             s.transcripts.clear();
             if s.launch.held_tabs.is_empty() {
@@ -428,6 +445,7 @@ impl App {
         }
         self.launch.cold_transcript = None;
         self.launch.held_tabs.clear();
+        self.open_outbox();
         self.launch.offline = false;
         // Desktop Beta's saved tabs are the app's own server's.
         self.launch.beta_tabs = false;

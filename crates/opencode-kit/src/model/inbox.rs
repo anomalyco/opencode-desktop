@@ -5,7 +5,7 @@ use super::*;
 /// How the server delivers a prompt sent while the session is busy: `Steer` joins the running
 /// turn at its next step boundary; `Queue` waits for the turn (and every steer) to finish. The
 /// server steers when a prompt names neither.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Delivery {
     #[default]
     Steer,

@@ -8,6 +8,7 @@ use crate::prompt_history::Entry;
 use crate::{App, Source};
 
 mod receipt;
+mod outbox;
 mod view;
 pub(crate) mod stories;
 pub use view::footer;
@@ -15,16 +16,20 @@ pub use view::footer;
 const KEEP: usize = 32;
 
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum State {
     #[default]
     Sending,
     Unconfirmed,
     Failed,
     Accepted,
+    Waiting,
 }
 
-#[derive(Clone)]
+#[derive(Clone,Copy,serde::Serialize,serde::Deserialize,PartialEq,Eq)]
+pub enum AfterCheck { Edit, Delete }
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Sent {
     pub session: String,
     pub id: String,
@@ -35,10 +40,20 @@ pub struct Sent {
     pub why: String,
     pub state: State,
     pub prompt: Option<Prompt>,
+    #[serde(default)]
+    durable: bool,
+    #[serde(default)]
+    operation: outbox::Operation,
+    #[serde(default)]
+    pub after_check: Option<AfterCheck>,
 }
 
 #[derive(Default)]
 pub struct Log {
+    path: Option<std::path::PathBuf>,
+    blocked: bool,
+    retry_at: f64,
+    attempts: u32,
     sent: Vec<Sent>,
     receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, String>)>>,
     checking: bool,
@@ -52,6 +67,7 @@ pub struct Log {
 }
 
 impl Log {
+    pub(crate) fn waiting_for_link(&self) -> bool { self.sent.iter().any(|s| s.durable && matches!(s.state,State::Sending|State::Waiting|State::Unconfirmed)) }
     pub fn note(&mut self, s: Sent) {
         self.sent.retain(|x| x.id != s.id);
         self.sent.push(s);
@@ -65,6 +81,9 @@ impl Log {
         self.sent.iter().find(|s| s.id == id).map(|s| s.state)
     }
 
+    pub(crate) fn durable(&self,id:&str) -> Option<&Sent> { self.sent.iter().find(|s| s.durable && s.id == id && s.state != State::Accepted) }
+    pub(crate) fn journaled(&self,id:&str) -> bool { self.sent.iter().any(|s| s.id==id && s.durable) }
+
     pub fn sending(&self, id: &str) -> bool { self.state(id) == Some(State::Unconfirmed) }
 
     pub(crate) fn take(&mut self, id: &str) -> Option<Sent> {
@@ -74,7 +93,7 @@ impl Log {
 
     pub(crate) fn preserve_inbox(&self, session: &str, inbox: &mut opencode_kit::model::Inbox, old: Vec<opencode_kit::model::InboxItem>) {
         for item in old {
-            if self.sent.iter().any(|s| s.session == session && s.id == item.id && matches!(s.state, State::Sending | State::Unconfirmed))
+            if self.sent.iter().any(|s| s.session == session && s.id == item.id && matches!(s.state, State::Sending | State::Unconfirmed | State::Waiting))
                 && !inbox.items.iter().any(|i| i.id == item.id) { inbox.upsert(item); }
         }
     }
@@ -82,7 +101,7 @@ impl Log {
 
 impl Sent {
     pub fn new(session: &str, id: &str, draft: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, inbox: bool) -> Self {
-        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), state: State::Sending, prompt: None }
+        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, why: String::new(), state: State::Sending, prompt: None, durable: false, operation:Default::default(),after_check:None }
     }
 
     pub fn with_prompt(mut self, prompt: &Prompt) -> Self { self.prompt = Some(prompt.clone()); self }
@@ -96,6 +115,28 @@ impl App {
         eprintln!("opencode-rune: prompt send failed: {error}");
         let why = error.split_once(": ").map_or(error, |(_, why)| why);
         sent.why = crate::status_toast::plain(why);
+        if sent.durable {
+            let code = error.split_once("http status: ").and_then(|(_, e)| e.get(..3)).and_then(|s| s.parse::<u16>().ok());
+            crate::telemetry::send_receipt(&sent.session,id,"write failed",code.unwrap_or(0));
+            if let Some(code) = code.filter(|n| (400..500).contains(n) && !matches!(n,408|425|429)) {
+                sent.why = match code { 401|403 => "Permission denied",404=>"Session not found",409=>"The session rejected this message",413=>"Message is too large",_=>"OpenCode rejected this message" }.into();
+                self.fail_send(id);
+                if !self.finish_outbox_action(id) { self.restore_rejection(id); }
+            } else {
+                let not_started = match sent.operation {
+                    outbox::Operation::Start(_) => error.starts_with("POST /api/session:"),
+                    outbox::Operation::Worktree{..}|outbox::Operation::Revert => false,
+                    _ => true,
+                };
+                sent.state = if code.is_none() && failed_for_sure(error) && not_started { State::Waiting } else { State::Unconfirmed };
+                if let Some(i)=self.inboxes.get_mut(&sent.session) { i.remove(id); }
+                self.show_outbox();
+                self.finish_outbox_action(id);
+                self.defer_outbox();
+            }
+            self.unsent.save();
+            return true;
+        }
         if failed_for_sure(error) { self.fail_send(id); }
         else {
             sent.state = State::Unconfirmed;
@@ -149,7 +190,27 @@ impl App {
                     self.accept_send(&id);
                 }
                 Ok(receipt::Receipt::Admitted) => { self.accept_send(&id); }
+                Ok(receipt::Receipt::Missing) if self.unsent.sent.iter().any(|s| s.id == id && s.durable) => {
+                    let s=self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap();
+                    if matches!(s.operation,outbox::Operation::Revert) {
+                        // A revert commit isn't itself idempotent; never replay that destructive step.
+                        s.why="Check the rewind before resending".into(); s.operation=outbox::Operation::Send;
+                        self.fail_send(&id);if !self.finish_outbox_action(&id) {self.restore_rejection(&id);}self.unsent.save();continue;
+                    }
+                    // The inbox exists, so creation succeeded before the reply was lost.
+                    if s.operation.creates() { s.operation = outbox::Operation::Send; }
+                    s.state = State::Waiting;
+                    self.finish_outbox_action(&id);
+                }
                 Ok(receipt::Receipt::Missing) => self.fail_send(&id),
+                Err(error) if error.ends_with("http status: 404") && self.unsent.durable(&id).is_some() => {
+                    let s=self.unsent.sent.iter_mut().find(|s| s.id == id).unwrap();
+                    if matches!(s.operation,outbox::Operation::Start(_)) { s.state=State::Waiting; }
+                    else {
+                        s.why=if s.operation.creates() {"Couldn't confirm the new worktree"} else {"Session not found"}.into();
+                        self.fail_send(&id); if !self.finish_outbox_action(&id) {self.restore_rejection(&id);} self.unsent.save();
+                    }
+                }
                 Err(error) => eprintln!("opencode-rune: prompt receipt unavailable: {error}"),
             }
         }
@@ -171,7 +232,10 @@ impl App {
     pub(crate) fn accept_send(&mut self, id: &str) -> bool {
         let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id) else { return false };
         let changed = s.state != State::Accepted;
+        let late_action = s.after_check.take().is_some();
         s.state = State::Accepted;
+        if changed && s.durable { crate::telemetry::send_receipt(&s.session,id,"accepted",0); self.unsent.save(); self.unsent.attempts = 0; self.unsent.retry_at = 0.; }
+        if late_action { crate::status_toast::say(self,"Message already sent", "The server received it before your change."); }
         changed
     }
 
@@ -186,7 +250,7 @@ impl App {
             t.messages.push(Message::User { id: id.into(), text: sent.draft.text.clone() });
         }
         self.attach.echoes.retain(|e| e.1 != id);
-        crate::status_toast::fail(self, opencode_i18n::t!("prompt.toast.promptSendFailed.title"), sent.why);
+        if !sent.durable { crate::status_toast::fail(self, opencode_i18n::t!("prompt.toast.promptSendFailed.title"), sent.why); }
     }
 
     pub(crate) fn retry_send(&mut self, id: &str) {
@@ -227,3 +291,6 @@ fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask:
 #[cfg(test)]
 #[path = "send_failed_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod outbox_tests;

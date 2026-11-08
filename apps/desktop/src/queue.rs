@@ -45,13 +45,17 @@ impl App {
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
         let sent = crate::send_failed::Sent::new(session, &id, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), true).with_prompt(&prompt);
         let write = self.send_write(session, prompt);
-        if !self.inbox_write(write) {
-            return;
+        if matches!(self.source, Source::Live {allow_send: true,..}) && self.stage.is_none() {
+            let paths=sent.paths.clone();
+            if !self.enqueue_prompt(sent,write) { self.attach.paths.extend(paths); return; }
+        } else {
+            if !self.inbox_write(write) { return; }
+            self.unsent.note(sent);
         }
-        self.unsent.note(sent);
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));
         model::set_user_quotes(&id, self.quote.take());
-        self.inboxes.entry(session.to_owned()).or_default().upsert(item);
+        if self.unsent.state(&id) == Some(crate::send_failed::State::Waiting) { self.show_outbox(); }
+        else { self.inboxes.entry(session.to_owned()).or_default().upsert(item); }
         self.composer.clear();
         if delivery == Delivery::Steer {
             self.steered(session, &id);

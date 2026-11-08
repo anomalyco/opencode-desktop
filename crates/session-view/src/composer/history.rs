@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 const MAX: usize = 100;
 
 /// A prompt as typed: its text and its `@` pills (byte range, id).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub text: String,
     pub pills: Vec<(Range<usize>, String)>,

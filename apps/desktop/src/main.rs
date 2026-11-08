@@ -570,7 +570,11 @@ impl session_view::TimelineHost for App {
     }
     fn is_session_live(&self, session: &str) -> bool {
         self.running.contains(session)
-            || (self.transcripts.get(session).is_some_and(Transcript::busy) && !self.stops.has(session))
+            || (self.transcripts.get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
+    }
+    fn timeline_busy(&self,t:&Transcript)->bool {
+        let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(_)) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
+        matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
     }
     fn is_session_stopped(&self, session: &str) -> bool {
         self.stops.has(session)
@@ -744,7 +748,10 @@ impl session_view::TimelineHost for App {
         send_failed::footer(self, p, id)
     }
     fn user_status_version(&self, id: &str) -> u64 {
+        if let Some(action)=self.unsent.durable(id).and_then(|s|s.after_check) { return if action==send_failed::AfterCheck::Edit {6} else {7}; }
         match self.unsent.state(id) {
+            Some(send_failed::State::Sending) if self.unsent.durable(id).is_some() => 5,
+            Some(send_failed::State::Waiting) => 4,
             Some(send_failed::State::Unconfirmed) => 1,
             Some(send_failed::State::Failed) => if self.composer.text.is_empty() && !self.attach.any() { 2 } else { 3 },
             _ => 0,
@@ -928,6 +935,7 @@ impl App {
         self.now_ms = self.base_ms;
         let allow_send = !flag("--read-only") && !headless();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
+        self.open_outbox();
         self.status = self.live_status();
         self.resume_settings_page();
         true
@@ -1098,6 +1106,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     changed |= s.poll_sends();
+    s.tick_outbox(tx);
     changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
     let mut arrivals = None;
@@ -1162,6 +1171,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                     // Most events are other sessions' streams: they redraw only what they change.
                     Incoming::Event { ty, data } => {
+                        if ty == "client.prompt.accepted" {
+                            changed |= s.accept_send(data["id"].as_str().unwrap_or(""));
+                            s.pump_outbox();
+                            continue;
+                        }
                         s.motion_events.note(&ty);
                         changed |= s.apply_event(&ty, &data);
                         continue;
@@ -1173,7 +1187,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         }
                     }
                     Incoming::SendFailed { session, id, error } => {
-                        if !s.start_failed(&session, &id, &error, tx) && !s.send_failed(&id, &error) {
+                        if s.unsent.journaled(&id) { s.send_failed(&id,&error); }
+                        else if !s.start_failed(&session, &id, &error, tx) && !s.send_failed(&id, &error) {
                             status_toast::from_server(s, error);
                         }
                     }
@@ -1188,6 +1203,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         tx.instant();
                         s.sidebar_inbox.branches.reconnected();
                         reconnect::back(s);
+                        s.pump_outbox();
                         s.stream_back();
                         s.check_sends();
                         s.resync();

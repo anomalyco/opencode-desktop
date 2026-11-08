@@ -131,6 +131,9 @@ pub trait TimelineHost: Sized + 'static {
     fn session_title(&self, _session: &str) -> Option<String> {
         None
     }
+    /// Hosts with a local outbox can exclude undelivered bubbles from run status.
+    fn timeline_busy(&self, transcript: &opencode_kit::model::Transcript) -> bool { transcript.busy() }
+
     fn is_session_live(&self, session: &str) -> bool {
         self.with_transcript(session, Transcript::busy).unwrap_or(false)
     }

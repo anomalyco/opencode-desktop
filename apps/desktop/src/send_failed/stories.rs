@@ -55,8 +55,18 @@ pub(crate) fn queued_long(s: &mut App) {
 
 fn open(s: &mut App, _: &mut Play<App>) { setup(s); }
 
+fn offline(s:&mut App) {
+    crate::open_scene(s); s.finish_stream();
+    let Route::Session(session)=s.route.clone() else { return };
+    let body="Run the tests before you merge.";
+    let mut sent=Sent::new(&session,FIRST,Entry::of(&TextEdit::new(body)),vec![],vec![],false);
+    sent.state=super::State::Waiting; sent.durable=true;
+    s.unsent.note(sent); s.show_outbox();
+}
+
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("send-unconfirmed", setup),
+    ("outbox-offline", offline),
     ("send-failed", |s| { setup(s); confirmed(s); }),
     ("send-queued-long", queued_long),
 ]);
@@ -65,4 +75,5 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
         replay(open),
         Trigger { key: 'f', label: "Receive confirmations", run: |s, tx| { tx.instant(); confirmed(s); } },
     ]),
+    Story::session("Timeline/Offline send", &[replay(|s,_| offline(s))]),
 ]);

@@ -9,6 +9,18 @@ use crate::{App, Route};
 const SES: &str = "ses_a";
 const ID: &str = "msg_mine";
 
+#[test]
+fn outbox_holds_a_send_before_the_writer_connects() {
+    let mut app = App::fixture_session();
+    app.fake_writes();
+    if let Source::Live { writes, .. } = &mut app.source { *writes = None; }
+    let Route::Session(session) = app.route.clone() else { unreachable!() };
+    app.composer = TextEdit::new("send when ready");
+    app.send(&mut rune::Tx::default());
+    assert!(app.composer.text.is_empty());
+    assert!(app.transcripts[&session].messages.iter().any(|m| matches!(m, Message::User {text, ..} if text == "send when ready")));
+}
+
 fn app_with_echo(inbox: bool) -> App {
     let mut app = App::empty();
     app.fake_writes();

@@ -30,6 +30,12 @@ pub fn enabled() -> bool {
     }
 }
 
+/// Correlate a lost reply with server admission without recording prompt text or raw URLs.
+pub(crate) fn send_receipt(session: &str, id: &str, outcome: &'static str, status: u16) {
+    if on() { Span::root("prompt.delivery").attr("session.id",session).attr("message.id",id)
+        .attr("outcome",outcome).attr("http.status_code",status as i64).end_at(Instant::now()); }
+}
+
 /// One page read, measured on the reader thread.
 #[derive(Clone, Debug, Default)]
 pub struct Read {

@@ -114,6 +114,8 @@ fn base64(input: &[u8]) -> String {
 }
 
 impl Server {
+    /// Interrupt only sleeping stream retries; healthy streams stay connected.
+    pub fn wake_reconnects() { worker::wake_reconnects(); }
     pub fn new(base: &str) -> Server {
         let clean = base.trim_end_matches('/').to_owned();
         let password = std::env::var("OPENCODE_SERVER_PASSWORD")
@@ -449,8 +451,8 @@ impl Server {
         if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
     }
 
-    /// `Write::StartAs`: the create and the first prompt. When the prompt fails, or the create
-    /// may have arrived, the session is deleted so a failed start leaves nothing behind.
+    /// Create and admit the first prompt. Only roll back a definitely rejected prompt:
+    /// after a lost reply the client needs the session intact to check its receipt.
     pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, String> {
         let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
         // The create already chose the agent and model, so no switches before the prompt.
@@ -461,7 +463,9 @@ impl Server {
         match sent {
             Ok(_) => created,
             Err(e) => {
-                if created.is_ok() || !crate::plain_error::failed_for_sure(&e) {
+                // A lost reply may be the only missing part of a successful first turn.
+                // Deleting the session then destroys both the message and its receipt.
+                if created.is_ok() && e.contains("http status: 4") && !["408","409","425","429"].iter().any(|n| e.ends_with(n)) {
                     let _ = self.delete_session(id);
                 }
                 Err(e)
@@ -869,7 +873,7 @@ mod tests {
     #[test]
     fn a_start_whose_prompt_fails_deletes_the_session() {
         let info = serde_json::json!({ "data": { "id": "ses_new" } }).to_string();
-        let (base, h) = mock_replies(vec![("200 OK", info), ("500 Internal Server Error", "{}".into()), ("200 OK", "{}".into())]);
+        let (base, h) = mock_replies(vec![("200 OK", info), ("422 Unprocessable Entity", "{}".into()), ("200 OK", "{}".into())]);
         let prompt = Prompt { id: Some("msg_1".into()), text: "go".into(), ..Default::default() };
         assert!(Server { base, auth: None, media_refs: false, remote_files: false }.start_as("ses_new", "/r", &prompt).is_err());
         let reqs = h.join().unwrap();

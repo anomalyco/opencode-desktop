@@ -15,6 +15,12 @@ use crate::model;
 /// no resync, and sessions that finished meanwhile stay running.
 const EVENTS_IDLE: Duration = Duration::from_secs(45);
 
+static RETRY: (std::sync::Mutex<u64>, std::sync::Condvar) = (std::sync::Mutex::new(0),std::sync::Condvar::new());
+pub(super) fn wake_reconnects() {
+    *RETRY.0.lock().unwrap() += 1;
+    RETRY.1.notify_all();
+}
+
 /// Starts the worker, writer and event threads (the first loads already happened). Returns the
 /// request and write senders and the inbox.
 pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
@@ -36,10 +42,14 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
 
 /// The event stream, reopened with backoff after each drop, until `inbox` closes.
 pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Incoming>, wake: &Waker) {
-    let mut backoff = 2;
+    retry_events(server,idle,inbox_tx,wake,250);
+}
+
+fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Waker, mut backoff:u64) {
     let mut resumed = false;
     loop {
         let mut opened = false;
+        let generation = *RETRY.0.lock().unwrap();
         if let Err(e) = server.events(idle, inbox_tx, wake, resumed, &mut opened) {
             if inbox_tx.send(Incoming::Status(e)).is_err() {
                 return;
@@ -47,13 +57,16 @@ pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Inc
             wake();
         }
         if opened {
-            backoff = 1;
+            backoff = 250;
         }
         resumed = true;
-        std::thread::sleep(Duration::from_secs(backoff));
-        backoff = (backoff * 2).min(30);
+        let _wait = RETRY.1.wait_timeout_while(RETRY.0.lock().unwrap(),Duration::from_millis(backoff),|g| *g == generation).unwrap();
+        backoff = (backoff * 2).min(3000);
     }
 }
+
+#[cfg(test)]
+mod retry_tests;
 
 /// The fetch and write threads, answering into `inbox_tx`.
 pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: &Waker) -> (Sender<Request>, Sender<Write>) {
@@ -155,6 +168,9 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
                         }),
                     };
+                    if result.is_ok() && let Some((session,id)) = &prompt_id {
+                        let _ = inbox_tx.send(Incoming::Event { ty: "client.prompt.accepted".into(), data: serde_json::json!({"sessionID":session,"id":id}) });
+                    }
                     if let Err(e) = result {
                         let told = match prompt_id {
                             Some((session, id)) => inbox_tx.send(Incoming::SendFailed { session, id, error: e }),
