@@ -8,8 +8,9 @@ use super::*;
 pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool) -> El {
     let open = s.home_search_open();
     let placeholder = selected.map_or_else(|| opencode_i18n::t!("home.sessions.search.placeholder").into(), |proj| opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = proj.name));
+    // Not `search`: that key is the titlebar's and the sidebar's Search sessions button.
     let mut field = row()
-        .key("search")
+        .key("home-search")
         .w_full()
         .h(36.0)
         .pl(12.0)
