@@ -33,7 +33,7 @@ const sorted = (dict: Record<string, string>) =>
 
 // Desktop's GUI plugins this app builds in rather than loading as plugins; each keeps its own
 // catalog there (packages/gui-plugins/src/<id>/i18n), which joins here under `plugin.<id>.`.
-const builtIn = ["browser", "file", "review", "terminal", "updater"]
+const builtIn = ["browser", "details", "file", "review", "terminal", "updater"]
 const plugins = path.join(root, "packages/gui-plugins/src")
 const plugin = async (name: string, id: string) => {
   const file = path.join(plugins, name, "i18n", `${id}.ts`)
