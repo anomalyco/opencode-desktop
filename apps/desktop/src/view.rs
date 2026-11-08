@@ -187,6 +187,26 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     };
     let settings_sz = if s.settings.open { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
     let bottom_reserve = crate::panels::view::bottom_reserve_height(s, cx);
+    // A layout switch moves the panel, the sidebar and every tab on GLIDE, with the panel on top:
+    // the tabs slide under its edges between the titlebar and the sidebar rather than over the
+    // page. The titlebar row comes and goes at once, and below the panel while it does.
+    let switching = s.switching_layout();
+    let band = titlebar::titlebar(s, p, cx)
+        .map(|bar| el().key("titlebar-band").pin(Some(0.0), Some(0.0), Some(0.0), None).h(chrome().row_h).transition(rune::Transition::none()).child(bar));
+    let (band_below, band) = if switching { (band, None) } else { (None, band) };
+    let mut panel = col()
+        .key("panel")
+        .grow(1.0)
+        .shrink()
+        .ml(8.0)
+        .mt(chrome().top())
+        .mr(8.0)
+        .mb(8.0 + bottom_reserve)
+        .radius(10.0)
+        .fill(p.bg_base)
+        .elevate(p.raised)
+        .clip_soft(0.0);
+    panel = if switching { panel.motion(GLIDE).raise() } else { panel.motion(crate::panels::view::SIDE_SPRING) };
     let mut root = row()
         .key("window")
         .role("window")
@@ -194,21 +214,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .w_full()
         .h_full()
         .child(sidebar(s, p))
+        .children(band_below)
         .child(
             // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
-            col()
-                .key("panel")
-                .grow(1.0)
-                .shrink()
-                .ml(8.0)
-                .mt(chrome().top())
-                .mr(8.0)
-                .mb(8.0 + bottom_reserve)
-                .radius(10.0)
-                .fill(p.bg_base)
-                .elevate(p.raised)
-                .clip_soft(0.0)
-                .motion(crate::panels::view::SIDE_SPRING)
+            panel
                 .on_press(|s: &mut App| {
                     s.side.focused = false;
                     s.side.dock_focused = false;
@@ -229,9 +238,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
         // it's the titlebar row itself.
         .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag());
-    if let Some(bar) = titlebar::titlebar(s, p, cx) {
-        root = root.child(el().key("titlebar-band").pin(Some(0.0), Some(0.0), Some(0.0), None).h(chrome().row_h).child(bar));
-    }
+    root = root.children(band);
     if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
