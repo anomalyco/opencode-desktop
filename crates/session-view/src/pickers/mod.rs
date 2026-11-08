@@ -1,5 +1,6 @@
-//! The composer's agent, model and effort. Desktop reference: ModelSelectorPopoverView,
-//! ComposerEditorSelect and `providers/models/selection.tsx`, with its model search in
+//! The composer's agent, model and effort. Desktop reference: `DialogSelectModel`
+//! (`providers/models/select-dialog.tsx`, [`dialog`]), ComposerEditorSelect and
+//! `providers/models/selection.tsx`, with its model search in
 //! `providers/models/search.ts` ([`search`]). A session runs with what the
 //! server last said (`session.agent`, `session.model`); a pick is remembered per session and
 //! rides on its next prompt, which switches the session first (`Server::send`). Once the server
@@ -8,12 +9,13 @@
 //! The state is [`Pickers`]; a host implements [`PickerHost`] for the session it shows, mounts
 //! [`view::layer`] over its window and calls [`hover::poll`] each frame.
 
+pub mod dialog;
 pub mod flyout;
 mod host;
 pub mod hover;
 pub mod manage;
+pub mod mark;
 pub mod prefs;
-pub mod rail;
 pub mod search;
 pub mod view;
 
@@ -87,6 +89,10 @@ pub struct Model {
     pub free: bool,
     /// Named "(latest)" by the server: its row says Latest (`models.tsx:110`).
     pub latest: bool,
+    /// What it reads, in Desktop's order (text, image, pdf, audio, video), and whether it calls
+    /// tools: the flyout's summary under its efforts (`details.tsx:32-43`).
+    pub inputs: Vec<String>,
+    pub tools: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -96,8 +102,8 @@ pub struct Selection { pub model: ModelRef, pub agent: String }
 pub struct Item {
     pub key: String,
     pub label: String,
-    /// The group's identity, which keeps its header and its rail mark together: a provider's id,
-    /// or Recent and Favorites.
+    /// The group's identity, which keeps its rows under one header: a provider's id, or
+    /// Favorites and Recent.
     pub group: String,
     /// What the header says where that differs from the identity: a provider's name.
     pub heading: String,
@@ -174,7 +180,8 @@ impl Pickers {
             let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
-                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false, latest: false }
+                    .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false, latest: false,
+                inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false) }
         }).collect();
         self.load_limits(&fixture["models"]);
         // A fixture may name its providers too, as the server's `/api/provider` does.
@@ -184,7 +191,7 @@ impl Pickers {
 
     /// The server's `/api/provider`: the name a model's group header says, where `/api/model`
     /// only names the provider by id. A provider the list leaves out, or names as its id, keeps
-    /// its id; the rail's marks and stops stay keyed by the id. A list that names nothing leaves
+    /// its id; the groups stay keyed by the id. A list that names nothing leaves
     /// the headers as they are, and a fixture may give one too.
     pub fn load_providers(&mut self, providers: &Value) {
         self.providers = providers.as_array().into_iter().flatten().filter_map(|p| {
@@ -213,7 +220,8 @@ impl Pickers {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
             let name = s(v, "name");
-            Model { hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: name.replace("(latest)", "").trim().to_owned(),
+            Model { hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false),
+                key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: name.replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);
@@ -272,6 +280,14 @@ impl Pickers {
         }
         Some(self.providers.get(&m.provider).cloned().unwrap_or_else(|| m.provider.clone()))
     }
+}
+
+/// The server's `capabilities.input` (a list, or Desktop's `{ text: true, … }`) in Desktop's
+/// order (`details.tsx:13`).
+fn inputs(m: &Value) -> Vec<String> {
+    let input = &m["capabilities"]["input"];
+    let has = |kind: &str| input.as_array().map_or_else(|| input[kind].as_bool().unwrap_or(false), |list| list.iter().any(|v| v == kind));
+    ["text", "image", "pdf", "audio", "video"].into_iter().filter(|k| has(k)).map(str::to_owned).collect()
 }
 
 /// OpenCode's models that cost nothing (Desktop's `isFreeModel`): the untiered cost's input is 0.

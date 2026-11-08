@@ -1,11 +1,10 @@
-//! The storybook's `Pickers/Model picker`: a list with several providers, one model under three
-//! of them, at the list's spacing, as Kit had it (p169): three recent models, none of them the
-//! one the session is on, which leads the list anyway. Its group headers say the providers'
-//! names ("Anomaly / RITB"), as the live list's do. Its Efforts variant opens the lit model's
-//! efforts beside it; its Favorite variant stars one model, so Favorites leads the rail. The
-//! provider rail runs down its left. R replays; O opens or closes the efforts.
+//! The storybook's `Pickers/Model picker`: Desktop's model dialog with several providers, one
+//! model under three of them, and three recent models under Recent. Its group headers say the
+//! providers' names ("Anomaly / RITB"), as the live list's do. Its Efforts variant opens the lit
+//! model's flyout beside it; its Favorite variant stars one model, so Favorites leads the list.
+//! R replays; O opens or closes the flyout.
 
-use crate::pickers::{EffortFlyout as _, ModelHover as _, PickerHost as _};
+use crate::pickers::{EffortFlyout as _, PickerHost as _};
 use rune::Play;
 
 use crate::App;
@@ -60,7 +59,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.composer.focused = false;
     s.open_picker(Kind::Model);
     if s.variant == 1 {
-        s.open_effort_flyout(CURRENT);
+        s.toggle_effort_flyout(CURRENT);
     }
 }
 

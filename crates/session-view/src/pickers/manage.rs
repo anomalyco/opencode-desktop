@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use rune::{Color, El, Key, ScrollSpec, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
-use super::{Model, ModelAction, PickerHost, host, rail, search};
+use super::{Model, ModelAction, PickerHost, host, mark, search};
 use crate::palette::Pal;
 use crate::style::{UI, UI_MED};
 
@@ -156,7 +156,7 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
         .child(row().key("chevron").size(20.0, 20.0).center()
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
         .child(row().key("label").gap(8.0).center_y()
-            .child(icon(rail::mark(provider, &first), 16.0).color(p.text))
+            .child(icon(mark::mark(&first), 16.0).color(p.text))
             .child(text(name.clone()).font(UI_MED).color(p.text)));
     if !searching {
         trigger = trigger.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut S, tx: &mut Tx| {

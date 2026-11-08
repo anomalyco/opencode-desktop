@@ -1,7 +1,6 @@
 use crate::pickers::PickerHost as _;
 use rune::{Align, Key, KeyEvent, Mods, Runtime, Side, TextEdit, Transition};
 use crate::App;
-use crate::view::UI;
 
 use super::*;
 use crate::fixture_runtime as runtime;
@@ -35,58 +34,6 @@ pub(crate) fn grows_whole(rt: &mut Runtime<App>, key: &str) {
 
 fn rect(rt: &Runtime<App>, key: &str) -> [f32; 4] {
     rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("no {key}")).target
-}
-
-fn left_of_text(rt: &Runtime<App>, inside: &str) -> f32 {
-    // The first text element under `inside`, by its key path.
-    let els = rt.elements();
-    let host = els.iter().position(|e| e.key.as_deref() == Some(inside)).unwrap_or_else(|| panic!("no {inside}"));
-    els[host..].iter().find(|e| e.text.is_some()).unwrap().target[0]
-}
-
-#[test]
-fn search_headers_and_labels_share_one_edge() {
-    let mut rt = runtime();
-    rt.state.open_picker(Kind::Model);
-    rt.invalidate();
-    rt.frame(1.0 / 60.0);
-    let menu = rect(&rt, "picker-model");
-    let query = rect(&rt, "picker-search")[0] - menu[0];
-    let header = left_of_text(&rt, "group-anthropic") - menu[0];
-    let label = left_of_text(&rt, "option-anthropic:claude-opus-5-5") - menu[0];
-    // The rail runs down the list's left, under the glass; the query, the headers and the
-    // labels start a row's inset past it (p169: no check slot before the label).
-    let lead = crate::model_picker::rail::LEAD;
-    assert!((query - lead - LIST.inset - LIST.label_x()).abs() < 0.5, "query at {query}");
-    assert!((header - query).abs() < 0.5, "header at {header}, query at {query}");
-    assert!((label - query).abs() < 0.5, "label at {label}, query at {query}");
-    let glass = rect(&rt, "search-glass");
-    let mark = rect(&rt, "picker-rail");
-    assert!((glass[0] + glass[2] / 2.0 - mark[0] - mark[2] / 2.0).abs() < 0.5, "the glass is over the rail");
-    // The query is one line tall, on the glass's centre line.
-    let field = rect(&rt, "picker-search");
-    let glass = rect(&rt, "picker-search-row")[1] + LIST.inset + SEARCH_H / 2.0;
-    assert!((field[3] - UI.line_height).abs() < 0.5, "field {} tall", field[3]);
-    assert!((field[1] + field[3] / 2.0 - glass).abs() < 0.5, "field {field:?}, glass centre {glass}");
-    // The highlight stays 6 pt inside the rail's edge.
-    let row = rect(&rt, "option-anthropic:claude-opus-5-5");
-    assert!((row[0] - menu[0] - lead - LIST.inset).abs() < 0.5);
-}
-
-#[test]
-fn an_empty_search_keeps_the_labels_edge_and_no_rail() {
-    let mut rt = runtime();
-    rt.state.open_picker(Kind::Model);
-    rt.state.pickers.search = TextEdit::new("zzzz");
-    rt.invalidate();
-    for _ in 0..2 { rt.frame(1.0 / 60.0); }
-    let menu = rect(&rt, "picker-model");
-    let query = rect(&rt, "picker-search")[0] - menu[0];
-    let empty = left_of_text(&rt, "picker-empty") - menu[0];
-    assert!((empty - query).abs() < 0.5, "the empty state sits on the query's edge: {empty} vs {query}");
-    let gone = |key: &str| rt.elements().into_iter().all(|e| e.key.as_deref() != Some(key) || e.exiting);
-    assert!(gone("picker-rail"), "nothing to jump to, so no rail: no empty column beside it");
-    assert!(gone("picker-rail-edge"), "and no hairline down an empty column");
 }
 
 #[test]

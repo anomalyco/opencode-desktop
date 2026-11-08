@@ -20,7 +20,7 @@ mod slide;
 use std::ops::Range;
 
 use rune::{Align, Color, El, ScrollSpec, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text, text_input};
-use rune_kit::glyphs;
+use rune_kit::ScrollBar as _;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
@@ -53,11 +53,10 @@ pub struct Look {
 /// the label and the check at the end.
 pub const MENU: Look = Look { inset: 2.0, row_radius: 4.0, row_h: 28.0, row_gap: 0.0, pad_l: 12.0, pad_r: 6.0, gap: 8.0, head: 16.0 };
 
-/// Desktop's model dialog (`select-dialog.css`), tighter (p169: "too much spacing"): a 6 pt
-/// inset, 12 pt corners, 24 pt rows 4 pt apart with 6 pt corners, and the check at the end, as
-/// Desktop's rows have it ("way too much padding on the left" with a check slot before the
-/// label). A group's title takes one row's pitch, 8 pt above it.
-pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 24.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, head: 8.0 };
+/// Desktop's model dialog (`select-dialog.css:104-187`): a 6 pt inset, 28 pt rows 4 pt apart
+/// with 6 pt corners, 6 pt before a row's check slot and 3 after its end, and a group's title
+/// 16 pt below what's above it.
+pub const LIST: Look = Look { inset: 6.0, row_radius: 6.0, row_h: 28.0, row_gap: 4.0, pad_l: 6.0, pad_r: 3.0, gap: 6.0, head: 16.0 };
 
 /// The search row's height: the field keeps Desktop's 28 pt.
 pub const SEARCH_H: f32 = 28.0;
@@ -142,28 +141,32 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
         .caret(p.text, p.selection)
 }
 
-/// The search row and the hairline under it, across the whole surface, over a list that starts
-/// `lead` points in (a rail of icons down its left): the glass is centred over the lead and the
-/// query starts where the rows' labels do. `trailing` ([`search_button`]s) end it, each 2 pt from
-/// the row's edges as Desktop's (`select-dialog.css:69-86`). Use it with [`LIST`].
-pub fn search_row(p: &Pal, look: Look, key: &str, lead: f32, field: El, trailing: Vec<El>) -> El {
-    let end = if trailing.is_empty() { look.inset } else { look.inset + 2.0 };
-    col().key(key.to_owned()).w_full().pt(look.inset).gap(look.inset)
-        .child(row().key("search").h(SEARCH_H).w_full().pr(end).center_y()
-            .child(row().key("search-glass").w(lead).h_full().center().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
-            .child(el().w(look.inset + look.label_x()))
-            .child(field)
-            .children(trailing))
-        .child(divider(p, "search-divider"))
+/// The model dialog's search row and the hairline under it (`select-dialog.css:49-96`): 6 pt
+/// in, a 28 pt field whose glass sits 6 pt into a 22 pt slot and whose query starts 6 pt after
+/// it, where the model names do; `trailing` ([`search_button`]s) 8 pt after the query and 4 pt
+/// apart, the last 2 pt from the field's end (`text-input.css` `text-input-v2-trailing`). The
+/// hairline runs across the whole surface, 6 pt under the field.
+pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
+    let value = row().key("search-value").grow(1.0).shrink().min_w(0.0).h_full().gap(6.0).center_y()
+        .child(row().key("search-glass").w(22.0).pl(6.0).h_full().center_y().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
+        .child(field);
+    let field = row().key("search").h(SEARCH_H).w_full().pr(2.0).gap(8.0).center_y()
+        .child(value)
+        .children((!trailing.is_empty()).then(|| row().key("search-trailing").gap(4.0).center_y().children(trailing)));
+    col().key(key.to_owned()).w_full().pt(LIST.inset).gap(LIST.inset)
+        .child(row().w_full().px(LIST.inset).child(field))
+        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), so the list starts
+        // a whole point under it.
+        .child(col().key("search-rule").w_full().h(1.0).pt(0.25).child(divider(p, "search-divider")))
 }
 
-/// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 16 pt
+/// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 14 pt
 /// icon on the hover and pressed overlays, its name in a tooltip.
 pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
         .size(24.0, 24.0).center().radius(6.0).hover(p.hover).press(p.pressed)
         .on_press_tx(press)
-        .child(icon(glyph, SLOT).color(p.icon_muted))
+        .child(icon(glyph, 14.0).color(p.icon_muted))
 }
 
 /// A full-width hairline.
@@ -175,29 +178,6 @@ pub fn divider(p: &Pal, key: &str) -> El {
 pub fn badge(p: &Pal, label: &str) -> El {
     row().key(format!("badge-{label}")).h(16.0).px(4.0).center().radius(2.0).fill(p.layer2).border(0.5, p.border)
         .child(text(label.to_owned()).font(BADGE).color(p.muted))
-}
-
-/// A row's star at its end: filled when `on`. A press toggles it and leaves the row unpicked.
-pub fn star<S: 'static>(p: &Pal, on: bool, toggle: impl Fn(&mut S) + 'static) -> El {
-    let words = if on { opencode_i18n::t!("dialog.model.unfavorite") } else { opencode_i18n::t!("dialog.model.favorite") };
-    row().key("star").role("button").label(words)
-        .help(format!("{words} {}", crate::keymap::Bind::Favorite.label()))
-        .size(20.0, 20.0).center().radius(4.0).hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            tx.instant();
-            toggle(s);
-        })
-        .child(icon(if on { &glyphs::STAR_FILLED } else { &glyphs::STAR }, 14.0).color(if on { p.icon } else { p.icon_muted }))
-}
-
-/// Muted words and a chevron at a row's end: the lit model's effort, which ← → change and a
-/// press opens (`open`).
-pub fn trailing_note<S: 'static>(p: &Pal, label: &str, open: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    row().key("trailing-note").role("button").label(opencode_i18n::t!("ui.promptInput.chooseVariant")).help(format!("{}  \u{2190} \u{2192}", opencode_i18n::t!("ui.promptInput.chooseVariant")))
-        .shrink().min_w(0.0).max_w(136.0).h(20.0).pl(4.0).gap(2.0).center_y().radius(4.0)
-        .hover(p.hover).press(p.pressed).on_press_tx(open)
-        .child(text(label.to_owned()).font(UI).color(p.muted).shrink().min_w(0.0).truncate_fade())
-        .child(icon(&ic::CHEVRON_RIGHT, SLOT).color(p.icon_muted))
 }
 
 /// A row's shortcut at its end.
@@ -310,13 +290,23 @@ pub struct List {
     /// Where the lit row starts, for the sliding highlight.
     lit: Option<f32>,
     under: Option<El>,
-    /// The headers stick for the whole list over this fill ([`List::stuck_headers`]).
-    stuck: Option<Color>,
+    /// The model dialog's list ([`List::stuck_headers`]).
+    stuck: Option<Stuck>,
+    /// Above the first row or header: the look's inset, or none under the model dialog's
+    /// search, whose first header starts right under the hairline.
+    top: f32,
+}
+
+/// What [`List::stuck_headers`] paints with.
+struct Stuck {
+    fill: Color,
+    lit: Color,
+    bar: rune_kit::ScrollBarStyle,
 }
 
 impl List {
     pub fn new(key: &str, look: Look) -> List {
-        List { look, key: key.to_owned(), rows: Vec::new(), h: 2.0 * look.inset, lit: None, under: None, stuck: None }
+        List { look, key: key.to_owned(), rows: Vec::new(), h: 2.0 * look.inset, lit: None, under: None, stuck: None, top: look.inset }
     }
 
     fn push(&mut self, e: El, h: f32) {
@@ -327,30 +317,36 @@ impl List {
     /// A group's title, the look's `head` below the search row's hairline, or that plus the row
     /// gap below the group above.
     pub fn header(&mut self, p: &Pal, key: impl Into<String>, label: &str) {
-        let top = if self.rows.is_empty() { (self.look.head - self.look.inset).max(0.0) } else { self.look.head };
-        let e = match self.stuck {
-            // Across the list's inset so rows scroll under an opaque band; the label fades out
-            // as the next one comes up, gone just as it would touch it (`select-dialog.tsx:806-807`).
+        let top = if self.rows.is_empty() { (self.look.head - self.top).max(0.0) } else { self.look.head };
+        let e = match &self.stuck {
+            // Across the list's inset so rows scroll under an opaque band, its words where the
+            // model names start (34 in, 6 from the end); the label fades out as the next one
+            // comes up, gone just as it would touch it (`select-dialog.css:121-175`,
+            // `select-dialog.tsx:785-818`).
             // Until it sticks it fills only behind its label (`background-clip: content-box`), so
             // sliding up over the stuck one its padding never covers that label as it fades.
-            Some(fill) => {
+            Some(stuck) => {
                 let inset = self.look.inset;
-                let band = rune::Shadow { inset: true, spread: 1.0e4, color: fill, ..Default::default() };
-                row().key(key).transition(Transition::none()).h(top + HEADER_H).mx(-inset).pl(self.look.label_x() + inset).pr(self.look.pad_r + inset).pt(top).pb(2.0)
+                let band = rune::Shadow { inset: true, spread: 1.0e4, color: stuck.fill, ..Default::default() };
+                row().key(key).transition(Transition::none()).h(top + HEADER_H).mx(-inset).pl(inset + self.look.pad_l + SLOT + self.look.gap).pr(inset).pt(top).pb(2.0)
                     .stuck_shadow(band).sticky_top(0.0).stuck_fade(top + HEADER_H - 2.0 - self.look.head, 16.0)
-                    .child(row().key("label").grow(1.0).shrink().min_w(0.0).h_full().center_y().fill(fill)
-                        .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate_fade()))
+                    .child(row().key("label").grow(1.0).shrink().min_w(0.0).h_full().center_y().fill(stuck.fill)
+                        .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate()))
             }
             None => group_header(p, self.look, key, label, top),
         };
         self.push(e, top + HEADER_H);
     }
 
-    /// The model dialog's headers (`select-dialog.css:113-175`): every one sticks for the whole
-    /// list on `fill`, the next sliding over it, and the rows fade in a 16 point band under the
-    /// stuck one by how far they've scrolled beneath it, and over 24 points at the list's bottom.
-    pub fn stuck_headers(mut self, fill: Color) -> Self {
-        self.stuck = Some(fill);
+    /// The model dialog's list (`select-dialog.css:98-187`): no room above its first header,
+    /// every header sticking for the whole list on `bg-base`, the next sliding over it, the rows
+    /// fading in a 16 point band under the stuck one by how far they've scrolled beneath it and
+    /// over 24 points at the list's bottom, the lit row on the hover overlay in both schemes (`select-dialog.css:221-224`), and
+    /// `MenuScroll`'s thumb.
+    pub fn stuck_headers(mut self, p: &Pal) -> Self {
+        self.h -= self.top;
+        self.top = 0.0;
+        self.stuck = Some(Stuck { fill: p.bg_base, lit: p.hover, bar: rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong) });
         self
     }
 
@@ -371,17 +367,13 @@ impl List {
     /// Puts the highlight under the lit row, sliding there from the last one lit under the
     /// same `query`.
     pub fn slide(&mut self, k: &Knobs, p: &Pal, query: &str) {
-        self.under = self.lit.map(|y| slide::highlight(k, p, self.look, y, query));
+        let fill = self.stuck.as_ref().map_or(p.row_active, |s| s.lit);
+        self.under = self.lit.map(|y| slide::highlight(k, fill, self.look, y, query));
     }
 
     /// Anything else (an empty state), `h` tall.
     pub fn other(&mut self, e: El, h: f32) {
         self.push(e, h);
-    }
-
-    /// How far down the scroll goes to put the next row at its top.
-    pub fn next_y(&self) -> f32 {
-        if self.rows.is_empty() { 0.0 } else { self.h - self.look.inset + self.look.row_gap }
     }
 
     /// Its height with every row in, before the scroll caps it.
@@ -395,7 +387,7 @@ impl List {
 
     /// The scroll keyed `key`, at most `max_h` tall.
     pub fn build(self, key: &str, max_h: f32) -> El {
-        let list = col().key(self.key).w_full().padding(self.look.inset).gap(self.look.row_gap).children(self.under).children(self.rows);
+        let list = col().key(self.key).w_full().padding(self.look.inset).pt(self.top).gap(self.look.row_gap).children(self.under).children(self.rows);
         // A stuck header's 16 point eased fade, whole once 16 points are hidden under it, and the
         // list's 24 point linear mask at its bottom (`search-list.css`'s `--search-list-edge`).
         let fade = if self.stuck.is_some() {
@@ -403,17 +395,14 @@ impl List {
         } else {
             rune::ScrollFade::strength(8.0)
         };
-        col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
+        let scroll = col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false }).scroll_fade(fade)
-            .child(list)
+            .child(list);
+        match self.stuck {
+            // The arrow keys keep the lit row clear of the stuck header (`scroll-padding-top: 36px`).
+            Some(stuck) => scroll.scroll_margin(36.0).scroll_bar_styled(stuck.bar),
+            None => scroll,
+        }
     }
 }
 
-/// The empty state's height in a list ("No models found").
-pub const EMPTY_H: f32 = 36.0;
-
-/// "No model results": muted as Desktop's (`search-list.css:175-184`), on the row labels'
-/// edge, `left` in from the list's own edge.
-pub fn empty(p: &Pal, key: &str, label: &str, left: f32) -> El {
-    row().key(key.to_owned()).transition(Transition::none()).h(EMPTY_H).w_full().pl(left).center_y().child(text(label.to_owned()).font(UI).color(p.muted))
-}

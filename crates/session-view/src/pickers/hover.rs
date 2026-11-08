@@ -1,14 +1,17 @@
-//! When the lit model's efforts open beside its row, as in Desktop's model list
-//! (`select-dialog.tsx`: `hover`, `move`, `follow`; `safe-triangle.ts`).
+//! When the lit model's flyout opens beside its row, as in Desktop's model dialog
+//! (`select-dialog.tsx:764-845`, `select-dialog-machine.ts`). Every model has one: its efforts,
+//! or Default alone.
 //!
-//! - The first flyout waits 100 ms of the pointer on a row; once one has opened, the next opens
-//!   at once.
+//! - The first flyout waits 100 ms of the pointer on a row; while one is open, and for 300 ms
+//!   after the pointer leaves it, the next opens at once.
 //! - A safe triangle, from the pointer's last point on the flyout's row to the flyout's near
 //!   corners, keeps the flyout while the pointer crosses other rows on its way in. Resting on a
 //!   row inside it for 300 ms hands over to that row, as on macOS.
 //! - A wheel scroll lights the row it brings under the pointer and moves the flyout beside it. The
-//!   arrow keys close the flyout, and rows they scroll under a still pointer leave the highlight
-//!   where the keys put it.
+//!   arrow keys and typing close the flyout, and rows they scroll under a still pointer leave the
+//!   highlight where the keys put it.
+//! - A new query starts the list from the top; results that land later for the same query leave
+//!   it where it is, so the row the pointer took stays put (`search-list.tsx:189-207`).
 
 use std::time::Duration;
 
@@ -16,10 +19,14 @@ use rune::{El, PointerEvent, Tx};
 
 use super::{Kind, PickerHost};
 
-/// The first flyout's hover intent.
+/// The first flyout's hover intent (`FLYOUT_OPEN_DELAY_MS`).
 const INTENT: f64 = 0.1;
-/// How long the pointer rests inside the triangle before the row under it takes over.
+/// How long the pointer rests inside the triangle before the row under it takes over
+/// (`FLYOUT_AIM_TIMEOUT_MS`).
 const SETTLE: f64 = 0.3;
+/// How long after a flyout closes under the pointer the next still opens at once
+/// (`FLYOUT_WARM_MS`).
+const WARM: f64 = 0.3;
 
 /// A row waiting out a delay. Its due time is set by the next poll, which knows the time.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,8 +41,14 @@ pub struct Hover {
     pub keyboard: bool,
     /// A wheel scroll moved the rows since the pointer last moved.
     wheel: bool,
-    /// A flyout has opened since the list did.
+    /// A flyout is open, or closed under the pointer a moment ago ([`WARM`]).
     warm: bool,
+    /// The wait that ends `warm` after a flyout closes under the pointer.
+    cool: Option<Wait>,
+    /// The arrow keys have moved through the results since the query last changed.
+    pub navigated: bool,
+    /// The query the list last showed from its top.
+    revealed: Option<String>,
     /// The pointer's last point on a row.
     pointer: Option<[f32; 2]>,
     /// The pointer's last point on the flyout's own row: the triangle's apex.
@@ -105,7 +118,7 @@ pub trait ModelHover: PickerHost {
         h.settle = None;
         h.apex = h.pointer;
         pk.activate(key.to_owned());
-        if self.model_effort(key).is_some() { self.open_effort_flyout(key); } else { self.pickers_mut().flyout = None; }
+        self.open_effort_flyout(key);
     }
 
     /// A wheel scroll over the list: the rows it brings under the pointer light.
@@ -116,18 +129,21 @@ pub trait ModelHover: PickerHost {
         h.open = None;
     }
 
-    /// The arrow keys moved the highlight: the flyout closes.
+    /// The arrow keys moved the highlight, or the query changed: the flyout closes, and the next
+    /// waits again.
     fn model_list_keyed(&mut self) {
         let pk = self.pickers_mut();
         let h = &mut pk.hover;
         h.keyboard = true;
         h.open = None;
         h.settle = None;
+        h.warm = false;
+        h.cool = None;
         pk.flyout = None;
     }
 
     /// The pointer anywhere in the window. Off the rows, the flyout and the triangle, the flyout
-    /// closes.
+    /// closes, and the next row's opens at once for a moment.
     fn model_pointer_moved(&mut self, at: [f32; 2]) {
         let pk = self.pickers_mut();
         let h = &mut pk.hover;
@@ -136,15 +152,18 @@ pub trait ModelHover: PickerHost {
         h.settle = None;
         if h.flyout.is_some_and(|f| contains(f, at)) { return; }
         if let (Some(apex), Some(fly)) = (h.apex, h.flyout) && in_triangle(apex, fly, at) { return; }
-        pk.flyout = None;
+        if pk.flyout.take().is_some() {
+            h.cool = Some(Wait { key: String::new(), due: None });
+        }
     }
 
-    /// Opens the model `key`'s efforts beside its row; the next flyout opens at once.
+    /// Opens the model `key`'s flyout beside its row; the next flyout opens at once.
     fn open_effort_flyout(&mut self, key: &str) {
         let pk = self.pickers_mut();
         if pk.flyout.as_ref().is_none_or(|f| f.model != key) { pk.hover.flyout = None; }
         pk.flyout = Some(super::flyout::Flyout { model: key.to_owned(), lit: None });
         pk.hover.warm = true;
+        pk.hover.cool = None;
         pk.hover.open = None;
     }
 
@@ -159,19 +178,16 @@ pub trait ModelHover: PickerHost {
         tx.instant();
         crate::popover::jump_highlight();
         self.pickers_mut().activate(key.to_owned());
-        let efforts = self.model_effort(key).is_some();
         let pk = self.pickers_mut();
         let h = &mut pk.hover;
         h.keyboard = false;
         h.open = None;
-        if efforts && h.warm {
+        if h.warm {
             self.open_effort_flyout(key);
             return;
         }
-        if efforts {
-            h.open = Some(Wait { key: key.to_owned(), due: None });
-            tx.wake_after(Duration::ZERO);
-        }
+        h.open = Some(Wait { key: key.to_owned(), due: None });
+        tx.wake_after(Duration::ZERO);
         pk.flyout = None;
     }
 }
@@ -192,10 +208,23 @@ fn due(w: &mut Option<Wait>, now: f64, delay: f64, tx: &mut Tx) -> Option<String
 /// Opens a flyout whose intent wait is up, and hands over to a row the pointer rested on.
 pub fn poll<S: PickerHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     if s.pickers().open != Some(Kind::Model) { return false; }
+    let query = s.pickers().search.text.clone();
+    let fresh = s.pickers().hover.revealed.as_ref() != Some(&query);
+    if fresh {
+        // A new query starts from its first row at the top, the flyout shut (`search-list.tsx:132-140`,
+        // `select-dialog.tsx:689-692`).
+        let typed = s.pickers().hover.revealed.is_some();
+        if typed { s.model_list_keyed(); }
+        let h = &mut s.pickers_mut().hover;
+        h.revealed = Some(query);
+        h.navigated = false;
+        tx.scroll_to_y("picker-scroll", 0.0);
+    }
     let h = &mut s.pickers_mut().hover;
+    if due(&mut h.cool, now, WARM, tx).is_some() { h.warm = false; }
     let open = due(&mut h.open, now, INTENT, tx);
     let settle = due(&mut h.settle, now, SETTLE, tx);
-    if open.is_none() && settle.is_none() { return false; }
+    if open.is_none() && settle.is_none() { return fresh; }
     tx.instant();
     if let Some(key) = settle {
         s.pickers_mut().hover.apex = None;

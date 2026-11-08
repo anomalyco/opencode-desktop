@@ -6,12 +6,11 @@
 
 use std::cell::{Cell, RefCell};
 
-use rune::{El, Live, Spring, el};
+use rune::{Color, El, Live, Spring, el};
 use rune_knobs::Knobs;
 
 use super::Look;
 use super::motion::SLIDE;
-use crate::palette::Pal;
 
 thread_local! {
     /// Where the open list's highlight is: one list is open at a time.
@@ -27,9 +26,9 @@ pub fn jump() {
     JUMP.set(true);
 }
 
-/// The highlight under a list's rows, at `y` in it, for the list filtered by `query`. A new
-/// query mounts a new one in place; under one query it slides.
-pub fn highlight(k: &Knobs, p: &Pal, look: Look, y: f32, query: &str) -> El {
+/// The highlight under a list's rows, `fill`, at `y` in it, for the list filtered by `query`. A
+/// new query mounts a new one in place; under one query it slides.
+pub fn highlight(k: &Knobs, fill: Color, look: Look, y: f32, query: &str) -> El {
     let generation = SHOWN.with_borrow_mut(|(q, n)| {
         if q != query {
             *q = query.to_owned();
@@ -48,6 +47,6 @@ pub fn highlight(k: &Knobs, p: &Pal, look: Look, y: f32, query: &str) -> El {
             .px(look.inset)
             .transition(rune::Transition::none())
             .live_offset(at.smooth(spring))
-            .child(el().key("lit-fill").w_full().h_full().radius(look.row_radius).fill(p.row_active))
+            .child(el().key("lit-fill").w_full().h_full().radius(look.row_radius).fill(fill))
     })
 }

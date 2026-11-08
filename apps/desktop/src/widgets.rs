@@ -57,7 +57,7 @@ pub fn provider_mark(id: &str, color: Color) -> El {
     let mark = [id, bare].into_iter().filter(|i| *i != "synthetic").find_map(provider_icons::named);
     match mark {
         Some(m) => icon(m, 16.0).color(color),
-        None => icon(&session_view::pickers::rail::CUSTOM, 16.0),
+        None => icon(&session_view::pickers::mark::CUSTOM, 16.0),
     }
 }
 

@@ -114,7 +114,7 @@ pub trait PickerHost: ComposerHost {
         let selection = self.selection();
         let pk = self.pickers();
         match pk.open {
-            Some(Kind::Model) => model_items(pk, &selection),
+            Some(Kind::Model) => model_items(pk),
             Some(Kind::Agent) => pk.agents.iter().map(|a| Item::new(a.clone(), capitalize(a))).collect(),
             Some(Kind::Effort) => {
                 let variants = pk.models.iter().find(|m| m.id == selection.model.id && m.provider == selection.model.provider);
@@ -136,6 +136,8 @@ pub trait PickerHost: ComposerHost {
         Some(pk.staged.get(key).cloned()
             .or_else(|| current.then(|| s.model.variant.clone()))
             .or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned())
+            // A session can say "default" for no choice, as the effort trigger reads it.
+            .filter(|v| v != "default")
             .unwrap_or_default())
     }
 
@@ -151,7 +153,7 @@ pub trait PickerHost: ComposerHost {
         true
     }
 
-    /// Stars or unstars a model (⌘F on the highlighted row, or its star).
+    /// Stars or unstars a model (⌘F on the highlighted row, or Favorite in its flyout).
     fn toggle_favorite(&mut self, key: &str) {
         let pk = self.pickers_mut();
         pk.prefs.toggle_favorite(key);
@@ -192,8 +194,14 @@ pub trait PickerHost: ComposerHost {
         pk.staged.clear();
         pk.flyout = None;
         pk.hover = hover::Hover::fresh();
-        let current = self.picker_current(kind);
-        self.pickers_mut().active.set(current, String::new());
+        // The model list starts on its first row, as Desktop's `SearchList` does
+        // (`typeahead/controller.ts:22`); a menu starts on what's picked.
+        if kind == Kind::Model {
+            pk.active.clear();
+        } else {
+            let current = self.picker_current(kind);
+            self.pickers_mut().active.set(current, String::new());
+        }
         self.composer_edit_mut().focused = false;
         self.pickers_mut().toolbar_focus = None;
     }
@@ -264,7 +272,8 @@ pub trait PickerHost: ComposerHost {
         let was = self.pickers().open;
         let used = picker_keys(self, ev, tx);
         if used && self.pickers().open.is_some() {
-            if self.pickers().open == was { tx.instant(); } else { pop::motion::opening(self.knobs(), tx); }
+            let open = self.pickers().open;
+            if open == was || open == Some(Kind::Model) { tx.instant(); } else { pop::motion::opening(self.knobs(), tx); }
         }
         used
     }
@@ -277,19 +286,18 @@ pub trait PickerHost: ComposerHost {
     }
 }
 
-/// The model list, as Desktop's: with no search, Recent then Favorites lead it (with their
-/// provider after the name) and their models leave their provider's group. The model the
-/// session is on heads Recent whether or not it was picked lately (p169: "I don't even know
-/// what I am"), and shows nowhere else.
+/// The model list, as Desktop's (`select-dialog.tsx:561-585`, `:654-665`): with no search,
+/// Favorites then Recent lead it, each only when it has a model (with their provider after the
+/// name), and their models leave their provider's group, so none is listed twice. Recent is
+/// the models picked lately, nothing more.
 ///
 /// A search lists what it finds, best first and ties by name as Desktop lists them, each
 /// provider's models together: [`search::score`] finds a typo as well as a word (t1389).
 ///
-/// With no search, each provider's models go by name and the providers in Desktop's order
-/// (`select-dialog.tsx:85-98`, `:496`): its popular ones first, then the rest by name.
-fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
-    let current = format!("{}:{}", selection.model.provider, selection.model.id);
-    // Rows are grouped, and the rail keyed, by the provider's id; the header says its name.
+/// With no search, each provider's shown models go by name and the providers in Desktop's
+/// order (`select-dialog.tsx:85-98`, `:496`): its popular ones first, then the rest by name.
+fn model_items(pk: &Pickers) -> Vec<Item> {
+    // Rows are grouped by the provider's id; the header says its name.
     let item = |m: &Model, group: &str, heading: &str, note: bool| Item {
         key: m.key.clone(), label: m.name.clone(), group: group.to_owned(), heading: heading.to_owned(),
         note: if note { m.group.clone() } else { String::new() }, free: m.free, latest: m.latest,
@@ -307,15 +315,13 @@ fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
     }
     let prefs = &pk.prefs;
     let find = |k: &String| pk.models.iter().find(|m| &m.key == k);
-    let favorites: Vec<&Model> = prefs.favorites.iter().filter(|k| **k != current).filter_map(find).collect();
-    let recent: Vec<&Model> = std::iter::once(&current)
-        .chain(prefs.recent.iter().filter(|k| **k != current && !prefs.is_favorite(k)))
-        .filter_map(find).collect();
+    let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
+    let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| (pk.visible(m) || m.key == current) && !lead(m)).collect();
+    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| pk.visible(m) && !lead(m)).collect();
     rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    grouped(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true))
-        .chain(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true)))
+    grouped(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true))
+        .chain(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true)))
         .chain(rest.into_iter().map(|m| item(m, &m.provider, &m.group, false)))
         .collect())
 }
@@ -336,6 +342,8 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         match nav(ev) {
             Some(Nav::Close) if s.pickers().flyout.is_some() => s.pickers_mut().flyout = None,
             Some(Nav::Close) => s.close_picker(true),
+            // The model dialog keeps the keys in its search for its life (`select-dialog.tsx:847-871`).
+            Some(Nav::Leave) if open == Kind::Model => {}
             Some(Nav::Leave) => {
                 let kind = Some(open).filter(|k| *k != Kind::Project);
                 s.close_picker(kind.is_none());
@@ -349,6 +357,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                     let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
                     let key = items[cycle(items.len(), at, step)].key.clone();
                     s.model_list_keyed();
+                    s.pickers_mut().hover.navigated = true;
                     tx.scroll_into_view_in("picker-scroll", format!("option-{key}"));
                     s.pickers_mut().activate(key);
                 }
@@ -359,9 +368,10 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
                 if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
             }
-            // As in Desktop's list: with no query, ← → change the lit model's effort.
+            // As in Desktop's list: ← → change the lit model's effort, or while searching edit
+            // the query until the arrows have moved through the results (`select-dialog.tsx:897-908`).
             None if matches!(ev.key, Key::Left | Key::Right) && ev.mods == Default::default()
-                && open == Kind::Model && s.pickers().search.text.is_empty() => {
+                && open == Kind::Model && (s.pickers().search.text.is_empty() || s.pickers().hover.navigated) => {
                 let Some(key) = s.picker_active() else { return false };
                 if !s.step_effort(&key, if ev.key == Key::Right { 1 } else { -1 }) { return false; }
                 s.pickers_mut().flyout = None;
