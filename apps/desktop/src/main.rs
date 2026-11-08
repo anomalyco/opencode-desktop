@@ -1108,6 +1108,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 }
                 match m {
                     Incoming::Sessions(mut list) => {
+                        s.switcher.invalidate_sessions();
                         for n in &mut list {
                             if let Some(old) = s.session(&n.id) {
                                 n.viewed = n.viewed.max(old.viewed);
@@ -1121,6 +1122,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         s.sort_projects();
                     }
                     Incoming::Info(mut info) => {
+                        s.switcher.invalidate_sessions();
                         let parent = info.parent.clone();
                         match s.sessions.iter_mut().find(|x| x.id == info.id) {
                             Some(old) => {
@@ -1195,6 +1197,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
                     }
                     Incoming::Projects(projects) => {
+                        s.switcher.invalidate_sessions();
                         tx.instant();
                         s.projects = projects;
                         s.sort_projects();

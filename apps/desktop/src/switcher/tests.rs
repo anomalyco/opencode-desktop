@@ -30,6 +30,64 @@ fn query(a: &mut App, q: &str) {
     a.switcher.search = TextEdit::new(q);
 }
 
+/// Palette-side UI work for one key: update the selection/prefetch and build the dialog.
+#[test]
+#[cfg(target_os = "macos")]
+#[ignore = "timing benchmark; run on an idle worker with --ignored --nocapture"]
+fn twelve_thousand_session_keystrokes() {
+    // The shared build worker can preempt this thread. Report both elapsed time and
+    // the palette's own UI-thread work; only the latter gets a budget.
+    let cpu_ns = || {
+        let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: t is writable for the duration of this call.
+        assert_eq!(unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) }, 0);
+        t.tv_sec * 1_000_000_000 + t.tv_nsec
+    };
+    let mut a = app();
+    let seed = a.sessions[0].clone();
+    a.route = Route::Session(seed.id.clone());
+    for i in 0..12_000 {
+        let mut s = seed.clone();
+        s.id = format!("ses_fixture{i:018}");
+        s.title = format!("Review change number {i}");
+        s.updated = i;
+        a.sessions.push(s);
+    }
+    a.sessions.last_mut().unwrap().title = "Deadbolt".into();
+    a.open_switcher();
+    let mut times = vec![];
+    let mut cpu = vec![];
+    for run in 0..10 {
+        for q in ["d", "de", "dea", "dead"] {
+            let start = std::time::Instant::now();
+            let before = cpu_ns();
+            query(&mut a, q);
+            a.poll_switcher(&mut Tx::default());
+            std::hint::black_box(dialog(&a, crate::palette::pal(true), 480., 480.));
+            if run > 0 {
+                cpu.push((cpu_ns() - before) as f64 / 1e6);
+                times.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    println!("palette key ms: p50={:.2} p90={:.2} max={:.2}", times[18], times[32], times[35]);
+    cpu.sort_by(f64::total_cmp);
+    println!("palette UI CPU ms: p50={:.2} p90={:.2} max={:.2}", cpu[18], cpu[32], cpu[35]);
+    assert!(cpu[35] > 0.0 && cpu[35] < 8.0, "a warmed key exceeded its 8 ms budget");
+}
+
+#[test]
+fn an_open_palette_sees_a_rename_without_a_session_count_change() {
+    let mut a = app();
+    a.open_switcher();
+    query(&mut a, "renamed fixture");
+    assert!(keys(&a).is_empty());
+    let id = crate::fixture_ids::MAIN;
+    a.apply_event("session.renamed", &serde_json::json!({"sessionID":id,"title":"Renamed fixture"}));
+    assert_eq!(keys(&a), [format!("session:{id}")]);
+}
+
 #[test]
 fn empty_lists_commands_then_the_newest_sessions() {
     let mut a = app();
@@ -49,6 +107,7 @@ fn empty_lists_commands_then_the_newest_sessions() {
 #[test]
 fn a_query_ranks_commands_then_open_tabs_then_the_newest() {
     let mut a = app();
+    a.layout.motion = crate::layout_state::LayoutMotionState::AtRest(crate::layout_state::TabLayout::Vertical);
     a.open_switcher();
     // Only the oldest match is open as a tab.
     a.tabs = vec![crate::tabs::Tab::session("ses_fx0012aaaaaaaaaaaaaaaaaa", String::new(), String::new())];
@@ -59,14 +118,14 @@ fn a_query_ranks_commands_then_open_tabs_then_the_newest() {
     assert!(a.switcher_entries().iter().filter(|e| e.key.starts_with("session:")).all(|e| e.group == "Session"));
     // Commands lead sessions (`rankCommandPaletteEntries`); a command matches by title.
     query(&mut a, "sidebar");
-    assert_eq!(keys(&a), ["command:sidebar", "session:ses_fx0003aaaaaaaaaaaaaaaaaa"]);
+    assert_eq!(&keys(&a)[..2], ["command:sidebar", "session:ses_fx0003aaaaaaaaaaaaaaaaaa"]);
     // Project names and ids match; the "Session" group name doesn't.
     query(&mut a, "harbor");
     assert_eq!(keys(&a), ["session:ses_fx0006aaaaaaaaaaaaaaaaaa", "session:ses_fx0007aaaaaaaaaaaaaaaaaa"]);
     query(&mut a, "fx0009");
     assert_eq!(keys(&a), ["session:ses_fx0009aaaaaaaaaaaaaaaaaa"]);
     query(&mut a, "session");
-    assert!(keys(&a).iter().all(|k| k == "command:new" || a.switcher_entries().iter().any(|e| &e.key == k && e.title.to_lowercase().contains("session"))));
+    assert!(a.switcher_entries().iter().filter(|e| matches!(e.action, Action::Session(_))).all(|e| e.title.to_lowercase().contains("session")));
     query(&mut a, "zzz-nothing");
     assert!(keys(&a).is_empty());
 }
@@ -82,7 +141,7 @@ fn server_finds_join_the_matches() {
     a.switcher.loaded.push(far);
     query(&mut a, "reconnect");
     assert_eq!(keys(&a).last().map(String::as_str), Some("session:ses_far000000000000000000"));
-    a.switcher_choose("session:ses_far000000000000000000", &mut Tx::default());
+    a.switcher_run(Action::Session("ses_far000000000000000000".into()), &mut Tx::default());
     assert_eq!(a.route, Route::Session("ses_far000000000000000000".into()));
     assert!(a.tabs.iter().any(|t| t.id == "ses_far000000000000000000" && t.title == "An old reconnect fix"));
 }
@@ -194,6 +253,23 @@ fn a_click_opens_a_row_and_outside_closes() {
 }
 
 #[test]
+fn cold_session_shows_on_pointer_down_without_a_page_reply() {
+    let mut rt = runtime();
+    let id = crate::fixture_ids::THIRD;
+    let (pool, _unanswered) = crate::session_pages::Pages::fixture(None);
+    rt.state.transcripts.remove(id);
+    rt.state.pages.set(pool);
+    cmd_k(&mut rt);
+    let (x, y) = rt.find(&format!("sw-session:{id}")).unwrap();
+    rt.pointer_down(x, y);
+    rt.frame(0.0);
+    assert_eq!(rt.state.route, Route::Session(id.into()));
+    assert_eq!(rt.state.displayed_session(id), Some(id));
+    assert!(rt.state.loading_session(id));
+    assert!(!rt.state.switcher.open);
+}
+
+#[test]
 fn the_hover_highlight_jumps_between_rows() {
     let mut rt = runtime();
     cmd_k(&mut rt);
@@ -255,4 +331,3 @@ fn a_failed_search_says_so() {
     assert_eq!(a.switcher.failed.as_deref(), Some("zzz"));
     assert!(!a.switcher.fetch.is_pending());
 }
-

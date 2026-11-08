@@ -51,6 +51,11 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     let q = s.switcher.query();
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
+    // The page pool coalesces this request. Use the row already ranked for this frame;
+    // polling just to rediscover it used to run the entire search a second time.
+    if let Some(id) = active.as_deref().and_then(|key| key.strip_prefix("session:")) {
+        s.prefetch_session(id);
+    }
     let placeholder = match s.switcher.mode {
         SwitcherMode::Sessions | SwitcherMode::Archived => t!("home.sessions.search.placeholder"),
         SwitcherMode::Commands => t!("command.commands.search"),
@@ -161,7 +166,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 /// both schemes (`dialog.css:208-215, 232-234`), its lead and text 8 apart, and its time or keys
 /// at the end.
 fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
-    let key = e.key.clone();
+    let action = e.action.clone();
     let hover = e.key.clone();
     let (lead, trailing) = match &e.action {
         Action::Session(id) => session_parts(s, p, e, id),
@@ -200,8 +205,14 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
             tx.instant();
             if let Some(id) = hover.strip_prefix("session:") { s.prefetch_session(id); }
         })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_choose(&key, tx))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_run(action.clone(), tx))
         .child(main);
+    let r = if let Action::Session(id) = &e.action {
+        let id = id.clone();
+        r.on_drag(move |s: &mut App, d, tx| {
+            if d.phase == rune::Phase::Down { s.switcher_run(Action::Session(id.clone()), tx); }
+        })
+    } else { r };
     r.children(trailing.map(|(el, _)| el))
 }
 

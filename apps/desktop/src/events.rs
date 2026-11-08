@@ -132,6 +132,7 @@ impl App {
         }
         changed |= self.apply_selected(ty, data, &sid);
         changed |= self.apply_archive(ty, data, &sid);
+        if matches!(ty, "session.archived" | "session.unarchived") { self.switcher.invalidate_sessions(); }
         if let Some(t) = self.transcripts.get_mut(&sid) {
             // A transcript shows only in its own family's page, so another session's stream
             // updates its state without rebuilding the view.
@@ -146,12 +147,14 @@ impl App {
             if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                 if s.updated < now - 1000 || ty == "session.step.ended" {
                     s.updated = now;
+                    self.switcher.invalidate_sessions();
                     changed |= shows_age;
                 }
                 if ty == "session.renamed"
                     && let Some(t) = data["title"].as_str()
                 {
                     s.title = t.to_owned();
+                    self.switcher.invalidate_sessions();
                     changed = true;
                 }
             } else if ty == "session.created" || ty == "session.step.started" {
@@ -166,7 +169,10 @@ impl App {
             }
         }
         if ty.starts_with("worktree.") || ty == "vcs.branch.listed" {
-            changed |= self.apply_worktree_event(ty, data);
+            if self.apply_worktree_event(ty, data) {
+                self.switcher.invalidate_sessions();
+                changed = true;
+            }
         }
         if ty == "project.updated"
             && let Some(updated) = opencode_kit::model::parse_project(data)
@@ -176,6 +182,7 @@ impl App {
                 None => self.projects.push(updated),
             }
             self.sort_projects();
+            self.switcher.invalidate_sessions();
             changed = true;
         }
         changed
