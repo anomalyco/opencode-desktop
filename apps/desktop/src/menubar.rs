@@ -1,7 +1,7 @@
-//! The native menu bar's own items (macOS): Go's Back and Forward and Edit's Find items. Each
-//! shows the keys its command has now, so a change in Settings › Shortcuts reaches the menu bar
-//! at once, as Desktop rebuilds its menu from the keybinds; the app's first frame puts the saved
-//! changes there too.
+//! The native menu bar's own items (macOS): the app menu's Check for Updates… after About,
+//! Go's Back and Forward, and Edit's Find items. Each shows the keys its command has now, so a
+//! change in Settings > Shortcuts reaches the menu bar at once, as Desktop rebuilds its menu from
+//! the keybinds; the app's first frame puts the saved changes there too.
 
 use std::sync::OnceLock;
 
@@ -21,7 +21,14 @@ pub fn keyed(item: MenuItem<App>, bind: Bind) -> MenuItem<App> {
 }
 
 fn items() -> Vec<MenuItem<App>> {
-    crate::history::menu_items().into_iter().chain(crate::find::menu_items()).collect()
+    std::iter::once(check_for_updates()).chain(crate::history::menu_items()).chain(crate::find::menu_items()).collect()
+}
+
+/// The updater's Check for Updates… (Desktop's `MenubarItem { menu: "app", after: "about" }`): it
+/// checks as Settings > Updates' Check now does, which says how it went; a build without an
+/// updater offers no `updater.check` command, so the item does nothing there.
+fn check_for_updates() -> MenuItem<App> {
+    MenuItem::new(opencode_i18n::t!("plugin.updater.menu.check"), |s: &mut App, tx: &mut rune::Tx| s.run_command("updater.check", tx)).id("App/CheckForUpdates")
 }
 
 pub fn install(app: rune::App<App>) -> rune::App<App> {
