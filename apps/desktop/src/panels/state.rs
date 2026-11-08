@@ -71,6 +71,9 @@ pub struct SideState {
     pub bottom_drag_origin: Option<(f32, Option<f32>)>,
     /// The window's width at the last layout, for sizes estimated outside the view.
     pub laid_w: std::cell::Cell<f32>,
+    /// Until when (`App::clock`) the left sidebar's flight moves the side region's edge, so its
+    /// contents glide with the edge rather than land at once.
+    pub edge_flight: Option<f64>,
     /// A tab dragged between panes.
     pub pane_drag: super::drag::PaneDrag,
     /// Once shown, the side region keeps its DOM/Rune subtree mounted while closed so springs
@@ -100,6 +103,7 @@ impl Default for SideState {
             split_drag_origin: None,
             bottom_drag_origin: None,
             laid_w: std::cell::Cell::new(1280.0),
+            edge_flight: None,
             pane_drag: Default::default(),
             mounted: false,
             focused: false,

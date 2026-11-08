@@ -20,6 +20,9 @@ use crate::{App, Route};
 
 /// Shared panel spring matching `view/sidebar.rs::SIDEBAR_SPRING` and `panel-motion.ts`.
 pub const SIDE_SPRING: Spring = Spring::new(0.3, 0.0);
+/// How long the side region's contents glide with its edge while the sidebar flies: SIDE_SPRING
+/// within half a point of where it lands.
+pub const SIDE_FLIGHT: f64 = 0.6;
 const INSTANT: Anim = Anim::INSTANT;
 const FADE_FLOOR: f32 = 0.5;
 
@@ -107,6 +110,10 @@ pub fn story_card(s: &App, p: &Pal, width: f32, height: f32) -> El {
 }
 
 fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, env_scale: f32) -> El {
+    // A tab switch lands the contents at once. While the sidebar's flight moves the region's edge
+    // they glide with it instead (`App::toggle_sidebar`): what keeps to the start rides the edge,
+    // what keeps to the end stays, as Desktop's holdLandingWidth "blocks" does (`screen.tsx:171`).
+    let flying = s.side.edge_flight.is_some_and(|until| s.clock < until);
     let has_split = !reg.pane_entries(SessionPane::Split).is_empty()
         || s.side
             .adding
@@ -132,7 +139,6 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         .grow(1.0)
         .min_h(0.0)
         .clip_rounded(10.0)
-        .instant_changes()
         .on_press(|s: &mut App| {
             s.side.focused = true;
             s.composer.focused = false;
@@ -162,6 +168,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
     }
 
     // `side-region.tsx`: bg-base, 10 pt corners, `--v2-elevation-raised`.
+    let body = if flying { body } else { body.instant_changes() };
     col().w(width).radius(10.0).fill(p.bg_base).elevate(p.raised).child(body)
 }
 
