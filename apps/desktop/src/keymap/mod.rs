@@ -132,7 +132,8 @@ pub struct Binding {
     pub bind: Bind,
     /// Desktop's command id, for a settings file.
     pub id: &'static str,
-    pub title: &'static str,
+    /// Its title's key (Desktop's command title); see [`Binding::title`].
+    pub title_key: opencode_i18n::Key,
     pub section: Section,
     pub keybind: Keybind,
     /// Scoped to a pane or a developer tool: works, but Settings doesn't list it.
@@ -144,116 +145,127 @@ static TABLE: LazyLock<Vec<Binding>> = LazyLock::new(table);
 fn table() -> Vec<Binding> {
     use Bind::*;
     use Section::{General, Models, Navigation, Prompt, Session, Terminal};
+    use opencode_i18n::key;
     let on = |kb: &str| Keybind::new(kb);
     // The session view's own (`session_view::keymap`), listed here so Settings shows them.
     let view = |b: session_view::keymap::Bind| b.keybind().clone();
     let rows = vec![
         // `DEFAULT_PALETTE_KEYBIND` (`command.tsx:22`): ⇧⌘P opens the palette too, and Search
         // commands has no chord of its own (`shell.tsx:196-203`).
-        row(Palette, "command.palette", "Search everything", General, on("mod+k, mod+shift+p")),
-        row(CommandSearch, "commands.search", "Search commands", General, on("none")),
-        row(SessionSearch, "sessions.search", "Search sessions", General, on("mod+shift+f")),
-        row(Settings, "settings.open", "Open settings", General, on("mod+comma")),
+        row(Palette, "command.palette", key!("command.palette"), General, on("mod+k, mod+shift+p")),
+        row(CommandSearch, "commands.search", key!("command.commands.search"), General, on("none")),
+        row(SessionSearch, "sessions.search", key!("command.session.search"), General, on("mod+shift+f")),
+        row(Settings, "settings.open", key!("command.settings.open"), General, on("mod+comma")),
         // `titlebar.tsx`: Windows keeps Ctrl+B for Move to background.
-        row(Home, "home.toggle", "Home", General, on("mod+b").on(Windows, "alt+home")),
-        row(Sidebar, "sidebar.toggle", "Toggle sidebar", General, on("mod+shift+b")),
+        row(Home, "home.toggle", key!("home.title"), General, on("mod+b").on(Windows, "alt+home")),
+        row(Sidebar, "sidebar.toggle", key!("command.sidebar.toggle"), General, on("mod+shift+b")),
         // ⌥⌘B is Ctrl+Alt+B off macOS, the Browser's launcher; there only `review.toggle`'s chord.
-        row(SideToggle, "review.toggle", "Toggle review", General, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
-        row(OpenProject, "project.open", "Open project", General, view(session_view::keymap::Bind::OpenProject)),
-        row(SelectProject, "project.select", "Search projects", General, on("mod+shift+o")),
-        row(ZoomIn, "view.zoomIn", "Zoom in", General, view(session_view::keymap::Bind::ZoomIn)),
-        row(ZoomOut, "view.zoomOut", "Zoom out", General, view(session_view::keymap::Bind::ZoomOut)),
-        row(ZoomReset, "view.resetZoom", "Actual size", General, view(session_view::keymap::Bind::ZoomReset)),
-        row(AutoAccept, "permissions.autoaccept", "Auto-accept permissions", General, on("mod+shift+a")),
-        row(FocusInput, "input.focus", "Focus input", General, on("ctrl+l")),
-        row(TabNew, "tab.new", "New session", Navigation, on("mod+t, mod+n")),
-        row(TabClose, "tab.close", "Close tab", Navigation, on("mod+w")),
-        row(TabReopen, "tab.reopenClosed", "Reopen closed tab", Navigation, on("mod+shift+t")),
-        hidden(TabPrev, "tab.prev", "Previous tab", Navigation, on("mod+alt+left, ctrl+shift+tab")),
-        hidden(TabNext, "tab.next", "Next tab", Navigation, on("mod+alt+right, ctrl+tab")),
-        row(SessionPrev, "session.previous", "Previous session", Navigation, on("alt+up")),
-        row(SessionNext, "session.next", "Next session", Navigation, on("alt+down")),
-        row(UnseenPrev, "session.previous.unseen", "Previous unread session", Navigation, on("shift+alt+up")),
-        row(UnseenNext, "session.next.unseen", "Next unread session", Navigation, on("shift+alt+down")),
-        hidden(Tab1, "tab.1", "Go to tab 1", Navigation, on("mod+1")),
-        hidden(Tab2, "tab.2", "Go to tab 2", Navigation, on("mod+2")),
-        hidden(Tab3, "tab.3", "Go to tab 3", Navigation, on("mod+3")),
-        hidden(Tab4, "tab.4", "Go to tab 4", Navigation, on("mod+4")),
-        hidden(Tab5, "tab.5", "Go to tab 5", Navigation, on("mod+5")),
-        hidden(Tab6, "tab.6", "Go to tab 6", Navigation, on("mod+6")),
-        hidden(Tab7, "tab.7", "Go to tab 7", Navigation, on("mod+7")),
-        hidden(Tab8, "tab.8", "Go to tab 8", Navigation, on("mod+8")),
-        hidden(Tab9, "tab.9", "Go to tab 9", Navigation, on("mod+9")),
-        row(GoBack, "common.goBack", "Back", Navigation, on("mod+[")),
-        row(GoForward, "common.goForward", "Forward", Navigation, on("mod+]")),
-        row(Find, "session.find", "Find in session", Session, on("mod+f")),
-        row(FindNext, "session.find.next", "Next match", Session, on("mod+g")),
-        row(FindPrev, "session.find.previous", "Previous match", Session, on("mod+shift+g")),
-        row(Background, "session.background", "Move to background", Session, on("ctrl+b")),
-        row(Rename, "session.rename", "Rename session", Session, on("ctrl+r")),
-        row(Model, "model.choose", "Choose model", Models, view(session_view::keymap::Bind::Model)),
-        row(Agent, "agent.cycle", "Cycle agent", Models, view(session_view::keymap::Bind::Agent)),
-        row(AgentBack, "agent.cycle.reverse", "Cycle agent backwards", Models, view(session_view::keymap::Bind::AgentBack)),
-        row(Variant, "model.variant.cycle", "Cycle model variant", Models, view(session_view::keymap::Bind::Variant)),
-        row(Attach, "prompt.attach", "Add images and files", Prompt, view(session_view::keymap::Bind::Attach)),
-        row(Dictate, "prompt.dictate", "Dictate with Hex", Prompt, on("mod+shift+m")),
-        row(SubmitAlternate, "prompt.submit.alternate", "Send the other way (steer or queue)", Prompt, on("mod+enter, mod+shift+enter")),
+        row(SideToggle, "review.toggle", key!("command.review.toggle"), General, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
+        row(OpenProject, "project.open", key!("command.project.open"), General, view(session_view::keymap::Bind::OpenProject)),
+        row(SelectProject, "project.select", key!("session.new.project.search"), General, on("mod+shift+o")),
+        row(ZoomIn, "view.zoomIn", key!("desktop.menu.zoomIn"), General, view(session_view::keymap::Bind::ZoomIn)),
+        row(ZoomOut, "view.zoomOut", key!("desktop.menu.zoomOut"), General, view(session_view::keymap::Bind::ZoomOut)),
+        row(ZoomReset, "view.resetZoom", key!("desktop.menu.actualSize"), General, view(session_view::keymap::Bind::ZoomReset)),
+        row(AutoAccept, "permissions.autoaccept", key!("command.permissions.autoaccept.enable"), General, on("mod+shift+a")),
+        row(FocusInput, "input.focus", key!("command.input.focus"), General, on("ctrl+l")),
+        row(TabNew, "tab.new", key!("command.session.new"), Navigation, on("mod+t, mod+n")),
+        row(TabClose, "tab.close", key!("command.tab.close"), Navigation, on("mod+w")),
+        row(TabReopen, "tab.reopenClosed", key!("command.tab.reopenClosed"), Navigation, on("mod+shift+t")),
+        hidden(TabPrev, "tab.prev", key!("rune.command.tab.previous"), Navigation, on("mod+alt+left, ctrl+shift+tab")),
+        hidden(TabNext, "tab.next", key!("rune.command.tab.next"), Navigation, on("mod+alt+right, ctrl+tab")),
+        row(SessionPrev, "session.previous", key!("command.session.previous"), Navigation, on("alt+up")),
+        row(SessionNext, "session.next", key!("command.session.next"), Navigation, on("alt+down")),
+        row(UnseenPrev, "session.previous.unseen", key!("command.session.previous.unseen"), Navigation, on("shift+alt+up")),
+        row(UnseenNext, "session.next.unseen", key!("command.session.next.unseen"), Navigation, on("shift+alt+down")),
+        hidden(Tab1, "tab.1", key!("rune.command.tab.goTo"), Navigation, on("mod+1")),
+        hidden(Tab2, "tab.2", key!("rune.command.tab.goTo"), Navigation, on("mod+2")),
+        hidden(Tab3, "tab.3", key!("rune.command.tab.goTo"), Navigation, on("mod+3")),
+        hidden(Tab4, "tab.4", key!("rune.command.tab.goTo"), Navigation, on("mod+4")),
+        hidden(Tab5, "tab.5", key!("rune.command.tab.goTo"), Navigation, on("mod+5")),
+        hidden(Tab6, "tab.6", key!("rune.command.tab.goTo"), Navigation, on("mod+6")),
+        hidden(Tab7, "tab.7", key!("rune.command.tab.goTo"), Navigation, on("mod+7")),
+        hidden(Tab8, "tab.8", key!("rune.command.tab.goTo"), Navigation, on("mod+8")),
+        hidden(Tab9, "tab.9", key!("rune.command.tab.goTo"), Navigation, on("mod+9")),
+        row(GoBack, "common.goBack", key!("common.goBack"), Navigation, on("mod+[")),
+        row(GoForward, "common.goForward", key!("common.goForward"), Navigation, on("mod+]")),
+        row(Find, "session.find", key!("rune.command.session.find"), Session, on("mod+f")),
+        row(FindNext, "session.find.next", key!("ui.fileSearch.nextMatch"), Session, on("mod+g")),
+        row(FindPrev, "session.find.previous", key!("ui.fileSearch.previousMatch"), Session, on("mod+shift+g")),
+        row(Background, "session.background", key!("command.session.background"), Session, on("ctrl+b")),
+        row(Rename, "session.rename", key!("command.session.rename"), Session, on("ctrl+r")),
+        row(Model, "model.choose", key!("command.model.choose"), Models, view(session_view::keymap::Bind::Model)),
+        row(Agent, "agent.cycle", key!("command.agent.cycle"), Models, view(session_view::keymap::Bind::Agent)),
+        row(AgentBack, "agent.cycle.reverse", key!("command.agent.cycle.reverse"), Models, view(session_view::keymap::Bind::AgentBack)),
+        row(Variant, "model.variant.cycle", key!("command.model.variant.cycle"), Models, view(session_view::keymap::Bind::Variant)),
+        row(Attach, "prompt.attach", key!("ui.promptInput.add"), Prompt, view(session_view::keymap::Bind::Attach)),
+        row(Dictate, "prompt.dictate", key!("rune.command.prompt.dictate"), Prompt, on("mod+shift+m")),
+        row(SubmitAlternate, "prompt.submit.alternate", key!("rune.command.prompt.submitAlternate"), Prompt, on("mod+enter, mod+shift+enter")),
         // Chromium's paste as plain text, which Desktop's fields get from the browser; Rune leaves
         // Ctrl+Shift+V to the app. ⇧⌘V pasted here on macOS before, and still does.
-        hidden(PastePlain, "edit.pastePlain", "Paste as plain text", Prompt, on("mod+shift+v")),
-        row(SubmitAnswer, "question.submit", "Next question or submit", Prompt, view(session_view::keymap::Bind::QuestionAdvance)),
-        row(Stop, "session.stop", "Stop the session", Prompt, view(session_view::keymap::Bind::Stop)),
-        row(FileOpen, "file.open", "Open file", Session, on("mod+p")),
+        hidden(PastePlain, "edit.pastePlain", key!("rune.command.edit.pastePlain"), Prompt, on("mod+shift+v")),
+        row(SubmitAnswer, "question.submit", key!("rune.command.question.submit"), Prompt, view(session_view::keymap::Bind::QuestionAdvance)),
+        row(Stop, "session.stop", key!("rune.command.session.stop"), Prompt, view(session_view::keymap::Bind::Stop)),
+        row(FileOpen, "file.open", key!("command.file.open"), Session, on("mod+p")),
         // The GUI plugins' launchers (`gui-plugins/src/{browser,file,review}/renderer.tsx`):
         // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
-        row(FileBrowse, "file.browse", "Browse files", Session, on("ctrl+alt+p").on(Mac, "ctrl+mod+p")),
-        row(BrowserOpen, "browser.open", "Open browser", Session, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
-        row(ReviewOpen, "review.open", "Open review", Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
+        row(FileBrowse, "file.browse", key!("rune.command.file.browse"), Session, on("ctrl+alt+p").on(Mac, "ctrl+mod+p")),
+        row(BrowserOpen, "browser.open", key!("plugin.browser.command.open"), Session, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
+        row(ReviewOpen, "review.open", key!("plugin.review.command.open"), Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
         // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
         // macOS, as it always has here, and Ctrl+` elsewhere, as Desktop's does.
-        row(DockToggle, "terminal.toggle", "Toggle terminal", Terminal, on("ctrl+`")),
-        row(BottomToggle, "bottom.toggle", "Toggle bottom panel", Session, on("mod+j")),
-        row(TerminalNew, "terminal.new", "New terminal", Terminal, on("ctrl+alt+t")),
-        hidden(PaneTabNew, "file.tab.new", "New tab in the pane", Navigation, on("mod+t")),
-        hidden(PaneTabPrev, "file.tab.prev", "Previous tab in the pane", Navigation, on("mod+shift+[")),
-        hidden(PaneTabNext, "file.tab.next", "Next tab in the pane", Navigation, on("mod+shift+]")),
-        hidden(TreeToggle, "fileTree.toggle", "Toggle file tree", Session, on("mod+\\")),
-        hidden(CopySelection, "edit.copy", "Copy", General, on("mod+c")),
-        hidden(BrowserAddress, "browser.address", "Focus the address bar", Session, on("mod+l")),
-        hidden(BrowserTab, "browser.tab.new", "New browser tab", Session, on("mod+t")),
-        hidden(BrowserReload, "browser.reload", "Reload page", Session, on("mod+r")),
-        hidden(BrowserInspect, "browser.inspect", "Pick page element", Session, on("mod+shift+c")),
+        row(DockToggle, "terminal.toggle", key!("plugin.terminal.command.toggle"), Terminal, on("ctrl+`")),
+        row(BottomToggle, "bottom.toggle", key!("command.bottom.toggle"), Session, on("mod+j")),
+        row(TerminalNew, "terminal.new", key!("plugin.terminal.command.new"), Terminal, on("ctrl+alt+t")),
+        hidden(PaneTabNew, "file.tab.new", key!("rune.command.file.tab.new"), Navigation, on("mod+t")),
+        hidden(PaneTabPrev, "file.tab.prev", key!("rune.command.file.tab.previous"), Navigation, on("mod+shift+[")),
+        hidden(PaneTabNext, "file.tab.next", key!("rune.command.file.tab.next"), Navigation, on("mod+shift+]")),
+        hidden(TreeToggle, "fileTree.toggle", key!("ui.sessionReviewV2.toggleSidebar"), Session, on("mod+\\")),
+        hidden(CopySelection, "edit.copy", key!("ui.message.copy"), General, on("mod+c")),
+        hidden(BrowserAddress, "browser.address", key!("plugin.browser.command.address"), Session, on("mod+l")),
+        hidden(BrowserTab, "browser.tab.new", key!("plugin.browser.command.newTab"), Session, on("mod+t")),
+        hidden(BrowserReload, "browser.reload", key!("plugin.browser.command.reload"), Session, on("mod+r")),
+        hidden(BrowserInspect, "browser.inspect", key!("plugin.browser.command.inspect"), Session, on("mod+shift+c")),
         // The terminal's own keys (`terminal-key-event.ts`, `terminal.tsx`): ⌘ chords on macOS;
         // elsewhere Ctrl belongs to the shell, so copy and paste add Shift.
-        hidden(TerminalCopy, "terminal.copy", "Copy", Terminal, on("super+c, ctrl+shift+c")),
-        hidden(TerminalPaste, "terminal.paste", "Paste", Terminal, on("super+v").on(Windows, "ctrl+shift+v, super+v").on(Linux, "ctrl+shift+v, super+v")),
-        hidden(TerminalSelectAll, "terminal.selectAll", "Select all", Terminal, on("super+a")),
-        hidden(TerminalKillLine, "terminal.killLine", "Delete line", Terminal, on("super+backspace")),
-        hidden(Knobs, "dev.knobs", "Knobs", General, on("mod+shift+k")),
-        hidden(Rewind, "dev.rewind", "Freeze the last minute", General, on("mod+alt+shift+r")),
+        hidden(TerminalCopy, "terminal.copy", key!("ui.message.copy"), Terminal, on("super+c, ctrl+shift+c")),
+        hidden(TerminalPaste, "terminal.paste", key!("desktop.menu.paste"), Terminal, on("super+v").on(Windows, "ctrl+shift+v, super+v").on(Linux, "ctrl+shift+v, super+v")),
+        hidden(TerminalSelectAll, "terminal.selectAll", key!("desktop.menu.selectAll"), Terminal, on("super+a")),
+        hidden(TerminalKillLine, "terminal.killLine", key!("rune.command.terminal.killLine"), Terminal, on("super+backspace")),
+        hidden(Knobs, "dev.knobs", key!("rune.command.dev.knobs"), General, on("mod+shift+k")),
+        hidden(Rewind, "dev.rewind", key!("rune.command.dev.rewind"), General, on("mod+alt+shift+r")),
         // Ctrl+Alt+R and Ctrl+Alt+P are Review and Files off macOS.
-        hidden(DemoReplay, "dev.demo.replay", "Replay demo", General, on("mod+alt+r").on(Windows, "ctrl+alt+enter").on(Linux, "ctrl+alt+enter")),
-        hidden(DemoPause, "dev.demo.pause", "Pause demo", General, on("mod+alt+p").on(Windows, "ctrl+alt+space").on(Linux, "ctrl+alt+space")),
+        hidden(DemoReplay, "dev.demo.replay", key!("rune.command.dev.demoReplay"), General, on("mod+alt+r").on(Windows, "ctrl+alt+enter").on(Linux, "ctrl+alt+enter")),
+        hidden(DemoPause, "dev.demo.pause", key!("rune.command.dev.demoPause"), General, on("mod+alt+p").on(Windows, "ctrl+alt+space").on(Linux, "ctrl+alt+space")),
         // The app menu's accelerators off macOS (`desktop-menu.ts`), which no command binds.
-        hidden(WindowNew, "window.new", "New window", General, on("ctrl+shift+n").on(Mac, "none")),
-        hidden(WindowClose, "window.close", "Close window", General, on("ctrl+shift+w").on(Mac, "none")),
-        row(McpToggle, "mcp.toggle", "Toggle MCPs", Session, on("mod+semicolon")),
+        hidden(WindowNew, "window.new", key!("desktop.menu.newWindow"), General, on("ctrl+shift+n").on(Mac, "none")),
+        hidden(WindowClose, "window.close", key!("desktop.menu.closeWindow"), General, on("ctrl+shift+w").on(Mac, "none")),
+        row(McpToggle, "mcp.toggle", key!("command.mcp.toggle"), Session, on("mod+semicolon")),
         // The new-session page's (`new-session/{workspace/selector,view,commands}.tsx`). Off macOS
         // Ctrl+Alt+B is also the Browser's launcher, which only a session has.
-        row(BranchChoose, "session.branch.choose", "Choose base branch", Session, on("mod+alt+b")),
-        row(LocationSelect, "session.location.select", "Choose worktree", Session, on("mod+alt+o")),
-        row(LocationCycle, "session.location.cycle", "Cycle session location", Session, on("mod+alt+l")),
+        row(BranchChoose, "session.branch.choose", key!("command.session.branch.choose"), Session, on("mod+alt+b")),
+        row(LocationSelect, "session.location.select", key!("session.location.worktree"), Session, on("mod+alt+o")),
+        row(LocationCycle, "session.location.cycle", key!("command.session.location.cycle"), Session, on("mod+alt+l")),
     ];
     assert!(rows.iter().enumerate().all(|(i, r)| r.bind as usize == i), "keymap rows follow `Bind`'s order");
     rows
 }
 
-fn row(bind: Bind, id: &'static str, title: &'static str, section: Section, keybind: Keybind) -> Binding {
-    Binding { bind, id, title, section, keybind, hidden: false }
+fn row(bind: Bind, id: &'static str, title_key: opencode_i18n::Key, section: Section, keybind: Keybind) -> Binding {
+    Binding { bind, id, title_key, section, keybind, hidden: false }
 }
 
-fn hidden(bind: Bind, id: &'static str, title: &'static str, section: Section, keybind: Keybind) -> Binding {
-    Binding { hidden: true, ..row(bind, id, title, section, keybind) }
+fn hidden(bind: Bind, id: &'static str, title_key: opencode_i18n::Key, section: Section, keybind: Keybind) -> Binding {
+    Binding { hidden: true, ..row(bind, id, title_key, section, keybind) }
+}
+
+impl Binding {
+    /// The command's title in the current language; the tab numbers name their tab.
+    pub fn title(&self) -> String {
+        match Bind::TABS.iter().position(|b| *b == self.bind) {
+            Some(at) => opencode_i18n::I18N.format(self.title_key, &[("number", &(at + 1))]),
+            None => opencode_i18n::I18N.text(self.title_key).to_owned(),
+        }
+    }
 }
 
 /// The whole table, in `Bind` order.

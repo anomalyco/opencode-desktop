@@ -54,7 +54,7 @@ fn group_for(id: &str) -> Section {
 
 /// The table's listed rows, then every palette command without one (Unassigned unless bound).
 fn entries(s: &App) -> Vec<Entry> {
-    let mut out: Vec<Entry> = all().iter().filter(|b| !b.hidden).map(|b| Entry { id: b.id.to_owned(), title: b.title.to_owned(), section: b.section, keybind: b.bind.keybind().clone() }).collect();
+    let mut out: Vec<Entry> = all().iter().filter(|b| !b.hidden).map(|b| Entry { id: b.id.to_owned(), title: b.title(), section: b.section, keybind: b.bind.keybind().clone() }).collect();
     for c in s.commands() {
         if c.keys.is_some() || out.iter().any(|e| e.id == c.id || e.title == c.title) {
             continue;

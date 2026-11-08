@@ -176,8 +176,8 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("provider.connect", "Connect an integration", |s, tx| s.open_connect(None, false, tx))
-        .describe("Sign in to OpenCode Go, OpenCode Console, or another model provider")
+    crate::commands::Cmd::new("provider.connect", opencode_i18n::key!("command.provider.connect"), |s, tx| s.open_connect(None, false, tx))
+        .describe(opencode_i18n::key!("command.provider.connect.description"))
         .slash("connect")
         .when(App::has_composer),
 ]);

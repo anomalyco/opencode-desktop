@@ -338,11 +338,11 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
 }
 
 rune_register::register!(crate::commands::COMMANDS: Cmd = [
-    Cmd::new("updater.check", "Check for updates", |s, tx| {
+    Cmd::new("updater.check", opencode_i18n::key!("plugin.updater.check.title"), |s, tx| {
         s.open_settings();
         s.updater.check(tx);
     })
-    .describe("Check the Anomaly release feed for a newer build")
+    .describe(opencode_i18n::key!("rune.command.updater.check.description"))
     .when(|s| s.updater.supported()),
 ]);
 

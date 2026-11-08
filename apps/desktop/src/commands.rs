@@ -3,7 +3,8 @@
 //! `session/commands/use-session-commands.tsx`, `composer/commands.tsx`).
 //!
 //! A feature adds its commands from its own file:
-//! `rune_register::register!(crate::commands::COMMANDS: Cmd = [Cmd::new("id", "Title", run)…]);`
+//! `rune_register::register!(crate::commands::COMMANDS: Cmd = [Cmd::new("id", key!("title.key"), run)…]);`
+//! Titles and descriptions are catalog keys, read in the current language as the list is made.
 //! Panels with a `.command(…)` join the list on their own (`App::commands`).
 
 use crate::pickers::PickerHost as _;
@@ -22,8 +23,8 @@ slice!(pub COMMANDS: Cmd);
 #[derive(Clone, Copy)]
 pub struct Cmd {
     pub id: &'static str,
-    pub title: &'static str,
-    pub description: &'static str,
+    pub title: opencode_i18n::Key,
+    pub description: Option<opencode_i18n::Key>,
     /// The `/name` that runs it from the composer.
     pub slash: Option<&'static str>,
     /// Its keymap command, whose chord the palette draws (`⇧⌘T`, `Ctrl+Shift+T`).
@@ -38,12 +39,12 @@ fn always(_: &App) -> bool {
 }
 
 impl Cmd {
-    pub const fn new(id: &'static str, title: &'static str, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: "", slash: None, keys: None, enabled: always, run }
+    pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
+        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, run }
     }
 
-    pub const fn describe(mut self, description: &'static str) -> Cmd {
-        self.description = description;
+    pub const fn describe(mut self, description: opencode_i18n::Key) -> Cmd {
+        self.description = Some(description);
         self
     }
 
@@ -101,8 +102,8 @@ impl App {
     pub fn commands(&self) -> Vec<Command> {
         let own = collect(&COMMANDS).into_iter().filter(|c| (c.enabled)(self)).map(|c| Command {
             id: c.id,
-            title: c.title,
-            description: c.description,
+            title: opencode_i18n::I18N.text(c.title),
+            description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
             slash: c.slash,
             keys: c.keys,
             chord: None,
@@ -161,7 +162,7 @@ impl App {
     fn copy_id(&mut self, id: Option<String>, tx: &mut Tx) {
         let Some(id) = id.filter(|i| !i.is_empty()) else { return };
         tx.copy(id);
-        self.status = "Copied".into();
+        self.status = opencode_i18n::t!("common.copied").into();
     }
 
     fn open_session(&self) -> Option<String> {
@@ -206,7 +207,7 @@ fn is_live(s: &App) -> bool {
 /// `/reload` (`composer/commands.tsx:45-84`): the server rebuilds every location, and the app
 /// says so while it does and once it has.
 fn reload(s: &mut App, _: &mut Tx) {
-    s.status = "Reloading configuration.".into();
+    s.status = opencode_i18n::t!("command.config.reload.pending").into();
     s.write(Write::Reload);
 }
 
@@ -237,98 +238,98 @@ fn has_sidebar(s: &App) -> bool {
 
 rune_register::register!(COMMANDS: Cmd = [
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
-    Cmd::new("new", "New session", |s, tx| s.new_session(tx)).slash("new"),
-    Cmd::new("home", "Home", |s, tx| s.go_home(tx)).keys(Bind::Home),
-    Cmd::new("sidebar", "Toggle sidebar", toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
-    Cmd::new("settings", "Open settings", |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
-    Cmd::new("side", "Toggle review", |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
-    Cmd::new("open-project", "Open project", |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
-    Cmd::new("select-project", "Search projects", |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
-    Cmd::new("sessions", "Search sessions", |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
-    Cmd::new(SEARCH, "Search commands", |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
-    Cmd::new("model", "Choose model", |s, _| s.open_picker(Kind::Model))
-        .describe("Select a different model")
+    Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new"),
+    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home),
+    Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
+    Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
+    Cmd::new("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
+    Cmd::new("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
+    Cmd::new("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
+    Cmd::new("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
+    Cmd::new(SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
+    Cmd::new("model", opencode_i18n::key!("command.model.choose"), |s, _| s.open_picker(Kind::Model))
+        .describe(opencode_i18n::key!("command.model.choose.description"))
         .slash("model")
         .keys(Bind::Model)
         .when(App::has_composer),
     // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
-    Cmd::new("agent", "Cycle agent", |s, tx| s.cycle_picker(Kind::Agent, false, tx))
-        .describe("Switch to the next agent")
+    Cmd::new("agent", opencode_i18n::key!("command.agent.cycle"), |s, tx| s.cycle_picker(Kind::Agent, false, tx))
+        .describe(opencode_i18n::key!("command.agent.cycle.description"))
         .slash("agent")
         .keys(Bind::Agent)
         .when(agent_shown),
-    Cmd::new("agent-back", "Cycle agent backwards", |s, tx| s.cycle_picker(Kind::Agent, true, tx))
-        .describe("Switch to the previous agent")
+    Cmd::new("agent-back", opencode_i18n::key!("command.agent.cycle.reverse"), |s, tx| s.cycle_picker(Kind::Agent, true, tx))
+        .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
         .keys(Bind::AgentBack)
         .when(agent_shown),
-    Cmd::new("reload", "Reload configuration", reload)
-        .describe("Reload agents, commands, skills, MCP servers and plugins from your config")
+    Cmd::new("reload", opencode_i18n::key!("command.config.reload"), reload)
+        .describe(opencode_i18n::key!("command.config.reload.description"))
         .slash("reload")
         .when(is_live),
-    Cmd::new("variant", "Cycle model variant", |s, tx| s.cycle_picker(Kind::Effort, false, tx))
-        .describe("Switch to the next model variant")
+    Cmd::new("variant", opencode_i18n::key!("command.model.variant.cycle"), |s, tx| s.cycle_picker(Kind::Effort, false, tx))
+        .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
         .keys(Bind::Variant)
         .when(|s| s.has_composer() && s.has_effort()),
-    Cmd::new("compact", "Compact session", compact)
-        .describe("Summarize the session to reduce context size")
+    Cmd::new("compact", opencode_i18n::key!("command.session.compact"), compact)
+        .describe(opencode_i18n::key!("command.session.compact.description"))
         .slash("compact")
         .when(in_session),
-    Cmd::new("undo", "Undo", |s, tx| {
+    Cmd::new("undo", opencode_i18n::key!("command.session.undo"), |s, tx| {
         s.undo_last(tx);
     })
-    .describe("Undo the last message")
+    .describe(opencode_i18n::key!("command.session.undo.description"))
     .slash("undo")
     .when(App::can_undo_session),
-    Cmd::new("redo", "Redo", |s, tx| {
+    Cmd::new("redo", opencode_i18n::key!("command.session.redo"), |s, tx| {
         s.redo_revert(tx);
     })
-    .describe("Redo the last undone message")
+    .describe(opencode_i18n::key!("command.session.redo.description"))
     .slash("redo")
     .when(App::can_redo_session),
-    Cmd::new("fork", "Fork from message", |s, tx| {
+    Cmd::new("fork", opencode_i18n::key!("command.session.fork"), |s, tx| {
         s.open_fork_dialog(tx);
     })
-    .describe("Create a new session from a previous message")
+    .describe(opencode_i18n::key!("command.session.fork.description"))
     .slash("fork")
     .when(App::can_fork_session),
     // Neither has a `/name` in Desktop (`use-session-commands.tsx:476-482`, `session-identity-header.tsx`).
-    Cmd::new("background", "Move to background", |s, tx| {
+    Cmd::new("background", opencode_i18n::key!("command.session.background"), |s, tx| {
         s.move_to_background(tx);
     })
     .keys(Bind::Background)
     .when(can_background),
-    Cmd::new("rename", "Rename session", rename).keys(Bind::Rename).when(in_session),
-    Cmd::new("export", "Export session", export)
-        .describe("Export the full session transcript as JSON")
+    Cmd::new("rename", opencode_i18n::key!("command.session.rename"), rename).keys(Bind::Rename).when(in_session),
+    Cmd::new("export", opencode_i18n::key!("command.session.export"), export)
+        .describe(opencode_i18n::key!("command.session.export.description"))
         .slash("export")
         .when(in_session),
-    Cmd::new("copy-session", "Copy Session ID", |s, tx| s.copy_id(s.open_session(), tx)).when(|s| s.open_session().is_some()),
-    Cmd::new("copy-project", "Copy Project ID", |s, tx| {
+    Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| s.copy_id(s.open_session(), tx)).when(|s| s.open_session().is_some()),
+    Cmd::new("copy-project", opencode_i18n::key!("command.project.copyID"), |s, tx| {
         let id = s.open_session().and_then(|id| s.session(&id)).map(|i| i.project.clone());
         s.copy_id(id, tx);
     })
     .when(has_project),
-    Cmd::new("find", "Find in session", |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
-    Cmd::new("focus", "Focus input", |s, tx| {
+    Cmd::new("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
+    Cmd::new("focus", opencode_i18n::key!("command.input.focus"), |s, tx| {
         s.focus_composer(tx);
     })
     .keys(Bind::FocusInput)
     .when(App::has_composer),
-    Cmd::new("next-tab", "Next session", |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext),
-    Cmd::new("previous-tab", "Previous session", |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev),
-    Cmd::new("previous-unread", "Previous unread session", |s, tx| s.select_adjacent(-1, true, tx)).keys(Bind::UnseenPrev),
-    Cmd::new("next-unread", "Next unread session", |s, tx| s.select_adjacent(1, true, tx)).keys(Bind::UnseenNext),
-    Cmd::new("close-tab", "Close tab", |s, tx| {
+    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext),
+    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev),
+    Cmd::new("previous-unread", opencode_i18n::key!("command.session.previous.unseen"), |s, tx| s.select_adjacent(-1, true, tx)).keys(Bind::UnseenPrev),
+    Cmd::new("next-unread", opencode_i18n::key!("command.session.next.unseen"), |s, tx| s.select_adjacent(1, true, tx)).keys(Bind::UnseenNext),
+    Cmd::new("close-tab", opencode_i18n::key!("command.tab.close"), |s, tx| {
         if let Some(id) = s.current_tab() {
             s.close_tab(&id, tx);
         }
     })
     .keys(Bind::TabClose)
     .when(|s| s.current_tab().is_some()),
-    Cmd::new("reopen-tab", "Reopen closed tab", |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
-    Cmd::new("zoom-in", "Zoom in", |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
-    Cmd::new("zoom-out", "Zoom out", |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),
-    Cmd::new("zoom-reset", "Actual size", |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset),
+    Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
+    Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
+    Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),
+    Cmd::new("zoom-reset", opencode_i18n::key!("desktop.menu.actualSize"), |s, tx| s.zoom_by(0, tx)).keys(Bind::ZoomReset),
 ]);
 
 #[cfg(test)]

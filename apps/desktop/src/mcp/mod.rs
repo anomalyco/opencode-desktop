@@ -276,8 +276,8 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
-    crate::commands::Cmd::new("mcp.toggle", "Toggle MCPs", |s, tx| s.toggle_mcp_dialog(tx))
-        .describe("Toggle MCPs")
+    crate::commands::Cmd::new("mcp.toggle", opencode_i18n::key!("command.mcp.toggle"), |s, tx| s.toggle_mcp_dialog(tx))
+        .describe(opencode_i18n::key!("command.mcp.toggle.description"))
         .slash("mcp")
         .keys(Bind::McpToggle),
 ]);
