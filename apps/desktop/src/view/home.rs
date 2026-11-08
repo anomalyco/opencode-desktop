@@ -374,21 +374,29 @@ impl Parts {
         }
         let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
         let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title).children(project_el.clone());
-        if s.home_search.alt_held || s.home_search.hovered.as_deref() == Some(ses.id.as_str()) {
-            labels = labels.child(location(s, p, ses, labels_w));
-        }
+        // Shown while the row is hovered or Alt is held; it hides at once when the pointer moves to another row.
+        let hovered = s.home_search.hovered.as_deref();
+        let show = s.home_search.alt_held || hovered == Some(ses.id.as_str());
+        let instant_hide = !s.home_search.alt_held && hovered.is_some_and(|h| h != ses.id);
+        labels = labels.child(location(s, p, ses, labels_w, show, instant_hide));
         Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) }
     }
 }
 
 /// `HomeSessionLocation`: the worktree's folder and its branch, each after its icon, `gap-1.5`,
-/// at most 60% of the labels.
-fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32) -> El {
+/// at most 60% of the labels. It opens and fades in over 120 ms (iew.tsx:921-938), or hides at
+/// once (`instant_hide`).
+fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, instant_hide: bool) -> El {
     let folder = opencode_kit::path::basename(&ses.directory);
     let worktree = if folder.is_empty() { ses.directory.clone() } else { folder.to_owned() };
+    let fade = if instant_hide { rune::Anim::INSTANT } else { rune::Anim::new(Curve::tween(0.12, Easing::EASE_OUT)) };
     let mut l = row()
         .key("location")
-        .max_w(labels_w * 0.6)
+        .max_w(if show { labels_w * 0.6 } else { 0.0 })
+        .ml(if show { 0.0 } else { -6.0 })
+        .opacity(if show { 1.0 } else { 0.0 })
+        .opacity_motion(fade)
+        .motion(if instant_hide { Spring::NONE } else { Spring::new(0.12, 0.0) })
         .shrink()
         .min_w(0.0)
         .gap(6.0)
