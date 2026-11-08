@@ -156,7 +156,9 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // Centred on the lane whatever sits at its end: over it, out of its flow.
         Align::Center => lane.child(spacer()).children((!pills.is_empty()).then(|| row().key("activity-centre").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().children(pills))),
     };
-    let (lane, centred) = if s.knobs().get(&crate::knobs::JUMP_PLACE) as usize == 1 {
+    // Pills at the right end the lane where Desktop's do, at the composer's end, so the button
+    // stands centred above the composer there, as Desktop's always does.
+    let (lane, centred) = if s.knobs().get(&crate::knobs::JUMP_PLACE) as usize == 1 || s.lane_align() == Align::End {
         (lane, Some(row().key("jump-centre").pin(Some(0.0), None, Some(0.0), Some(LIFT)).center().child(button)))
     } else {
         (lane.child(button), None)
