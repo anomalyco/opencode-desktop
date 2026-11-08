@@ -12,7 +12,10 @@ use crate::App;
 use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
 
+mod search;
 mod standard;
+
+use search::{SEARCH_H, search_field};
 
 /// Native menus where Kit chose them.
 const NATIVE: bool = cfg!(target_os = "macos");
@@ -285,9 +288,35 @@ struct Shown {
     anchor: PopupAnchor,
     /// The lit row, by pointer or keys.
     active: Option<usize>,
-    /// The submenu open beside its row.
-    sub: Option<SubOpen>,
+    /// The submenus open beside their rows, outermost first: one opened from the root's row,
+    /// then one from a row of that, and so on.
+    subs: Vec<SubOpen>,
     pick: Pick,
+}
+
+impl Shown {
+    /// The menu at `level`: the root (0), or the submenu open that deep.
+    fn menu_at(&self, level: usize) -> Option<&Menu> {
+        self.subs.get(..level)?.iter().try_fold(&self.menu, |m, o| m.sub_at(o.at))
+    }
+
+    /// The lit row of the menu at `level`.
+    fn active_at(&self, level: usize) -> Option<usize> {
+        if level == 0 { self.active } else { self.subs.get(level - 1)?.active }
+    }
+
+    fn set_active(&mut self, level: usize, n: usize) {
+        if level == 0 {
+            self.active = Some(n);
+        } else if let Some(o) = self.subs.get_mut(level - 1) {
+            o.active = Some(n);
+        }
+    }
+
+    /// The menu the keys move in: the deepest open submenu with a lit row, else the root.
+    fn key_level(&self) -> usize {
+        self.subs.iter().take_while(|o| o.active.is_some()).count()
+    }
 }
 
 /// A submenu open beside row `at`, row `active` of it lit. The keys move in it once a row of
@@ -341,7 +370,7 @@ pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &
     if menu.search.is_some() {
         s.composer.focused = false;
     }
-    s.popup.shown = Some(Shown { menu, anchor: anchor.into(), active, sub: None, pick: Box::new(pick) });
+    s.popup.shown = Some(Shown { menu, anchor: anchor.into(), active, subs: Vec::new(), pick: Box::new(pick) });
     refresh(s);
     popover::motion::opening(&s.knobs, tx);
 }
@@ -381,21 +410,35 @@ fn choose(s: &mut App, n: usize, tx: &mut Tx) {
     close(s, Some(&id), tx);
 }
 
-/// Picks row `m` of the open submenu, if it's offered.
+/// Picks row `m` of the first open submenu, if it's offered.
 fn choose_sub(s: &mut App, m: usize, tx: &mut Tx) {
-    let item = s.popup.shown.as_ref().and_then(|shown| shown.menu.sub_at(shown.sub?.at)?.item_at(m));
+    choose_at(s, 1, m, tx);
+}
+
+/// Picks row `m` of the menu `level` deep, if it's offered.
+fn choose_at(s: &mut App, level: usize, m: usize, tx: &mut Tx) {
+    if level == 0 {
+        return choose(s, m, tx);
+    }
+    let item = s.popup.shown.as_ref().and_then(|shown| shown.menu_at(level)?.item_at(m));
     let Some(id) = item.filter(|i| i.enabled).map(|i| i.id.clone()) else { return };
     close(s, Some(&id), tx);
 }
 
-/// Opens row `n`'s submenu, lighting its first row when the keys opened it.
+/// Opens the root's row `n`'s submenu, lighting its first row when the keys opened it.
 fn open_sub(s: &mut App, n: usize, keys: bool, tx: &mut Tx) {
+    open_sub_at(s, 0, n, keys, tx);
+}
+
+/// Opens row `n`'s submenu of the menu `level` deep, closing any open from its other rows.
+fn open_sub_at(s: &mut App, level: usize, n: usize, keys: bool, tx: &mut Tx) {
     let Some(shown) = s.popup.shown.as_mut() else { return };
-    let Some(sub) = shown.menu.sub_at(n) else { return };
+    let Some(sub) = shown.menu_at(level).and_then(|m| m.sub_at(n)) else { return };
     let active = keys.then(|| sub.offered().first().copied()).flatten();
-    shown.active = Some(n);
-    if shown.sub.is_none_or(|o| o.at != n) || keys {
-        shown.sub = Some(SubOpen { at: n, active });
+    shown.set_active(level, n);
+    if shown.subs.get(level).is_none_or(|o| o.at != n) || keys {
+        shown.subs.truncate(level);
+        shown.subs.push(SubOpen { at: n, active });
         popover::motion::opening(&s.knobs, tx);
     }
 }
@@ -413,51 +456,47 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
     }
     let Some(shown) = s.popup.shown.as_mut() else { return false };
-    let in_sub = shown.sub.is_some_and(|o| o.active.is_some());
+    // The keys move in the deepest open menu with a lit row.
+    let level = shown.key_level();
+    let lit = shown.active_at(level);
+    let opens = |shown: &Shown, n: usize| shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
     match &ev.key {
         Key::Escape | Key::Tab => {
             close(s, None, tx);
             return true;
         }
-        Key::Left if in_sub => {
-            shown.sub = None;
+        Key::Left if level > 0 => {
+            shown.subs.truncate(level - 1);
             tx.instant();
             return true;
         }
-        Key::Right if !in_sub => {
-            if let Some(n) = shown.active.filter(|&n| shown.menu.sub_at(n).is_some()) {
-                open_sub(s, n, true, tx);
+        Key::Right => {
+            if let Some(n) = lit.filter(|&n| opens(shown, n)) {
+                open_sub_at(s, level, n, true, tx);
                 tx.instant();
             }
             return true;
         }
         Key::Enter | Key::Text(_) if is_space_or_enter(&ev.key) => {
-            match (in_sub, shown.sub, shown.active) {
-                (true, Some(SubOpen { active: Some(m), .. }), _) => choose_sub(s, m, tx),
-                (false, _, Some(n)) if shown.menu.sub_at(n).is_some() => {
-                    open_sub(s, n, true, tx);
+            match lit {
+                Some(n) if opens(shown, n) => {
+                    open_sub_at(s, level, n, true, tx);
                     tx.instant();
                 }
-                (false, _, Some(n)) => choose(s, n, tx),
-                _ => {}
+                Some(n) => choose_at(s, level, n, tx),
+                None => {}
             }
             return true;
         }
         _ => {}
     }
-    let (menu, active) = match shown.sub.filter(|_| in_sub) {
-        Some(o) => (shown.menu.sub_at(o.at).unwrap_or(&shown.menu), o.active),
-        None => (&shown.menu, shown.active),
-    };
-    let Some(next) = step(menu, active, &ev.key) else { return true };
+    let Some(menu) = shown.menu_at(level) else { return true };
+    let Some(next) = step(menu, lit, &ev.key) else { return true };
     let id = menu.item_at(next).map(|i| i.id.clone());
-    match shown.sub.as_mut().filter(|_| in_sub) {
-        Some(o) => o.active = Some(next),
-        None => {
-            shown.active = Some(next);
-            // The keys leave a submenu the pointer opened as they move off its row.
-            if shown.sub.is_some_and(|o| o.at != next) { shown.sub = None; }
-        }
+    shown.set_active(level, next);
+    // The keys leave a submenu the pointer opened as they move off its row.
+    if shown.subs.get(level).is_some_and(|o| o.at != next) {
+        shown.subs.truncate(level);
     }
     if let Some(id) = id {
         tx.scroll_into_view(row_key(&id));
@@ -509,8 +548,9 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let mut layer = vec![scrim];
     layer.extend(point);
     if shown.menu.look == Look::Standard {
-        layer.push(popover::place(&s.knobs, standard::root(p, &shown.menu, shown.active, shown.sub), &anchor, side, align, gap));
-        let sub = shown.sub.and_then(|o| Some((o, shown.menu.entries.get(o.at)?)));
+        let first = shown.subs.first().copied();
+        layer.push(popover::place(&s.knobs, standard::root(p, &shown.menu, shown.active, first), &anchor, side, align, gap));
+        let sub = first.and_then(|o| Some((o, shown.menu.entries.get(o.at)?)));
         if let Some((o, Entry::Sub(sub))) = sub {
             layer.push(popover::place(&s.knobs, standard::sub(p, &sub.menu, o.active, shown.menu.keeps_focus), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
         }
@@ -528,14 +568,17 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         None => (&shown.menu, shown.active),
     };
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
-    let menu = drawn(s, p, listed, active, shown.sub.map(|o| o.at));
+    let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at));
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
     layer.push(popover::place(&s.knobs, menu, &anchor, side, align, gap));
-    // The open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`).
-    if let Some(o) = shown.sub
-        && let Some(Entry::Sub(sub)) = listed.entries.get(o.at)
-    {
-        layer.push(popover::place(&s.knobs, build(Some(s), p, &sub.menu, o.active, None, true), &row_key(&sub.id), Side::Right, Align::Start, 4.0));
+    // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
+    let mut parent = listed;
+    for (k, o) in shown.subs.iter().enumerate() {
+        let Some(Entry::Sub(sub)) = parent.entries.get(o.at) else { break };
+        let open = shown.subs.get(k + 1).map(|o| o.at);
+        let gap = sub.menu.gap.unwrap_or(4.0);
+        layer.push(popover::place(&s.knobs, build(Some(s), p, &sub.menu, o.active, open, k + 1), &row_key(&sub.id), Side::Right, Align::Start, gap));
+        parent = &sub.menu;
     }
     layer
 }
@@ -543,18 +586,25 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
 /// `menu` as a drawn surface, row `active` lit. Its rows light and pick the open menu's, so a
 /// copy drawn while none is open (the storybook's) stays still.
 pub fn surface(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
-    build(None, p, menu, active, None, false)
+    build(None, p, menu, active, None, 0)
 }
 
 /// [`surface`] with the app's project avatars, and the row whose submenu is open.
 fn drawn(s: &App, p: &Pal, menu: &Menu, active: Option<usize>, open: Option<usize>) -> El {
-    build(Some(s), p, menu, active, open, false)
+    build(Some(s), p, menu, active, open, 0)
 }
 
-/// A menu's surface: the root's, or with `nested` the open submenu's, whose rows light and pick
-/// in it.
-fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Option<usize>, nested: bool) -> El {
-    let mut list = popover::List::new(if nested { "popup-sub-rows" } else { "popup-rows" }, MENU);
+/// A menu's surface: the root's (`level` 0), or the submenu open `level` deep, whose rows light,
+/// pick and open their own submenus in it.
+fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Option<usize>, level: usize) -> El {
+    let nested = level > 0;
+    // The first submenu keeps its keys; deeper ones number theirs.
+    let name = |root: &str, sub: &str| match level {
+        0 => root.to_owned(),
+        1 => sub.to_owned(),
+        _ => format!("{sub}-{level}"),
+    };
+    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), MENU);
     if let (Some(s), Some(search)) = (s, &menu.search) {
         list.other(search_field(s, p, &search.placeholder), SEARCH_H);
     }
@@ -595,7 +645,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     _ => o,
                 };
                 let row = if nested {
-                    popover::option::<App>(p, MENU, o, move |s| hover_sub(s, n), move |s, tx| choose_sub(s, n, tx))
+                    popover::option::<App>(p, MENU, o, move |s| hover_at(s, level, n), move |s, tx| choose_at(s, level, n, tx))
                 } else {
                     popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx))
                 };
@@ -614,8 +664,8 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                 list.other(label, GROUP_H);
             }
             // A row that opens its menu beside it (`Menu.SubTrigger`), lit while that menu shows,
-            // its chevron in the muted ink. One level deep.
-            Entry::Sub(sub) if !nested => {
+            // its chevron in the muted ink, at any depth.
+            Entry::Sub(sub) => {
                 let o = Opt::new(row_key(&sub.id), sub.title.clone())
                     .role("menuitem")
                     .active(active == Some(n) || open == Some(n))
@@ -624,20 +674,18 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                list.row(popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| open_sub(s, n, false, tx)));
+                list.row(popover::option::<App>(p, MENU, o, move |s| hover_at(s, level, n), move |s, tx| open_sub_at(s, level, n, false, tx)));
             }
-            Entry::Sub(_) => {}
         }
     }
-    let key = if nested { "popup-submenu" } else { "popup-menu" };
-    let surface = popover::surface::<App>(p, MENU, key, menu.label.clone()).min_w(menu.min_w);
+    let surface = popover::surface::<App>(p, MENU, &name("popup-menu", "popup-submenu"), menu.label.clone()).min_w(menu.min_w);
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {
         Some(w) => surface.w(w).max_w(w),
         None => surface,
     };
-    surface.child(list.build(if nested { "popup-sub-scroll" } else { "popup-scroll" }, menu.max_h))
+    surface.child(list.build(&name("popup-scroll", "popup-sub-scroll"), menu.max_h))
 }
 
 /// The widest row of `menu`, its glyph, label and shortcut with the row's padding and the
@@ -682,89 +730,33 @@ fn detail_row(p: &Pal, key: &str, i: &Item) -> El {
         .child(text(i.title.clone()).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.text).truncate_fade().shrink())
 }
 
-/// A searchable menu's field and the 4pt around it (`recently-closed-search m-1`): Desktop's
-/// 28pt `TextInput` with the magnifying glass, clear until hovered, focused or typed in, where it
-/// takes the hover wash, and its clear button once there's a query.
-const SEARCH_H: f32 = 28.0 + 8.0;
-
-fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
-    use rune_theme_opencode::icons as ic;
-    let k = crate::palette::kit(p);
-    let edit = &s.popup.query;
-    let typed = !edit.text.is_empty();
-    let input = rune::text_input(edit, INPUT)
-        .key("popup-search-input")
-        .single_line()
-        .grow(1.0)
-        .shrink()
-        .min_w(0.0)
-        .color(p.text)
-        .placeholder(placeholder.to_owned(), p.faint)
-        .caret(p.text, p.selection)
-        .on_edit(|s: &mut App| &mut s.popup.query)
-        .on_input_key(|s: &mut App, ev, tx: &mut Tx| matches!(ev.key, Key::Up | Key::Down | Key::Escape | Key::Tab | Key::PageUp | Key::PageDown) && key(s, ev, tx))
-        .on_submit(|s: &mut App, tx: &mut Tx| {
-            refresh(s);
-            if let Some(n) = s.popup.shown.as_ref().and_then(|m| m.active) {
-                choose(s, n, tx);
-            }
-        });
-    let mut field = row()
-        .key("popup-search")
-        .role("search")
-        .w_full()
-        .h(28.0)
-        .pl(8.0)
-        .pr(8.0)
-        .gap(6.0)
-        .center_y()
-        .radius(6.0)
-        .hover(p.hover)
-        .child(rune::icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-        .child(input);
-    if typed || edit.focused {
-        field = field.fill(p.hover);
-    }
-    if edit.focused {
-        field = field.border(1.0, k.c.border_focus);
-    }
-    if typed {
-        field = field.child(
-            el().key("popup-search-clear")
-                .role("button")
-                .label("Clear")
-                .size(16.0, 16.0)
-                .center()
-                .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.popup.query = TextEdit::new("");
-                    s.popup.query.focused = true;
-                })
-                .child(rune::icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint).group_color(p.icon)),
-        );
-    }
-    row().key("popup-search-wrap").w_full().padding(4.0).child(field)
-}
-
-/// The search field's text: 13/440, the compact line height.
-const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
-
-/// The pointer over row `n`: it lights, and opens its submenu or closes the open one.
+/// The pointer over the root's row `n`: it lights, and opens its submenu or closes the open one.
 fn hover(s: &mut App, n: usize) {
     refresh(s);
-    let Some(shown) = &mut s.popup.shown else { return };
-    shown.active = Some(n);
-    let opens = shown.menu.sub_at(n).is_some();
-    match shown.sub {
-        Some(o) if o.at == n => {}
-        _ if opens => shown.sub = Some(SubOpen { at: n, active: None }),
-        _ => shown.sub = None,
-    }
+    hover_at(s, 0, n);
 }
 
-/// The pointer over row `m` of the open submenu.
+/// The pointer over row `m` of the first open submenu.
 fn hover_sub(s: &mut App, m: usize) {
-    if let Some(o) = s.popup.shown.as_mut().and_then(|m| m.sub.as_mut()) {
-        o.active = Some(m);
+    hover_at(s, 1, m);
+}
+
+/// The pointer over row `n` of the menu `level` deep: it lights, and opens its submenu or
+/// closes the ones open from its other rows.
+fn hover_at(s: &mut App, level: usize, n: usize) {
+    let Some(shown) = &mut s.popup.shown else { return };
+    if level > shown.subs.len() {
+        return;
+    }
+    shown.set_active(level, n);
+    let opens = shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
+    match shown.subs.get(level) {
+        Some(o) if o.at == n => {}
+        _ => {
+            shown.subs.truncate(level);
+            if opens {
+                shown.subs.push(SubOpen { at: n, active: None });
+            }
+        }
     }
 }

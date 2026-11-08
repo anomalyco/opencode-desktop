@@ -29,8 +29,10 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     let crate::Route::Session(id) = &s.route else { return };
     let Some(info) = s.session(id).cloned() else { return };
-    // The changes row keeps the session's changes fresh while the card shows.
+    // The changes row keeps the session's changes fresh while the card shows, and Move session
+    // to lists the project's worktrees as they are now.
     s.ensure_session_review(&info.id);
+    s.list_worktrees(&info.project);
     show(s, &info, tx);
     let root = s.project(&info.project).map(|p| p.directory.clone());
     for dir in std::iter::once(info.directory.clone()).chain(root) {
@@ -188,16 +190,16 @@ fn move_menu(s: &App, project: &opencode_kit::model::Project, dir: &str, info: &
         menu = menu.item(Item::new("move-local", t!("plugin.details.workspace.local")).icon(&ic::MONITOR).enabled(!running));
     }
     menu = menu.item(Item::new("move-new", t!("plugin.details.workspace.new")).icon(&ic::PLUS).enabled(!running));
-    let worktrees: Vec<String> = opencode_kit::model::project_sandboxes(&project.id)
-        .into_iter()
-        .filter(|w| norm(w) != norm(&project.directory) && norm(w) != norm(dir))
-        .collect();
+    // The server's worktree inventory, as Desktop lists it when the menu opens (`list-worktrees`).
+    let worktrees: Vec<String> = s.project_worktrees(&project.id, &project.directory).into_iter().filter(|w| norm(w) != norm(dir)).collect();
+    // The existing worktrees in a submenu of their own, flush against its row (`Menu.Sub gutter={0}`).
     if !worktrees.is_empty() {
-        menu = menu.group(t!("plugin.details.workspace.existing"));
+        let mut existing = Menu::new(t!("plugin.details.workspace.existing")).min_width(200.0).width(200.0).gap(0.0);
         for w in worktrees {
             let name = opencode_kit::path::basename(w.trim_end_matches(['/', '\\'])).to_owned();
-            menu = menu.item(Item::new(format!("move-to:{w}"), name).icon(&ic::OUTLINE_WORKTREE).enabled(!running));
+            existing = existing.item(Item::new(format!("move-to:{w}"), name).icon(&ic::OUTLINE_WORKTREE).enabled(!running));
         }
+        menu = menu.submenu_icon("move-existing", t!("plugin.details.workspace.existing"), &ic::OUTLINE_WORKTREE, existing);
     }
     menu
 }
