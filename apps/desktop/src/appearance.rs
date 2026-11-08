@@ -97,6 +97,10 @@ pub fn font_index(fonts: &[Font], name: Option<&str>) -> usize {
 pub fn apply_icons(settings: &crate::settings::Settings) {
     let swap: fn(&rune::Icon) -> Option<&'static rune::Icon> = rune_theme_opencode::new_icons::new_icon;
     rune::text::set_icon_swap(settings.new_icons.then_some(swap));
+    // The new artwork is drawn on a 16 px grid, so a small icon it replaces stays 16 rather than
+    // shrinking to 14 (`icon.tsx`'s `pixelSize`).
+    let size: fn(f32) -> f32 = |size| if size == 14.0 { 16.0 } else { size };
+    rune::text::set_icon_swap_size(settings.new_icons.then_some(size));
 }
 
 /// The name typed for a font row when it isn't one of `fonts` (an installed family); empty
