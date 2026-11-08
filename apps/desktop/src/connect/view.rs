@@ -54,7 +54,7 @@ pub fn groups(s: &App) -> Vec<(&'static str, Vec<Row>)> {
     let (mut popular, mut services): (Vec<Row>, Vec<Row>) = rest.into_iter().partition(|r| POPULAR.contains(&r.id.as_str()));
     popular.sort_by_key(|r| POPULAR.iter().position(|p| *p == r.id));
     services.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    [("Connected", connected_rows), ("Popular", popular), ("Services", services)].into_iter().filter(|(_, r)| !r.is_empty()).collect()
+    [(opencode_i18n::t!("dialog.provider.connected"), connected_rows), (opencode_i18n::t!("dialog.provider.group.popular"), popular), (opencode_i18n::t!("dialog.provider.group.services"), services)].into_iter().filter(|(_, r)| !r.is_empty()).collect()
 }
 
 /// The rows the arrows move through: every one but those connected from the environment only.
@@ -131,29 +131,29 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
 /// The dialog's name: the list's, or the step's title.
 pub fn title(s: &App) -> String {
     let Some(open) = &s.connect.open else { return String::new() };
-    let Some(p) = &open.dialog.provider else { return "Integrations".into() };
+    let Some(p) = &open.dialog.provider else { return opencode_i18n::t!("dialog.provider.title").into() };
     let name = s.provider_name(&p.id);
     let connect = p.step.connect();
     match dialog::body(&open.dialog) {
-        dialog::Body::Models => format!("Connected to {name}"),
+        dialog::Body::Models => opencode_i18n::t!("provider.connect.models.title", provider = name),
         dialog::Body::Accounts => name,
-        _ if p.id == dialog::CONSOLE && matches!(connect, Some(super::machine::State::Failed(..))) => "Connect to OpenCode".into(),
-        dialog::Body::ConsoleSignIn { .. } => "Connecting to OpenCode Console".into(),
-        _ if p.id == "anthropic" && connect.and_then(super::machine::method).is_some_and(|m| m.title().to_lowercase().contains("max")) => "Login with Anthropic".into(),
-        _ if p.id == dialog::CONSOLE => "Connect OpenCode Console".into(),
-        _ => format!("Connect {name}"),
+        _ if p.id == dialog::CONSOLE && matches!(connect, Some(super::machine::State::Failed(..))) => opencode_i18n::t!("provider.connect.opencode.errorTitle").into(),
+        dialog::Body::ConsoleSignIn { .. } => opencode_i18n::t!("provider.connect.console.title").into(),
+        _ if p.id == "anthropic" && connect.and_then(super::machine::method).is_some_and(|m| m.title().to_lowercase().contains("max")) => opencode_i18n::t!("provider.connect.title.anthropicProMax").into(),
+        _ if p.id == dialog::CONSOLE => opencode_i18n::t!("provider.connect.title", provider = "OpenCode Console"),
+        _ => opencode_i18n::t!("provider.connect.title", provider = name),
     }
 }
 
 fn close_button(p: &Pal) -> El {
-    el().key("connect-close").role("button").label("Close").size(20.0, 20.0).radius(4.0).center()
+    el().key("connect-close").role("button").label(opencode_i18n::t!("common.close")).size(20.0, 20.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_connect(tx))
         .child(icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted))
 }
 
 fn back_button(p: &Pal) -> El {
-    el().key("connect-back").role("button").label("Navigate back").size(20.0, 20.0).my(-2.0).ml(-2.0).radius(4.0).center()
+    el().key("connect-back").role("button").label(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).my(-2.0).ml(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -169,14 +169,14 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
         // `.search-dialog`: 10 pt above and at the end, 14 before, 6 below.
         Frame::Picker => row().key("connect-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
             .child(col().grow(1.0).shrink().gap(2.0)
-                .child(text("Integrations").font(TITLE).color(p.text))
-                .child(text("Connect services so OpenCode can use them.").font(DESCRIPTION).color(p.muted)))
+                .child(text(opencode_i18n::t!("dialog.provider.title")).font(TITLE).color(p.text))
+                .child(text(opencode_i18n::t!("dialog.provider.description")).font(DESCRIPTION).color(p.muted)))
             .child(close_button(p)),
         Frame::Accounts => {
             let mut lead = row().grow(1.0).shrink().min_w(0.0).gap(2.0).center_y();
             if can_back {
                 lead = lead
-                    .child(text("Integrations").key("connect-crumb").role("button").font(TITLE).color(p.faint)
+                    .child(text(opencode_i18n::t!("dialog.provider.title")).key("connect-crumb").role("button").font(TITLE).color(p.faint)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             tx.instant();
                             s.connect_event(Event::Back, tx);
@@ -213,8 +213,8 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
 fn picker(s: &App, p: &Pal) -> El {
     let open = s.connect.open.as_ref().expect("open");
     let field = TextInput::new(&open.search)
-        .placeholder("Search")
-        .label("Search providers")
+        .placeholder(opencode_i18n::t!("common.search.placeholder"))
+        .label(opencode_i18n::t!("dialog.provider.search.placeholder"))
         .spellcheck(s.settings.spellcheck)
         .leading_icon(&ic::MAGNIFYING_GLASS)
         .width(None)
@@ -235,7 +235,7 @@ fn picker(s: &App, p: &Pal) -> El {
     let groups = groups(s);
     let mut list = col().key("connect-groups").w_full().gap(2.0).pb(32.0);
     if groups.is_empty() {
-        list = list.child(row().key("connect-empty").w_full().h(96.0).center().child(text("No providers found").font(BODY).color(p.muted)));
+        list = list.child(row().key("connect-empty").w_full().h(96.0).center().child(text(opencode_i18n::t!("dialog.provider.empty")).font(BODY).color(p.muted)));
     }
     for (title, rows) in groups {
         let mut section = col().key(format!("connect-group-{title}")).w_full().gap(2.0)
@@ -263,13 +263,13 @@ fn provider_row(p: &Pal, r: &Row, active: bool) -> El {
         .child(widgets::provider_mark(&r.id, p.icon).opacity(if r.disabled { 0.5 } else { 1.0 }))
         .child(text(r.name.clone()).font(BODY).color(ink).shrink().min_w(0.0).truncate());
     if r.disabled {
-        return e.child(text("Environment only").font(BODY).color(p.faint).shrink().truncate());
+        return e.child(text(opencode_i18n::t!("dialog.provider.environmentOnly")).font(BODY).color(p.faint).shrink().truncate());
     }
     if let Some(account) = &r.account {
         e = e.child(widgets::badge(p, account.clone()).shrink().min_w(0.0));
     }
     if r.needs_sign_in {
-        e = e.child(spacer()).child(text("Needs sign-in").key("provider-status").font(BODY).color(p.warning).pr(4.0));
+        e = e.child(spacer()).child(text(opencode_i18n::t!("dialog.provider.needsSignIn")).key("provider-status").font(BODY).color(p.warning).pr(4.0));
     }
     e.on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
         if inside && let Some(o) = s.connect.open.as_mut() {

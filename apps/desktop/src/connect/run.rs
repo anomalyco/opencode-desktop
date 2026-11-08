@@ -26,7 +26,7 @@ impl App {
                 let label = self.account_label(&provider, &account);
                 self.write_then(move |srv| srv.credential_activate(&account), move |s, tx, r| {
                     if r.is_ok() {
-                        crate::status_toast::succeed(s, format!("{name} account switched"), format!("Now using {label}."));
+                        crate::status_toast::succeed(s, opencode_i18n::t!("settings.providers.account.switched.title", provider = name), opencode_i18n::t!("settings.providers.account.switched.description", account = label));
                     }
                     s.settle_account(session, attempt, tx);
                 });
@@ -117,7 +117,7 @@ impl App {
                 let answer = answer.map(Value::Object);
                 let id = method.id.clone().unwrap_or_default();
                 let kind = method.kind;
-                let failed = move |e: String| Answer::StartFailed { attempt, error: if console && kind == MethodKind::Oauth { "Couldn't start sign-in. Check your server connection and try again.".into() } else { e } };
+                let failed = move |e: String| Answer::StartFailed { attempt, error: if console && kind == MethodKind::Oauth { opencode_i18n::t!("provider.connect.console.startFailed").into() } else { e } };
                 self.write_then(
                     move |srv| match kind {
                         MethodKind::Command => srv.command_connect(&provider, dir.as_deref(), &id).map(|id| Answer::CommandStarted { attempt, id }),
@@ -159,7 +159,7 @@ impl App {
                     move |s, tx, r| {
                         let event = match r {
                             Ok(()) => Answer::SubmitSucceeded { attempt },
-                            Err(e) if e.is_empty() && code => Answer::SubmitFailed { attempt, error: "Invalid authorization code".into() },
+                            Err(e) if e.is_empty() && code => Answer::SubmitFailed { attempt, error: opencode_i18n::t!("provider.connect.oauth.code.invalid").into() },
                             Err(error) => Answer::SubmitFailed { attempt, error },
                         };
                         reply(event, None)(s, tx);
@@ -179,7 +179,7 @@ impl App {
     fn refresh_connection(&mut self, dir: Option<String>, provider: String, session: u32, attempt: u32, tries: Option<u32>) {
         self.sync_catalogs(dir.clone(), move |s, tx, ok| {
             if provider == CONSOLE && !ok {
-                let error = "Your account is connected, but we couldn't load your models. Try again to refresh them.".into();
+                let error = opencode_i18n::t!("provider.connect.console.refreshFailed").into();
                 return s.connect_event(Event::Result { session, provider, event: Answer::RefreshFailed { attempt, error }, catalog: None }, tx);
             }
             if let Some(n) = tries.filter(|n| *n > 0)
@@ -236,7 +236,7 @@ impl App {
 }
 
 fn key_method() -> opencode_kit::integration::Method {
-    opencode_kit::integration::Method { kind: MethodKind::Key, id: None, label: Some("API key".into()), form: vec![] }
+    opencode_kit::integration::Method { kind: MethodKind::Key, id: None, label: Some(opencode_i18n::t!("provider.connect.method.apiKey").into()), form: vec![] }
 }
 
 /// One status read of a browser sign-in or a command, in the words the dialog shows.
@@ -246,7 +246,7 @@ fn poll(srv: &Server, provider: &str, dir: Option<&str>, signin: &Signin, consol
             Ok(AttemptStatus::Pending(output)) => Outcome::Pending(output),
             Ok(AttemptStatus::Complete) => Outcome::Complete,
             Ok(AttemptStatus::Failed(message)) => Outcome::Failed(message),
-            Ok(AttemptStatus::Expired) => Outcome::Failed("Authentication expired".into()),
+            Ok(AttemptStatus::Expired) => Outcome::Failed(opencode_i18n::t!("provider.connect.command.expired").into()),
             Err(e) => Outcome::Failed(e),
         };
     }
@@ -254,17 +254,17 @@ fn poll(srv: &Server, provider: &str, dir: Option<&str>, signin: &Signin, consol
         Signin::Browser { auth, .. } | Signin::Code { auth, .. } => auth.attempt.clone(),
         _ => return Outcome::Failed(String::new()),
     };
-    let expired = if console { "This sign-in request has expired. Start again to get a new device code." } else { "Authorization expired" };
+    let expired = if console { opencode_i18n::t!("provider.connect.console.expired") } else { opencode_i18n::t!("provider.connect.oauth.expired") };
     match srv.oauth_status(provider, &attempt, dir) {
         Ok(AttemptStatus::Pending(_)) => Outcome::Pending(String::new()),
         Ok(AttemptStatus::Complete) => Outcome::Complete,
         Ok(AttemptStatus::Expired) => Outcome::Failed(expired.into()),
         Ok(AttemptStatus::Failed(m)) if console && m.contains("expired_token") => Outcome::Failed(expired.into()),
         Ok(AttemptStatus::Failed(m)) if console && m.contains("access_denied") => {
-            Outcome::Failed("Access was denied in Console. Try again when you're ready to connect.".into())
+            Outcome::Failed(opencode_i18n::t!("provider.connect.console.denied").into())
         }
         Ok(AttemptStatus::Failed(m)) => Outcome::Failed(m),
-        Err(_) if console => Outcome::Unreachable("Couldn't check authorization. Check your server connection and try again.".into()),
+        Err(_) if console => Outcome::Unreachable(opencode_i18n::t!("provider.connect.console.statusFailed").into()),
         Err(e) => Outcome::Unreachable(e),
     }
 }

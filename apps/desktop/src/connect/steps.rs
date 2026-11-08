@@ -81,8 +81,8 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
         Body::Claude { checking, can_check, timed_out } => claude(s, p, checking, can_check, timed_out),
         Body::NoModels { pending, refreshing } => no_models(p, pending, refreshing),
         Body::ConsoleSignIn { copied } => col().px(12.0).child(console_sign_in(s, p, copied)),
-        Body::Screen(Screen::Busy) => col().px(12.0).child(widgets::status_row(p, "connect-busy", "Authorization in progress…")),
-        Body::Screen(Screen::EnvironmentOnly) => col().px(12.0).child(text("Environment only").font(BODY).color(p.muted)),
+        Body::Screen(Screen::Busy) => col().px(12.0).child(widgets::status_row(p, "connect-busy", opencode_i18n::t!("provider.connect.status.inProgress"))),
+        Body::Screen(Screen::EnvironmentOnly) => col().px(12.0).child(text(opencode_i18n::t!("dialog.provider.environmentOnly")).font(BODY).color(p.muted)),
         Body::Screen(Screen::Methods) => methods(s, p),
         Body::Screen(Screen::Form) => form_view(s, p),
         Body::Screen(Screen::Failed) => col().px(12.0).child(failed(s, p, console)),
@@ -117,7 +117,7 @@ fn methods(s: &App, p: &Pal) -> El {
 fn entry_error(c: &Conn, code: bool) -> Option<String> {
     match c {
         Conn::Entering(_, _, Some(conn::EntryError::Rejected(m))) => Some(m.clone()),
-        Conn::Entering(_, _, Some(conn::EntryError::Required)) => Some(if code { "Authorization code is required" } else { "API key is required" }.into()),
+        Conn::Entering(_, _, Some(conn::EntryError::Required)) => Some(if code { opencode_i18n::t!("provider.connect.oauth.code.required") } else { opencode_i18n::t!("provider.connect.apiKey.required") }.into()),
         _ => None,
     }
 }
@@ -138,7 +138,7 @@ fn entry_form(s: &App, p: &Pal, label: String, placeholder: &str, error: Option<
     if let Some(e) = error {
         form = form.child(text(e).key("connect-entry-error").role("alert").font(BODY).color(p.danger).mt(-16.0));
     }
-    let mut cont = button("Continue", ButtonVariant::Contrast).disabled(submitting).on_press_tx(submit_entry).build(kit(p)).key("connect-submit");
+    let mut cont = button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(submitting).on_press_tx(submit_entry).build(kit(p)).key("connect-submit");
     if console {
         cont = cont.px(12.0);
     }
@@ -157,16 +157,16 @@ fn step_text(p: &Pal, words: String) -> El {
 fn key(s: &App, p: &Pal, console: bool) -> El {
     let c = current(s);
     let name = s.provider_name(&provider_id(s));
-    let about = if console { "Connect using a service-account API key from OpenCode Console.".to_owned() } else {
-        format!("Enter your {name} API key to connect your account and use {name} models in OpenCode.")
+    let about = if console { opencode_i18n::t!("provider.connect.console.serviceKeyDescription").to_owned() } else {
+        opencode_i18n::t!("provider.connect.apiKey.description", provider = name)
     };
     col().key("connect-key").px(12.0).gap(20.0).pb(if console { 4.0 } else { 0.0 })
         .child(step_text(p, about))
-        .child(entry_form(s, p, format!("{name} API key"), "API key", entry_error(c, false), conn::submitting(c), console))
+        .child(entry_form(s, p, opencode_i18n::t!("provider.connect.apiKey.label", provider = name), opencode_i18n::t!("provider.connect.apiKey.placeholder"), entry_error(c, false), conn::submitting(c), console))
 }
 
 fn open_browser(p: &Pal) -> El {
-    button("Open browser", ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
+    button(opencode_i18n::t!("provider.connect.oauth.openBrowser"), ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
         .on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::BrowserOpen, tx)).build(kit(p)).key("connect-open-browser")
 }
 
@@ -175,9 +175,9 @@ fn code(s: &App, p: &Pal) -> El {
     let name = s.provider_name(&provider_id(s));
     let method = conn::method(c).map(|m| m.title()).unwrap_or_default();
     col().key("connect-code").px(12.0).gap(20.0)
-        .child(step_text(p, format!("Your browser opens so you can sign in to {name}. Paste the authorization code it gives you below.")))
+        .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.code.description", provider = name)))
         .child(open_browser(p))
-        .child(entry_form(s, p, format!("{method} authorization code"), "Authorization code", entry_error(c, true), conn::submitting(c), false))
+        .child(entry_form(s, p, opencode_i18n::t!("provider.connect.oauth.code.label", method = method), opencode_i18n::t!("provider.connect.oauth.code.placeholder"), entry_error(c, true), conn::submitting(c), false))
 }
 
 /// The code to check against the browser: the URL's `user_code`, or the instructions' last part.
@@ -201,7 +201,7 @@ fn copy_field(p: &Pal, key: &str, label: Option<&str>, description: Option<&str>
         // A value wider than the box runs past its end, clipped, as an input's does.
         .child(row().h(32.0).px(12.0).py(2.0).grow(1.0).shrink().min_w(0.0).center_y().clip_soft(0.0)
             .child(text(value).font(FIELD).color(p.standard.text).selectable(true)))
-        .child(el().key("copy").role("button").label("Copy").size(24.0, 24.0).mt(4.0).radius(6.0).center().hover(p.hover).press(p.pressed)
+        .child(el().key("copy").role("button").label(opencode_i18n::t!("ui.message.copy")).size(24.0, 24.0).mt(4.0).radius(6.0).center().hover(p.hover).press(p.pressed)
             .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(copy.clone()))
             .child(icon(&ic::COPY, 16.0).color(weak)));
     col().w_full().gap(8.0)
@@ -214,11 +214,11 @@ fn browser(s: &App, p: &Pal) -> El {
     let c = current(s);
     let name = s.provider_name(&provider_id(s));
     let mut e = col().key("connect-browser").px(12.0).gap(20.0)
-        .child(step_text(p, format!("Your browser opens so you can sign in to {name}. Come back here when you are done.")))
-        .child(widgets::status_row(p, "connect-waiting", "Waiting for authorization…"))
+        .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)))
+        .child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.status.waiting")))
         .child(row().gap(8.0).child(open_browser(p)));
     if let Some(code) = confirmation_code(c) {
-        e = e.child(copy_field(p, "connect-confirmation", Some("Confirmation code"), Some("Check that your browser shows the same code before you authorize."), code));
+        e = e.child(copy_field(p, "connect-confirmation", Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode")), Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode.description")), code));
     }
     e
 }
@@ -233,7 +233,7 @@ fn command(s: &App, p: &Pal) -> El {
         e = e.child(col().key("connect-command-output").w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3)
             .scroll(ScrollSpec { stick_bottom: true }).child(text(output).font(MONO).color(p.text).wrap().selectable(true)));
     }
-    e.child(widgets::status_row(p, "connect-waiting", "Waiting for command to finish…"))
+    e.child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.command.waiting")))
 }
 
 /// `ErrorRow`: the ban sign, why it failed, and Try again.
@@ -242,12 +242,12 @@ fn failed(s: &App, p: &Pal, console: bool) -> El {
         Conn::Failed(_, e, _) => e.clone(),
         _ => String::new(),
     };
-    let words = if console { error } else { format!("Authorization failed: {error}") };
+    let words = if console { error } else { opencode_i18n::t!("provider.connect.status.failed", error = error) };
     col().key("connect-failed").gap(if console { 16.0 } else { 12.0 })
         .child(row().w_full().gap(8.0)
             .child(icon(&ic::CIRCLE_BAN_SIGN, 14.0).color(p.danger).mt(3.0))
             .child(text(words).role("alert").font(BODY).color(p.text).wrap().grow(1.0).shrink()))
-        .child(row().child(button("Try again", ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::Retry, tx)).build(kit(p)).key("connect-retry")))
+        .child(row().child(button(opencode_i18n::t!("provider.connect.console.retry"), ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::Retry, tx)).build(kit(p)).key("connect-retry")))
 }
 
 fn form_view(s: &App, p: &Pal) -> El {
@@ -264,7 +264,7 @@ fn form_view(s: &App, p: &Pal) -> El {
     };
     let mut e = col().key(format!("connect-form-{}", f.key())).px(12.0).gap(16.0).child(head).child(controls);
     if let Some(err) = f.error() {
-        let words = if err == FieldError::Required { "Answer required" } else { "Expected a number" };
+        let words = if err == FieldError::Required { opencode_i18n::t!("provider.connect.form.required") } else { opencode_i18n::t!("provider.connect.form.number") };
         e = e.child(text(words).key("connect-form-error").role("alert").font(BODY).color(p.danger));
     }
     e
@@ -275,7 +275,7 @@ fn form_input(s: &mut App, i: form::Input, tx: &mut Tx) {
 }
 
 fn cont(p: &Pal, enabled: bool) -> El {
-    button("Continue", ButtonVariant::Contrast).disabled(!enabled)
+    button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(!enabled)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             let text = s.connect.open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
             if let Some(Conn::Form(_, f)) = s.connect.open.as_ref().and_then(|o| o.dialog.provider.as_ref()).and_then(|p| p.step.connect()) {
@@ -292,14 +292,14 @@ fn cont(p: &Pal, enabled: bool) -> El {
 
 fn external(p: &Pal, f: &form::Form, url: &str, browser: &form::Browser) -> El {
     let opening = matches!(browser, form::Browser::Opening { .. });
-    let label = if f.can_finish() { "Open link again" } else { "Open link" };
+    let label = if f.can_finish() { opencode_i18n::t!("provider.connect.form.openAgain") } else { opencode_i18n::t!("provider.connect.form.open") };
     let mut e = col().w_full().gap(16.0).child(row().gap(8.0)
         .child(button(label, ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT).disabled(opening)
             .on_press_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::ExternalOpen, tx)).build(kit(p)).key("connect-open-link"))
-        .child(button("I finished", ButtonVariant::Contrast).disabled(!f.can_finish())
+        .child(button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Contrast).disabled(!f.can_finish())
             .on_press_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::Submitted, tx)).build(kit(p)).key("connect-finished")));
     if *browser == form::Browser::Failed {
-        e = e.child(text("We couldn't open your browser. Open the link below, then select I finished.").role("alert").font(BODY).color(p.danger))
+        e = e.child(text(opencode_i18n::t!("provider.connect.form.browserFailed")).role("alert").font(BODY).color(p.danger))
             .child(copy_field(p, "connect-link", None, None, url.to_owned()));
     }
     e
@@ -320,17 +320,17 @@ fn multiselect(s: &App, p: &Pal, f: &form::Form, picked: &[String], _custom: &st
     }
     let mut e = col().w_full().gap(16.0).child(boxes);
     if f.step.field.custom {
-        let field = TextInput::new(&open(s).field).placeholder("Type your answer").label("Type your own answer").width(None).spellcheck(s.settings.spellcheck)
+        let field = TextInput::new(&open(s).field).placeholder(opencode_i18n::t!("rune.connect.form.placeholder")).label(opencode_i18n::t!("ui.messagePart.option.typeOwnAnswer")).width(None).spellcheck(s.settings.spellcheck)
             .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").field)
             .on_submit(add_custom).build(kit(p)).grow(1.0).shrink();
         e = e.child(row().w_full().gap(8.0).center_y().child(field)
-            .child(button("Add", ButtonVariant::Neutral).on_press_tx(add_custom).build(kit(p))));
+            .child(button(opencode_i18n::t!("provider.connect.form.add"), ButtonVariant::Neutral).on_press_tx(add_custom).build(kit(p))));
     }
     if let Some(issue) = f.issue() {
         let words = match issue {
-            Issue::SelectOne => "Select at least one option".to_owned(),
-            Issue::MinItems => format!("Select at least {}", f.step.field.min_items.unwrap_or(0)),
-            Issue::MaxItems => format!("Select at most {}", f.step.field.max_items.unwrap_or(0)),
+            Issue::SelectOne => opencode_i18n::t!("provider.connect.form.selectOne").to_owned(),
+            Issue::MinItems => opencode_i18n::t!("provider.connect.form.minItems", count = f.step.field.min_items.unwrap_or(0)),
+            Issue::MaxItems => opencode_i18n::t!("provider.connect.form.maxItems", count = f.step.field.max_items.unwrap_or(0)),
         };
         e = e.child(text(words).font(BODY).color(p.muted));
     }
@@ -360,11 +360,11 @@ fn choice(s: &App, p: &Pal, f: &form::Form) -> El {
     }
     if f.step.field.kind == FieldKind::String && f.step.field.custom {
         let custom = selected.as_deref() == Some("custom");
-        radios = radios.child(RadioItem::new("Type your own answer", custom)
+        radios = radios.child(RadioItem::new(opencode_i18n::t!("ui.messagePart.option.typeOwnAnswer"), custom)
             .on_select_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::ChoiceSelected("custom".into()), tx)).build(kit(p)));
         if custom {
-            let placeholder = f.step.field.placeholder.clone().unwrap_or_else(|| "Type your answer".into());
-            radios = radios.child(col().pl(24.0).child(TextInput::new(&open(s).field).placeholder(placeholder).label("Type your own answer").width(None).spellcheck(s.settings.spellcheck)
+            let placeholder = f.step.field.placeholder.clone().unwrap_or_else(|| opencode_i18n::t!("rune.connect.form.placeholder").into());
+            radios = radios.child(col().pl(24.0).child(TextInput::new(&open(s).field).placeholder(placeholder).label(opencode_i18n::t!("ui.messagePart.option.typeOwnAnswer")).width(None).spellcheck(s.settings.spellcheck)
                 .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").field)
                 .on_change(|s: &mut App, tx: &mut Tx| {
                     let text = s.connect.open.as_ref().map(|o| o.field.text.clone()).unwrap_or_default();
@@ -375,7 +375,7 @@ fn choice(s: &App, p: &Pal, f: &form::Form) -> El {
     }
     let mut actions = row().gap(8.0).center_y().child(cont(p, f.can_continue()));
     if !f.step.field.required {
-        actions = actions.child(button("Skip", ButtonVariant::GhostMuted).on_press_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::Skipped, tx)).build(kit(p)));
+        actions = actions.child(button(opencode_i18n::t!("provider.connect.form.skip"), ButtonVariant::GhostMuted).on_press_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::Skipped, tx)).build(kit(p)));
     }
     col().w_full().gap(16.0).child(radios).child(actions)
 }
@@ -404,8 +404,8 @@ fn remote_notice(s: &App, p: &Pal) -> El {
         crate::Source::Fixture => String::new(),
     };
     col().role("note").w_full().padding(12.0).radius(6.0).fill(p.layer2).border(1.0, p.border)
-        .child(text(format!("Connecting on \u{201c}{name}\u{201d}")).font(BODY_MED).color(p.text))
-        .child(text("Your OpenCode credentials will be stored on this server. Models will be available through this server.").font(BODY).color(p.muted).wrap())
+        .child(text(opencode_i18n::t!("provider.connect.remote.title", server = name)).font(BODY_MED).color(p.text))
+        .child(text(opencode_i18n::t!("provider.connect.remote.description")).font(BODY).color(p.muted).wrap())
 }
 
 /// The Console's device sign-in (`console.tsx`).
@@ -413,9 +413,9 @@ fn console_sign_in(s: &App, p: &Pal, copied: Option<bool>) -> El {
     let c = current(s);
     let failed = matches!(c, Conn::Waiting(_, conn::Signin::Browser { failed: true, .. }));
     let code = confirmation_code(c);
-    let mut device = col().gap(8.0).child(text("Device code").font(BODY_MED).color(p.text));
+    let mut device = col().gap(8.0).child(text(opencode_i18n::t!("provider.connect.console.deviceCode")).font(BODY_MED).color(p.text));
     match &code {
-        None => device = device.child(row().h(48.0).center_y().child(text("Opening browser…").font(BODY).color(p.muted))),
+        None => device = device.child(row().h(48.0).center_y().child(text(opencode_i18n::t!("provider.connect.console.openingBrowser")).font(BODY).color(p.muted))),
         Some(code) => {
             let mut digits = row().gap(4.0);
             for ch in code.chars() {
@@ -425,21 +425,21 @@ fn console_sign_in(s: &App, p: &Pal, copied: Option<bool>) -> El {
                     row().h(48.0).w(32.0).center().radius(6.0).border(1.0, p.border).fill(p.layer2).child(text(ch.to_string()).font(CODE_DIGIT).color(p.text))
                 });
             }
-            device = device.child(digits.label(format!("Device code: {code}")))
-                .child(text("Waiting for confirmation…").role("status").font(BODY).color(p.muted));
+            device = device.child(digits.label(opencode_i18n::t!("provider.connect.console.deviceCode.label", code = code)))
+                .child(text(opencode_i18n::t!("provider.connect.console.waiting")).role("status").font(BODY).color(p.muted));
         }
     }
-    let label = if copied == Some(true) { "Sign-in link copied" } else { "Copy sign-in link" };
+    let label = if copied == Some(true) { opencode_i18n::t!("provider.connect.console.linkCopied") } else { opencode_i18n::t!("provider.connect.console.copyLink") };
     let mut fallback = row().key("console-browser-fallback").min_h(28.0).gap(12.0).center_y()
-        .child(text("Browser didn't open?").font(BODY).color(p.faint))
+        .child(text(opencode_i18n::t!("provider.connect.console.browserHint")).font(BODY).color(p.faint))
         .child(button(label, ButtonVariant::GhostMuted).disabled(code.is_none()).on_press_tx(copy_link).build(kit(p)));
     if failed || copied == Some(false) {
-        fallback = fallback.child(button("Open Console again", ButtonVariant::Ghost).on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::BrowserOpen, tx)).build(kit(p)));
+        fallback = fallback.child(button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Ghost).on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::BrowserOpen, tx)).build(kit(p)));
     }
-    let lead = if failed { "We couldn't open your browser. Try again or copy the sign-in link to continue." } else { "Continue in your browser. Confirm the code shown there matches the one below." };
+    let lead = if failed { opencode_i18n::t!("provider.connect.console.browserFailed") } else { opencode_i18n::t!("provider.connect.console.instructions") };
     let mut e = col().key("console-authorization").gap(20.0).child(step_text(p, lead.into())).child(device).child(fallback);
     if copied == Some(false) {
-        e = e.child(text("Couldn't copy the sign-in link. Open Console again to continue.").role("alert").font(BODY).color(p.muted));
+        e = e.child(text(opencode_i18n::t!("provider.connect.console.copyFailed")).role("alert").font(BODY).color(p.muted));
     }
     e
 }
@@ -453,19 +453,19 @@ fn copy_link(s: &mut App, tx: &mut Tx) {
 }
 
 fn no_models(p: &Pal, pending: bool, refreshing: bool) -> El {
-    let about = if pending { "Your models are still loading. Refresh to check again." } else {
-        "Your account is connected, but this Console workspace has no available models. Check its setup in Console, then refresh."
+    let about = if pending { opencode_i18n::t!("provider.connect.console.modelsLoading") } else {
+        opencode_i18n::t!("provider.connect.console.noModels")
     };
     let mut actions = row().gap(8.0);
     if !pending {
-        actions = actions.child(button("Open Console again", ButtonVariant::Neutral).on_press_tx(|_: &mut App, tx: &mut Tx| {
+        actions = actions.child(button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Neutral).on_press_tx(|_: &mut App, tx: &mut Tx| {
             let _ = tx.open_url("https://opencode.ai/console");
         }).build(kit(p)));
     }
-    actions = actions.child(button("Refresh models", ButtonVariant::Neutral).disabled(refreshing)
+    actions = actions.child(button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Neutral).disabled(refreshing)
         .on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::Refresh, tx)).build(kit(p)));
     col().key("connect-no-models").role("status").px(12.0).gap(20.0)
-        .child(col().child(row().gap(8.0).center_y().child(icon(&ic::CIRCLE_CHECK, 16.0).color(p.text)).child(text("OpenCode connected").font(BODY_MED).color(p.text)))
+        .child(col().child(row().gap(8.0).center_y().child(icon(&ic::CIRCLE_CHECK, 16.0).color(p.text)).child(text(opencode_i18n::t!("provider.connect.console.connected")).font(BODY_MED).color(p.text)))
             .child(step_text(p, about.into())))
         .child(actions)
 }
@@ -473,26 +473,26 @@ fn no_models(p: &Pal, pending: bool, refreshing: bool) -> El {
 fn claude(s: &App, p: &Pal, checking: bool, can_check: bool, timed_out: bool) -> El {
     let problem = s.integration_of(s.connect_dir(), dialog::CLAUDE).and_then(|i| i.accounts().first().and_then(|a| a.status.clone()));
     let words = problem.as_ref().map(|st| st.message.clone())
-        .or_else(|| timed_out.then(|| "Couldn't confirm that Claude Code is ready. Make sure it's installed and signed in, then check again.".to_owned()));
+        .or_else(|| timed_out.then(|| opencode_i18n::t!("provider.connect.claudeAgent.timeout").to_owned()));
     let mut e = col().key("claude-agent-setup").px(12.0).pb(8.0).gap(20.0)
-        .child(step_text(p, "Use your Claude plan or another Claude Code login. Install Claude Code and sign in first.".into()));
+        .child(step_text(p, opencode_i18n::t!("provider.connect.claudeAgent.description").into()));
     if let Some(w) = words {
         e = e.child(row().gap(8.0).child(icon(&ic::CIRCLE_BAN_SIGN, 14.0).color(p.danger).mt(3.0)).child(text(w).role("alert").font(BODY).color(p.text).wrap().grow(1.0).shrink()));
     }
     e = e.child(copy_field(p, "claude-command", None, None, "claude auth login".into()));
     if checking {
-        return e.child(widgets::status_row(p, "claude-checking", "Checking Claude Code…"));
+        return e.child(widgets::status_row(p, "claude-checking", opencode_i18n::t!("provider.connect.claudeAgent.checking")));
     }
     let again = s.accounts_of(dialog::CLAUDE).count > 0;
     let url = problem.and_then(|st| st.url).unwrap_or_else(|| "https://code.claude.com/docs/en/setup".into());
     e.child(row().gap(8.0)
-        .child(button(if again { "Check again" } else { "Connect" }, ButtonVariant::Contrast).disabled(!can_check)
+        .child(button(if again { opencode_i18n::t!("provider.connect.claudeAgent.checkAgain") } else { opencode_i18n::t!("provider.connect.claudeAgent.connect") }, ButtonVariant::Contrast).disabled(!can_check)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 let replacing = s.integration_of(s.connect_dir(), dialog::CLAUDE).map(|i| i.accounts().iter().map(|a| a.id.clone()).collect()).unwrap_or_default();
                 s.connect_event(Event::ClaudeCheck { replacing }, tx);
             }).build(kit(p)).key("connect-submit"))
-        .child(button("Install Claude Code", ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
+        .child(button(opencode_i18n::t!("provider.connect.claudeAgent.install"), ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
             .on_press_tx(move |_: &mut App, tx: &mut Tx| {
                 let _ = tx.open_url(&url);
             }).build(kit(p))))
@@ -511,19 +511,19 @@ fn accounts(s: &App, p: &Pal) -> El {
     };
     let mut list: Vec<_> = s.integration_of(s.connect_dir(), &id).map(|i| i.accounts().into_iter().cloned().collect()).unwrap_or_default();
     list.sort_by(|a: &opencode_kit::integration::Connection, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
-    let mut rows = col().key("provider-accounts").role("radiogroup").label("Connected accounts").gap(2.0);
+    let mut rows = col().key("provider-accounts").role("radiogroup").label(opencode_i18n::t!("dialog.provider.accounts.connected")).gap(2.0);
     for a in list {
         if *action == AccountAction::Confirming(a.id.clone()) {
             let confirm = a.id.clone();
             rows = rows.child(row().min_h(28.0).pl(28.0).pr(2.0).gap(6.0).center_y().radius(6.0)
-                .child(text(format!("Remove {}?", a.label)).role("alert").font(BODY).color(p.text).grow(1.0).shrink().truncate())
-                .child(button("Cancel", ButtonVariant::GhostMuted).on_press_tx(|s: &mut App, tx: &mut Tx| s.connect_event(Event::RemoveCancelled, tx)).build(kit(p)))
-                .child(button("Remove", ButtonVariant::Neutral).on_press_tx(move |s: &mut App, tx: &mut Tx| s.connect_event(Event::RemoveConfirmed(confirm.clone()), tx)).build(kit(p))));
+                .child(text(opencode_i18n::t!("dialog.provider.accounts.removeConfirm", account = a.label)).role("alert").font(BODY).color(p.text).grow(1.0).shrink().truncate())
+                .child(button(opencode_i18n::t!("common.cancel"), ButtonVariant::GhostMuted).on_press_tx(|s: &mut App, tx: &mut Tx| s.connect_event(Event::RemoveCancelled, tx)).build(kit(p)))
+                .child(button(opencode_i18n::t!("dialog.provider.accounts.remove"), ButtonVariant::Neutral).on_press_tx(move |s: &mut App, tx: &mut Tx| s.connect_event(Event::RemoveConfirmed(confirm.clone()), tx)).build(kit(p))));
             continue;
         }
         if *action == AccountAction::Renaming(a.id.clone()) {
             let credential = a.id.clone();
-            let field = TextInput::new(&o.rename).label("Account name").width(None).plain().spellcheck(s.settings.spellcheck)
+            let field = TextInput::new(&o.rename).label(opencode_i18n::t!("settings.providers.account.name")).width(None).plain().spellcheck(s.settings.spellcheck)
                 .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").rename)
                 .on_submit(move |s: &mut App, tx: &mut Tx| rename_account(s, &credential, tx))
                 .on_key(|s: &mut App, ev, tx| {
@@ -543,13 +543,13 @@ fn accounts(s: &App, p: &Pal) -> El {
             .child(el().size(16.0, 16.0).center().children(is_active.then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon))))
             .child(text(a.label.clone()).font(BODY).color(p.text).shrink().truncate());
         if a.status.is_some() {
-            line = line.child(spacer()).child(text("Needs sign-in").font(BODY).color(p.warning));
+            line = line.child(spacer()).child(text(opencode_i18n::t!("dialog.provider.needsSignIn")).font(BODY).color(p.warning));
         }
         if !busy {
             line = line.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_account(s, &pick, tx));
         }
         let menu_id = a.id.clone();
-        let options = el().key(format!("account-options-{}", a.id)).role("button").label(format!("{} options", a.label)).size(24.0, 24.0).mr(4.0).radius(4.0).center()
+        let options = el().key(format!("account-options-{}", a.id)).role("button").label(opencode_i18n::t!("dialog.provider.accounts.options", account = a.label)).size(24.0, 24.0).mr(4.0).radius(4.0).center()
             .hover(p.hover).press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -565,10 +565,10 @@ fn accounts(s: &App, p: &Pal) -> El {
         rows = rows.child(account_row);
     }
     let can_add = !busy && o.dialog.provider.as_ref().and_then(|p| p.step.connect()).and_then(conn::catalog).is_some_and(|c| !c.methods.is_empty());
-    let mut add = row().key("provider-account-add").role("button").label("Add account").w_full().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(6.0)
+    let mut add = row().key("provider-account-add").role("button").label(opencode_i18n::t!("dialog.provider.accounts.add")).w_full().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(6.0)
         .hover(p.hover).press(p.pressed)
         .child(el().size(16.0, 16.0).center().child(icon(&ic::PLUS, 16.0).color(p.icon_muted)))
-        .child(text("Add account").font(BODY).color(p.muted));
+        .child(text(opencode_i18n::t!("dialog.provider.accounts.add")).font(BODY).color(p.muted));
     add = if can_add { add.on_press_tx(|s: &mut App, tx: &mut Tx| s.connect_event(Event::AccountAdd, tx)) } else { add.opacity(0.5) };
     col().key("connect-accounts").w_full().gap(2.0)
         .child(el().h(0.5).mt(4.0).mb(6.0).mx(-6.0).fill(p.border_muted))
@@ -584,14 +584,14 @@ fn rename_account(s: &mut App, credential: &str, tx: &mut Tx) {
         return;
     }
     if !s.can_write() {
-        return crate::status_toast::fail(s, "Request failed", crate::jobs::read_only());
+        return crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), crate::jobs::read_only());
     }
     let (credential, dir) = (credential.to_owned(), s.connect_dir().map(str::to_owned));
     s.job(move |srv| {
         let r = srv.credential_rename(&credential, &label);
         Box::new(move |s: &mut App, _: &mut Tx| {
             if let Err(e) = r {
-                crate::status_toast::fail(s, "Request failed", e);
+                crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
             }
             s.sync_catalogs(dir, |_, _, _| {});
         }) as crate::jobs::Apply
@@ -603,7 +603,7 @@ fn account_menu(p: &Pal, id: &str) -> El {
     let item = |key: &str, label: &str| row().key(key.to_owned()).role("menuitem").label(label.to_owned()).w_full().h(28.0).px(8.0).center_y().radius(4.0)
         .hover(p.hover).child(text(label.to_owned()).font(BODY).color(p.text));
     widgets::overlay(p, col()).key("account-menu").pin(None, Some(28.0), Some(4.0), None).w(160.0).padding(4.0).radius(8.0).fill(p.bg_base).raise()
-        .child(item("account-rename", "Rename").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .child(item("account-rename", opencode_i18n::t!("common.rename")).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             let label = s.integration_of(s.connect_dir(), &provider_id(s))
                 .and_then(|i| i.connections.iter().find(|c| c.id == rename).map(|c| c.label.clone())).unwrap_or_default();
             s.connect_event(Event::RenameStarted(rename.clone()), tx);
@@ -613,7 +613,7 @@ fn account_menu(p: &Pal, id: &str) -> El {
                 o.rename.focused = true;
             }
         }))
-        .child(item("account-remove", "Remove").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .child(item("account-remove", opencode_i18n::t!("dialog.provider.accounts.remove")).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             s.connect_event(Event::RemovePrompted(remove.clone()), tx);
             if let Some(o) = s.connect.open.as_mut() { o.menu = None; }
         }))
@@ -657,7 +657,7 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
     };
     let mut scroll = col().key("first-provider-model-scroll").w_full().grow(1.0).shrink().min_h(0.0).gap(12.0).pb(16.0)
         .scroll(ScrollSpec { stick_bottom: false })
-        .child(row().key("available-models-heading").gap(6.0).center_y().child(text("Available models").font(LABEL).color(p.text)));
+        .child(row().key("available-models-heading").gap(6.0).center_y().child(text(opencode_i18n::t!("provider.connect.models.available")).font(LABEL).color(p.text)));
     if groups.len() == 1 {
         scroll = scroll.child(list(&groups[0].1));
     } else {
@@ -683,11 +683,11 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
     let pick = selected.clone();
     let footer = row().key("first-provider-model-footer").w_full().h(60.0).px(16.0).center_y()
         .child(spacer())
-        .child(button("Continue", ButtonVariant::Contrast).disabled(!can)
+        .child(button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(!can)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| s.connect_event(Event::ModelConfirmed(pick.clone()), tx)).build(kit(p)).key("connect-continue"));
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0)
         .child(col().w_full().grow(1.0).shrink().min_h(0.0).px(20.0)
-            .child(text("Choose a model to start with. You can switch models anytime.").font(BODY).color(p.muted).pb(20.0))
+            .child(text(opencode_i18n::t!("provider.connect.models.description")).font(BODY).color(p.muted).pb(20.0))
             .child(scroll))
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(footer)

@@ -235,7 +235,7 @@ impl Form {
     pub fn options(&self) -> Vec<(String, String, Option<String>)> {
         let f = &self.step.field;
         if f.kind == FieldKind::Boolean {
-            let rows = vec![("true".to_owned(), "Yes".to_owned(), None), ("false".to_owned(), "No".to_owned(), None)];
+            let rows = vec![("true".to_owned(), opencode_i18n::t!("provider.connect.form.yes").to_owned(), None), ("false".to_owned(), opencode_i18n::t!("provider.connect.form.no").to_owned(), None)];
             return if f.default == Some(Value::Bool(false)) { rows.into_iter().rev().collect() } else { rows };
         }
         f.options.iter().map(|o| (o.value.clone(), o.label.clone(), o.description.clone())).collect()

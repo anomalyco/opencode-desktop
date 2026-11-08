@@ -51,6 +51,7 @@
   "rune.composer.shell.noQueue.description": "Press Enter to run it now.",
   "rune.composer.starting": "Starting a session…",
   "rune.composer.uploading": "Uploading…",
+  "rune.connect.form.placeholder": "Type your answer",
   "rune.diagram.openFullSize": "Open full size",
   "rune.diagram.title": "Diagram",
   "rune.dialog.images": "Images",
