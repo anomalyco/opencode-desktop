@@ -13,6 +13,7 @@ mod compaction_fold;
 mod flights;
 mod genui;
 mod history;
+mod home_hold;
 mod layout_switch;
 mod composer_grow;
 mod diagram;

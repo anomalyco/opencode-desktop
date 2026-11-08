@@ -324,7 +324,8 @@ impl App {
             _ => opencode_i18n::t!("command.category.session"),
         };
         // A project's tasks live in its inbox.
-        let roots = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| s.archived.is_some() == archived);
+        // Recent sessions leave out an automation's (Flow's); a query still finds them.
+        let roots = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| s.archived.is_some() == archived && !(q.is_empty() && crate::view::is_automation(&s.title)));
         let sessions = roots.map(|s| Entry {
             key: format!("session:{}", s.id),
             action: Action::Session(s.id.clone()),
