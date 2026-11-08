@@ -256,7 +256,11 @@ impl Server {
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
-                req.call()
+                // `DELETE /api/worktree` names the worktree in its body.
+                match body {
+                    Some(b) => req.header("Content-Type", "application/json").force_send_body().send(b.to_string().as_bytes()),
+                    None => req.call(),
+                }
             }
             "PATCH" => {
                 let mut req = agent.patch(url).header("Content-Type", "application/json");

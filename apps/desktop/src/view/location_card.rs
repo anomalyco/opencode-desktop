@@ -14,10 +14,12 @@ use crate::jobs::Apply;
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
-/// Each folder's branch, once read (`None` for a folder that isn't on one).
+/// Each folder's branch, once read (`None` for a folder that isn't on one), and the recovery
+/// dialog for a new worktree the session didn't move into.
 #[derive(Default)]
 pub struct Location {
     branches: HashMap<String, Option<String>>,
+    pub(super) recovery: Option<super::move_recovery::Recovery>,
 }
 
 /// Opens the location card for the routed session, and reads the branches it shows: its
@@ -205,7 +207,8 @@ fn move_menu(s: &App, project: &opencode_kit::model::Project, dir: &str, info: &
 }
 
 /// Moves session `sid` where `pick` says: the project's root, a new worktree made from `dir`,
-/// or an existing worktree. A failure says so in a toast.
+/// or an existing worktree. A failure says so in a toast, or for a worktree it made, in the
+/// recovery dialog.
 fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: Option<&str>, pick: &str) {
     let (sid, dir, project) = (sid.to_owned(), dir.to_owned(), project.unwrap_or_default().to_owned());
     let target = match pick {
@@ -218,13 +221,13 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
     }
     s.job(move |srv| {
         let moved = match target {
-            Some(t) => srv.move_session(&sid, &t),
-            None => srv.create_worktree(&project, &dir, None).and_then(|t| srv.move_session(&sid, &t)),
+            Some(t) => srv.move_session(&sid, &t).map(|_| None),
+            None => srv.create_worktree(&project, &dir, None).map(Some),
         };
-        Box::new(move |s: &mut App, _tx: &mut Tx| {
-            if let Err(e) = moved {
-                crate::status_toast::fail(s, t!("plugin.details.move.failed"), e);
-            }
+        Box::new(move |s: &mut App, _tx: &mut Tx| match moved {
+            Ok(Some(created)) => super::move_recovery::move_into(s, sid, project, created),
+            Ok(None) => {}
+            Err(e) => crate::status_toast::fail(s, t!("plugin.details.move.failed"), e),
         }) as Apply
     });
 }

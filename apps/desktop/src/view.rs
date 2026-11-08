@@ -24,6 +24,7 @@ mod header_fit;
 mod home;
 pub(crate) mod location;
 pub(crate) mod location_card;
+pub(crate) mod move_recovery;
 mod inbox;
 mod narrow;
 mod narrow_story;
@@ -135,6 +136,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
+    inner = inner.children(move_recovery::view(s, p));
     inner = inner.children(crate::plugin_host::dialog_view(s, p));
     inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));
