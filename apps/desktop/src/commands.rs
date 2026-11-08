@@ -368,10 +368,10 @@ rune_register::register!(COMMANDS: Cmd = [
     })
     .keys(Bind::FocusInput)
     .when(App::has_composer),
-    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, false, tx)).keys(Bind::SessionNext),
-    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, false, tx)).keys(Bind::SessionPrev),
-    Cmd::new("previous-unread", opencode_i18n::key!("command.session.previous.unseen"), |s, tx| s.select_adjacent(-1, true, tx)).keys(Bind::UnseenPrev),
-    Cmd::new("next-unread", opencode_i18n::key!("command.session.next.unseen"), |s, tx| s.select_adjacent(1, true, tx)).keys(Bind::UnseenNext),
+    Cmd::new("next-tab", opencode_i18n::key!("command.session.next"), |s, tx| s.select_adjacent(1, tx)).keys(Bind::SessionNext),
+    Cmd::new("previous-tab", opencode_i18n::key!("command.session.previous"), |s, tx| s.select_adjacent(-1, tx)).keys(Bind::SessionPrev),
+    Cmd::new("previous-unread", opencode_i18n::key!("rune.command.tab.needsYou.previous"), |s, tx| s.select_needs_you(-1, tx)).keys(Bind::UnseenPrev),
+    Cmd::new("next-unread", opencode_i18n::key!("rune.command.tab.needsYou.next"), |s, tx| s.select_needs_you(1, tx)).keys(Bind::UnseenNext),
     Cmd::new("close-tab", opencode_i18n::key!("command.tab.close"), |s, tx| {
         if let Some(id) = s.current_tab() {
             s.close_tab(&id, tx);
