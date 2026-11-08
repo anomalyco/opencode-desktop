@@ -48,10 +48,10 @@ impl Kind {
     /// Desktop's titles (`notification.session.responseReady.title` and friends).
     pub fn title(self) -> &'static str {
         match self {
-            Kind::Agent => "Response ready",
-            Kind::Permission => "Permission required",
-            Kind::Question => "Question requires an answer",
-            Kind::Error => "Session error",
+            Kind::Agent => opencode_i18n::t!("notification.session.responseReady.title"),
+            Kind::Permission => opencode_i18n::t!("notification.permission.title"),
+            Kind::Question => opencode_i18n::t!("notification.question.title"),
+            Kind::Error => opencode_i18n::t!("notification.session.error.title"),
         }
     }
 }
@@ -206,7 +206,7 @@ fn decide(app: &App, ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'stati
                 return None;
             }
             let title = app.tab_title(sid)?;
-            Some((Kind::Error, Kind::Error.title(), sid.to_owned(), if title.is_empty() { "An error occurred".to_owned() } else { title }))
+            Some((Kind::Error, Kind::Error.title(), sid.to_owned(), if title.is_empty() { opencode_i18n::t!("notification.session.error.fallbackDescription").to_owned() } else { title }))
         }
         "permission.asked" | "form.created" => {
             let (kind, title, asker) = request(ty, data, sid)?;
@@ -233,7 +233,7 @@ fn request(ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, Str
     }
     match form["metadata"]["kind"].as_str()? {
         "question" => Some((Kind::Question, Kind::Question.title(), session)),
-        "mcp-elicitation" => Some((Kind::Question, "Input requested", session)),
+        "mcp-elicitation" => Some((Kind::Question, opencode_i18n::t!("notification.elicitation.title"), session)),
         "websearch.provider" => Some((Kind::Permission, Kind::Permission.title(), session)),
         _ => None,
     }

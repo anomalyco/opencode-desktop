@@ -1,4 +1,4 @@
-use super::link_tip::{NOWHERE, label};
+use super::link_tip::label;
 
 const DIR: &str = "/home/alex/proj";
 const HOME: &str = "/home/alex";
@@ -26,7 +26,7 @@ fn files_show_their_path_in_the_session_folder() {
 
 #[test]
 fn a_bare_word_that_isnt_a_file_points_nowhere() {
-    assert_eq!(tip("link").as_deref(), Some(NOWHERE));
+    assert_eq!(tip("link").as_deref(), Some(opencode_i18n::t!("rune.files.link.nowhere")));
     assert_eq!(tip("Makefile").as_deref(), Some("Makefile"));
     assert_eq!(label("link", "", DIR, HOME, None).as_deref(), Some("link"), "before the file list loads, a click decides");
 }

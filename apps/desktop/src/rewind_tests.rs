@@ -77,7 +77,7 @@ fn rewind_updates_timeline_immediately_restores_prompt_and_offers_toast_undo() {
     assert_eq!(h.rt.state.session(&h.sid).unwrap().revert.as_deref(), Some(last_id.as_str()));
     assert_eq!(h.rt.state.composer.text, last_body);
     assert!(!shows_text(&h.rt, &last_body) || h.rt.elements().into_iter().all(|e| e.exiting || !e.path.contains(&format!("u-{last_id}"))));
-    assert!(shows_text(&h.rt, "Rewound"));
+    assert!(shows_text(&h.rt, "Reverted"));
     assert!(matches!(
         h.writes.try_recv(),
         Ok(Write::RevertStage { session, message, settle: true }) if session == h.sid && message == last_id

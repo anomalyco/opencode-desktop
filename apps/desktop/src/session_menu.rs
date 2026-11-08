@@ -59,7 +59,7 @@ pub struct Menus {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     pub id: &'static str,
-    pub title: &'static str,
+    pub title: String,
     pub enabled: bool,
     /// Destructive: Desktop's critical ink.
     pub danger: bool,
@@ -71,8 +71,13 @@ pub enum Line {
     Sep,
 }
 
-fn item(id: &'static str, title: &'static str, enabled: bool) -> Line {
-    Line::Item(Item { id, title, enabled, danger: false })
+fn item(id: &'static str, title: impl Into<String>, enabled: bool) -> Line {
+    Line::Item(Item { id, title: title.into(), enabled, danger: false })
+}
+
+/// A word with Desktop's trailing ellipsis for an item that asks first ("Delete…").
+fn asks(word: &str) -> String {
+    format!("{word}\u{2026}")
 }
 
 /// The menu for `t`, as Desktop lists it. A tab's Rename and Delete wait for its session to
@@ -85,29 +90,29 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
         Spot::Tab => {
             let at = s.tabs.iter().position(|x| x.id == t.id);
             let close = [
-                item("close", "Close tab", true),
-                item("close-others", "Close other tabs", s.tabs.iter().any(|x| x.id != t.id)),
+                item("close", opencode_i18n::t!("common.closeTab"), true),
+                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), s.tabs.iter().any(|x| x.id != t.id)),
                 // Side tabs run down the sidebar (`TabCloseMenuItems`).
-                item("close-right", if s.tab_layout().has_sidebar() { "Close tabs below" } else { "Close tabs to the right" }, at.is_some_and(|i| i + 1 < s.tabs.len())),
+                item("close-right", if s.tab_layout().has_sidebar() { opencode_i18n::t!("common.closeTabsBelow") } else { opencode_i18n::t!("common.closeTabsToRight") }, at.is_some_and(|i| i + 1 < s.tabs.len())),
             ];
             // A draft has no session to rename or delete: only the close items (`DraftTabItem`).
             if draft {
                 return close.into();
             }
-            std::iter::once(item("rename", "Rename", known.is_some()))
+            std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known.is_some()))
                 .chain(close)
-                .chain([Line::Sep, Line::Item(Item { id: "delete", title: "Delete session…", enabled: known.is_some(), danger: true })])
+                .chain([Line::Sep, Line::Item(Item { id: "delete", title: asks(opencode_i18n::t!("session.delete.title")), enabled: known.is_some(), danger: true })])
                 .collect()
         }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
-        Spot::Row | Spot::Header => vec![item("rename", "Rename", true), item("export", "Export…", true), Line::Sep, item("delete", "Delete…", true)],
+        Spot::Row | Spot::Header => vec![item("rename", opencode_i18n::t!("common.rename"), true), item("export", asks(opencode_i18n::t!("common.export")), true), Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), true)],
     }
 }
 
 /// `lines` as the menu that shows them.
 pub fn menu(lines: &[Line]) -> Menu {
-    lines.iter().fold(Menu::new("Session"), |m, l| match l {
-        Line::Item(i) => m.item(popup::Item::new(i.id, i.title).enabled(i.enabled).danger(i.danger)),
+    lines.iter().fold(Menu::new(opencode_i18n::t!("command.category.session")), |m, l| match l {
+        Line::Item(i) => m.item(popup::Item::new(i.id, i.title.clone()).enabled(i.enabled).danger(i.danger)),
         Line::Sep => m.separator(),
     })
 }

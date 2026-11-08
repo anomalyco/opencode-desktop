@@ -240,7 +240,7 @@ impl App {
                     self.close_mcp_detail();
                 }
             }
-            Settled::TimedOut => crate::status_toast::fail(self, "Request failed", format!("{name} took too long to respond")),
+            Settled::TimedOut => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), format!("{name} took too long to respond")),
             // The open error view shows the server's new failure itself.
             Settled::Failed { error, server: true } if shown => {
                 if let Some(Detail::Open { error: e, .. }) = self.mcp.open.as_mut().map(|o| &mut o.detail) {
@@ -249,7 +249,7 @@ impl App {
             }
             Settled::Failed { error, server } => {
                 let message = if server { format!("{name}: {error}") } else { error };
-                crate::status_toast::fail(self, "Request failed", message);
+                crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), message);
             }
         }
         self.mcp_synced(dir, tx);

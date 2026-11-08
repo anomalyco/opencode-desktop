@@ -19,12 +19,11 @@ use crate::palette::Pal;
 use crate::view::UI;
 use crate::{App, Route, Source};
 
-pub const LABEL: &str = "Move to background";
+
 /// The hint's accessible label: "Press ⌃B to move running work to the background".
 pub fn hint_label() -> String {
-    format!("Press {} to move running work to the background", crate::keymap::Bind::Background.label())
+    opencode_i18n::t!("session.background.moveInline", keybind = crate::keymap::Bind::Background.label())
 }
-pub const FAILED: &str = "Request failed";
 const HINT_H: f32 = 22.0;
 
 #[derive(Default)]
@@ -149,7 +148,7 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.move_to_background(tx);
         })
-        .child(text(LABEL).font(UI).color(p.faint))
+        .child(text(opencode_i18n::t!("session.background.moveRunning")).font(UI).color(p.faint))
         .children(crate::keymap::Bind::Background.keycaps().iter().map(|k| crate::queue::keycap(p, &k.to_uppercase())));
     Some(hint)
 }

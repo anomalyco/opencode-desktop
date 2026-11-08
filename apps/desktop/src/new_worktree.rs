@@ -403,8 +403,8 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
     row()
         .key(TRIGGER)
         .role("button")
-        .label("Choose branch")
-        .help("Choose base branch").help_keys(Bind::BranchChoose.keycaps())
+        .label(opencode_i18n::t!("rune.branch.choose"))
+        .help(opencode_i18n::t!("command.session.branch.choose")).help_keys(Bind::BranchChoose.keycaps())
         .hover_group()
         .h(28.0)
         .max_w(220.0)
@@ -448,7 +448,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                 .shrink()
                 .min_w(0.0)
                 .color(p.text)
-                .placeholder("Search branches", p.faint)
+                .placeholder(opencode_i18n::t!("session.new.workspace.branch.search.placeholder"), p.faint)
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.new_worktree.picker.search)
                 .on_input_change(App::branch_search_changed)
@@ -457,7 +457,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         .children((!picker.search.text.is_empty()).then(|| {
             el().key("branch-picker-clear")
                 .role("button")
-                .label("Clear filter")
+                .label(opencode_i18n::t!("ui.list.clearFilter"))
                 .size(20.0, 20.0)
                 .radius(4.0)
                 .center()
@@ -471,7 +471,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
     let mut list = col().key("branch-picker-rows").w_full().padding(4.0);
     let list_h = 8.0 + if rows.is_empty() { 36.0 } else { 28.0 * rows.len() as f32 };
     if rows.is_empty() {
-        let words = if picker.failed { "Couldn't load branches" } else { "No results found" };
+        let words = if picker.failed { opencode_i18n::t!("rune.branch.loadFailed") } else { opencode_i18n::t!("palette.empty") };
         list = list.child(row().key("branch-picker-empty").h(36.0).mx(4.0).px(8.0).py(4.0).center_y().child(text(words).font(UI).color(p.faint)));
     }
     for b in &rows {
@@ -506,7 +506,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
     let surface = col()
         .key("branch-picker")
         .role("dialog")
-        .label("Choose branch")
+        .label(opencode_i18n::t!("rune.branch.choose"))
         .w(243.0)
         .radius(8.0)
         .fill(p.layer1)

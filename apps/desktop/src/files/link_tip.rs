@@ -19,9 +19,6 @@ thread_local! {
     static SCOPE: RefCell<Scope> = RefCell::default();
 }
 
-/// The words a bare-word link that isn't a file shows.
-pub const NOWHERE: &str = "This link doesn't point anywhere";
-
 /// Before the view builds: the folder links in the open session resolve against.
 pub fn prepare(s: &App) {
     let sid = s.active_session_id();

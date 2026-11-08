@@ -454,10 +454,10 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .motion_intent(rune::MotionIntent::CUT)
         .preserve_focus_on_press(true);
     b = match &d.phase {
-        Phase::Idle | Phase::Failed(_) => b.label("Dictate with Hex").help("Dictate with Hex").help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
-        Phase::Finishing { .. } => b.label("Finishing dictation").fill(p.layer2).child(activity_ring_sized(p, 14.0)),
+        Phase::Idle | Phase::Failed(_) => b.label(opencode_i18n::t!("rune.command.prompt.dictate")).help(opencode_i18n::t!("rune.command.prompt.dictate")).help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
+        Phase::Finishing { .. } => b.label(opencode_i18n::t!("rune.dictation.finishing")).fill(p.layer2).child(activity_ring_sized(p, 14.0)),
         // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
-        Phase::Starting { .. } | Phase::Listening { .. } => b.label("Stop dictation").help("Stop dictation").help_keys(crate::keymap::Bind::Dictate.keycaps()).fill(p.layer2)
+        Phase::Starting { .. } | Phase::Listening { .. } => b.label(opencode_i18n::t!("rune.dictation.stop")).help(opencode_i18n::t!("rune.dictation.stop")).help_keys(crate::keymap::Bind::Dictate.keycaps()).fill(p.layer2)
             .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
     };
     if !finishing {
@@ -475,7 +475,7 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
 pub fn status(s: &App, p: &Pal) -> Option<El> {
     let line = row().key("dictation-status").px(16.0).pb(12.0).gap(8.0).center_y();
     match &s.dictation.phase {
-        Phase::Starting { slow: true, .. } => Some(line.child(activity_ring_sized(p, 12.0)).child(text("Preparing dictation…").font(UI_SMALL).color(p.muted))),
+        Phase::Starting { slow: true, .. } => Some(line.child(activity_ring_sized(p, 12.0)).child(text(opencode_i18n::t!("rune.dictation.preparing")).font(UI_SMALL).color(p.muted))),
         Phase::Listening { heard: Some(w), .. } | Phase::Finishing { heard: Some(w), .. } => heard_line(line, p, w),
         Phase::Failed(why) => {
             // In a narrow composer the reason gives way, so its fix stays whole.

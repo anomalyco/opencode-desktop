@@ -252,8 +252,8 @@ pub fn sidebar_pill(s: &App, p: &Pal) -> Option<El> {
         row()
             .key("updater-ready-pill")
             .role("button")
-            .label("Restart to update")
-            .help(format!("Restart to apply {version}"))
+            .label(opencode_i18n::t!("rune.updater.restart"))
+            .help(opencode_i18n::t!("rune.updater.restartApply", version = version))
             .mx(10.0)
             .mb(10.0)
             .h(32.0)
@@ -268,8 +268,8 @@ pub fn sidebar_pill(s: &App, p: &Pal) -> Option<El> {
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(|s: &mut App, tx: &mut Tx| s.updater.install(tx))
             .child(el().size(6.0, 6.0).radius(3.0).fill(p.bg_accent))
-            .child(text("Update ready").font(UI).color(p.text).grow(1.0).shrink().truncate_fade())
-            .child(text("Restart").font(UI_MED).color(p.muted)),
+            .child(text(opencode_i18n::t!("plugin.updater.web.ready.title")).font(UI).color(p.text).grow(1.0).shrink().truncate_fade())
+            .child(text(opencode_i18n::t!("plugin.updater.dialog.restart")).font(UI_MED).color(p.muted)),
     )
 }
 
@@ -279,13 +279,13 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
     let ch = if s.updater.channel.is_empty() { build_channel() } else { &s.updater.channel };
     let (about, action) = match &s.updater.state {
         UpdateState::Hidden => return None,
-        UpdateState::Idle => (format!("Version {ver} ({ch}). Checks automatically every 10 minutes."), Some(("Check for updates", false, false))),
-        UpdateState::Checking => (format!("Version {ver} ({ch}). Checking for updates…"), Some(("Checking…", false, true))),
-        UpdateState::Downloading { version } => (format!("Downloading {version}…"), Some(("Downloading…", false, true))),
-        UpdateState::Ready { version } => (format!("{version} is verified and ready to install."), Some(("Restart to update", true, false))),
-        UpdateState::UpToDate => (format!("Version {ver} ({ch}) is up to date."), Some(("Check for updates", false, false))),
-        UpdateState::Failed(err) => (format!("Version {ver} ({ch}). {err}"), Some(("Try again", false, false))),
-        UpdateState::Installing { version } => (format!("Installing {version}…"), Some(("Installing…", false, true))),
+        UpdateState::Idle => (opencode_i18n::t!("rune.updater.idle", version = ver, channel = ch), Some((opencode_i18n::t!("plugin.updater.check.title"), false, false))),
+        UpdateState::Checking => (opencode_i18n::t!("rune.updater.checking", version = ver, channel = ch), Some((opencode_i18n::t!("plugin.updater.action.checking"), false, true))),
+        UpdateState::Downloading { version } => (opencode_i18n::t!("rune.updater.downloading", version = version), Some((opencode_i18n::t!("plugin.updater.action.downloading"), false, true))),
+        UpdateState::Ready { version } => (opencode_i18n::t!("rune.updater.ready", version = version), Some((opencode_i18n::t!("rune.updater.restart"), true, false))),
+        UpdateState::UpToDate => (opencode_i18n::t!("rune.updater.upToDate", version = ver, channel = ch), Some((opencode_i18n::t!("plugin.updater.check.title"), false, false))),
+        UpdateState::Failed(err) => (opencode_i18n::t!("rune.updater.failed", version = ver, channel = ch, error = err), Some((opencode_i18n::t!("common.retry"), false, false))),
+        UpdateState::Installing { version } => (opencode_i18n::t!("rune.updater.installing", version = version), Some((opencode_i18n::t!("plugin.updater.action.installing"), false, true))),
     };
     let btn = action.map(|(btn_label, is_ready, busy)| {
         let btn = row()
@@ -329,12 +329,12 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
                         .grow(1.0)
                         .shrink()
                         .gap(8.0)
-                        .child(text("Automatic updates").font(UI_MED).color(p.text))
+                        .child(text(opencode_i18n::t!("rune.updater.automatic")).font(UI_MED).color(p.text))
                         .child(text(about).key("updater-about").font(BODY).color(p.muted).wrap()),
                 )
                 .children(btn),
         );
-    Some(col().key("updater-section").w_full().gap(16.0).child(text("Updates").font(SECTION).color(p.text)).child(card))
+    Some(col().key("updater-section").w_full().gap(16.0).child(text(opencode_i18n::t!("plugin.updater.section.title")).font(SECTION).color(p.text)).child(card))
 }
 
 rune_register::register!(crate::commands::COMMANDS: Cmd = [

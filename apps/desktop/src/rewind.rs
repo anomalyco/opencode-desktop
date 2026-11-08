@@ -4,7 +4,7 @@
 //!
 //! Acting updates the timeline and composer on the press: messages from the boundary onward
 //! leave on the timeline's growth spring, the rewound prompt returns to the composer, and the
-//! `"Rewound"` toast offers `"Undo"`. If the server refuses, the timeline, running state and
+//! `"Reverted"` toast offers `"Undo"`. If the server refuses, the timeline, running state and
 //! composer draft roll back and [`crate::status_toast::fail`] reports why.
 
 use std::collections::HashMap;
@@ -233,7 +233,7 @@ impl App {
         let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
         if !fixture && !self.write(Write::RevertStage { session: session.to_owned(), message: message_id.to_owned(), settle: true }) {
             let why = self.status.clone();
-            crate::status_toast::fail(self, "Request failed", why);
+            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
             return;
         }
 
@@ -296,7 +296,7 @@ impl App {
         let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
         if !fixture && !self.write(Write::RevertClear(session.clone())) {
             let why = self.status.clone();
-            crate::status_toast::fail(self, "Request failed", why);
+            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
             return false;
         }
         self.set_session_revert(&session, None);
@@ -325,7 +325,7 @@ impl App {
         self.redo_revert(tx)
     }
 
-    /// `Undo` on the `"Rewound"` toast: bound to `undo.session` and `undo.prior_revert`, even
+    /// `Undo` on the `"Reverted"` toast: bound to `undo.session` and `undo.prior_revert`, even
     /// after switching tabs, and puts back the unsent draft that was in the composer.
     pub fn undo_rewind(&mut self, undo: UndoRewind, _tx: &mut Tx) {
         let current_revert = self.session(&undo.session).and_then(|i| i.revert.clone());
@@ -338,7 +338,7 @@ impl App {
             };
             if !self.write(w) {
                 let why = self.status.clone();
-                crate::status_toast::fail(self, "Request failed", why);
+                crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
                 return;
             }
         }
@@ -482,13 +482,13 @@ pub fn failed(s: &mut App, error: &str) -> bool {
                 s.apply_draft(&sid, draft);
             }
         }
-        crate::status_toast::fail(s, "Request failed", why);
+        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
         return true;
     }
 
     if let Some(sid) = head.strip_prefix("POST /api/session/").and_then(|p| p.strip_suffix("/fork")) {
         s.fork.clear_session(sid);
-        crate::status_toast::fail(s, "Request failed", why);
+        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
         return true;
     }
     false
@@ -509,7 +509,7 @@ pub fn user_menu(s: &App, p: &Pal, session: &str, id: &str, pending: bool) -> Op
     let open = s.rewind.menu_is(session, id);
     let (sid, mid) = (session.to_owned(), id.to_owned());
     Some(
-        session_view::timeline::user_menu_button(p, menu_key(id), "More actions", open)
+        session_view::timeline::user_menu_button(p, menu_key(id), opencode_i18n::t!("ui.message.moreActions"), open)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_message_menu(&sid, &mid, tx))
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(if open { p.icon } else { p.icon_muted })),
     )
@@ -525,24 +525,24 @@ fn message_menu(s: &App, session: &str, mid: &str) -> Option<crate::popup::Menu>
     let pending = delivered.is_none();
     let body = delivered.or_else(|| pending_body(s, session, mid))?;
     let root = s.can_rewind_session(session);
-    let when = if pending { "Pending".to_owned() } else { sent_label(mid, s.now_ms).unwrap_or_default() };
-    let mut menu = Menu::new("More actions").above().align(Align::End).min_width(160.0);
+    let when = if pending { opencode_i18n::t!("ui.message.pending").to_owned() } else { sent_label(mid, s.now_ms).unwrap_or_default() };
+    let mut menu = Menu::new(opencode_i18n::t!("ui.message.moreActions")).above().align(Align::End).min_width(160.0);
     if !when.is_empty() {
         menu = menu.group(when).separator();
     }
     if pending {
-        menu = menu.item(Item::new("queue", "Move to queue").icon(&ic::BULLET_LIST));
+        menu = menu.item(Item::new("queue", opencode_i18n::t!("ui.message.moveToQueue")).icon(&ic::BULLET_LIST));
     }
-    menu = menu.item(Item::new("copy", "Copy message").icon(&ic::OUTLINE_COPY).enabled(!body.trim().is_empty()));
+    menu = menu.item(Item::new("copy", opencode_i18n::t!("ui.message.copyMessage")).icon(&ic::OUTLINE_COPY).enabled(!body.trim().is_empty()));
     if pending {
-        return Some(menu.separator().item(Item::new("delete", "Delete").icon(&ic::OUTLINE_TRASH).danger(true)));
+        return Some(menu.separator().item(Item::new("delete", opencode_i18n::t!("ui.message.deletePending")).icon(&ic::OUTLINE_TRASH).danger(true)));
     }
-    menu = menu.item(Item::new("fork", "Fork from here").icon(&ic::FORK).enabled(root));
+    menu = menu.item(Item::new("fork", opencode_i18n::t!("ui.message.forkMessage")).icon(&ic::FORK).enabled(root));
     if !root {
         return Some(menu);
     }
     let latest = s.visible_user_ids(session).last().is_some_and(|l| l == mid);
-    let revert = if latest { Item::new("revert", "Undo").icon(&ic::OUTLINE_UNDO) } else { Item::new("revert", "Revert to here").icon(&ic::RESET) };
+    let revert = if latest { Item::new("revert", opencode_i18n::t!("ui.message.undoMessage")).icon(&ic::OUTLINE_UNDO) } else { Item::new("revert", opencode_i18n::t!("ui.message.revertMessage")).icon(&ic::RESET) };
     Some(menu.separator().item(revert))
 }
 

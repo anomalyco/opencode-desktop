@@ -146,7 +146,7 @@ impl Oracle {
         if let Some(last) = self.last.take() {
             self.order(t, &last, s, sim, &words);
             let toast_now = s.toast.as_ref().map(|x| x.0);
-            let failed_toast = s.toast.as_ref().is_some_and(|x| x.1 == crate::send_failed::TITLE) && toast_now != self.last_toast;
+            let failed_toast = s.toast.as_ref().is_some_and(|x| x.1 == opencode_i18n::t!("prompt.toast.promptSendFailed.title")) && toast_now != self.last_toast;
             for id in &last.prompts {
                 if !s.prompts.contains(id) && !s.queued.contains(id) {
                     self.vanished.insert(id.clone(), failed_toast);

@@ -197,7 +197,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     if !s.activity_open || items.is_empty() {
         return None;
     }
-    let name_of = |it: &Running| if it.agent.is_empty() { "Agent".to_owned() } else { model::capitalize(&it.agent) };
+    let name_of = |it: &Running| if it.agent.is_empty() { opencode_i18n::t!("ui.tool.agent.default").to_owned() } else { model::capitalize(&it.agent) };
     let ms_of = |it: &Running| (it.started > 0).then(|| s.run_clock() - it.started);
     let time_of = |it: &Running| ms_of(it).map(elapsed).unwrap_or_default();
     let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
@@ -257,7 +257,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let panel = col()
         .key("activity-panel")
         .role("menu")
-        .label("Subagents")
+        .label(opencode_i18n::t!("session.activity.section.subagents"))
         .above("activity-chip", 8.0)
         .w(natural.clamp(240.0, 360.0).ceil())
         .radius(10.0)

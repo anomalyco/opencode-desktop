@@ -2,7 +2,7 @@
 //! (`packages/ui/src/feedback/toast/toast.tsx`, `toast.css`), with instant entrance and exit
 //! (`docs/kit-design.md`).
 //!
-//! - [`rewound`]: `"Rewound"` with an `"Undo"` button, auto-closing after [`DURATION`] s unless
+//! - [`rewound`]: `"Reverted"` with an `"Undo"` button, auto-closing after [`DURATION`] s unless
 //!   hovered or dismissed.
 //! - [`say`]: a message that leaves after [`DURATION`] s.
 //! - [`fail`]: `"Request failed"` (or custom title) with the server's error message, staying until
@@ -56,7 +56,7 @@ pub struct StatusToast {
     armed: Option<u64>,
 }
 
-/// Shows `"Rewound"` with an `"Undo"` button bound to `undo`.
+/// Shows `"Reverted"` with an `"Undo"` button bound to `undo`.
 pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
     s.toast.next_id += 1;
     let id = s.toast.next_id;
@@ -64,7 +64,7 @@ pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
     s.toast.armed = None;
     s.toast.current = Some(Entry {
         id,
-        title: "Rewound".into(),
+        title: opencode_i18n::t!("session.rewind.toast.title").into(),
         description: None,
         action: Some(ToastAction::UndoRewind(undo)),
         icon: None,
@@ -104,11 +104,11 @@ pub fn fail_retry(s: &mut App, title: impl Into<String>, description: impl Into<
 /// stream stays in the debug bar, since the app retries those itself.
 pub fn from_server(s: &mut App, e: String) {
     if let Some(path) = e.strip_prefix("Saved session to ") {
-        let line = format!("Saved session to {path}");
-        return succeed(s, "Session exported", line);
+        let line = opencode_i18n::t!("toast.session.export.success.description", filename = path);
+        return succeed(s, opencode_i18n::t!("toast.session.export.success.title"), line);
     }
     let Some((call, why)) = e.split_once(": ") else {
-        return fail(s, crate::background::FAILED, e);
+        return fail(s, opencode_i18n::t!("common.requestFailed"), e);
     };
     let (method, path) = call.split_once(' ').unwrap_or(("", call));
     if method == "GET" || call == "events" {
@@ -125,14 +125,14 @@ fn write_title(method: &str, path: &str) -> &'static str {
     let last = path.rsplit('/').next().unwrap_or("");
     let session_only = path.strip_prefix("/api/session/").is_some_and(|rest| !rest.contains('/'));
     match (method, last) {
-        ("POST", "prompt" | "agent" | "model") => "Failed to send prompt",
-        ("POST", "command") => "Failed to send command",
-        ("POST", "shell") => "Failed to send shell command",
-        ("POST", "session") => "Failed to create session",
-        ("PATCH", _) if session_only => "Failed to rename session",
-        ("DELETE", _) if session_only => "Failed to delete session",
+        ("POST", "prompt" | "agent" | "model") => opencode_i18n::t!("prompt.toast.promptSendFailed.title"),
+        ("POST", "command") => opencode_i18n::t!("prompt.toast.commandSendFailed.title"),
+        ("POST", "shell") => opencode_i18n::t!("prompt.toast.shellSendFailed.title"),
+        ("POST", "session") => opencode_i18n::t!("prompt.toast.sessionCreateFailed.title"),
+        ("PATCH", _) if session_only => opencode_i18n::t!("rune.toast.renameFailed"),
+        ("DELETE", _) if session_only => opencode_i18n::t!("session.delete.failed.title"),
         // Desktop's ⌃B move, and anything else, says only this.
-        _ => crate::background::FAILED,
+        _ => opencode_i18n::t!("common.requestFailed"),
     }
 }
 
@@ -234,8 +234,8 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
     let close = row()
         .key("toast-dismiss")
         .role("button")
-        .label("Dismiss")
-        .help("Dismiss")
+        .label(opencode_i18n::t!("ui.common.dismiss"))
+        .help(opencode_i18n::t!("ui.common.dismiss"))
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
@@ -253,8 +253,8 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
 
     let action_btn = entry.action.as_ref().map(|action| {
         let (key, label) = match action {
-            ToastAction::UndoRewind(_) => ("toast-undo", "Undo".to_owned()),
-            ToastAction::Attach(_) => ("toast-retry", "Retry".to_owned()),
+            ToastAction::UndoRewind(_) => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
+            ToastAction::Attach(_) => ("toast-retry", opencode_i18n::t!("common.retry").to_owned()),
             ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
         };
         let action = action.clone();

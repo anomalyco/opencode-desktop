@@ -268,7 +268,7 @@ impl App {
         self.menus.on = None;
         self.activity_open = false;
         self.todo_open = false;
-        let options = FileDialogOptions { title: "Open project".into(), ..Default::default() };
+        let options = FileDialogOptions { title: opencode_i18n::t!("command.project.open").into(), ..Default::default() };
         tx.open_folder(options, move |s: &mut App, result, tx| match result {
             Ok(Some(path)) => s.open_project_dir(&path.to_string_lossy(), true, tx),
             Ok(None) => {
@@ -276,7 +276,7 @@ impl App {
                     s.composer.focused = true;
                 }
             }
-            Err(e) => crate::status_toast::fail(s, "Couldn't open the folder picker", e.to_string()),
+            Err(e) => crate::status_toast::fail(s, opencode_i18n::t!("rune.status.folderPickerFailed"), e.to_string()),
         });
     }
 

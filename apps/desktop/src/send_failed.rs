@@ -13,7 +13,7 @@ pub(crate) mod stories;
 pub use view::footer;
 
 const KEEP: usize = 32;
-pub const TITLE: &str = "Failed to send prompt";
+
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum State {
@@ -186,7 +186,7 @@ impl App {
             t.messages.push(Message::User { id: id.into(), text: sent.draft.text.clone() });
         }
         self.attach.echoes.retain(|e| e.1 != id);
-        crate::status_toast::fail(self, TITLE, sent.why);
+        crate::status_toast::fail(self, opencode_i18n::t!("prompt.toast.promptSendFailed.title"), sent.why);
     }
 
     pub(crate) fn retry_send(&mut self, id: &str) {

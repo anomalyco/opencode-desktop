@@ -30,63 +30,63 @@ pub const FINDER: &str = "finder";
 
 pub struct OpenApp {
     pub id: &'static str,
-    pub label: &'static str,
+    pub label: opencode_i18n::Key,
     /// Desktop's mark for it (`AppIcon`'s id).
     pub icon: &'static str,
     /// What the platform finds and opens it by: a bundle ID on macOS, a command elsewhere.
     pub open_with: &'static str,
 }
 
-const fn app(id: &'static str, label: &'static str, icon: &'static str, open_with: &'static str) -> OpenApp {
+const fn app(id: &'static str, label: opencode_i18n::Key, icon: &'static str, open_with: &'static str) -> OpenApp {
     OpenApp { id, label, icon, open_with }
 }
 
 /// Desktop's macOS list, in its order.
 #[cfg(target_os = "macos")]
 pub const APPS: &[OpenApp] = &[
-    app("vscode", "VS Code", "vscode", "com.microsoft.VSCode"),
-    app("cursor", "Cursor", "cursor", "com.todesktop.230313mzl4w4u92"),
-    app("zed", "Zed", "zed", "dev.zed.Zed"),
-    app("textmate", "TextMate", "textmate", "com.macromates.TextMate"),
-    app("antigravity", "Antigravity", "antigravity", "com.google.antigravity"),
-    app("terminal", "Terminal", "terminal", "com.apple.Terminal"),
-    app("iterm2", "iTerm2", "iterm2", "com.googlecode.iterm2"),
-    app("ghostty", "Ghostty", "ghostty", "com.mitchellh.ghostty"),
-    app("warp", "Warp", "warp", "dev.warp.Warp-Stable"),
-    app("xcode", "Xcode", "xcode", "com.apple.dt.Xcode"),
-    app("android-studio", "Android Studio", "android-studio", "com.google.android.studio"),
-    app("sublime-text", "Sublime Text", "sublime-text", "com.sublimetext.4"),
+    app("vscode", opencode_i18n::key!("plugin.file.open.app.vscode"), "vscode", "com.microsoft.VSCode"),
+    app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "com.todesktop.230313mzl4w4u92"),
+    app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "dev.zed.Zed"),
+    app("textmate", opencode_i18n::key!("plugin.file.open.app.textmate"), "textmate", "com.macromates.TextMate"),
+    app("antigravity", opencode_i18n::key!("plugin.file.open.app.antigravity"), "antigravity", "com.google.antigravity"),
+    app("terminal", opencode_i18n::key!("plugin.file.open.app.terminal"), "terminal", "com.apple.Terminal"),
+    app("iterm2", opencode_i18n::key!("plugin.file.open.app.iterm2"), "iterm2", "com.googlecode.iterm2"),
+    app("ghostty", opencode_i18n::key!("plugin.file.open.app.ghostty"), "ghostty", "com.mitchellh.ghostty"),
+    app("warp", opencode_i18n::key!("plugin.file.open.app.warp"), "warp", "dev.warp.Warp-Stable"),
+    app("xcode", opencode_i18n::key!("plugin.file.open.app.xcode"), "xcode", "com.apple.dt.Xcode"),
+    app("android-studio", opencode_i18n::key!("plugin.file.open.app.androidStudio"), "android-studio", "com.google.android.studio"),
+    app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "com.sublimetext.4"),
 ];
 
 /// Desktop's Windows list (`WINDOWS_OPEN_APPS`), in its order, by the commands it opens them with.
 #[cfg(target_os = "windows")]
 pub const APPS: &[OpenApp] = &[
-    app("vscode", "VS Code", "vscode", "code"),
-    app("cursor", "Cursor", "cursor", "cursor"),
-    app("zed", "Zed", "zed", "zed"),
-    app("powershell", "PowerShell", "powershell", "powershell"),
-    app("sublime-text", "Sublime Text", "sublime-text", "Sublime Text"),
+    app("vscode", opencode_i18n::key!("plugin.file.open.app.vscode"), "vscode", "code"),
+    app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
+    app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
+    app("powershell", opencode_i18n::key!("plugin.file.open.app.powershell"), "powershell", "powershell"),
+    app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
 
 /// Desktop's Linux list.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub const APPS: &[OpenApp] = &[
-    app("vscode", "VS Code", "vscode", "code"),
-    app("cursor", "Cursor", "cursor", "cursor"),
-    app("zed", "Zed", "zed", "zed"),
-    app("sublime-text", "Sublime Text", "sublime-text", "Sublime Text"),
+    app("vscode", opencode_i18n::key!("plugin.file.open.app.vscode"), "vscode", "code"),
+    app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
+    app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
+    app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
 
 /// The file manager's name and mark, as the host's project menus name it (`fileManagerApp`).
 #[cfg(target_os = "macos")]
-const FILE_MANAGER: (&str, &str) = ("Finder", "finder");
+const FILE_MANAGER: (opencode_i18n::Key, &str) = (opencode_i18n::key!("plugin.file.open.finder"), "finder");
 #[cfg(target_os = "windows")]
-const FILE_MANAGER: (&str, &str) = ("File Explorer", "file-explorer");
+const FILE_MANAGER: (opencode_i18n::Key, &str) = (opencode_i18n::key!("plugin.file.open.fileExplorer"), "file-explorer");
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-const FILE_MANAGER: (&str, &str) = ("File Manager", "finder");
+const FILE_MANAGER: (opencode_i18n::Key, &str) = (opencode_i18n::key!("plugin.file.open.fileManager"), "finder");
 
 fn label_of(id: &str) -> &'static str {
-    APPS.iter().find(|a| a.id == id).map_or(FILE_MANAGER.0, |a| a.label)
+    opencode_i18n::I18N.text(APPS.iter().find(|a| a.id == id).map_or(FILE_MANAGER.0, |a| a.label))
 }
 
 fn icon_of(id: &str) -> &'static str {
@@ -220,7 +220,7 @@ impl OpenIn {
 
     /// The file manager first, then what's installed.
     pub fn options(&self) -> Vec<(&'static str, &'static str)> {
-        std::iter::once((FINDER, FILE_MANAGER.0)).chain(self.installed.iter().map(|id| (*id, label_of(id)))).collect()
+        std::iter::once((FINDER, opencode_i18n::I18N.text(FILE_MANAGER.0))).chain(self.installed.iter().map(|id| (*id, label_of(id)))).collect()
     }
 
     pub fn current(&self) -> &str {
@@ -316,7 +316,7 @@ impl App {
     pub fn poll_open_in(&mut self) -> bool {
         let (changed, err) = self.open_in.poll();
         if let Some(e) = err {
-            crate::status_toast::fail(self, "Couldn't open", crate::status_toast::plain(&e.to_string()));
+            crate::status_toast::fail(self, opencode_i18n::t!("rune.openIn.failed"), crate::status_toast::plain(&e.to_string()));
         }
         changed
     }
@@ -328,14 +328,14 @@ fn menu(s: &App, with_current: bool) -> Menu {
     let cur = s.open_in.current();
     let apps = s.open_in.options().into_iter().map(|(id, label)| Item::new(format!("app:{id}"), label).app_icon(icon_of(id)).checked(with_current && id == cur));
     // menu-v2 content is at least 160 pt wide (`menu.css`).
-    Menu::new("Open in").min_width(160.0).group("Open in").items(apps).separator().item(Item::new("copy", "Copy path").weak_icon(&ic::COPY))
+    Menu::new(opencode_i18n::t!("plugin.file.open.in")).min_width(160.0).group(opencode_i18n::t!("plugin.file.open.in")).items(apps).separator().item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")).weak_icon(&ic::COPY))
 }
 
 fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
     if id == "copy" {
         if let Some(p) = s.open_in_path(rel) {
             tx.copy(p.clone());
-            crate::status_toast::succeed(s, "Copied", &p);
+            crate::status_toast::succeed(s, opencode_i18n::t!("common.copied"), &p);
         }
         return;
     }
@@ -388,8 +388,8 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .role("button")
-        .label(format!("Open in {label}"))
-        .help(format!("Open in {label}"))
+        .label(opencode_i18n::t!("plugin.file.open.ariaLabel", app = label))
+        .help(opencode_i18n::t!("plugin.file.open.ariaLabel", app = label))
         .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -411,8 +411,8 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .role("button")
-        .label("Open options")
-        .help("Open options")
+        .label(opencode_i18n::t!("plugin.file.open.menu"))
+        .help(opencode_i18n::t!("plugin.file.open.menu"))
         .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             if s.open_in.busy() {

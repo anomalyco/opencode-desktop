@@ -103,12 +103,12 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
     let info = s.session(id).filter(|i| i.parent.is_some())?;
     let running = s.subtree_running(id);
     let (glyph, status) = if running {
-        (None, Some("Running"))
+        (None, Some(opencode_i18n::t!("session.child.status.running")))
     } else {
         match info.outcome.as_deref() {
-            Some("succeeded") => (Some(&ic::CHECK), Some("Done")),
-            Some("failed") => (Some(&ic::CIRCLE_XMARK), Some("Failed")),
-            Some("interrupted") => (Some(&ic::OUTLINE_XMARK), Some("Interrupted")),
+            Some("succeeded") => (Some(&ic::CHECK), Some(opencode_i18n::t!("session.child.status.succeeded"))),
+            Some("failed") => (Some(&ic::CIRCLE_XMARK), Some(opencode_i18n::t!("session.child.status.failed"))),
+            Some("interrupted") => (Some(&ic::OUTLINE_XMARK), Some(opencode_i18n::t!("session.child.status.interrupted"))),
             _ => (None, None),
         }
     };
@@ -132,7 +132,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
     let back = row()
         .key("back")
         .role("button")
-        .label("Main session")
+        .label(opencode_i18n::t!("session.child.backToParent"))
         .h(24.0)
         .px(6.0)
         .gap(6.0)
@@ -145,7 +145,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
             tx.instant();
             s.open_parent(tx);
         })
-        .child(text("Main session").font(BACK).color(p.faint))
+        .child(text(opencode_i18n::t!("session.child.backToParent")).font(BACK).color(p.faint))
         .child(row().key("esc").h(14.0).min_w(14.0).px(4.0).center().radius(2.0).fill(p.layer3).child(text("ESC").font(KEY).color(p.muted)));
     Some(col().key("subagent-status").w_full().center().child(line.child(summary).child(back)))
 }

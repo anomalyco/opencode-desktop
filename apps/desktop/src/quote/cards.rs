@@ -25,7 +25,7 @@ fn chip(s: &App, p: &Pal, item: &Pending) -> El {
     let active = s.quote.editing == Some(key);
     let body = card(p, &item.quote, true, active, false)
         .role("button")
-        .label("Quote")
+        .label(opencode_i18n::t!("session.quote.add"))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             if s.quote.editing == Some(key) { close_editor(s) } else { open_editor(s, key) }
@@ -88,22 +88,22 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let small = |key: &str, label: &str| {
         row().key(key).role("button").label(label.to_owned()).h(24.0).px(9.0).center_y().radius(4.0)
     };
-    let cancel = small("quote-comment-cancel", "Cancel")
+    let cancel = small("quote-comment-cancel", opencode_i18n::t!("ui.lineComment.cancel"))
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| { tx.instant(); close_editor(s) })
-        .child(text("Cancel").font(BUTTON).color(p.text));
-    let submit_button = small("quote-comment-submit", "Comment")
+        .child(text(opencode_i18n::t!("ui.lineComment.cancel")).font(BUTTON).color(p.text));
+    let submit_button = small("quote-comment-submit", opencode_i18n::t!("ui.lineComment.submit"))
         .fill(p.contrast)
         .hover(p.contrast.mix(p.text, 0.08))
         .on_press_tx(|s: &mut App, tx: &mut Tx| { tx.instant(); submit(s) })
-        .child(text("Comment").font(BUTTON).color(p.q.contrast_text));
+        .child(text(opencode_i18n::t!("ui.lineComment.submit")).font(BUTTON).color(p.q.contrast_text));
     let field = text_input(&s.quote.draft, FIELD)
         .key("quote-comment-field")
         .color(p.text)
         .w_full()
         .min_h(64.0)
-        .placeholder("Add a comment about this quote", p.faint)
+        .placeholder(opencode_i18n::t!("session.quote.commentPlaceholder"), p.faint)
         .caret(p.text, p.selection)
         .spellcheck(s.settings.spellcheck)
         .on_edit(|s: &mut App| &mut s.quote.draft)

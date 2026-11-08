@@ -33,7 +33,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
 /// Delete's confirmation (`session.delete.*`): a scrim and a card, Cancel and the danger button.
 pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     let Some(id) = &s.menus.confirm else { return vec![] };
-    let name = s.session(id).map_or_else(|| "Session".to_owned(), crate::view::title_of);
+    let name = s.session(id).map_or_else(|| opencode_i18n::t!("session.tab.session").to_owned(), crate::view::title_of);
     let button = |key: &str, label: &str, ink: Color, fill: Option<Color>| {
         let mut b = row().key(key.to_owned()).role("button").label(label.to_owned()).h(28.0).px(12.0).radius(6.0).center().hover(p.hover);
         if let Some(f) = fill {
@@ -51,20 +51,20 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
         .fill(p.bg_base)
         .box_shadow(Pal::ring_out(p.ring))
         .shadow(8.0, 32.0, p.shadow_far)
-        .child(text("Delete session").font(rune::TextStyle::new(15.0, 600.0).lh(24.0)).color(p.text))
-        .child(text(format!("Delete session \"{name}\"?")).font(UI).color(p.muted))
+        .child(text(opencode_i18n::t!("session.delete.title")).font(rune::TextStyle::new(15.0, 600.0).lh(24.0)).color(p.text))
+        .child(text(opencode_i18n::t!("session.delete.confirm", name = name)).font(UI).color(p.muted))
         .child(
             row()
                 .key("delete-footer")
                 .gap(8.0)
                 .mt(14.0)
                 .child(spacer())
-                .child(button("delete-cancel", "Cancel", p.text, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                .child(button("delete-cancel", opencode_i18n::t!("common.cancel"), p.text, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.menus.confirm = None;
                 }))
                 .child(
-                    button("delete-confirm", "Delete session", p.on_fill, Some(p.danger))
+                    button("delete-confirm", opencode_i18n::t!("session.delete.button"), p.on_fill, Some(p.danger))
                         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx)),
                 ),
         );

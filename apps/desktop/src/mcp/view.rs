@@ -78,7 +78,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let dialog = widgets::overlay(p, col())
         .key("mcp-dialog")
         .role("dialog")
-        .label("MCPs")
+        .label(opencode_i18n::t!("dialog.mcp.title"))
         .w((win_w - 24.0).min(480.0))
         .max_h((win_h - 96.0).min(480.0))
         .radius(12.0)
@@ -96,8 +96,8 @@ fn list(s: &App, p: &Pal, dir: &str) -> El {
     let field = row().key("mcp-search-field").w_full().h(28.0).pr(6.0).gap(6.0).center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(text_input(&open.search, crate::view::UI).key("mcp-search").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder("Search MCPs", p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection)
-            .label("Search MCPs")
+            .color(p.text).placeholder(opencode_i18n::t!("dialog.mcp.search.placeholder"), p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection)
+            .label(opencode_i18n::t!("dialog.mcp.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.mcp.open.as_mut().expect("open").search)
             .on_input_change(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -113,7 +113,7 @@ fn list(s: &App, p: &Pal, dir: &str) -> El {
     let all = s.mcp_servers(dir).map_or(0, <[McpServer]>::len);
     let mut results = col().key("mcp-results").w_full().px(6.0).pb(6.0).gap(4.0);
     if servers.is_empty() {
-        let words = if all > 0 { "No MCPs found" } else { "No MCPs configured" };
+        let words = if all > 0 { opencode_i18n::t!("dialog.mcp.search.empty") } else { opencode_i18n::t!("dialog.mcp.empty") };
         results = results.child(row().key("mcp-empty").w_full().min_h(120.0).center().child(text(words).font(crate::view::UI).color(p.muted)));
     }
     let active = open.active.clone().or_else(|| servers.first().map(|m| m.name.clone()));
@@ -151,7 +151,7 @@ pub fn trailing(s: &App, p: &Pal, dir: &str, m: &McpServer) -> El {
     let mut e = row().key("mcp-trailing").gap(8.0).center_y();
     if let McpStatus::Failed(_) = m.status {
         let (name, dir2) = (m.name.clone(), dir.to_owned());
-        e = e.child(action(p, "mcp-view-error", "View error", &format!("View error for {}", m.name), false, move |s: &mut App, tx: &mut Tx| {
+        e = e.child(action(p, "mcp-view-error", opencode_i18n::t!("dialog.mcp.error.view"), &opencode_i18n::t!("dialog.mcp.error.viewLabel", name = m.name), false, move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             if s.mcp.open.as_ref().is_some_and(|o| o.dir == dir2) {
                 s.open_mcp_detail(&name);
@@ -162,8 +162,8 @@ pub fn trailing(s: &App, p: &Pal, dir: &str, m: &McpServer) -> El {
     }
     let (dir, name) = (dir.to_owned(), m.name.clone());
     if matches!(m.status, McpStatus::NeedsAuth(_)) && m.integration.is_some() {
-        let label = if busy { "Signing in…" } else { "Sign in" };
-        return e.child(action(p, "mcp-sign-in", label, &format!("Sign in to {}", m.name), busy, move |s: &mut App, tx: &mut Tx| {
+        let label = if busy { opencode_i18n::t!("dialog.mcp.signingIn") } else { opencode_i18n::t!("dialog.mcp.signIn") };
+        return e.child(action(p, "mcp-sign-in", label, &opencode_i18n::t!("dialog.mcp.signIn.open", name = m.name), busy, move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.toggle_mcp(&dir, &name, true);
         }));
@@ -202,13 +202,13 @@ fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) ->
     let header = row().key("mcp-error-header").w_full().pt(16.0).px(16.0).pb(12.0)
         .child(col().grow(1.0).shrink().gap(4.0)
             .child(row().gap(8.0).child(back).child(text(name.to_owned()).font(TITLE).color(p.text).wrap_anywhere().grow(1.0).shrink()))
-            .child(text("Connection failed").font(BODY).color(p.muted)))
+            .child(text(opencode_i18n::t!("dialog.mcp.error.status")).font(BODY).color(p.muted)))
         .child(close);
-    let details = format!("MCP server: {name}\nStatus: failed\nConfiguration: mcp.servers.{name}\nError: {error}");
+    let details = opencode_i18n::t!("dialog.mcp.error.details", name = name, error = error);
     let (d1, n1, d2, n2) = (dir.to_owned(), name.to_owned(), dir.to_owned(), name.to_owned());
     let error_text = error.to_owned();
     let actions = row().key("mcp-error-actions").w_full().gap(8.0)
-        .child(button(if copied { "Copied" } else { "Copy details" }, ButtonVariant::GhostMuted).icon(if copied { &ic::CHECK } else { &ic::COPY })
+        .child(button(if copied { opencode_i18n::t!("common.copied") } else { opencode_i18n::t!("dialog.mcp.error.copy") }, ButtonVariant::GhostMuted).icon(if copied { &ic::CHECK } else { &ic::COPY })
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.copy(details.clone());
                 if let Some(Detail::Open { copied, .. }) = s.mcp.open.as_mut().map(|o| &mut o.detail) {
@@ -216,11 +216,11 @@ fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) ->
                 }
             }).build(kit(p)))
         .child(spacer())
-        .child(button("Disable", ButtonVariant::Ghost).disabled(busy).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .child(button(opencode_i18n::t!("dialog.mcp.error.disable"), ButtonVariant::Ghost).disabled(busy).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.toggle_mcp(&d1, &n1, false);
         }).build(kit(p)))
-        .child(button("Try again", ButtonVariant::Neutral).disabled(busy).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .child(button(opencode_i18n::t!("common.retry"), ButtonVariant::Neutral).disabled(busy).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.toggle_mcp(&d2, &n2, true);
         }).build(kit(p)));

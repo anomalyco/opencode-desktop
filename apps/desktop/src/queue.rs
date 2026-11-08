@@ -223,14 +223,14 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
     let mut face = face.px(6.0).pt(6.0).pb(if n > 4 { 1.0 } else { 7.0 });
     if n > 3 {
-        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), format!("{n} QUEUED"), n as f64, LABEL, p.muted)));
+        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), opencode_i18n::plural!("session.queue.count", n).to_uppercase(), n as f64, LABEL, p.muted)));
     }
     let list = if n > 4 {
         col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade_linear(0.0, 8.0, 0.0, 12.0).child(list)
     } else {
         list
     };
-    shell.role("list").label("Queued prompts").mb(-TUCK).child(clip.child(face.child(list))).child(tuck.h(TUCK))
+    shell.role("list").label(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(clip.child(face.child(list))).child(tuck.h(TUCK))
 }
 
 /// Whether the open session has prompts in the queue, which squares the composer's top corners.
@@ -248,7 +248,7 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
     let steer = row()
         .key("steer")
         .role("button")
-        .label(if busy { "Steer" } else { "Send" })
+        .label(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") })
         .h(24.0)
         .px(6.0)
         .gap(4.0)
@@ -261,7 +261,7 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
             s.steer_queued(&ss, &is);
         })
         .child(icon(&ic::ARROW_UP, 14.0).color(p.icon_faint))
-        .child(text(if busy { "Steer" } else { "Send" }).font(UI_MED).color(p.faint));
+        .child(text(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") }).font(UI_MED).color(p.faint));
     let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(p.text).truncate_fade());
     if files > 0 && !item.text.trim().is_empty() {
         left = left.child(text(attachments_label(files)).font(UI).color(p.muted));
@@ -283,8 +283,8 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         .child(
             reveal(row().key("actions").gap(6.0).center_y())
                 .child(steer)
-                .child(icon_button(p, "undo", "Undo", &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
-                .child(icon_button(p, "remove", "Remove", &XMARK, 24.0, 16.0, move |s: &mut App| {
+                .child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
+                .child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| {
                     s.withdraw(&sr, &ir);
                 })),
         )
@@ -299,14 +299,14 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
     let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
     let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
     let keys = caps + 6.0 * labels.len().saturating_sub(1) as f32 + 12.0 + 10.0;
-    let word = rune::text::measure("Queue", &[], UI_MED, None).0 + 6.0;
+    let word = rune::text::measure(opencode_i18n::t!("ui.promptInput.queue"), &[], UI_MED, None).0 + 6.0;
     if room < keys {
         return None;
     }
     let hint = row()
         .key("alternate-delivery")
         .role("button")
-        .label("Queue")
+        .label(opencode_i18n::t!("ui.promptInput.queue"))
         // `button-v2` ghost-faint at size small (`editor.tsx:1448-1455`, `button.css:46-50`):
         // 24 tall, 6 in, 4 pt corners, 12 before Send (`me-3`, the toolbar's 2 pt gap and 10).
         .h(24.0)
@@ -319,7 +319,7 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
         .press(p.pressed)
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
-        .children((room >= keys + word).then(|| text("Queue").font(UI_MED).color(p.faint)))
+        .children((room >= keys + word).then(|| text(opencode_i18n::t!("ui.promptInput.queue")).font(UI_MED).color(p.faint)))
         .children(labels.iter().map(|k| keycap(p, k)));
     Some(hint)
 }

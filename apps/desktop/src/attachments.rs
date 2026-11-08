@@ -113,14 +113,14 @@ impl App {
             Ok(_) => {
                 return crate::status_toast::say(
                     self,
-                    "Couldn't attach a file",
-                    format!("{name} is a folder. Only files can be attached."),
+                    opencode_i18n::t!("rune.attach.failed"),
+                    opencode_i18n::t!("rune.attach.folder", name = name),
                 );
             }
             Err(e) => {
                 return crate::status_toast::fail(
                     self,
-                    "Couldn't attach a file",
+                    opencode_i18n::t!("rune.attach.failed"),
                     format!("{name}: {}", crate::status_toast::plain(&e.to_string())),
                 );
             }
@@ -128,14 +128,14 @@ impl App {
         if native_mime(path).is_some() && size <= MAX_BYTES {
             match from_path(path) {
                 Ok(a) => self.attach.add(a),
-                Err(e) => crate::status_toast::fail(self, "Couldn't attach a file", crate::status_toast::plain(&e)),
+                Err(e) => crate::status_toast::fail(self, opencode_i18n::t!("rune.attach.failed"), crate::status_toast::plain(&e)),
             }
             return;
         }
         let mime = match head(path) {
             Ok(h) => mime_for(path, &h).to_owned(),
             Err(e) => {
-                return crate::status_toast::fail(self, "Couldn't attach a file", crate::status_toast::plain(&e));
+                return crate::status_toast::fail(self, opencode_i18n::t!("rune.attach.failed"), crate::status_toast::plain(&e));
             }
         };
         let server = match &self.source {
@@ -187,7 +187,7 @@ impl App {
                     let line = crate::status_toast::plain(f.error.trim_start_matches("upload "));
                     crate::status_toast::fail_retry(
                         self,
-                        "Upload failed",
+                        opencode_i18n::t!("prompt.toast.uploadFailed.title"),
                         line,
                         crate::status_toast::ToastAction::Attach(f.path),
                     );
@@ -201,7 +201,7 @@ impl App {
     /// ⌘U and the + menu's first item: the system's file picker, then the file.
     pub fn pick_attachment(&mut self, tx: &mut Tx) {
         let options = rune::FileDialogOptions {
-            title: "Attach images and files".into(),
+            title: opencode_i18n::t!("rune.attach.pickerTitle").into(),
             directory: Some(self.composer_directory().into()),
             ..Default::default()
         };
@@ -212,7 +212,7 @@ impl App {
                 s.composer.focused = true;
             }
             Ok(None) => {}
-            Err(e) => crate::status_toast::fail(s, "Couldn't open the file picker", e.to_string()),
+            Err(e) => crate::status_toast::fail(s, opencode_i18n::t!("rune.status.filePickerFailed"), e.to_string()),
         });
     }
 }

@@ -289,15 +289,15 @@ fn bar(p: &Pal, truncated: bool) -> El {
     let mut button = row()
         .key("quote-add")
         .role("button")
-        .label("Quote")
-        .help(format!("Quote and comment {}", crate::keymap::modifier_label(rune::ChordMod::Alt)))
+        .label(opencode_i18n::t!("session.quote.add"))
+        .help(format!("{} {}", opencode_i18n::t!("session.quote.addWithComment"), crate::keymap::modifier_label(rune::ChordMod::Alt)))
         .h(24.0)
         .px(9.0)
         .gap(6.0)
         .center_y()
         .radius(4.0)
         .child(icon(&OUTLINE_QUOTE, 16.0).color(p.text))
-        .child(text("Quote").font(BUTTON).color(p.text));
+        .child(text(opencode_i18n::t!("session.quote.add")).font(BUTTON).color(p.text));
     button = if truncated {
         button.opacity(0.5)
     } else {
@@ -306,7 +306,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
     row()
         .key("quote-toolbar")
         .role("toolbar")
-        .label("Quote selection")
+        .label(opencode_i18n::t!("session.quote.actions"))
         .padding(2.0)
         .gap(2.0)
         .center_y()
@@ -322,7 +322,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .opacity_motion(rune::Anim::INSTANT)
         // Pressing it leaves the selection, and the prompt's focus, where they are.
         .keeps_text_selection()
-        .children(truncated.then(|| text("Selection too long").font(TOO_LONG).color(p.muted).px(8.0)))
+        .children(truncated.then(|| text(opencode_i18n::t!("session.quote.tooLong")).font(TOO_LONG).color(p.muted).px(8.0)))
         .child(button)
 }
 

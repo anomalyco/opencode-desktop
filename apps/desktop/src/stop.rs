@@ -140,7 +140,7 @@ pub fn failed(s: &mut App, error: &str) -> bool {
     if s.stops.pending(sid) {
         s.stops.by.remove(sid);
         s.running.insert(sid.to_owned());
-        crate::status_toast::fail(s, "Couldn't stop the session", why);
+        crate::status_toast::fail(s, opencode_i18n::t!("rune.stop.failed"), why);
     }
     true
 }
@@ -155,7 +155,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     for sid in &late {
         s.stops.by.remove(sid);
         s.running.insert(sid.clone());
-        let why = if crate::reconnect::down(s) { "Can't reach OpenCode to stop the session" } else { "The server didn't confirm the stop" };
+        let why = if crate::reconnect::down(s) { opencode_i18n::t!("rune.stop.unreachable") } else { opencode_i18n::t!("rune.stop.unconfirmed") };
         crate::status_toast::fail(s, why, "");
     }
     if !late.is_empty()

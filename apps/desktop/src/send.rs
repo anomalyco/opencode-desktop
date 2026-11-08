@@ -22,7 +22,7 @@ impl App {
             return;
         }
         if !self.attach.uploading.is_empty() {
-            crate::status_toast::say(self, "Attachments are still uploading", "Send again once they finish.");
+            crate::status_toast::say(self, opencode_i18n::t!("rune.send.uploading.title"), opencode_i18n::t!("rune.send.uploading.description"));
             return;
         }
         self.close_mentions();
@@ -98,7 +98,7 @@ impl App {
             }
             Route::Draft(_) => opencode_kit::client::session_id(),
             _ => {
-                crate::status_toast::say(self, "Open a session to send to", "");
+                crate::status_toast::say(self, opencode_i18n::t!("rune.composer.openSession"), "");
                 return;
             }
         };
@@ -188,9 +188,9 @@ impl App {
             return true;
         }
         match &self.source {
-            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, "Nothing was sent", "This window is read-only. Relaunch without --read-only to act."),
+            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
             Source::Live { writes: Some(tx), .. } => return tx.send(w).is_ok(),
-            _ => crate::status_toast::fail(self, "Not connected to an OpenCode server", "Nothing was sent."),
+            _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
         }
         false
     }

@@ -89,7 +89,7 @@ impl App {
 
         if !self.write(Write::Fork { session: session.to_owned(), before: Some(message_id.to_owned()) }) {
             let why = self.status.clone();
-            crate::status_toast::fail(self, "Request failed", why);
+            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
             return false;
         }
         self.fork.pending.push((session.to_owned(), Some(message_id.to_owned()), restored));
@@ -331,7 +331,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .shrink()
                 .min_w(0.0)
                 .color(p.text)
-                .placeholder("Search", p.text.alpha(p.text.a * 0.5))
+                .placeholder(opencode_i18n::t!("common.search.placeholder"), p.text.alpha(p.text.a * 0.5))
                 .caret(p.text, p.selection)
                 .on_edit(|s: &mut App| &mut s.fork.search)
                 .on_input_change(|s: &mut App, tx| {
@@ -343,7 +343,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .children(typed.then(|| {
             el().key("fork-clear")
                 .role("button")
-                .label("Clear")
+                .label(opencode_i18n::t!("common.clear"))
                 .size(20.0, 20.0)
                 .radius(4.0)
                 .center()
@@ -361,7 +361,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     // `search-list-results` in the compact dialog: 6 in at the sides and foot, rows 2 apart.
     let mut list = col().key("fork-results").w_full().px(6.0).pb(6.0).gap(ROW_GAP);
     let content_h = if filtered.is_empty() {
-        let empty = if all.is_empty() { "No messages to fork from" } else { "No messages found" };
+        let empty = if all.is_empty() { opencode_i18n::t!("dialog.fork.empty") } else { opencode_i18n::t!("dialog.fork.search.empty") };
         list = col().key("fork-results").w_full().child(col().key("fork-empty").w_full().h(EMPTY_H).center().child(text(empty).font(UI).color(p.muted)));
         EMPTY_H
     } else {
@@ -401,7 +401,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let dialog = col()
         .key("fork-dialog")
         .role("dialog")
-        .label("Fork from message")
+        .label(opencode_i18n::t!("command.session.fork"))
         .w(w)
         .h(HEAD_H + SECTION_H + scroll_h)
         .radius(12.0)
@@ -421,7 +421,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .h(SECTION_H)
                 .px(14.0)
                 .center_y()
-                .child(text("Choose a message to fork from").font(UI.lh(20.0)).color(p.muted)),
+                .child(text(opencode_i18n::t!("dialog.fork.description")).font(UI.lh(20.0)).color(p.muted)),
         )
         .child(
             col()

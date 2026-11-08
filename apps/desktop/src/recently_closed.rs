@@ -20,7 +20,7 @@ const WIDTH: f32 = 224.0;
 /// Opens the menu at `at`, drawn on every platform for its search field, as Desktop draws it.
 pub fn open(s: &mut App, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     tx.instant();
-    let menu = menu(s, "").search("Search recently closed", menu);
+    let menu = menu(s, "").search(opencode_i18n::t!("session.tabs.closed.search"), menu);
     popup::open_drawn(s, menu, at, tx, |s: &mut App, picked, tx| {
         tx.instant();
         let Some(picked) = picked else { return };
@@ -62,15 +62,15 @@ fn menu(s: &App, query: &str) -> Menu {
     recent.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
     let recent: Vec<Item> = recent.into_iter().take(LIMIT - closed.len()).map(|i| row("recent", &i.id, &i.title, &i.directory)).collect();
     let none = closed.is_empty() && recent.is_empty();
-    let mut menu = Menu::new("Recently closed").width(WIDTH).rows_before_scroll(13.5);
+    let mut menu = Menu::new(opencode_i18n::t!("home.recentlyClosed")).width(WIDTH).rows_before_scroll(13.5);
     if !closed.is_empty() {
-        menu = menu.group("Recently closed").items(closed);
+        menu = menu.group(opencode_i18n::t!("home.recentlyClosed")).items(closed);
     }
     if !recent.is_empty() {
-        menu = menu.group("Recent sessions").items(recent);
+        menu = menu.group(opencode_i18n::t!("palette.group.recentSessions")).items(recent);
     }
     if none {
-        let empty = if query.is_empty() { "No recently closed sessions" } else { "No matches" };
+        let empty = if query.is_empty() { opencode_i18n::t!("session.tabs.closed.empty") } else { opencode_i18n::t!("session.search.noResults") };
         menu = menu.item(Item::new("empty", empty).enabled(false));
     }
     menu
