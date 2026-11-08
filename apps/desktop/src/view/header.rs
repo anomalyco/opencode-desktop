@@ -91,6 +91,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
         .ml(6.0)
         .gap(8.0)
         .center_y()
+        .children(s.launch.link.visible.then(|| text(crate::reconnect::RECONNECTING).key("connection-status").font(crate::view::UI_SMALL).color(p.faint)))
         .children(crate::find::bar(s, p).map(|bar| bar.shrink().min_w(0.0)))
         .children(slots)
         .children(s.stage.is_none().then(|| {

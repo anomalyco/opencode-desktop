@@ -9,8 +9,9 @@ use crate::{App, FIXTURE, Route, Source};
 
 const DT: f64 = 1.0 / 60.0;
 
-fn toast(rt: &Runtime<App>) -> Option<String> {
-    rt.state.toast.current.as_ref().map(|e| e.title.clone())
+fn header_status(rt: &Runtime<App>) -> Option<String> {
+    assert!(rt.state.toast.current.is_none(), "recoverable connection trouble never opens a toast");
+    rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref()==Some("connection-status")).and_then(|e| e.text)
 }
 
 fn frames(rt: &mut Runtime<App>, seconds: f64) {
@@ -47,14 +48,14 @@ fn a_dropped_stream_keeps_the_page_and_resyncs_when_back() {
     send.send(Incoming::Status("events: Connection refused".into())).unwrap();
     frames(&mut rt, 0.5);
     assert!(super::down(&rt.state));
-    assert_eq!(toast(&rt), None, "a short drop says nothing");
+    assert_eq!(header_status(&rt), None, "a short drop says nothing");
 
     frames(&mut rt, super::QUIET);
-    assert_eq!(toast(&rt).as_deref(), Some(RECONNECTING));
+    assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
     // More failed tries while it stays down change nothing.
     send.send(Incoming::Status("events: Connection refused".into())).unwrap();
     frames(&mut rt, 0.5);
-    assert_eq!(toast(&rt).as_deref(), Some(RECONNECTING));
+    assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
     assert_eq!(rt.state.route, Route::Session(id.clone()), "the page stays");
     assert_eq!(rt.state.transcripts[&id].messages.len(), messages);
     assert_eq!(rt.state.tabs.len(), sidebar);
@@ -65,7 +66,7 @@ fn a_dropped_stream_keeps_the_page_and_resyncs_when_back() {
     send.send(Incoming::Reconnected).unwrap();
     frames(&mut rt, 0.1);
     assert!(!super::down(&rt.state));
-    assert_eq!(toast(&rt), None, "the toast leaves");
+    assert_eq!(header_status(&rt), None, "the label leaves");
     let reads: Vec<Request> = asked.try_iter().collect();
     assert!(reads.iter().any(|r| matches!(r, Request::Active)), "it re-reads what's running");
     assert!(reads.iter().any(|r| matches!(r, Request::Sessions)));
@@ -80,7 +81,7 @@ fn a_drop_that_comes_back_quickly_says_nothing() {
     frames(&mut rt, 1.0);
     send.send(Incoming::Reconnected).unwrap();
     frames(&mut rt, super::QUIET + 0.5);
-    assert_eq!(toast(&rt), None);
+    assert_eq!(header_status(&rt), None);
     assert!(!super::down(&rt.state));
 }
 
@@ -128,17 +129,17 @@ fn a_read_that_times_out_says_reconnecting_until_the_server_answers() {
     let (mut rt, send, _asked, id) = connected();
     send.send(Incoming::Status(format!("GET /api/session/{id}/message: timeout: global"))).unwrap();
     frames(&mut rt, super::QUIET + 0.2);
-    assert_eq!(toast(&rt).as_deref(), Some(RECONNECTING), "a timeout is a drop");
+    assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING), "a timeout is a drop");
     assert_eq!(rt.state.route, Route::Session(id.clone()));
     assert_eq!(rt.state.composer.text, "half a thought");
     send.send(Incoming::Active(vec![])).unwrap();
     frames(&mut rt, 0.1);
-    assert_eq!(toast(&rt), None, "an answer ends it");
+    assert_eq!(header_status(&rt), None, "an answer ends it");
 
     // A 5xx is a busy server, not a lost link.
     send.send(Incoming::Status(format!("GET /api/session/{id}/message: http status: 503"))).unwrap();
     frames(&mut rt, super::QUIET + 0.2);
-    assert_eq!(toast(&rt), None);
+    assert_eq!(header_status(&rt), None);
 }
 
 #[test]
@@ -146,11 +147,11 @@ fn a_suspect_link_whose_stream_stays_up_clears_on_its_own() {
     let (mut rt, send, _asked, _) = connected();
     send.send(Incoming::Status("GET /api/session: Connection refused".into())).unwrap();
     frames(&mut rt, super::QUIET + 0.2);
-    assert_eq!(toast(&rt).as_deref(), Some(RECONNECTING));
+    assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
     // The stream would have dropped by now if the link were dead.
     rt.state.launch.link.suspect_at = Some(rt.state.clock - super::STREAM_IDLE.as_secs_f64() - super::QUIET);
     frames(&mut rt, 0.2);
-    assert_eq!(toast(&rt), None);
+    assert_eq!(header_status(&rt), None);
     assert!(!super::down(&rt.state));
 }
 

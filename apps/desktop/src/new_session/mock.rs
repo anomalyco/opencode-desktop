@@ -132,7 +132,7 @@ fn rand() -> u64 {
 }
 
 /// The method, path and JSON body of the request on `s`.
-fn request(s: &mut TcpStream) -> Option<(String, String, Value)> {
+pub(crate) fn request(s: &mut TcpStream) -> Option<(String, String, Value)> {
     s.set_read_timeout(Some(Duration::from_secs(5))).ok();
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];

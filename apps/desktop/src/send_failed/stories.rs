@@ -60,13 +60,14 @@ fn offline(s:&mut App) {
     let Route::Session(session)=s.route.clone() else { return };
     let body="Run the tests before you merge.";
     let mut sent=Sent::new(&session,FIRST,Entry::of(&TextEdit::new(body)),vec![],vec![],false);
-    sent.state=super::State::Waiting; sent.durable=true;
+    sent.state=super::State::Waiting; sent.durable=true; sent.why="waiting for connection".into();
     s.unsent.note(sent); s.show_outbox();
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("send-unconfirmed", setup),
     ("outbox-offline", offline),
+    ("outbox-rejected", |s| { offline(s); s.send_failed(FIRST, "POST /prompt: http status: 403"); }),
     ("send-failed", |s| { setup(s); confirmed(s); }),
     ("send-queued-long", queued_long),
 ]);

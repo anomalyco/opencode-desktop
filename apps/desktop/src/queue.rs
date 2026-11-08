@@ -110,8 +110,12 @@ impl App {
     /// `session.inbox.*`: a delivered prompt joins the end of the transcript, where the server
     /// puts it.
     pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
-        let mut admitted = matches!(ty, "session.inbox.enqueued" | "session.inbox.delivered")
-            && self.accept_send(data["inboxID"].as_str().unwrap_or(""));
+        let id = data["inboxID"].as_str().unwrap_or("");
+        let mut admitted = match ty {
+            "session.inbox.enqueued" => self.admitted_send(id),
+            "session.inbox.delivered" => self.accept_send(id),
+            _ => false,
+        };
         let inbox = self.inboxes.entry(sid.to_owned()).or_default();
         let old = if ty == "session.inbox.listed" { inbox.items.clone() } else { vec![] };
         let change = inbox.apply(ty, data);

@@ -672,7 +672,9 @@ impl super::App {
 
     /// Says once, calmly, that the server has stayed silent, and takes it back when it answers.
     fn tell_stall(&mut self) -> bool {
-        let silent = self.pages.pool.as_ref().and_then(Pages::stalled_for);
+        // A connection drop or an unsent prompt already has an inline status. A slow page
+        // read from the same outage must not also cover the composer with a waiting toast.
+        let silent = if self.unsent.waiting_for_link() || crate::reconnect::down(self) { None } else { self.pages.pool.as_ref().and_then(Pages::stalled_for) };
         let after = self.pages.stall_after.unwrap_or(STALL_AFTER);
         match (silent, self.pages.waiting) {
             (Some(for_how_long), None) if for_how_long >= after && !self.pages.told => {
