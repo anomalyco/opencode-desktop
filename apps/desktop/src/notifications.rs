@@ -321,19 +321,26 @@ impl Sink for System {
     }
 }
 
+/// A notification's link, opened with the app (`deep_links`): its session opens as a click's
+/// does. On Windows every click comes this way, also the one that starts the app after it quit.
+pub fn clicked(app: &mut App, click: &rune_notify::Click) {
+    let (session, server) = (click.get("session").unwrap_or("").to_owned(), click.get("server").unwrap_or("").to_owned());
+    Notifier::click(&app.notify.clicks, session, server);
+}
+
 /// Gives a windowed run the app's identity before its window opens. On Windows that is the
-/// `AppUserModelID` its toasts carry and its taskbar button groups under, named as the window
-/// is, with the app icon (kept in the data folder for the notification center to read). macOS
-/// takes it from the bundle.
+/// `AppUserModelID` its toasts carry and its taskbar button groups under (the Start menu
+/// shortcut carries it too), named as the window is, with the app icon (kept in the data folder
+/// for the notification center to read), and the app's URL scheme, which a click on a toast
+/// opens, so a toast left in the notification center starts the app again. macOS takes it from
+/// the bundle.
 #[cfg(target_os = "windows")]
 pub fn identify() {
     if crate::headless() {
         return;
     }
-    let id = option_env!("OPENCODE_RUNE_BUNDLE_ID")
-        .filter(|id| !id.is_empty())
-        .unwrap_or(if crate::updater::build_channel() == "local" { "anomaly.opencode-rune.dev" } else { "anomaly.opencode-rune" });
-    let mut identity = rune_notify::Identity::new(id, crate::launch::window_title());
+    let product = crate::launch::product();
+    let mut identity = rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme());
     if let Some(icon) = crate::dirs::data().map(|d| d.join("notification-icon.png")) {
         let png = crate::launch::WINDOWS_ICON;
         if std::fs::metadata(&icon).map(|m| m.len()).ok() != Some(png.len() as u64) {

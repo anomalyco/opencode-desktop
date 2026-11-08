@@ -89,6 +89,7 @@ mod compaction_stories;
 #[cfg(test)]
 mod compaction_fold_tests;
 mod connect;
+mod deep_links;
 mod demo;
 mod demo_script;
 mod diagnostics;
@@ -397,6 +398,8 @@ pub struct App {
     jobs: jobs::Jobs,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
+    /// Projects `opencode://open?project=` links asked for, waiting for the server (`deep_links`).
+    pub links: Vec<String>,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
     /// The running-subagents list above the composer is open.
@@ -1064,6 +1067,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= language::poll(s, tx);
     changed |= settings::search::poll(s, tx);
     changed |= notifications::poll(s, tx);
+    changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= session_view::turns::poll(s, tx);
@@ -1343,6 +1347,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .gpu_backend(rune::GpuBackend::Metal)
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
+            .on_open_url(deep_links::open)
             .on_modifiers(view::home_modifiers)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
@@ -1362,6 +1367,10 @@ fn main() {
     install::run_if_asked();
     launch::print_version_if_asked();
     if genui::skill::maybe_cli() {
+        return;
+    }
+    // A launch while the app runs hands its links (`deep_links`) to it and ends here.
+    if !headless() && !rune::single_instance(&launch::instance_id()) {
         return;
     }
     telemetry::launched();

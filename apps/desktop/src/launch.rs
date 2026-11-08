@@ -62,6 +62,19 @@ pub fn product() -> win_install::Product {
     )
 }
 
+/// What `rune::single_instance` keeps one process of: the build's app id, this executable and
+/// its data folder, as Desktop's single-instance lock is its `userData` folder's. An installed
+/// app has one of each; development builds in other checkouts, and runs with their own
+/// `RUNE_DIRS_ROOT`, each run as their own.
+pub fn instance_id() -> String {
+    use sha2::{Digest, Sha256};
+    let exe = std::env::current_exe().unwrap_or_default();
+    let data = crate::dirs::data().unwrap_or_default();
+    let digest = Sha256::digest(format!("{}\n{}", exe.display(), data.display()).to_lowercase().as_bytes());
+    let tag: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{tag}", product().id())
+}
+
 /// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow).
 #[cfg(target_os = "windows")]
 pub const WINDOWS_ICON: &[u8] = include_bytes!("../assets/icon/art-512.png");
