@@ -3,12 +3,13 @@
 //! (`/mcp`, mod+;) with its inline error view. Settings › Extensions toggles through the same
 //! state, so a server connecting from the dialog stays busy there.
 
+pub mod sign_in;
 pub mod view;
 
 use std::collections::HashMap;
 use std::time::Duration;
 
-use opencode_kit::integration::{McpServer, McpStatus, MethodKind};
+use opencode_kit::integration::{Authorization, McpServer, McpStatus, MethodKind};
 use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::App;
@@ -44,6 +45,8 @@ pub struct Mcp {
     /// Toggles in flight: (folder, server, attempt).
     toggles: Vec<(String, String, u32)>,
     issued: u32,
+    /// The sign-in that also takes a pasted redirect URL.
+    pub sign_in: Option<sign_in::SignIn>,
 }
 
 /// What a toggle came to.
@@ -183,7 +186,7 @@ impl App {
         });
         self.job(move |srv| {
             let at = Some(dir.as_str()).filter(|d| !d.is_empty());
-            let result = (|| -> Result<(Vec<McpServer>, Option<String>), String> {
+            let result = (|| -> Result<(Vec<McpServer>, Option<(String, Authorization)>), String> {
                 let found = srv.mcp_servers(at)?.into_iter().find(|s| s.name == name);
                 let Some(found) = found else { return Ok((srv.mcp_servers(at)?, None)) };
                 if !enabled || !matches!(found.status, McpStatus::NeedsAuth(_)) {
@@ -192,27 +195,33 @@ impl App {
                 let list = srv.mcp_servers(at)?;
                 let current = list.iter().find(|s| s.name == name);
                 // A server that needs to sign in starts its browser sign-in.
-                let url = match current {
+                let started = match current {
                     Some(McpServer { status: McpStatus::NeedsAuth(_), integration: Some(id), .. }) if enabled => {
                         let integration = srv.integration(id, at)?;
                         let method = integration.methods.iter().find(|m| m.kind == MethodKind::Oauth && m.form.is_empty())
                             .ok_or_else(|| format!("MCP server {name} requires an interactive authentication form"))?;
-                        Some(srv.oauth_connect(id, at, method.id.as_deref().unwrap_or_default(), None)?.url)
+                        Some((id.clone(), srv.oauth_connect(id, at, method.id.as_deref().unwrap_or_default(), None)?))
                     }
                     _ => None,
                 };
-                Ok((list, url))
+                Ok((list, started))
             })();
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let settled = match result {
-                    Ok((list, url)) => {
+                    Ok((list, started)) => {
                         let failed = list.iter().find(|x| x.name == name).and_then(|x| match &x.status {
                             McpStatus::Failed(e) => Some(e.clone()),
                             _ => None,
                         });
                         s.mcp.servers.insert(dir.clone(), list);
-                        if let Some(url) = url && !crate::headless() {
-                            let _ = tx.open_url(&url);
+                        if let Some((integration, auth)) = started {
+                            if !crate::headless() {
+                                let _ = tx.open_url(&auth.url);
+                            }
+                            // A sign-in that takes the redirect URL pasted from the browser waits in its dialog.
+                            if auth.paste {
+                                s.open_mcp_sign_in(dir.clone(), name.clone(), integration, auth);
+                            }
                         }
                         match failed {
                             Some(error) => Settled::Failed { error, server: true },
@@ -258,6 +267,9 @@ impl App {
 
 /// mod+; toggles the dialog; Escape steps back from the error view, then closes.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if sign_in::key(s, ev, tx) {
+        return true;
+    }
     if Bind::McpToggle.matches_tx(ev, tx) && s.connect.open.is_none() {
         s.toggle_mcp_dialog(tx);
         return true;
