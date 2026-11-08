@@ -85,30 +85,24 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
 }
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/// `t` as the locale's date formats read it.
+pub fn moment(t: LocalTime) -> opencode_i18n::date::Moment {
+    opencode_i18n::date::Moment { year: t.year, month: t.month, day: t.day, hour: t.hour, minute: t.minute, offset: t.offset }
+}
 
-/// `3:45 PM`, as `Intl` formats `timeStyle: "short"` in English.
+/// `3:45 PM`, `15:45`: `Intl`'s `timeStyle: "short"` in the locale.
 pub fn short_time(t: LocalTime) -> String {
-    let h = match t.hour % 12 { 0 => 12, h => h };
-    format!("{h}:{:02} {}", t.minute, if t.hour < 12 { "AM" } else { "PM" })
+    opencode_i18n::date::format(opencode_i18n::date::Style::Time, moment(t))
 }
 
 /// `Oct 31, 2026, 3:45 PM`: `dateStyle: "medium"` with a short time.
 pub fn date_time(t: LocalTime) -> String {
-    format!("{} {}, {}, {}", MONTHS[t.month as usize - 1], t.day, t.year, short_time(t))
+    opencode_i18n::date::format(opencode_i18n::date::Style::DateTime, moment(t))
 }
 
 /// `Nov 1, 12:00 AM GMT-7`: a month, day, time and `shortOffset` zone.
 pub fn budget_time(t: LocalTime) -> String {
-    let zone = match t.offset {
-        0 => "GMT".to_owned(),
-        o => {
-            let (sign, a) = (if o < 0 { '-' } else { '+' }, o.abs());
-            let (h, m) = (a / 3600, a % 3600 / 60);
-            if m == 0 { format!("GMT{sign}{h}") } else { format!("GMT{sign}{h}:{m:02}") }
-        }
-    };
-    format!("{} {}, {} {zone}", MONTHS[t.month as usize - 1], t.day, short_time(t))
+    opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayTimeZone, moment(t))
 }
 
 /// What a limit's row says, at `now` (epoch ms), with its action for a budget.

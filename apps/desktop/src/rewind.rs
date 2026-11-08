@@ -618,26 +618,16 @@ pub(crate) fn sent_label(id: &str, now: i64) -> Option<String> {
         let hex = id.strip_prefix("msg_")?.get(..12)?;
         u64::from_str_radix(hex, 16).ok().map(|v| (v >> 12) as i64).filter(|&v| v > 1_500_000_000_000)
     })?;
-    let (sent, today) = (LocalTime::at(ms), LocalTime::at(now));
-    let day = |t: &LocalTime| civil_days(t.year as i64, t.month as i64, t.day as i64);
-    let time = session_view::turn_errors::short_time(sent);
-    Some(match day(&today) - day(&sent) {
-        0 => format!("Today, {time}"),
-        1 => format!("Yesterday, {time}"),
-        _ if sent.year == today.year => format!("{} {}, {time}", MONTHS[sent.month as usize - 1], sent.day),
-        _ => session_view::turn_errors::date_time(sent),
-    })
-}
-
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/// Days since 1970-01-01 of a civil date (Howard Hinnant's `days_from_civil`).
-fn civil_days(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
-    era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+    use opencode_i18n::date::{self, Style};
+    let (sent, today) = (session_view::turn_errors::moment(LocalTime::at(ms)), session_view::turn_errors::moment(LocalTime::at(now)));
+    let days = today.days() - sent.days();
+    // Today and Yesterday as `RelativeTimeFormat` names them, capitalised.
+    if let Some(day) = date::relative_day(-days).filter(|_| days >= 0) {
+        let mut word = day.chars();
+        let first = word.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default();
+        return Some(format!("{first}{}, {}", word.as_str(), date::format(Style::Time, sent)));
+    }
+    Some(date::format(if sent.year == today.year { Style::MonthDayTime } else { Style::DateTime }, sent))
 }
 
 #[cfg(test)]

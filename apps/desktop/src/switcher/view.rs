@@ -233,7 +233,9 @@ fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(
     let meta = e.updated.map(|at| {
         let ago = relative_time(s.now_ms, at);
         let w = rune::text::measure(&ago, &[], META, None).0;
-        (text(ago).key("meta").font(META).color(p.muted), w)
+        // The full date shows on hover (`Tooltip` over `command-palette-meta`).
+        let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, session_view::turn_errors::moment(rune::LocalTime::at(at)));
+        (text(ago).key("meta").font(META).color(p.muted).help(full), w)
     });
     (Some(avatar), meta)
 }
@@ -241,7 +243,6 @@ fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(
 /// `getRelativeTime` (`shell/time.ts`): "Just now", "5m ago", "3h ago", "2d ago", then the local
 /// date ("Nov 3", with its year when not this year's).
 fn relative_time(now: i64, then: i64) -> String {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     let (s, m, h, d) = {
         let s = (now - then).div_euclid(1000);
         (s, s.div_euclid(60), s.div_euclid(3600), s.div_euclid(86_400))
@@ -253,8 +254,8 @@ fn relative_time(now: i64, then: i64) -> String {
         _ if d < 7 => t!("common.time.daysAgo.short", count = d),
         _ => {
             let (at, today) = (rune::LocalTime::at(then), rune::LocalTime::at(now));
-            let date = format!("{} {}", MONTHS[at.month as usize - 1], at.day);
-            if at.year == today.year { date } else { format!("{date}, {}", at.year) }
+            let style = if at.year == today.year { opencode_i18n::date::Style::MonthDay } else { opencode_i18n::date::Style::MonthDayYear };
+            opencode_i18n::date::format(style, session_view::turn_errors::moment(at))
         }
     }
 }
