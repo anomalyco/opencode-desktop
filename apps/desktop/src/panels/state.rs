@@ -10,7 +10,7 @@ use super::tabs::{
     session_tab_pane, split_panel_key, take_closed_tab,
 };
 use super::{
-    ClosedTabInfo, DockPlacement, PanelLauncherDesc, PanelRegion,
+    ClosedTabInfo, DockPlacement, PanelLauncherDesc,
     PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane, find_panel, registered_panels,
 };
 use crate::{App, Route};
@@ -19,10 +19,6 @@ use crate::{App, Route};
 pub const SPLIT_MIN_H: f32 = 120.0;
 /// The side pane's share of a split side region until the divider is dragged.
 pub const SPLIT_DEFAULT_RATIO: f32 = 0.5;
-pub const DOCK_DEFAULT_H: f32 = 260.0;
-pub const DOCK_MIN_H: f32 = 100.0;
-pub const DOCK_COLLAPSE_H: f32 = 50.0;
-pub const DOCK_MAX_H: f32 = 560.0;
 /// `DEFAULT_DOCK_HEIGHT` (`shell/state/layout.tsx`): the bottom pane's height until dragged.
 pub const BOTTOM_DEFAULT_H: f32 = 280.0;
 /// `BOTTOM_PANE_HEIGHT_MIN` (`session/screen.tsx`).
@@ -33,7 +29,6 @@ pub const BOTTOM_MIN_H: f32 = 120.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSideState {
     pub open: bool,
-    pub dock_open: bool,
     pub bottom_open: bool,
     pub tab_state: SessionTabState,
     pub closed: Vec<ClosedSideTab>,
@@ -49,7 +44,6 @@ impl Default for SessionSideState {
     fn default() -> Self {
         Self {
             open: false,
-            dock_open: false,
             bottom_open: true,
             tab_state: SessionTabState::default(),
             closed: Vec::new(),
@@ -73,8 +67,6 @@ pub struct SideState {
     pub drag_origin: Option<(f32, Option<f32>)>,
     /// The side pane's share as a split divider drag began, and what the session stored then.
     pub split_drag_origin: Option<(f32, Option<f32>)>,
-    pub dock_height: f32,
-    pub dock_drag_origin: Option<f32>,
     /// The bottom pane's height as a drag began, and what the session stored then.
     pub bottom_drag_origin: Option<(f32, Option<f32>)>,
     /// The window's width at the last layout, for sizes estimated outside the view.
@@ -84,11 +76,8 @@ pub struct SideState {
     /// Once shown, the side region keeps its DOM/Rune subtree mounted while closed so springs
     /// never mount or unmount mid-flight (`side-region.tsx` `contentMounted`).
     pub mounted: bool,
-    pub dock_mounted: bool,
-    pub dock_last_solo: bool,
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
-    pub dock_focused: bool,
     pub active_pane_focus: SessionPane,
     /// Blocks an extra `⌘W` right after closing the side region's last tab from closing the session.
     pub emptied_guard: bool,
@@ -109,16 +98,11 @@ impl Default for SideState {
         Self {
             drag_origin: None,
             split_drag_origin: None,
-            dock_height: DOCK_DEFAULT_H,
-            dock_drag_origin: None,
             bottom_drag_origin: None,
             laid_w: std::cell::Cell::new(1280.0),
             pane_drag: Default::default(),
             mounted: false,
-            dock_mounted: false,
-            dock_last_solo: false,
             focused: false,
-            dock_focused: false,
             active_pane_focus: SessionPane::Side,
             emptied_guard: false,
             tab_menu: None,
@@ -215,33 +199,8 @@ impl App {
             .is_some_and(|st| st.open)
     }
 
-    pub fn has_dock_provider(&self) -> bool {
-        self.all_panels().iter().any(|p| p.region == PanelRegion::Dock)
-    }
-
     pub fn dock_placement(&self) -> DockPlacement {
         self.settings.terminal_placement
-    }
-
-    pub fn dock_open(&self) -> bool {
-        self.has_dock_provider()
-            && self
-                .active_session_id()
-                .and_then(|id| self.side.sessions.get(id))
-                .is_some_and(|st| st.dock_open)
-    }
-
-    pub fn dock_side_open(&self) -> bool {
-        self.dock_open() && self.dock_placement() == DockPlacement::Side
-    }
-
-    pub fn dock_bottom_open(&self) -> bool {
-        self.dock_open() && self.dock_placement() == DockPlacement::Bottom
-    }
-
-    /// True when the right-hand column (`side-region`) is visible (`tabsOpen || dockSideOpen` in `screen-layout.ts`).
-    pub fn right_column_open(&self) -> bool {
-        self.side_open() || self.dock_side_open()
     }
 
     pub fn bottom_open(&self) -> bool {
@@ -257,65 +216,6 @@ impl App {
         show(self);
         if (self.side_open(), self.bottom_open()) == was {
             tx.instant();
-        }
-    }
-
-    pub fn resolve_dock_entry(&self) -> Option<(String, String, String, ResolvedEntry)> {
-        let session_id = self.active_session_id()?.to_owned();
-        let (directory, project_id) = match self.session(&session_id) {
-            Some(info) => (info.directory.clone(), info.project.clone()),
-            None => (String::new(), String::new()),
-        };
-        for p in self.all_panels().into_iter().filter(|p| p.region == PanelRegion::Dock) {
-            let ctx = PanelSessionCtx {
-                session_id: &session_id,
-                directory: &directory,
-                project_id: &project_id,
-                open_ids: &[],
-            };
-            if let Some(tab) = (p.list)(self, &ctx).into_iter().next() {
-                let key = panel_key(p.plugin, &tab.id);
-                let entry = ResolvedEntry {
-                    key,
-                    plugin: p.plugin,
-                    tab,
-                    provider: p,
-                    pane: SessionPane::Side,
-                };
-                return Some((session_id, directory, project_id, entry));
-            }
-        }
-        None
-    }
-
-    pub fn open_dock(&mut self, _tx: &mut Tx) {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        self.side.mounted = true;
-        self.side.dock_mounted = true;
-        self.side.dock_last_solo = !self.side_open();
-        self.session_side_mut(&sid).dock_open = true;
-        self.side.dock_focused = true;
-        self.side.focused = false;
-        self.composer.focused = false;
-        if let Some((_, _, _, entry)) = self.resolve_dock_entry()
-            && let Some(on_enter) = entry.provider.on_enter
-        {
-            on_enter(self, &sid, &entry.tab.id);
-        }
-    }
-
-    pub fn close_dock(&mut self, _tx: &mut Tx) {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        self.side.dock_last_solo = !self.side_open();
-        self.session_side_mut(&sid).dock_open = false;
-        self.side.dock_focused = false;
-    }
-
-    pub fn toggle_dock(&mut self, tx: &mut Tx) {
-        if self.dock_open() {
-            self.close_dock(tx);
-        } else {
-            self.open_dock(tx);
         }
     }
 
@@ -367,9 +267,6 @@ impl App {
                 && let Some(open) = p.open_entry
             {
                 launchers.extend(list(self, &ctx).into_iter().map(|desc| (p.plugin, desc, super::Launch::Entry(open))));
-            }
-            if p.region != PanelRegion::Side {
-                continue;
             }
             for tab in (p.list)(self, &ctx) {
                 let key = panel_key(p.plugin, &tab.id);
@@ -488,8 +385,6 @@ impl App {
         });
         self.side.chosen_new_tab.insert(pane, id.clone());
         self.side.focused = true;
-        self.side.dock_focused = false;
-        self.side.dock_last_solo = false;
         self.side.active_pane_focus = pane;
         self.composer.focused = false;
         self.side.mounted = true;
@@ -523,21 +418,15 @@ impl App {
         self.side.add_menu = None;
         let was_open = self.side_open();
         if was_open {
-            self.side.dock_last_solo = false;
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
             self.browser.address.focused = false;
-            if self.dock_open() {
-                self.side.dock_focused = true;
-            }
             return;
         }
 
         self.side.mounted = true;
-        self.side.dock_last_solo = false;
         self.session_side_mut(&sid).open = true;
         self.side.focused = true;
-        self.side.dock_focused = false;
         self.side.active_pane_focus = SessionPane::Side;
 
         let reg = self.resolve_side_region();
@@ -613,8 +502,6 @@ impl App {
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == actual_pane));
         self.side.focused = true;
-        self.side.dock_focused = false;
-        self.side.dock_last_solo = false;
         self.side.active_pane_focus = actual_pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)
@@ -681,7 +568,6 @@ impl App {
             self.side.mounted = true;
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
-        self.side.dock_last_solo = false;
         if let Some((plugin, tab_id)) = split_panel_key(key)
             && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
             && let Some(on_focus) = prov.on_focus_tab
@@ -725,7 +611,6 @@ impl App {
         };
         self.side.adding.retain(|n| !(n.session_id == sid && n.pane == pane));
         self.side.focused = true;
-        self.side.dock_focused = false;
         self.side.active_pane_focus = pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)

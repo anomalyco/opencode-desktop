@@ -306,14 +306,14 @@ fn e2e_headless_runtime_open_vs_unopened_session_and_side_panel_tools() {
     assert!(rt.state.is_review_active());
     assert!(rt.state.composer.focused);
 
-    // 5. `open_terminal` -> opens terminal dock without stealing composer focus.
+    // 5. `open_terminal` -> opens the terminal's tab without stealing composer focus.
     send_rpc(&mut ws, call_tool_msg(14, "open_terminal", json!({}), Some(MAIN)));
     let term_reply = recv_rpc_while(&mut ws, || {
         rt.frame(DT);
     });
     let term_meta: Value = serde_json::from_str(term_reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(term_meta["open"], true);
-    assert!(rt.state.dock_open());
+    assert!(rt.state.side_open() || rt.state.bottom_open());
     assert!(rt.state.composer.focused);
 
     // 6. Browser lifecycle (`browser_open` -> `browser_tabs` -> `browser_navigate` -> `browser_focus` -> `browser_close`).

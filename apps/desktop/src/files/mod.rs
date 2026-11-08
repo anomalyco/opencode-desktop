@@ -566,7 +566,7 @@ impl App {
         steal_focus: bool,
         tx: &mut Tx,
     ) {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused);
         self.ensure_file_loaded(sid, path);
         let tab_key = file_tab_key(path);
         // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
@@ -575,7 +575,7 @@ impl App {
         }
         self.show_pane_tab(tx, |s| s.open_side_tab_for_session(sid, &tab_key, Some(SessionPane::Side), preview, false));
         if !steal_focus {
-            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+            (self.composer.focused, self.side.focused) = saved_focus;
         }
         let ws = self.files.sessions.entry(sid.to_owned()).or_default();
         ws.push_recent(path);

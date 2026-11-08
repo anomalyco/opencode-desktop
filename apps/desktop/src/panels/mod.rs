@@ -33,17 +33,7 @@ pub use tabs::{ClosedSideTab, SessionTabState, SessionTabs, panel_key, split_pan
 // Distributed slice of all compiled-in panel providers.
 slice!(pub PANELS: PanelRegistration);
 
-/// Logical host region a panel contributes to (`Side` tab strip or `Dock` terminal region).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PanelRegion {
-    /// Tabbed right-hand side region (Browser, Review/Changes, Files, etc.).
-    Side,
-    /// Dedicated dock region (Terminal, `⌘J`), stacked below `Side` in the right column
-    /// (`DockPlacement::Side`, default) or across the bottom of the session screen (`DockPlacement::Bottom`).
-    Dock,
-}
-
-/// User preference for where `PanelRegion::Dock` renders (`terminalPlacement` in Desktop).
+/// The pane a new terminal opens in beside no other (`terminalPlacement` in Desktop).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DockPlacement {
     #[default]
@@ -301,17 +291,12 @@ pub struct PanelViewCtx<'a> {
     pub session_id: &'a str,
     pub directory: &'a str,
     pub project_id: &'a str,
-    pub region: PanelRegion,
     pub pane: SessionPane,
     pub pane_size: (f32, f32),
     pub env_scale: f32,
     pub tab: &'a PanelTabDesc,
     pub visible: bool,
     pub focused: bool,
-    /// True when this panel sits at the top-right of the right column with no outer tab bar above it
-    /// (e.g. `PanelRegion::Dock` filling the right column while `Side` tabs are closed), so its
-    /// header should leave ~30 pt on the trailing end for the floating `side-toggle` button.
-    pub reserve_top_right: bool,
 }
 
 fn no_wide(_: &App) -> bool {
@@ -326,8 +311,6 @@ pub struct PanelRegistration {
     pub plugin: &'static str,
     /// Display order tie-breaker.
     pub order: i32,
-    /// Target region (`PanelRegion::Side`).
-    pub region: PanelRegion,
     /// Default pane when opening a new tab of this plugin (`Side` by default; `Bottom` for a bottom-docked panel).
     pub default_pane: SessionPane,
     /// The default pane read from the app's settings, overriding `default_pane`.
@@ -392,7 +375,6 @@ impl PanelRegistration {
         Self {
             plugin,
             order: 0,
-            region: PanelRegion::Side,
             default_pane: SessionPane::Side,
             placed: None,
             wide: no_wide,
@@ -430,19 +412,6 @@ impl PanelRegistration {
     pub const fn order(mut self, order: i32) -> Self {
         self.order = order;
         self
-    }
-
-    pub const fn region(mut self, region: PanelRegion) -> Self {
-        self.region = region;
-        self
-    }
-
-    pub const fn dock(
-        plugin: &'static str,
-        list: fn(&App, &PanelSessionCtx) -> Vec<PanelTabDesc>,
-        render: fn(&App, &Pal, &PanelViewCtx) -> El,
-    ) -> Self {
-        Self::new(plugin, list, render).region(PanelRegion::Dock)
     }
 
     pub const fn default_pane(mut self, pane: SessionPane) -> Self {

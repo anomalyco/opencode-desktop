@@ -32,7 +32,7 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
 /// Session details). In a narrow window the location's worktree name hides, then its project
 /// name, then the actions drop their details; only then does the title truncate.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option<&Transcript>, scope: &str) -> El {
-    let reserve_side = !s.right_column_open() && s.stage.is_none();
+    let reserve_side = !s.side_open() && s.stage.is_none();
     let project = info.and_then(|i| s.project(&i.project));
     let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
     let parent = info.and_then(|i| i.parent.as_deref()).and_then(|pid| s.session(pid));

@@ -54,7 +54,7 @@ pub struct Settings {
     pub scheme: Scheme,
     /// Fold prompts past 12 lines behind Read more (`fold.rs`); Experimental, off unless turned on.
     pub fold_user: bool,
-    /// Where `PanelRegion::Dock` (Terminal) renders: `"side"` (default) or `"bottom"`.
+    /// The pane a new terminal opens in: `"side"` (default) or `"bottom"`.
     pub terminal_placement: crate::panels::DockPlacement,
     /// Which events post a system notification (`notifications.rs`), with Desktop's defaults.
     pub notify: crate::notifications::Kinds,

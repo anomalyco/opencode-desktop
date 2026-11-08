@@ -222,7 +222,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
             panel
                 .on_press(|s: &mut App| {
                     s.side.focused = false;
-                    s.side.dock_focused = false;
                     s.side.tab_menu = None;
                     s.side.add_menu = None;
                 })

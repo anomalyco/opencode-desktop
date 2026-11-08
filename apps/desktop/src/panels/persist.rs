@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 
 use serde_json::{Value, json};
 
-use super::state::{DOCK_MAX_H, DOCK_MIN_H, SessionSideState, SideState};
+use super::state::{SessionSideState, SideState};
 use super::tabs::{ClosedSideTab, SessionTabState};
 
 impl SessionSideState {
@@ -14,7 +14,6 @@ impl SessionSideState {
         let closed: Vec<Value> = self.closed.iter().map(ClosedSideTab::to_json).collect();
         json!({
             "open": self.open,
-            "dockOpen": self.dock_open,
             "bottomOpen": self.bottom_open,
             "tabState": self.tab_state.to_json(),
             "closed": closed,
@@ -28,7 +27,6 @@ impl SessionSideState {
         let finite = |key: &str| v[key].as_f64().map(|n| n as f32).filter(|n| n.is_finite());
         Self {
             open: v["open"].as_bool().unwrap_or(false),
-            dock_open: v["dockOpen"].as_bool().unwrap_or(false),
             bottom_open: v["bottomOpen"].as_bool().unwrap_or(true),
             tab_state: SessionTabState::from_json(&v["tabState"]),
             closed: v["closed"]
@@ -46,14 +44,12 @@ impl SessionSideState {
 
 impl SideState {
     pub fn stamp_hash(&self, h: &mut impl Hasher) {
-        self.dock_height.to_bits().hash(h);
         self.sessions.len().hash(h);
         let mut combined = 0u64;
         for (k, st) in &self.sessions {
             let mut eh = DefaultHasher::new();
             k.hash(&mut eh);
             st.open.hash(&mut eh);
-            st.dock_open.hash(&mut eh);
             st.bottom_open.hash(&mut eh);
             st.tab_state.tabs.active.hash(&mut eh);
             st.tab_state.tabs.all.hash(&mut eh);
@@ -73,26 +69,17 @@ impl SideState {
             .iter()
             .map(|(k, v)| (k.clone(), v.to_json()))
             .collect();
-        json!({
-            "dockHeight": self.dock_height,
-            "sessions": sessions,
-        })
+        json!({ "sessions": sessions })
     }
 
     pub fn restore_json(&mut self, v: &Value) {
-        if let Some(dh) = v["dockHeight"].as_f64() {
-            self.dock_height = (dh as f32).clamp(DOCK_MIN_H, DOCK_MAX_H);
-        }
         if let Some(obj) = v["sessions"].as_object() {
             let map: HashMap<String, SessionSideState> = obj
                 .iter()
                 .map(|(k, val)| (k.clone(), SessionSideState::from_json(val)))
                 .collect();
-            if map.values().any(|s| s.open || s.dock_open) {
+            if map.values().any(|s| s.open) {
                 self.mounted = true;
-            }
-            if map.values().any(|s| s.dock_open) {
-                self.dock_mounted = true;
             }
             self.sessions = map;
         }

@@ -272,7 +272,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     // Off macOS ⌃R is Ctrl+R, the Browser's reload; a focused pane keeps it, as Desktop's
     // `session.rename` skips plugin panes.
-    let pane_owns = (s.side.focused || s.side.dock_focused) && crate::keymap::Bind::BrowserReload.matches_tx(ev, tx);
+    let pane_owns = s.side.focused && crate::keymap::Bind::BrowserReload.matches_tx(ev, tx);
     if !crate::keymap::Bind::Rename.matches_tx(ev, tx) || pane_owns || s.stage.is_some() {
         return false;
     }

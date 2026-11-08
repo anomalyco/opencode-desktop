@@ -2,7 +2,7 @@ use rune::{El, Env, Key, KeyEvent, Mods, Runtime, col, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{
-    DockPlacement, PanelRegistration, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SideState,
+    PanelRegistration, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SideState,
     panel_key,
 };
 use crate::palette::Pal;
@@ -38,19 +38,6 @@ fn mock_notes_render(_s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         .grow(1.0)
         .padding(16.0)
         .child(text(format!("Scratchpad: {}", ctx.tab.title)).font(UI).color(p.text))
-}
-
-fn mock_dock_list(_s: &App, _ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
-    vec![PanelTabDesc::new("main", "Terminal").icon(&ic::CONSOLE)]
-}
-
-fn mock_dock_render(_s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
-    col()
-        .key(if ctx.reserve_top_right { "mock-dock-reserved" } else { "mock-dock-stacked" })
-        .w_full()
-        .grow(1.0)
-        .padding(12.0)
-        .child(text("zsh · ~/project").font(UI).color(p.text))
 }
 
 #[test]
@@ -199,52 +186,6 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
 }
 
 #[test]
-fn dock_region_stacks_under_side_tabs_and_supports_bottom_placement() {
-    let mut rt = test_runtime();
-    rt.state
-        .side
-        .extra_panels
-        .push(PanelRegistration::dock("terminal", mock_dock_list, mock_dock_render).order(20));
-
-    // 1. With side tabs closed, ⌘J opens the dock filling the right column (`reserve_top_right = true`).
-    rt.key(KeyEvent {
-        key: Key::Command('j'),
-        mods: Mods { cmd: true, logo: true, ..Default::default() },
-    });
-    for _ in 0..45 {
-        rt.frame(1.0 / 60.0);
-    }
-    assert!(!rt.state.side_open());
-    assert!(rt.state.dock_side_open());
-    assert!(rt.state.right_column_open());
-    assert!(rt.find("mock-dock-reserved").is_some());
-
-    // 2. Opening a Browser tab stacks `side-panel` over an 8px `dock-side-resize` handle over `dock-panel`.
-    rt.update(|s, _| {
-        s.open_new_browser_tab("http://localhost:5173/");
-    });
-    for _ in 0..20 {
-        rt.frame(1.0 / 60.0);
-    }
-    assert!(rt.state.side_open() && rt.state.dock_side_open());
-    assert!(rt.presented("side-panel").is_some());
-    assert!(rt.presented("dock-panel").is_some());
-    let (resize_rect, _) = rt.presented("dock-side-resize").expect("8px vertical resize handle");
-    assert!((resize_rect[3] - 8.0).abs() < 0.5, "expected 8px vertical resize handle, got {resize_rect:?}");
-    assert!(rt.find("mock-dock-stacked").is_some());
-
-    // 3. `terminalPlacement = "bottom"` moves the dock across the bottom of the session screen.
-    rt.update(|s, tx| {
-        tx.instant();
-        s.settings.terminal_placement = DockPlacement::Bottom;
-    });
-    rt.frame(1.0 / 60.0);
-    assert!(rt.state.dock_bottom_open());
-    assert!(rt.presented("dock-bottom-panel").is_some());
-    assert!(rt.presented("dock-bottom-resize").is_some());
-}
-
-#[test]
 fn per_session_persistence_roundtrips_and_isolates_sessions() {
     let mut rt = test_runtime();
     let s1 = rt.state.active_session_id().unwrap().to_owned();
@@ -272,33 +213,4 @@ fn per_session_persistence_roundtrips_and_isolates_sessions() {
     let mut restored = SideState::default();
     restored.restore_json(&saved);
     assert!(restored.sessions.get(&s1).is_some_and(|st| st.open));
-}
-
-#[test]
-fn at_zoom_the_docks_cap_at_six_tenths_of_the_shell() {
-    let mut rt = test_runtime();
-    rt.state.side.extra_panels.push(PanelRegistration::dock("terminal", mock_dock_list, mock_dock_render).order(20));
-    // The 820-point window's shell is 512.5 tall at zoom 1.6, so 290 is under both docks' caps.
-    rt.update(|s, tx| {
-        tx.instant();
-        s.zoom = 1.6;
-        s.side.dock_height = 290.0;
-        s.settings.terminal_placement = DockPlacement::Bottom;
-    });
-    rt.key(KeyEvent { key: Key::Command('j'), mods: Mods { cmd: true, logo: true, ..Default::default() } });
-    for _ in 0..60 {
-        rt.frame(1.0 / 60.0);
-    }
-    let (bottom, _) = rt.presented("dock-bottom-panel").expect("the bottom dock");
-    assert!((bottom[3] / 1.6 - 290.0).abs() < 1.0, "the bottom dock keeps its height: {bottom:?}");
-    rt.update(|s, tx| {
-        tx.instant();
-        s.settings.terminal_placement = DockPlacement::Side;
-        s.open_new_browser_tab("http://localhost:5173/");
-    });
-    for _ in 0..60 {
-        rt.frame(1.0 / 60.0);
-    }
-    let (side, _) = rt.presented("dock-panel").expect("the dock under the side tabs");
-    assert!((side[3] / 1.6 - 290.0).abs() < 1.0, "the side dock keeps its height: {side:?}");
 }

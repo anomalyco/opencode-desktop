@@ -3,7 +3,6 @@
 //! its own: the chat panel keeps one (600 until the divider is dragged, then the session's own) and
 //! the side region takes the rest of the row, so it grows with the window rather than the chat.
 
-use super::PanelRegion;
 use crate::App;
 
 /// `DEFAULT_SESSION_WIDTH` (`shell/state/layout.tsx`).
@@ -52,7 +51,7 @@ impl App {
     /// Whether a side panel asks for the wider minimum (`region.wide`): any of them, shown or not,
     /// as the review does while its diffs are split.
     pub fn side_wide(&self) -> bool {
-        self.all_panels().iter().any(|p| p.region == PanelRegion::Side && (p.wide)(self))
+        self.all_panels().iter().any(|p| (p.wide)(self))
     }
 
     /// The chat panel's width beside an open side region (`resizedWidth`).

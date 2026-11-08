@@ -273,7 +273,7 @@ impl App {
         let key = panel_key("browser", &self.active_browser_tab_id()?.to_string());
         let st = self.side.sessions.get(sid)?;
         let pane = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
-        let in_pane = self.side.focused && !self.side.dock_focused && self.side.active_pane_focus == pane;
+        let in_pane = self.side.focused && self.side.active_pane_focus == pane;
         (self.browser.address.focused || in_pane).then_some(pane)
     }
 
@@ -307,7 +307,7 @@ impl App {
         target_pane: Option<SessionPane>,
         steal_focus: bool,
     ) -> u64 {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused);
         let id = if self.use_mock_browser() {
             let resolved = browser_pane::resolve_address(url);
             let title = if resolved == "about:blank" { opencode_i18n::t!("plugin.browser.tab.new") } else { &resolved };
@@ -321,7 +321,7 @@ impl App {
             self.open_side_tab_for_session(sid, &key, target_pane, false, false);
         }
         if !steal_focus {
-            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+            (self.composer.focused, self.side.focused) = saved_focus;
         }
         self.sync_browser_address(true);
         id
@@ -336,7 +336,7 @@ impl App {
     }
 
     pub fn register_existing_browser_tab_for_session(&mut self, sid: &str, id: u64, steal_focus: bool) {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused);
         let vec = self.browser.session_tabs.entry(sid.to_owned()).or_default();
         if !vec.contains(&id) {
             vec.push(id);
@@ -344,13 +344,13 @@ impl App {
         let key = panel_key("browser", &id.to_string());
         self.open_side_tab_for_session(sid, &key, None, false, false);
         if !steal_focus {
-            (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+            (self.composer.focused, self.side.focused) = saved_focus;
         }
         self.sync_browser_address(true);
     }
 
     pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused);
         let key = panel_key("browser", &id.to_string());
         if self.active_session_id() == Some(sid) {
             self.close_side_tab(&key, tx);
@@ -373,7 +373,7 @@ impl App {
         if self.browser.host.tab(id).is_some() {
             self.browser.host.close_tab(id);
         }
-        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+        (self.composer.focused, self.side.focused) = saved_focus;
         self.sync_browser_address(true);
     }
 

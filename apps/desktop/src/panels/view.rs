@@ -1,4 +1,4 @@
-//! Side region, split pane, bottom dock, tab strip, New Tab launchers, and `Recently closed` UI
+//! Side region, split pane, bottom pane, tab strip, New Tab launchers, and `Recently closed` UI
 //! (`packages/app/src/runtime/plugin/side-region.tsx`, `closed-tabs-view.tsx`).
 
 use rune::{
@@ -8,13 +8,12 @@ use rune::{
 use rune_theme_opencode::icons as ic;
 
 pub use super::dock::{bottom_dock, bottom_reserve_height};
-use super::dock::{dock_resize_handle, render_dock_card};
 use super::menus::new_tab_view;
 pub use super::menus::context_menus;
-use super::state::{DOCK_MAX_H, DOCK_MIN_H, ResolvedEntry, ResolvedRegion, SPLIT_MIN_H};
+use super::state::{ResolvedEntry, ResolvedRegion, SPLIT_MIN_H};
 use super::width::SESSION_MIN_W;
 use super::tabs::SessionTabs;
-use super::{CloseButtonMode, PanelRegion, PanelViewCtx, SessionPane};
+use super::{CloseButtonMode, PanelViewCtx, SessionPane};
 use crate::palette::{Elevate as _, Pal};
 use crate::view::{UI, UI_SMALL};
 use crate::{App, Route};
@@ -46,11 +45,10 @@ fn pane_slug(pane: SessionPane) -> &'static str {
     }
 }
 
-/// Right-hand column (`Side` tabs over `Dock` when `terminalPlacement == "side"`), animated on `SIDE_SPRING`.
+/// Right-hand column of `Side` tabs, animated on `SIDE_SPRING`.
 pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
     let on_session = matches!(s.route, Route::Session(_)) && !s.settings.open;
     let reg = if on_session { s.resolve_side_region() } else { None };
-    let dock_entry = if on_session { s.resolve_dock_entry() } else { None };
     super::drag::note_zones(s);
     // Until the window is first measured, the last width it had.
     if zoomed_w > 0.0 {
@@ -58,9 +56,7 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
     }
     let w = s.side_width(s.side.laid_w.get());
 
-    let tabs_open = on_session && s.side_open();
-    let dock_side_open = on_session && s.dock_side_open() && dock_entry.is_some();
-    let col_open = tabs_open || dock_side_open;
+    let col_open = on_session && s.side_open();
     let slot_w = if col_open { w + 8.0 } else { 0.0 };
 
     let mut outer = el()
@@ -79,96 +75,23 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
         } else {
             720.0 / s.zoom
         };
-        let max_dock_h = (col_h * 0.6).clamp(DOCK_MIN_H, DOCK_MAX_H);
-        let dock_h = s.side.dock_height.clamp(DOCK_MIN_H, max_dock_h);
-        let stacked = tabs_open && dock_side_open;
-
-        let show_solo_dock = !tabs_open
-            && s.dock_placement() == super::DockPlacement::Side
-            && (dock_side_open || (s.side.dock_last_solo && dock_entry.is_some()));
         let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
 
+        let mut card = region_card(s, p, reg, w, col_h, env_scale)
+            .key("side-panel")
+            .grow(1.0)
+            .min_h(0.0);
         let mut column = col()
             .key("side-column")
             .pin(Some(0.0), Some(crate::view::chrome().top()), None, Some(col_bottom))
             .w(w)
             .opacity(if col_open { 1.0 } else { FADE_FLOOR })
             .opacity_motion(SIDE_SPRING);
-
-        if tabs_open || !show_solo_dock {
-            let side_h = if stacked { (col_h - dock_h - 8.0).max(120.0) } else { col_h };
-            let mut card = region_card(s, p, reg, w, side_h, env_scale)
-                .key("side-panel")
-                .grow(1.0)
-                .min_h(0.0);
-            if !tabs_open {
-                card = card.inert();
-            }
-            column = column.child(card);
-        }
-
-        if show_solo_dock
-            && let Some((ref sid, ref dir, ref proj, ref dentry)) = dock_entry
-        {
-            let mut dock_card = render_dock_card(
-                s,
-                p,
-                sid,
-                dir,
-                proj,
-                dentry,
-                (w, col_h),
-                env_scale,
-                true,
-            )
-            .key("dock-panel")
-            .w(w)
-            .grow(1.0)
-            .min_h(0.0);
-            if !dock_side_open {
-                dock_card = dock_card.inert();
-            }
-            column = column.child(dock_card);
-        } else if s.dock_placement() == super::DockPlacement::Side
-            && (dock_side_open || s.side.dock_mounted)
-            && let Some((ref sid, ref dir, ref proj, ref dentry)) = dock_entry
-        {
-            let slot_open = tabs_open && dock_side_open;
-            let slot_h = if slot_open { dock_h + 8.0 } else { 0.0 };
-            let mut slot = col()
-                .key("dock-side-slot")
-                .role("region")
-                .w(w)
-                .h(slot_h)
-                .clip_soft(0.0)
-                .motion(SIDE_SPRING)
-                .child(dock_resize_handle(s, p, "dock-side-resize", max_dock_h))
-                .child(
-                    render_dock_card(
-                        s,
-                        p,
-                        sid,
-                        dir,
-                        proj,
-                        dentry,
-                        (w, dock_h),
-                        env_scale,
-                        false,
-                    )
-                    .key("dock-panel")
-                    .w(w)
-                    .h(dock_h),
-                );
-            if !slot_open {
-                slot = slot.inert();
-            }
-            column = column.child(slot);
-        }
-
         if !col_open {
+            card = card.inert();
             column = column.inert();
         }
-        outer = outer.child(column);
+        outer = outer.child(column.child(card));
     }
     outer
 }
@@ -212,7 +135,6 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         .instant_changes()
         .on_press(|s: &mut App| {
             s.side.focused = true;
-            s.side.dock_focused = false;
             s.composer.focused = false;
             s.side.tab_menu = None;
             s.side.add_menu = None;
@@ -339,14 +261,12 @@ pub(super) fn pane_box(
             session_id: &reg.session_id,
             directory: &reg.directory,
             project_id: &reg.project_id,
-            region: PanelRegion::Side,
             pane,
             pane_size: (pane_size.0, (pane_size.1 - bar_h).max(1.0)),
             env_scale,
             tab: &selected.tab,
             visible,
             focused: s.side.focused && s.side.active_pane_focus == pane,
-            reserve_top_right: false,
         };
         let panel_el = (selected.provider.render)(s, p, &vctx);
         let content_key = match selected.tab.group {
@@ -370,7 +290,6 @@ pub(super) fn pane_box(
         .min_h(0.0)
         .on_press(move |s: &mut App| {
             s.side.focused = true;
-            s.side.dock_focused = false;
             s.side.active_pane_focus = pane;
             s.composer.focused = false;
         })
@@ -698,7 +617,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
 /// leaves the side region `SIDE_PANE_MIN_W`; the side region takes the rest. A double press
 /// does nothing, as Desktop's handle ignores one.
 pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
-    if !matches!(s.route, Route::Session(_)) || s.settings.open || !s.right_column_open() || zoomed_w <= 0.0 {
+    if !matches!(s.route, Route::Session(_)) || s.settings.open || !s.side_open() || zoomed_w <= 0.0 {
         return None;
     }
     let x = (zoomed_w - s.side_width(zoomed_w) - 16.0).max(0.0);

@@ -372,7 +372,6 @@ impl App {
     pub fn show_review(&mut self, sid: &str, tx: &mut Tx) {
         self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.side.focused = true;
-        self.side.dock_focused = false;
         self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(sid).tab_state.tabs, REVIEW_KEY);
         self.composer.focused = false;
         self.ensure_session_review(sid);
@@ -650,7 +649,7 @@ impl App {
         line: Option<u32>,
         tx: &mut Tx,
     ) {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
+        let saved_focus = (self.composer.focused, self.side.focused);
         if let Some(v) = view {
             self.set_review_diff_mode(v);
         }
@@ -679,6 +678,6 @@ impl App {
                 self.focus_review_change(sid, p, anchor.as_ref(), tx);
             }
         }
-        (self.composer.focused, self.side.focused, self.side.dock_focused) = saved_focus;
+        (self.composer.focused, self.side.focused) = saved_focus;
     }
 }

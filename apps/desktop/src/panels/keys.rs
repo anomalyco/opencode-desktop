@@ -7,7 +7,7 @@ use rune::{Ime, Key, KeyEvent, Tx};
 use crate::keymap::Bind;
 
 use super::tabs::{SessionTabs, panel_key};
-use super::{PanelRegion, SessionPane};
+use super::SessionPane;
 use crate::App;
 
 impl App {
@@ -43,7 +43,7 @@ impl App {
         {
             let panels = self.all_panels();
             if let Some(st) = self.side.sessions.get_mut(&sid) {
-                for prov in panels.iter().filter(|p| p.region == PanelRegion::Side) {
+                for prov in &panels {
                     for &(old, new_id) in prov.legacy {
                         for k in &mut st.tab_state.tabs.all {
                             if k == old {
@@ -54,13 +54,13 @@ impl App {
                     }
                 }
             }
-            if panels.iter().any(|p| p.region == PanelRegion::Side && p.transient)
+            if panels.iter().any(|p| p.transient)
                 && let Some(reg) = self.resolve_side_region()
             {
                 let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();
                 let transient_prefixes: Vec<String> = panels
                     .iter()
-                    .filter(|p| p.region == PanelRegion::Side && p.transient)
+                    .filter(|p| p.transient)
                     .map(|p| format!("{}:", p.plugin))
                     .collect();
                 if let Some(st) = self.side.sessions.get_mut(&sid) {
@@ -94,7 +94,7 @@ impl App {
     }
 
     pub fn panels_ime(&mut self, ime: &Ime) -> bool {
-        let any_open = self.side_open() || self.dock_open() || self.bottom_open();
+        let any_open = self.side_open() || self.bottom_open();
         if !any_open || self.composer.focused {
             return false;
         }
@@ -145,10 +145,6 @@ impl App {
                     run(self, tx);
                     return true;
                 }
-                if p.region == PanelRegion::Dock && p.open_launcher.is_none() {
-                    self.toggle_dock(tx);
-                    return true;
-                }
                 if let Some(open_fn) = p.open_launcher {
                     open_fn(self, p.default_pane, tx);
                     return true;
@@ -162,13 +158,8 @@ impl App {
             }
         }
 
-        // 3. ⌘J toggles the `Dock` region when any `PanelRegion::Dock` provider is registered,
-        //    or toggles `SessionPane::Bottom` when bottom tabs exist.
+        // 3. ⌘J toggles `SessionPane::Bottom` when bottom tabs exist.
         if Bind::BottomToggle.matches_tx(ev, tx) {
-            if self.has_dock_provider() {
-                self.toggle_dock(tx);
-                return true;
-            }
             if self
                 .resolve_side_region()
                 .is_some_and(|r| r.strip.iter().any(|e| e.pane == SessionPane::Bottom))
@@ -178,7 +169,7 @@ impl App {
             }
         }
 
-        let region_visible = self.side_open() || self.dock_open() || self.bottom_open();
+        let region_visible = self.side_open() || self.bottom_open();
         if !region_visible {
             return false;
         }

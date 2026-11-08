@@ -1,4 +1,4 @@
-//! Native Ghostty terminal pane (`PanelRegion::Dock`, `⌘J` / `⌃\``), workspace tabs, persistence,
+//! Native Ghostty terminal pane (a side panel, `⌃\``), workspace tabs, persistence,
 //! theme sync, and knobs (`apps/desktop/src/terminal/`).
 
 #[cfg(test)]
@@ -326,7 +326,6 @@ impl App {
     pub fn focus_terminal_surface(&mut self) {
         self.composer.focused = false;
         self.side.focused = true;
-        self.side.dock_focused = false;
         if let Some(sid) = self.active_session_id().map(str::to_owned)
             && let Some(id) = self.terminal.workspaces.get(&self.terminal_workspace_key_for_session(&sid)).and_then(|ws| ws.active.clone())
         {
