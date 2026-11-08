@@ -48,6 +48,45 @@ impl Quote {
     }
 }
 
+/// The paths a comment names with `@`, as written (Desktop's `parseCommentMentions`,
+/// `composer/request.ts:67-77`): an `@` at the start or after a space or an opening `([{"'`,
+/// up to the next space, less trailing punctuation. A session mention (`@session:ses_…`) isn't
+/// a path.
+pub fn comment_mentions(comment: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut prev: Option<char> = None;
+    let mut at = 0;
+    while let Some(c) = comment[at..].chars().next() {
+        let next = at + c.len_utf8();
+        let word = (c == '@' && prev.is_none_or(|p| p.is_whitespace() || "([{\"'".contains(p))).then(|| {
+            let rest = &comment[next..];
+            &rest[..rest.find(char::is_whitespace).unwrap_or(rest.len())]
+        });
+        let Some(word) = word.filter(|w| !w.is_empty()) else {
+            prev = Some(c);
+            at = next;
+            continue;
+        };
+        let path = word.trim_end_matches(['.', ',', '!', '?', ';', ':', ')', '}', ']', '"', '\'']);
+        if !path.is_empty() && !session_mention(path) {
+            out.push(path.to_owned());
+        }
+        prev = word.chars().next_back();
+        at = next + word.len();
+    }
+    out
+}
+
+/// What `parseSessionMention` takes `@<path>` for: `session:` and a whole generated session id.
+fn session_mention(path: &str) -> bool {
+    path.strip_prefix("session:ses_").is_some_and(|id| id.len() == 26 && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// The paths the quotes' comments mention, in order (Desktop's `commentMentions`).
+pub fn mentions(quotes: &[Quote]) -> Vec<String> {
+    quotes.iter().filter_map(Quote::comment).flat_map(comment_mentions).collect()
+}
+
 /// The quotes in a user message's `metadata`, read only beside a `displayText`, as Desktop's
 /// `readPromptPresentation` does (prompts from other clients have no comments list).
 pub fn parse_metadata(metadata: &Value) -> Option<(String, Vec<Quote>)> {

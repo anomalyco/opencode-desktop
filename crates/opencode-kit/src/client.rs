@@ -18,6 +18,7 @@ use crate::model::{self, Delivery, Pending, SessionInfo};
 mod downloads;
 mod hub;
 mod ids;
+mod mentions;
 mod wire;
 mod worker;
 
@@ -316,6 +317,7 @@ impl Server {
         if prompt.command.is_some() {
             return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
         }
+        let prompt = self.with_mentions(None, session, prompt);
         let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
         Ok(v["data"]["id"].as_str().map(str::to_owned))
     }
@@ -452,7 +454,10 @@ impl Server {
     pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, String> {
         let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
         // The create already chose the agent and model, so no switches before the prompt.
-        let sent = created.as_ref().map_err(String::clone).and_then(|_| self.write("POST", &format!("/api/session/{id}/prompt"), Some(prompt.body())));
+        let sent = created.as_ref().map_err(String::clone).and_then(|_| {
+            let prompt = self.with_mentions(Some(directory), id, prompt);
+            self.write("POST", &format!("/api/session/{id}/prompt"), Some(prompt.body()))
+        });
         match sent {
             Ok(_) => created,
             Err(e) => {

@@ -98,6 +98,28 @@ pub fn contains(parent: &str, child: &str) -> bool {
     !parent.is_empty() && (same(child, parent) || strip_dir(child, parent).is_some())
 }
 
+/// `path` under `directory` unless it's already absolute (`request.ts`'s `absolute`).
+pub fn absolute(directory: &str, path: &str) -> String {
+    if is_absolute(path) {
+        return path.to_owned();
+    }
+    format!("{}/{path}", directory.trim_end_matches(SEPARATORS))
+}
+
+/// `encodeFilePath`: each segment percent-encoded as `encodeURIComponent` does, `/` kept, and
+/// a Windows drive rooted (`/C:/…`), for a `file://` URI.
+pub fn encode_path(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    let drive = |s: &str| s.len() == 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':';
+    let rooted = if normalized.get(..2).is_some_and(drive) { format!("/{normalized}") } else { normalized };
+    rooted
+        .split('/')
+        .enumerate()
+        .map(|(i, seg)| if i == 1 && drive(seg) { seg.to_owned() } else { crate::client::encode_component(seg) })
+        .collect::<Vec<String>>()
+        .join("/")
+}
+
 /// A Windows path: a drive (`C:`) or a UNC share (`\\server`).
 fn windows(path: &str) -> bool {
     drive(path) || unc(path)

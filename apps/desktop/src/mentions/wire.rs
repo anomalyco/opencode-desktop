@@ -11,37 +11,9 @@ pub(super) fn session_id_ok(id: &str) -> bool {
     id.strip_prefix("ses_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
-/// `path` under `directory` unless it's already absolute.
-pub(super) fn absolute(directory: &str, path: &str) -> String {
-    if opencode_kit::path::is_absolute(path) {
-        return path.to_owned();
-    }
-    format!("{}/{path}", directory.trim_end_matches(['/', '\\']))
-}
-
-/// `encodeFilePath`: each segment percent-encoded as `encodeURIComponent` does, `/` kept, and
-/// a Windows drive rooted (`/C:/…`).
-pub(super) fn encode_path(path: &str) -> String {
-    let normalized = path.replace('\\', "/");
-    let drive = |s: &str| s.len() == 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':';
-    let rooted = if normalized.get(..2).is_some_and(drive) { format!("/{normalized}") } else { normalized };
-    rooted
-        .split('/')
-        .enumerate()
-        .map(|(i, seg)| {
-            if i == 1 && drive(seg) {
-                return seg.to_owned();
-            }
-            seg.bytes()
-                .map(|b| match b {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
-                    _ => format!("%{b:02X}"),
-                })
-                .collect()
-        })
-        .collect::<Vec<String>>()
-        .join("/")
-}
+/// The path encoding a file mention's `file://` URI takes, shared with the comment mentions
+/// `opencode_kit::quote` attaches.
+pub(super) use opencode_kit::path::{absolute, encode_path};
 
 /// `getFilename`: the last segment, ignoring trailing separators.
 pub(super) fn filename(path: &str) -> &str {

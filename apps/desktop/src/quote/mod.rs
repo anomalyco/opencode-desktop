@@ -146,10 +146,13 @@ pub fn selection_changed(s: &mut App, change: &SelectionChange, tx: &mut Tx) {
         return;
     };
     if change.dragging() {
-        if q.offer.is_none() { tx.live_only(); }
+        if q.offer.is_none() && q.dismissed.is_none() { tx.live_only(); }
         q.offer = None;
         q.heard = None;
         q.settle = Settle::Idle;
+        // A new drag ends a dismissal, even one that selects the dismissed text again
+        // (`quote-machine.ts:159-168`).
+        q.dismissed = None;
         return;
     }
     let Some(session) = available(s).map(str::to_owned) else { return s.quote.close() };

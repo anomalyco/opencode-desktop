@@ -71,6 +71,7 @@ impl Server {
         if prompt.command.is_some() {
             return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
         }
+        let prompt = self.with_mentions(None, session, prompt);
         let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
         Ok(v["data"]["id"].as_str().map(str::to_owned))
     }
