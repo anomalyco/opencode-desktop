@@ -80,8 +80,8 @@ pub enum Write {
     Start { directory: String, prompt: Prompt },
     /// `Start` under an id the app chose (`session_id`), so it can show the session before the
     /// server has it: one create carrying the prompt's agent and model, then the prompt.
-    /// `Incoming::Created` follows once both land; any failure deletes what may have been made
-    /// and reports `Incoming::SendFailed` with the prompt's id.
+    /// `Incoming::Created` follows once both land. Failure reports `Incoming::SendFailed`
+    /// with the prompt's id; ambiguous replies leave the session intact for a receipt check.
     StartAs { session: String, directory: String, prompt: Prompt },
     /// Withdraws an undelivered prompt (`DELETE /api/session/:id/inbox/:item`).
     Cancel { session: String, item: String },

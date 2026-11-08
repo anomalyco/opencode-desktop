@@ -90,7 +90,7 @@ impl Tokens {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelRef {
     pub id: String,
     pub provider: String,

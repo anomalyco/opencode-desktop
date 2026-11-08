@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::Value;
 
 /// One quote (Desktop's `QuoteComment`), with the comment the user wrote about it, if any.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Quote {
     pub text: String,
     pub comment: Option<String>,

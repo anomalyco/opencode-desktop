@@ -407,7 +407,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
 
 pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let mut out = Vec::new();
-    let busy = t.busy() && !s.is_session_stopped(&t.session);
+    let busy = s.timeline_busy(t) && !s.is_session_stopped(&t.session);
     // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
     let revert = s.session_revert(&t.session);
     let shown = t.visible_len(revert);

@@ -1,12 +1,13 @@
 //! What a prompt carries and how it goes on the wire: `POST …/prompt`'s body, or a command's.
 
 use serde_json::Value;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{self, Delivery};
 
 /// A prompt to send. With `id` (see [`message_id`]) the server's user message takes that id,
 /// so a local copy shown before the server's arrives is replaced rather than doubled.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
     pub id: Option<String>,
     pub text: String,
@@ -39,7 +40,7 @@ pub struct Prompt {
 }
 
 /// A file attached by its path on the server (`PromptAttachmentReference`).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PathAttachment {
     pub name: String,
     pub mime: String,
@@ -48,7 +49,7 @@ pub struct PathAttachment {
 
 /// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]), `file://`, or a
 /// `media:<hash>` ref the server sent, which it re-admits from its stored bytes.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FileInput {
     pub uri: String,
     pub name: String,
@@ -58,20 +59,20 @@ pub struct FileInput {
 
 /// Where a mention sits in the prompt's text: UTF-16 offsets, as the server's JavaScript
 /// counts them, and the mention's text.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Mention {
     pub start: usize,
     pub end: usize,
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AgentInput {
     pub name: String,
     pub mention: Option<Mention>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SkillInput {
     pub id: String,
     pub name: String,

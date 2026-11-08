@@ -53,6 +53,7 @@ rune = { workspace = true, features = ["native-file-dialog", "metal-backend"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 session-view = { path = "../../crates/session-view" }
 terminal = { path = "../../crates/terminal" }

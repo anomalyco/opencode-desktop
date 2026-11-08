@@ -6,7 +6,7 @@ use super::*;
 /// that opts in (see [`crate::client::MEDIA_CAPABILITY`]) on a session with
 /// `experimental.media_blob` on, sends a `media:<hash>` ref: then `media` is the hash, `bytes`
 /// is empty, and `GET /api/experimental/media/:hash` has the bytes.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Attachment {
     pub mime: String,
     pub name: String,

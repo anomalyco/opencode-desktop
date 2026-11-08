@@ -4,6 +4,19 @@ use super::State;
 
 pub fn footer(s: &App, p: &Pal, id: &str) -> Option<El> {
     let state = s.unsent.state(id)?;
+    if let Some(sent) = s.unsent.durable(id) {
+        let label = match sent.after_check {
+            Some(super::AfterCheck::Edit)=>"Checking delivery before editing".into(),
+            Some(super::AfterCheck::Delete)=>"Checking delivery before deleting".into(),
+            None=>match state {
+            State::Sending => "Sending…".into(),
+            State::Waiting => "Not sent · waiting for connection".to_string(),
+            State::Unconfirmed => format!("Checking delivery · {}", if sent.why.is_empty() { "reconnecting" } else { &sent.why }),
+            State::Failed => format!("Not sent · {}", sent.why),
+            State::Accepted => return None,
+        }};
+        return Some(row().key("send-status").h(20.0).center_y().child(text(label).font(UI_SMALL).color(p.faint)));
+    }
     let label = match state {
         State::Unconfirmed => opencode_i18n::t!("rune.send.unconfirmed"),
         State::Failed => opencode_i18n::t!("rune.send.failed"),

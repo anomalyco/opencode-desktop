@@ -13,7 +13,7 @@ use rune::Tx;
 
 use crate::{App, Route, Source};
 
-/// A drop shorter than this says nothing: the stream thread's first retry is 1 s away.
+/// A short drop says nothing; the stream thread already retries after 250 ms.
 pub const QUIET: f64 = 2.0;
 pub const RECONNECTING: &str = "Reconnecting…";
 /// The event stream is reopened after this long with nothing on it. The server sends a
@@ -85,7 +85,7 @@ pub fn down(s: &App) -> bool {
 /// Shows the toast once the trouble has lasted [`QUIET`]. A suspect link whose stream outlives
 /// [`STREAM_IDLE`] without dropping is alive after all.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let link = &s.launch.link;
+    let link = &mut s.launch.link;
     if let (None, Some(at)) = (link.down_at, link.suspect_at)
         && s.clock - at >= STREAM_IDLE.as_secs_f64() + QUIET
     {
@@ -94,6 +94,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         return true;
     }
     let Some(at) = link.down_at.or(link.suspect_at) else { return false };
+    if s.unsent.waiting_for_link() {
+        // Each affected bubble already states what's waiting. Don't also announce it.
+        if let Some(id)=link.toast.take() { crate::status_toast::dismiss_id(s,id);return true; }
+        return false;
+    }
     if link.toast.is_some() {
         return false;
     }
