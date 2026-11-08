@@ -164,6 +164,7 @@ const ORDER: &[&str] = &[
     "Question dock/Morph",
     "Question dock/Under a queue",
     "Sidebar/Rename and menus",
+    "Sidebar/Project icons",
     "Home/Session search",
     "Home/No server",
     "Components/Odometer",
