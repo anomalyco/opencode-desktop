@@ -1,12 +1,16 @@
 //! What the session menus and rename draw: the title field, Delete's confirmation, and a drawn
 //! copy of a menu for the storybook and stills (native menus never draw headless).
 
-use rune::{Color, El, Tx, col, el, row, spacer, text, text_input};
+use rune::{Color, El, TextStyle, Tx, col, el, row, spacer, text, text_input};
+use rune_kit::ButtonVariant;
 
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::session_menu::{Line, Spot, Target};
-use crate::view::{UI, UI_MED};
 use crate::App;
+use opencode_i18n::t;
+
+/// `dialog-title`: 15 on 20 at 530, -0.13 tracking.
+const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 
 /// `s`'s title field, in `style`, when `target` is the one being renamed. Outside a tab it hugs
 /// its text, so what follows stays put and moves only as the title gets longer; one too long for
@@ -30,50 +34,58 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     )
 }
 
-/// Delete's confirmation (`session.delete.*`): a scrim and a card, Cancel and the danger button.
+/// Delete's confirmation (`home/sessions/controller.tsx:502-522`): Desktop's `<Dialog fit>` over
+/// its scrim, the title group in its header and a ghost Cancel beside the danger button in its
+/// footer.
 pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     let Some(id) = &s.menus.confirm else { return vec![] };
-    let name = s.session(id).map_or_else(|| opencode_i18n::t!("session.tab.session").to_owned(), crate::view::title_of);
-    let button = |key: &str, label: &str, ink: Color, fill: Option<Color>| {
-        let mut b = row().key(key.to_owned()).role("button").label(label.to_owned()).h(28.0).px(12.0).radius(6.0).center().hover(p.hover);
-        if let Some(f) = fill {
-            b = b.fill(f).hover(f.alpha(0.9));
-        }
-        b.child(text(label.to_owned()).font(UI_MED).color(ink))
-    };
+    let name = s.session(id).map_or_else(|| t!("command.session.new").to_owned(), crate::view::title_of);
     let id = id.clone();
+    let kit = crate::palette::kit(p);
+    let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Ghost)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.menus.confirm = None;
+        })
+        .build(kit)
+        .key("delete-cancel");
+    // `danger` (`button.css:102-106`): the neutral surface and its elevation, in the danger ink.
+    // Dark's neutral fill is `alpha-light-6`, which Chromium lays over the dialog's `layer-01`,
+    // where the theme's token is flattened over `bg-base`. Opaque, as the elevation's ring and
+    // drop would show through a translucent fill.
+    let delete = crate::widgets::button(t!("session.delete.button"), ButtonVariant::Danger)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx))
+        .build(kit)
+        .key("delete-confirm");
+    let delete = if p.dark && p.theme == 0 { delete.fill(session_view::dock::flat(Color::WHITE.alpha(0.06), p.layer1)) } else { delete };
+    // `dialog.css:19-28, 48-106, 132-141, 161-168`: 480 wide, 6 pt corners on `layer-01` with the
+    // overlay elevation; a 16 pt header with the title (15/20 at 530) 4 over the description
+    // (13/20 at 440, muted), and a 16 pt footer, its buttons 8 apart at its end.
     let card = col()
         .key("delete-card")
-        .w(380.0)
-        .padding(20.0)
-        .gap(6.0)
-        .radius(12.0)
-        .fill(p.bg_base)
-        .box_shadow(Pal::ring_out(p.ring))
-        .shadow(8.0, 32.0, p.shadow_far)
-        .child(text(opencode_i18n::t!("session.delete.title")).font(rune::TextStyle::new(15.0, 600.0).lh(24.0)).color(p.text))
-        .child(text(opencode_i18n::t!("session.delete.confirm", name = name)).font(UI).color(p.muted))
+        .role("dialog")
+        .label(t!("session.delete.title"))
+        .w(480.0)
+        .radius(6.0)
+        .fill(p.layer1)
+        .elevate(p.overlay)
+        .clip_soft(0.0)
         .child(
-            row()
-                .key("delete-footer")
-                .gap(8.0)
-                .mt(14.0)
-                .child(spacer())
-                .child(button("delete-cancel", opencode_i18n::t!("common.cancel"), p.text, None).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.menus.confirm = None;
-                }))
-                .child(
-                    button("delete-confirm", opencode_i18n::t!("session.delete.button"), p.on_fill, Some(p.danger))
-                        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx)),
-                ),
-        );
+            col()
+                .key("delete-header")
+                .w_full()
+                .padding(16.0)
+                .gap(4.0)
+                .child(text(t!("session.delete.title")).font(TITLE).color(p.text))
+                .child(text(t!("session.delete.confirm", name = name)).font(crate::widgets::BODY).color(p.muted).wrap().w_full()),
+        )
+        .child(row().key("delete-footer").w_full().padding(16.0).gap(8.0).child(spacer()).child(cancel).child(delete));
     vec![
         el().key("delete-scrim")
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
-            .fill(p.dim)
+            .fill(p.scrim)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.menus.confirm = None;

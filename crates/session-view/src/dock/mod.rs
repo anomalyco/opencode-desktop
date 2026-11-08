@@ -70,7 +70,7 @@ pub fn bare<S: DockHost>(s: &S) -> bool {
 }
 
 /// `top` over the opaque `bottom`, blended in sRGB as a browser does, as one opaque colour.
-pub(crate) fn flat(top: Color, bottom: Color) -> Color {
+pub fn flat(top: Color, bottom: Color) -> Color {
     let srgb = |c: Color| {
         let h = c.hex();
         [1, 3, 5].map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap_or(0) as f32)
