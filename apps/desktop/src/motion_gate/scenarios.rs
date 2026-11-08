@@ -36,6 +36,8 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
+    ("fade-snap", "labels/location", "home-hold/", "a Home row's location fades in under the pointer and hides at once when it leaves, as Desktop's HomeSessionLocation does (view.tsx:921-938)"),
+    ("jump", "labels/project", "home-hold/", "a Home row's project name takes back the room its location used, at once, as the location hides (view.tsx:921-938)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
@@ -671,6 +673,8 @@ const ACTIONS: &[Action] = &[
         let base = Circ { long_summary: true, ..Circ::default() };
         vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
     }, run: super::compaction_fold::open_at_bottom },
+    // Home's rows hold still under the pointer while sessions update, and move when it leaves (t1458).
+    Action { name: "home-hold", circs: pinned, run: super::home_hold::holds_under_the_pointer },
     Action { name: "switch-tab", circs: || wide_and_narrow(Circ::default()), run: |r| {
         let other = r.rt.state.tabs.iter().map(|t| t.id.clone()).find(|t| t != SID).expect("another tab");
         r.act("open another tab", |rt| rt.update(move |s, tx| s.open(&other, tx)));

@@ -88,6 +88,8 @@
   "rune.files.tree": "Workspace files",
   "rune.files.workspace": "Workspace",
   "rune.find.close": "Close find",
+  "rune.home.automation.done": "{{count}} done",
+  "rune.home.automation.running": "{{count}} running",
   "rune.home.import.notExport": "Not a session export",
   "rune.home.noServer.checking": "Checking for server",
   "rune.home.noServer.copyCommand": "Copy command",

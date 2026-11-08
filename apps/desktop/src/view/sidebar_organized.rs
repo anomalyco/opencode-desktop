@@ -251,7 +251,7 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
     let mut all: Vec<&SessionInfo> = s
         .sessions
         .iter()
-        .filter(|i| i.parent.is_none() && i.archived.is_none() && crate::projects::clean_dir(&i.directory) == dir)
+        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && crate::projects::clean_dir(&i.directory) == dir)
         .collect();
     all.sort_by_key(|i| std::cmp::Reverse(i.updated));
     if all.is_empty() {
