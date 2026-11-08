@@ -216,3 +216,23 @@ fn editing_a_lost_reply_waits_for_a_receipt_instead_of_minting_a_duplicate() {
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[test]
+fn rejected_busy_steer_moves_out_of_the_inbox_and_restores_its_words() {
+    for code in [400, 401, 403, 404, 409, 413, 422] {
+        let path = path();
+        let (mut app, writes) = fresh(&path);
+        let crate::Route::Session(session) = app.route.clone() else { unreachable!() };
+        app.running.insert(session.clone());
+        let id = send(&mut app, "keep my follow-up");
+        let _ = post(&writes);
+        app.send_failed(&id, &format!("POST /prompt: http status: {code}"));
+        assert_eq!(app.composer.text, "keep my follow-up");
+        assert_eq!(app.unsent.state(&id), Some(State::Failed));
+        assert!(!app.inboxes[&session].items.iter().any(|i| i.id == id));
+        assert_eq!(app.transcripts[&session].messages.iter().filter(|m| m.id() == id).count(), 1);
+        app.pump_outbox();
+        assert!(writes.try_recv().is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+}

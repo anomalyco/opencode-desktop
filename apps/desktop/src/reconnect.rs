@@ -13,7 +13,7 @@ use rune::Tx;
 
 use crate::{App, Route, Source};
 
-/// A drop shorter than this says nothing: the stream thread's first retry is 1 s away.
+/// A short drop says nothing; the stream thread already retries after 250 ms.
 pub const QUIET: f64 = 2.0;
 pub const RECONNECTING: &str = "Reconnecting…";
 /// The event stream is reopened after this long with nothing on it. The server sends a

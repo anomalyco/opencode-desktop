@@ -1,5 +1,5 @@
-//! Delivery receipts outlive a timed-out POST. A timeout is not proof of failure: server
-//! admission, a fetched message or a read-only receipt check settles it, never another POST.
+//! An absent HTTP reply isn't a rejected prompt. Check inbox admission and the exact
+//! message before replaying a journaled request with its original ID.
 use opencode_kit::client::{PathAttachment, Prompt};
 use opencode_kit::model::{Attachment, Message};
 use opencode_kit::plain_error::failed_for_sure;
