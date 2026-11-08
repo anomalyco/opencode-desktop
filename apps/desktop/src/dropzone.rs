@@ -99,7 +99,7 @@ pub fn layer(p: &Pal, (w, h): (f32, f32), shown: bool, reduced: bool) -> El {
         .transition(hold)
         .child(el().absolute(0.0, 0.0).w_full().h_full().fill(p.bg_base.alpha(0.25)).shape(stripes(w, h, p.text.alpha(stripe * 0.6))))
         .center()
-        .child(col().gap(20.0).center().child(badge).child(text("Drop images, PDFs, or files to add").font(LABEL).color(p.text)));
+        .child(col().gap(20.0).center().child(badge).child(text(opencode_i18n::t!("ui.promptInput.dropFiles.imagePdf")).font(LABEL).color(p.text)));
     layer.child(frost).child(content)
 }
 

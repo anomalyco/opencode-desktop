@@ -162,7 +162,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                 s.side.tab_menu = None;
                 s.close_side_tab(&tk, tx);
             }))
-            .child(menu_row(p, "side-tab-menu-close-others", None, "Close other tabs", "", has_others, move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "side-tab-menu-close-others", None, opencode_i18n::t!("common.closeOtherTabs"), "", has_others, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.tab_menu = None;
                 for k in &others {

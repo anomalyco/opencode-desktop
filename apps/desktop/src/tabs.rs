@@ -57,7 +57,7 @@ impl Tab {
 /// a missing or timestamped fallback title does (`sessionTabTitle`).
 pub fn tab_title(title: &str) -> String {
     let fallback = ["New session - ", "Child session - "].iter().any(|p| title.strip_prefix(p).is_some_and(is_iso_stamp));
-    if title.is_empty() || fallback { "Session".into() } else { title.to_owned() }
+    if title.is_empty() || fallback { opencode_i18n::t!("session.tab.session").into() } else { title.to_owned() }
 }
 
 /// `2026-07-11T09:20:00.000Z`, as JavaScript's `toISOString` writes it.

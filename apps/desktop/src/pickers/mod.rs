@@ -61,7 +61,7 @@ impl PickerHost for App {
     }
     fn picker_projects(&self) -> Vec<Item> {
         self.projects.iter().map(|p| Item::new(p.id.clone(), p.name.clone()))
-            .chain(std::iter::once(Item::new(ADD_PROJECT_KEY, "Add project")))
+            .chain(std::iter::once(Item::new(ADD_PROJECT_KEY, opencode_i18n::t!("session.new.project.add"))))
             .collect()
     }
     fn picker_project_current(&self) -> String {

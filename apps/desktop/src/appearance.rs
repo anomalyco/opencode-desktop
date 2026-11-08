@@ -254,7 +254,7 @@ impl App {
     /// Every theme in a menu from the Theme row's button, the current one checked.
     pub fn open_theme_menu(&mut self, tx: &mut Tx) {
         let themes = crate::themes::all();
-        let menu = Menu::picker("Theme", themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id);
+        let menu = Menu::picker(opencode_i18n::t!("settings.general.row.theme.title"), themes.iter().map(|t| (t.id.clone(), t.name.clone())), &themes[crate::themes::index(&self.settings.theme)].id);
         popup::open(self, menu, "theme-select", tx, |s: &mut App, picked, tx| {
             if let Some(id) = picked {
                 s.set_theme(id, tx);

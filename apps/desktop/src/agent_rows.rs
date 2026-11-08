@@ -85,7 +85,7 @@ impl App {
         }
         let step = match ty {
             "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
-            "session.reasoning.started" => "Thinking".to_owned(),
+            "session.reasoning.started" => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_owned(),
             "session.execution.started" => {
                 self.agent_rows.started.insert(sid.to_owned(), self.now_ms);
                 self.agent_rows.began.insert(sid.to_owned(), self.now_ms);

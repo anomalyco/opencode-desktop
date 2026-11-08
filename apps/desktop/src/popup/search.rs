@@ -56,7 +56,7 @@ pub(super) fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
         field = field.child(
             el().key("popup-search-clear")
                 .role("button")
-                .label("Clear")
+                .label(opencode_i18n::t!("common.clear"))
                 .size(16.0, 16.0)
                 .center()
                 .on_press_tx(|s: &mut App, tx: &mut Tx| {

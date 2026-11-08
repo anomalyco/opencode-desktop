@@ -188,14 +188,14 @@ fn action(p: &Pal, key: &str, label: &str, a11y: &str, busy: bool, press: impl F
 /// The error view: back, the server's name, "Connection failed", the error and its actions.
 fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) -> El {
     let busy = s.mcp_busy(dir, name) || s.mcp_servers(dir).and_then(|l| l.iter().find(|m| m.name == name)).is_some_and(|m| m.status == McpStatus::Pending);
-    let back = el().key("mcp-back").role("button").label("Navigate back").size(20.0, 20.0).radius(4.0).center()
+    let back = el().key("mcp-back").role("button").label(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.close_mcp_detail();
         })
         .child(icon(&ic::ARROW_LEFT, 14.0).color(p.icon_muted));
-    let close = el().key("mcp-close").role("button").label("Close").size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    let close = el().key("mcp-close").role("button").label(opencode_i18n::t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_mcp_dialog(tx))
         .child(icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted));
