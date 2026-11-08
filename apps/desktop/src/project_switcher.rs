@@ -17,6 +17,7 @@ use crate::projects::folder_name;
 use crate::switcher::{move_for, target};
 use crate::view::{UI, UI_MED};
 use crate::{App, Route};
+use opencode_i18n::t;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum StepMode {
@@ -110,8 +111,8 @@ impl App {
                 };
                 let create = SwitcherRow {
                     key: format!("wt:create:{id}"),
-                    title: "New worktree".into(),
-                    subtitle: "Creates isolated copy from current checkout".into(),
+                    title: t!("workspace.new").into(),
+                    subtitle: t!("session.new.workspace.new.tooltip").into(),
                     section: "Worktrees",
                     kind: RowKind::Create { project_id: id.clone(), directory: root.clone() },
                 };
@@ -149,7 +150,7 @@ impl App {
                 } else if other_count > 0 {
                     out.push(SwitcherRow {
                         key: "other".into(),
-                        title: "Other projects".into(),
+                        title: t!("session.new.location.otherProjects").into(),
                         subtitle: other_count.to_string(),
                         section: "Projects",
                         kind: RowKind::Other { count: other_count },
@@ -157,7 +158,7 @@ impl App {
                 }
                 out.push(SwitcherRow {
                     key: "+add".into(),
-                    title: "Add project".into(),
+                    title: t!("session.new.project.add").into(),
                     subtitle: String::new(),
                     section: "Actions",
                     kind: RowKind::Add,
@@ -447,10 +448,10 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
         .child(main);
     match &r.kind {
         RowKind::Add => line.child(crate::keymap::keycaps(p, crate::keymap::Bind::OpenProject)),
-        RowKind::Other { .. } => line.child(drill(p, "psw-drill-other", "Other projects", |s: &mut App, tx: &mut Tx| s.project_switcher_choose("other", tx))),
+        RowKind::Other { .. } => line.child(drill(p, "psw-drill-other", t!("session.new.location.otherProjects"), |s: &mut App, tx: &mut Tx| s.project_switcher_choose("other", tx))),
         RowKind::Project { id, drillable: true, .. } => {
             let pid = id.clone();
-            line.child(drill(p, &format!("psw-drill-{id}"), "Worktrees", move |s: &mut App, tx: &mut Tx| s.drill_project_worktrees(&pid, tx)))
+            line.child(drill(p, &format!("psw-drill-{id}"), t!("session.new.location.worktrees"), move |s: &mut App, tx: &mut Tx| s.drill_project_worktrees(&pid, tx)))
         }
         _ => line,
     }
@@ -490,9 +491,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let active = s.project_switcher_active(&rows);
 
     let (placeholder, step_title) = match &s.project_switcher.mode {
-        StepMode::Projects => ("Search projects", None),
-        StepMode::Others => ("Search projects", Some("Other projects")),
-        StepMode::Worktrees(_) => ("Search worktrees", Some("Run session in")),
+        StepMode::Projects => (t!("session.new.project.search"), None),
+        StepMode::Others => (t!("session.new.project.search"), Some(t!("session.new.location.otherProjects"))),
+        StepMode::Worktrees(_) => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
     };
     let search = row()
         .key("project-switcher-field")
@@ -523,7 +524,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
             row()
                 .key("project-switcher-back")
                 .role("button")
-                .label("Back to projects")
+                .label(t!("session.new.location.back"))
                 .h(28.0)
                 .px(6.0)
                 .center_y()
@@ -534,14 +535,14 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         content_h += 32.0;
     }
     if rows.is_empty() {
-        list = list.child(col().key("project-switcher-empty").w_full().h(120.0).center().child(text("No results found").font(UI).color(p.muted)));
+        list = list.child(col().key("project-switcher-empty").w_full().h(120.0).center().child(text(t!("palette.empty")).font(UI).color(p.muted)));
         content_h += 120.0;
     }
     let mut shown_other_heading = false;
     for (idx, r) in rows.iter().enumerate() {
         if !q.is_empty() && s.project_switcher.mode == StepMode::Projects && r.section == "Other projects" && !shown_other_heading {
             shown_other_heading = true;
-            list = list.child(row().key("psw-other-heading").h(28.0).px(6.0).center_y().child(text("Other projects").font(UI).color(p.muted)));
+            list = list.child(row().key("psw-other-heading").h(28.0).px(6.0).center_y().child(text(t!("session.new.location.otherProjects")).font(UI).color(p.muted)));
             content_h += 32.0;
         }
         // A hairline across the dialog before Add project, and between New worktree and the

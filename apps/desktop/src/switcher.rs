@@ -285,7 +285,7 @@ impl App {
             description: c.description.into(),
             hint: c.keys,
             chord: c.chord,
-            group: "Commands",
+            group: opencode_i18n::t!("palette.group.commands"),
             updated: None,
             open: false,
         };
@@ -294,9 +294,9 @@ impl App {
         }
         let archived = self.switcher.mode == SwitcherMode::Archived;
         let group = match () {
-            _ if archived => "Archived sessions",
-            _ if q.is_empty() => "Recent sessions",
-            _ => "Session",
+            _ if archived => opencode_i18n::t!("sidebar.inbox.archived.title"),
+            _ if q.is_empty() => opencode_i18n::t!("palette.group.recentSessions"),
+            _ => opencode_i18n::t!("command.category.session"),
         };
         // A project's tasks live in its inbox.
         let roots = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| s.archived.is_some() == archived);
@@ -349,7 +349,7 @@ impl App {
             project: String::new(),
             hint: None,
             chord: None,
-            group: "Settings",
+            group: opencode_i18n::t!("palette.group.settings"),
             updated: None,
             open: false,
         }).collect()
@@ -678,7 +678,7 @@ fn file_entry(path: String) -> Entry {
         description: String::new(),
         hint: None,
         chord: None,
-        group: "Files",
+        group: opencode_i18n::t!("palette.group.files"),
         updated: None,
         open: false,
     }

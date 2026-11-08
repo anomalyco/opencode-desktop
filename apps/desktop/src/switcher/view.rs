@@ -10,6 +10,7 @@ use super::{Action, Entry, SwitcherMode};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
 use crate::view::{UI, UI_MED};
+use opencode_i18n::t;
 
 /// The search block (`search-list-search` in the compact palette, `dialog.css:156-166`): 6 above
 /// the 28-tall field, 17 below it, with the hairline 8 from the block's foot.
@@ -51,11 +52,11 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     let entries = s.switcher_entries();
     let active = s.switcher_active(&entries);
     let placeholder = match s.switcher.mode {
-        SwitcherMode::Sessions | SwitcherMode::Archived => "Search sessions",
-        SwitcherMode::Commands => "Search commands",
+        SwitcherMode::Sessions | SwitcherMode::Archived => t!("command.session.search"),
+        SwitcherMode::Commands => t!("command.commands.search"),
         // `palette.search.placeholder.home` on Home (`HomeCommandPalette`).
-        _ if s.route == crate::Route::Home => "Search commands and sessions",
-        _ => "Search files, commands, and sessions",
+        _ if s.route == crate::Route::Home => t!("palette.search.placeholder.home"),
+        _ => t!("palette.search.placeholder"),
     };
 
     // `text-input-v2` in the compact palette: 28 tall and transparent, the glyph 6 in and 6 from
@@ -110,11 +111,11 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     }
     if entries.is_empty() {
         let state = if s.switcher.loading() {
-            "Loading"
+            t!("common.loading")
         } else if s.switcher.failed() == Some(q) {
-            "Request failed"
+            t!("common.requestFailed")
         } else {
-            "No results found"
+            t!("palette.empty")
         };
         results = col().key("switcher-results").w_full().child(col().key("switcher-empty").w_full().h(EMPTY_H).center().child(text(state).font(UI).color(p.muted)));
         content_h = EMPTY_H;
@@ -245,10 +246,10 @@ fn relative_time(now: i64, then: i64) -> String {
         (s, s.div_euclid(60), s.div_euclid(3600), s.div_euclid(86_400))
     };
     match () {
-        _ if s < 60 => "Just now".into(),
-        _ if m < 60 => format!("{m}m ago"),
-        _ if h < 24 => format!("{h}h ago"),
-        _ if d < 7 => format!("{d}d ago"),
+        _ if s < 60 => t!("common.time.justNow").into(),
+        _ if m < 60 => t!("common.time.minutesAgo.short", count = m),
+        _ if h < 24 => t!("common.time.hoursAgo.short", count = h),
+        _ if d < 7 => t!("common.time.daysAgo.short", count = d),
         _ => {
             let (at, today) = (rune::LocalTime::at(then), rune::LocalTime::at(now));
             let date = format!("{} {}", MONTHS[at.month as usize - 1], at.day);

@@ -585,7 +585,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                     .min_w(0.0)
                     .h(20.0)
                     .color(p.text)
-                    .placeholder("Find...", p.faint)
+                    .placeholder(opencode_i18n::t!("session.search.placeholder"), p.faint)
                     .caret(p.text, p.selection)
                     .on_edit(|s: &mut App| &mut s.find.input)
                     .on_input_change(typed)
@@ -596,8 +596,8 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                 row()
                     .key("find-close")
                     .role("button")
-                    .label("Close find")
-                    .help("Close find")
+                    .label(opencode_i18n::t!("rune.find.close"))
+                    .help(opencode_i18n::t!("rune.find.close"))
                     .size(20.0, 20.0)
                     .center()
                     .radius(4.0)
@@ -617,13 +617,13 @@ pub fn menu_items() -> Vec<MenuItem<App>> {
         crate::menubar::keyed(MenuItem::new(title, f).id(id).menu("Edit"), key).keys_first()
     };
     [
-        item("Find…", "Edit/Find", Bind::Find, |s, tx| match s.route {
+        item(opencode_i18n::t!("rune.menu.edit.find"), "Edit/Find", Bind::Find, |s, tx| match s.route {
             Route::Session(_) => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),
             Route::Draft(_) => {}
         }),
-        item("Find Next", "Edit/FindNext", Bind::FindNext, |s, tx| s.step_find(1, tx)),
-        item("Find Previous", "Edit/FindPrevious", Bind::FindPrev, |s, tx| s.step_find(-1, tx)),
+        item(opencode_i18n::t!("rune.menu.edit.findNext"), "Edit/FindNext", Bind::FindNext, |s, tx| s.step_find(1, tx)),
+        item(opencode_i18n::t!("rune.menu.edit.findPrevious"), "Edit/FindPrevious", Bind::FindPrev, |s, tx| s.step_find(-1, tx)),
     ]
     .into()
 }
