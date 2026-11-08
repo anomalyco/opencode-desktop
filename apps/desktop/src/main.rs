@@ -1396,7 +1396,10 @@ fn main() {
         let handle = app.handle();
         let mut motion_log = motion_log::Log::default();
         let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
-        app.on_ready(move |_| handle.update_if(|s, tx| { launch::ready(s, tx); false }))
+        app.on_ready(move |_| {
+            let wake = launch::inbox_waker(handle.clone());
+            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx); false });
+        })
             .on_frame_encoded(move |f| {
                 encoded.encoded(f);
                 telemetry::encoded(f);

@@ -240,13 +240,13 @@ impl App {
 
     /// The project rooted at `dir` or with it as a sandbox, preferring `id` when several are.
     fn project_exactly_at(&self, dir: &str, id: &str) -> Option<&Project> {
-        let dir = clean_dir(dir);
+        let dir = path::trim(dir.trim());
         if dir.is_empty() {
             return None;
         }
         // Its checkout, or one of its worktrees: a sandbox, or one the server's inventory lists.
-        let at = |p: &&Project| p.directory == dir || self.project_worktrees(&p.id, &p.directory).iter().any(|s| clean_dir(s) == dir);
-        self.projects.iter().filter(at).find(|p| p.id == id).or_else(|| self.projects.iter().find(at))
+        let at = |p: &&Project| p.directory == dir || self.has_worktree_at(p, dir);
+        self.project(id).filter(at).or_else(|| self.projects.iter().find(at))
     }
 
     fn project_containing(&self, dir: &str) -> Option<&Project> {

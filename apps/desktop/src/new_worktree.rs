@@ -242,6 +242,14 @@ impl App {
         out
     }
 
+    /// Membership doesn't need the picker's owned, deduplicated list.
+    pub(crate) fn has_worktree_at(&self, project: &crate::Project, dir: &str) -> bool {
+        let root = path::trim(&project.directory);
+        let matches = |s: &String| path::trim(s.trim()) == dir && path::trim(s) != root;
+        self.new_worktree.listed.get(&project.id).is_some_and(|dirs| dirs.iter().any(matches))
+            || project_sandboxes(&project.id).iter().any(matches)
+    }
+
     /// Asks the server for `project`'s worktrees (the worktree step opening, or one changing).
     pub fn list_worktrees(&self, project: &str) {
         let Some(root) = self.project(project).map(|p| p.directory.clone()) else { return };
