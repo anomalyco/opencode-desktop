@@ -72,6 +72,8 @@ pub struct State {
     pub dir: String,
     pub name: TextEdit,
     pub startup: TextEdit,
+    /// The script field's text height once its resize grip was dragged (`resize: vertical`).
+    pub startup_h: Option<f32>,
     pub failed: Vec<Field>,
     /// The name and script as last saved or read: leaving a field that differs saves it.
     pub sent: (String, String),
@@ -96,6 +98,7 @@ pub fn load(s: &mut App, dir: &str, tab: Tab) {
         st.dir = dir.to_owned();
         st.name = TextEdit::new(&shown);
         st.startup = TextEdit::new(&meta.start);
+        st.startup_h = None;
         st.sent = (shown, meta.start.clone());
         st.failed.clear();
     }
@@ -332,17 +335,52 @@ fn auto_accept(s: &App, p: &Pal, x: &Project) -> El {
     })
 }
 
+/// The script field's height can't drag below `textarea-v2`'s 80 px less its 8 px padding.
+const STARTUP_MIN_H: f32 = 80.0 - 16.0;
+
+/// The resize grip Chromium draws in a `resize: vertical` textarea's corner (`textarea-v2`):
+/// two diagonal strokes of black at 60% with white at 60% a pixel to their right, so they read on
+/// light and dark fields, 4 in from the field's bottom right in its 15 pt corner. Dragging it sets
+/// the script's height; the row stays as wide as the page.
+fn resize_grip() -> El {
+    const DARK: [(u8, u8); 13] = [(5, 0), (6, 0), (4, 1), (5, 1), (3, 2), (4, 2), (2, 3), (3, 3), (1, 4), (2, 4), (0, 5), (1, 5), (0, 6)];
+    const DARK_SHORT: [(u8, u8); 5] = [(5, 4), (6, 4), (4, 5), (5, 5), (4, 6)];
+    const LIGHT: [(u8, u8); 8] = [(6, 1), (5, 2), (4, 3), (3, 4), (2, 5), (1, 6), (6, 5), (5, 6)];
+    let dot = |(x, y): (u8, u8), c: Color| el().absolute(f32::from(x), f32::from(y)).size(1.0, 1.0).fill(c);
+    let black = Color::BLACK.alpha(0.6);
+    let white = Color::WHITE.alpha(0.6);
+    let glyph = el().key("glyph").absolute(4.0, 4.0).size(7.0, 7.0)
+        .children(LIGHT.iter().map(|&d| dot(d, white)))
+        .children(DARK.iter().chain(DARK_SHORT.iter()).map(|&d| dot(d, black)));
+    el().key("settings-project-startup-resize").size(15.0, 15.0).pin(None, None, Some(0.0), Some(0.0))
+        .cursor(rune::Cursor::ResizeRow)
+        .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            tx.instant();
+            let st = &mut s.settings_pages.project;
+            if matches!(d.phase, rune::Phase::Down) {
+                d.data = st.startup_h.unwrap_or(5.0 * 17.55);
+            }
+            st.startup_h = Some((d.data + d.dy).max(STARTUP_MIN_H));
+        })
+        .child(glyph)
+}
+
 /// `project-settings-startup`: its title and description, the script's five mono lines, saved
 /// when the field loses focus, and how to name the worktrees in it.
 fn startup(s: &App, p: &Pal) -> El {
     let st = &s.settings_pages.project;
     // `textarea-v2`: five 17.55 pt mono lines 8 in, on the base fill under the neutral lift.
     let failed = st.failed.contains(&Field::Startup);
-    let input = rune::text_input(&st.startup, STARTUP).key("settings-project-startup-input").w_full().min_h(5.0 * 17.55)
+    let input = rune::text_input(&st.startup, STARTUP).key("settings-project-startup-input").w_full()
         .color(p.text).placeholder(t!("dialog.project.edit.worktree.startup.placeholder"), p.faint).caret(p.text, p.selection).label(t!("dialog.project.edit.worktree.startup"))
         .on_edit(|s: &mut App| &mut s.settings_pages.project.startup);
-    let field = col().key("settings-project-startup-field").w_full().padding(8.0).radius(6.0).fill(p.bg_base)
-        .elevate(crate::status_toast::neutral_lift(p)).child(input);
+    let input = match st.startup_h {
+        Some(h) => input.h(h),
+        None => input.min_h(5.0 * 17.55),
+    };
+    // The textarea's 8 in, and the 2 more the wrapper keeps at its end and bottom for the grip.
+    let field = col().key("settings-project-startup-field").w_full().pt(8.0).pl(8.0).pr(10.0).pb(10.0).radius(6.0).fill(p.bg_base)
+        .elevate(crate::status_toast::neutral_lift(p)).child(input).child(resize_grip());
     let field = if failed { field.box_shadow(Pal::ring_out(p.danger)) } else { field };
     // `inlineVariables`: the `$NAME` in the sentence set as code.
     let hint = |sentence: &'static str| {
