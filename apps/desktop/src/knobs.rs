@@ -20,7 +20,8 @@ pub const CAPSULE_RING: Knob = Knob::new("Capsule ring", 0.0, 1.0, 1.0).about("S
 /// slower. The debug bar's SPEED cell steps it through 0.5x and 0.25x.
 pub const SPEED: Knob = Knob::new("Speed", 0.25, 4.0, 1.0).step(0.05).about("Global animation speed");
 /// Every animation at a quarter of its speed, on top of Speed (`motionGlobals.slow`).
-pub const SLOW: Knob = Knob::choice("Slow motion (0.25x)", &["Off", "On"], 0).about("Run every animation at a quarter speed");
+pub const SLOW: Knob = Knob::choice("Slow motion (0.25x)", &["Off", "On"], 0).about("Run every animation at a quarter speed")
+    .hints(&["Use the selected speed", "Slow the selected speed fourfold"]);
 
 /// What the window's animation clock runs at, from Speed and Slow motion.
 pub fn time_scale(s: &App) -> f32 {

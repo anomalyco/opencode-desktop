@@ -141,7 +141,9 @@ fn flies(frames: &[[f32; 4]], from: [f32; 4], to: [f32; 4]) {
     for (n, f) in frames.iter().enumerate() {
         for k in 0..4 {
             let (travel, step) = (to[k] - from[k], f[k] - last[k]);
-            assert!(step * travel.signum() >= -0.01, "frame {n} edge {k} turns back: {last:?} -> {f:?}");
+            // Once landed, separately rounded layout edges can differ by 1/32 pt.
+            let settled = (last[k] - to[k]).abs() <= 1.0 / 16.0 && (f[k] - to[k]).abs() <= 1.0 / 16.0;
+            assert!(settled || step * travel.signum() >= -0.01, "frame {n} edge {k} turns back: {last:?} -> {f:?}");
             assert!(step.abs() <= travel.abs() * 0.2 + 0.5, "frame {n} edge {k} jumps {step} of {travel}");
         }
         last = *f;

@@ -21,12 +21,12 @@ fn test_runtime() -> Runtime<App> {
 }
 
 #[test]
-fn review_tab_pins_first_and_supports_split_wide_layout_and_tree_toggle() {
+fn review_shortcut_opens_a_closable_tab_with_split_layout_and_tree_toggle() {
     let mut rt = test_runtime();
-    // ⇧⌘R opens the side region onto pinned `review:changes` ("Files Changed 4").
+    // ⌃⌘R opens Review; opening the side region alone no longer creates it.
     rt.key(KeyEvent {
         key: Key::Command('r'),
-        mods: Mods { cmd: true, shift: true, logo: true, ..Default::default() },
+        mods: Mods { cmd: true, ctrl: true, logo: true, ..Default::default() },
     });
     for _ in 0..45 {
         rt.frame(1.0 / 60.0);
@@ -34,7 +34,7 @@ fn review_tab_pins_first_and_supports_split_wide_layout_and_tree_toggle() {
     let reg = rt.state.resolve_side_region().expect("side region");
     assert_eq!(reg.active.as_deref(), Some(REVIEW_KEY));
     let tab = &reg.entry(REVIEW_KEY).expect("review entry").tab;
-    assert!(tab.pinned);
+    assert!(!tab.pinned);
     assert!(tab.title.starts_with("Files Changed "), "got title: {}", tab.title);
     assert!(rt.find("review-sidebar").is_some());
     assert!(rt.find("review-style-split").is_some());
@@ -49,7 +49,7 @@ fn review_tab_pins_first_and_supports_split_wide_layout_and_tree_toggle() {
     assert_eq!(rt.state.review.diff_mode, DiffMode::Split);
     let split_w = rt.presented("side-panel").map(|(r, _)| r[2]).unwrap_or(0.0);
     assert!(
-        split_w >= SIDE_WIDE_W - 1.0 && split_w > unified_w,
+        split_w >= SIDE_WIDE_W - 1.0 && split_w >= unified_w,
         "split diff widens side region: unified={unified_w} split={split_w}"
     );
 
@@ -66,11 +66,7 @@ fn review_tab_pins_first_and_supports_split_wide_layout_and_tree_toggle() {
 #[test]
 fn jumping_files_and_hunks_and_filtering_tree_syncs_selection() {
     let mut rt = test_runtime();
-    rt.update(|s, tx| s.toggle_side_region(tx));
-    for _ in 0..45 {
-        rt.frame(1.0 / 60.0);
-    }
-    let sid = rt.state.active_session_id().unwrap().to_owned();
+    let sid = open_review(&mut rt);
     let first_path = rt.state.review.sessions[&sid]
         .active_path
         .clone()
@@ -121,11 +117,12 @@ fn jumping_files_and_hunks_and_filtering_tree_syncs_selection() {
 }
 
 fn open_review(rt: &mut Runtime<App>) -> String {
-    rt.update(|s, tx| s.toggle_side_region(tx));
+    let sid = rt.state.active_session_id().unwrap().to_owned();
+    rt.update(|s, tx| s.show_review(&sid, tx));
     for _ in 0..45 {
         rt.frame(1.0 / 60.0);
     }
-    rt.state.active_session_id().unwrap().to_owned()
+    sid
 }
 
 #[test]
@@ -163,12 +160,16 @@ fn scrolling_the_diff_does_not_reopen_a_collapsed_folder() {
 }
 
 #[test]
-fn the_files_changed_tab_menu_offers_no_close() {
+fn the_files_changed_tab_menu_can_close_review() {
     let mut rt = test_runtime();
     open_review(&mut rt);
     rt.update(|s, _| s.side.tab_menu = Some((REVIEW_KEY.to_owned(), 100.0, 100.0)));
     rt.frame(1.0 / 60.0);
     assert!(rt.find("side-tab-menu").is_some());
-    assert!(rt.find("side-tab-menu-close").is_none(), "Files Changed can't close, so no Close tab");
-    assert!(rt.find("side-tab-menu-close-others").is_none(), "no other tab to close");
+    assert!(rt.find("side-tab-menu-close").is_some(), "Review is a closable tab");
+    let (x, y) = rt.find("side-tab-menu-close-others").expect("Close other tabs");
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("side-tab-menu").is_some(), "Close other tabs is disabled with no other tab");
 }

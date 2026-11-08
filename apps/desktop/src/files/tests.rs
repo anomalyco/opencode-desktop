@@ -60,6 +60,8 @@ fn cmd_p_opens_file_palette_filters_and_jumps_to_line_in_shared_code_viewer() {
 fn preview_tab_replacement_in_file_find_and_reopen_closed_tab() {
     let mut rt = test_runtime();
     let sid = rt.state.active_session_id().unwrap().to_owned();
+    // Keep focus in the side region after the file closes. Review isn't pinned by default.
+    rt.update(|s, tx| s.show_review(&sid, tx));
 
     // Single-click preview opens `backoff.ts`, then a second preview replaces it in-place.
     rt.update(|s, tx| s.open_workspace_file("src/net/backoff.ts", true, None, tx));
@@ -130,10 +132,7 @@ fn preview_tab_replacement_in_file_find_and_reopen_closed_tab() {
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
     rt.frame(1.0 / 60.0);
-    assert_eq!(
-        rt.state.resolve_side_region().and_then(|r| r.active).as_deref(),
-        Some("review:changes")
-    );
+    assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active).as_deref(), Some(crate::review::REVIEW_KEY));
 
     rt.key(KeyEvent {
         key: Key::Command('t'),
