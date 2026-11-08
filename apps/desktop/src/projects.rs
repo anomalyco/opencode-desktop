@@ -37,6 +37,14 @@ pub struct ProjectsState {
     pub organize_limits: std::collections::HashMap<String, usize>,
     /// The session last opened from the organized list, which it highlights while current.
     pub organize_selected: Option<String>,
+    /// The organized list's project order (`sidebar.organize`'s `order`): frozen once the list
+    /// shows, then newly used projects join at its end and drags move them.
+    pub organize_order: Vec<String>,
+    /// A project row being dragged to a new place, and each project block's height for it.
+    pub organize_drag: Option<crate::view::sidebar_organized::ProjectDrag>,
+    pub organize_heights: std::collections::HashMap<String, f32>,
+    /// A drag just ended on a project row, whose release then doesn't toggle it.
+    pub organize_dropped: bool,
 }
 
 pub(crate) fn clean_dir(raw: &str) -> String {
@@ -139,6 +147,32 @@ impl App {
                 used_dirs.contains(&dir) && seen_dirs.insert(dir)
             })
             .collect()
+    }
+
+    /// The organized sidebar's projects (`sidebar-organized.tsx`'s `projects`): those in its order
+    /// first, then the other used projects, most recently active first.
+    pub fn organized_projects(&self) -> Vec<&Project> {
+        let used = self.used_projects();
+        let order = &self.project_state.organize_order;
+        let mut list: Vec<&Project> = order.iter().filter_map(|id| used.iter().find(|p| &p.id == id).copied()).collect();
+        list.extend(used.iter().filter(|p| !order.contains(&p.id)).copied());
+        list
+    }
+
+    /// Keeps the organized list's order once it shows, so a project's activity no longer moves
+    /// it and a newly used one joins at the end (`sidebar-organized.tsx`: "Freeze the initial
+    /// order"). It waits for the server's projects.
+    pub(crate) fn freeze_organize_order(&mut self) {
+        let shown = self.tab_layout() == crate::layout_state::TabLayout::Vertical
+            && self.settings.sidebar_organize == crate::settings::Organize::Projects
+            && !self.project_state.organize_collapsed;
+        if !shown || self.projects.is_empty() {
+            return;
+        }
+        let ids: Vec<String> = self.organized_projects().iter().map(|p| p.id.clone()).collect();
+        if ids != self.project_state.organize_order {
+            self.project_state.organize_order = ids;
+        }
     }
 
     /// Server projects this client hasn't added or has hidden from its used list.

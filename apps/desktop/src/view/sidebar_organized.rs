@@ -61,12 +61,13 @@ fn header(p: &Pal, collapsed: bool) -> El {
         .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }))
 }
 
-/// The used projects (the first seven, or all after Show more), each with its sessions while open.
+/// The used projects in the list's order (the first seven, or all after Show more), each with its
+/// sessions while open.
 fn projects(s: &App, p: &Pal) -> Vec<El> {
     let st = &s.project_state;
-    let used = s.used_projects();
+    let used = s.organized_projects();
     let shown = if st.organize_all { used.len() } else { used.len().min(PROJECTS) };
-    let mut rows: Vec<El> = used[..shown].iter().map(|proj| project(s, p, proj)).collect();
+    let mut rows: Vec<El> = used[..shown].iter().enumerate().map(|(i, proj)| project(s, p, proj, i)).collect();
     if used.len() > PROJECTS {
         let label = if st.organize_all { t!("sidebar.organize.showLess") } else { t!("sidebar.organize.showMore") };
         rows.push(small_button(p, "organize-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -77,13 +78,14 @@ fn projects(s: &App, p: &Pal) -> Vec<El> {
     rows
 }
 
-/// A project's row (`ProjectRow`): its icon and name toggle its sessions; More options and New
-/// session show at its end while hovered or its menu is open.
-fn project(s: &App, p: &Pal, proj: &model::Project) -> El {
+/// A project's row (`ProjectRow`): its icon and name toggle its sessions, or drag the project and
+/// its sessions to a new place; More options and New session show at its end while hovered or its
+/// menu is open.
+fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
     let open = s.project_state.organize_expanded.contains(&proj.id);
     let menu = format!("so-menu-{}", proj.id);
     let menu_open = s.popup.open_at(&menu);
-    let (id, menu_id, ctx_id, new_dir) = (proj.id.clone(), proj.id.clone(), proj.id.clone(), proj.directory.clone());
+    let (id, menu_id, ctx_id, new_dir, drag_id, layout_id) = (proj.id.clone(), proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.id.clone(), proj.id.clone());
     let (anchor, ctx_anchor) = (menu.clone(), menu.clone());
     let actions = row()
         .key("actions")
@@ -109,13 +111,20 @@ fn project(s: &App, p: &Pal, proj: &model::Project) -> El {
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             let st = &mut s.project_state;
+            // A release that ends a drag isn't a press on the row it dropped.
+            if std::mem::take(&mut st.organize_dropped) {
+                return;
+            }
             if !st.organize_expanded.remove(&id) {
                 st.organize_expanded.insert(id.clone());
             }
             st.organize_limits.remove(&id);
         })
+        .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| drag(s, &drag_id, index, d, tx))
         .child(el().size(16.0, 16.0).center().child(crate::icons::badge(s, p, Some(proj), &proj.name)))
         .child(text(proj.name.clone()).key("label").font(UI).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate());
+    // The dragged row takes no hover: its wash and its buttons stay off while it follows the pointer.
+    let lifted = s.project_state.organize_drag.as_ref().is_some_and(|d| d.from == index);
     let head = row()
         .key("head")
         .w_full()
@@ -123,16 +132,117 @@ fn project(s: &App, p: &Pal, proj: &model::Project) -> El {
         .pr(4.0)
         .center_y()
         .radius(6.0)
-        .hover_group()
-        .hover(p.hover)
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| home::projects::open_project_menu(s, &ctx_id, ctx_anchor.clone(), tx))
         .child(nav)
-        .child(if menu_open { actions } else { actions.group_opacity(0.0, 1.0) });
-    let mut r = col().key(format!("so-{}", proj.id)).w_full().child(head);
+        .child(match (menu_open, lifted) {
+            (true, _) => actions,
+            (false, true) => actions.opacity(0.0),
+            (false, false) => actions.group_opacity(0.0, 1.0),
+        });
+    let head = if lifted { head } else { head.hover_group().hover(p.hover) };
+    let mut r = col()
+        .key(format!("so-{}", proj.id))
+        .w_full()
+        .on_layout(move |s: &mut App, rect| _ = s.project_state.organize_heights.insert(layout_id.clone(), rect[3]))
+        .child(head);
     if open {
         r = r.child(col().key("sessions").w_full().gap(3.0).pb(4.0).children(sessions(s, p, proj)));
     }
-    r
+    match &s.project_state.organize_drag {
+        // It follows the pointer over the rows, which make room for it as it passes them.
+        Some(d) if d.from == index => r.raise().offset(0.0, d.dy).offset_motion(rune::Anim::INSTANT),
+        Some(d) => r.offset(0.0, d.shift(s, index)),
+        None => r,
+    }
+}
+
+/// A project row's drag (`DragDropProvider` with `RestrictToVerticalAxis`): it starts 4 pt from
+/// the press, the project's block follows the pointer up and down, the blocks it passes step
+/// aside by its height, and a drop puts it there at once (`dropAnimation: null`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectDrag {
+    from: usize,
+    to: usize,
+    dy: f32,
+    /// The listed projects' ids, in order, as the drag started.
+    ids: Vec<String>,
+}
+
+/// Points the pointer travels before a press on a row becomes a drag (`Distance({ value: 4 })`).
+const DRAG_SLOP: f32 = 4.0;
+/// The list's gap between project blocks (`gap-1`).
+const BLOCK_GAP: f32 = 4.0;
+
+impl ProjectDrag {
+    /// How far block `index` sits from its place while another is dragged: a step toward the
+    /// dragged block's place when it's between that and where the block would land.
+    fn shift(&self, s: &App, index: usize) -> f32 {
+        let pitch = height(s, &self.ids[self.from]) + BLOCK_GAP;
+        if self.from < index && index <= self.to {
+            -pitch
+        } else if self.to <= index && index < self.from {
+            pitch
+        } else {
+            0.0
+        }
+    }
+}
+
+fn height(s: &App, id: &str) -> f32 {
+    s.project_state.organize_heights.get(id).copied().unwrap_or(28.0)
+}
+
+fn drag(s: &mut App, id: &str, index: usize, d: &mut rune::Drag, tx: &mut Tx) {
+    match d.phase {
+        rune::Phase::Down => s.project_state.organize_dropped = false,
+        rune::Phase::Move => {
+            if s.project_state.organize_drag.is_none() {
+                if d.dx.hypot(d.dy) < DRAG_SLOP {
+                    return;
+                }
+                let ids: Vec<String> = s.organized_projects().iter().map(|p| p.id.clone()).collect();
+                if ids.get(index).map(String::as_str) != Some(id) {
+                    return;
+                }
+                s.project_state.organize_drag = Some(ProjectDrag { from: index, to: index, dy: 0.0, ids });
+            }
+            tx.animated();
+            let shown = if s.project_state.organize_all { usize::MAX } else { PROJECTS };
+            let Some(mut drag) = s.project_state.organize_drag.take() else { return };
+            drag.dy = d.dy;
+            drag.to = target(s, &drag, shown);
+            s.project_state.organize_drag = Some(drag);
+        }
+        rune::Phase::Up => {
+            let Some(drag) = s.project_state.organize_drag.take() else { return };
+            s.project_state.organize_dropped = true;
+            tx.instant();
+            if d.cancelled() || drag.from == drag.to {
+                return;
+            }
+            let mut ids = drag.ids;
+            let moved = ids.remove(drag.from);
+            ids.insert(drag.to, moved);
+            s.project_state.organize_order = ids;
+        }
+    }
+}
+
+/// Where the dragged block lands: past each block whose middle its leading edge has crossed, as
+/// dnd-kit's sorting by the most overlapped slot does.
+fn target(s: &App, drag: &ProjectDrag, shown: usize) -> usize {
+    let count = drag.ids.len().min(shown);
+    let tops: Vec<f32> = drag.ids[..count].iter().scan(0.0, |y, id| {
+        let top = *y;
+        *y += height(s, id) + BLOCK_GAP;
+        Some(top)
+    }).collect();
+    let top = tops[drag.from] + drag.dy;
+    let bottom = top + height(s, &drag.ids[drag.from]);
+    let middle = |j: usize| tops[j] + height(s, &drag.ids[j]) / 2.0;
+    let below = (drag.from + 1..count).take_while(|&j| bottom > middle(j)).count();
+    let above = (0..drag.from).rev().take_while(|&j| top < middle(j)).count();
+    drag.from + below - above
 }
 
 /// A project's latest root sessions, five more per Show more, or a line when it has none.

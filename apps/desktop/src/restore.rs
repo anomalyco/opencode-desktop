@@ -135,6 +135,7 @@ impl App {
             v["drafts"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.clone(), t.as_str()?.to_owned()))).collect();
         self.closed = crate::tabs::Closed::from_json(&v["closedTabs"]);
         self.restore.inbox = InboxUi::from_json(&global["inbox"]);
+        self.restore_organize(&global["organize"]);
         let saved = match route_from(&v["route"]) {
             Some(Saved::LegacyDraft) => Some(self.migrate_legacy_draft(server)),
             Some(Saved::Route(route)) => Some(route),
@@ -249,6 +250,7 @@ impl App {
             "side": self.side.to_json(),
             "closedTabs": self.closed.to_json(),
             "inbox": self.restore.inbox.to_json(),
+            "organize": self.organize_json(),
         })
     }
 
@@ -257,6 +259,8 @@ impl App {
         (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
         self.settings.open.then(|| settings_tab(&self.settings_pages.page)).hash(&mut h);
         self.side.stamp_hash(&mut h);
+        let st = &self.project_state;
+        (st.organize_collapsed, organize_expanded(st), &st.organize_order).hash(&mut h);
         h.finish()
     }
 
@@ -264,6 +268,7 @@ impl App {
     /// thread (it's a few hundred bytes, renamed into place).
     pub fn poll_restore(&mut self) {
         self.show_draft();
+        self.freeze_organize_order();
         let stamp = self.restore_stamp();
         if self.restore.stamp == Some(stamp) {
             return;
@@ -286,7 +291,8 @@ impl App {
             return;
         }
         // The page, drafts, panes and closed tabs are the window's own (Desktop's
-        // `opencode.window.<id>.dat`); the sidebar and the inbox's disclosures are every window's.
+        // `opencode.window.<id>.dat`); the sidebar, the inbox's disclosures and the organized
+        // sidebar's are every window's.
         for key in WINDOW_KEYS {
             crate::windows::store::save(&self.window, &server, key, v[key].clone());
         }
@@ -295,11 +301,36 @@ impl App {
             if !all[&server].is_object() {
                 all[&server] = json!({});
             }
-            for key in ["sidebar", "sidebarWidth", "inbox"] {
+            for key in ["sidebar", "sidebarWidth", "inbox", "organize"] {
                 all[&server][key] = v[key].clone();
             }
             crate::disk::replace(&path, all.to_string().as_bytes());
         });
+    }
+}
+
+/// The organized sidebar's open projects, sorted, so the file and its stamp don't depend on
+/// the set's order.
+fn organize_expanded(st: &crate::projects::ProjectsState) -> Vec<&String> {
+    let mut ids: Vec<&String> = st.organize_expanded.iter().collect();
+    ids.sort();
+    ids
+}
+
+impl App {
+    /// The organized sidebar's state as Desktop's `sidebar.organize` keeps it: Projects shut,
+    /// the projects open to their sessions and the projects' order.
+    fn organize_json(&self) -> Value {
+        let st = &self.project_state;
+        json!({ "projectsCollapsed": st.organize_collapsed, "expanded": organize_expanded(st), "order": st.organize_order })
+    }
+
+    fn restore_organize(&mut self, v: &Value) {
+        let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(|s| Some(s.as_str()?.to_owned())).collect::<Vec<_>>();
+        let st = &mut self.project_state;
+        st.organize_collapsed = v["projectsCollapsed"].as_bool().unwrap_or(false);
+        st.organize_expanded = strings(&v["expanded"]).into_iter().collect();
+        st.organize_order = strings(&v["order"]);
     }
 }
 

@@ -29,7 +29,7 @@ mod narrow;
 mod narrow_story;
 mod session;
 mod sidebar;
-mod sidebar_organized;
+pub(crate) mod sidebar_organized;
 mod tab_strip;
 pub(crate) mod tab_preview;
 mod titlebar;
