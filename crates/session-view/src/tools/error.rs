@@ -135,7 +135,7 @@ fn subtitle<S: TimelineHost>(s: &S, session: &str, c: &Call) -> Option<String> {
         }
         "question" => match c.input["questions"].as_array().map_or(0, Vec::len) {
             0 => return None,
-            n => format!("{n} {}", opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
+            n => format!("{n} {}", opencode_i18n::plural_text(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
         },
         "subagent" | "task" => field(c.input, "description")?.to_owned(),
         _ => return None,

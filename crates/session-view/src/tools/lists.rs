@@ -217,7 +217,7 @@ pub fn skill_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> 
         return row().key(format!("tool-{}", first.id)).w_full().h(28.0).center_y().child(title.key("title"));
     }
     // `ui.tool.loadedSkills` around its name: "Loaded" before it and "skill" or "skills" after.
-    let template = opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.tool.loadedSkills"), names.len() as u64);
+    let template = opencode_i18n::plural_text(opencode_i18n::plural_key!("ui.tool.loadedSkills"), names.len() as u64);
     let (before, after) = template.split_once("{{name}}").unwrap_or((opencode_i18n::t!("ui.tool.loaded"), ""));
     let after = after.replace("{{count}}", &names.len().to_string());
     loaded_item(s, p, before.trim(), &names, Some(after.trim()).filter(|a| !a.is_empty())).key(format!("tool-{}", first.id))

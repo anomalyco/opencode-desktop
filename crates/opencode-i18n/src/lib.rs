@@ -4,19 +4,26 @@
 //! locale, copied by `sync.ts` from the opencode repository; keys keep Desktop's names
 //! (`settings.general.row.language.title`, `ui.sessionReview.title`), with the catalogs of the GUI
 //! plugins this app builds in under `plugin.<id>.`. `locales/intl/<id>.json` holds the number
-//! patterns ICU gives each locale (`intl.percent`), also written by `sync.ts`.
+//! and date patterns ICU gives each locale (`intl.percent`, `intl.date.*`, `intl.relative.*`),
+//! also written by `sync.ts`.
 //! `locales/rune/<id>.json` holds this app's strings Desktop doesn't have, under `rune.` keys,
 //! and wins over the other layers. The build turns both into one static catalog (`rune_i18n::codegen`), so lookups are a
 //! slice of an embedded blob and a key Desktop renames fails the build where it's used.
 //!
 //! - [`t!`]: a message, `t!("key")` as `&'static str` or `t!("key", name = value)` filled in.
 //! - [`plural!`]: the message for a count's CLDR category, `{{count}}` filled in.
+//! - [`date`]: dates, times and relative times as Desktop's `Intl` calls write them.
 //! - [`set_locale`] switches every later lookup; [`detect`] picks the locale for the system's
 //!   languages, as Desktop does when no language is chosen.
 
 include!(concat!(env!("OUT_DIR"), "/i18n.rs"));
 
+pub mod date;
+mod intl;
+
 use std::borrow::Cow;
+
+pub use intl::plural_category;
 
 pub use rune_i18n::Key;
 pub use rune_i18n::LocaleInfo;
@@ -53,16 +60,23 @@ macro_rules! key {
 /// The message of a plural base for a count, with `{{count}}` and any `name = value`s filled.
 #[macro_export]
 macro_rules! plural {
-    ($key:literal, $count:expr) => {
-        $crate::I18N.plural_format($crate::plural_key!($key), ($count) as u64, &[])
-    };
-    ($key:literal, $count:expr, $($name:ident = $value:expr),+ $(,)?) => {
-        $crate::I18N.plural_format(
-            $crate::plural_key!($key),
-            ($count) as u64,
-            &[$((stringify!($name), &$value as &dyn ::core::fmt::Display)),+],
+    ($key:literal, $count:expr) => {{
+        let count = ($count) as u64;
+        $crate::render($crate::plural_text($crate::plural_key!($key), count), &[("count", &count)])
+    }};
+    ($key:literal, $count:expr, $($name:ident = $value:expr),+ $(,)?) => {{
+        let count = ($count) as u64;
+        $crate::render(
+            $crate::plural_text($crate::plural_key!($key), count),
+            &[$((stringify!($name), &$value as &dyn ::core::fmt::Display),)+ ("count", &count)],
         )
-    };
+    }};
+}
+
+/// The message of plural base `key` for `count`'s category in the current locale (its
+/// placeholders left), as Desktop picks `key.<category>` by `Intl.PluralRules`.
+pub fn plural_text(key: PluralKey, count: u64) -> &'static str {
+    I18N.plural_form(key, plural_category(count))
 }
 
 /// A plural base as a constant.
@@ -112,7 +126,7 @@ pub fn t_dynamic(key: Key, source: &str) -> Cow<'_, str> {
 
 /// `items` as the locale's long conjunction (`a, b, and c`, `a, b und c`), as Desktop's `list`.
 pub fn list<S: AsRef<str>>(items: &[S]) -> String {
-    I18N.list(items)
+    intl::list(items)
 }
 
 /// `items` joined for the UI package's labels: commas only in English, the locale's conjunction
@@ -121,15 +135,15 @@ pub fn ui_list<S: AsRef<str>>(items: &[S]) -> String {
     if is_english() {
         return items.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(", ");
     }
-    I18N.list(items)
+    intl::list(items)
 }
 
 /// `n` with the locale's digits and grouping, as `Intl.NumberFormat(locale).format(n)`.
 pub fn integer(n: i64) -> String {
-    I18N.integer(n)
+    intl::integer(n)
 }
 
-/// `n` as a whole percentage in the locale's format (`150%`, `150 %`, `%150`), as`
+/// `n` as a whole percentage in the locale's format (`150%`, `150 %`, `%150`), as
 /// `Intl.NumberFormat(locale, { style: "percent" }).format(n)`.
 pub fn percent(n: f64) -> String {
     t!("intl.percent", value = integer((n * 100.0).round() as i64))
@@ -137,5 +151,5 @@ pub fn percent(n: f64) -> String {
 
 /// `n` with at most `max_fraction` fraction digits in the locale's format.
 pub fn decimal(n: f64, max_fraction: u8) -> String {
-    I18N.decimal(n, max_fraction)
+    intl::decimal(n, max_fraction)
 }

@@ -57,7 +57,7 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
     let subtitle = match (&answers, n) {
         (_, 0) => String::new(),
         (Some(_), n) => opencode_i18n::t!("ui.question.subtitle.answered", count = n),
-        (None, n) => format!("{n} {}", opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
+        (None, n) => format!("{n} {}", opencode_i18n::plural_text(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
     };
     // Answered, it starts open: `expanded` holds it while closed.
     let closed = format!("{key}-closed");
