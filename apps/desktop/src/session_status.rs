@@ -6,7 +6,8 @@
 //! Pending permissions and forms load as Desktop's data store syncs them
 //! (`session.permission.sync`, `session.form.sync`): each session's once per connection, for the
 //! open session and what runs below it (`session/requests/model.ts`), an inactive tab whose family
-//! runs (`tab-strip.tsx`) and an Inbox root that works (`inbox-settle-machine.ts`). The
+//! runs (`tab-strip.tsx`) and a root that works, for the Inbox (`inbox-settle-machine.ts`) and
+//! for Home's rows, so a row waiting on a person shows its unread dot as Desktop's does. The
 //! `permission.*` and `form.*` events keep them current (`events.rs`).
 
 use std::collections::{HashMap, HashSet};
@@ -147,8 +148,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.request_reads.due.remove(id);
         s.read_requests(id);
     }
-    // The Inbox: a root that works, or whose run hasn't ended, may be waiting on a person.
-    if layout == TabLayout::Inbox {
+    // The Inbox and Home's rows: a root that works, or whose run hasn't ended, may be waiting on
+    // a person, whose avatar then shows the unread dot.
+    if layout == TabLayout::Inbox || s.route == Route::Home {
         let working: Vec<String> = s
             .sessions
             .iter()
