@@ -11,8 +11,13 @@ use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
 /// The card of failed call `c` in session `session`.
 pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
+    card_with(s, p, session, c, super::default_open(s, c))
+}
+
+/// The card of failed call `c`, open until pressed when `default_open`.
+pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, default_open: bool) -> El {
     let k = super::key(c.id);
-    let open = crate::disclosure::is_open(s, &k, super::default_open(s, c));
+    let open = crate::disclosure::is_open(s, &k, default_open);
     let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
     let cleaned = raw.trim_start().strip_prefix("Error:").unwrap_or(raw).trim().to_owned();
     let id = format!("tool-{}", c.id);
@@ -88,6 +93,18 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
     }
     content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
     card.child(content)
+}
+
+/// The width the shut card of `c` takes whole: the warning mark, the name, the subtitle's first
+/// line and the error's gist, the arrow, and the gaps between them. A card that lays out inside a
+/// row as wide as its content needs it, as its texts would otherwise give way to nothing.
+pub fn shut_width<S: TimelineHost>(s: &S, session: &str, c: &Call) -> f32 {
+    let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
+    let cleaned = raw.trim_start().strip_prefix("Error:").unwrap_or(raw).trim();
+    let shell = matches!(c.name, "shell" | "bash");
+    let measure = |t: &str, style| rune::text::measure(t, &[], style, None).0;
+    let sub = subtitle(s, session, c).map_or(0.0, |t| measure(t.lines().next().unwrap_or(""), if shell { TOOL_CODE.lh(16.0) } else { UI }) + 6.0);
+    16.0 + 8.0 + measure(&name(c), UI_MED) + sub + 6.0 + measure(&summary(c.name, cleaned), UI) + 8.0 + 6.0 + 14.0
 }
 
 /// The tool's name, as its trigger says it.

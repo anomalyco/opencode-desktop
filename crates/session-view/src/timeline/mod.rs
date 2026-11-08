@@ -31,7 +31,6 @@ pub enum RowContent {
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
     Pending { id: String, tight: bool, above: bool, below: bool, fold: Fold },
-    Note(usize),
     /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
     /// beside it should it draw as a divider.
     Notice(usize, Run),
@@ -197,10 +196,6 @@ impl RowSpec {
                     None => col(),
                 }
             }
-            RowContent::Note(i) => match &t.messages[*i] {
-                Message::Note { text: body, .. } => row().pt(16.0).child(readable(p, text(body.clone()).font(UI).color(p.faint))),
-                _ => unreachable!(),
-            },
             RowContent::Notice(i, run) => match &t.messages[*i] {
                 Message::Notice(n) => crate::turn_errors::notice(s, p, n, *run),
                 _ => unreachable!(),
@@ -279,6 +274,7 @@ fn thinking_tick<S: TimelineHost>(s: &S, t: &Transcript, start: usize, end: usiz
 pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> Vec<Entry<'a>> {
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
+        Message::Note { step, .. } => Entry::Step(step),
         Message::Notice(n) if crate::detail::notice_placement(n, detail) == crate::detail::Placement::Grouped => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
@@ -291,7 +287,12 @@ fn group_hash(messages: &[Message]) -> u64 {
         if let Message::Notice(n) = m {
             (3u8, &n.id).hash(&mut h);
         }
-        if let Message::Assistant(a) = m {
+        let step = match m {
+            Message::Assistant(a) => Some(a),
+            Message::Note { step, .. } => Some(&**step),
+            _ => None,
+        };
+        if let Some(a) = step {
             (&a.id, a.completed, a.parts.len()).hash(&mut h);
             for p in &a.parts {
                 match p {
@@ -415,6 +416,10 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let detail = s.timeline_detail();
     let mut steps: Vec<Entry> = Vec::new();
     let mut start = 0;
+    // `steps` began with a shell command, whose turn holds only it and its notices.
+    let mut shell_turn = false;
+    // Each shell command's turn: where its first row goes, its message and the room over it.
+    let mut shell_gaps: Vec<(usize, usize, f32)> = Vec::new();
     // The run under way (`execution`): its first prompt and the files its steps changed, and
     // where the last run's Changed files went.
     let mut run: Option<(String, std::collections::BTreeSet<String>)> = None;
@@ -422,6 +427,10 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     for (mi, m) in t.messages[..shown].iter().enumerate() {
         match m {
             Message::Assistant(a) => {
+                // A reply doesn't join a shell command's turn.
+                if std::mem::take(&mut shell_turn) {
+                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
+                }
                 if let Some(r) = &mut run {
                     r.1.extend(a.changed.iter().cloned());
                 }
@@ -480,13 +489,18 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
                 }
             }
-            Message::Note { id, failed, .. } => {
+            // A shell command run from the composer is a turn of its own: its shell call, on its
+            // own row or in a group as Timeline detail places shells, with the notices that
+            // group after it (`projection.ts` Shell rows, `groupMessages`). It shows unless
+            // Shell is hidden, and a failed one always.
+            Message::Note { step, .. } => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                // A shell command run from the composer shows unless Shell is hidden, and a failed
-                // one always.
-                if *failed || detail.placement(crate::detail::Category::Shell) != crate::detail::Placement::Hidden {
-                    out.push(RowSpec { key: format!("n-{id}"), content: RowContent::Note(mi), streaming: false });
-                }
+                // Desktop's TurnGap over every turn but the first (16), whose row sits 8 lower
+                // than a turn's rows under a prompt.
+                shell_gaps.push((out.len(), mi, if out.is_empty() { 8.0 } else { 16.0 }));
+                start = mi;
+                steps.push(Entry::Step(step));
+                shell_turn = true;
             }
             Message::Compaction(c) => {
                 turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
@@ -497,6 +511,13 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         }
     }
     turn_rows(&mut out, &steps, start, shown, busy && revert.is_none(), &detail);
+    for (at, mi, gap) in shell_gaps {
+        if let Some(RowSpec { content: RowContent::Turn { start, pt, .. }, .. }) = out.get_mut(at)
+            && *start == mi
+        {
+            *pt = gap;
+        }
+    }
     if let Some(last) = actions {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.

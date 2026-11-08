@@ -19,6 +19,12 @@ pub fn tool_error(metadata: &Value) -> Option<&str> {
     metadata[TOOL_ERROR].as_str()
 }
 
+/// The `metadata` of a call that failed with `message`, for a failed call made up to show an
+/// error card.
+pub fn tool_error_metadata(message: &str) -> Value {
+    serde_json::json!({ TOOL_ERROR: message })
+}
+
 /// Keeps `error`'s message (an `{ message }` object or a string) in `metadata`.
 pub(super) fn keep_tool_error(metadata: &mut Value, error: &Value) {
     let Some(message) = error["message"].as_str().or(error.as_str()) else { return };
@@ -51,6 +57,52 @@ pub(super) fn keep_tool_output(metadata: &mut Value, content: &Value) {
         return;
     }
     object(metadata)[TOOL_OUTPUT] = texts.join("\n").into();
+}
+
+/// Where a composer shell command's call is marked in its `metadata` (see [`shell_message`]).
+const SHELL_MESSAGE: &str = "opencode-kit.shellMessage";
+
+/// Whether a `shell` call is a shell command run from the composer (a `shell` message), which
+/// Desktop draws as the call with an error card under it when the command didn't succeed. Its
+/// `metadata` then holds the message's `status` (`running`, `exited`, `timeout`, `killed`) and
+/// `exit`, as Desktop hands them to its shell renderer.
+pub fn shell_message(metadata: &Value) -> bool {
+    metadata[SHELL_MESSAGE] == true
+}
+
+/// A `shell` message (`SessionMessageShell`) as the one-call step Desktop's
+/// `SessionShellMessage` renders: the `shell` call of its command, running until the command
+/// ends, with its output and how it ended in the call's `metadata`.
+pub(super) fn shell_step(id: &str, m: &Value) -> super::Assistant {
+    let status = m["status"].as_str().unwrap_or("running");
+    let mut metadata = serde_json::json!({
+        "shellID": m["shellID"],
+        "status": status,
+        "exit": m["exit"],
+        "truncated": m["output"]["truncated"],
+        "output": m["output"]["output"].as_str().unwrap_or(""),
+        SHELL_MESSAGE: true,
+    });
+    // `currentToolFailed` reads a timed-out shell from `timeout`.
+    if status == "timeout" {
+        metadata["timeout"] = true.into();
+    }
+    let input = serde_json::json!({ "command": m["command"].as_str().unwrap_or("") });
+    super::Assistant {
+        id: id.to_owned(),
+        completed: m["time"]["completed"].as_i64(),
+        created: m["time"]["created"].as_i64().unwrap_or(0),
+        parts: vec![super::Part::Tool {
+            id: id.to_owned(),
+            name: "shell".into(),
+            status: if status == "running" { ToolStatus::Running } else { ToolStatus::Completed },
+            title: super::tool_title("shell", &input),
+            input,
+            files: Vec::new(),
+            metadata,
+        }],
+        ..Default::default()
+    }
 }
 
 /// Swaps in the server's newer `metadata`, keeping what this crate keeps there: when the call

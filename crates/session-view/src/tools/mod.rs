@@ -146,6 +146,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             return error::card(s, p, cx.session, c);
         }
         match c.name {
+            "shell" if opencode_kit::model::shell_message(c.metadata) => shell_message(s, p, cx, c),
             "shell" | "bash" => console::shell(s, p, cx, c),
             "execute" => execute::execute(s, p, cx, c),
             "edit" | "multiedit" | "write" | "patch" | "apply_patch" => files::group(s, p, cx, &[*c]),
@@ -158,6 +159,32 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         }
     };
     cached(s, p, cx, &[*c], build)
+}
+
+/// A shell command run from the composer (`SessionShellMessage`): its shell call, and under it
+/// the error card of a command that timed out, was cancelled or exited with another code than 0.
+fn shell_message<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    // Open, as wide as its console or card rather than the column (`session-shell-message`);
+    // shut, its trigger has the column to fade its command out in.
+    let call = col().key("shell-message");
+    let call = if Display::of(s, cx, c, true).open() { call.self_start() } else { call.w_full() };
+    let call = call.child(console::shell(s, p, cx, c));
+    let error = match c.metadata["status"].as_str() {
+        Some("timeout") => opencode_i18n::t!("ui.tool.shell.timeout").to_string(),
+        Some("killed") => opencode_i18n::t!("ui.tool.shell.cancelled").to_string(),
+        Some("exited") if c.metadata["exit"].as_i64().is_some_and(|e| e != 0) => {
+            opencode_i18n::t!("ui.tool.shell.exit", code = c.metadata["exit"].to_string()).to_string()
+        }
+        _ => return call,
+    };
+    // The card is a failed call of its own, with the command as its subtitle.
+    let id = format!("{}-error", c.id);
+    let metadata = opencode_kit::model::tool_error_metadata(&error);
+    let failed = Call { id: &id, name: c.name, status: &ToolStatus::Error, input: c.input, metadata: &metadata };
+    // Desktop's card stays shut until pressed (`ToolErrorCard` without `defaultOpen`); the
+    // command and its card are as wide as the wider of them.
+    let wide = error::shut_width(s, cx.session, &failed).min(lists::column(cx.session));
+    call.min_w(wide).child(error::card_with(s, p, cx.session, &failed, false))
 }
 
 /// `build` for `calls`, kept until one of them, the parts of them held open, their copy

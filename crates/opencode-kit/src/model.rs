@@ -22,7 +22,7 @@ pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, parse_inbox_item};
 pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_permission};
 pub use notice::{Notice, NoticeKind, Retry, StepError, is_notice_event};
-pub use tool::{tool_error, tool_output, tool_ran};
+pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, set_project_sandboxes};
 pub use crate::quote::{Quote, set_user_quotes, user_quotes};
@@ -229,9 +229,10 @@ pub fn set_user_created(id: &str, at: i64) {
 pub enum Message {
     User { id: String, text: String },
     Assistant(Assistant),
-    /// Shell commands and notices: shown as a quiet one-line row.
-    /// `failed`: it timed out or exited non-zero.
-    Note { id: String, text: String, failed: bool },
+    /// A shell command run from the composer (`!`): `text` reads `$ command`, `failed` when it
+    /// timed out or exited non-zero, and `step` holds it as the `shell` call Desktop draws it as
+    /// (`SessionShellMessage`): its command, output and how it ended (see [`shell_message`]).
+    Note { id: String, text: String, failed: bool, step: Box<Assistant> },
     Compaction(Compaction),
     /// A switched agent or model, a move, updated instructions, a restart.
     Notice(Notice),
@@ -400,9 +401,10 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             changed: strings(&m["snapshot"]["files"]),
         }),
         "shell" => Message::Note {
-            id,
             text: format!("$ {}", s(&m["command"])),
             failed: m["status"] == "timeout" || (m["status"] == "exited" && m["exit"].as_i64().is_some_and(|e| e != 0)),
+            step: Box::new(tool::shell_step(&id, m)),
+            id,
         },
         "compaction" => Message::Compaction(Compaction::parse(m)),
         _ => return notice::parse(m),

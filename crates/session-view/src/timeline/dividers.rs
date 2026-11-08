@@ -55,7 +55,7 @@ fn kind(t: &Transcript, c: &RowContent) -> Kind {
         },
         RowContent::CompactionQueued(_) | RowContent::TurnDivider(_) => Kind::Divider,
         RowContent::User { .. } | RowContent::Pending { .. } => Kind::Prompt,
-        RowContent::UserImages { .. } | RowContent::Note(_) | RowContent::Actions { .. } => Kind::Roomy,
+        RowContent::UserImages { .. } | RowContent::Actions { .. } => Kind::Roomy,
         _ => Kind::Other,
     }
 }
