@@ -19,6 +19,7 @@ static-builtins = ["dep:opencode-plugin-context-impl", "dep:opencode-plugin-deta
 knobs = ["rune-knobs/panel"]
 
 [dependencies]
+memchr = "2"
 base64 = "0.22"
 browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"

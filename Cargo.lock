@@ -2495,6 +2495,7 @@ dependencies = [
  "image",
  "libc",
  "libloading",
+ "memchr",
  "notify",
  "opencode-i18n",
  "opencode-kit",

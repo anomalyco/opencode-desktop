@@ -27,6 +27,7 @@ use crate::view::title_of;
 use crate::{App, Route, Source};
 
 mod view;
+mod session_index;
 pub use view::{dialog, view};
 
 /// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
@@ -97,6 +98,7 @@ pub struct Switcher {
     restore_composer: bool,
     /// Sessions the server found while this was open, kept for later keystrokes.
     pub(crate) loaded: Vec<SessionInfo>,
+    index: std::cell::RefCell<Option<session_index::Index>>,
     /// The query last sent to the server and the one that failed.
     searched: String,
     failed: Option<String>,
@@ -121,6 +123,7 @@ impl Default for Switcher {
             pointer: None,
             restore_composer: false,
             loaded: Vec::new(),
+            index: Default::default(),
             searched: String::new(),
             failed: None,
             fetch: Latest::default().debounce(Duration::from_millis(150)),
@@ -133,6 +136,9 @@ impl Default for Switcher {
 }
 
 impl Switcher {
+    pub(crate) fn invalidate_sessions(&mut self) {
+        *self.index.get_mut() = None;
+    }
     pub fn set_waker(&mut self, waker: Waker) {
         self.fetch = Latest::new(waker.clone()).debounce(Duration::from_millis(150));
         self.files_fetch = Latest::new(waker);
@@ -324,37 +330,24 @@ impl App {
             _ => opencode_i18n::t!("command.category.session"),
         };
         // A project's tasks live in its inbox.
-        // Recent sessions leave out an automation's (Flow's); a query still finds them.
-        let roots = self.merged_roots(&self.switcher.loaded).into_iter().filter(|s| s.archived.is_some() == archived && !(q.is_empty() && crate::view::is_automation(&s.title)));
-        let sessions = roots.map(|s| Entry {
-            key: format!("session:{}", s.id),
-            action: Action::Session(s.id.clone()),
-            title: title_of(s),
-            project: s.project.clone(),
-            description: self.project_label(s),
-            hint: None,
-            chord: None,
-            group,
-            updated: Some(s.updated),
-            open: self.tabs.iter().any(|t| t.id == s.id),
-        });
+        let sessions = self.session_matches(q, group, archived);
         if matches!(self.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
             if q.is_empty() {
-                return sessions.take(RECENT_SESSIONS).collect();
+                return sessions.into_iter().take(RECENT_SESSIONS).collect();
             }
-            return rank(sessions.filter(|e| matches(e, q)).take(MATCHES).collect());
+            return rank(sessions);
         }
         if q.is_empty() {
             // `preferredCommandEntries` over a session; Home's first five (`HomeCommandPalette`).
             let ids: &[&str] = if self.route == Route::Home { &crate::commands::HOME_COMMON } else { &crate::commands::COMMON };
             let common: Vec<Entry> = ids.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command).collect();
-            return common.into_iter().chain(self.switcher_recent_files()).chain(sessions.take(RECENT)).collect();
+            return common.into_iter().chain(self.switcher_recent_files()).chain(sessions.into_iter().take(RECENT)).collect();
         }
         let found: Vec<Entry> = all
             .iter()
             .map(command)
             .filter(|e| matches(e, q))
-            .chain(sessions.filter(|e| matches(e, q)).take(MATCHES))
+            .chain(sessions)
             .chain(self.switcher_settings(q))
             .chain(self.switcher_found_files(q))
             .collect();
@@ -488,6 +481,7 @@ impl App {
             return;
         }
         self.switcher.open = false;
+        self.switcher.invalidate_sessions();
         self.switcher.search.focused = false;
         self.switcher.search.preedit = None;
         self.switcher.fetch.cancel();
@@ -495,12 +489,12 @@ impl App {
         self.composer.focused = restore && self.switcher.restore_composer;
     }
 
-    pub fn switcher_choose(&mut self, key: &str, tx: &mut Tx) {
-        let Some(entry) = self.switcher_entries().into_iter().find(|e| e.key == key) else { return };
+    fn switcher_run(&mut self, action: Action, tx: &mut Tx) {
+        if !self.switcher.open { return; }
         let restore = self.switcher.mode == SwitcherMode::Archived;
         let line = parse_path_and_line(self.switcher.query()).1;
         self.close_switcher(false);
-        match entry.action {
+        match action {
             // An archived session is restored as it opens.
             Action::Session(id) if restore => {
                 if self.session(&id).is_none()
@@ -519,6 +513,9 @@ impl App {
                     self.sessions.push(s);
                 }
                 self.open(&id, tx);
+                // The palette is gone: show the chosen shell, not the previous transcript,
+                // while the existing page request finishes. Keep its retry/back state.
+                if let Some(open) = &mut self.opening { open.loading = true; }
             }
             Action::Command(id) => self.run_command(id, tx),
             // `path:line` (or `path#L12`) opens the file at that line.
@@ -594,8 +591,9 @@ impl App {
         match ev.key {
             Key::Enter if !ev.mods.shift => {
                 let entries = self.switcher_entries();
-                if let Some(key) = self.switcher_active(&entries) {
-                    self.switcher_choose(&key, tx);
+                if let Some(key) = self.switcher_active(&entries)
+                    && let Some(entry) = entries.into_iter().find(|e| e.key == key) {
+                    self.switcher_run(entry.action, tx);
                 }
                 true
             }
@@ -612,6 +610,7 @@ impl App {
     pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
         let mut changed = false;
         if let Some(f) = self.switcher.fetch.take() {
+            if !f.sessions.is_empty() { self.switcher.invalidate_sessions(); }
             upsert_sessions(&mut self.switcher.loaded, f.sessions);
             if self.switcher.searched == f.query {
                 self.switcher.failed = f.failed.then_some(f.query);
@@ -627,14 +626,11 @@ impl App {
         if !self.switcher.open {
             return changed;
         }
-        let entries = self.switcher_entries();
-        let active = self.switcher_active(&entries);
-        if let Some(active) = &active
-            && let Some(Entry { action: Action::Session(id), .. }) = entries.iter().find(|e| &e.key == active)
-        { self.prefetch_session(id); }
         // Results land at once: no row fades in or slides to its place.
         if changed {
             tx.instant();
+            let entries = self.switcher_entries();
+            let active = self.switcher_active(&entries);
             // They bring a row the keys chose back into view (`SearchList`), but leave the list
             // where the wheel put it while the first row is the highlight or the pointer took it.
             if let Some(key) = active.filter(|k| entries.first().is_some_and(|e| &e.key != k) && !self.switcher.pointed(k)) {
