@@ -103,7 +103,7 @@ fn story_view(s: &App, p: &Pal) -> El {
     let page = match &s.route {
         Route::Draft(_) => view::draft_page(s, p, panel_w),
         Route::Session(id) => view::session_page(s, p, id),
-        Route::Home => view::home(s, p, panel_w, [0.0, 0.0]),
+        Route::Home => view::home(s, p, [panel_w, 0.0], [0.0, 0.0]),
     };
     row()
         .key("story-open-project")

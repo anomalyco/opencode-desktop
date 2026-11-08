@@ -9,8 +9,10 @@ use opencode_i18n::t;
 
 /// `HomeProjectsPanel`. Wide: 280 pt, 56 down and sticking there (`lg:sticky lg:top-14 lg:mt-14`),
 /// its header 52 below that, on the first group's line (`lg:pt-[52px]`), and Settings and Help
-/// under the list. Stacked above the sessions: 10 down (`mt-2.5`), Settings and Help at the foot.
-pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: bool) -> El {
+/// under the list; as tall as the page leaves under those 56 (`lg:h-[calc(100cqh-56px)]`, the page
+/// `page_h` tall when known), its rows scrolling inside it, so it stays put at any height.
+/// Stacked above the sessions: 10 down (`mt-2.5`), Settings and Help at the foot.
+pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: bool, page_h: f32) -> El {
     let used = s.used_projects();
     // `h-7 pl-1.5 pr-3`: Projects in muted 530, and the large ghost-muted folder-add button.
     let header = row()
@@ -44,10 +46,15 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
             rows = rows.child(project_row(s, p, proj, selected.is_some_and(|sel| sel.id == proj.id), PROJECTS_W - 12.0));
         }
     }
-    let c = col().key("home-projects").w(if wide { PROJECTS_W } else { 0.0 }).gap(16.0).child(header).child(rows);
     if !wide {
-        return c.w_full().mt(10.0);
+        return col().key("home-projects").w_full().mt(10.0).gap(16.0).child(header).child(rows);
     }
+    // `home-projects-viewport`: the rows scroll in what the column leaves them, their edges
+    // masked 16 pt while rows hide past them (`index.css:353-376`).
+    let rows = col().key("home-projects-scroll").w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false })
+        .scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(0.01)).child(rows);
+    let c = col().key("home-projects").w(PROJECTS_W).gap(16.0).child(header).child(rows);
+    let c = if page_h > 56.0 { c.h(page_h - 56.0).self_start() } else { c };
     // `HomeUtilityNav` `mb-8 mt-4`, after the panel's `gap-4`.
     c.mt(56.0).pt(52.0).sticky_top(56.0).child(utility(p, true).mt(16.0).mb(32.0))
 }

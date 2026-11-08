@@ -55,8 +55,8 @@ const PROJECTS_W: f32 = 280.0;
 const GRID_GAP: f32 = 32.0;
 const SESSIONS_MAX: f32 = 720.0;
 
-/// Home in the panel `panel_w` wide, in a window `window` big (zeros when unknown: a story).
-pub(crate) fn home(s: &App, p: &Pal, panel_w: f32, window: [f32; 2]) -> El {
+/// Home in the panel `panel` big, in a window `window` big (zeros when unknown: a story).
+pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32; 2]) -> El {
     if s.launch.offline {
         return no_server_home(s, p);
     }
@@ -71,8 +71,8 @@ pub(crate) fn home(s: &App, p: &Pal, panel_w: f32, window: [f32; 2]) -> El {
     let column_w = if tier == Tier::Wide { (grid_w - PROJECTS_W - GRID_GAP).min(SESSIONS_MAX) } else { grid_w };
     let sessions = sessions_column(s, p, selected, tier, column_w, window_h);
     let grid = match tier {
-        Tier::Wide => row().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(GRID_GAP).child(projects::column(s, p, selected, true)).child(sessions),
-        Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false)).child(sessions),
+        Tier::Wide => row().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(GRID_GAP).child(projects::column(s, p, selected, true, panel_h)).child(sessions),
+        Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false, panel_h)).child(sessions),
         Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
     let scroller = col()
@@ -155,7 +155,12 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             .fill(p.bg_base)
             .sticky_top(tier.header_top())
             .stuck_fade(list_top + 16.0, 16.0)
-            .child(text(title).font(UI).color(p.muted));
+            .child(text(title).font(UI).color(p.muted))
+            // `.home-session-group-header::before` and `::after` (`index.css:208-245`): a 12 pt
+            // cover over the gap above it, and a 16 pt eased gradient into the rows under it; only
+            // the title fades as the next header comes up.
+            .child(el().key("cover").absolute(0.0, -12.0).w_full().h(12.0).fill(p.bg_base))
+            .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, eased_shade(p.bg_base)));
         // `gap-px pt-2 md:pt-4`, `mb-6` but the last.
         let mut rows = col().key(format!("rows-{title}")).w_full().gap(1.0).pt(if tier == Tier::Narrow { 8.0 } else { 16.0 });
         for ses in items {
@@ -172,6 +177,13 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     let column = col().key("home-column").grow(1.0).shrink().min_w(0.0);
     let column = if tier == Tier::Wide { column.max_w(SESSIONS_MAX) } else { column };
     column.child(header).child(list).scroll_bar_hover("home")
+}
+
+/// The eased fade of a group header's `::after` (`index.css:224-243`), `bg` at full strength into
+/// clear, at eight of its sixteen stops (Rune draws up to eight).
+fn eased_shade(bg: Color) -> [(f32, Color); 8] {
+    [(0.0, 1.0), (0.1414, 0.849947), (0.2285, 0.729394), (0.3191, 0.574815), (0.4465, 0.411884), (0.599, 0.276484), (0.8387, 0.10416), (1.0, 0.0)]
+        .map(|(at, a)| (at, bg.alpha(bg.a * a)))
 }
 
 /// `groupSessions`: Today, Yesterday and the rest by the local calendar day each was last
@@ -545,7 +557,7 @@ mod no_server_story {
             .fill(p.bg_base)
             .box_shadow(Pal::ring_out(p.ring))
             .clip_soft(0.0)
-            .child(super::home(s, p, 760.0, [0.0, 0.0]))
+            .child(super::home(s, p, [760.0, 440.0], [0.0, 0.0]))
     }
 
     rune_register::register!(crate::stories::STORY_LIST: Story = [

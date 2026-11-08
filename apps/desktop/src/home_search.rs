@@ -220,7 +220,7 @@ fn home_story_view(s: &App, p: &Pal) -> El {
         .box_shadow(Pal::ring_out(p.ring))
         .shadow(1.0, 2.0, p.shadow)
         .clip_soft(0.0)
-        .child(crate::view::home(s, p, 920.0, [0.0, 0.0]))
+        .child(crate::view::home(s, p, [920.0, 0.0], [0.0, 0.0]))
 }
 
 const STORY_KEYS: &[Trigger] = &[
