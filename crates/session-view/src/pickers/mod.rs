@@ -51,13 +51,23 @@ pub enum ModelAction {
 
 impl ModelAction {
     pub fn label(self) -> &'static str {
-        match self { Self::Connect => "Connect an integration", Self::Manage => "Manage models" }
+        match self { Self::Connect => opencode_i18n::t!("command.provider.connect"), Self::Manage => opencode_i18n::t!("dialog.model.manage") }
     }
 }
 
 impl Kind {
     pub fn key(self) -> &'static str {
         match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
+    }
+
+    /// Its trigger's and menu's name: Choose model, Choose agent, Choose model variant.
+    pub fn choose_label(self) -> &'static str {
+        match self {
+            Self::Agent => opencode_i18n::t!("ui.promptInput.chooseAgent"),
+            Self::Model => opencode_i18n::t!("ui.promptInput.chooseModel"),
+            Self::Effort => opencode_i18n::t!("ui.promptInput.chooseVariant"),
+            Self::Project => opencode_i18n::t!("session.new.project.trigger.tooltip"),
+        }
     }
 }
 

@@ -84,7 +84,7 @@ pub fn view<S: PickerHost>(p: &Pal, look: Look, stops: &[Stop], lit: Option<&str
 
 fn button<S: PickerHost>(p: &Pal, look: Look, stop: &Stop, lit: bool) -> El {
     let (first, y) = (stop.first.clone(), stop.y);
-    row().key(format!("rail-{}", stop.group)).role("button").label(format!("Jump to {}", stop.label)).help(format!("Jump to {}", stop.label))
+    row().key(format!("rail-{}", stop.group)).role("button").label(opencode_i18n::t!("rune.picker.rail.jump", group = stop.label)).help(opencode_i18n::t!("rune.picker.rail.jump", group = stop.label))
         .size(28.0, 28.0).center().transition(Transition::none()).radius(look.row_radius).fill(pop::lit(p, lit)).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();

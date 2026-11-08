@@ -509,7 +509,7 @@ impl App {
                             s.apply_project(updated);
                         }
                     }
-                    Err(e) => crate::status_toast::say(s, "Request failed", &e),
+                    Err(e) => crate::status_toast::say(s, t!("common.requestFailed"), &e),
                 }
             }) as Apply
         });

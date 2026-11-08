@@ -72,7 +72,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .shrink()
         .min_w(0.0)
         .color(p.text)
-        .placeholder("Search", p.faint)
+        .placeholder(opencode_i18n::t!("common.search.placeholder"), p.faint)
         .caret(p.text, p.selection)
         .on_edit(|s: &mut S| &mut s.pickers_mut().manage.as_mut().expect("open").search)
         .on_input_key(|s: &mut S, ev, tx: &mut Tx| {
@@ -94,7 +94,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let mut body = col().key("manage-models-list").w_full().px(8.0).pt(8.0).pb(8.0);
     if groups.is_empty() {
         let mut status = row().key("manage-models-empty").w_full().min_h(120.0).gap(4.0).center()
-            .child(text("No model results").font(UI).color(p.muted));
+            .child(text(opencode_i18n::t!("dialog.model.empty")).font(UI).color(p.muted));
         if searching {
             status = status.child(text(format!("\"{}\"", m.search.text.trim())).font(UI).color(p.faint));
         }
@@ -117,7 +117,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let dialog = overlay_shadow(p).into_iter().fold(col(), El::box_shadow)
         .key("manage-models")
         .role("dialog")
-        .label("Manage models")
+        .label(opencode_i18n::t!("dialog.model.manage"))
         .w(640.0)
         .h(480.0)
         .radius(12.0)
@@ -130,8 +130,8 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         // Connect an integration at its end where the host can connect one.
         .child(row().key("manage-models-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
             .child(col().grow(1.0).shrink().gap(2.0)
-                .child(text("Manage models").font(TITLE).color(p.text))
-                .child(text("Customize which models appear in the model selector.").font(DESCRIPTION).color(p.muted)))
+                .child(text(opencode_i18n::t!("dialog.model.manage")).font(TITLE).color(p.text))
+                .child(text(opencode_i18n::t!("dialog.model.manage.description")).font(DESCRIPTION).color(p.muted)))
             .children(s.picker_model_actions().contains(&ModelAction::Connect).then(|| connect::<S>(p))))
         .child(search_row)
         .child(hairline)
@@ -202,7 +202,7 @@ fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
 /// that sits at the end when on, the accent under it then. It flips in the press's frame.
 fn switch<S: PickerHost>(p: &Pal, key: &str, on: bool, flip: impl Fn(&mut S) + 'static) -> El {
     let thumb = el().key("thumb").size(12.0, 12.0).radius(2.0).fill(p.switch_thumb);
-    row().key(key.to_owned()).role("switch").label(if on { "On" } else { "Off" })
+    row().key(key.to_owned()).role("switch").label(if on { opencode_i18n::t!("project.settings.autoAccept.on") } else { opencode_i18n::t!("project.settings.autoAccept.off") })
         .w(24.0).h(16.0).px(2.0).center_y().radius(4.0)
         .fill(if on { p.bg_accent } else { p.q.layer4 })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {

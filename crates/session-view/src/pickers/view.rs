@@ -48,7 +48,7 @@ pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, mode
 /// list on a press.
 fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
-    let mut button = button.label(format!("Choose {}", kind.key())).motion(Spring::NONE);
+    let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
     if s.pickers().open == Some(kind) {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
     } else if !s.composer_edit().focused && s.pickers().toolbar_focus == Some(kind) {
@@ -62,8 +62,8 @@ pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
     let mut b = el()
         .key(Kind::Agent.key())
         .role("button")
-        .label("Choose agent")
-        .help(format!("Choose agent ({name})"))
+        .label(opencode_i18n::t!("ui.promptInput.chooseAgent"))
+        .help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -122,13 +122,13 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
-    let mut menu = pop::surface::<S>(p, look, format!("picker-{}", kind.key()), format!("Choose {}", kind.key())).w(match kind {
+    let mut menu = pop::surface::<S>(p, look, format!("picker-{}", kind.key()), kind.choose_label()).w(match kind {
         Kind::Model => 480.0 + rail::W,
         Kind::Project => 240.0,
         _ => 180.0,
     });
     if kind == Kind::Model {
-        let field = pop::search_field(p, "picker-search", &pk.search, "Search models")
+        let field = pop::search_field(p, "picker-search", &pk.search, opencode_i18n::t!("dialog.model.search.placeholder"))
             .on_edit(|s: &mut S| &mut s.pickers_mut().search)
             .on_input_key(|s: &mut S, ev, tx| s.picker_key(ev, tx) || s.picker_search_key(ev, tx));
         // Desktop's trailing buttons (`select-dialog.tsx:1010-1034`); the host offers what it has.
@@ -175,17 +175,17 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
             o = o.after(text(item.note.clone()).font(UI).color(p.faint).shrink().truncate_fade());
         }
         if item.free {
-            o = o.after(pop::badge(p, "Free"));
+            o = o.after(pop::badge(p, opencode_i18n::t!("model.tag.free")));
         }
         if item.latest {
-            o = o.after(pop::badge(p, "Latest"));
+            o = o.after(pop::badge(p, opencode_i18n::t!("model.tag.latest")));
         }
         if kind == Kind::Model && is_active {
             let star = key.clone();
             o = o.trailing(pop::star(p, pk.prefs.is_favorite(&key), move |s: &mut S| s.toggle_favorite(&star)));
             // Last, so its efforts open right beside it.
             if let Some(effort) = s.model_effort(&key) {
-                let label = if effort.is_empty() { "Default".to_owned() } else { capitalize(&effort) };
+                let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
                 let open = key.clone();
                 o = o.trailing(pop::trailing_note(p, &label, move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
@@ -218,7 +218,7 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     if kind == Kind::Model && items.is_empty() {
         // Nothing to jump to, so no rail: the words stand on the labels' edge with no empty
         // column and hairline beside the search (t1389).
-        list.other(pop::empty(p, "picker-empty", "No model results", rail::LEAD + look.label_x()), pop::EMPTY_H);
+        list.other(pop::empty(p, "picker-empty", opencode_i18n::t!("dialog.model.empty"), rail::LEAD + look.label_x()), pop::EMPTY_H);
     }
     list.slide(s.knobs(), p, &pk.search.text);
     let listed = !list.is_empty();

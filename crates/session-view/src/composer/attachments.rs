@@ -186,7 +186,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         );
     }
     for (i, name) in uploading.iter().enumerate() {
-        r = r.child(el().key(format!("uploading-{i}")).child(card(p, name, "Uploading…".into())));
+        r = r.child(el().key(format!("uploading-{i}")).child(card(p, name, opencode_i18n::t!("rune.composer.uploading").into())));
     }
     // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
     // fade on each side that shows while chips hide under it (`attachments.css`).
@@ -237,7 +237,7 @@ pub fn remove_button<S: 'static>(
     el()
         .key("remove")
         .role("button")
-        .label(format!("Remove {name}"))
+        .label(opencode_i18n::t!("ui.promptInput.removeAttachment"))
         .absolute(w - 12.0, -4.0)
         .size(16.0, 16.0)
         .radius(8.0)
@@ -271,7 +271,7 @@ fn type_label(name: &str) -> String {
     let base = opencode_kit::path::basename(name);
     let ext = match base.rfind('.') {
         Some(i) if i > 0 => base[i + 1..].to_ascii_lowercase(),
-        _ => return "File".into(),
+        _ => return opencode_i18n::t!("ui.common.file").into(),
     };
     if ext == "pdf" {
         return "PDF".into();

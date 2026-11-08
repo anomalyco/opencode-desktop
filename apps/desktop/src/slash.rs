@@ -277,6 +277,6 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             trail: c.keys.filter(|b| b.chord().is_some()).map(|b| b.keycaps().join("+")),
         })
         .collect();
-    let spec = Spec { key: "commands", label: "Commands", empty: "No matching items", width, boundary: crate::mentions::list::boundary(cx) };
+    let spec = Spec { key: "commands", label: opencode_i18n::t!("ui.promptInput.commands"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: crate::mentions::list::boundary(cx) };
     Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name, tx| s.pick_command(name, tx)))
 }

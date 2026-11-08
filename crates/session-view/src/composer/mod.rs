@@ -120,8 +120,8 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
     el()
         .key("add")
         .role("button")
-        .label("Add images and files")
-        .help(format!("Add images and files {}", crate::keymap::Bind::Attach.label()))
+        .label(opencode_i18n::t!("ui.promptInput.add"))
+        .help(format!("{} {}", opencode_i18n::t!("ui.promptInput.add"), crate::keymap::Bind::Attach.label()))
         .size(28.0, 28.0)
         .mr(2.0)
         .radius(6.0)
@@ -357,7 +357,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     };
     // Send finishes a dictation and sends its words, so it stays live while one runs.
     let submit = submit_button(p, ready || stop || s.composer_dictating())
-        .label(if stop { "Stop" } else { "Send" })
+        .label(if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             if stop {
                 s.composer_stop(tx);

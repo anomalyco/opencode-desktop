@@ -276,7 +276,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
 // Pieces
 
 pub(crate) fn title_of(s: &SessionInfo) -> String {
-    if s.title.is_empty() { "Untitled session".into() } else { s.title.clone() }
+    if s.title.is_empty() { opencode_i18n::t!("rune.session.untitled").into() } else { s.title.clone() }
 }
 
 pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {

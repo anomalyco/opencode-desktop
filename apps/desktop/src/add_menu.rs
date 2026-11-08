@@ -15,6 +15,7 @@ use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 use crate::slash::Slash;
 use crate::{App, Route, Source};
+use opencode_i18n::t;
 
 const SHORTCUT: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0);
 
@@ -40,10 +41,10 @@ impl Item {
 
     fn label(self) -> &'static str {
         match self {
-            Item::Attach => "Images and files",
-            Item::Commands => "Commands",
-            Item::Context => "Context",
-            Item::Shell => "Shell command",
+            Item::Attach => t!("ui.promptInput.attachments"),
+            Item::Commands => t!("ui.promptInput.commands"),
+            Item::Context => t!("ui.promptInput.context"),
+            Item::Shell => t!("ui.promptInput.shell"),
         }
     }
 
@@ -200,7 +201,7 @@ impl App {
     pub fn send_command(&mut self, mut prompt: Prompt, alternate: bool, tx: &mut Tx) {
         match self.route.clone() {
             Route::Session(_) if matches!(self.source, Source::Fixture) => {
-                crate::status_toast::say(self, "Commands need a server", "Connect to an OpenCode server to run them.");
+                crate::status_toast::say(self, t!("rune.composer.commandsNeedServer"), t!("rune.composer.needServer.description"));
                 return;
             }
             Route::Session(id) => {
@@ -225,10 +226,10 @@ impl App {
                 if !self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
                     return;
                 }
-                self.status = "Starting a session…".into();
+                self.status = t!("rune.composer.starting").into();
             }
             _ => {
-                crate::status_toast::say(self, "Open a session to send to", "");
+                crate::status_toast::say(self, t!("rune.composer.openSession"), "");
                 return;
             }
         }
@@ -244,15 +245,15 @@ impl App {
             return;
         }
         let Route::Session(id) = self.route.clone() else {
-            crate::status_toast::say(self, "Shell commands run in a session", "Send a prompt first to start one.");
+            crate::status_toast::say(self, t!("rune.composer.shell.needsSession"), t!("rune.composer.shell.needsSession.description"));
             return;
         };
         if alternate && self.busy(&id) {
-            crate::status_toast::say(self, "Shell commands can't be queued", "Press Enter to run it now.");
+            crate::status_toast::say(self, t!("rune.composer.shell.noQueue"), t!("rune.composer.shell.noQueue.description"));
             return;
         }
         if matches!(self.source, Source::Fixture) {
-            crate::status_toast::say(self, "Shell commands need a server", "Connect to an OpenCode server to run them.");
+            crate::status_toast::say(self, t!("rune.composer.shell.needsServer"), t!("rune.composer.needServer.description"));
             return;
         }
         let w = Write::Shell { session: id, id: Some(opencode_kit::client::message_id()), command };
@@ -273,8 +274,8 @@ pub fn trigger(s: &App, p: &Pal) -> El {
     let mut b = el()
         .key("add")
         .role("button")
-        .label("Add images and files")
-        .help("Add images and files").help_keys(crate::keymap::Bind::Attach.keycaps())
+        .label(t!("ui.promptInput.add"))
+        .help(t!("ui.promptInput.add")).help_keys(crate::keymap::Bind::Attach.keycaps())
         .size(28.0, 28.0)
         .mr(2.0)
         .radius(6.0)
@@ -304,7 +305,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
     let mut menu = col()
         .key("add-menu")
         .role("menu")
-        .label("Add")
+        .label(t!("ui.common.add"))
         .above("add", 6.0)
         .min_w(180.0)
         .padding(2.0)

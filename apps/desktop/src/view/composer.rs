@@ -7,6 +7,7 @@ pub use session_view::composer::{ComposerHost, composer_fill, shows_whole_prompt
 
 use super::narrow::{self, Agent};
 use super::*;
+use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
 // Composer and status bar
@@ -135,11 +136,11 @@ impl ComposerHost for App {
     fn composer_placeholder(&self) -> String {
         let queued = matches!(&self.route, Route::Session(id) if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
         if self.add.shell {
-            "Enter shell command… git status".into()
+            t!("prompt.placeholder.shell", example = "git status")
         } else if self.composer_busy() || queued {
-            "Add follow-up, / for commands, @ for context…".into()
+            t!("ui.promptInput.placeholder.followUp", slash = "/", at = "@")
         } else {
-            "Ask anything, / for commands, @ for context…".into()
+            t!("ui.promptInput.placeholder.normal", slash = "/", at = "@")
         }
     }
     fn composer_shell_mode(&self) -> bool {
@@ -205,7 +206,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     let selected = s.selection();
     let model = selected.model;
     let effort = if model.variant.is_empty() {
-        "Default".into()
+        t!("common.default").into()
     } else {
         model::capitalize(&model.variant)
     };

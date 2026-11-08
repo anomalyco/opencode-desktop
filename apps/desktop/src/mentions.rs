@@ -604,7 +604,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .iter()
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind, &i.label)), description: i.description.clone(), trail: None })
         .collect();
-    let spec = Spec { key: "mentions", label: "Mentions", empty: "No matching items", width, boundary: list::boundary(cx) };
+    let spec = Spec { key: "mentions", label: opencode_i18n::t!("rune.composer.mentions"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: list::boundary(cx) };
     Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key, _| s.pick_mention(key)))
 }
 

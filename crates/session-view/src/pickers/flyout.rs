@@ -74,7 +74,7 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let (f, all, now) = efforts(s)?;
     let mut list = col().key("effort-options").w_full().padding(MENU.inset);
     for effort in all {
-        let label = if effort.is_empty() { "Default".to_owned() } else { capitalize(&effort) };
+        let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
         let id = if effort.is_empty() { "default".to_owned() } else { effort.clone() };
         let o = Opt::new(format!("effort-{id}"), label).checked(effort == now).active(f.lit.as_deref() == Some(id.as_str()));
         let (key, lit) = (f.model.clone(), id.clone());
@@ -83,7 +83,7 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
         }, move |s: &mut S, tx: &mut Tx| s.choose_effort(&key, &effort, tx));
         list = list.child(row);
     }
-    let menu = super::hover::flyout::<S>(pop::surface::<S>(p, MENU, "effort-flyout", "Choose effort").w(160.0).child(list));
+    let menu = super::hover::flyout::<S>(pop::surface::<S>(p, MENU, "effort-flyout", opencode_i18n::t!("ui.promptInput.chooseVariant")).w(160.0).child(list));
     // 2 pt past the list's edge.
     Some(menu.anchored_fit("effort-anchor", Side::Right, Align::Start, pop::LIST.inset + 2.0))
 }

@@ -314,8 +314,8 @@ fn model_items(pk: &Pickers, selection: &Selection) -> Vec<Item> {
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
     let mut rest: Vec<&Model> = pk.models.iter().filter(|m| (pk.visible(m) || m.key == current) && !lead(m)).collect();
     rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    grouped(recent.iter().map(|m| item(m, RECENT, "", true))
-        .chain(favorites.iter().map(|m| item(m, FAVORITES, "", true)))
+    grouped(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true))
+        .chain(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true)))
         .chain(rest.into_iter().map(|m| item(m, &m.provider, &m.group, false)))
         .collect())
 }
