@@ -1,6 +1,7 @@
 use super::*;
 use crate::inbox_model::{Entry, InboxStatus, Sections, age, in_worktree};
 use crate::popup::{self, Item, Menu};
+use opencode_i18n::t;
 use rune_kit::ScrollBar;
 
 // ---------------------------------------------------------------------------------------------
@@ -24,7 +25,7 @@ const TURN: Curve = Curve::tween(0.15, Easing::cubic(0.4, 0.0, 0.2, 1.0));
 pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     if s.sidebar_inbox.loading() {
         // Until the first load settles: Desktop's `Loader`, centred 8 in (`flex justify-center p-2`).
-        return col().key("sidebar-inbox").role("list").label("Inbox").w_full().grow(1.0).shrink().min_h(0.0).child(
+        return col().key("sidebar-inbox").role("list").label(t!("settings.general.row.interfaceMode.inbox")).w_full().grow(1.0).shrink().min_h(0.0).child(
             row().key("inbox-loading").w_full().padding(8.0).justify_center().child(rune_kit::Loader::new().build(crate::palette::kit(p))),
         );
     }
@@ -33,7 +34,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     if !sections.current.is_empty() {
         list = list.child(col().key("inbox-current").w_full().gap(2.0).pb(10.0).children(cards(s, p, &sections.current)));
     }
-    for (id, label, rows) in [("needs", "Needs attention", &sections.needs), ("unread", "Unread", &sections.unread), ("recent", "Recent", &sections.recent)] {
+    for (id, label, rows) in [("needs", t!("sidebar.inbox.section.needsAttention"), &sections.needs), ("unread", t!("sidebar.inbox.section.unread"), &sections.unread), ("recent", t!("sidebar.inbox.section.recent"), &sections.recent)] {
         if rows.is_empty() {
             continue;
         }
@@ -47,7 +48,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             .child(header(p, id, label))
             .child(col().key("rows").w_full().gap(2.0).children(cards(s, p, rows)));
         if id == "recent" && sections.more {
-            let label = if s.restore.inbox.recent_expanded { "Show less" } else { "Show more" };
+            let label = if s.restore.inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
             group = group.child(ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.toggle_inbox_recent();
@@ -58,13 +59,13 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     if sections.is_empty() {
         list = list.child(
             // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
-            col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text("Sessions you work on will appear here").font(LINE).color(p.faint).wrap().w_full()),
+            col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
         );
     }
     if sections.archived {
         list = list.child(
             el().key("inbox-archived").w_full().pt(12.0).child(
-                ghost_button(p, "inbox-archived-button", "Archived").on_press_tx(|s: &mut App, tx: &mut Tx| {
+                ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     s.close_settings();
                     s.open_archived_search(tx);
                 }),
@@ -74,7 +75,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     col()
         .key("sidebar-inbox")
         .role("list")
-        .label("Inbox")
+        .label(t!("settings.general.row.interfaceMode.inbox"))
         .focus_group()
         .w_full()
         .grow(1.0)
@@ -144,7 +145,7 @@ fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
     let mut shelf = col()
         .key("inbox-working")
         .role("group")
-        .label("Working")
+        .label(t!("sidebar.inbox.section.working"))
         .w_full()
         .gap(8.0)
         .pt(7.0)
@@ -169,14 +170,14 @@ fn header(p: &Pal, id: &str, label: &str) -> El {
 /// The Working header: a toggle whose chevron turns shut, and whose label shimmers while shut.
 fn working_header(s: &App, p: &Pal, open: bool) -> El {
     let label = if open {
-        text("Working").key("label").font(HEADER).color(p.muted).group_color(p.text)
+        text(t!("sidebar.inbox.section.working")).key("label").font(HEADER).color(p.muted).group_color(p.text)
     } else {
-        session_view::working::shimmer(s, p, "Working", HEADER, 0.0)
+        session_view::working::shimmer(s, p, t!("sidebar.inbox.section.working"), HEADER, 0.0)
     };
     row()
         .key("inbox-working-header")
         .role("button")
-        .label("Working")
+        .label(t!("sidebar.inbox.section.working"))
         .expanded(open)
         .h(24.0)
         .w_full()
@@ -309,10 +310,10 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
 /// A card's right-click menu: Archive (or Unarchive), then Delete….
 fn open_menu(s: &mut App, id: &str, at: rune::PointerPress, tx: &mut Tx) {
     let archived = s.session(id).is_some_and(|i| i.archived.is_some());
-    let menu = Menu::new("Session")
-        .item(if archived { Item::new("unarchive", "Unarchive") } else { Item::new("archive", "Archive") })
+    let menu = Menu::new(t!("command.category.session"))
+        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
-        .item(Item::new("delete", "Delete…"));
+        .item(Item::new("delete", format!("{}…", t!("common.delete"))));
     let id = id.to_owned();
     tx.instant();
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {

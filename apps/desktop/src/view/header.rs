@@ -4,6 +4,7 @@ use super::header_fit::{HeaderFit, Measured};
 use super::narrow::text_w;
 use super::*;
 use crate::session_menu::{Spot, Target};
+use opencode_i18n::t;
 
 /// A crumb's `/` (`Slash`): the neighbouring 13 pt text's size in the regular weight.
 const SLASH: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0);
@@ -57,7 +58,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                     row()
                         .key("parent-crumb")
                         .role("button")
-                        .label(format!("Open {}", title_of(parent)))
+                        .label(t!("rune.session.header.openParent", title = title_of(parent)))
                         .help(title_of(parent))
                         .pl(4.0)
                         .max_w(204.0)
@@ -186,7 +187,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             crate::session_menu::on(t, target)
         }
     };
-    let dots = el().key("header-more").role("button").label("More options").size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
+    let dots = el().key("header-more").role("button").label(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     vec![title, dots]

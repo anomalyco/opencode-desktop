@@ -1,5 +1,6 @@
 use super::*;
 use crate::session_menu::{Spot, Target};
+use opencode_i18n::t;
 use rune_kit::{ScrollBar, ScrollBarStyle};
 
 pub(crate) mod projects;
@@ -188,8 +189,8 @@ fn day_groups<'a>(s: &App, sessions: Vec<&'a SessionInfo>) -> Vec<(&'static str,
             _ => older.push(ses),
         }
     }
-    let rest = if now.is_empty() && before.is_empty() { "Recent sessions" } else { "Older" };
-    [("Today", now), ("Yesterday", before), (rest, older)].into_iter().filter(|(_, items)| !items.is_empty()).collect()
+    let rest = if now.is_empty() && before.is_empty() { t!("sidebar.project.recentSessions") } else { t!("home.sessions.group.older") };
+    [(t!("home.sessions.group.today"), now), (t!("home.sessions.group.yesterday"), before), (rest, older)].into_iter().filter(|(_, items)| !items.is_empty()).collect()
 }
 
 /// The ghost-muted New session button (`h-7 px-2 [font-weight:530]`, the `edit` icon).
@@ -197,7 +198,7 @@ fn new_session_button(p: &Pal) -> El {
     row()
         .key("new-session")
         .role("button")
-        .label("New session")
+        .label(t!("command.session.new"))
         .h(28.0)
         .px(8.0)
         .gap(6.0)
@@ -207,7 +208,7 @@ fn new_session_button(p: &Pal) -> El {
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .child(icon(&ic::EDIT, 16.0).color(p.icon_muted))
-        .child(text("New session").font(UI_MED).color(p.muted))
+        .child(text(t!("command.session.new")).font(UI_MED).color(p.muted))
 }
 
 /// `HomeSessionsEmpty`: centred 52 below the list's top, 16 apart: the title, the line under it
@@ -220,14 +221,14 @@ fn empty(p: &Pal, can_create: bool) -> El {
         .pt(52.0)
         .gap(16.0)
         .items_center()
-        .child(text("Nothing here yet").font(UI_MED).color(p.text))
-        .child(text("Create a session to get started").font(UI.lh(20.0)).color(p.muted).mb(4.0));
+        .child(text(t!("home.sessions.empty")).font(UI_MED).color(p.text))
+        .child(text(t!("home.sessions.empty.description")).font(UI.lh(20.0)).color(p.muted).mb(4.0));
     if can_create {
         e = e.child(
             row()
                 .key("home-empty-new")
                 .role("button")
-                .label("New session")
+                .label(t!("command.session.new"))
                 .h(28.0)
                 .px(11.0)
                 .gap(6.0)
@@ -240,7 +241,7 @@ fn empty(p: &Pal, can_create: bool) -> El {
                 .press(p.pressed)
                 .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
                 .child(icon(&ic::EDIT, 16.0).color(p.text))
-                .child(text("New session").font(UI_MED.lh(20.0)).color(p.text)),
+                .child(text(t!("command.session.new")).font(UI_MED.lh(20.0)).color(p.text)),
         );
     }
     e
@@ -432,8 +433,8 @@ fn no_server_home(s: &App, p: &Pal) -> El {
             row()
                 .key(copy_key)
                 .role("button")
-                .label("Copy command")
-                .help("Copy command")
+                .label(t!("rune.home.noServer.copyCommand"))
+                .help(t!("rune.home.noServer.copyCommand"))
                 .size(24.0, 24.0)
                 .center()
                 .radius(4.0)
@@ -450,7 +451,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
     let mut retry = row()
         .key("no-server-retry")
         .role("button")
-        .label(if checking { "Checking for server" } else { "Retry connection" })
+        .label(if checking { t!("rune.home.noServer.checking") } else { t!("rune.home.noServer.retry") })
         .h(30.0)
         .px(12.0)
         .center()
@@ -459,7 +460,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
         .box_shadow(Pal::ring_out(p.ring))
         .hover(if checking { p.bg_base } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
-        .child(text(if checking { "Checking…" } else { "Retry" }).font(UI_MED).color(if checking { p.faint } else { p.text }));
+        .child(text(if checking { t!("error.page.action.checking") } else { t!("rune.home.noServer.retryShort") }).font(UI_MED).color(if checking { p.faint } else { p.text }));
     if !checking {
         retry = retry.press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| crate::launch::retry(s, tx));
     }
@@ -477,9 +478,9 @@ fn no_server_home(s: &App, p: &Pal) -> El {
             col()
                 .w_full()
                 .gap(6.0)
-                .child(text(if local { "No OpenCode server found" } else { "Can't reach OpenCode" }).font(H2).color(p.text))
+                .child(text(if local { t!("rune.home.noServer.title") } else { t!("rune.home.noServer.remoteTitle") }).font(H2).color(p.text))
                 .child(
-                    text(if local { "Start OpenCode Desktop, or run:".to_owned() } else { format!("Nothing answered at {addr}.") })
+                    text(if local { t!("rune.home.noServer.description").to_owned() } else { t!("rune.home.noServer.remoteDescription", address = addr) })
                         .font(PROMPT)
                         .color(p.muted)
                         .wrap(),

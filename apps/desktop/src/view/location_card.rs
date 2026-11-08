@@ -12,6 +12,7 @@ use super::location::TRIGGER;
 use crate::App;
 use crate::jobs::Apply;
 use crate::popup::{self, Item, Menu};
+use opencode_i18n::t;
 
 /// Each folder's branch, once read (`None` for a folder that isn't on one).
 #[derive(Default)]
@@ -78,7 +79,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     if worktree.is_some() || git {
         let (glyph, label) = match &worktree {
             Some(w) => (&ic::OUTLINE_WORKTREE, w.clone()),
-            None => (&ic::MONITOR, "Local repository".to_owned()),
+            None => (&ic::MONITOR, t!("plugin.details.workspace.local").to_owned()),
         };
         // Session details' workspace row: where a root session can move (a subagent's only tells).
         menu = match &project {
@@ -91,18 +92,18 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     if git {
         menu = match &branch {
             Some(b) => {
-                let mut sub = Menu::new(b.clone()).min_width(172.0).item(Item::new("copy-branch", "Copy branch name").icon(&ic::OUTLINE_COPY));
+                let mut sub = Menu::new(b.clone()).min_width(172.0).item(Item::new("copy-branch", t!("session.location.copyBranch")).icon(&ic::OUTLINE_COPY));
                 // The terminal plugin's row (`session.location.branch.menu`).
                 if s.live_terminals().is_none_or(|(_, observer)| !observer) {
-                    sub = sub.item(Item::new("open-terminal", "Open in terminal").icon(&ic::OUTLINE_CONSOLE));
+                    sub = sub.item(Item::new("open-terminal", t!("plugin.terminal.location.open")).icon(&ic::OUTLINE_CONSOLE));
                 }
                 menu.submenu_icon("branch", b.clone(), &ic::BRANCH, sub)
             }
             None => {
                 let base = project.as_ref().filter(|p| p.directory != dir).and_then(|p| s.location.branches.get(&p.directory).cloned().flatten());
                 let line = match base {
-                    Some(base) => format!("No branch · Based on {base}"),
-                    None => "No branch".to_owned(),
+                    Some(base) => format!("{} \u{b7} {}", t!("plugin.details.noBranch"), t!("plugin.details.basedOn", branch = base)),
+                    None => t!("plugin.details.noBranch").to_owned(),
                 };
                 menu.item(Item::new("no-branch", line).icon(&ic::BRANCH).detail())
             }
@@ -120,16 +121,16 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     {
         menu = menu.item(Item::new("server", server.base.clone()).icon(&ic::SERVER).detail());
     }
-    let mut folder = Menu::new(dir.clone()).item(Item::new("copy-path", "Copy path").icon(&ic::OUTLINE_COPY));
+    let mut folder = Menu::new(dir.clone()).item(Item::new("copy-path", t!("session.location.copyPath")).icon(&ic::OUTLINE_COPY));
     if matches!(&s.source, crate::Source::Live { server, .. } if server.is_local()) {
         folder = folder.item(Item::new("reveal", reveal_label()).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     // The file plugin's row (`session.location.path.menu`): Open in the chosen app.
     if s.can_open_in() && s.open_in.current() != crate::open_in::FINDER {
-        folder = folder.item(Item::new("open-in", format!("Open in {}", s.open_in.current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
+        folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = s.open_in.current_label())).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     menu = menu.submenu_icon("path", elide_middle(&dir, PATH_W), &ic::FOLDER, folder);
-    menu = menu.separator().item(Item::new("settings", "Edit project").icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
+    menu = menu.separator().item(Item::new("settings", t!("dialog.project.edit.title")).icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
 
     let project_id = project.as_ref().map(|p| p.id.clone());
     let root = project.as_ref().map(|p| p.directory.clone());
@@ -144,7 +145,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         Some("copy-path") => copied(s, &dir, tx),
         Some("reveal") => {
             if let Err(e) = reveal(&dir) {
-                crate::status_toast::fail(s, "Request failed", e);
+                crate::status_toast::fail(s, t!("common.requestFailed"), e);
             }
         }
         Some("open-in") => {
@@ -167,13 +168,13 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
 fn changes_row(s: &App, sid: &str) -> Item {
     let item = |title: &str| Item::new("changes", title.to_owned()).icon(&ic::REVIEW);
     match s.review.sessions.get(sid) {
-        Some(r) if r.ready && r.meta.is_empty() => item("No changes"),
+        Some(r) if r.ready && r.meta.is_empty() => item(t!("plugin.details.noChanges")),
         Some(r) if r.ready => {
             let (added, removed) = r.totals();
             let n = r.meta.len();
-            item(&format!("{n} Changed file{}", if n == 1 { "" } else { "s" })).diff(added, removed)
+            item(&opencode_i18n::plural!("ui.sessionTurn.diffs.changed", n)).diff(added, removed)
         }
-        _ => item("Loading changes…"),
+        _ => item(t!("plugin.details.loadingChanges")),
     }
 }
 
@@ -182,17 +183,17 @@ fn changes_row(s: &App, sid: &str) -> Item {
 fn move_menu(s: &App, project: &opencode_kit::model::Project, dir: &str, info: &opencode_kit::model::SessionInfo) -> Menu {
     let running = s.busy(&info.id);
     let norm = |d: &str| d.trim_end_matches(['/', '\\']).replace('\\', "/");
-    let mut menu = Menu::new("Move session to").min_width(200.0).width(200.0).group("Move session to");
+    let mut menu = Menu::new(t!("plugin.details.move.menu")).min_width(200.0).width(200.0).group(t!("plugin.details.move.menu"));
     if norm(&project.directory) != norm(dir) {
-        menu = menu.item(Item::new("move-local", "Local repository").icon(&ic::MONITOR).enabled(!running));
+        menu = menu.item(Item::new("move-local", t!("plugin.details.workspace.local")).icon(&ic::MONITOR).enabled(!running));
     }
-    menu = menu.item(Item::new("move-new", "New worktree").icon(&ic::PLUS).enabled(!running));
+    menu = menu.item(Item::new("move-new", t!("plugin.details.workspace.new")).icon(&ic::PLUS).enabled(!running));
     let worktrees: Vec<String> = opencode_kit::model::project_sandboxes(&project.id)
         .into_iter()
         .filter(|w| norm(w) != norm(&project.directory) && norm(w) != norm(dir))
         .collect();
     if !worktrees.is_empty() {
-        menu = menu.group("Worktree");
+        menu = menu.group(t!("plugin.details.workspace.existing"));
         for w in worktrees {
             let name = opencode_kit::path::basename(w.trim_end_matches(['/', '\\'])).to_owned();
             menu = menu.item(Item::new(format!("move-to:{w}"), name).icon(&ic::OUTLINE_WORKTREE).enabled(!running));
@@ -220,7 +221,7 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
         };
         Box::new(move |s: &mut App, _tx: &mut Tx| {
             if let Err(e) = moved {
-                crate::status_toast::fail(s, "Failed to move session", e);
+                crate::status_toast::fail(s, t!("plugin.details.move.failed"), e);
             }
         }) as Apply
     });
@@ -253,7 +254,7 @@ fn elide_middle(path: &str, max: f32) -> String {
 
 fn copied(s: &mut App, value: &str, tx: &mut Tx) {
     tx.copy(value.to_owned());
-    crate::status_toast::succeed(s, "Copied", value);
+    crate::status_toast::succeed(s, t!("common.copied"), value);
 }
 
 /// The folder's row in the card (Desktop's `fileManagerApp(os).actionLabel`).

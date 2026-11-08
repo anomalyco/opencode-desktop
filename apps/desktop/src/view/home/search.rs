@@ -7,7 +7,7 @@ use super::*;
 /// `h-9 rounded-[6px] py-1 ps-3 pe-2 gap-2`, `bg-layer-02/60`, `bg-layer-02` hovered or focused.
 pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool) -> El {
     let open = s.home_search_open();
-    let placeholder = selected.map_or_else(|| "Search sessions".into(), |proj| format!("Search sessions in {}", proj.name));
+    let placeholder = selected.map_or_else(|| opencode_i18n::t!("home.sessions.search.placeholder").into(), |proj| opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = proj.name));
     let mut field = row()
         .key("search")
         .w_full()
@@ -40,7 +40,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
             row()
                 .key("search-clear")
                 .role("button")
-                .label("Clear search")
+                .label(opencode_i18n::t!("common.clear"))
                 .size(20.0, 20.0)
                 .center()
                 .radius(4.0)
@@ -78,7 +78,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
             .px(16.0)
             .pb(8.0)
             .my(6.0)
-            .child(text(format!("No sessions found for {}", s.search.text.trim())).font(UI).color(p.muted).truncate())
+            .child(text(opencode_i18n::t!("home.sessions.search.noResults", query = s.search.text.trim())).font(UI).color(p.muted).truncate())
     } else {
         let rows = col()
             .key("home-search-rows")
@@ -90,7 +90,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
             .key("home-search-results")
             .w_full()
             // `my-1.5 pl-[18px] pr-6`.
-            .child(row().key("home-search-label").w_full().pl(18.0).pr(24.0).my(6.0).child(text("Sessions").font(UI).color(p.muted)))
+            .child(row().key("home-search-label").w_full().pl(18.0).pr(24.0).my(6.0).child(text(opencode_i18n::t!("home.sessions.search.sessions")).font(UI).color(p.muted)))
             // `max-h-[min(20rem,40dvh)]`.
             .child(col().key("home-search-list").w_full().max_h(320.0f32.min(window_h * 0.4)).scroll(ScrollSpec { stick_bottom: false }).clip_soft(0.0).child(rows))
     };

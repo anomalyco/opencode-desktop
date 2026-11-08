@@ -1,5 +1,6 @@
 use super::*;
 use crate::popup::{self, Item, Menu};
+use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
 // Home's projects (`home/projects/view.tsx`, `view.css`, `menu.tsx`): the column beside the
@@ -19,13 +20,13 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         .pl(6.0)
         .pr(12.0)
         .center_y()
-        .child(text("Projects").font(UI_MED).color(p.muted))
+        .child(text(t!("home.projects")).font(UI_MED).color(p.muted))
         .child(spacer())
         .child(
             el().key("home-add-project")
                 .role("button")
-                .label("Add project")
-                .help("Add project")
+                .label(t!("home.project.add"))
+                .help(t!("home.project.add"))
                 .size(28.0, 28.0)
                 .radius(6.0)
                 .center()
@@ -37,7 +38,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     // `pr-3`, rows `gap-1`.
     let mut rows = col().key("home-projects-list").w_full().pr(12.0).gap(4.0);
     if used.is_empty() {
-        rows = rows.child(nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, "Add project").w_full().on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)));
+        rows = rows.child(nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)));
     } else {
         for proj in used {
             rows = rows.child(project_row(s, p, proj, selected.is_some_and(|sel| sel.id == proj.id), PROJECTS_W - 12.0));
@@ -54,12 +55,12 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
 /// `HomeUtilityNav`: Settings and Help. Under the projects (`lg:flex-col lg:pr-3`, full-width
 /// rows `gap-1`), or along Home's foot, one at each end.
 pub(super) fn utility(p: &Pal, stacked: bool) -> El {
-    let settings = nav_row(p, "home-settings", &ic::SETTINGS_GEAR, "Settings").on_press_tx(|s: &mut App, tx: &mut Tx| {
+    let settings = nav_row(p, "home-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings")).on_press_tx(|s: &mut App, tx: &mut Tx| {
         if !s.settings.open {
             s.toggle_settings(tx);
         }
     });
-    let help = nav_row(p, "home-help", &ic::HELP, "Help").on_press_tx(|_: &mut App, tx: &mut Tx| {
+    let help = nav_row(p, "home-help", &ic::HELP, t!("sidebar.help")).on_press_tx(|_: &mut App, tx: &mut Tx| {
         let _ = tx.open_url("https://opencode.ai/desktop-feedback");
     });
     if stacked {
@@ -112,10 +113,10 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
         .center_y()
         .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, surface.alpha(0.0)), (8.0 / actions_w, surface), (1.0, surface)])
         .child(
-            icon_button(p, &menu, "More options", &ic::OUTLINE_DOTS, menu_open)
+            icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_id, tx)),
         )
-        .child(icon_button(p, &format!("hp-new-{}", proj.id), "New session", &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| s.new_session_in(&new_dir, tx)));
+        .child(icon_button(p, &format!("hp-new-{}", proj.id), t!("command.session.new"), &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| s.new_session_in(&new_dir, tx)));
     // The nav button: hovered itself, its label goes to the text colour; the pointer on the
     // actions leaves it muted while the row keeps its hover surface.
     let nav = row()
@@ -177,17 +178,17 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
     let Some(proj) = s.project(id).cloned() else { return };
     let unread = project_unread(s, &proj).next().is_some();
     let local = matches!(&s.source, crate::Source::Live { server, .. } if server.is_local());
-    let mut menu = Menu::new("Project")
+    let mut menu = Menu::new(t!("command.category.project"))
         .min_width(160.0)
         .align(Align::End)
         .gap(6.0)
-        .item(Item::new("new-session", "New session"))
-        .item(Item::new("import", "Import session").enabled(!s.project_state.importing))
-        .item(Item::new("edit", "Edit project"));
+        .item(Item::new("new-session", t!("command.session.new")))
+        .item(Item::new("import", t!("command.session.import")).enabled(!s.project_state.importing))
+        .item(Item::new("edit", t!("dialog.project.edit.title")));
     if local {
         menu = menu.item(Item::new("reveal", super::super::location_card::reveal_label()));
     }
-    menu = menu.item(Item::new("clear", "Clear notifications").enabled(unread)).separator().item(Item::new("close", "Close"));
+    menu = menu.item(Item::new("clear", t!("sidebar.project.clearNotifications")).enabled(unread)).separator().item(Item::new("close", t!("common.close")));
     tx.instant();
     popup::open_drawn(s, menu, anchor, tx, move |s: &mut App, picked, tx| match picked {
         Some("new-session") => s.new_session_in(&proj.directory, tx),
@@ -195,7 +196,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
         Some("edit") => s.edit_project(&proj.directory, tx),
         Some("reveal") => {
             if let Err(e) = super::super::location_card::reveal(&proj.directory) {
-                crate::status_toast::fail(s, "Request failed", e);
+                crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
             }
         }
         Some("clear") => s.clear_project_notifications(&proj, tx),
@@ -244,12 +245,12 @@ impl App {
     /// Import session: a session export (JSON) picked from disk, imported into `dir` through
     /// `experimental/session/import`, then opened (`home/projects/actions.tsx`).
     fn import_session(&mut self, dir: &str, tx: &mut Tx) {
-        let options = rune::FileDialogOptions { title: "Import session".into(), ..Default::default() };
+        let options = rune::FileDialogOptions { title: t!("command.session.import").into(), ..Default::default() };
         let dir = dir.to_owned();
         tx.open_file(options, move |s: &mut App, result, tx: &mut Tx| match result {
             Ok(Some(path)) => s.upload_session(&path, dir.clone(), tx),
             Ok(None) => {}
-            Err(e) => crate::status_toast::fail(s, "Couldn't open the file picker", e.to_string()),
+            Err(e) => crate::status_toast::fail(s, t!("rune.status.filePickerFailed"), e.to_string()),
         });
     }
 
@@ -257,11 +258,11 @@ impl App {
         let data = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()));
         let mut data = match data {
             Ok(serde_json::Value::Object(map)) => map,
-            Ok(_) => return crate::status_toast::fail(self, "Request failed", "Not a session export".to_owned()),
-            Err(e) => return crate::status_toast::fail(self, "Request failed", e),
+            Ok(_) => return crate::status_toast::fail(self, t!("common.requestFailed"), t!("rune.home.import.notExport").to_owned()),
+            Err(e) => return crate::status_toast::fail(self, t!("common.requestFailed"), e),
         };
         if !self.can_write() {
-            return crate::status_toast::fail(self, "Request failed", crate::jobs::read_only().to_owned());
+            return crate::status_toast::fail(self, t!("common.requestFailed"), crate::jobs::read_only().to_owned());
         }
         data.insert("location".into(), serde_json::json!({ "directory": dir }));
         self.project_state.importing = true;
@@ -280,7 +281,7 @@ impl App {
                         }
                         s.open(&id, tx);
                     }
-                    Err(e) => crate::status_toast::fail(s, "Request failed", e),
+                    Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
                 }
             }) as crate::jobs::Apply
         });
@@ -296,11 +297,11 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         Some(proj) => crate::icons::badge(s, p, Some(proj), &proj.name),
         None => icon(&ic::FOLDER, 14.0).color(p.text),
     };
-    let label = selected.map_or("All projects", |proj| proj.name.as_str());
+    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
     row()
         .key("home-projects-trigger")
         .role("button")
-        .label("Projects")
+        .label(t!("home.projects"))
         .w_full()
         .h(40.0)
         .px(6.0)
@@ -333,7 +334,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     }
     let selected_id = s.project_state.home_selected.as_deref();
     let width = s.project_state.trigger_w.max(160.0);
-    let mut all = nav_row(p, "hpm-all", &ic::FOLDER, "All projects").w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
+    let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
     if selected_id.is_none() {
         all = all.fill(p.layer3);
     }
@@ -341,11 +342,11 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     for proj in s.used_projects() {
         list = list.child(project_row(s, p, proj, selected_id == Some(proj.id.as_str()), width - 12.0));
     }
-    let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, "Add project").w_full().mt(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx));
+    let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx));
     let menu = col()
         .key("home-projects-popover")
         .role("menu")
-        .label("Projects")
+        .label(t!("home.projects"))
         .anchored("home-projects-trigger", Side::Bottom, Align::Start, 6.0)
         .w(width)
         .padding(6.0)

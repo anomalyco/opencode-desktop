@@ -4,6 +4,7 @@
 use rune_kit::shell::TabOrientation;
 
 use super::*;
+use opencode_i18n::t;
 
 /// Projects shown before Show more, and each project's sessions before its own.
 const PROJECTS: usize = 7;
@@ -43,7 +44,7 @@ fn header(p: &Pal, collapsed: bool) -> El {
     row()
         .key("organize-header")
         .role("button")
-        .label("Projects")
+        .label(t!("sidebar.organize.projects"))
         .expanded(!collapsed)
         .w_full()
         .h(24.0)
@@ -56,7 +57,7 @@ fn header(p: &Pal, collapsed: bool) -> El {
             tx.instant();
             s.project_state.organize_collapsed = !s.project_state.organize_collapsed;
         })
-        .child(text("Projects").font(HEADER).color(p.muted).group_color(p.text).shrink().truncate())
+        .child(text(t!("sidebar.organize.projects")).font(HEADER).color(p.muted).group_color(p.text).shrink().truncate())
         .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }))
 }
 
@@ -67,7 +68,7 @@ fn projects(s: &App, p: &Pal) -> Vec<El> {
     let shown = if st.organize_all { used.len() } else { used.len().min(PROJECTS) };
     let mut rows: Vec<El> = used[..shown].iter().map(|proj| project(s, p, proj)).collect();
     if used.len() > PROJECTS {
-        let label = if st.organize_all { "Show less" } else { "Show more" };
+        let label = if st.organize_all { t!("sidebar.organize.showLess") } else { t!("sidebar.organize.showMore") };
         rows.push(small_button(p, "organize-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.project_state.organize_all = !s.project_state.organize_all;
@@ -89,10 +90,10 @@ fn project(s: &App, p: &Pal, proj: &model::Project) -> El {
         .gap(4.0)
         .center_y()
         .child(
-            home::projects::icon_button(p, &menu, "More options", &ic::OUTLINE_DOTS, menu_open)
+            home::projects::icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| home::projects::open_project_menu(s, &menu_id, anchor.clone(), tx)),
         )
-        .child(home::projects::icon_button(p, &format!("so-new-{}", proj.id), "New session", &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| s.new_session_in(&new_dir, tx)));
+        .child(home::projects::icon_button(p, &format!("so-new-{}", proj.id), t!("command.session.new"), &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| s.new_session_in(&new_dir, tx)));
     let nav = row()
         .key("nav")
         .role("button")
@@ -144,13 +145,13 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
         .collect();
     all.sort_by_key(|i| std::cmp::Reverse(i.updated));
     if all.is_empty() {
-        return vec![text("No sessions yet").key("organize-empty").font(UI_SMALL).color(p.faint).pl(32.0).pr(8.0).py(8.0)];
+        return vec![text(t!("sidebar.organize.empty")).key("organize-empty").font(UI_SMALL).color(p.faint).pl(32.0).pr(8.0).py(8.0)];
     }
     let limit = s.project_state.organize_limits.get(&proj.id).copied().unwrap_or(SESSIONS);
     let mut rows: Vec<El> = all.iter().take(limit).map(|ses| session(s, p, ses)).collect();
     if all.len() > limit {
         let id = proj.id.clone();
-        rows.push(small_button(p, &format!("so-more-{}", proj.id), "Show more").on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        rows.push(small_button(p, &format!("so-more-{}", proj.id), t!("sidebar.organize.showMore")).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             *s.project_state.organize_limits.entry(id.clone()).or_insert(SESSIONS) += SESSIONS;
         }));
@@ -189,7 +190,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
         .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate())
         .child(el().key("status").size(16.0, 16.0).center().children(mark));
     if open_tab {
-        r = r.child(el().key("open-tab").label("Open tab").pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
+        r = r.child(el().key("open-tab").label(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
     }
     if active {
         r = r.fill(p.pressed);

@@ -513,11 +513,11 @@ fn load_archived(s: &mut App) -> bool {
 pub fn age(status: InboxStatus, since: Option<i64>, now_ms: i64) -> Option<String> {
     let seconds = ((now_ms - since?) / 1000).max(0);
     Some(match seconds {
-        s if s < 60 && status == InboxStatus::Working => format!("{s}s"),
-        s if s < 60 => "now".into(),
-        s if s < 3600 => format!("{}m", s / 60),
-        s if s < 86_400 => format!("{}h", s / 3600),
-        s => format!("{}d", s / 86_400),
+        s if s < 60 && status == InboxStatus::Working => opencode_i18n::plural!("sidebar.inbox.elapsed.seconds", s),
+        s if s < 60 => opencode_i18n::t!("sidebar.inbox.time.now").into(),
+        s if s < 3600 => opencode_i18n::plural!("sidebar.inbox.elapsed.minutes", s / 60),
+        s if s < 86_400 => opencode_i18n::plural!("sidebar.inbox.elapsed.hours", s / 3600),
+        s => opencode_i18n::plural!("sidebar.inbox.elapsed.days", s / 86_400),
     })
 }
 

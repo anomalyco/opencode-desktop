@@ -2,6 +2,7 @@ use rune_kit::shell::TabOrientation;
 
 use super::*;
 use crate::layout_state::{PeekEvent, SidebarPeekState};
+use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
 // Sidebar: Desktop's vertical tabs (`shell.tsx`, `titlebar.tsx`, `tab-strip.tsx`). Top tabs have
@@ -116,14 +117,14 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 .w_full()
                 .gap(3.0)
                 .child(
-                    action_row(p, "home", &ic::GRID_PLUS, "Home", &crate::keymap::Bind::Home.label(), home)
+                    action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
                         .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             s.toggle_home(tx);
                         }),
                 )
                 .child(
-                    action_row(p, "search", &ic::MAGNIFYING_GLASS, "Search sessions", &crate::keymap::Bind::SessionSearch.label(), false)
+                    action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
                         .matched(super::titlebar::NAV_SEARCH).matched_crop().motion(GLIDE)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             s.close_settings();
@@ -131,7 +132,7 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                         }),
                 )
                 .child(
-                    action_row(p, "new", &ic::EDIT, "New session", &crate::keymap::Bind::TabNew.label(), false)
+                    action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
                         .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
                         // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
@@ -263,8 +264,8 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
     let mut b = el()
         .key("sidebar-toggle")
         .role("button")
-        .label(if unread { "Toggle sidebar, unread sessions" } else { "Toggle sidebar" })
-        .help("Toggle sidebar").help_keys(crate::keymap::Bind::Sidebar.keycaps())
+        .label(if unread { t!("command.sidebar.toggle.unread") } else { t!("command.sidebar.toggle") })
+        .help(t!("command.sidebar.toggle")).help_keys(crate::keymap::Bind::Sidebar.keycaps())
         .size(28.0, 28.0)
         .radius(6.0)
         .center()

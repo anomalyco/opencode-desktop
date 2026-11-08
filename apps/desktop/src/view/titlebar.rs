@@ -8,6 +8,7 @@ use rune_kit::shell::{TabOrientation, WindowTitlebar};
 
 use super::*;
 use crate::layout_state::TabLayout;
+use opencode_i18n::t;
 
 /// The tab strip's key, whose width at the last layout the tabs share.
 const STRIP: &str = "tab-strip";
@@ -78,8 +79,8 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
 
 fn home_button(s: &App, p: &Pal) -> El {
     let home = s.route == Route::Home && !s.settings.open;
-    nav_button(p, "home", "Home", &ic::GRID_PLUS, home)
-        .help("Home").help_keys(crate::keymap::Bind::Home.keycaps())
+    nav_button(p, "home", t!("home.title"), &ic::GRID_PLUS, home)
+        .help(t!("home.title")).help_keys(crate::keymap::Bind::Home.keycaps())
         .matched(NAV_HOME).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.toggle_home(tx);
@@ -87,8 +88,8 @@ fn home_button(s: &App, p: &Pal) -> El {
 }
 
 fn search_button(p: &Pal) -> El {
-    nav_button(p, "search", "Search sessions", &ic::MAGNIFYING_GLASS, false)
-        .help("Search sessions").help_keys(crate::keymap::Bind::SessionSearch.keycaps())
+    nav_button(p, "search", t!("command.session.search"), &ic::MAGNIFYING_GLASS, false)
+        .help(t!("command.session.search")).help_keys(crate::keymap::Bind::SessionSearch.keycaps())
         .matched(NAV_SEARCH).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.close_settings();
@@ -102,14 +103,14 @@ fn new_button(p: &Pal) -> El {
     row()
         .key("new")
         .role("button")
-        .label("New session")
+        .label(t!("command.session.new"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .help("New session").help_keys(crate::keymap::Bind::TabNew.keycaps())
+        .help(t!("command.session.new")).help_keys(crate::keymap::Bind::TabNew.keycaps())
         .matched(NAV_NEW).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx))

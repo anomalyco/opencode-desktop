@@ -10,6 +10,7 @@ use opencode_kit::model::project_git;
 use opencode_kit::path;
 
 use super::*;
+use opencode_i18n::t;
 
 /// The worktree onboarding's flag (Desktop's `workspace-onboarding`): once a worktree is
 /// picked, the dot after `Local` goes for good.
@@ -29,7 +30,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     // Desktop's `TRIGGER`: 28 tall, 6 in and 8 from the end, 4 pt corners, muted words that
     // turn base under the pointer with the hover overlay. It opens the location dialog on its
     // projects (`view.tsx:127`).
-    let button = trigger("project", "Choose project")
+    let button = trigger("project", t!("session.new.project.trigger.tooltip"))
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -44,14 +45,14 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     let place = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
         let worktree = s.project_worktrees(&project.id, &project.directory).iter().any(|w| path::trim(w) == path::trim(dir));
         let (glyph, size, label) = match (creating, worktree) {
-            (true, _) => (&ic::PLUS, 14.0, "New worktree".to_owned()),
+            (true, _) => (&ic::PLUS, 14.0, t!("workspace.new").to_owned()),
             (false, true) => (&ic::OUTLINE_WORKTREE, 16.0, path::basename(dir).to_owned()),
-            (false, false) => (&ic::MONITOR, 14.0, "Local".to_owned()),
+            (false, false) => (&ic::MONITOR, 14.0, t!("session.new.workspace.triggerLocal").to_owned()),
         };
         let id = project.id.clone();
         // The onboarding's own large tooltip isn't drawn here yet; after it, Desktop's plain one.
-        let button = trigger("worktree", "Choose worktree");
-        let button = if used() { button.help("Choose worktree").help_keys(crate::keymap::Bind::LocationSelect.keycaps()) } else { button };
+        let button = trigger("worktree", t!("session.location.worktree"));
+        let button = if used() { button.help(t!("session.location.worktree")).help_keys(crate::keymap::Bind::LocationSelect.keycaps()) } else { button };
         button
             .hover(p.hover)
             .press(p.pressed)
