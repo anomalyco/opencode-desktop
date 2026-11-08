@@ -1,7 +1,9 @@
-//! Dragging a timeline image out into another app (Finder, Messages, Slack): the drag carries
-//! the image's own bytes as a file, written to a temporary folder when the drag starts.
+//! Dragging a timeline image out into another app (Finder, Messages, Slack) or into this app's
+//! own composer: the drag carries the image's own bytes as a file, written to a temporary
+//! folder when the drag starts.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use opencode_kit::model::Attachment;
 use rune::{DragItem, El};
@@ -9,7 +11,8 @@ use rune::{DragItem, El};
 use super::MediaStore;
 use crate::TimelineHost;
 
-/// Where a dragged image's bytes come from.
+/// Where a timeline image's bytes come from: what dragging it carries and what its right-click
+/// menu acts on.
 #[derive(Clone, Debug)]
 pub enum Dragged {
     /// A prompt attachment or a tool result's image.
@@ -27,13 +30,34 @@ pub fn draggable<S: TimelineHost>(e: El, dragged: Dragged) -> El {
 impl MediaStore {
     /// What dragging `d` out carries: its bytes as a file, `None` until they're here.
     pub fn drag_item(&self, d: &Dragged) -> Option<DragItem> {
-        let (bytes, hint) = match d {
-            Dragged::File(f) => (self.bytes(f)?, f.name.clone()),
-            Dragged::Markdown { directory, src } => (self.markdown.bytes(directory.as_deref(), src)?, src.clone()),
-        };
-        let path = write(&std::env::temp_dir().join("opencode-drag"), &bytes, &hint)?;
-        Some(DragItem::new().file(path))
+        Some(DragItem::new().file(self.image_file(d)?))
     }
+
+    /// `d`'s encoded bytes and a name to give them, once they're here.
+    pub fn image_bytes(&self, d: &Dragged) -> Option<(Arc<[u8]>, String)> {
+        match d {
+            Dragged::File(f) => Some((self.bytes(f)?, f.name.clone())),
+            Dragged::Markdown { directory, src } => Some((self.markdown.bytes(directory.as_deref(), src)?, src.clone())),
+        }
+    }
+
+    /// `d`'s bytes as a file in the drag folder, named for the image.
+    pub fn image_file(&self, d: &Dragged) -> Option<PathBuf> {
+        let (bytes, hint) = self.image_bytes(d)?;
+        write(&root(), &bytes, &hint)
+    }
+}
+
+/// The folder dragged and copied images are written to.
+fn root() -> PathBuf {
+    std::env::temp_dir().join("opencode-drag")
+}
+
+/// Whether `path` is a timeline image this app wrote for a drag or a copy: its own drag coming
+/// back to it.
+pub fn is_own(path: &Path) -> bool {
+    let root = root();
+    path.starts_with(&root) || std::fs::canonicalize(path).ok().zip(std::fs::canonicalize(&root).ok()).is_some_and(|(p, r)| p.starts_with(r))
 }
 
 /// Writes `bytes` once into a folder named by their hash under `root`, so equal names from

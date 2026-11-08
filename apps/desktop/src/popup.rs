@@ -12,6 +12,7 @@ use crate::App;
 use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
 
+pub mod context;
 mod search;
 mod standard;
 
@@ -238,7 +239,7 @@ impl Menu {
     /// Desktop's app menu puts focus back before it runs them (`windows-menu.tsx`).
     pub fn keeps_focus(mut self) -> Menu { self.keeps_focus = true; self }
 
-    fn native(&self) -> PopupMenu {
+    pub(crate) fn native(&self) -> PopupMenu {
         let menu = self.entries.iter().fold(PopupMenu::new(), |m, e| match e {
             Entry::Item(i) => m.item(PopupItem::new(i.id.clone(), i.title.clone()).enabled(i.enabled).checked(i.checked)),
             Entry::Separator => m.separator(),

@@ -101,7 +101,7 @@ impl RowSpec {
     /// the footer copies (`footer`) shares the footer's hover.
     #[allow(clippy::too_many_arguments)]
     fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
-        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live);
+        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message));
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
         let row = self.wrap_paced(s, words, body.contains("```"));
         if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
@@ -223,7 +223,7 @@ impl RowSpec {
             RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
-                crate::images::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
+                crate::images::gallery(s, p, "images", &files, true, Some(id)).unwrap_or_else(col).pt(*pt)
             }
             RowContent::ToolImages { start, end, tool } => {
                 let files = t.messages[*start..*end].iter().find_map(|m| match m {
@@ -233,7 +233,7 @@ impl RowSpec {
                     }),
                     _ => None,
                 });
-                files.and_then(|f| crate::images::gallery(s, p, "images", f, false)).unwrap_or_else(col).pt(8.0)
+                files.and_then(|f| crate::images::gallery(s, p, "images", f, false, None)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
@@ -248,7 +248,11 @@ impl RowSpec {
                 let busy = *live && *block + 1 == blocks.len();
                 match blocks.get(*block) {
                     Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
-                    Some(Block::Text { body, live, .. }) => col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live)),
+                    Some(Block::Text { key, body, live, .. }) => {
+                        // `t-{message}-{n}`
+                        let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
+                        col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message))
+                    }
                     Some(Block::Agent { .. }) => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),

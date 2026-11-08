@@ -181,6 +181,15 @@ pub trait TimelineHost: Sized + 'static {
         true
     }
     fn open_link(&mut self, _url: &str, _tx: &mut Tx) {}
+    /// A right-click in the timeline on `at`: a message, an image, or an image in a message.
+    /// By default an image gets its own items (`images::menu`) and a message nothing.
+    fn context_menu(&mut self, at: images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
+        images::menu::open_default(self, at, press, tx);
+    }
+    /// Opens the file at `path` in its default app (an image's Open in Preview).
+    fn open_file(&mut self, path: std::path::PathBuf) {
+        images::menu::open_with_system(&path);
+    }
     fn reply_link_help(_url: &str) -> Option<String> {
         None
     }

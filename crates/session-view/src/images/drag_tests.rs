@@ -79,7 +79,7 @@ impl TimelineHost for Host {
 }
 
 fn app(s: &Host, _cx: &mut Cx<Host>) -> El {
-    col().key("root").w_full().h_full().children(crate::images::gallery(s, pal(true), "images", &s.files, false))
+    col().key("root").w_full().h_full().children(crate::images::gallery(s, pal(true), "images", &s.files, false, None))
 }
 
 /// Kit dragged a tool's image toward Finder and nothing happened: every thumbnail is a drag

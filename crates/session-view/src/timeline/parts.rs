@@ -162,6 +162,8 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
             .child(el().key("menu-under").size(20.0, 20.0).fill(fill).child(button));
         face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
+    // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
+    let mut face = crate::images::menu::on_message::<S>(face, session, id);
     let status = s.user_status(p, id);
     // The meta line, right under the bubble: the model, then Pending on a steer, which stays
     // in view while the model shows only under the pointer (`message-part.css:271-458`).
@@ -400,12 +402,18 @@ pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: 
     markdown_tinted::<S>(p, src, fade, streaming, p.text, crate::style::content_w())
 }
 
-pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool) -> El {
+/// A reply's markdown, `message` being the reply it is: a right-click on it (or on one of its
+/// images) opens the reply's menu.
+pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, message: Option<&str>) -> El {
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
-    if let Some(el) = crate::genui::reply(s, p, src, fade, streaming, s.find_row_hits(row_key)) {
-        return el;
+    let el = crate::genui::reply(s, p, src, fade, streaming, s.find_row_hits(row_key)).unwrap_or_else(|| {
+        let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), ..crate::images::md_media(s) };
+        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media))
+    });
+    match message {
+        Some(id) => crate::images::menu::on_message::<S>(el, "", id),
+        None => el,
     }
-    markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(crate::images::md_media(s)))
 }
 
 /// Convenience wrapper with explicit body colour and diagram max width.
