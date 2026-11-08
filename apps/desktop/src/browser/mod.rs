@@ -48,7 +48,7 @@ impl Default for BrowserPane {
 rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::new("browser", list_tabs, view::render_panel)
         .order(15)
-        .command("Open browser", Bind::BrowserOpen)
+        .command(opencode_i18n::key!("plugin.browser.command.open"), Bind::BrowserOpen)
         .launcher(launcher_desc, open_from_launcher)
         .on_close(on_close_tab)
         .closed(closed_tab_info)
@@ -63,8 +63,8 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
 fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
     Some(PanelLauncherDesc {
         id: "open",
-        title: "Browser".into(),
-        description: Some("Open a local port or web page".into()),
+        title: opencode_i18n::t!("plugin.browser.tab.title").into(),
+        description: Some(opencode_i18n::t!("rune.browser.launcher.description").into()),
         icon: &ic::GLOBE,
         shortcut: &[Bind::BrowserOpen],
         order: 15,
@@ -87,7 +87,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         let Some(tab) = s.browser.host.tab(id) else {
             // Keep placeholder for a restored tab id if not yet materialized.
             out.push(
-                PanelTabDesc::new(raw_id.clone(), "Browser")
+                PanelTabDesc::new(raw_id.clone(), opencode_i18n::t!("plugin.browser.tab.title"))
                     .icon(&ic::GLOBE)
                     .group("browser")
                     .fallback(),
@@ -310,7 +310,7 @@ impl App {
         let saved_focus = (self.composer.focused, self.side.focused, self.side.dock_focused);
         let id = if self.use_mock_browser() {
             let resolved = browser_pane::resolve_address(url);
-            let title = if resolved == "about:blank" { "New tab" } else { &resolved };
+            let title = if resolved == "about:blank" { opencode_i18n::t!("plugin.browser.tab.new") } else { &resolved };
             self.browser.host.insert_mock_tab(&resolved, title, EngineStatus::Ready)
         } else {
             self.browser.host.open_tab(url)

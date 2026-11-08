@@ -108,7 +108,7 @@ impl<S: 'static> DiffViewer<S> {
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
-            .label("Diff");
+            .label(opencode_i18n::t!("rune.diff.label"));
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
@@ -522,7 +522,7 @@ impl<S: 'static> Inner<S> {
             });
         if c.no_newline {
             code = code.child(
-                text("No newline at end of file")
+                text(opencode_i18n::t!("rune.diff.noNewline"))
                     .font(l.mono_small)
                     .color(l.muted)
                     .opacity(0.6)
@@ -568,13 +568,13 @@ impl<S: 'static> Inner<S> {
             };
             let step = hidden.min(EXPAND_STEP);
             if hidden <= EXPAND_STEP {
-                add(Expand::All, &EXPAND_ALL, format!("Show {hidden} hidden lines"));
+                add(Expand::All, &EXPAND_ALL, opencode_i18n::t!("rune.diff.showHidden", count = hidden));
             } else {
                 if gap > 0 {
-                    add(Expand::Down, &EXPAND_DOWN, format!("Show {step} more lines below"));
+                    add(Expand::Down, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showBelow", count = step));
                 }
                 if !last {
-                    add(Expand::Up, &EXPAND_UP, format!("Show {step} more lines above"));
+                    add(Expand::Up, &EXPAND_UP, opencode_i18n::t!("rune.diff.showAbove", count = step));
                 }
             }
         }
@@ -616,7 +616,7 @@ impl<S: 'static> Inner<S> {
                     .hover_motion(INSTANT, INSTANT)
                     .cursor(Cursor::Pointer)
                     .role("button")
-                    .label(format!("Show all {hidden} lines"))
+                    .label(opencode_i18n::t!("rune.diff.showAll", count = hidden))
                     .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                         tx.instant();
                         if !get_mut(s).expand(f, gap, Expand::All)
@@ -650,15 +650,15 @@ impl<S: 'static> Inner<S> {
         let l = &self.look;
         let file = &st.files()[f];
         let msg = if file.binary {
-            "Binary file not shown"
+            opencode_i18n::t!("rune.diff.binary")
         } else if matches!(file.status, FileStatus::Renamed | FileStatus::Copied) {
-            "File moved without changes"
+            opencode_i18n::t!("rune.diff.moved")
         } else if file.old_mode != file.new_mode {
-            "File mode changed"
+            opencode_i18n::t!("rune.diff.modeChanged")
         } else if matches!(file.status, FileStatus::Added | FileStatus::Deleted) {
-            "Empty file"
+            opencode_i18n::t!("rune.diff.empty")
         } else {
-            "No changes"
+            opencode_i18n::t!("plugin.review.noChanges")
         };
         let mut inner = row()
             .key("inner")
@@ -682,7 +682,7 @@ impl<S: 'static> Inner<S> {
         let mut inner = crate::review::chrome::file_header(&self.pal, full_path, file.status, adds as usize, dels as usize)
             .key("inner")
             .role("button")
-            .label(if collapsed { "Expand file" } else { "Collapse file" })
+            .label(if collapsed { opencode_i18n::t!("rune.diff.expandFile") } else { opencode_i18n::t!("rune.diff.collapseFile") })
             .expanded(!collapsed)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();

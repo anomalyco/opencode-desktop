@@ -472,6 +472,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "libc",
+ "opencode-i18n",
  "rune",
  "serde",
  "serde_json",

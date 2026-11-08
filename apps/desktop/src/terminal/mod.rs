@@ -66,7 +66,7 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .order(20)
         .transient(true)
         .placed(side_ops::placed)
-        .command("Toggle terminal", Bind::DockToggle)
+        .command(opencode_i18n::key!("plugin.terminal.command.toggle"), Bind::DockToggle)
         .runs(App::toggle_terminal)
         .slash("terminal")
         .shortcuts(EXTRA_SHORTCUTS)
@@ -100,7 +100,7 @@ impl TerminalTab {
         if !self.title.trim().is_empty() {
             self.title.clone()
         } else {
-            format!("Terminal {}", self.title_number.max(1))
+            opencode_i18n::t!("plugin.terminal.title.numbered", number = self.title_number.max(1))
         }
     }
 

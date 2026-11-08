@@ -25,8 +25,8 @@ pub(super) fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     let tab = |id: &str, title: String| PanelTabDesc::new(id, title).icon(&grid::TERMINAL_ICON).group("terminal");
     match s.terminal.workspaces.get(&wk) {
         Some(ws) if !ws.tabs.is_empty() || ws.failure.is_none() => ws.tabs.iter().map(|t| tab(&t.id, t.display_title())).collect(),
-        Some(_) => ctx.open_ids.iter().map(|id| tab(id, "Terminal".into())).collect(),
-        None => ctx.open_ids.iter().map(|id| tab(id, "Terminal".into()).hidden()).collect(),
+        Some(_) => ctx.open_ids.iter().map(|id| tab(id, opencode_i18n::t!("plugin.terminal.tab.title").into())).collect(),
+        None => ctx.open_ids.iter().map(|id| tab(id, opencode_i18n::t!("plugin.terminal.tab.title").into()).hidden()).collect(),
     }
 }
 
@@ -34,7 +34,7 @@ pub(super) fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
 pub(super) fn launcher_desc(s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
     s.live_terminals().is_none_or(|(_, observer)| !observer).then(|| PanelLauncherDesc {
         id: "new",
-        title: "Terminal".into(),
+        title: opencode_i18n::t!("plugin.terminal.tab.title").into(),
         description: None,
         icon: &grid::TERMINAL_ICON,
         shortcut: &[Bind::TerminalNew],

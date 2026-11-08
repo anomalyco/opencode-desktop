@@ -131,7 +131,7 @@ fn mode_button(p: &Pal, sr: &SessionReview) -> El {
         .hover_motion(INSTANT, INSTANT)
         .cursor(Cursor::Pointer)
         .role("button")
-        .label("Change review scope")
+        .label(opencode_i18n::t!("rune.review.scope"))
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.review.mode_menu_open = !s.review.mode_menu_open;
@@ -213,7 +213,7 @@ fn review_sidebar(s: &App, p: &Pal, session_id: &str, sr: &SessionReview, width:
             .grow(1.0)
             .px(10.0)
             .pt(8.0)
-            .child(text("Loading…").font(UI_SMALL).color(p.muted))
+            .child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted))
     } else if s.review.filter.text.trim().is_empty() {
         change_tree_view(p, session_id, sr)
     } else {
@@ -242,7 +242,7 @@ fn change_tree_view(p: &Pal, session_id: &str, sr: &SessionReview) -> El {
         .pb(12.0)
         .growth(GrowthSpec::default())
         .role("tree")
-        .label("Changed files")
+        .label(opencode_i18n::t!("settings.timeline.row.turnDiffs.title"))
         .virtual_rows(
             count,
             TREE_ROW_H,
@@ -313,7 +313,7 @@ fn filtered_list_view(s: &App, p: &Pal, session_id: &str, sr: &SessionReview) ->
             .grow(1.0)
             .px(10.0)
             .pt(8.0)
-            .child(text("No matching files").font(UI_SMALL).color(p.muted));
+            .child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
     }
     let count = filtered.len();
     let paths_keys = filtered.clone();
@@ -505,14 +505,14 @@ fn review_main(
         );
     }
 
-    let nav_btn = |key: &'static str, glyph: &'static Icon, help_lbl: &'static str, forward: bool| {
+    let nav_btn = |key: &'static str, glyph: &'static Icon, help_lbl: String, forward: bool| {
         let mut b = el()
             .key(key)
             .size(36.0, 28.0)
             .radius(6.0)
             .center()
             .role("button")
-            .label(help_lbl)
+            .label(help_lbl.clone())
             .help(help_lbl)
             .child(icon(glyph, 16.0).color(p.icon));
         if has_diffs {
@@ -535,8 +535,8 @@ fn review_main(
     };
 
     start = start
-        .child(nav_btn("review-prev-file", &ARROW_LEFT, "Previous file ←", false))
-        .child(nav_btn("review-next-file", &ARROW_RIGHT, "Next file →", true));
+        .child(nav_btn("review-prev-file", &ARROW_LEFT, format!("{} \u{2190}", opencode_i18n::t!("ui.sessionReviewV2.previousFile")), false))
+        .child(nav_btn("review-next-file", &ARROW_RIGHT, format!("{} \u{2192}", opencode_i18n::t!("ui.sessionReviewV2.nextFile")), true));
 
     let exp_mode = s.review.expand_mode;
     let expand_seg = seg_track(p, "review-expand-seg")
@@ -546,7 +546,7 @@ fn review_main(
             "review-expand-all",
             &EXPAND_LINES,
             exp_mode == ExpandMode::Expand,
-            "Show all lines",
+            opencode_i18n::t!("ui.sessionReviewV2.showAllLines"),
             |s, tx| {
                 tx.instant();
                 s.set_review_expand_mode(ExpandMode::Expand);
@@ -557,7 +557,7 @@ fn review_main(
             "review-collapse-unchanged",
             &COLLAPSE_LINES,
             exp_mode == ExpandMode::Collapse,
-            "Hide unchanged lines",
+            opencode_i18n::t!("ui.sessionReviewV2.hideNonDiffLines"),
             |s, tx| {
                 tx.instant();
                 s.set_review_expand_mode(ExpandMode::Collapse);
@@ -572,7 +572,7 @@ fn review_main(
             "review-style-unified",
             &UNIFIED_ICON,
             diff_mode == DiffMode::Unified,
-            "Unified diff",
+            opencode_i18n::t!("ui.sessionReviewV2.unifiedDiff"),
             |s, tx| {
                 tx.instant();
                 s.set_review_diff_mode(DiffMode::Unified);
@@ -583,7 +583,7 @@ fn review_main(
             "review-style-split",
             &SPLIT_ICON,
             diff_mode == DiffMode::Split,
-            "Split diff",
+            opencode_i18n::t!("ui.sessionReviewV2.splitDiff"),
             |s, tx| {
                 tx.instant();
                 s.set_review_diff_mode(DiffMode::Split);
@@ -619,10 +619,10 @@ fn review_main(
             .w_full()
             .grow(1.0)
             .center()
-            .child(text("Loading changes…").font(UI).color(p.muted))
+            .child(text(opencode_i18n::t!("plugin.review.loadingChanges")).font(UI).color(p.muted))
     } else if !has_diffs {
         let msg = if sr.no_git {
-            "Not a Git repository"
+            opencode_i18n::t!("rune.review.noGit")
         } else {
             sr.mode.empty_label()
         };

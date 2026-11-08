@@ -94,7 +94,7 @@ impl BrowserTab {
         if !self.title.is_empty() && self.title != "New tab" {
             return self.title.clone();
         }
-        if self.url.is_empty() || self.url == "about:blank" { "New tab".into() } else { bare_url(&self.url) }
+        if self.url.is_empty() || self.url == "about:blank" { opencode_i18n::t!("plugin.browser.tab.new").into() } else { bare_url(&self.url) }
     }
 
     /// No page yet.

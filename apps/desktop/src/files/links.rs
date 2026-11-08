@@ -286,7 +286,7 @@ impl App {
             ws.docs.remove(path);
             ws.known_files.remove(path);
             ws.rebuild_tree();
-            let title = if is_bare_word(path) { "This link doesn't point anywhere" } else { "File not found" };
+            let title = if is_bare_word(path) { opencode_i18n::t!("rune.files.link.nowhere") } else { opencode_i18n::t!("rune.files.link.notFound") };
             crate::status_toast::say(self, title, path);
             return;
         }
@@ -303,11 +303,11 @@ impl App {
     /// A file outside the session's folder: its default Mac app, where this Mac has it.
     fn open_outside_file(&mut self, path: &str) {
         if !self.can_open_in() || !is_absolute(path) {
-            crate::status_toast::say(self, "Can't open files outside this session's folder", path);
+            crate::status_toast::say(self, opencode_i18n::t!("rune.files.link.outside"), path);
             return;
         }
         if self.live() && !std::path::Path::new(path).exists() {
-            crate::status_toast::say(self, "File not found", path);
+            crate::status_toast::say(self, opencode_i18n::t!("rune.files.link.notFound"), path);
             return;
         }
         self.open_in.open_default(path.to_owned());

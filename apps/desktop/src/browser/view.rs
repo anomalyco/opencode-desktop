@@ -79,7 +79,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         .child(
             text_input(&s.browser.address, MONO_URL)
                 .key("browser-address")
-                .placeholder("Search or enter a URL", p.faint)
+                .placeholder(opencode_i18n::t!("plugin.browser.address.search"), p.faint)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
@@ -87,7 +87,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
                 .on_submit(|s: &mut App, _tx: &mut Tx| s.submit_browser_address()),
         );
 
-    let mut back_btn = icon_btn(p, "browser-back", "Back", &BACK_ICON, 15.0, false, can_back);
+    let mut back_btn = icon_btn(p, "browser-back", opencode_i18n::t!("ui.common.back"), &BACK_ICON, 15.0, false, can_back);
     if can_back {
         back_btn = back_btn.on_press(move |s: &mut App| {
             if let Some(id) = tab_id {
@@ -96,7 +96,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         });
     }
 
-    let mut fwd_btn = icon_btn(p, "browser-forward", "Forward", &ic::CHEVRON_RIGHT, 15.0, false, can_fwd);
+    let mut fwd_btn = icon_btn(p, "browser-forward", opencode_i18n::t!("desktop.menu.forward"), &ic::CHEVRON_RIGHT, 15.0, false, can_fwd);
     if can_fwd {
         fwd_btn = fwd_btn.on_press(move |s: &mut App| {
             if let Some(id) = tab_id {
@@ -108,7 +108,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     let mut reload_btn = icon_btn(
         p,
         "browser-reload",
-        &if loading { "Stop loading".to_owned() } else { crate::keymap::Bind::BrowserReload.tip("Reload page") },
+        &if loading { opencode_i18n::t!("plugin.browser.action.stop").to_owned() } else { crate::keymap::Bind::BrowserReload.tip(opencode_i18n::t!("plugin.browser.action.reload")) },
         if loading { &ic::XMARK_SMALL } else { &RELOAD_ICON },
         14.0,
         false,
@@ -144,7 +144,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
         bar = bar.child(
             el().key("browser-zoom-pill")
                 .role("button")
-                .label("Reset page zoom")
+                .label(opencode_i18n::t!("plugin.browser.zoom.reset"))
                 .h(24.0)
                 .px(6.0)
                 .radius(5.0)
@@ -166,7 +166,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     let mut inspect_btn = icon_btn(
         p,
         "browser-inspect",
-        &format!("Pick page element for prompt (@e1, {})", crate::keymap::Bind::BrowserInspect.label()),
+        &crate::keymap::Bind::BrowserInspect.tip(opencode_i18n::t!("plugin.browser.inspect")),
         &PICKER_ICON,
         15.0,
         inspecting,
@@ -193,9 +193,9 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             let frac = total_bytes
                 .filter(|&t| t > 0)
                 .map_or(0.25, |t| (downloaded_bytes as f32 / t as f32).clamp(0.03, 1.0));
-            progress(p, "Downloading browser…", Some((downloaded_bytes, total_bytes)), frac)
+            progress(p, opencode_i18n::t!("rune.browser.engine.downloading"), Some((downloaded_bytes, total_bytes)), frac)
         }
-        EngineStatus::Verifying => progress(p, "Verifying browser…", None, 1.0),
+        EngineStatus::Verifying => progress(p, opencode_i18n::t!("rune.browser.engine.verifying"), None, 1.0),
         EngineStatus::Paused(reason) => progress(p, reason.describe(), None, 0.25),
         EngineStatus::NotInstalled => col()
             .key("browser-download-prompt")
@@ -206,7 +206,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             .gap(14.0)
             .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
             .child(
-                text(format!("Browser needs a one-time download (~{ENGINE_DOWNLOAD_MB} MB)"))
+                text(opencode_i18n::t!("rune.browser.engine.needsDownload", size = ENGINE_DOWNLOAD_MB))
                     .font(UI_MED)
                     .color(p.text)
                     .truncate_fade(),
@@ -214,7 +214,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             .child(
                 el().key("browser-download-btn")
                     .role("button")
-                    .label("Download browser")
+                    .label(opencode_i18n::t!("rune.browser.engine.download"))
                     .h(30.0)
                     .px(14.0)
                     .radius(6.0)
@@ -224,7 +224,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                     .box_shadow(Pal::ring_out(p.q.submit_ring))
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())
-                    .child(text("Download").font(UI_MED).color(p.q.submit_text)),
+                    .child(text(opencode_i18n::t!("plugin.file.view.download")).font(UI_MED).color(p.q.submit_text)),
             ),
         EngineStatus::Failed(msg) => col()
             .key("browser-download-failed")
@@ -238,7 +238,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
             .child(
                 el().key("browser-retry-btn")
                     .role("button")
-                    .label("Retry browser download")
+                    .label(opencode_i18n::t!("rune.browser.engine.retryDownload"))
                     .h(30.0)
                     .px(14.0)
                     .radius(6.0)
@@ -249,7 +249,7 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                     .hover(p.hover)
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())
-                    .child(text("Retry").font(UI_MED).color(p.text)),
+                    .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text)),
             ),
         EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             if let Some(id) = tab_id
@@ -265,9 +265,9 @@ fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_sca
                         .padding(24.0)
                         .gap(8.0)
                         .child(icon(&ic::GLOBE, 20.0).color(p.icon_muted))
-                        .child(text("Enter a URL or :port above").font(UI_MED).color(p.text))
+                        .child(text(opencode_i18n::t!("rune.browser.empty.title")).font(UI_MED).color(p.text))
                         .child(
-                            text(format!("{} jumps to the address bar, {} opens a new tab, {} picks an element.", crate::keymap::Bind::BrowserAddress.label(), crate::keymap::Bind::BrowserTab.label(), crate::keymap::Bind::BrowserInspect.label()))
+                            text(opencode_i18n::t!("rune.browser.empty.keys", address = crate::keymap::Bind::BrowserAddress.label(), tab = crate::keymap::Bind::BrowserTab.label(), inspect = crate::keymap::Bind::BrowserInspect.label()))
                                 .font(UI_SMALL)
                                 .color(p.muted)
                                 .truncate_fade(),
@@ -363,9 +363,9 @@ fn unsupported(p: &Pal) -> El {
         .padding(28.0)
         .gap(8.0)
         .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
-        .child(text("Browser isn't available on this platform yet").font(UI_MED).color(p.text).truncate_fade())
+        .child(text(opencode_i18n::t!("rune.browser.unsupported.title")).font(UI_MED).color(p.text).truncate_fade())
         .child(
-            text("The built-in browser runs on macOS and Windows for now.")
+            text(opencode_i18n::t!("rune.browser.unsupported.description"))
                 .font(UI_SMALL)
                 .color(p.muted)
                 .wrap()

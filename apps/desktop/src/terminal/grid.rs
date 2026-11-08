@@ -129,12 +129,12 @@ pub fn render_terminal_pane(
     let ch_px = ((cell_h * s.zoom * env_scale).round() as u32).max(1);
 
     let Some(ws) = s.terminal.workspaces.get(ws_key) else {
-        return col().key("terminal-empty").w_full().h_full().fill(p.bg_base).child(notice(p, "Loading terminal…", None));
+        return col().key("terminal-empty").w_full().h_full().fill(p.bg_base).child(notice(p, opencode_i18n::t!("plugin.terminal.loading"), None));
     };
     if ws.tabs.is_empty()
         && let Some(err) = &ws.failure
     {
-        return col().key("terminal-failed").w_full().h_full().fill(p.bg_base).child(notice(p, "Couldn't load terminals", Some(err)));
+        return col().key("terminal-failed").w_full().h_full().fill(p.bg_base).child(notice(p, opencode_i18n::t!("plugin.terminal.list.failed"), Some(err)));
     }
 
     let Some(tab) = tab_id
@@ -186,7 +186,7 @@ pub fn render_terminal_pane(
     col()
         .key("terminal-pane")
         .role("region")
-        .label("Terminal")
+        .label(opencode_i18n::t!("plugin.terminal.tab.title"))
         .w_full()
         .h_full()
         .fill(p.bg_base)

@@ -38,19 +38,19 @@ pub enum ChangeMode {
 }
 
 impl ChangeMode {
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
-            Self::Git => "Git changes",
-            Self::Branch => "Branch changes",
-            Self::Turn => "Last turn changes",
+            Self::Git => opencode_i18n::t!("ui.sessionReview.title.git"),
+            Self::Branch => opencode_i18n::t!("ui.sessionReview.title.branch"),
+            Self::Turn => opencode_i18n::t!("ui.sessionReview.title.lastTurn"),
         }
     }
 
-    pub const fn empty_label(self) -> &'static str {
+    pub fn empty_label(self) -> &'static str {
         match self {
-            Self::Git => "No uncommitted changes yet",
-            Self::Branch => "No branch changes yet",
-            Self::Turn => "No changes",
+            Self::Git => opencode_i18n::t!("plugin.review.empty.git"),
+            Self::Branch => opencode_i18n::t!("plugin.review.empty.branch"),
+            Self::Turn => opencode_i18n::t!("plugin.review.noChanges"),
         }
     }
 }
@@ -168,7 +168,7 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .order(5)
         .legacy(&[("review", "changes")])
         .wide(is_split_wide)
-        .command("Open review", Bind::ReviewOpen)
+        .command(opencode_i18n::key!("plugin.review.command.open"), Bind::ReviewOpen)
         .launcher(launcher, open_review_command)
         .closed(closed_tab)
         .on_enter(on_enter_review)
@@ -186,8 +186,8 @@ fn launcher(s: &App, ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLaunch
     let count = change_count(s, ctx.session_id);
     Some(crate::panels::PanelLauncherDesc {
         id: "open",
-        title: "Review".into(),
-        description: (count > 0).then(|| format!("{count} file{} changed", if count == 1 { "" } else { "s" })),
+        title: opencode_i18n::t!("plugin.review.tab.title").into(),
+        description: (count > 0).then(|| opencode_i18n::plural!("plugin.review.menu.count", count)),
         icon: &ic::REVIEW,
         shortcut: &[Bind::ReviewOpen],
         order: 10,
@@ -197,7 +197,7 @@ fn launcher(s: &App, ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLaunch
 
 /// Closed, the tab lists as "Review" rather than its change count.
 fn closed_tab(_s: &App, _sid: &str, _tab: &PanelTabDesc) -> crate::panels::ClosedTabInfo {
-    crate::panels::ClosedTabInfo::Allow(crate::panels::ClosedPanelTab { title: Some("Review".into()), icon_name: Some("review".into()), ..Default::default() })
+    crate::panels::ClosedTabInfo::Allow(crate::panels::ClosedPanelTab { title: Some(opencode_i18n::t!("plugin.review.tab.title").into()), icon_name: Some("review".into()), ..Default::default() })
 }
 
 fn open_review_command(s: &mut App, _pane: SessionPane, tx: &mut Tx) {
@@ -224,7 +224,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     // Listed for every session with a project, but in the strip only once opened, as Desktop's
     // review tab is: neither pinned nor a fallback.
     let count = change_count(s, ctx.session_id);
-    let title = if count > 0 { format!("Files Changed {count}") } else { "Review".to_owned() };
+    let title = if count > 0 { opencode_i18n::plural!("plugin.review.tab.count", count) } else { opencode_i18n::t!("plugin.review.tab.title").to_owned() };
     vec![PanelTabDesc::new("changes", title).icon(&ic::REVIEW)]
 }
 

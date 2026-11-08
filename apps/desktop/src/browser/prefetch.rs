@@ -10,6 +10,7 @@ use browser_pane::{ENGINE_DOWNLOAD_MB, EngineStatus};
 use rune::Tx;
 
 use crate::App;
+use opencode_i18n::t;
 
 /// How long the app sits idle before the download starts.
 const IDLE: Duration = Duration::from_secs(30);
@@ -93,17 +94,23 @@ impl App {
 pub fn describe(status: &EngineStatus) -> String {
     let mb = |b: u64| (b as f64 / 1_000_000.0).round();
     match status {
-        EngineStatus::Unsupported | EngineStatus::NotInstalled => format!(
-            "Get the built-in browser ready while OpenCode is idle (about {ENGINE_DOWNLOAD_MB} MB), so it opens without a wait"
-        ),
+        EngineStatus::Unsupported | EngineStatus::NotInstalled => t!("rune.browser.prefetch.idle", size = ENGINE_DOWNLOAD_MB),
         EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) } if *total > 0 => {
-            format!("Downloading: {:.0} / {:.0} MB", mb(*downloaded_bytes), mb(*total))
+            t!("rune.browser.prefetch.downloadingOf", done = mb(*downloaded_bytes), total = mb(*total))
         }
-        EngineStatus::Downloading { downloaded_bytes, .. } => format!("Downloading: {:.0} MB", mb(*downloaded_bytes)),
-        EngineStatus::Verifying => "Verifying the download".into(),
-        EngineStatus::Paused(reason) => format!("{}. It resumes on its own.", reason.describe()),
-        EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => "The browser is ready".into(),
-        EngineStatus::Failed(f) if f.retry_at.is_some() => "The download failed. It tries again shortly.".into(),
-        EngineStatus::Failed(_) => "The download failed. Open the browser to try again.".into(),
+        EngineStatus::Downloading { downloaded_bytes, .. } => t!("rune.browser.prefetch.downloading", done = mb(*downloaded_bytes)),
+        EngineStatus::Verifying => t!("rune.browser.prefetch.verifying").into(),
+        EngineStatus::Paused(reason) => t!("rune.browser.prefetch.paused", reason = paused(*reason)),
+        EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => t!("rune.browser.prefetch.ready").into(),
+        EngineStatus::Failed(f) if f.retry_at.is_some() => t!("rune.browser.prefetch.failedRetrying").into(),
+        EngineStatus::Failed(_) => t!("rune.browser.prefetch.failed").into(),
+    }
+}
+
+/// Why a download waits, in the current language.
+fn paused(reason: browser_pane::PauseReason) -> &'static str {
+    match reason {
+        browser_pane::PauseReason::Metered => t!("rune.browser.prefetch.paused.metered"),
+        browser_pane::PauseReason::OnBattery => t!("rune.browser.prefetch.paused.battery"),
     }
 }

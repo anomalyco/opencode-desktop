@@ -75,7 +75,7 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
         let mut recent = col().key("side-recently-closed").w_full().pt(16.0).gap(2.0).child(
             el().px(8.0)
                 .pb(4.0)
-                .child(text("Recently closed").font(UI_SMALL).color(p.muted)),
+                .child(text(opencode_i18n::t!("home.recentlyClosed")).font(UI_SMALL).color(p.muted)),
         );
         for (i, item) in closed_items.into_iter().enumerate() {
             let reopen_key = item.key.clone();
@@ -99,7 +99,7 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
             let mut r = row()
                 .key(format!("side-closed-{i}"))
                 .role("button")
-                .label(format!("Reopen {}", item.title))
+                .label(opencode_i18n::t!("rune.tabs.reopen", title = item.title))
                 .w_full()
                 .h(30.0)
                 .px(8.0)
@@ -158,7 +158,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             .key("side-tab-menu-rows")
             .w_full()
             .padding(MENU.inset)
-            .child(menu_row(p, "side-tab-menu-close", None, "Close tab", "", can_close, move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "side-tab-menu-close", None, opencode_i18n::t!("common.closeTab"), "", can_close, move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.close_side_tab(&tk, tx);
             }))
@@ -169,7 +169,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                     s.close_side_tab(k, tx);
                 }
             }));
-        let menu = popover::surface::<App>(p, MENU, "side-tab-menu", "Tab").min_w(160.0).child(rows);
+        let menu = popover::surface::<App>(p, MENU, "side-tab-menu", opencode_i18n::t!("common.key.tab")).min_w(160.0).child(rows);
         return Some(layer(s, (x, y), menu, |s| s.side.tab_menu = None));
     }
 
@@ -185,7 +185,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                 launch.run(s, id, pane, tx);
             }));
         }
-        let menu = popover::surface::<App>(p, MENU, "side-add-menu", "New tab").w(220.0).child(rows);
+        let menu = popover::surface::<App>(p, MENU, "side-add-menu", opencode_i18n::t!("session.tab.new")).w(220.0).child(rows);
         return Some(layer(s, (x, y), menu, |s| s.side.add_menu = None));
     }
 

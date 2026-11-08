@@ -418,7 +418,7 @@ fn tab_bar(
         let trigger = row()
             .key(format!("side-new-{}", nid))
             .role("tab")
-            .label("New tab")
+            .label(opencode_i18n::t!("session.tab.new"))
             .h(28.0)
             .min_w(72.0)
             .pl(10.0)
@@ -437,7 +437,7 @@ fn tab_bar(
                 s.side.active_pane_focus = pane;
             })
             .child(
-                text("New tab")
+                text(opencode_i18n::t!("session.tab.new"))
                     .font(UI)
                     .color(if active && focused { p.text } else { p.muted })
                     .truncate_fade(),
@@ -453,7 +453,7 @@ fn tab_bar(
     strip = strip.child(
         el().key(format!("side-add-{}", pane_slug(pane)))
             .role("button")
-            .label("New tab")
+            .label(opencode_i18n::t!("session.tab.new"))
             .size(28.0, 28.0)
             .radius(6.0)
             .center()
@@ -487,7 +487,7 @@ fn tab_bar(
         bar = bar.child(
             el().key("bottom-hide")
                 .role("button")
-                .label(crate::keymap::Bind::BottomToggle.tip("Hide bottom panel"))
+                .label(crate::keymap::Bind::BottomToggle.tip(opencode_i18n::t!("session.panel.bottom.hide")))
                 .size(28.0, 28.0)
                 .radius(6.0)
                 .center()
@@ -614,7 +614,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
 fn close_button(p: &Pal, key: String, shown: bool, close: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     el().key(key)
         .role("button")
-        .label("Close tab")
+        .label(opencode_i18n::t!("common.closeTab"))
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
@@ -650,7 +650,7 @@ fn empty_pane_view(p: &Pal) -> El {
         .pb(168.0 + 16.0)
         .gap(24.0)
         .child(mark)
-        .child(text("Select a file to open").font(rune::TextStyle::new(14.0, 400.0).lh(20.0)).color(p.muted).max_w(224.0))
+        .child(text(opencode_i18n::t!("session.files.selectToOpen")).font(rune::TextStyle::new(14.0, 400.0).lh(20.0)).color(p.muted).max_w(224.0))
 }
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
@@ -663,9 +663,9 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
         el().key("side-toggle")
             .role("button")
             // `SessionHeaderActions`: "Toggle review" and its keybind in the tooltip under it.
-            .label("Toggle review")
+            .label(opencode_i18n::t!("command.review.toggle"))
             .expanded(open)
-            .help("Toggle review")
+            .help(opencode_i18n::t!("command.review.toggle"))
             .help_keys(crate::keymap::Bind::SideToggle.keycaps())
             // On the session header's centre line, 12pt in from the panel's edge.
             .pin(None, Some(crate::view::chrome().top() + 10.0), Some(20.0), None)

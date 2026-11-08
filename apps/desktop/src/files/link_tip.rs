@@ -41,7 +41,7 @@ pub fn label(href: &str, base: &str, dir: &str, home: &str, bare: Option<&[Strin
     let out = match classify(href, base, dir, home) {
         Link::Web(url) => web(&url),
         Link::Heading(h) => format!("#{h}"),
-        Link::Inside { path, .. } if is_bare_word(&path) && bare.is_some_and(|b| !b.contains(&path)) => NOWHERE.to_owned(),
+        Link::Inside { path, .. } if is_bare_word(&path) && bare.is_some_and(|b| !b.contains(&path)) => opencode_i18n::t!("rune.files.link.nowhere").to_owned(),
         Link::Inside { path, lines, heading } => {
             let at = match (lines, heading) {
                 (Some((a, b)), _) if a == b => format!(":{a}"),

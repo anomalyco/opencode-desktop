@@ -150,9 +150,9 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
     PanelRegistration::new("file", list_tabs, view::render)
         .order(15)
         .legacy(&[("open-file", OPEN_TAB_ID)])
-        .command("Open file", Bind::FileOpen)
+        .command(opencode_i18n::key!("command.file.open"), Bind::FileOpen)
         // `palette.search.placeholder`, as Desktop's `file.open` says (`use-session-commands.tsx:515-522`).
-        .describe("Search files, commands, and sessions")
+        .describe(opencode_i18n::key!("palette.search.placeholder"))
         .shortcuts(&[(Bind::FileBrowse, browse_files)])
         .slash("open")
         .launcher(launcher_desc, open_files_launcher)
@@ -168,8 +168,8 @@ fn launcher_desc(_s: &App, ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
     }
     Some(PanelLauncherDesc {
         id: OPEN_TAB_ID,
-        title: "Open file".into(),
-        description: Some("Browse workspace files or search by name".into()),
+        title: opencode_i18n::t!("plugin.file.command.open").into(),
+        description: Some(opencode_i18n::t!("rune.files.launcher.description").into()),
         icon: &ic::FILE_TREE,
         shortcut: &[Bind::FileBrowse, Bind::FileOpen],
         order: 10,
@@ -195,7 +195,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     for id in ctx.open_ids {
         if id == OPEN_TAB_ID {
             out.push(
-                PanelTabDesc::new(OPEN_TAB_ID, "Open file")
+                PanelTabDesc::new(OPEN_TAB_ID, opencode_i18n::t!("plugin.file.command.open"))
                     .icon(&ic::FILE_TREE)
                     .group("browser")
                     .transient()
@@ -209,7 +209,7 @@ fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             .and_then(|w| w.docs.get(&path))
             .is_some_and(|d| d.missing);
         let title = if missing {
-            format!("File not found: {name}")
+            opencode_i18n::t!("plugin.file.tab.notFound", name = name)
         } else {
             name.to_owned()
         };

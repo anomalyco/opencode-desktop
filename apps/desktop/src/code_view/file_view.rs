@@ -50,7 +50,7 @@ impl<S: 'static> CodeViewer<S> {
                 .min_h(0.0)
                 .fill(look.bg)
                 .center()
-                .child(text("Loading file…").font(look.label).color(look.muted));
+                .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted));
         }
         if st.missing {
             let name = opencode_kit::path::basename(st.path());
@@ -61,7 +61,7 @@ impl<S: 'static> CodeViewer<S> {
                 .min_h(0.0)
                 .fill(look.bg)
                 .center()
-                .child(text(format!("File not found: {name}")).font(look.label).color(look.muted));
+                .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted));
         }
         if st.binary {
             return col()
@@ -72,7 +72,7 @@ impl<S: 'static> CodeViewer<S> {
                 .fill(look.bg)
                 .center()
                 .child(
-                    text(format!("Binary file · {} bytes", st.size_bytes))
+                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes))
                         .font(look.label)
                         .color(look.muted),
                 );
@@ -92,7 +92,7 @@ impl<S: 'static> CodeViewer<S> {
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
-            .label("File contents");
+            .label(opencode_i18n::t!("rune.file.contents"));
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }

@@ -41,8 +41,8 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
 
     let proj_title = s
         .project(ctx.project_id)
-        .map(|pr| Some(opencode_kit::path::basename(&pr.directory)).filter(|n| !n.is_empty()).unwrap_or("Workspace").to_owned())
-        .unwrap_or_else(|| "Workspace".into());
+        .map(|pr| Some(opencode_kit::path::basename(&pr.directory)).filter(|n| !n.is_empty()).unwrap_or(opencode_i18n::t!("rune.files.workspace")).to_owned())
+        .unwrap_or_else(|| opencode_i18n::t!("rune.files.workspace").into());
 
     let empty = SessionFiles::default();
     let ws = s.files.sessions.get(&sid).unwrap_or(&empty);
@@ -128,7 +128,7 @@ fn files_sidebar(
             .grow(1.0)
             .px(10.0)
             .pt(8.0)
-            .child(text("Loading…").font(UI_SMALL).color(p.muted))
+            .child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted))
     } else if s.files.filter.text.trim().is_empty() {
         workspace_tree_view(p, session_id, ws, active_path)
     } else {
@@ -169,7 +169,7 @@ fn workspace_tree_view(
         .pb(12.0)
         .growth(GrowthSpec::default())
         .role("tree")
-        .label("Workspace files")
+        .label(opencode_i18n::t!("rune.files.tree"))
         .virtual_rows(
             count,
             TREE_ROW_H,
@@ -243,7 +243,7 @@ fn filtered_files_view(
             .grow(1.0)
             .px(10.0)
             .pt(8.0)
-            .child(text("No matching files").font(UI_SMALL).color(p.muted));
+            .child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
     }
     let count = filtered.len();
     let keys_vec = filtered.clone();

@@ -67,9 +67,9 @@ pub(super) fn files_main(
             .items_center()
             .child(icon(&PLACEHOLDER_ICON, 20.0).color(p.muted))
             .child(el().h(16.0))
-            .child(text("Open file").font(UI_MED).color(p.text))
+            .child(text(opencode_i18n::t!("plugin.file.command.open")).font(UI_MED).color(p.text))
             .child(el().h(8.0))
-            .child(el().h(20.0).center().child(text("Select a file to open").font(UI).color(p.muted)));
+            .child(el().h(20.0).center().child(text(opencode_i18n::t!("plugin.file.selectToOpen")).font(UI).color(p.muted)));
     };
 
     let doc = ws.docs.get(path);
@@ -114,10 +114,10 @@ pub(super) fn files_main(
         .fill(p.bg_base)
         .child(crumb)
         .children(markdown_doc.then(|| {
-            let (glyph, label) = if rendered { (&ic::CODE_LINES, "Show source") } else { (&READ_ICON, "Show rendered") };
+            let (glyph, label) = if rendered { (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource")) } else { (&READ_ICON, opencode_i18n::t!("plugin.file.view.viewPreview")) };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
-        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, "Find in file", "Find in file", at(|s, sid, path, tx| {
+        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
                 d.find_open = !d.find_open;
@@ -125,13 +125,13 @@ pub(super) fn files_main(
             }
         })).help_keys(crate::keymap::Bind::Find.keycaps()))
         .children((!rendered).then(|| {
-            tool(p, "files-wrap-btn", &WRAP_ICON, wrap_on, "Wrap lines", "Wrap lines", at(|s, sid, path, tx| {
+            tool(p, "files-wrap-btn", &WRAP_ICON, wrap_on, opencode_i18n::t!("plugin.review.settings.wrapLines.title"), opencode_i18n::t!("plugin.review.settings.wrapLines.title"), at(|s, sid, path, tx| {
                 tx.instant();
                 let wrap = s.files.sessions.get(sid).and_then(|w| w.docs.get(path)).is_some_and(|d| d.wrap());
                 s.set_file_wrap(sid, path, !wrap);
             }))
         }))
-        .child(tool(p, "files-copy-path", &ic::COPY, false, "Copy path", "Copy path", move |_s: &mut App, tx: &mut Tx| {
+        .child(tool(p, "files-copy-path", &ic::COPY, false, opencode_i18n::t!("plugin.file.open.copyPath"), opencode_i18n::t!("plugin.file.open.copyPath"), move |_s: &mut App, tx: &mut Tx| {
             tx.copy(path_copy.clone());
         }))
         .children(crate::open_in::button(s, p, "files-open-in", path));
@@ -199,7 +199,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
             text_input(&doc.find_input, UI_SMALL)
                 .key("files-find-input")
                 .spellcheck(spellcheck)
-                .placeholder("Find in file…", p.faint)
+                .placeholder(opencode_i18n::t!("rune.files.findPlaceholder"), p.faint)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
@@ -223,7 +223,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
-                .label("Close find")
+                .label(opencode_i18n::t!("rune.find.close"))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     if let Some(d) = s.files.sessions.get_mut(&sid_close).and_then(|w| w.docs.get_mut(&path_close)) {

@@ -129,8 +129,8 @@ impl App {
         let panels = self.all_panels().into_iter().filter_map(|p| {
             Some(Command {
                 id: p.plugin,
-                title: p.command_title?,
-                description: p.command_description,
+                title: opencode_i18n::I18N.text(p.command_title?),
+                description: p.command_description.map_or("", |d| opencode_i18n::I18N.text(d)),
                 slash: p.slash,
                 keys: p.shortcut,
                 chord: None,

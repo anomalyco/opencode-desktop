@@ -51,8 +51,8 @@ pub fn sidebar_toggle(p: &Pal, key: &'static str, open: bool, disabled: bool, pr
         .center()
         .fill(if open { p.layer2 } else { Color::TRANSPARENT })
         .role("button")
-        .label("Toggle file tree")
-        .help("Toggle file tree").help_keys(crate::keymap::Bind::TreeToggle.keycaps())
+        .label(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar"))
+        .help(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar")).help_keys(crate::keymap::Bind::TreeToggle.keycaps())
         .child(icon(&FILETREE, 16.0).color(p.icon));
     if disabled {
         return b.inert();
@@ -114,7 +114,7 @@ pub fn filter_field(
             text_input(edit, UI)
                 .key(key)
                 .spellcheck(spellcheck)
-                .placeholder("Filter files", p.faint)
+                .placeholder(opencode_i18n::t!("ui.sessionReviewV2.filterFiles"), p.faint)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
@@ -130,7 +130,7 @@ pub fn filter_field(
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
-                .label("Clear filter")
+                .label(opencode_i18n::t!("ui.list.clearFilter"))
                 .on_press_tx(clear)
                 .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
         }));

@@ -340,11 +340,12 @@ pub struct PanelRegistration {
     pub legacy: &'static [(&'static str, &'static str)],
     /// Optional global shortcut & `⌘K` palette title for launching/toggling this panel.
     pub shortcut: Option<Bind>,
-    pub command_title: Option<&'static str>,
+    /// Its palette command's title and description, as catalog keys.
+    pub command_title: Option<opencode_i18n::Key>,
     /// What the command runs when it isn't the launcher (a toggle, such as the terminal's).
     pub run: Option<fn(&mut App, &mut Tx)>,
     /// What the command's row says after its name in the palette and the `/` list.
-    pub command_description: &'static str,
+    pub command_description: Option<opencode_i18n::Key>,
     /// The `/name` that runs the command from the composer.
     pub slash: Option<&'static str>,
     /// Additional session-scoped global shortcuts (e.g. `⌃\`` toggle and `⌃⌥T` new terminal).
@@ -400,7 +401,7 @@ impl PanelRegistration {
             shortcut: None,
             command_title: None,
             run: None,
-            command_description: "",
+            command_description: None,
             slash: None,
             extra_shortcuts: &[],
             launcher: None,
@@ -474,7 +475,7 @@ impl PanelRegistration {
         self
     }
 
-    pub const fn command(mut self, title: &'static str, shortcut: Bind) -> Self {
+    pub const fn command(mut self, title: opencode_i18n::Key, shortcut: Bind) -> Self {
         self.command_title = Some(title);
         self.shortcut = Some(shortcut);
         self
@@ -490,8 +491,8 @@ impl PanelRegistration {
         self
     }
 
-    pub const fn describe(mut self, description: &'static str) -> Self {
-        self.command_description = description;
+    pub const fn describe(mut self, description: opencode_i18n::Key) -> Self {
+        self.command_description = Some(description);
         self
     }
 
