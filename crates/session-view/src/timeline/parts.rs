@@ -99,8 +99,9 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
 /// line 8 below names the model (`meta`) while the bubble is hovered. A run's earlier prompts
 /// fold that line away.
 ///
-/// `pending` (the session) draws an undelivered steer: on `layer-01`, its meta line ending in
-/// Pending at all times.
+/// `pending` (the session) draws an undelivered steer: on `layer-01`, with Pending in view at
+/// all times under it. Pending sits in the meta room, outside the bubble, so it never rides the
+/// bubble's flight in from the composer.
 ///
 /// `quotes` are the prompt's quote cards: inside the bubble above its words, or in its place
 /// when it has none.
@@ -176,18 +177,17 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         if pending && !meta.is_empty() {
             model = model.child(text("\u{00b7}").key("pending-sep").font(PROMPT_META).color(p.faint));
         }
-        // As Desktop's copy wrapper, the whole line shows only under the pointer, so it comes and
-        // goes unseen as the model it names lands or changes; a steer's line stays in view for
-        // Pending, its model still shown only under the pointer.
-        let shown = |el: El| if open { el.opacity(1.0).opacity_motion(INSTANT) } else { el.group_opacity(0.0, 1.0) };
+        line = line.child(model);
         if pending {
-            // The model joins a steer's Pending line sliding in, as Desktop's
-            // `user-message-transition` labels arrive (200 ms, `message-part.css:365-385`).
-            line = line.animate_layout().child(shown(model)).child(text(opencode_i18n::t!("ui.message.pending")).key("pending").font(PROMPT_META).color(p.faint));
-        } else {
-            line = shown(line.child(model));
+            // Pending itself draws in the meta room below, outside the bubble, so it stays put
+            // while the bubble flies in from the composer; an unseen copy here keeps the model
+            // left of it.
+            line = line.child(pending_label(p).key("pending-room").opacity(0.0));
         }
-        face = face.child(line);
+        // As Desktop's copy wrapper, the whole line shows only under the pointer, sent or
+        // pending, so it comes and goes unseen as the model it names lands or changes, and a
+        // steer's delivery never crossfades it into view.
+        face = face.child(if open { line.opacity(1.0).opacity_motion(INSTANT) } else { line.group_opacity(0.0, 1.0) });
     }
     let c = col()
         .w_full()
@@ -197,8 +197,22 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
         // The meta line's room (`user-message-copy-wrapper`: 8 above, 20 tall), folded away in
         // a run's earlier prompts.
-        None => c.child(el().key("meta-room").w_full().h(if below { 0.0 } else { 28.0 })),
+        None => {
+            let mut room = el().key("meta-room").w_full().h(if below { 0.0 } else { 28.0 });
+            if pending && !below {
+                // A label, so it shows and goes at once, as Desktop's delivery swaps it
+                // (message-part.css:401-410).
+                let label = pending_label(p).key("pending").transition(rune::Transition::none());
+                room = room.child(row().key("pending-line").w_full().h(20.0).mt(8.0).justify_end().center_y().a11y_hidden().child(label));
+            }
+            c.child(room)
+        }
     }
+}
+
+/// A steer's Pending, under its bubble's trailing edge.
+fn pending_label(p: &Pal) -> El {
+    text(opencode_i18n::t!("ui.message.pending")).font(PROMPT_META).color(p.faint)
 }
 
 /// The hover group a reply's footer shares with the reply text above it (separate virtual

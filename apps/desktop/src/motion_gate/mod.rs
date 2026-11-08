@@ -20,6 +20,7 @@ mod model_picker;
 mod odometers;
 mod line_reveal;
 mod panels;
+mod pending;
 mod permission;
 mod pills;
 mod question_long;

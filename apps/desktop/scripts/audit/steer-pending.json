@@ -1,0 +1,7 @@
+{
+  "playground": "Timeline/Steer and Pending", "secs": 5.0,
+  "events": [
+    {"t": 1.2, "type": "key", "name": "s"},
+    {"t": 3.6, "type": "key", "name": "d"}
+  ]
+}
