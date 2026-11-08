@@ -216,10 +216,12 @@ impl App {
     }
 
     /// Closes Find, clearing the query and highlights; `restore` returns focus to the composer.
-    pub fn close_find(&mut self, restore: bool, _tx: &mut Tx) {
+    pub fn close_find(&mut self, restore: bool, tx: &mut Tx) {
         if !self.find.open {
             return;
         }
+        // The bar goes as it came, at once, and the header's crumbs take its room back with it.
+        tx.instant();
         let restore_composer = restore && self.find.restore_composer;
         self.find.open = false;
         self.find.input.clear();
