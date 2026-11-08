@@ -959,8 +959,8 @@ impl App {
             Action::ZoomIn => self.zoom_by(1, tx),
             Action::ZoomOut => self.zoom_by(-1, tx),
             Action::ZoomReset => self.zoom_by(0, tx),
-            Action::Tab(offset) => self.select_adjacent(offset, false, tx),
-            Action::UnreadTab(offset) => self.select_adjacent(offset, true, tx),
+            Action::Tab(offset) => self.select_adjacent(offset, tx),
+            Action::NeedsYouTab(offset) => self.select_needs_you(offset, tx),
             // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
             Action::TabAt(i) => self.select_nth(i, tx),
             Action::NewSession => self.new_session(tx),

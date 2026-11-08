@@ -248,8 +248,8 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
         Act::Forward => {
             s.navigate(true, tx);
         }
-        Act::PreviousSession => s.select_adjacent(-1, false, tx),
-        Act::NextSession => s.select_adjacent(1, false, tx),
+        Act::PreviousSession => s.select_adjacent(-1, tx),
+        Act::NextSession => s.select_adjacent(1, tx),
         Act::Minimize => tx.minimize(),
         Act::Maximize => tx.toggle_maximized(),
         Act::ExportLogs => s.export_logs(),

@@ -278,18 +278,30 @@ impl App {
         }
     }
 
-    /// ⌃Tab, ⌥↑ and ⌥↓, and with ⇧ the ones with something new: the next tab or inbox row that
-    /// way, wrapping (`adjacentTabKey`).
-    pub(crate) fn select_adjacent(&mut self, offset: i32, unread_only: bool, tx: &mut Tx) {
+    /// ⌃Tab, ⌥↑ and ⌥↓: the next tab or inbox row that way, wrapping (`adjacentTabKey`).
+    pub(crate) fn select_adjacent(&mut self, offset: i32, tx: &mut Tx) {
         let order = self.nav_order();
         let order: Vec<&str> = order.iter().map(String::as_str).collect();
         let current = self.nav_current();
-        let inbox = self.tab_layout() == crate::layout_state::TabLayout::Inbox;
-        let next = shortcuts::adjacent(&order, current.as_deref(), offset, |k| {
-            !unread_only || (Some(k) != current.as_deref() && (self.tab_unread(k) || inbox && self.tab_status(k) == Some(TabStatus::Attention)))
-        });
-        if let Some(id) = next {
+        if let Some(id) = shortcuts::adjacent(&order, current.as_deref(), offset, |_| true) {
             self.nav_select(&id, tx);
         }
+    }
+
+    /// ⌥⇧↓ and ⌥⇧↑: the next tab or inbox row that needs you, oldest question or permission
+    /// first, then the unread ones (`shortcuts::needs_you`), wrapping.
+    pub(crate) fn select_needs_you(&mut self, offset: i32, tx: &mut Tx) {
+        let order = self.nav_order();
+        let order: Vec<&str> = order.iter().map(String::as_str).collect();
+        let stops = shortcuts::needs_you(&order, |k| self.waiting_since(k), |k| self.tab_unread(k));
+        if let Some(id) = shortcuts::next_stop(&stops, self.nav_current().as_deref(), offset) {
+            self.nav_select(&id, tx);
+        }
+    }
+
+    /// When the oldest question or permission in `id`'s family was asked, if one waits on you.
+    fn waiting_since(&self, id: &str) -> Option<i64> {
+        let (permission, form) = self.family_requests(id);
+        permission.into_iter().chain(form).map(|r| self.sidebar_inbox.asked.get(r).copied().unwrap_or(i64::MAX)).min()
     }
 }
