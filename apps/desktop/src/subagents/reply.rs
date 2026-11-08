@@ -95,9 +95,10 @@ const BACK: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 /// A keycap's label (`keybind-v2`): 11 at 530, upper case.
 const KEY: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);
 
-/// Under a subagent's composer (Desktop's `SubagentBar`): "✓ Done · 26m 53s · Explore ·
-/// Provider / Model", then Main session with its Esc keycap. Only what's known shows, one
-/// separator between neighbours.
+/// Under a subagent's composer (Desktop's `SubagentBar`): "✓ Done · 26m 53s", then Main
+/// session with its Esc keycap. The composer's pickers above it already name the agent, model
+/// and effort, and it only ever draws with them, so the line doesn't say them again. Only
+/// what's known shows, one separator between neighbours.
 pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
     let info = s.session(id).filter(|i| i.parent.is_some())?;
     let running = s.subtree_running(id);
@@ -111,34 +112,14 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
             _ => (None, None),
         }
     };
-    let words = |t: String| text(t).font(BAR).color(p.faint).single_line();
-    let mut parts: Vec<El> = Vec::new();
-    if let Some(st) = status {
-        parts.push(words(st.to_owned()).key("status"));
-        let end = if running { s.run_clock() } else { info.idle.unwrap_or(info.updated) };
-        parts.push(run_time(format!("bar-time-{id}"), end - info.created.min(end), BAR, p.faint));
-    }
-    if !info.agent.is_empty() {
-        parts.push(words(opencode_kit::model::capitalize(&info.agent)).key("agent"));
-    }
-    if !info.model.id.is_empty() {
-        let mut model = row().key("subagent-model").shrink().min_w(0.0).center_y();
-        if let Some(provider) = s.pickers.provider_label(&info.model) {
-            // `Slash gap={4}`: 4 of space each side of the `/`, less its side bearing.
-            model = model.child(words(provider)).child(words("/".to_owned()).color(p.icon_faint).mx(3.0));
-        }
-        model = model.child(text(s.pickers.model_name(&info.model)).font(BAR).color(p.faint).truncate().shrink());
-        if !info.model.variant.is_empty() && info.model.variant != "default" {
-            model = model.child(words(opencode_kit::model::capitalize(&info.model.variant)).opacity(0.66).ml(4.0));
-        }
-        parts.push(model);
-    }
+    let words = |t: &str| text(t.to_owned()).font(BAR).color(p.faint).single_line();
     let mut summary = row().key("summary").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
-    for (n, part) in parts.into_iter().enumerate() {
-        if n > 0 {
-            summary = summary.child(words("\u{b7}".to_owned()).key(format!("dot-{n}")));
-        }
-        summary = summary.child(part);
+    if let Some(st) = status {
+        let end = if running { s.run_clock() } else { info.idle.unwrap_or(info.updated) };
+        summary = summary
+            .child(words(st).key("status"))
+            .child(words("\u{b7}").key("dot"))
+            .child(run_time(format!("bar-time-{id}"), end - info.created.min(end), BAR, p.faint));
     }
     let mut line = row().key("subagent-bar").w_full().max_w(session_view::style::dock_w()).h(32.0).pl(12.0).pr(6.0).gap(8.0).center_y();
     if status.is_some() {

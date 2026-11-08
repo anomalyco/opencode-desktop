@@ -106,6 +106,43 @@ fn a_reply_the_server_took_stays_when_a_later_write_fails() {
     assert!(l.rt.state.composer.text.is_empty());
 }
 
+/// The words under the element keyed `key`.
+fn under(l: &Live, key: &str) -> Vec<String> {
+    let path = l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("no {key}")).path;
+    let mut under: Vec<String> = l
+        .rt
+        .elements()
+        .into_iter()
+        .filter(|e| !e.exiting && e.path.starts_with(&path) && e.path != path)
+        .filter_map(|e| e.text)
+        .collect();
+    under.sort();
+    under
+}
+
+/// Under a subagent's composer: how the run went and the way back. The agent, model and
+/// effort it ran with are in the pickers just above it, so the line doesn't say them again
+/// (Kit, Nov 7: "some of this information is the same").
+#[test]
+fn the_bar_under_a_subagent_leaves_the_agent_and_model_to_the_pickers() {
+    let mut l = live();
+    l.rt.frame(DT);
+    let info = l.rt.state.session(CHILD).unwrap().clone();
+    let bar = under(&l, "subagent-bar");
+    assert!(bar.iter().any(|t| t == "Done"), "the run's outcome: {bar:?}");
+    let time = format!("bar-time-{CHILD}");
+    assert!(l.rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref() == Some(&*time)), "and how long it took: {bar:?}");
+    assert!(bar.iter().any(|t| t == "Main session"), "and the way back: {bar:?}");
+    let agent = opencode_kit::model::capitalize(&info.agent);
+    let model = l.rt.state.pickers.model_name(&info.model);
+    let effort = opencode_kit::model::capitalize(&info.model.variant);
+    for said in [agent.as_str(), model.as_str(), effort.as_str()] {
+        assert!(!bar.iter().any(|t| t == said), "{said} isn't said twice: {bar:?}");
+    }
+    assert_eq!(under(&l, "agent"), vec![agent], "the picker still names the agent");
+    assert!(under(&l, "model").contains(&model), "and the model");
+}
+
 #[test]
 fn esc_goes_back_only_from_an_empty_composer() {
     let mut l = live();
