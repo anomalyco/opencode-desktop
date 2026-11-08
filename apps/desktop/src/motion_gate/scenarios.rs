@@ -36,6 +36,8 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
+    ("fade-snap", "labels/location", "home-hold/", "a Home row's location fades in under the pointer and hides at once when it leaves, as Desktop's HomeSessionLocation does (view.tsx:921-938)"),
+    ("jump", "labels/project", "home-hold/", "a Home row's project name takes back the room its location used, at once, as the location hides (view.tsx:921-938)"),
     ("fade-snap", "turn-actions/#0/#0/working", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("fade-snap", "turn-actions/#0/#0/copy", "", "Working and Copy share a footprint and swap at once: a crossfade lays the copy icon's outline over the W (view::turn_actions)"),
     ("jump", "turn-actions/#0/#0/working", "working-relabel", "new words take the Working label's place at once, as a new status does; the cell checks the shimmer's rhythm through the change (working::finish_pass)"),
@@ -88,13 +90,13 @@ const ALLOW: &[Allow] = &[
     ("load-motion", "ring/d", "", "the Soft Radar spinner's dots keep sweeping from the frame it shows, as Desktop's spinner-radar.ts does (style::activity_ring); one that shows for less than its 1.8 s turn never wraps, so the gate doesn't tell its loop from a fade"),
     ("jump", "header-location/location-trigger", "find/", "a narrow header gives up its project's name in the frame ⌘F opens the Find bar, so the title keeps room, as Desktop's header collapses (view::header_fit)"),
     ("pop-out", "location-trigger/location-project", "find/", "the project's name leaves the location button in that frame (view::header_fit)"),
+    ("pop-in", "location-trigger/location-project", "find/", "closing Find gives the narrow header its room back at once, as Desktop's header does, and the project's name returns to the location button with the next layout read (view::header_fit)"),
     ("text-swap", "title/label", "demo/", "the demo opens its fresh session, and the server's rename lands, at once in the header (demo::start, session.renamed)"),
     ("jerk", "window/panel", "side-region/|review/|files/|tool-steps/", "the side region opens on Kit's 0.3 s SIDE_SPRING from rest across the chat's width, so its first frames speed up by up to ~30 pt a frame and the chat panel's edge rides it (panels::view)"),
     ("jerk", "window/side-region", "side-region/|review/|files/|tool-steps/", "the side region opens on Kit's 0.3 s SIDE_SPRING from rest across the chat's width, so its first frames speed up by up to ~30 pt a frame (panels::view)"),
     ("load-motion", "pane-side/", "tool-steps/", "a step's file opens the side region on Kit's SIDE_SPRING, as the toggle does (Desktop's layout.open flies the panel): its tab and pane load in the frame the flight sets off and ride it in (panels::view)"),
     ("load-motion", "side-tabs-side/", "tool-steps/", "a step's file opens the side region on Kit's SIDE_SPRING, as the toggle does: the new file tab loads in the frame the flight sets off and rides it in (panels::view)"),
     ("load-motion", "icon/icon-mono", "tool-steps/", "the new file tab's icon rides the side region's SIDE_SPRING flight in, as its tab does (panels::view)"),
-    ("pop-in", "window/titlebar-band", "layout-switch/", "switching to top tabs, the titlebar row mounts at once under the panel, which covers it; what shows of it flies there from the sidebar (view::shell)"),
     ("pop-out", "actions/", "layout-switch/", "switching to top tabs, Home, Search sessions and New session hand over to the titlebar's buttons, which fly from their rows in that frame (El::matched); the gate doesn't pair the row that leaves with the flight that takes its place (view::sidebar)"),
     ("pop-out", "tabs-list/t-", "layout-switch/", "switching to top tabs, each side tab hands over to its top tab, which flies from its row in that frame (El::matched); the gate doesn't pair the row that leaves with the flight that takes its place"),
     ("jerk", "tab-strip", "layout-switch/", "switching to top tabs, the far tabs and the New tab button fly up to ~1,000 pt on the 0.32 s GLIDE from rest, so their first frames speed up by up to ~15 pt a frame (view::GLIDE)"),
@@ -671,6 +673,8 @@ const ACTIONS: &[Action] = &[
         let base = Circ { long_summary: true, ..Circ::default() };
         vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
     }, run: super::compaction_fold::open_at_bottom },
+    // Home's rows hold still under the pointer while sessions update, and move when it leaves (t1458).
+    Action { name: "home-hold", circs: pinned, run: super::home_hold::holds_under_the_pointer },
     Action { name: "switch-tab", circs: || wide_and_narrow(Circ::default()), run: |r| {
         let other = r.rt.state.tabs.iter().map(|t| t.id.clone()).find(|t| t != SID).expect("another tab");
         r.act("open another tab", |rt| rt.update(move |s, tx| s.open(&other, tx)));

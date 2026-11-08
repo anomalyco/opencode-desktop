@@ -4,6 +4,7 @@
 pub mod bento;
 pub mod drag;
 pub mod markdown;
+pub mod menu;
 pub mod viewer;
 
 use std::cell::RefCell;
@@ -369,6 +370,7 @@ pub fn md_media<S: TimelineHost>(s: &S) -> markdown::MdMedia {
         directory: s.active_session_id().and_then(|id| s.session_directory(id)).map(std::rc::Rc::from),
         viewing: store.viewing.as_ref().map(|v| v.id.clone()),
         flight: viewer::flight(s),
+        message: None,
     }
 }
 
@@ -388,7 +390,7 @@ pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::M
             let name = if f.alt.is_empty() { opencode_i18n::t!("ui.imagePreview.alt").to_owned() } else { f.alt.to_owned() };
             let image = f.image.clone();
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
-            let img = draggable::<S>(img, dragged.clone());
+            let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
             img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press(move |s: &mut S| {
                 s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() });
             })
@@ -403,7 +405,9 @@ pub fn shows(files: &[Attachment]) -> bool {
 /// Images in the transcript, right-aligned for a user: one at its own shape (at most 320×240
 /// points, 2× pixels), several in a bento block (`bento`). A ref still on its way holds a tile;
 /// one whose bytes are gone shows the server's placeholder as a chip.
-pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool) -> Option<El> {
+///
+/// `message`: the message the images belong to, whose items follow theirs in a right-click menu.
+pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool, message: Option<&str>) -> Option<El> {
     let images: Vec<&Attachment> = files.iter().filter(|f| shows(std::slice::from_ref(f))).collect();
     if images.is_empty() {
         return None;
@@ -433,7 +437,7 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
                 let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
-                opens(s, thumb, held, format!("{key}:{}", identity(f)), f, img)
+                opens(s, thumb, held, format!("{key}:{}", identity(f)), f, img, message)
             }
             None => tile.absolute(x, y),
         });

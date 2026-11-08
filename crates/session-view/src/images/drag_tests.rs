@@ -79,7 +79,7 @@ impl TimelineHost for Host {
 }
 
 fn app(s: &Host, _cx: &mut Cx<Host>) -> El {
-    col().key("root").w_full().h_full().children(crate::images::gallery(s, pal(true), "images", &s.files, false))
+    col().key("root").w_full().h_full().children(crate::images::gallery(s, pal(true), "images", &s.files, false, None))
 }
 
 /// Kit dragged a tool's image toward Finder and nothing happened: every thumbnail is a drag
@@ -97,4 +97,5 @@ fn a_timeline_thumbnail_drags_out_as_its_image_file() {
     let item = rt.state.view.media.drag_item(&Dragged::File(f)).unwrap();
     assert_eq!(item.paths()[0].file_name().unwrap(), "blood.png");
     assert_eq!(std::fs::read(&item.paths()[0]).unwrap(), bytes);
+    assert!(item.drops_within_app(), "the composer can take it");
 }

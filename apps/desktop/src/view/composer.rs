@@ -39,8 +39,13 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         .children(status)
 }
 
+/// The composer. A timeline image dragged onto it attaches, as a file from Finder does; the page
+/// takes every other drop (`dropzone`).
 pub(super) fn composer(s: &App, p: &Pal) -> El {
     session_view::composer::composer(s, p)
+        .on_drop_files(crate::dropzone::drop)
+        .accepts_files(session_view::images::drag::is_own)
+        .on_drop_hover(crate::dropzone::hover)
 }
 
 /// The composer, keyed `{scope}-composer` when `scope` isn't empty (copies on one stage).

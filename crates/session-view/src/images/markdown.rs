@@ -266,4 +266,6 @@ pub struct MdMedia {
     /// while it flies.
     pub viewing: Option<String>,
     pub flight: rune::Spring,
+    /// The message the markdown is, whose items follow an image's in its right-click menu.
+    pub message: Option<Rc<str>>,
 }

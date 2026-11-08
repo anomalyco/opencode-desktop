@@ -262,6 +262,7 @@ pub trait PickerHost: ComposerHost {
         let durable = self.durable();
         let pk = self.pickers_mut();
         if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session, selected); }
+        tx.color_motion(rune::Spring::NONE);
         self.close_picker(true);
     }
 
@@ -274,6 +275,9 @@ pub trait PickerHost: ComposerHost {
         if used && self.pickers().open.is_some() {
             let open = self.pickers().open;
             if open == was || open == Some(Kind::Model) { tx.instant(); } else { pop::motion::opening(self.knobs(), tx); }
+        } else if used && was.is_some() {
+            // The trigger lets go of its open look at once, as Desktop's button-v2 has no transition.
+            tx.color_motion(rune::Spring::NONE);
         }
         used
     }

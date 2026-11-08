@@ -26,22 +26,23 @@ const LEGACY_DRAFT: &str = "new";
 const WINDOW_KEYS: [&str; 4] = ["route", "drafts", "side", "closedTabs"];
 
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
-/// showing its first ten.
+/// showing its first ten; and Home's automation folds, shut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InboxUi {
     pub working_expanded: bool,
     pub recent_expanded: bool,
+    pub home_automations: bool,
 }
 
 impl Default for InboxUi {
     fn default() -> Self {
-        InboxUi { working_expanded: true, recent_expanded: false }
+        InboxUi { working_expanded: true, recent_expanded: false, home_automations: false }
     }
 }
 
 impl InboxUi {
     fn to_json(self) -> Value {
-        json!({ "workingExpanded": self.working_expanded, "recentExpanded": self.recent_expanded })
+        json!({ "workingExpanded": self.working_expanded, "recentExpanded": self.recent_expanded, "homeAutomationsExpanded": self.home_automations })
     }
 
     fn from_json(v: &Value) -> InboxUi {
@@ -49,6 +50,7 @@ impl InboxUi {
         InboxUi {
             working_expanded: v["workingExpanded"].as_bool().unwrap_or(d.working_expanded),
             recent_expanded: v["recentExpanded"].as_bool().unwrap_or(d.recent_expanded),
+            home_automations: v["homeAutomationsExpanded"].as_bool().unwrap_or(d.home_automations),
         }
     }
 }

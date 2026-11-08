@@ -42,6 +42,8 @@ pub(crate) use draft::*;
 pub(crate) use header::*;
 pub(crate) use narrow::{Agent as ToolbarAgent, toolbar_shown};
 pub(crate) use home::{home, home_modifiers, session_row};
+pub(crate) use home::fold::add_flow;
+pub(crate) use home::list::{Hold as HomeHold, is_automation};
 pub(crate) use session::*;
 pub use sidebar::*;
 
@@ -228,8 +230,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                     s.side.tab_menu = None;
                     s.side.add_menu = None;
                 })
-                // Files dropped anywhere on the page attach, as in Desktop.
+                // Files dropped anywhere on the page attach, as in Desktop; a timeline image
+                // dragged out of the page attaches only on the composer.
                 .on_drop_files(crate::dropzone::drop)
+                .accepts_files(|path| !session_view::images::drag::is_own(path))
                 .on_drop_hover(crate::dropzone::hover)
                 .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
                     Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w / s.zoom, h / s.zoom])),

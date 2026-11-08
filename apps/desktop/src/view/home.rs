@@ -3,8 +3,12 @@ use crate::session_menu::{Spot, Target};
 use opencode_i18n::t;
 use rune_kit::{ScrollBar, ScrollBarStyle};
 
+pub(crate) mod fold;
+pub(crate) mod list;
 pub(crate) mod projects;
 mod search;
+#[cfg(test)]
+mod list_tests;
 
 pub(crate) use projects::home_projects_popover;
 
@@ -113,8 +117,9 @@ fn gutter_end(panel: f32, pad: f32) -> f32 {
 fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Tier, width: f32, window_h: f32) -> El {
     let show_project = selected.is_none();
     let can_create = selected.is_some() || !s.used_projects().is_empty();
-    let groups = day_groups(s, s.home_sessions(selected));
-    let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|(_, items)| items.iter().map(|s| s.id.clone())).collect::<Vec<_>>());
+    let open = s.restore.inbox.home_automations;
+    let groups = s.home_groups(selected);
+    let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|g| g.shown_ids(open).map(str::to_owned)).collect::<Vec<_>>());
     // Each row: `ps-3 pe-3`, the 16 pt avatar and `gap-1.5` before its labels.
     let labels_w = (width - 12.0 - 12.0 - 16.0 - 6.0).max(0.0);
 
@@ -135,7 +140,8 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
 
     // The groups' `pt-1 md:pt-3 pb-16`; the empty state sits straight in the list.
     let count = groups.len();
-    let mut list = col().key("groups").role("list").focus_group().w_full();
+    // While the pointer is on the list its order holds, so no row moves under it (`list.rs`).
+    let mut list = col().key("groups").role("list").focus_group().w_full().on_hover_change(|s: &mut App, inside, tx: &mut Tx| s.hold_home_order(inside, tx));
     if count > 0 {
         list = list.pt(if tier == Tier::Narrow { 4.0 } else { 12.0 }).pb(64.0);
     }
@@ -144,7 +150,12 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     // (`home/scroll.ts`: by `stickyTop + 16` against the next header's offset in the list, which
     // starts `list_top` down the page, over 16).
     let list_top = tier.header_top() - if tier == Tier::Narrow { 4.0 } else { 12.0 };
-    for (n, (title, items)) in groups.into_iter().enumerate() {
+    let row_of = |ses: &SessionInfo| {
+        let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
+        list_row(s, p, ses, &nav_ids, index, show_project, labels_w, tier)
+    };
+    for (n, group) in groups.iter().enumerate() {
+        let title = group.title;
         // `sticky h-7 ps-1.5 md:ps-3`, the label `text-muted [font-weight:440]`.
         let head = row()
             .key(format!("h-{title}"))
@@ -161,13 +172,19 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             // the title fades as the next header comes up.
             .child(el().key("cover").absolute(0.0, -12.0).w_full().h(12.0).fill(p.bg_base))
             .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, eased_shade(p.bg_base)));
-        // `gap-px pt-2 md:pt-4`, `mb-6` but the last.
-        let mut rows = col().key(format!("rows-{title}")).w_full().gap(1.0).pt(if tier == Tier::Narrow { 8.0 } else { 16.0 });
-        for ses in items {
-            let index = nav_ids.iter().position(|x| x == &ses.id).unwrap_or(0);
-            rows = rows.child(list_row(s, p, ses, &nav_ids, index, show_project, labels_w, tier));
+        // `gap-px pt-2 md:pt-4`, `mb-6` but the last. Rows are the list's own children, so one
+        // that changes day glides to its new group rather than leaving one and entering another.
+        list = list.child(head).child(el().key(format!("pad-{title}")).w_full().h(if tier == Tier::Narrow { 8.0 } else { 16.0 }));
+        for ses in &group.rows {
+            list = list.child(row_of(ses).mb(1.0));
         }
-        list = list.child(head).child(if n + 1 < count { rows.mb(24.0) } else { rows });
+        for f in &group.folds {
+            let folded = if open { f.sessions.iter().map(|ses| row_of(ses)).collect() } else { vec![] };
+            list = list.child(fold::view(p, title, f, open, folded, tier).mb(1.0));
+        }
+        if n + 1 < count {
+            list = list.child(el().key(format!("end-{title}")).w_full().h(23.0));
+        }
     }
     if count == 0 && !s.launch.waiting {
         list = list.child(empty(p, can_create));
@@ -184,28 +201,6 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
 fn eased_shade(bg: Color) -> [(f32, Color); 8] {
     [(0.0, 1.0), (0.1414, 0.849947), (0.2285, 0.729394), (0.3191, 0.574815), (0.4465, 0.411884), (0.599, 0.276484), (0.8387, 0.10416), (1.0, 0.0)]
         .map(|(at, a)| (at, bg.alpha(bg.a * a)))
-}
-
-/// `groupSessions`: Today, Yesterday and the rest by the local calendar day each was last
-/// updated, newest first; the rest are "Recent sessions" when nothing is from today or
-/// yesterday, else "Older".
-fn day_groups<'a>(s: &App, sessions: Vec<&'a SessionInfo>) -> Vec<(&'static str, Vec<&'a SessionInfo>)> {
-    let day = |ms: i64| {
-        let t = rune::LocalTime::at(ms);
-        (t.year, t.month, t.day)
-    };
-    let (today, yesterday) = (day(s.now_ms), day(s.now_ms - 86_400_000));
-    let at = |ses: &SessionInfo| day(if ses.updated > 0 { ses.updated } else { ses.created });
-    let (mut now, mut before, mut older) = (vec![], vec![], vec![]);
-    for ses in sessions {
-        match at(ses) {
-            d if d == today => now.push(ses),
-            d if d == yesterday => before.push(ses),
-            _ => older.push(ses),
-        }
-    }
-    let rest = if now.is_empty() && before.is_empty() { t!("sidebar.project.recentSessions") } else { t!("home.sessions.group.older") };
-    [(t!("home.sessions.group.today"), now), (t!("home.sessions.group.yesterday"), before), (rest, older)].into_iter().filter(|(_, items)| !items.is_empty()).collect()
 }
 
 /// The ghost-muted New session button (`h-7 px-2 [font-weight:530]`, the `edit` icon).
@@ -374,21 +369,29 @@ impl Parts {
         }
         let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
         let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title).children(project_el.clone());
-        if s.home_search.alt_held || s.home_search.hovered.as_deref() == Some(ses.id.as_str()) {
-            labels = labels.child(location(s, p, ses, labels_w));
-        }
+        // Shown while the row is hovered or Alt is held; it hides at once when the pointer moves to another row.
+        let hovered = s.home_search.hovered.as_deref();
+        let show = s.home_search.alt_held || hovered == Some(ses.id.as_str());
+        let instant_hide = !s.home_search.alt_held && hovered.is_some_and(|h| h != ses.id);
+        labels = labels.child(location(s, p, ses, labels_w, show, instant_hide));
         Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) }
     }
 }
 
 /// `HomeSessionLocation`: the worktree's folder and its branch, each after its icon, `gap-1.5`,
-/// at most 60% of the labels.
-fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32) -> El {
+/// at most 60% of the labels. It opens and fades in over 120 ms (iew.tsx:921-938), or hides at
+/// once (`instant_hide`).
+fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, instant_hide: bool) -> El {
     let folder = opencode_kit::path::basename(&ses.directory);
     let worktree = if folder.is_empty() { ses.directory.clone() } else { folder.to_owned() };
+    let fade = if instant_hide { rune::Anim::INSTANT } else { rune::Anim::new(Curve::tween(0.12, Easing::EASE_OUT)) };
     let mut l = row()
         .key("location")
-        .max_w(labels_w * 0.6)
+        .max_w(if show { labels_w * 0.6 } else { 0.0 })
+        .ml(if show { 0.0 } else { -6.0 })
+        .opacity(if show { 1.0 } else { 0.0 })
+        .opacity_motion(fade)
+        .motion(if instant_hide { Spring::NONE } else { Spring::new(0.12, 0.0) })
         .shrink()
         .min_w(0.0)
         .gap(6.0)

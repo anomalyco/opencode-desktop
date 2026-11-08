@@ -430,7 +430,8 @@ pub(crate) fn ticking_view(s: &App, p: &Pal) -> El {
 
 /// The timeline and what sits under it, in a window-sized frame.
 pub(crate) fn session_view(s: &App, p: &Pal) -> El {
-    frame(p, "story-session").h_full().max_h(680.0).child(view::story_session(s, p))
+    // With the drawn menus' layer, so a story can show one (a right-click's).
+    frame(p, "story-session").h_full().max_h(680.0).child(view::story_session(s, p)).children(crate::popup::view(s, p))
 }
 
 /// A session opening, the whole page with its header, before and after the click.

@@ -507,7 +507,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
                 }
                 st @ Step::Tool { id, files, .. } => {
                     let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &call(st).expect("a tool step")));
-                    (1, step.children(crate::images::gallery(s, p, "step-images", files, false).map(|g| g.pl(22.0))))
+                    (1, step.children(crate::images::gallery(s, p, "step-images", files, false, None).map(|g| g.pl(22.0))))
                 }
             };
             list = list.child(item);
@@ -558,7 +558,7 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
                 _ => &[],
             };
             col().key(format!("step-{}", first.id)).w_full().child(crate::tools::view(s, p, cx, first))
-                .children(crate::images::gallery(s, p, "step-images", files, false).map(|g| g.pl(22.0)))
+                .children(crate::images::gallery(s, p, "step-images", files, false, None).map(|g| g.pl(22.0)))
         }
     }
 }

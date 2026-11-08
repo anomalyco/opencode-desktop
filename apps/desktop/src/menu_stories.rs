@@ -10,7 +10,7 @@ use crate::App;
 use crate::popover::motion;
 use crate::stories::{Story, Trigger, replay, sid};
 
-const VARIANTS: &[(&str, usize)] = &[("+ menu", 0), ("⋯ menu", 1), ("Subagents list", 2), ("Todo list", 3)];
+const VARIANTS: &[(&str, usize)] = &[("+ menu", 0), ("⋯ menu", 1), ("Subagents list", 2), ("Todo list", 3), ("Right-click an image", 4)];
 
 const KEYS: &[Trigger] = &[
     replay(start),
@@ -27,6 +27,7 @@ fn is_open(s: &App) -> bool {
     match s.variant {
         0 => s.add.open,
         1 => s.rewind.menu.is_some() && s.popup.is_open(),
+        4 => s.popup.is_open(),
         2 => s.activity_open,
         _ => s.todo_open,
     }
@@ -42,11 +43,21 @@ fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
                 s.toggle_message_menu(&sid(s), &mid, tx);
             }
         }
-        1 => crate::popup::dismiss(s, tx),
+        4 if open => right_click(s, tx),
+        1 | 4 => crate::popup::dismiss(s, tx),
         2 => s.activity_open = open,
         _ => s.todo_open = open,
     }
     motion::toggled(&s.knobs, tx, open);
+}
+
+/// A right-click on an image in the newest prompt, drawn as on Windows and Linux: the image's
+/// items, then the message's.
+fn right_click(s: &mut App, tx: &mut Play<App>) {
+    use session_view::images::{Dragged, menu::MenuAt};
+    let image = Dragged::File(opencode_kit::model::Attachment { mime: "image/png".into(), name: "screenshot.png".into(), ..Default::default() });
+    let at = MenuAt { session: Some(sid(s)), message: last_prompt(s), image: Some(image) };
+    crate::popup::context::show(s, at, (300.0, 120.0).into(), true, tx);
 }
 
 fn start(s: &mut App, tx: &mut Play<App>) {

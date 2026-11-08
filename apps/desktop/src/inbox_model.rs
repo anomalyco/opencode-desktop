@@ -127,7 +127,8 @@ impl App {
     /// The groups the sidebar shows (`SidebarInbox`'s `sections`).
     pub fn inbox_sections(&self) -> Sections<'_> {
         let list = self.inbox_entries();
-        let active = || list.iter().filter(|e| e.session.archived.is_none()).copied();
+        // An automation's sessions (Flow's) stay out of it; the open one still shows, as `current`.
+        let active = || list.iter().filter(|e| e.session.archived.is_none() && !crate::view::is_automation(&e.session.title)).copied();
         let mut needs: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Approval | InboxStatus::Input)).collect();
         needs.sort_by_key(|e| e.since.unwrap_or(i64::MAX));
         let mut unread: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Done | InboxStatus::Failed)).collect();

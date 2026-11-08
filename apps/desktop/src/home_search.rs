@@ -23,7 +23,7 @@ pub(crate) struct Found {
 }
 
 /// Home lists at most this many sessions (`HOME_SESSION_LIMIT`, `home/sessions/index.ts`).
-const HOME_SESSION_LIMIT: usize = 64;
+pub(crate) const HOME_SESSION_LIMIT: usize = 64;
 
 pub struct HomeSearch {
     active: Highlight,
@@ -31,6 +31,8 @@ pub struct HomeSearch {
     pub(crate) hovered: Option<String>,
     /// Alt is held: every row shows its worktree and branch (`alt-hold.ts`, Desktop only).
     pub(crate) alt_held: bool,
+    /// The list's order while the pointer is on it (`view::home::list`).
+    pub(crate) hold: Option<crate::view::HomeHold>,
     /// Sessions fetched from the server while searching on Home.
     pub(crate) loaded: Vec<SessionInfo>,
     searched: String,
@@ -43,6 +45,7 @@ impl Default for HomeSearch {
             active: Highlight::default(),
             hovered: None,
             alt_held: false,
+            hold: None,
             loaded: Vec::new(),
             searched: String::new(),
             fetch: Latest::default().debounce(Duration::from_millis(100)),
@@ -85,11 +88,11 @@ impl App {
         tx.instant();
     }
 
-    /// Root sessions Home lists for `selected` project, newest first: at most
-    /// `HOME_SESSION_LIMIT` (64, `home/sessions/index.ts`). Search never narrows them; it shows its
-    /// matches in its own panel.
+    /// A person's root sessions Home lists for `selected` project, newest first: at most
+    /// `HOME_SESSION_LIMIT` (64, `home/sessions/index.ts`). An automation's sessions
+    /// fold away (`view::home::list`). Search never narrows them; it shows its matches in its own panel.
     pub fn home_sessions<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
-        self.home_roots(selected).take(HOME_SESSION_LIMIT).collect()
+        self.home_roots(selected).filter(|s| !crate::view::is_automation(&s.title)).take(HOME_SESSION_LIMIT).collect()
     }
 
     /// The search panel's results (`search.ts`): sessions whose `"{title} {project}"` holds the
@@ -104,7 +107,7 @@ impl App {
             .collect()
     }
 
-    fn home_roots<'a>(&'a self, selected: Option<&Project>) -> impl Iterator<Item = &'a SessionInfo> {
+    pub(crate) fn home_roots<'a>(&'a self, selected: Option<&Project>) -> impl Iterator<Item = &'a SessionInfo> {
         let selected = selected.map(|p| p.id.clone());
         self.merged_roots(&self.home_search.loaded)
             .into_iter()
@@ -169,7 +172,7 @@ impl App {
     }
 
     pub fn poll_home_search(&mut self, tx: &mut Tx) -> bool {
-        let mut changed = false;
+        let mut changed = self.release_home_hold(tx);
         if let Some(f) = self.home_search.fetch.take() {
             upsert_sessions(&mut self.home_search.loaded, f.sessions);
             tx.instant();

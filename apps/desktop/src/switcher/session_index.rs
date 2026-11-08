@@ -47,7 +47,8 @@ impl App {
             offset = row.end;
             next += 1;
             Some(row)
-        }).filter(|r| r.archived == archived).take(if q.is_empty() { RECENT_SESSIONS } else { MATCHES }).map(|r| Entry {
+        }).filter(|r| r.archived == archived && !(q.is_empty() && crate::view::is_automation(&r.title)))
+        .take(if q.is_empty() { RECENT_SESSIONS } else { MATCHES }).map(|r| Entry {
             key: format!("session:{}", r.id), action: Action::Session(r.id.clone()), title: r.title.clone(),
             project: r.project.clone(), description: r.description.clone(), hint: None, chord: None, group,
             updated: Some(r.updated), open: self.tabs.iter().any(|t| t.id == r.id),

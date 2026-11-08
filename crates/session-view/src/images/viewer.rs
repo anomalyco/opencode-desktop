@@ -28,12 +28,12 @@ pub(crate) fn flight<S: TimelineHost>(s: &S) -> Spring {
 /// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
 /// apart, so the thumbnail leaves the tree) holds its place, and the image flies out of it and
 /// back into it. Dragged past a few points, it goes out as its image's file instead.
-pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, id: String, f: &Attachment, image: Image) -> El {
+pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, id: String, f: &Attachment, image: Image, message: Option<&str>) -> El {
     if s.media_store().viewing.as_ref().is_some_and(|v| v.id == id) {
         return held;
     }
     let (name, dragged) = (f.name.clone(), Dragged::File(f.clone()));
-    let thumb = draggable::<S>(thumb, dragged.clone());
+    let thumb = super::menu::on_image::<S>(draggable::<S>(thumb, dragged.clone()), dragged.clone(), message);
     thumb.matched(id.clone()).token_motion(flight(s)).on_press(move |s: &mut S| {
         s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() });
     })
@@ -66,7 +66,7 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let [x, y, w, h] = shown(v.image.size(), win_w, win_h);
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
-    let image = draggable::<S>(el(), v.dragged.clone())
+    let image = super::menu::on_image::<S>(draggable::<S>(el(), v.dragged.clone()), v.dragged.clone(), None)
         .key("image-viewer")
         .role("dialog")
         .label(v.name.clone())
