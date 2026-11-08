@@ -31,18 +31,19 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         let room = super::lists::column(session) - 24.0 - 16.0 - 8.0 - rune::text::measure(&title, &[], UI_MED, None).0 - 12.0 - 20.0;
         t.contains('\n') || rune::text::measure(t, &[], sub_font, None).0 + rune::text::measure(&gist, &[], UI, None).0 > room
     });
-    let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI_MED).color(p.text));
+    // 8 after the mark, and the arrow 6 after the words (`basic-tool.css:22`, `tool-error-card.css:60`).
+    let mut words = row().key("words").ml(8.0).gap(6.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI_MED).color(p.text));
     if let Some(t) = sub.as_deref().filter(|_| !(open && clipped)) {
         let first = t.lines().next().unwrap_or("").to_owned();
         words = words.child(readable(p, text(first).key("subtitle").font(sub_font).color(p.muted).truncate_fade()).shrink().min_w(0.0));
     }
     if !open {
-        words = words.child(text(gist).key("summary").font(UI).color(p.danger).truncate_fade().shrink().min_w(0.0));
+        // Cut with "…" (`tool-error-card.css:39`).
+        words = words.child(text(gist).key("summary").font(UI).color(p.danger).truncate().shrink().min_w(0.0));
     }
     let button = row()
         .key(id.clone())
         .h(24.0)
-        .gap(8.0)
         .center_y()
         .grow(1.0)
         .shrink()
@@ -104,7 +105,7 @@ pub fn shut_width<S: TimelineHost>(s: &S, session: &str, c: &Call) -> f32 {
     let shell = matches!(c.name, "shell" | "bash");
     let measure = |t: &str, style| rune::text::measure(t, &[], style, None).0;
     let sub = subtitle(s, session, c).map_or(0.0, |t| measure(t.lines().next().unwrap_or(""), if shell { TOOL_CODE.lh(16.0) } else { UI }) + 6.0);
-    16.0 + 8.0 + measure(&name(c), UI_MED) + sub + 6.0 + measure(&summary(c.name, cleaned), UI) + 8.0 + 6.0 + 14.0
+    16.0 + 8.0 + measure(&name(c), UI_MED) + sub + 6.0 + measure(&summary(c.name, cleaned), UI) + 6.0 + 14.0
 }
 
 /// The tool's name, as its trigger says it.
@@ -144,12 +145,12 @@ fn subtitle<S: TimelineHost>(s: &S, session: &str, c: &Call) -> Option<String> {
 }
 
 /// The error's gist: what comes before its first ": ", capitalised, without the tool's own name
-/// in front; "Failed" when there's nothing.
+/// in front, its lines joined as the summary's `white-space: nowrap` joins them
+/// (`tool-error-card.tsx:107`, `tool-error-card.css:37`); "Failed" when there's nothing.
 pub fn summary(tool: &str, cleaned: &str) -> String {
     let tool = if tool == "bash" { "shell" } else { tool };
     let tail = cleaned.strip_prefix(&format!("{tool} ")).unwrap_or(cleaned);
-    let head = tail.split(": ").next().unwrap_or("").trim();
-    let head = head.lines().next().unwrap_or("").trim();
+    let head = super::plain::one_line(tail.split(": ").next().unwrap_or(""));
     let mut chars = head.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),

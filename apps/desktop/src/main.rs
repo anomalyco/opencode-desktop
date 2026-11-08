@@ -546,6 +546,9 @@ impl session_view::TimelineHost for App {
     fn content_width(&self) -> f32 {
         self.settings.timeline_width.width().content()
     }
+    fn timeline_frame_h(&self) -> Option<f32> {
+        rune::memo::layout_with("session", |r| r[3])
+    }
     fn active_session_id(&self) -> Option<&str> {
         match &self.route {
             Route::Session(id) => Some(id.as_str()),
@@ -567,6 +570,9 @@ impl session_view::TimelineHost for App {
     }
     fn is_session_stopped(&self, session: &str) -> bool {
         self.stops.has(session)
+    }
+    fn session_asking(&self, session: &str) -> bool {
+        self.pending.iter().any(|p| p.session() == session)
     }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())

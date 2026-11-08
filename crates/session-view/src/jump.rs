@@ -20,7 +20,9 @@ pub enum Align {
     End,
 }
 
-/// Desktop's `jumpThreshold`: more than the viewport's height, and at least 400 above the end.
+/// Desktop's `jumpThreshold` (`interaction.ts:125`): more than the viewport's height, and at
+/// least 400 above the end. Desktop's viewport runs under the header and the composer, so its
+/// height is the pane's (`TimelineHost::timeline_frame_h`), not the rows' window above the composer.
 const THRESHOLD: f32 = 400.0;
 /// Centred, its bottom edge sits this far above the timeline's (`bottom: inset + 32px`).
 const LIFT: f32 = 32.0;
@@ -173,7 +175,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // Rune's scroll bar, under the jump button and pills, which keep their presses where
         // they overlap it.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
-            .child(scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)).on_at_bottom(at_end::<S>(id))
+            .child(scroll.on_far_from_bottom(THRESHOLD.max(s.timeline_frame_h().unwrap_or(0.0)), far::<S>(id)).on_at_bottom(at_end::<S>(id))
                 .scroll_bar_styled(crate::palette::scroll_bar(p).hover_target())))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)

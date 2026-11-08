@@ -137,6 +137,11 @@ pub trait TimelineHost: Sized + 'static {
     fn is_session_stopped(&self, _session: &str) -> bool {
         false
     }
+    /// Whether session `session` itself waits on a question or a permission, which hides its
+    /// Working (`message-timeline.tsx:339`).
+    fn session_asking(&self, _session: &str) -> bool {
+        false
+    }
     fn session_revert(&self, _session: &str) -> Option<&str> {
         None
     }
@@ -315,6 +320,11 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// Loads that diff again after a failure.
     fn retry_turn_diff(&mut self, _session: &str, _from: &str) {}
+    /// The height of the pane the timeline scrolls in, header and composer included: Desktop's
+    /// timeline viewport runs under both, and Jump to latest shows past that far from the end.
+    fn timeline_frame_h(&self) -> Option<f32> {
+        None
+    }
     /// Settings › Preferences › Background activity: where the pills over the composer sit.
     fn lane_align(&self) -> jump::Align {
         jump::Align::Start

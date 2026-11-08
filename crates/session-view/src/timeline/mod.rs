@@ -44,7 +44,9 @@ pub enum RowContent {
     TurnDivider(Run),
     TurnText { message: usize, part: usize, live: bool, pt: f32 },
     Turn { start: usize, end: usize, block: usize, live: bool, pt: f32 },
-    Actions { message: usize, busy: bool },
+    /// `asking`: the session waits on a question or permission. `last`: it ends the timeline and
+    /// nothing waits to send, so a finished reply's footer takes room of its own (`parts::turn_actions`).
+    Actions { message: usize, busy: bool, asking: bool, last: bool },
     /// A prompt's images, and a tool's (by id, in messages `start..end`): built, and so
     /// fetched and decoded, only when the row mounts.
     UserImages { id: String, pt: f32 },
@@ -218,7 +220,7 @@ impl RowSpec {
             RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
-            RowContent::Actions { message, busy } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, &t.session, &t.messages[*message])),
+            RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, &t.messages[*message])),
             RowContent::UserImages { id, pt } => {
                 let files = model::user_files(id);
                 crate::images::gallery(s, p, "images", &files, true).unwrap_or_else(col).pt(*pt)
@@ -320,8 +322,11 @@ pub fn timeline_row_builds() -> usize {
     ROW_BUILDS.get()
 }
 
-/// The timeline's padding under its last row.
-const END: f32 = 24.0;
+/// Desktop's `tailSize`, the room under the timeline's last row (`virtualizer.tsx:152`, its
+/// `paddingEnd`): the Working lane at its top, then the gap over the composer. The turn's
+/// actions row (`parts::turn_actions`) holds that lane, so the padding is the rest, and stays
+/// put: steers waiting under the actions row end the timeline with the gap alone.
+const TAIL: f32 = 92.0;
 
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
 /// its last row stands over the lane, clear of the fade into the composer.
@@ -340,7 +345,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .center()
         .px(24.0)
         .pt(8.0)
-        .pb(END.max(crate::jump::fade(s, 0.0)))
+        .pb((TAIL - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)
@@ -523,7 +528,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         // Working lasts the whole run, like Desktop's session status: each step's message
         // finishes before the next one starts, and those gaps used to blink it out.
         let busy = busy || s.is_session_live(&t.session);
-        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy }, streaming: false };
+        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy, asking: busy && s.session_asking(&t.session), last: false }, streaming: false };
         // The reply's footer stays with its words, above the run's Changed files.
         match diff_at.filter(|at| at + 1 == out.len()) {
             Some(at) => {
@@ -556,6 +561,12 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         prev = Some(&item.text);
     }
     dividers::stack(t, &mut out);
+    // Input waiting to send (queued, or steers) lands as the turn ends, so the reply's footer
+    // takes its room only once nothing waits.
+    let waiting = s.inbox_for(&t.session).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some());
+    if let Some(RowSpec { content: RowContent::Actions { last, .. }, .. }) = out.last_mut() {
+        *last = !waiting;
+    }
     out
 }
 

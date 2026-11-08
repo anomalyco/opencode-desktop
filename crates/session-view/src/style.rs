@@ -210,6 +210,8 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .inline_code_pad(4.0)
         .code_block(p.code_bg, p.border)
         .code_block_text(p.syntax.variable)
+        // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).
+        .plain_code_text(p.muted)
         .shell_code(p.code_bg, p.border_muted, p.text)
         .quote(p.border, 0.5, 8.0, p.muted)
         .rule(Color::TRANSPARENT)

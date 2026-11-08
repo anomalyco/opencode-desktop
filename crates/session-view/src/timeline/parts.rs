@@ -260,7 +260,10 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
     items
 }
 
-pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, message: &Message) -> El {
+/// The turn's tail: Working while it runs (unless it waits on a question or permission, `asking`,
+/// as Desktop's `showWorking`), then the reply's Copy footer, with room of its own over the
+/// timeline's tail when it ends the timeline (`last`).
+pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, last: bool, session: &str, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -317,10 +320,26 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
         }
         r.group_opacity(0.0, 1.0)
     };
-    let lane = el().w_full().h(crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
+    // The Sources experiment's chip leads a finished turn's footer that searched the web: it
+    // stays in view, 16 under the reply, and Copy follows it 8 on (`text-part-footer`).
+    let sources = (!busy && has_text && s.knobs().get(&crate::knobs::SOURCES_ENABLED) > 0.5)
+        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).and_then(|i| crate::sources_chip::of(t, i))).flatten())
+        .flatten();
+    // A finished reply's footer (`text-part-copy-wrapper`: 8 under it, 20 tall) sits over the
+    // Working lane, which Desktop's timeline tail keeps empty under it (`virtualizer.tsx:152`).
+    // Input waiting under the turn lands at once, so the footer doesn't push it down meanwhile.
+    let footer = if busy || !last || !(has_text || interrupted) {
+        0.0
+    } else if sources.is_some() && !interrupted {
+        16.0 + COPY
+    } else {
+        COPY_AT.1 + COPY
+    };
+    let working = busy && !asking;
+    let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, busy).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if busy { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
@@ -335,11 +354,6 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
         }
         return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
     }
-    // The Sources experiment's chip leads a finished turn's footer that searched the web: it
-    // stays in view, 16 under the reply, and Copy follows it 8 on (`text-part-footer`).
-    let sources = (!busy && has_text && s.knobs().get(&crate::knobs::SOURCES_ENABLED) > 0.5)
-        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).and_then(|i| crate::sources_chip::of(t, i))).flatten())
-        .flatten();
     let (dx, y) = match &sources {
         Some(c) => (chip_width(c) + 8.0, 16.0),
         None => (0.0, COPY_AT.1),
