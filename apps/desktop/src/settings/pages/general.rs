@@ -16,7 +16,7 @@ use crate::view::UI;
 pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     // `formatKeybind("mod+enter")`: the chord the alternate send is here.
-    let alternate = crate::keymap::Bind::SubmitAlternate.keybind().label();
+    let alternate = crate::keymap::Bind::SubmitAlternate.chord().map_or_else(String::new, session_view::keymap::sentence);
     let mut rows = vec![
         // Desktop's first row, its control at the row's top (`align="start"`).
         ("settings-tab-layout", setting_at(p, "settings-tab-layout", t!("settings.general.row.interfaceMode.title"), t!("settings.general.row.interfaceMode.description"), super::super::interface_mode::control(s, p), false)),

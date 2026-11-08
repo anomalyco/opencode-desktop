@@ -127,13 +127,44 @@ pub fn label(chord: Chord) -> String {
     caps(chord).join(if KeyPlatform::current() == Mac { "" } else { "+" })
 }
 
-/// A chord's keycaps here (`Chord::keycaps_on`), with Enter as ⏎.
+/// A chord's keycaps here (`Chord::keycaps_on`), with Enter as ⏎ and, off macOS, the words in
+/// the current language (`common.key.*`: Strg, Umschalt).
 pub fn caps(chord: Chord) -> Vec<String> {
-    let mut caps = chord.keycaps_on(KeyPlatform::current());
+    let mut caps: Vec<String> = chord.keycaps_on(KeyPlatform::current()).into_iter().map(|cap| localized(&cap).map_or(cap, str::to_owned)).collect();
     if chord.key() == ChordKey::Enter
         && let Some(last) = caps.last_mut()
     {
         *last = "⏎".into();
     }
     caps
+}
+
+/// A chord as Desktop's `formatKeybind` writes it in a sentence: the keys' words in the current
+/// language, Enter as a word ("Strg+Eingabe"), joined with "+" off macOS.
+pub fn sentence(chord: Chord) -> String {
+    let platform = KeyPlatform::current();
+    let caps: Vec<String> = chord.keycaps_on(platform).into_iter().map(|cap| localized(&cap).map_or(cap, str::to_owned)).collect();
+    caps.join(if platform == Mac { "" } else { "+" })
+}
+
+/// A keycap word Desktop translates (`displayKeybindParts`), in the current language.
+fn localized(cap: &str) -> Option<&'static str> {
+    use opencode_i18n::t;
+    Some(match cap {
+        "Ctrl" => t!("common.key.ctrl"),
+        "Alt" => t!("common.key.alt"),
+        "Shift" => t!("common.key.shift"),
+        "Enter" => t!("common.key.enter"),
+        "Tab" => t!("common.key.tab"),
+        "Esc" => t!("common.key.esc"),
+        "Backspace" => t!("common.key.backspace"),
+        "Delete" => t!("common.key.delete"),
+        "Insert" => t!("common.key.insert"),
+        "Home" => t!("common.key.home"),
+        "End" => t!("common.key.end"),
+        "Page Up" => t!("common.key.pageUp"),
+        "Page Down" => t!("common.key.pageDown"),
+        "Space" => t!("common.key.space"),
+        _ => return None,
+    })
 }
