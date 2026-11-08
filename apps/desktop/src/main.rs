@@ -1023,24 +1023,31 @@ impl App {
         matches!(&self.route, Route::Session(id) if self.busy(id))
     }
 
-    /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's, draft's or
-    /// Home project's folder, as Desktop's `openDraft`.
+    /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's or draft's
+    /// folder, as Desktop's `openDraft`. On Home and in Settings it's Home's project, else the
+    /// last used or the first the server lists, and with no project it does nothing.
     pub fn new_session(&mut self, tx: &mut Tx) {
-        self.close_settings();
-        self.close_picker(false);
-        self.close_project_switcher(false);
-        self.project_state.home_menu_open = false;
-        let dir = match &self.route {
-            Route::Session(id) => self.session(id).map(|s| s.directory.clone()),
-            Route::Home => self
+        let dir = if self.settings.open || self.route == Route::Home {
+            let project = self
                 .project_state
                 .home_selected
                 .as_deref()
                 .and_then(|id| self.project(id))
                 .or_else(|| self.used_projects().into_iter().next())
-                .map(|p| p.directory.clone()),
-            Route::Draft(_) => Some(self.draft_dir().to_owned()),
+                .or_else(|| self.projects.first());
+            let Some(project) = project else { return };
+            Some(project.directory.clone())
+        } else {
+            match &self.route {
+                Route::Session(id) => self.session(id).map(|s| s.directory.clone()),
+                Route::Draft(_) => Some(self.draft_dir().to_owned()),
+                Route::Home => None,
+            }
         };
+        self.close_settings();
+        self.close_picker(false);
+        self.close_project_switcher(false);
+        self.project_state.home_menu_open = false;
         if let Some(dir) = dir.filter(|d| !d.is_empty()) {
             self.default_dir = dir;
         }
