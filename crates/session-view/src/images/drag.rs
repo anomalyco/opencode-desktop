@@ -28,9 +28,10 @@ pub fn draggable<S: TimelineHost>(e: El, dragged: Dragged) -> El {
 }
 
 impl MediaStore {
-    /// What dragging `d` out carries: its bytes as a file, `None` until they're here.
+    /// What dragging `d` out carries: its bytes as a file, `None` until they're here. The app's
+    /// own windows take it too, so the composer can attach it.
     pub fn drag_item(&self, d: &Dragged) -> Option<DragItem> {
-        Some(DragItem::new().file(self.image_file(d)?))
+        Some(DragItem::new().file(self.image_file(d)?).within_app())
     }
 
     /// `d`'s encoded bytes and a name to give them, once they're here.

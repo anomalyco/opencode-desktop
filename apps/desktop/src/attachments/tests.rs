@@ -121,7 +121,9 @@ fn a_timeline_image_dropped_on_the_composer_attaches() {
     // Where the timeline's drag writes its file.
     let media = session_view::images::MediaStore::default();
     let f = Attachment { mime: "image/png".into(), name: "dragged.png".into(), bytes: Arc::from(png(4, 4)), media: None };
-    let own = media.image_file(&session_view::images::Dragged::File(f)).expect("written");
+    let dragged = session_view::images::Dragged::File(f);
+    assert!(media.drag_item(&dragged).expect("drag item").drops_within_app(), "the drag reaches the app's own windows");
+    let own = media.image_file(&dragged).expect("written");
     assert!(session_view::images::drag::is_own(&own));
     let panel = rect(&rt, "panel").unwrap();
     let timeline = (panel[0] + panel[2] / 2.0, panel[1] + panel[3] * 0.3);
