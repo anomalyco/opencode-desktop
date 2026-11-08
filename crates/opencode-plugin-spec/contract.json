@@ -275,6 +275,49 @@
     { "name": "StoreScope", "rust": true, "doc": "What a declared store keeps a value for.", "values": [
       { "value": "global", "doc": "One value for the whole app." },
       { "value": "session", "doc": "One value per session." }
+    ] },
+    { "name": "ProgressAppearance", "rust": true, "doc": "How `ui.progressCircle` draws, as the app's ProgressCircle.", "values": [
+      { "value": "compact", "doc": "A 14-unit ring with a 1.5 stroke: the session header's." },
+      { "value": "indicator", "doc": "A 16-unit ring with a thicker stroke and an overlay over its track: a tab's." }
+    ] },
+    { "name": "TextDirection", "rust": true, "doc": "Which way the interface language reads.", "values": [
+      { "value": "ltr", "doc": "Left to right." },
+      { "value": "rtl", "doc": "Right to left: Arabic, Hebrew, Urdu, Punjabi, Persian, Dhivehi." }
+    ] },
+    { "name": "PluralCategory", "rust": true, "doc": "A CLDR plural category: which form of a counted message the language uses for a count.", "values": [
+      { "value": "zero", "doc": "Zero." },
+      { "value": "one", "doc": "One." },
+      { "value": "two", "doc": "Two." },
+      { "value": "few", "doc": "Few." },
+      { "value": "many", "doc": "Many." },
+      { "value": "other", "doc": "Every other count, and the fallback form." }
+    ] },
+    { "name": "DateStyle", "rust": true, "doc": "A date and time format, as the app writes dates.", "values": [
+      { "value": "time", "doc": "The time: `3:45 PM`, `15:45`." },
+      { "value": "monthDay", "doc": "Month and day: `Nov 3`." },
+      { "value": "monthDayYear", "doc": "Month, day and year: `Nov 3, 2026`." },
+      { "value": "dateTime", "doc": "Medium date and short time: `Nov 3, 2026, 3:45 PM`." },
+      { "value": "monthDayTime", "doc": "Month, day and time: `Nov 3, 3:45 PM`." },
+      { "value": "monthDayYearTime", "doc": "Month, day, year and time: `Nov 3, 2026, 3:45 PM`." },
+      { "value": "monthDayTimeZone", "doc": "Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`." }
+    ] },
+    { "name": "TimeUnit", "rust": true, "doc": "A unit of relative time.", "values": [
+      { "value": "second", "doc": "Seconds." },
+      { "value": "minute", "doc": "Minutes." },
+      { "value": "hour", "doc": "Hours." },
+      { "value": "day", "doc": "Days." },
+      { "value": "week", "doc": "Weeks." },
+      { "value": "month", "doc": "Months." },
+      { "value": "year", "doc": "Years." }
+    ] },
+    { "name": "NumberStyle", "rust": true, "doc": "What a number means.", "values": [
+      { "value": "decimal", "doc": "A plain number: `12,345.6`." },
+      { "value": "percent", "doc": "A share, where 1 is 100%: `42%`." },
+      { "value": "currency", "doc": "Money in `currency`: `$1,234.50`." }
+    ] },
+    { "name": "NumberNotation", "rust": true, "doc": "How a number is written.", "values": [
+      { "value": "standard", "doc": "Every digit: `12,345`." },
+      { "value": "compact", "doc": "Short, with a unit, lowercased: `12k`, `3m`." }
     ] }
   ],
   "types": [
@@ -569,7 +612,28 @@
       { "name": "source", "type": "string", "doc": "The ```` ```ui ```` outline source." },
       { "name": "streaming", "type": "boolean?", "doc": "The source is still growing." }
     ] },
+    { "name": "UiProgressCircleProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.progressCircle` props: the app's progress ring.", "fields": [
+      { "name": "percentage", "type": "number", "doc": "How full, 0 to 100. The arc runs clockwise from twelve o'clock." },
+      { "name": "appearance", "type": "ProgressAppearance?", "doc": "Its look. Defaults to `compact`." },
+      { "name": "size", "type": "number?", "doc": "Width and height in points. Defaults to the appearance's own: 14 or 16." },
+      { "name": "strokeWidth", "type": "number?", "doc": "The stroke in the ring's own units. Defaults to 1.5 for `compact`, 3 for `indicator`." },
+      { "name": "track", "type": "Color?", "doc": "The track's color. Defaults to `surface-4`." },
+      { "name": "overlay", "type": "Color?", "doc": "`indicator` only: a color over the track. Defaults to none." },
+      { "name": "progress", "type": "Color?", "doc": "The arc's color. Defaults to `icon-base`." }
+    ] },
 
+    { "name": "LocaleInfo", "kind": "record", "rust": true, "doc": "The interface language.", "fields": [
+      { "name": "id", "type": "string", "doc": "The app's id for it, such as `\"de\"` or `\"zht\"`: the name of its catalog file, `locales/<id>.json`." },
+      { "name": "tag", "type": "string", "doc": "Its BCP 47 tag, such as `\"de-DE\"` or `\"zh-Hant\"`." },
+      { "name": "name", "type": "string", "doc": "Its name in itself, such as `\"Deutsch\"`." },
+      { "name": "direction", "type": "TextDirection", "doc": "Which way it reads." }
+    ] },
+    { "name": "NumberFormat", "kind": "record", "rust": true, "doc": "How `I18n:Number` writes a number.", "fields": [
+      { "name": "style", "type": "NumberStyle?", "doc": "Defaults to `decimal`." },
+      { "name": "notation", "type": "NumberNotation?", "doc": "Defaults to `standard`." },
+      { "name": "currency", "type": "string?", "doc": "An ISO 4217 code for `currency`. Defaults to `\"USD\"`." },
+      { "name": "maxFraction", "type": "integer?", "doc": "The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`." }
+    ] },
     { "name": "SessionUsage", "kind": "record", "rust": true, "doc": "A session's token counts at its last step.", "fields": [
       { "name": "input", "type": "integer", "doc": "Input tokens." },
       { "name": "output", "type": "integer", "doc": "Output tokens." },
@@ -588,13 +652,19 @@
       { "name": "cost", "type": "number", "doc": "What it cost in USD, its subagents' sessions included." },
       { "name": "usage", "type": "SessionUsage?", "doc": "Token counts at the last step with tokens." },
       { "name": "usageProviderId", "type": "string?", "doc": "The provider of the step `usage` came from." },
-      { "name": "usageModelId", "type": "string?", "doc": "The model of the step `usage` came from." }
+      { "name": "usageModelId", "type": "string?", "doc": "The model of the step `usage` came from." },
+      { "name": "providerId", "type": "string?", "doc": "The provider of the model the session runs with." },
+      { "name": "modelId", "type": "string?", "doc": "The model the session runs with." },
+      { "name": "created", "type": "number?", "doc": "When it was created, in milliseconds since the Unix epoch." },
+      { "name": "updated", "type": "number?", "doc": "When it last changed, in milliseconds since the Unix epoch." },
+      { "name": "messages", "type": "integer?", "doc": "How many messages the app holds for it. Nil before it has read them." }
     ] },
     { "name": "ModelInfo", "kind": "record", "rust": true, "doc": "A model as the server's catalog names it.", "fields": [
       { "name": "providerName", "type": "string?", "doc": "The provider's name. Nil when the catalog does not list the provider." },
       { "name": "modelName", "type": "string?", "doc": "The model's name. Nil when the catalog does not list it." },
       { "name": "contextLimit", "type": "integer?", "doc": "Its context window in tokens." },
-      { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." }
+      { "name": "outputLimit", "type": "integer?", "doc": "Its output limit in tokens." },
+      { "name": "paid", "type": "boolean?", "doc": "Any of its token prices is above zero." }
     ] },
     { "name": "Resource", "kind": "record", "rust": true, "doc": "A cached server read.", "fields": [
       { "name": "status", "type": "ResourceStatus", "doc": "Its state." },
@@ -1372,6 +1442,19 @@
       { "name": "FromSvg", "kind": "method", "sig": "(svg: string) -> ImageId?", "doc": "An SVG image." },
       { "name": "FromRgba", "kind": "method", "sig": "(pixels: buffer, width: number, height: number) -> ImageId?", "doc": "Straight-alpha RGBA8 pixels." },
       { "name": "Release", "kind": "method", "sig": "(image: ImageId) -> ()", "doc": "Frees an image once nothing draws it." }
+    ] },
+    { "name": "I18n", "halves": ["window", "app"], "doc": "The plugin's own messages in the interface language, and numbers, dates and lists written the way the app writes them. A plugin's catalogs are `locales/<id>.json` in its folder: flat objects of message keys, the app's format.", "members": [
+      { "name": "T", "kind": "method", "sig": "(key: string, args: { [string]: any }?) -> string", "doc": "Message `key` in the interface language, else in `locales/en.json`, else the key itself. `{{name}}` placeholders take `args`, and a missing one reads empty. With a number `args.count`, the form `key.<category>` for the count's plural category is used when the catalog has it, else `key.other`, else `key`." },
+      { "name": "Has", "kind": "method", "sig": "(key: string) -> boolean", "doc": "The interface language's catalog, or the English one, has message `key`." },
+      { "name": "Locale", "kind": "method", "sig": "() -> LocaleInfo", "doc": "The interface language." },
+      { "name": "Direction", "kind": "method", "sig": "() -> TextDirection", "doc": "Which way the interface language reads. Lay out rows from the reading start; the host mirrors its own layout." },
+      { "name": "Plural", "kind": "method", "sig": "(count: number) -> PluralCategory", "doc": "The plural category the interface language uses for `count`." },
+      { "name": "Number", "kind": "method", "sig": "(value: number, format: NumberFormat?) -> string", "doc": "`value` with the language's digits, separators and signs." },
+      { "name": "Date", "kind": "method", "sig": "(ms: number, style: DateStyle) -> string", "doc": "The moment `ms` (milliseconds since the Unix epoch) in local time, in `style`." },
+      { "name": "RelativeTime", "kind": "method", "sig": "(value: number, unit: TimeUnit) -> string", "doc": "A relative time: `-3, \"day\"` reads \"3 days ago\", `2, \"hour\"` \"in 2 hours\"." },
+      { "name": "RelativeDay", "kind": "method", "sig": "(days: number) -> string?", "doc": "\"today\", \"yesterday\" or \"tomorrow\" for 0, -1 and 1 days from today, in the language. Nil for other days." },
+      { "name": "List", "kind": "method", "sig": "(items: { string }) -> string", "doc": "Items joined as the language's long conjunction: \"a, b, and c\"." },
+      { "name": "Changed", "kind": "signal", "payload": "LocaleInfo", "doc": "Fires as the interface language changes. Everything drawn redraws on its own; connect for state you keep." }
     ] }
   ],
   "events": [
@@ -1396,6 +1479,7 @@
     { "name": "radio", "category": "control", "sig": "(props: UiRadioProps) -> UiNode", "props": "UiRadioProps", "doc": "A radio row." },
     { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
     { "name": "loader", "category": "control", "sig": "(props: UiLoaderProps?) -> UiNode", "props": "UiLoaderProps", "doc": "The app's spinner." },
+    { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },
     { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },

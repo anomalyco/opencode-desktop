@@ -57,6 +57,38 @@ pub struct UiPin {
 }
 impl_record!(UiPin, ["left", "top", "right", "bottom"], [], []);
 
+/// The interface language.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct LocaleInfo {
+    /// The app's id for it, such as `"de"` or `"zht"`: the name of its catalog file, `locales/<id>.json`.
+    pub id: String,
+    /// Its BCP 47 tag, such as `"de-DE"` or `"zh-Hant"`.
+    pub tag: String,
+    /// Its name in itself, such as `"Deutsch"`.
+    pub name: String,
+    /// Which way it reads.
+    pub direction: TextDirection,
+}
+impl_record!(LocaleInfo, ["id", "tag", "name", "direction"], [], []);
+
+/// How `I18n:Number` writes a number.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct NumberFormat {
+    /// Defaults to `decimal`.
+    pub style: Option<NumberStyle>,
+    /// Defaults to `standard`.
+    pub notation: Option<NumberNotation>,
+    /// An ISO 4217 code for `currency`. Defaults to `"USD"`.
+    pub currency: Option<String>,
+    /// The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`.
+    pub max_fraction: Option<i64>,
+}
+impl_record!(NumberFormat, ["style", "notation", "currency", "maxFraction"], [], []);
+
 /// A session's token counts at its last step.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,8 +134,18 @@ pub struct Session {
     pub usage_provider_id: Option<String>,
     /// The model of the step `usage` came from.
     pub usage_model_id: Option<String>,
+    /// The provider of the model the session runs with.
+    pub provider_id: Option<String>,
+    /// The model the session runs with.
+    pub model_id: Option<String>,
+    /// When it was created, in milliseconds since the Unix epoch.
+    pub created: Option<f64>,
+    /// When it last changed, in milliseconds since the Unix epoch.
+    pub updated: Option<f64>,
+    /// How many messages the app holds for it. Nil before it has read them.
+    pub messages: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "providerId", "modelId", "created", "updated", "messages"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -118,8 +160,10 @@ pub struct ModelInfo {
     pub context_limit: Option<i64>,
     /// Its output limit in tokens.
     pub output_limit: Option<i64>,
+    /// Any of its token prices is above zero.
+    pub paid: Option<bool>,
 }
-impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLimit"], [], []);
+impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLimit", "paid"], [], []);
 
 /// A cached server read.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -36,6 +36,7 @@ export type CodeViewProps = UiCodeViewProps
 export type DiffViewProps = UiDiffViewProps
 export type FileTreeProps = UiFileTreeProps
 export type GenUiProps = UiGenUiProps
+export type ProgressCircleProps = UiProgressCircleProps
 export type Align = UiAlign
 export type Justify = UiJustify
 export type EventKind = UiEventKind

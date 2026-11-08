@@ -158,6 +158,27 @@ export type DialogSize = "small" | "medium" | "large"
 --- What a declared store keeps a value for.
 export type StoreScope = "global" | "session"
 
+--- How `ui.progressCircle` draws, as the app's ProgressCircle.
+export type ProgressAppearance = "compact" | "indicator"
+
+--- Which way the interface language reads.
+export type TextDirection = "ltr" | "rtl"
+
+--- A CLDR plural category: which form of a counted message the language uses for a count.
+export type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other"
+
+--- A date and time format, as the app writes dates.
+export type DateStyle = "time" | "monthDay" | "monthDayYear" | "dateTime" | "monthDayTime" | "monthDayYearTime" | "monthDayTimeZone"
+
+--- A unit of relative time.
+export type TimeUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
+
+--- What a number means.
+export type NumberStyle = "decimal" | "percent" | "currency"
+
+--- How a number is written.
+export type NumberNotation = "standard" | "compact"
+
 -- Opaque host types -------------------------------------------------------------------------------
 
 --- A literal color from `ui.hex("#RRGGBB")` or `ui.hex("#RRGGBBAA")`. Prefer a `SemanticToken`: a literal color does not follow the theme.
@@ -2257,6 +2278,106 @@ export type UiGenUiProps = {
     streaming: boolean?,
 }
 
+--- `ui.progressCircle` props: the app's progress ring.
+export type UiProgressCircleProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- How full, 0 to 100. The arc runs clockwise from twelve o'clock.
+    percentage: number,
+    --- Its look. Defaults to `compact`.
+    appearance: ProgressAppearance?,
+    --- Width and height in points. Defaults to the appearance's own: 14 or 16.
+    size: number?,
+    --- The stroke in the ring's own units. Defaults to 1.5 for `compact`, 3 for `indicator`.
+    strokeWidth: number?,
+    --- The track's color. Defaults to `surface-4`.
+    track: Color?,
+    --- `indicator` only: a color over the track. Defaults to none.
+    overlay: Color?,
+    --- The arc's color. Defaults to `icon-base`.
+    progress: Color?,
+}
+
+--- The interface language.
+export type LocaleInfo = {
+    --- The app's id for it, such as `"de"` or `"zht"`: the name of its catalog file, `locales/<id>.json`.
+    id: string,
+    --- Its BCP 47 tag, such as `"de-DE"` or `"zh-Hant"`.
+    tag: string,
+    --- Its name in itself, such as `"Deutsch"`.
+    name: string,
+    --- Which way it reads.
+    direction: TextDirection,
+}
+
+--- How `I18n:Number` writes a number.
+export type NumberFormat = {
+    --- Defaults to `decimal`.
+    style: NumberStyle?,
+    --- Defaults to `standard`.
+    notation: NumberNotation?,
+    --- An ISO 4217 code for `currency`. Defaults to `"USD"`.
+    currency: string?,
+    --- The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`.
+    maxFraction: number?,
+}
+
 --- A session's token counts at its last step.
 export type SessionUsage = {
     --- Input tokens.
@@ -2295,6 +2416,16 @@ export type Session = {
     usageProviderId: string?,
     --- The model of the step `usage` came from.
     usageModelId: string?,
+    --- The provider of the model the session runs with.
+    providerId: string?,
+    --- The model the session runs with.
+    modelId: string?,
+    --- When it was created, in milliseconds since the Unix epoch.
+    created: number?,
+    --- When it last changed, in milliseconds since the Unix epoch.
+    updated: number?,
+    --- How many messages the app holds for it. Nil before it has read them.
+    messages: number?,
 }
 
 --- A model as the server's catalog names it.
@@ -2307,6 +2438,8 @@ export type ModelInfo = {
     contextLimit: number?,
     --- Its output limit in tokens.
     outputLimit: number?,
+    --- Any of its token prices is above zero.
+    paid: boolean?,
 }
 
 --- A cached server read.
@@ -3797,6 +3930,32 @@ export type ImagesService = {
     Release: (self: ImagesService, image: ImageId) -> (),
 }
 
+--- The plugin's own messages in the interface language, and numbers, dates and lists written the way the app writes them. A plugin's catalogs are `locales/<id>.json` in its folder: flat objects of message keys, the app's format. Both halves: `ctx:GetService("I18n")`.
+export type I18nService = {
+    --- Message `key` in the interface language, else in `locales/en.json`, else the key itself. `{{name}}` placeholders take `args`, and a missing one reads empty. With a number `args.count`, the form `key.<category>` for the count's plural category is used when the catalog has it, else `key.other`, else `key`.
+    T: (self: I18nService, key: string, args: { [string]: any }?) -> string,
+    --- The interface language's catalog, or the English one, has message `key`.
+    Has: (self: I18nService, key: string) -> boolean,
+    --- The interface language.
+    Locale: (self: I18nService) -> LocaleInfo,
+    --- Which way the interface language reads. Lay out rows from the reading start; the host mirrors its own layout.
+    Direction: (self: I18nService) -> TextDirection,
+    --- The plural category the interface language uses for `count`.
+    Plural: (self: I18nService, count: number) -> PluralCategory,
+    --- `value` with the language's digits, separators and signs.
+    Number: (self: I18nService, value: number, format: NumberFormat?) -> string,
+    --- The moment `ms` (milliseconds since the Unix epoch) in local time, in `style`.
+    Date: (self: I18nService, ms: number, style: DateStyle) -> string,
+    --- A relative time: `-3, "day"` reads "3 days ago", `2, "hour"` "in 2 hours".
+    RelativeTime: (self: I18nService, value: number, unit: TimeUnit) -> string,
+    --- "today", "yesterday" or "tomorrow" for 0, -1 and 1 days from today, in the language. Nil for other days.
+    RelativeDay: (self: I18nService, days: number) -> string?,
+    --- Items joined as the language's long conjunction: "a, b, and c".
+    List: (self: I18nService, items: { string }) -> string,
+    --- Fires as the interface language changes. Everything drawn redraws on its own; connect for state you keep.
+    Changed: Signal<LocaleInfo>,
+}
+
 -- Plugin contexts ---------------------------------------------------------------------------------
 
 export type WindowContextCreateSignal = <T...>(self: WindowContext) -> ScriptSignal<T...>
@@ -3875,6 +4034,8 @@ declare extern type WindowContext with
     function GetService(self, name: "Qr"): QrService
     --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
     function GetService(self, name: "Images"): ImagesService
+    --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
+    function GetService(self, name: "I18n"): I18nService
     --- Adds a command to the palette, its keybind and its slash command.
     function AddCommand(self, spec: CommandSpec): Contribution
     --- Adds a panel: tabs in the session's side region.
@@ -3977,6 +4138,8 @@ declare extern type AppContext with
     function GetService(self, name: "Askpass"): AskpassService
     --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
     function GetService(self, name: "Images"): ImagesService
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    function GetService(self, name: "I18n"): I18nService
     --- Adds an item to the app menu bar.
     function AddMenubarItem(self, spec: MenubarItemSpec): Contribution
     --- Adds a source of servers. Add it in the app half so every window shares one list.
@@ -4025,6 +4188,8 @@ export type UiLibrary = {
     field: (props: UiFieldProps) -> UiNode,
     --- The app's spinner.
     loader: (props: UiLoaderProps?) -> UiNode,
+    --- The app's progress ring: a track and an arc from twelve o'clock, clockwise.
+    progressCircle: (props: UiProgressCircleProps) -> UiNode,
     --- A status capsule.
     pill: (props: UiPillProps) -> UiNode,
     --- A settings row: title and description beside a control.

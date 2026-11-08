@@ -189,6 +189,8 @@ string_enum! {
         Askpass = "Askpass",
         /// Images handed to the host for `ui.image`.
         Images = "Images",
+        /// The plugin's own messages in the interface language, and numbers, dates and lists written the way the app writes them. A plugin's catalogs are `locales/<id>.json` in its folder: flat objects of message keys, the app's format.
+        I18n = "I18n",
     }
 }
 
@@ -227,6 +229,7 @@ impl ServiceName {
             Self::Qr => &[Half::Window, Half::App],
             Self::Askpass => &[Half::App],
             Self::Images => &[Half::Window, Half::App],
+            Self::I18n => &[Half::Window, Half::App],
         }
     }
 
@@ -264,6 +267,7 @@ impl ServiceName {
             Self::Qr => &["Encode"],
             Self::Askpass => &["Listen"],
             Self::Images => &["FromEncoded", "FromSvg", "FromRgba", "Release"],
+            Self::I18n => &["T", "Has", "Locale", "Direction", "Plural", "Number", "Date", "RelativeTime", "RelativeDay", "List", "Changed"],
         }
     }
 }

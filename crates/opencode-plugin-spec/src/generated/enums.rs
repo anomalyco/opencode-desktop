@@ -538,3 +538,103 @@ string_enum! {
         Session = "session",
     }
 }
+
+string_enum! {
+    /// How `ui.progressCircle` draws, as the app's ProgressCircle.
+    pub enum ProgressAppearance {
+        /// A 14-unit ring with a 1.5 stroke: the session header's.
+        Compact = "compact",
+        /// A 16-unit ring with a thicker stroke and an overlay over its track: a tab's.
+        Indicator = "indicator",
+    }
+}
+
+string_enum! {
+    /// Which way the interface language reads.
+    pub enum TextDirection {
+        /// Left to right.
+        Ltr = "ltr",
+        /// Right to left: Arabic, Hebrew, Urdu, Punjabi, Persian, Dhivehi.
+        Rtl = "rtl",
+    }
+}
+
+string_enum! {
+    /// A CLDR plural category: which form of a counted message the language uses for a count.
+    pub enum PluralCategory {
+        /// Zero.
+        Zero = "zero",
+        /// One.
+        One = "one",
+        /// Two.
+        Two = "two",
+        /// Few.
+        Few = "few",
+        /// Many.
+        Many = "many",
+        /// Every other count, and the fallback form.
+        Other = "other",
+    }
+}
+
+string_enum! {
+    /// A date and time format, as the app writes dates.
+    pub enum DateStyle {
+        /// The time: `3:45 PM`, `15:45`.
+        Time = "time",
+        /// Month and day: `Nov 3`.
+        MonthDay = "monthDay",
+        /// Month, day and year: `Nov 3, 2026`.
+        MonthDayYear = "monthDayYear",
+        /// Medium date and short time: `Nov 3, 2026, 3:45 PM`.
+        DateTime = "dateTime",
+        /// Month, day and time: `Nov 3, 3:45 PM`.
+        MonthDayTime = "monthDayTime",
+        /// Month, day, year and time: `Nov 3, 2026, 3:45 PM`.
+        MonthDayYearTime = "monthDayYearTime",
+        /// Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`.
+        MonthDayTimeZone = "monthDayTimeZone",
+    }
+}
+
+string_enum! {
+    /// A unit of relative time.
+    pub enum TimeUnit {
+        /// Seconds.
+        Second = "second",
+        /// Minutes.
+        Minute = "minute",
+        /// Hours.
+        Hour = "hour",
+        /// Days.
+        Day = "day",
+        /// Weeks.
+        Week = "week",
+        /// Months.
+        Month = "month",
+        /// Years.
+        Year = "year",
+    }
+}
+
+string_enum! {
+    /// What a number means.
+    pub enum NumberStyle {
+        /// A plain number: `12,345.6`.
+        Decimal = "decimal",
+        /// A share, where 1 is 100%: `42%`.
+        Percent = "percent",
+        /// Money in `currency`: `$1,234.50`.
+        Currency = "currency",
+    }
+}
+
+string_enum! {
+    /// How a number is written.
+    pub enum NumberNotation {
+        /// Every digit: `12,345`.
+        Standard = "standard",
+        /// Short, with a unit, lowercased: `12k`, `3m`.
+        Compact = "compact",
+    }
+}

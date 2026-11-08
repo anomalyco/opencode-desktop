@@ -67,7 +67,7 @@ What a plugin half's setup function receives.
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `CreateEditor` | `(initial: string?) -> Editor` | A host-owned text field's content. The n-th editor a setup creates is the same field after a hot reload. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Popover`](#popover), [`Dialog`](#dialog), [`Menu`](#menu), [`Layout`](#layout), [`Links`](#links), [`Commands`](#commands), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Diff`](#diff), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Images`](#images). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Popover`](#popover), [`Dialog`](#dialog), [`Menu`](#menu), [`Layout`](#layout), [`Links`](#links), [`Commands`](#commands), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Diff`](#diff), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Images`](#images), [`I18n`](#i18n). |
 | `AddCommand` | `(spec: CommandSpec) -> Contribution` | Adds a command to the palette, its keybind and its slash command. |
 | `AddPanel` | `(spec: PanelSpec) -> Contribution` | Adds a panel: tabs in the session's side region. |
 | `AddSetting` | `(spec: SettingSpec) -> Contribution` | Adds a row to Settings › Plugins. |
@@ -97,7 +97,7 @@ What a plugin half's setup function receives.
 | `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
 | `AddMenubarItem` | `(spec: MenubarItemSpec) -> Contribution` | Adds an item to the app menu bar. |
 | `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
 | `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
@@ -454,6 +454,24 @@ Images handed to the host for `ui.image`. Halves: window, app.
 | `:FromRgba` | `(pixels: buffer, width: number, height: number) -> ImageId?` | Straight-alpha RGBA8 pixels. |
 | `:Release` | `(image: ImageId) -> ()` | Frees an image once nothing draws it. |
 
+### I18n
+
+The plugin's own messages in the interface language, and numbers, dates and lists written the way the app writes them. A plugin's catalogs are `locales/<id>.json` in its folder: flat objects of message keys, the app's format. Halves: window, app.
+
+| Member | Type | Description |
+|---|---|---|
+| `:T` | `(key: string, args: { [string]: any }?) -> string` | Message `key` in the interface language, else in `locales/en.json`, else the key itself. `{{name}}` placeholders take `args`, and a missing one reads empty. With a number `args.count`, the form `key.<category>` for the count's plural category is used when the catalog has it, else `key.other`, else `key`. |
+| `:Has` | `(key: string) -> boolean` | The interface language's catalog, or the English one, has message `key`. |
+| `:Locale` | `() -> LocaleInfo` | The interface language. |
+| `:Direction` | `() -> TextDirection` | Which way the interface language reads. Lay out rows from the reading start; the host mirrors its own layout. |
+| `:Plural` | `(count: number) -> PluralCategory` | The plural category the interface language uses for `count`. |
+| `:Number` | `(value: number, format: NumberFormat?) -> string` | `value` with the language's digits, separators and signs. |
+| `:Date` | `(ms: number, style: DateStyle) -> string` | The moment `ms` (milliseconds since the Unix epoch) in local time, in `style`. |
+| `:RelativeTime` | `(value: number, unit: TimeUnit) -> string` | A relative time: `-3, "day"` reads "3 days ago", `2, "hour"` "in 2 hours". |
+| `:RelativeDay` | `(days: number) -> string?` | "today", "yesterday" or "tomorrow" for 0, -1 and 1 days from today, in the language. Nil for other days. |
+| `:List` | `(items: { string }) -> string` | Items joined as the language's long conjunction: "a, b, and c". |
+| `.Changed` | `Signal<LocaleInfo>` | Fires as the interface language changes. Everything drawn redraws on its own; connect for state you keep. |
+
 ## UI nodes
 
 `ui.*` constructors build host elements straight into the frame's arena. Wrap subtrees in `view:Memo` so unchanged frames call no Luau at all.
@@ -477,6 +495,7 @@ Images handed to the host for `ui.image`. Halves: window, app.
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
 | `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
+| `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
 | `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
@@ -969,6 +988,84 @@ What a declared store keeps a value for.
 |---|---|
 | `"global"` | One value for the whole app. |
 | `"session"` | One value per session. |
+
+### ProgressAppearance
+
+How `ui.progressCircle` draws, as the app's ProgressCircle.
+
+| Value | Meaning |
+|---|---|
+| `"compact"` | A 14-unit ring with a 1.5 stroke: the session header's. |
+| `"indicator"` | A 16-unit ring with a thicker stroke and an overlay over its track: a tab's. |
+
+### TextDirection
+
+Which way the interface language reads.
+
+| Value | Meaning |
+|---|---|
+| `"ltr"` | Left to right. |
+| `"rtl"` | Right to left: Arabic, Hebrew, Urdu, Punjabi, Persian, Dhivehi. |
+
+### PluralCategory
+
+A CLDR plural category: which form of a counted message the language uses for a count.
+
+| Value | Meaning |
+|---|---|
+| `"zero"` | Zero. |
+| `"one"` | One. |
+| `"two"` | Two. |
+| `"few"` | Few. |
+| `"many"` | Many. |
+| `"other"` | Every other count, and the fallback form. |
+
+### DateStyle
+
+A date and time format, as the app writes dates.
+
+| Value | Meaning |
+|---|---|
+| `"time"` | The time: `3:45 PM`, `15:45`. |
+| `"monthDay"` | Month and day: `Nov 3`. |
+| `"monthDayYear"` | Month, day and year: `Nov 3, 2026`. |
+| `"dateTime"` | Medium date and short time: `Nov 3, 2026, 3:45 PM`. |
+| `"monthDayTime"` | Month, day and time: `Nov 3, 3:45 PM`. |
+| `"monthDayYearTime"` | Month, day, year and time: `Nov 3, 2026, 3:45 PM`. |
+| `"monthDayTimeZone"` | Month, day, time and the zone's offset: `Nov 3, 3:45 PM GMT-7`. |
+
+### TimeUnit
+
+A unit of relative time.
+
+| Value | Meaning |
+|---|---|
+| `"second"` | Seconds. |
+| `"minute"` | Minutes. |
+| `"hour"` | Hours. |
+| `"day"` | Days. |
+| `"week"` | Weeks. |
+| `"month"` | Months. |
+| `"year"` | Years. |
+
+### NumberStyle
+
+What a number means.
+
+| Value | Meaning |
+|---|---|
+| `"decimal"` | A plain number: `12,345.6`. |
+| `"percent"` | A share, where 1 is 100%: `42%`. |
+| `"currency"` | Money in `currency`: `$1,234.50`. |
+
+### NumberNotation
+
+How a number is written.
+
+| Value | Meaning |
+|---|---|
+| `"standard"` | Every digit: `12,345`. |
+| `"compact"` | Short, with a unit, lowercased: `12k`, `3m`. |
 
 ## Types
 
@@ -1535,6 +1632,44 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `source` | `string` | The ```` ```ui ```` outline source. |
 | `streaming` | `boolean?` | The source is still growing. |
 
+### UiProgressCircleProps
+
+`ui.progressCircle` props: the app's progress ring.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `percentage` | `number` | How full, 0 to 100. The arc runs clockwise from twelve o'clock. |
+| `appearance` | `ProgressAppearance?` | Its look. Defaults to `compact`. |
+| `size` | `number?` | Width and height in points. Defaults to the appearance's own: 14 or 16. |
+| `strokeWidth` | `number?` | The stroke in the ring's own units. Defaults to 1.5 for `compact`, 3 for `indicator`. |
+| `track` | `Color?` | The track's color. Defaults to `surface-4`. |
+| `overlay` | `Color?` | `indicator` only: a color over the track. Defaults to none. |
+| `progress` | `Color?` | The arc's color. Defaults to `icon-base`. |
+
+### LocaleInfo
+
+The interface language.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The app's id for it, such as `"de"` or `"zht"`: the name of its catalog file, `locales/<id>.json`. |
+| `tag` | `string` | Its BCP 47 tag, such as `"de-DE"` or `"zh-Hant"`. |
+| `name` | `string` | Its name in itself, such as `"Deutsch"`. |
+| `direction` | `TextDirection` | Which way it reads. |
+
+### NumberFormat
+
+How `I18n:Number` writes a number.
+
+| Field | Type | Description |
+|---|---|---|
+| `style` | `NumberStyle?` | Defaults to `decimal`. |
+| `notation` | `NumberNotation?` | Defaults to `standard`. |
+| `currency` | `string?` | An ISO 4217 code for `currency`. Defaults to `"USD"`. |
+| `maxFraction` | `number?` | The most fraction digits. Defaults to 3 for `decimal`, 2 for `currency`, 0 for `percent` and `compact`. |
+
 ### SessionUsage
 
 A session's token counts at its last step.
@@ -1564,6 +1699,11 @@ A session as the app holds it.
 | `usage` | `SessionUsage?` | Token counts at the last step with tokens. |
 | `usageProviderId` | `string?` | The provider of the step `usage` came from. |
 | `usageModelId` | `string?` | The model of the step `usage` came from. |
+| `providerId` | `string?` | The provider of the model the session runs with. |
+| `modelId` | `string?` | The model the session runs with. |
+| `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |
+| `updated` | `number?` | When it last changed, in milliseconds since the Unix epoch. |
+| `messages` | `number?` | How many messages the app holds for it. Nil before it has read them. |
 
 ### ModelInfo
 
@@ -1575,6 +1715,7 @@ A model as the server's catalog names it.
 | `modelName` | `string?` | The model's name. Nil when the catalog does not list it. |
 | `contextLimit` | `number?` | Its context window in tokens. |
 | `outputLimit` | `number?` | Its output limit in tokens. |
+| `paid` | `boolean?` | Any of its token prices is above zero. |
 
 ### Resource
 

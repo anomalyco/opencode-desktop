@@ -152,7 +152,27 @@ sequenceDiagram
 | Text the user types | [`ctx:CreateEditor`](api.md#windowcontext) with `ui.field`; text, caret and undo survive a reload |
 | Plain Luau tables | Locals in the setup function; `ctx:BindHotState` carries them across a hot reload |
 
-## 6. Check it
+## 6. Speak the user's language
+
+Put a catalog per language in `locales/<id>.json`, flat objects of message keys in the app's format: `{{name}}` placeholders, and plural forms as `key.one`, `key.other` (CLDR categories).
+
+```json
+{ "stats.title": "Session stats", "calls.one": "{{count}} tool call", "calls.other": "{{count}} tool calls" }
+```
+
+```luau
+local I18n = ctx:GetService("I18n")
+ui.text(I18n:T("stats.title"))
+ui.text(I18n:T("calls", { count = #calls }))
+ui.text(I18n:Number(cost, { style = "currency" }))
+ui.text(I18n:Date(session.created, "dateTime"))
+```
+
+- [`I18n:T`](api.md#i18n) falls back to `locales/en.json`, then to the key. With a number `count`, it picks the plural form the language uses.
+- `Number`, `Date`, `RelativeTime`, `RelativeDay` and `List` write values as the app writes them in the interface language.
+- `I18n:Direction()` says whether the language reads right to left. Everything drawn redraws when the language changes; connect `I18n.Changed` for state you keep.
+
+## 7. Check it
 
 Run these from the repository root:
 

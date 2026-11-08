@@ -40,6 +40,8 @@ string_enum! {
         Field = "field",
         /// The app's spinner.
         Loader = "loader",
+        /// The app's progress ring: a track and an arc from twelve o'clock, clockwise.
+        ProgressCircle = "progressCircle",
         /// A status capsule.
         Pill = "pill",
         /// A settings row: title and description beside a control.
@@ -85,7 +87,7 @@ impl NodeKind {
     pub fn category(self) -> NodeCategory {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
-            Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind => NodeCategory::Content,
+            Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::GenUi => NodeCategory::Native,
         }
@@ -113,6 +115,7 @@ impl NodeKind {
             Self::Radio => &UI_RADIO_PROPS,
             Self::Field => &UI_FIELD_PROPS,
             Self::Loader => &UI_LOADER_PROPS,
+            Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
             Self::Pill => &UI_PILL_PROPS,
             Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
             Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
@@ -333,6 +336,17 @@ pub static UI_PILL_PROPS: PropsSpec = PropsSpec::new("UiPillProps", Some(&UI_LAY
     PropSpec::new("tone", PropType::Enum("Tone"), false),
     PropSpec::new("pressed", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
+]);
+
+/// `UiProgressCircleProps`.
+pub static UI_PROGRESS_CIRCLE_PROPS: PropsSpec = PropsSpec::new("UiProgressCircleProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("percentage", PropType::Number, true),
+    PropSpec::new("appearance", PropType::Enum("ProgressAppearance"), false),
+    PropSpec::new("size", PropType::Number, false),
+    PropSpec::new("strokeWidth", PropType::Number, false),
+    PropSpec::new("track", PropType::Color, false),
+    PropSpec::new("overlay", PropType::Color, false),
+    PropSpec::new("progress", PropType::Color, false),
 ]);
 
 /// `UiRadioProps`.
