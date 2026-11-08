@@ -5,6 +5,8 @@
 //!   does: OpenCode Desktop's link (`packages/desktop/src/main/deep-links`).
 //! - `notification/<id>?…` is a clicked notification (`rune_notify::click_from_url`): its
 //!   session opens, the app coming forward, also when the click started it.
+//! - `console/authorized?window=<id>` is the OpenCode Console's return link after a sign-in:
+//!   the window that started it comes forward (Desktop's `consoleReturnWindow`).
 //!
 //! The window comes forward for each, as Desktop's `focusWindow` does. A link that arrives
 //! before the server connects (one that started the app) waits for it.
@@ -20,6 +22,13 @@ use crate::{App, Source};
 pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     if let Some(click) = rune_notify::click_from_url(url) {
         crate::notifications::clicked(s, &click);
+        return;
+    }
+    if let Some(id) = console_return(url, crate::launch::product().scheme()) {
+        match crate::windows::handle(&id) {
+            Some(w) => w.focus(),
+            None => rune_notify::bring_to_front(),
+        }
         return;
     }
     match project(url, crate::launch::product().scheme()) {
@@ -58,6 +67,20 @@ fn project(url: &str, own: &str) -> Option<String> {
     }
     let dir = query.split('&').find_map(|pair| pair.strip_prefix("project=")).map(unpercent)?;
     (!dir.trim().is_empty() && !dir.chars().any(char::is_control)).then_some(dir)
+}
+
+/// The window an `opencode://console/authorized?window=<id>` link names.
+fn console_return(url: &str, own: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    if !scheme.eq_ignore_ascii_case(win_install::OPENCODE_SCHEME) && !scheme.eq_ignore_ascii_case(own) {
+        return None;
+    }
+    let (path, query) = rest.split_once('?')?;
+    if path != "console/authorized" {
+        return None;
+    }
+    let id = query.split('&').find_map(|pair| pair.strip_prefix("window=")).map(unpercent)?;
+    (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(id)
 }
 
 /// A query value: `%XX` escapes and `+` for a space, as `URLSearchParams` reads it.

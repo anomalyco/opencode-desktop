@@ -118,11 +118,21 @@ impl App {
                 let id = method.id.clone().unwrap_or_default();
                 let kind = method.kind;
                 let failed = move |e: String| Answer::StartFailed { attempt, error: if console && kind == MethodKind::Oauth { opencode_i18n::t!("provider.connect.console.startFailed").into() } else { e } };
+                // The Console names the desktop app, and its return link focuses the window that
+                // started the sign-in (`opencode://console/authorized?window=`).
+                let window = self.window.id.clone();
                 self.write_then(
                     move |srv| match kind {
                         MethodKind::Command => srv.command_connect(&provider, dir.as_deref(), &id).map(|id| Answer::CommandStarted { attempt, id }),
                         MethodKind::External => srv.connect_external(&provider, dir.as_deref(), &id, answer.as_ref()).map(|_| Answer::ExternalSaved { attempt }),
-                        _ => srv.oauth_connect(&provider, dir.as_deref(), &id, answer.as_ref()).map(|auth| Answer::OauthStarted { attempt, auth }),
+                        _ => srv.oauth_connect(&provider, dir.as_deref(), &id, answer.as_ref()).map(|mut auth| {
+                            if console {
+                                let ret = (!window.is_empty()).then(|| format!("&return_window={}", crate::switcher::encode(&window))).unwrap_or_default();
+                                let join = if auth.url.contains('?') { '&' } else { '?' };
+                                auth.url = format!("{}{join}client_id=opencode-desktop{ret}", auth.url);
+                            }
+                            Answer::OauthStarted { attempt, auth }
+                        }),
                     },
                     move |s, tx, r| reply(r.unwrap_or_else(failed), None)(s, tx),
                 );
