@@ -38,6 +38,7 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         .zoom(s.zoom)
         .fill(p.bg_deep)
         .close_icon(&ic::XMARK_SMALL)
+        .busy_indicator(|k| session_view::style::busy_glyph(k, 14.0))
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
         .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)

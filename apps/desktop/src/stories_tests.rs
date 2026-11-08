@@ -248,6 +248,7 @@ const APP_SCENES: &[&str] = &[
     "short-group",
     "stop-background",
     "subagent",
+    "busy-glyphs",
     "no-server-remote",
 ];
 

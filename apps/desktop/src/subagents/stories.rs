@@ -22,7 +22,16 @@ fn work(s: &mut App, tx: &mut Tx) {
     }
 }
 
-rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("subagent", open_child)]);
+/// Side tabs with the open session's subagent running and two more tabs working, so the
+/// sidebar's spinners, the subagent capsule's and the card's sit on one screen.
+fn busy_glyphs(s: &mut App) {
+    crate::scenes::open_scene(s);
+    s.finish_stream();
+    crate::scenes::side_tabs(s);
+    s.running.extend([CHILD, crate::fixture_ids::THIRD, crate::fixture_ids::SIXTH].map(String::from));
+}
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("subagent", open_child), ("busy-glyphs", busy_glyphs)]);
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story { path: "Composer/Subagent reply", scene: |s| {

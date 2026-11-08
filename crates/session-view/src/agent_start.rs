@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use rune::{Color, Cycle, El, Spring, SpringPair, TextStyle, Transition, el, text};
 
 use crate::palette::Pal;
-use crate::style::activity_ring_sized;
+use crate::style::{activity_ring_sized, busy_ink};
 
 /// The handoff's crossfade: the radar fades up as the starting dots fade down on the same
 /// spring, so the two grids' dots sit on each other and each one eases from its starting
@@ -27,7 +27,7 @@ fn delegating() -> &'static str {
 pub fn spinner(p: &Pal, starting: bool) -> El {
     let fade = Transition::opacity().springs(WAKE);
     let layer = |key: &'static str, child: El| el().key(key).absolute(0.0, 0.0).size(SIZE, SIZE).child(child).transition(fade);
-    let shown = if starting { layer("boot", dots(p.icon_muted)) } else { layer("radar", activity_ring_sized(p, SIZE)) };
+    let shown = if starting { layer("boot", dots(busy_ink(crate::palette::kit(p)))) } else { layer("radar", activity_ring_sized(p, SIZE)) };
     el().key("grid").size(SIZE, SIZE).child(shown)
 }
 
