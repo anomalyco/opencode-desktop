@@ -209,7 +209,7 @@ fn digits(text: String) -> String {
 }
 
 /// The `shortOffset` zone: `GMT+0`, `GMT-7`, `GMT+5:30`.
-fn zone(offset: i32) -> String {
+pub fn zone(offset: i32) -> String {
     if offset == 0 {
         return t!("intl.date.zone.utc").to_owned();
     }

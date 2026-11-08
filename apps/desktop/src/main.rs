@@ -250,6 +250,7 @@ mod tool_open_tests;
 mod turn_diffs;
 mod turn_errors_stories;
 mod updater;
+mod usage;
 mod view;
 mod web_fetch;
 mod widgets;
@@ -368,6 +369,7 @@ pub struct App {
     pub quote: quote::Quotes,
     pub find: find::Find,
     pub message_nav: message_nav::MessageNav,
+    pub usage: usage::Usage,
     pub search: TextEdit,
     pub home_search: home_search::HomeSearch,
     /// Session menus, the title being renamed and Delete's confirmation.
