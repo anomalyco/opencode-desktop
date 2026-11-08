@@ -74,7 +74,8 @@ pub fn load(s: &mut App, dir: &str) {
                 .filter(|p| p["source"]["type"].as_str() != Some("builtin"))
                 .filter_map(|p| p["id"].as_str().map(str::to_owned)).collect::<Vec<_>>()
         });
-        let skills = |q: &str| srv.get(&format!("/api/skill{q}")).ok().map(|v| {
+        // 503 until the server's plugins load (`get_ready` waits that out).
+        let skills = |q: &str| srv.get_ready(&format!("/api/skill{q}")).ok().map(|v| {
             v["data"].as_array().into_iter().flatten()
                 .filter_map(|p| Some((p["name"].as_str()?.to_owned(), p["location"].as_str().or(p["path"].as_str()).unwrap_or("").to_owned())))
                 .collect::<Vec<_>>()
@@ -90,7 +91,8 @@ pub fn load(s: &mut App, dir: &str) {
                 return;
             }
             st.plugins = plugins;
-            st.skills = skills;
+            // A failed read keeps the lists already read, as Desktop's location data does.
+            st.skills = skills.or(st.skills.take());
             st.lsps = Some(lsps);
         }) as Apply
     });

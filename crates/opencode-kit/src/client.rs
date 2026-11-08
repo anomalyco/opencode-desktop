@@ -184,6 +184,21 @@ impl Server {
         self.get_with(path, None)
     }
 
+    /// `get`, waiting out a server that answers 503 while it starts: `GET /api/skill` waits for
+    /// the server's plugins and refuses with `ServiceUnavailableError` until they've loaded. It
+    /// tries again after 0.25, 0.5, 1, 2 and 4 s, so off the app's thread only.
+    pub fn get_ready(&self, path: &str) -> Result<Value, String> {
+        let mut wait = Duration::from_millis(250);
+        for _ in 0..5 {
+            match self.get(path) {
+                Err(e) if e.ends_with("http status: 503") => std::thread::sleep(wait),
+                done => return done,
+            }
+            wait *= 2;
+        }
+        self.get(path)
+    }
+
     fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, String> {
         self.get_timed(path, capabilities).map(|(v, _)| v)
     }

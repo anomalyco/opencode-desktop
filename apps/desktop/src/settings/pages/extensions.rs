@@ -23,7 +23,8 @@ pub fn load(s: &App) {
                 .filter_map(|p| p["id"].as_str().map(str::to_owned))
                 .collect::<Vec<_>>()
         });
-        let skills = srv.get("/api/skill").ok().map(|v| {
+        // 503 until the server's plugins load; a list that still fails keeps the last one.
+        let skills = srv.get_ready("/api/skill").ok().map(|v| {
             v["data"].as_array().into_iter().flatten().filter_map(|p| p["name"].as_str().map(str::to_owned)).collect::<Vec<_>>()
         });
         Box::new(move |s: &mut App, tx: &mut Tx| {

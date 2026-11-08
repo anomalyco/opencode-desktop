@@ -65,7 +65,8 @@ pub struct Skill {
     pub description: String,
 }
 
-type Catalog = (String, Vec<(String, String)>, Vec<Skill>);
+/// A directory's subagents and skills, each `None` when its read failed.
+type Catalog = (String, Option<Vec<(String, String)>>, Option<Vec<Skill>>);
 
 pub struct Mentions {
     /// The popover is open; its query is the text between the `@` and the caret.
@@ -79,6 +80,8 @@ pub struct Mentions {
     pub skills: Vec<Skill>,
     /// The directory `agents` and `skills` belong to, once asked for.
     catalog: Option<String>,
+    /// A read of the catalog failed: the popover's next opening asks again.
+    catalog_stale: bool,
     catalog_fetch: Latest<Catalog>,
     /// Sessions the server found for a query's first word.
     found: Vec<SessionInfo>,
@@ -101,6 +104,7 @@ impl Default for Mentions {
             agents: Vec::new(),
             skills: Vec::new(),
             catalog: None,
+            catalog_stale: false,
             catalog_fetch: Latest::default(),
             found: Vec::new(),
             searched: None,
@@ -138,8 +142,15 @@ impl Mentions {
         if let Some((directory, agents, skills)) = self.catalog_fetch.take()
             && self.catalog.as_deref() == Some(directory.as_str())
         {
-            self.agents = agents;
-            self.skills = skills;
+            // A failed read keeps what was there, as Desktop's location data does, rather than
+            // settling on an empty list.
+            self.catalog_stale = agents.is_none() || skills.is_none();
+            if let Some(agents) = agents {
+                self.agents = agents;
+            }
+            if let Some(skills) = skills {
+                self.skills = skills;
+            }
             changed = true;
         }
         if let Some((query, paths)) = self.files_fetch.take()
@@ -155,20 +166,25 @@ impl Mentions {
         changed
     }
 
-    /// The directory's subagents and skills, once.
-    fn ask_catalog(&mut self, server: &Server, directory: String) {
-        if self.catalog.as_deref() == Some(directory.as_str()) {
+    /// The directory's subagents and skills, once, and again on an opening after a failed read.
+    /// `/api/skill` answers 503 until the server's plugins load, which `get_ready` waits out.
+    fn ask_catalog(&mut self, server: &Server, directory: String, opened: bool) {
+        let same = self.catalog.as_deref() == Some(directory.as_str());
+        if same && !(opened && self.catalog_stale) {
             return;
         }
+        if !same {
+            self.files = (String::new(), Vec::new());
+            self.files_asked = None;
+            self.files_fetch.cancel();
+        }
         self.catalog = Some(directory.clone());
-        self.files = (String::new(), Vec::new());
-        self.files_asked = None;
-        self.files_fetch.cancel();
+        self.catalog_stale = false;
         let server = server.clone();
         self.catalog_fetch.request(directory, move |directory| {
             let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-            let agents = server.get(&format!("/api/agent?{at}")).map(|v| subagents(&v)).unwrap_or_default();
-            let skills = server.get(&format!("/api/skill?{at}")).map(|v| skills(&v)).unwrap_or_default();
+            let agents = server.get(&format!("/api/agent?{at}")).ok().map(|v| subagents(&v));
+            let skills = server.get_ready(&format!("/api/skill?{at}")).ok().map(|v| skills(&v));
             (directory, agents, skills)
         });
     }
@@ -559,7 +575,7 @@ impl App {
         let Source::Live { server, .. } = &self.source else { return changed };
         let server = server.clone();
         let directory = self.composer_directory();
-        self.mentions.ask_catalog(&server, directory.clone());
+        self.mentions.ask_catalog(&server, directory.clone(), !was);
         self.mentions.ask_files(&server, directory, &query);
         self.mentions.ask_sessions(&server, &query);
         changed
