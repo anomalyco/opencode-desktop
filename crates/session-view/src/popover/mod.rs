@@ -331,11 +331,15 @@ impl List {
         let e = match self.stuck {
             // Across the list's inset so rows scroll under an opaque band; the label fades out
             // as the next one comes up, gone just as it would touch it (`select-dialog.tsx:806-807`).
+            // Until it sticks it fills only behind its label (`background-clip: content-box`), so
+            // sliding up over the stuck one its padding never covers that label as it fades.
             Some(fill) => {
                 let inset = self.look.inset;
+                let band = rune::Shadow { inset: true, spread: 1.0e4, color: fill, ..Default::default() };
                 row().key(key).transition(Transition::none()).h(top + HEADER_H).mx(-inset).pl(self.look.label_x() + inset).pr(self.look.pad_r + inset).pt(top).pb(2.0)
-                    .fill(fill).sticky_top(0.0).stuck_fade(top + HEADER_H - 2.0 - self.look.head, 16.0)
-                    .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate_fade())
+                    .stuck_shadow(band).sticky_top(0.0).stuck_fade(top + HEADER_H - 2.0 - self.look.head, 16.0)
+                    .child(row().key("label").grow(1.0).shrink().min_w(0.0).h_full().center_y().fill(fill)
+                        .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate_fade()))
             }
             None => group_header(p, self.look, key, label, top),
         };
@@ -344,7 +348,7 @@ impl List {
 
     /// The model dialog's headers (`select-dialog.css:113-175`): every one sticks for the whole
     /// list on `fill`, the next sliding over it, and the rows fade in a 16 point band under the
-    /// stuck one by how far they've scrolled beneath it.
+    /// stuck one by how far they've scrolled beneath it, and over 24 points at the list's bottom.
     pub fn stuck_headers(mut self, fill: Color) -> Self {
         self.stuck = Some(fill);
         self
@@ -392,8 +396,13 @@ impl List {
     /// The scroll keyed `key`, at most `max_h` tall.
     pub fn build(self, key: &str, max_h: f32) -> El {
         let list = col().key(self.key).w_full().padding(self.look.inset).gap(self.look.row_gap).children(self.under).children(self.rows);
-        // A stuck header's 16 point eased fade, whole once 16 points are hidden under it.
-        let fade = if self.stuck.is_some() { rune::ScrollFade::strength(16.0).full_at(16.0).below_sticky() } else { rune::ScrollFade::strength(8.0) };
+        // A stuck header's 16 point eased fade, whole once 16 points are hidden under it, and the
+        // list's 24 point linear mask at its bottom (`search-list.css`'s `--search-list-edge`).
+        let fade = if self.stuck.is_some() {
+            rune::ScrollFade::strength(16.0).full_at(16.0).below_sticky().with_end(rune::ScrollFade::strength(24.0).linear())
+        } else {
+            rune::ScrollFade::strength(8.0)
+        };
         col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false }).scroll_fade(fade)
             .child(list)
