@@ -167,8 +167,11 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     if count == 0 && !s.launch.waiting {
         list = list.child(empty(p, can_create));
     }
-    // `HomeSessionsView`'s `<section>` reveals the page's thumb (`thumbHoverTarget`).
-    col().key("home-column").grow(1.0).shrink().min_w(0.0).max_w(SESSIONS_MAX).child(header).child(list).scroll_bar_hover("home")
+    // `HomeSessionsView`'s `<section>` reveals the page's thumb (`thumbHoverTarget`). Only the
+    // wide grid caps it (`lg:grid-cols-[280px_minmax(0,720px)]`); below that it takes the grid.
+    let column = col().key("home-column").grow(1.0).shrink().min_w(0.0);
+    let column = if tier == Tier::Wide { column.max_w(SESSIONS_MAX) } else { column };
+    column.child(header).child(list).scroll_bar_hover("home")
 }
 
 /// `groupSessions`: Today, Yesterday and the rest by the local calendar day each was last
