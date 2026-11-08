@@ -143,6 +143,7 @@ mod mention_stories;
 mod mentions;
 mod menu_stories;
 mod menubar;
+mod message_nav;
 mod model_picker;
 mod model_prefs;
 #[cfg(test)]
@@ -366,6 +367,7 @@ pub struct App {
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
     pub quote: quote::Quotes,
     pub find: find::Find,
+    pub message_nav: message_nav::MessageNav,
     pub search: TextEdit,
     pub home_search: home_search::HomeSearch,
     /// Session menus, the title being renamed and Delete's confirmation.
@@ -1077,6 +1079,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= notifications::poll(s, tx);
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
+    changed |= message_nav::poll(s, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= session_view::turns::poll(s, tx);
     changed |= dropzone::poll(s, tx);

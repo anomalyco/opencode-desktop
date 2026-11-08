@@ -35,7 +35,11 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let child = info.is_some_and(|i| i.parent.is_some());
     let pills = if child { Vec::new() } else { pills(s, p, id) };
     let timeline = match shown {
-        Some(shown) => session_view::timeline_area(s, p, shown, t, pills),
+        // Previous and Next message read the prompt in view from where it lies (`message_nav`).
+        Some(shown) => session_view::timeline_area(s, p, shown, t, pills).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+            s.message_nav.view = Some(r);
+            tx.live_only();
+        }),
         None => col().key("timeline-area").grow(1.0).w_full(),
     };
     let mut page = page

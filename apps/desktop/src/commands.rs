@@ -33,6 +33,9 @@ pub struct Cmd {
     pub enabled: fn(&App) -> bool,
     /// Its group in Settings › Shortcuts when Desktop's id would place it elsewhere (`groupFor`).
     pub section: Option<Section>,
+    /// Kept out of the palette, as Desktop's `hidden` commands are (`command.tsx:148`), while its
+    /// keys and Settings › Shortcuts still have it.
+    pub hidden: bool,
     pub run: fn(&mut App, &mut Tx),
 }
 
@@ -42,7 +45,12 @@ fn always(_: &App) -> bool {
 
 impl Cmd {
     pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, run }
+        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, run }
+    }
+
+    pub const fn hidden(mut self) -> Cmd {
+        self.hidden = true;
+        self
     }
 
     pub const fn section(mut self, section: Section) -> Cmd {
@@ -108,6 +116,12 @@ impl App {
     /// Every enabled command: the registered ones, the panels', then the plugins'.
     pub fn commands(&self) -> Vec<Command> {
         self.listing(true)
+    }
+
+    /// What the palette lists: the enabled commands less the hidden ones.
+    pub fn palette_commands(&self) -> Vec<Command> {
+        let hidden: Vec<&str> = collect(&COMMANDS).into_iter().filter(|c| c.hidden).map(|c| c.id).collect();
+        self.commands().into_iter().filter(|c| !hidden.contains(&c.id)).collect()
     }
 
     /// Every command, offered here or not, as Desktop's `command.catalog` remembers them:
@@ -215,6 +229,12 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if Bind::PromptModeToggle.matches_tx(ev, tx) && s.has_composer() {
         toggle_shell(s, tx);
         return true;
+    }
+    for (bind, offset) in [(Bind::MessagePrev, -1), (Bind::MessageNext, 1)] {
+        if bind.matches_tx(ev, tx) && s.open_session().is_some() {
+            s.navigate_message(offset, tx);
+            return true;
+        }
     }
     false
 }
@@ -362,6 +382,15 @@ rune_register::register!(COMMANDS: Cmd = [
         s.copy_id(id, tx);
     })
     .when(has_project),
+    // `use-session-commands.tsx:636-653`: offered over any open session.
+    Cmd::new("message.previous", opencode_i18n::key!("command.message.previous"), |s, tx| s.navigate_message(-1, tx))
+        .describe(opencode_i18n::key!("command.message.previous.description"))
+        .keys(Bind::MessagePrev)
+        .when(|s| s.open_session().is_some()),
+    Cmd::new("message.next", opencode_i18n::key!("command.message.next"), |s, tx| s.navigate_message(1, tx))
+        .describe(opencode_i18n::key!("command.message.next.description"))
+        .keys(Bind::MessageNext)
+        .when(|s| s.open_session().is_some()),
     Cmd::new("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
     Cmd::new("focus", opencode_i18n::key!("command.input.focus"), |s, tx| {
         s.focus_composer(tx);
@@ -378,7 +407,9 @@ rune_register::register!(COMMANDS: Cmd = [
         }
     })
     .keys(Bind::TabClose)
-    .when(|s| s.current_tab().is_some()),
+    .when(|s| s.current_tab().is_some())
+    // `titlebar.tsx:453-458`.
+    .hidden(),
     Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
     Cmd::new("zoom-in", opencode_i18n::key!("desktop.menu.zoomIn"), |s, tx| s.zoom_by(1, tx)).keys(Bind::ZoomIn),
     Cmd::new("zoom-out", opencode_i18n::key!("desktop.menu.zoomOut"), |s, tx| s.zoom_by(-1, tx)).keys(Bind::ZoomOut),

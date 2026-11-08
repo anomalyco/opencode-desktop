@@ -301,7 +301,7 @@ impl App {
 
     pub fn switcher_entries(&self) -> Vec<Entry> {
         let q = self.switcher.query();
-        let all = self.commands();
+        let all = self.palette_commands();
         let command = |c: &crate::commands::Command| Entry {
             key: format!("command:{}", c.id),
             action: Action::Command(c.id),

@@ -338,13 +338,15 @@ pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
 }
 
 rune_register::register!(crate::commands::COMMANDS: Cmd = [
-    // Desktop's title, as its catalog lists it (`gui-plugins/src/updater/renderer.tsx:120`).
+    // Desktop's title, as its catalog lists it, and kept out of the palette as there
+    // (`gui-plugins/src/updater/renderer.tsx:120`, `hidden: true`).
     Cmd::new("updater.check", opencode_i18n::key!("plugin.updater.menu.check"), |s, tx| {
         s.open_settings();
         s.updater.check(tx);
     })
     .describe(opencode_i18n::key!("rune.command.updater.check.description"))
-    .when(|s| s.updater.supported()),
+    .when(|s| s.updater.supported())
+    .hidden(),
 ]);
 
 const STORY_VARIANTS: &[(&str, usize)] = &[("Ready to restart", 0), ("Up to date", 1), ("Checking", 2)];

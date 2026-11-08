@@ -43,6 +43,8 @@ pub enum Bind {
     SessionNext,
     UnseenPrev,
     UnseenNext,
+    MessagePrev,
+    MessageNext,
     Tab1,
     Tab2,
     Tab3,
@@ -186,6 +188,9 @@ fn table() -> Vec<Binding> {
         row(SessionNext, "session.next", key!("command.session.next"), Session, on("alt+down")),
         row(UnseenPrev, "session.previous.unseen", key!("rune.command.tab.needsYou.previous"), Session, on("shift+alt+up")),
         row(UnseenNext, "session.next.unseen", key!("rune.command.tab.needsYou.next"), Session, on("shift+alt+down")),
+        // `use-session-commands.tsx:636-653`.
+        row(MessagePrev, "message.previous", key!("command.message.previous"), Session, on("mod+alt+[")),
+        row(MessageNext, "message.next", key!("command.message.next"), Session, on("mod+alt+]")),
         hidden(Tab1, "tab.1", key!("rune.command.tab.goTo"), Navigation, on("mod+1")),
         hidden(Tab2, "tab.2", key!("rune.command.tab.goTo"), Navigation, on("mod+2")),
         hidden(Tab3, "tab.3", key!("rune.command.tab.goTo"), Navigation, on("mod+3")),
