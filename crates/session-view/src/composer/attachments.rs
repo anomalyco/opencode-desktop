@@ -166,7 +166,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
                             .radius(6.0)
                             .box_shadow(Pal::ring_in(p.border)),
                     );
-                opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img)
+                opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img, None)
             }
             None => card(p, &f.name, type_label(&f.name)),
         };

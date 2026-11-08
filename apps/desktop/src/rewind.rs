@@ -403,26 +403,8 @@ impl App {
         let (sid, mid) = (session.to_owned(), message_id.to_owned());
         crate::popup::open(self, menu, menu_key(message_id), tx, move |s: &mut App, picked, tx| {
             s.close_message_menu();
-            match picked {
-                Some("queue") => s.queue_pending(&sid, &mid),
-                Some("copy") => {
-                    if let Some(body) = message_body(s, &sid, &mid).or_else(|| pending_body(s, &sid, &mid)) {
-                        tx.copy(body);
-                    }
-                }
-                Some("fork") => {
-                    s.fork_from(&sid, &mid, tx);
-                }
-                Some("revert") => {
-                    // The menu closes in its frame, but the rows it reverts leave on their own
-                    // exits, as a revert from anywhere else does.
-                    tx.animated();
-                    s.rewind_to(&sid, &mid, tx);
-                }
-                Some("delete") => {
-                    s.withdraw(&sid, &mid);
-                }
-                _ => {}
+            if let Some(id) = picked {
+                run_message_item(s, &sid, &mid, id, tx);
             }
         });
     }
@@ -515,18 +497,31 @@ pub fn user_menu(s: &App, p: &Pal, session: &str, id: &str, pending: bool) -> Op
     )
 }
 
-/// Message `mid`'s menu, as Desktop builds it (`message-content.tsx:440-498`): when it was sent
-/// (or Pending), then Move to queue on a steer, Copy message, Fork from here on a delivered
-/// message, and last, after a rule, Delete on a steer or Undo (the newest prompt) or Revert to
-/// here where the session can rewind. A subagent's session can't fork or rewind.
+/// Message `mid`'s menu under its chevron: [`message_items`] in a menu of their own.
 fn message_menu(s: &App, session: &str, mid: &str) -> Option<crate::popup::Menu> {
-    use crate::popup::{Item, Menu};
+    let menu = crate::popup::Menu::new(opencode_i18n::t!("ui.message.moreActions")).above().align(Align::End).min_width(160.0);
+    message_items(s, session, mid, menu)
+}
+
+/// Message `mid`'s items after `menu`'s, as Desktop builds them (`message-content.tsx:440-498`):
+/// when it was sent (or Pending), then Move to queue on a steer, Copy message, Fork from here
+/// on a delivered message, and last, after a rule, Delete on a steer or Undo (the newest prompt)
+/// or Revert to here where the session can rewind. A subagent's session can't fork or rewind. A
+/// reply has when it was written and Copy message. The chevron's menu and a right-click's
+/// ([`open_context_menu`]) both take them from here.
+pub(crate) fn message_items(s: &App, session: &str, mid: &str, mut menu: crate::popup::Menu) -> Option<crate::popup::Menu> {
+    use crate::popup::Item;
+    if let Some(reply) = reply_body(s, session, mid) {
+        if let Some(when) = sent_label(mid, s.now_ms) {
+            menu = menu.group(when).separator();
+        }
+        return Some(menu.item(Item::new("copy", opencode_i18n::t!("ui.message.copyMessage")).icon(&ic::OUTLINE_COPY).enabled(!reply.trim().is_empty())));
+    }
     let delivered = message_body(s, session, mid);
     let pending = delivered.is_none();
     let body = delivered.or_else(|| pending_body(s, session, mid))?;
     let root = s.can_rewind_session(session);
     let when = if pending { opencode_i18n::t!("ui.message.pending").to_owned() } else { sent_label(mid, s.now_ms).unwrap_or_default() };
-    let mut menu = Menu::new(opencode_i18n::t!("ui.message.moreActions")).above().align(Align::End).min_width(160.0);
     if !when.is_empty() {
         menu = menu.group(when).separator();
     }
@@ -544,6 +539,46 @@ fn message_menu(s: &App, session: &str, mid: &str) -> Option<crate::popup::Menu>
     let latest = s.visible_user_ids(session).last().is_some_and(|l| l == mid);
     let revert = if latest { Item::new("revert", opencode_i18n::t!("ui.message.undoMessage")).icon(&ic::OUTLINE_UNDO) } else { Item::new("revert", opencode_i18n::t!("ui.message.revertMessage")).icon(&ic::RESET) };
     Some(menu.separator().item(revert))
+}
+
+/// Runs message item `id` ([`message_items`]) on message `mid`.
+pub(crate) fn run_message_item(s: &mut App, sid: &str, mid: &str, id: &str, tx: &mut Tx) {
+    match id {
+        "queue" => s.queue_pending(sid, mid),
+        "copy" => {
+            if let Some(body) = message_body(s, sid, mid).or_else(|| pending_body(s, sid, mid)).or_else(|| reply_body(s, sid, mid)) {
+                tx.copy(body);
+            }
+        }
+        "fork" => {
+            s.fork_from(sid, mid, tx);
+        }
+        "revert" => {
+            // The menu closes in its frame, but the rows it reverts leave on their own exits, as
+            // a revert from anywhere else does.
+            tx.animated();
+            s.rewind_to(sid, mid, tx);
+        }
+        "delete" => {
+            s.withdraw(sid, mid);
+        }
+        _ => {}
+    }
+}
+
+/// A reply's words: its text parts, a blank line apart.
+fn reply_body(s: &App, session: &str, mid: &str) -> Option<String> {
+    let t = s.transcripts.get(session)?;
+    t.messages.iter().find_map(|m| match m {
+        Message::Assistant(a) if a.id == mid => {
+            let texts: Vec<&str> = a.parts.iter().filter_map(|p| match p {
+                model::Part::Text { text } => Some(text.trim()),
+                _ => None,
+            }).filter(|t| !t.is_empty()).collect();
+            Some(texts.join("\n\n"))
+        }
+        _ => None,
+    })
 }
 
 /// An undelivered steer's words.

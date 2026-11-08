@@ -237,7 +237,34 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
 /// editor opens; otherwise the prompt takes focus.
 pub fn add(s: &mut App, comment: bool, tx: &mut Tx) {
     let Some(offer) = s.quote.offer.as_ref().filter(|o| !o.truncated) else { return };
-    let quote = Quote { text: offer.text.clone(), comment: None };
+    let text = offer.text.clone();
+    add_text(s, text, comment, tx);
+}
+
+/// The timeline's selection when it lies in message `message` (a selected text's path names
+/// it), for a right-click there to copy or quote.
+pub fn selected_in(s: &App, message: &str) -> Option<String> {
+    let heard = s.quote.heard.as_ref()?;
+    heard.ident.iter().any(|(path, _)| path.contains(message)).then(|| heard.text.clone()).filter(|t| !t.trim().is_empty())
+}
+
+/// Whether `selected` can go into the composer as a quote now: there's one to take it, and it
+/// isn't too long.
+pub fn can_quote(s: &App, selected: &str) -> bool {
+    available(s).is_some() && !quote_text(selected).1
+}
+
+/// `selected` becomes a quote in the composer, as the button's click makes one.
+pub fn quote_selected(s: &mut App, selected: &str, tx: &mut Tx) {
+    let (text, truncated) = quote_text(selected);
+    if available(s).is_none() || truncated || text.is_empty() {
+        return;
+    }
+    add_text(s, text, false, tx);
+}
+
+fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
+    let quote = Quote { text, comment: None };
     tx.clear_text_selection();
     // The card lands in the click, with nothing moving, as in Desktop.
     tx.instant();

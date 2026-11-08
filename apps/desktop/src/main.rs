@@ -634,6 +634,9 @@ impl session_view::TimelineHost for App {
     fn open_link(&mut self, url: &str, tx: &mut Tx) {
         self.open_reply_link(url, tx);
     }
+    fn context_menu(&mut self, at: session_view::images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
+        popup::context::open(self, at, press, tx);
+    }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
     }

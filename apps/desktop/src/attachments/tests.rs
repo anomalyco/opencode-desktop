@@ -109,6 +109,35 @@ fn a_drop_anywhere_on_the_page_attaches_under_a_fading_overlay() {
     assert!(rect(&rt, &format!("path-{}", notes.display())).is_some(), "the file shows as a chip");
 }
 
+/// Kit dragged a timeline image onto the composer and nothing happened: the composer takes the
+/// app's own drag and attaches it, while the rest of the page lets it pass.
+#[test]
+fn a_timeline_image_dropped_on_the_composer_attaches() {
+    let mut rt = App::fixture_session().into_runtime();
+    rt.frame(0.0);
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    // Where the timeline's drag writes its file.
+    let media = session_view::images::MediaStore::default();
+    let f = Attachment { mime: "image/png".into(), name: "dragged.png".into(), bytes: Arc::from(png(4, 4)), media: None };
+    let own = media.image_file(&session_view::images::Dragged::File(f)).expect("written");
+    assert!(session_view::images::drag::is_own(&own));
+    let panel = rect(&rt, "panel").unwrap();
+    let timeline = (panel[0] + panel[2] / 2.0, panel[1] + panel[3] * 0.3);
+    rt.drag_files(vec![own.clone()], Some(timeline));
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.drop_hovered(), None, "the page lets the timeline's own drag pass");
+    let composer = rect(&rt, "composer").expect("the composer");
+    let at = (composer[0] + composer[2] / 2.0, composer[1] + composer[3] / 2.0);
+    rt.drag_files_to(Some(at));
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.drop_hovered().as_deref(), Some("composer"));
+    rt.drop_files(vec![own], Some(at));
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.attach.files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["dragged.png"]);
+}
+
 #[test]
 fn dropped_images_become_data_urls() {
     let dir = std::env::temp_dir().join(format!("oc-desktop-attach-{}", std::process::id()));
@@ -314,7 +343,7 @@ const GALLERY: &str = "msg_gallery_test";
 
 fn gallery_view(s: &App, _: &mut Cx<App>) -> El {
     let p = crate::palette::pal(true);
-    col().key("root").children(gallery(s, p, "images", &opencode_kit::model::user_files(GALLERY), true))
+    col().key("root").children(gallery(s, p, "images", &opencode_kit::model::user_files(GALLERY), true, None))
 }
 
 #[test]
