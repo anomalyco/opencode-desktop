@@ -364,14 +364,22 @@ pub fn activity_ring(p: &Pal) -> El {
     activity_ring_sized(p, 14.0)
 }
 
-/// The spinner at `size`, in `icon_muted`: rune-kit's `Spinner`.
+/// The spinner at `size`: [`busy_glyph`].
 pub fn activity_ring_sized(p: &Pal, size: f32) -> El {
-    activity_ring_in(p, size, p.icon_muted)
+    busy_glyph(crate::palette::kit(p), size)
 }
 
-/// The spinner at `size` in `ink`.
-pub fn activity_ring_in(p: &Pal, size: f32, ink: Color) -> El {
-    rune_kit::Spinner::new().size(size).color(ink).build(crate::palette::kit(p)).key("ring")
+/// The one busy glyph, rune-kit's `Spinner` at `size` in [`busy_ink`]: every tab, row, capsule
+/// and card that works draws this, so they all read alike at any size.
+pub fn busy_glyph(k: &rune_kit::Kit, size: f32) -> El {
+    rune_kit::Spinner::new().size(size).color(busy_ink(k)).build(k).key("ring")
+}
+
+/// The busy glyph's ink in light and dark: `icon_muted`, quiet beside text yet lit enough to
+/// read as working. Rune's tab strip spins in `icon_base` in dark, which glared beside the
+/// capsule's and the cards', so the tabs take this one too.
+pub fn busy_ink(k: &rune_kit::Kit) -> Color {
+    k.c.icon_muted
 }
 
 /// A stopped turn's tail: Desktop's quiet Interrupted, the last item of its reply footer
