@@ -17,6 +17,25 @@ use crate::{App, Route, Source, arg, headless, session_pages};
 
 static DEFERRED: AtomicBool = AtomicBool::new(false);
 
+/// Windows: a release build is a windowed program (see `build.rs`), which Windows starts without
+/// a console. Started from a terminal, it writes to that terminal's console (`--version`, logs);
+/// output redirected to a file or a pipe already has somewhere to go.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+pub fn attach_console() {
+    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE};
+    // SAFETY: reads this process's standard error handle, and attaches to its parent's console
+    // when it has none; both fail harmlessly.
+    unsafe {
+        if GetStdHandle(STD_ERROR_HANDLE).is_null() {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn attach_console() {}
+
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
@@ -28,6 +47,19 @@ pub fn print_version_if_asked() {
 /// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
 pub fn window_title() -> &'static str {
     option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
+}
+
+/// The build's identity: its name, its app id (the Windows AppUserModelID, the uninstall
+/// entry's key and the single-instance pipe's name) and its own URL scheme, from the same
+/// environment the release workflows give every artifact of a build (the setup too).
+pub fn product() -> win_install::Product {
+    win_install::Product::from_build(
+        option_env!("OPENCODE_RUNE_WINDOW_TITLE"),
+        option_env!("OPENCODE_RUNE_BUNDLE_ID"),
+        option_env!("OPENCODE_RUNE_BUILD_CHANNEL"),
+        option_env!("OPENCODE_RUNE_URL_SCHEME"),
+        crate::updater::build_version(),
+    )
 }
 
 /// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow).

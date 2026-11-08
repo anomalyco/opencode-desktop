@@ -123,6 +123,8 @@ jobs:
           path: ${{ runner.temp }}/macos
           retention-days: "7"
 
+  # TODO(IMPORTANT before release): build-windows: run apps/installer/scripts/package.ps1 on windows-latest (x64 and arm64), Authenticode-sign opencode-desktop.exe and the setup in a sign-windows job (owner decision: the certificate), and publish the zip as target windows-x64 / windows-arm64 in the feed and the setup as the Windows download.
+
   # ---- Sign: release environment; only .github/release/ is checked out -------
 
   sign-macos:

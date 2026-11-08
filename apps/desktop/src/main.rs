@@ -123,6 +123,8 @@ mod home_search;
 mod home_search_tests;
 mod icons;
 mod inbox_model;
+#[cfg(windows)]
+mod install;
 #[cfg(test)]
 mod interaction_fuzz;
 #[cfg(test)]
@@ -1352,9 +1354,12 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    launch::attach_console();
     askpass::run_if_asked();
     #[cfg(windows)]
     updater::apply::run_if_asked();
+    #[cfg(windows)]
+    install::run_if_asked();
     launch::print_version_if_asked();
     if genui::skill::maybe_cli() {
         return;

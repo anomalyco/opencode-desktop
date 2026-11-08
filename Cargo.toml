@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "apps/desktop",
+    "apps/installer",
     "crates/browser-pane",
     "crates/hex-client",
     "crates/opencode-i18n",
@@ -13,6 +14,7 @@ members = [
     "crates/rune-parts",
     "crates/session-view",
     "crates/terminal",
+    "crates/win-install",
     "plugins/context",
     "plugins/context/impl",
     "plugins/details",

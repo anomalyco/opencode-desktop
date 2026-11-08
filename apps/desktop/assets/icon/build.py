@@ -1,5 +1,8 @@
 """Build ../icon.icns from art-512.png: the full-bleed art placed on Apple's macOS icon grid
-(body = 824/1024 of the canvas, centred, soft drop shadow beneath). Run: uv run --with pillow --with numpy --with scipy python build.py"""
+(body = 824/1024 of the canvas, centred, soft drop shadow beneath). Run: uv run --with pillow --with numpy --with scipy python build.py
+
+../icon.ico (Windows: the exe, Start menu, taskbar and Explorer icon) is the full-bleed art at every size the shell
+asks for, BMP below 256 px and PNG at 256: magick art-512.png -define icon:auto-resize=256,128,96,64,48,40,32,24,20,16 ../icon.ico"""
 import os, subprocess, tempfile
 import numpy as np
 from PIL import Image

@@ -1,0 +1,19 @@
+[package]
+name = "opencode-rune-setup"
+version = "0.0.1"
+description = "OpenCode (Rune)'s Windows setup: one click installs the app for the user, with no administrator"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+win-install = { path = "../../crates/win-install" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+
+[build-dependencies]
+# The setup's icon, version and manifest resources.
+win-install = { path = "../../crates/win-install", features = ["resources"] }
+
+[lints]
+workspace = true

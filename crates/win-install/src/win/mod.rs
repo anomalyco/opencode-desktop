@@ -1,0 +1,125 @@
+//! The install's registration on Windows: what `register` writes, `refresh` updates after an
+//! update, and `unregister` takes away.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::{EXE, Product};
+
+mod folders;
+mod process;
+mod registry;
+mod shortcut;
+
+pub use process::{close_running, running_under};
+
+/// Where the setup installs `p` by default: `%LOCALAPPDATA%\Programs\<folder>`.
+pub fn default_root(p: &Product) -> Option<PathBuf> {
+    Some(folders::user_programs()?.join(p.folder()))
+}
+
+/// Other builds of the app installed for the user, which share its settings and caches.
+pub fn other_installs(p: &Product) -> Vec<String> {
+    registry::other_entries(p)
+}
+
+/// The root `p`'s uninstall entry names, when it's installed.
+pub fn installed_root(p: &Product) -> Option<PathBuf> {
+    registry::entry_root(p)
+}
+
+/// Registers the install at `root`: the Start menu shortcut (and, when asked, the desktop
+/// shortcut), the uninstall entry, and the URL schemes.
+pub fn register(p: &Product, root: &Path, desktop_shortcut: bool) -> Result<(), String> {
+    let exe = root.join(EXE);
+    if !exe.is_file() {
+        return Err(format!("{} has no {EXE}", root.display()));
+    }
+    let workdir = folders::profile().unwrap_or_else(|| root.to_path_buf());
+    let start = folders::programs().ok_or("no Start menu folder")?.join(link_name(p));
+    shortcut::create(&start, &exe, p.id(), p.name(), &workdir)?;
+    if desktop_shortcut {
+        let desktop = folders::desktop().ok_or("no Desktop folder")?.join(link_name(p));
+        shortcut::create(&desktop, &exe, p.id(), p.name(), &workdir)?;
+    }
+    registry::write_entry(p, root, size_kb(root))?;
+    for scheme in p.schemes() {
+        registry::write_scheme(scheme, p.name(), &exe)?;
+    }
+    folders::associations_changed();
+    Ok(())
+}
+
+/// After an update put a new version in `root`: its version and size in Apps & features. Does
+/// nothing when `root` isn't `p`'s registered install (a portable copy, a development build).
+pub fn refresh(p: &Product, root: &Path) -> Result<(), String> {
+    if !registry::entry_root(p).is_some_and(|r| same_path(&r, root)) {
+        return Ok(());
+    }
+    registry::write_entry(p, root, size_kb(root))
+}
+
+/// Takes away everything `register` and the running app wrote outside `root`: the shortcuts
+/// (and a taskbar pin to the app), the uninstall entry, the schemes still pointing into `root`,
+/// and the app's notification identity and toasts. Returns what it removed, for the log.
+pub fn unregister(p: &Product, root: &Path) -> Vec<String> {
+    let mut done = Vec::new();
+    let exe = root.join(EXE);
+    let links = [folders::programs(), folders::desktop(), folders::taskbar_pins()];
+    for link in links.into_iter().flatten().map(|dir| dir.join(link_name(p))) {
+        let ours = shortcut::target_of(&link).is_some_and(|t| same_path(&t, &exe));
+        if ours && std::fs::remove_file(&link).is_ok() {
+            done.push(format!("removed {}", link.display()));
+        }
+    }
+    done.extend(registry::remove_entry(p));
+    for scheme in p.schemes() {
+        done.extend(registry::remove_scheme_if_ours(scheme, root));
+    }
+    done.extend(registry::remove_identity(p));
+    if clear_notifications(p) {
+        done.push(format!("cleared {}'s notifications from the notification center", p.id()));
+    }
+    folders::associations_changed();
+    done
+}
+
+/// Takes the app's toasts out of the notification center, which keeps them after the app goes.
+fn clear_notifications(p: &Product) -> bool {
+    use windows::UI::Notifications::ToastNotificationManager;
+    let id = windows::core::HSTRING::from(p.id());
+    ToastNotificationManager::History().and_then(|h| h.ClearWithId(&id)).is_ok()
+}
+
+/// Removes `dir` and everything in it, retrying while a scanner or an exiting process still
+/// holds a file. True once it's gone.
+pub fn remove_dir(dir: &Path) -> bool {
+    for _ in 0..40 {
+        if std::fs::remove_dir_all(dir).is_ok() || !dir.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    false
+}
+
+fn link_name(p: &Product) -> String {
+    format!("{}.lnk", p.name())
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    let norm = |p: &Path| p.to_string_lossy().trim_end_matches('\\').to_lowercase();
+    norm(a) == norm(b)
+}
+
+/// What the install takes on disk, for Apps & features.
+fn size_kb(root: &Path) -> u32 {
+    fn walk(dir: &Path) -> u64 {
+        std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => walk(&e.path()),
+            Ok(m) => m.len(),
+            Err(_) => 0,
+        }).sum()
+    }
+    u32::try_from(walk(root) / 1024).unwrap_or(u32::MAX)
+}

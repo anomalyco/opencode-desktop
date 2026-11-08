@@ -114,6 +114,10 @@ fn run() -> i32 {
         std::fs::write(a.updates.join("installed-release"), format!("{} {}\n", a.version, a.sha256)).ok();
     }
     log(&format!("{} is in place", a.version));
+    // This is the new version's executable: its version goes in Apps & features.
+    if let Err(e) = win_install::refresh(&crate::launch::product(), &a.root) {
+        log(&format!("couldn't update the uninstall entry: {e}"));
+    }
     start(&a, &log);
     for _ in 0..20 {
         if std::fs::remove_dir_all(&old).is_ok() || !old.exists() {

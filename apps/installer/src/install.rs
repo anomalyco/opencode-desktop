@@ -1,0 +1,190 @@
+//! The installing itself, shared by the pages and `--silent`.
+
+use std::fs::OpenOptions;
+use std::io::Write as _;
+use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use win_install::{EXE, Product};
+
+/// The app: a zip of its install folder (see `build.rs`).
+static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
+
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+/// How long a running copy has to close on its own before setup ends it.
+const CLOSE_GRACE: Duration = Duration::from_secs(10);
+
+pub fn product() -> Product {
+    Product::from_build(
+        option_env!("OPENCODE_RUNE_WINDOW_TITLE"),
+        option_env!("OPENCODE_RUNE_BUNDLE_ID"),
+        option_env!("OPENCODE_RUNE_BUILD_CHANNEL"),
+        option_env!("OPENCODE_RUNE_URL_SCHEME"),
+        option_env!("OPENCODE_RUNE_VERSION").filter(|v| !v.is_empty()).unwrap_or(env!("CARGO_PKG_VERSION")),
+    )
+}
+
+/// What the command line asked for.
+#[derive(Clone, Default)]
+pub struct Args {
+    pub silent: bool,
+    pub desktop_shortcut: bool,
+    pub launch: bool,
+    pub dir: Option<PathBuf>,
+    pub log: Option<PathBuf>,
+}
+
+impl Args {
+    fn parse() -> Args {
+        let mut a = Args::default();
+        let mut it = std::env::args().skip(1);
+        while let Some(flag) = it.next() {
+            match flag.as_str() {
+                "--silent" | "/S" => a.silent = true,
+                "--desktop-shortcut" => a.desktop_shortcut = true,
+                "--launch" => a.launch = true,
+                "--dir" => a.dir = it.next().map(PathBuf::from),
+                "--log" => a.log = it.next().map(PathBuf::from),
+                _ => {}
+            }
+        }
+        a
+    }
+
+    pub fn log(&self, line: &str) {
+        let Some(path) = &self.log else { return };
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+            writeln!(f, "[setup pid {}] {line}", std::process::id()).ok();
+        }
+    }
+}
+
+pub fn run() -> i32 {
+    let args = Args::parse();
+    let p = product();
+    let Some(root) = args.dir.clone().or_else(|| win_install::default_root(&p)) else {
+        args.log("no folder to install in");
+        return 1;
+    };
+    if !args.silent {
+        return crate::pages::run(&p, &root, &args);
+    }
+    match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
+        Ok(()) if args.launch => launch(&root, &args),
+        Ok(()) => 0,
+        Err(e) => {
+            args.log(&format!("couldn't install: {e}"));
+            1
+        }
+    }
+}
+
+/// Whether a copy of the app runs from `root`, which installing closes.
+pub fn running(root: &Path) -> bool {
+    !win_install::running_under(root).is_empty()
+}
+
+/// Installs the payload at `root` and registers it.
+pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&str)) -> Result<(), String> {
+    if PAYLOAD.is_empty() {
+        return Err("This setup was built without the app, so there's nothing to install.".into());
+    }
+    log(&format!("installing {} {} into {}", p.name(), p.version(), root.display()));
+    if !win_install::close_running(root, CLOSE_GRACE) {
+        return Err(format!("{} is still running. Close it and try again.", p.name()));
+    }
+    let parent = root.parent().ok_or("The install folder has no parent folder.")?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let staging = beside(root, &format!("setup-{}", std::process::id()));
+    let result = unpack(&staging).and_then(|app| swap(root, &app, log));
+    win_install::remove_dir(&staging);
+    result?;
+    // A version the updater staged for the install it replaced would go back in on the next restart.
+    win_install::remove_dir(&beside(root, "staged"));
+    win_install::register(p, root, desktop_shortcut)?;
+    log(&format!("registered {} (Start menu{}, Apps & features, {}:// and {}://)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.schemes()[0], p.schemes()[1]));
+    Ok(())
+}
+
+/// Unpacks the payload into `staging` with Windows' own bsdtar (as the updater does); returns
+/// the app's folder in it.
+fn unpack(staging: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+    let zip = staging.join("payload.zip");
+    std::fs::write(&zip, PAYLOAD).map_err(|e| format!("couldn't write the app: {e}"))?;
+    let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    let out = Command::new(system.join("System32").join("tar.exe"))
+        .arg("-xf")
+        .arg(&zip)
+        .arg("-C")
+        .arg(staging)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("couldn't run tar: {e}"))?;
+    std::fs::remove_file(&zip).ok();
+    if !out.status.success() {
+        return Err(format!("couldn't unpack the app: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    if staging.join(EXE).is_file() {
+        return Ok(staging.to_path_buf());
+    }
+    let dirs: Vec<PathBuf> = std::fs::read_dir(staging).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    match dirs.as_slice() {
+        [one] if one.join(EXE).is_file() => Ok(one.clone()),
+        _ => Err(format!("The app in this setup has no {EXE}.")),
+    }
+}
+
+/// Puts `app` at `root` with renames on one volume; a previous install goes aside first and comes
+/// back if the new one can't take its place.
+fn swap(root: &Path, app: &Path, log: &dyn Fn(&str)) -> Result<(), String> {
+    if !root.exists() {
+        return rename(app, root).map_err(|e| format!("couldn't put the app in {}: {e}", root.display()));
+    }
+    let old = beside(root, &format!("old-{}", std::process::id()));
+    rename(root, &old).map_err(|e| format!("couldn't move the installed version aside: {e}"))?;
+    if let Err(e) = rename(app, root) {
+        rename(&old, root).ok();
+        return Err(format!("couldn't put the app in {}: {e}", root.display()));
+    }
+    log("replaced the installed version");
+    win_install::remove_dir(&old);
+    Ok(())
+}
+
+fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut last = None;
+    for _ in 0..40 {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("rename failed")))
+}
+
+/// `<parent>\.<folder>.<what>`, beside the install as the updater keeps its folders.
+fn beside(root: &Path, what: &str) -> PathBuf {
+    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
+}
+
+/// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
+pub fn launch(root: &Path, args: &Args) -> i32 {
+    let exe = root.join(EXE);
+    let home = std::env::var_os("USERPROFILE").map_or_else(|| root.to_path_buf(), PathBuf::from);
+    match Command::new(&exe).current_dir(home).creation_flags(DETACHED_PROCESS).spawn() {
+        Ok(child) => {
+            args.log(&format!("started {} (pid {})", exe.display(), child.id()));
+            0
+        }
+        Err(e) => {
+            args.log(&format!("couldn't start {}: {e}", exe.display()));
+            1
+        }
+    }
+}
