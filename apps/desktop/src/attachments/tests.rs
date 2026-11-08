@@ -162,7 +162,7 @@ fn a_thumbnail_grows_into_the_viewer_and_escape_shrinks_it_back() {
     for _ in 0..40 {
         rt.frame(1.0 / 60.0);
     }
-    let chip = &format!("chip-{}/thumb", identity(&a));
+    let chip = &format!("chip-{}/attachment-thumb", identity(&a));
     let thumb = rect(&rt, chip).unwrap();
     let (x, y) = rt.find(chip).unwrap();
     rt.pointer_down(x, y);

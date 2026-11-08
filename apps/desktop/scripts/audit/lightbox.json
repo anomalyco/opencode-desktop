@@ -4,7 +4,7 @@
   "events": [
     {"t": 0.2, "type": "tap", "key": "prompt"},
     {"t": 0.3, "type": "paste", "png": "@PNG"},
-    {"t": 1.0, "type": "tap", "key": "thumb", "expect": "smooth", "element": "image-viewer"},
-    {"t": 2.0, "type": "key", "name": "Escape", "expect": "smooth", "element": "thumb"}
+    {"t": 1.0, "type": "tap", "key": "attachment-thumb", "expect": "smooth", "element": "image-viewer"},
+    {"t": 2.0, "type": "key", "name": "Escape", "expect": "smooth", "element": "attachment-thumb"}
   ]
 }
