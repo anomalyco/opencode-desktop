@@ -14,7 +14,9 @@ const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(18.0);
 const STRONG: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0);
 const HINT: TextStyle = TextStyle::new(11.0, 440.0).lh(12.0);
 const MARK: TextStyle = TextStyle::new(11.0, 530.0).lh(12.0).features("\"tnum\"");
-const CUSTOM: &str = "Type your own answer…";
+fn custom_label() -> &'static str {
+    opencode_i18n::t!("ui.question.custom.answerPlaceholder")
+}
 
 /// Whether the caret is on the typed answer's first line as it wraps at `width`: the text up to
 /// the end of the caret's word fits on one line.
@@ -68,13 +70,13 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let total = f.fields.len();
     let fade = || face_transition(s.knobs());
 
-    let title = if total == 1 { "Question".to_owned() } else { format!("{} of {total} questions", tab + 1) };
+    let title = if total == 1 { opencode_i18n::t!("session.question.title").to_owned() } else { opencode_i18n::t!("session.question.progress", current = tab + 1, total = total) };
     let progress = (total > 1).then(|| {
         row().key("q-progress").gap(2.0).children((0..total).map(|i| {
             let color = if i == tab { p.icon_muted } else if answered(s, &f, i) { p.bg_accent } else { p.q.layer4 };
             el().key(format!("q-seg-{i}"))
                 .role("button")
-                .label(format!("Question {}", i + 1))
+                .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
                 .size(20.0, 20.0)
                 .radius(4.0)
                 .center()
@@ -96,7 +98,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .px(10.0)
         .gap(4.0)
         .child(readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
-        .children(multi.then(|| text("Pick any").key("q-hint").font(HINT).color(p.faint)));
+        .children(multi.then(|| text(opencode_i18n::t!("ui.question.multiHint")).key("q-hint").font(HINT).color(p.faint)));
 
     let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" });
     for (i, (value, label, desc)) in list.iter().enumerate() {
@@ -141,11 +143,11 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let input = text_input(&edit, if editing { TITLE } else { STRONG })
             .key("q-input")
             .spellcheck(s.composer_spellcheck())
-            .label(CUSTOM)
+            .label(custom_label())
             .grow(1.0)
             .min_w(0.0)
             .color(p.text)
-            .placeholder(CUSTOM, if editing { p.faint } else { p.text })
+            .placeholder(custom_label(), if editing { p.faint } else { p.text })
             .caret(p.text, p.selection)
             .on_layout(|s: &mut S, r| {
                 let d = s.dock_mut();
@@ -181,7 +183,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     let (tab, _) = place(s, &f);
                     start_typing(s, &f, tab);
                 })
-                .child(mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(CUSTOM).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                .child(mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
                     tx.instant();
                     let (tab, _) = place(s, &f);
@@ -208,7 +210,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", "Dismiss", Variant::GhostMuted, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
             if let Some(f) = asking(s) {
                 dismiss(s, &f, tx)
             }
@@ -219,7 +221,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", "Back", Variant::Neutral, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
                         let Some(f) = asking(s) else { return };
                         let (tab, _) = place(s, &f);
                         jump(s, &f, tab.saturating_sub(1), tx);
@@ -227,7 +229,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }))
                 .child({
                     let ready = answered(s, &f, tab);
-                    let b = button(p, "q-next", if last { "Submit" } else { "Next" }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
+                    let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
                     if ready { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );

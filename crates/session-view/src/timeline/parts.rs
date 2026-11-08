@@ -42,7 +42,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     let copied = body.to_owned();
     let glyph = crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted);
     Some(
-        user_menu_button(p, format!("copy-{id}"), "Copy message", false)
+        user_menu_button(p, format!("copy-{id}"), opencode_i18n::t!("ui.message.copyMessage"), false)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.copy(copied.clone());
                 crate::copied::mark_copied(s, copy_key.clone(), tx);
@@ -183,7 +183,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         if pending {
             // The model joins a steer's Pending line sliding in, as Desktop's
             // `user-message-transition` labels arrive (200 ms, `message-part.css:365-385`).
-            line = line.animate_layout().child(shown(model)).child(text("Pending").key("pending").font(PROMPT_META).color(p.faint));
+            line = line.animate_layout().child(shown(model)).child(text(opencode_i18n::t!("ui.message.pending")).key("pending").font(PROMPT_META).color(p.faint));
         } else {
             line = shown(line.child(model));
         }
@@ -248,7 +248,14 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
     });
     if let (Some(done), Some(from)) = (done, started.or(first_step)) {
         let total = ((done - from).max(0) as f64 / 1000.0).round() as i64;
-        items.push((if total < 60 { format!("{total}s") } else { format!("{}m {}s", total / 60, total % 60) }, false));
+        items.push((
+            if total < 60 {
+                opencode_i18n::t!("ui.message.duration.seconds", count = opencode_i18n::integer(total))
+            } else {
+                opencode_i18n::t!("ui.message.duration.minutesSeconds", minutes = opencode_i18n::integer(total / 60), seconds = opencode_i18n::integer(total % 60))
+            },
+            false,
+        ));
     }
     items
 }
@@ -259,7 +266,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
-    let mut button = row().key("copy").role("button").label("Copy response")
+    let mut button = row().key("copy").role("button").label(opencode_i18n::t!("ui.message.copyResponse"))
         .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
@@ -351,9 +358,8 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, session: &str, 
 /// The Sources chip's width: 2 in, its tiles (or the globe), 6, its words, 8 out.
 fn chip_width(c: &crate::sources_chip::Chip) -> f32 {
     let label = match c.count {
-        0 => "No sources".to_owned(),
-        1 => "1 source".to_owned(),
-        n => format!("{n} sources"),
+        0 => opencode_i18n::t!("ui.sources.none").to_owned(),
+        n => opencode_i18n::plural!("ui.sources.count", n),
     };
     let icons = if c.sites.is_empty() { 18.0 } else { 16.0 + 13.0 * (c.sites.len() - 1) as f32 };
     2.0 + icons + 6.0 + rune::text::measure(&label, &[], TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05), None).0 + 8.0

@@ -33,7 +33,7 @@ pub struct Working {
 
 impl Working {
     pub fn label(&self) -> &'static str {
-        self.label.unwrap_or("Working")
+        self.label.unwrap_or(opencode_i18n::t!("session.timeline.working"))
     }
     /// When `session`'s run started, while the host counts it live; the sweep keeps its rhythm
     /// from then.

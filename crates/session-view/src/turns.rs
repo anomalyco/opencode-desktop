@@ -224,40 +224,71 @@ fn commentary(entries: &[Entry], settled: bool) -> Vec<(usize, usize)> {
 
 /// A tool's name in a group's label (`toolTitle`).
 pub fn tool_title(name: &str) -> &str {
+    use opencode_i18n::t;
     match name {
-        "read" => "Read",
-        "list" => "List",
-        "glob" => "Glob",
-        "grep" => "Grep",
-        "browser" => "Browser",
-        "webfetch" => "Webfetch",
-        "websearch" => "Web Search",
-        "subagent" | "task" => "Agent",
-        "shell" | "bash" => "Shell",
-        "execute" => "Execute",
-        "edit" => "Edit",
-        "write" => "Write",
-        "patch" | "apply_patch" => "Patch",
-        "question" => "Questions",
-        "skill" => "Skill",
+        "read" => t!("ui.tool.read"),
+        "list" => t!("ui.tool.list"),
+        "glob" => t!("ui.tool.glob"),
+        "grep" => t!("ui.tool.grep"),
+        "browser" => t!("ui.tool.browser"),
+        "webfetch" => t!("ui.tool.webfetch"),
+        "websearch" => t!("ui.tool.websearch"),
+        "subagent" | "task" => t!("ui.tool.agent.default"),
+        "shell" | "bash" => t!("ui.tool.shell"),
+        "execute" => t!("ui.tool.execute"),
+        "edit" => t!("ui.messagePart.title.edit"),
+        "write" => t!("ui.messagePart.title.write"),
+        "patch" | "apply_patch" => t!("ui.tool.patch"),
+        "question" => t!("ui.tool.questions"),
+        "skill" => t!("ui.tool.skill"),
         _ => name,
     }
 }
 
-/// A group's label: "Used {count} {title}", "Thinking" (`thinking`), or a title alone
-/// ("Updates", for notices and commentary alone).
+/// A group's label: `ui.messagePart.tools.used` ("Used {count} {title}") split around its count
+/// and title as Desktop splits it, "Thinking" (`thinking`), or "Updates" alone, for notices and
+/// commentary alone (in `before`).
 #[derive(Debug, PartialEq)]
 pub struct Label {
     pub count: Option<usize>,
     pub title: String,
     pub thinking: bool,
+    /// The words before the count, between it and the title, and after the title.
+    pub before: String,
+    pub between: String,
+    pub after: String,
+    /// The whole label, as its button names it.
+    pub text: String,
 }
 
 impl Label {
     pub fn text(&self) -> String {
-        match self.count {
-            Some(n) => format!("Used {n} {}", self.title),
-            None => self.title.clone(),
+        self.text.clone()
+    }
+
+    fn plain(title: String, thinking: bool) -> Label {
+        let text = title.clone();
+        Label { count: None, title, thinking, before: String::new(), between: String::new(), after: String::new(), text }
+    }
+
+    /// `ui.messagePart.tools.used` for `count` and `title`, cut where its count and title stand.
+    fn used(count: usize, title: String) -> Label {
+        let text = opencode_i18n::plural!("ui.messagePart.tools.used", count, tools = title);
+        let at = text.find(&title).unwrap_or(text.len());
+        let before = text[..at].trim();
+        let after = text.get(at + title.len()..).unwrap_or("").trim().to_owned();
+        let digits = count.to_string();
+        match before.find(&digits) {
+            Some(n) => Label {
+                count: Some(count),
+                before: before[..n].trim().to_owned(),
+                between: before[n + digits.len()..].trim().to_owned(),
+                after,
+                title,
+                thinking: false,
+                text,
+            },
+            None => Label { count: None, before: before.to_owned(), between: String::new(), after, title, thinking: false, text },
         }
     }
 }
@@ -281,16 +312,24 @@ pub fn label(steps: &[Step], busy: bool) -> Label {
     }
     // Thoughts alone aren't finished work yet: the live group reads Thinking, not "Used 1 Thought".
     if busy && tools == 0 && thoughts > 0 && thoughts == steps.len() {
-        return Label { count: None, title: "Thinking".into(), thinking: true };
+        return Label::plain(opencode_i18n::t!("ui.sessionTurn.status.thinking").into(), true);
     }
     if tools == 0 && thoughts == 0 {
-        return Label { count: None, title: "Updates".into(), thinking: false };
+        let updates = opencode_i18n::t!("ui.messagePart.context.updates");
+        return Label { before: updates.into(), ..Label::plain(String::new(), false) }.with_text(updates);
     }
     if tools == 0 {
-        return Label { count: Some(thoughts), title: if thoughts == 1 { "Thought" } else { "Thoughts" }.into(), thinking: false };
+        return Label::used(thoughts, opencode_i18n::plural!("ui.messagePart.context.thought", thoughts));
     }
-    // English lists join with commas only ("Read, Search, List").
-    Label { count: Some(tools), title: names.join(", "), thinking: false }
+    // English lists join with commas only ("Read, Search, List"), as `@opencode/ui`'s list does.
+    Label::used(tools, opencode_i18n::ui_list(&names))
+}
+
+impl Label {
+    fn with_text(mut self, text: &str) -> Label {
+        self.text = text.to_owned();
+        self
+    }
 }
 
 /// When the first thought of a group that reads Thinking started (ms), for its ticking time.
@@ -324,14 +363,15 @@ pub fn live_thinking_since(t: &opencode_kit::model::Transcript, detail: &Detail)
 /// How long a group has been thinking, as Desktop counts it (`ui.message.duration.*`): "3s",
 /// "1m 5s", "1h 2m".
 pub fn elapsed(ms: i64) -> String {
+    use opencode_i18n::{integer, t};
     let total = (ms / 1000).max(0);
     if total < 60 {
-        return format!("{total}s");
+        return t!("ui.message.duration.seconds", count = integer(total));
     }
     if total < 3600 {
-        return format!("{}m {}s", total / 60, total % 60);
+        return t!("ui.message.duration.minutesSeconds", minutes = integer(total / 60), seconds = integer(total % 60));
     }
-    format!("{}h {}m", total / 3600, total / 60 % 60)
+    t!("ui.message.duration.hoursMinutes", hours = integer(total / 3600), minutes = integer(total / 60 % 60))
 }
 
 /// Whole seconds a group started at `since` has been thinking at `now_ms`.
@@ -413,18 +453,24 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
         trigger = trigger.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
     }
+    let words = |key: &'static str, words: &str| (!words.is_empty()).then(|| text(words.to_owned()).key(key).font(UI).color(p.muted));
     trigger = match l.count {
         Some(n) => trigger
-            .child(text("Used").key("used").font(UI).color(p.muted))
+            .children(words("used", &l.before))
             .child(odometer(format!("{key}-count"), n.to_string(), n as f64, UI, p.text))
-            .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()),
+            .children(words("between", &l.between))
+            .child(text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade())
+            .children(words("after", &l.after)),
         // Thoughts alone, still live: Thinking shimmers in the title's 13/530 (`tool-renderer.tsx:634-636`).
         // Its time ticks beside it in the subtitle's muted 13/440 (`tool-renderer.tsx:640`).
         None if l.thinking => trigger.child(crate::working::shimmer(s, p, &l.title, UI_MED, 0.0).key("thinking")).children(
             thinking_since(steps, busy).map(|at| text(elapsed(s.now_ms() - at)).key("elapsed").font(UI.features("'tnum' 1")).color(p.muted)),
         ),
         // Notices and commentary alone: "Updates" in the prefix's ink (`context-tool-group-prefix`).
-        None => trigger.child(text(l.title.clone()).key("updates").font(UI).color(p.muted)),
+        None => trigger
+            .children(words("updates", &l.before))
+            .children((!l.title.is_empty()).then(|| text(l.title.clone()).key(format!("title-{}", l.title)).font(UI_MED).color(p.text).truncate_fade()))
+            .children(words("after", &l.after)),
     };
     // The arrow shows while the pointer is over the label, and always while open.
     let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
@@ -610,7 +656,8 @@ mod tests {
         let Block::Group { key, steps } = &blocks[0] else { panic!("{blocks:?}") };
         assert_eq!(key, "c-m1-1");
         assert_eq!(label(steps, false).text(), "Used 2 Thoughts");
-        assert_eq!(label(steps, true), Label { count: None, title: "Thinking".into(), thinking: true });
+        let live = label(steps, true);
+        assert!(live.thinking && live.count.is_none() && live.title == "Thinking");
         // A live answer that hasn't streamed yet keeps its row.
         let b = step("m2", vec![tool("r", "read", ToolStatus::Completed), say("")]);
         assert_eq!(shape(&fold(&[&b], true)), ["c-r: Used 1 Read", "text "]);

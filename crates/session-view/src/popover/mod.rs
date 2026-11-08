@@ -179,8 +179,9 @@ pub fn badge(p: &Pal, label: &str) -> El {
 
 /// A row's star at its end: filled when `on`. A press toggles it and leaves the row unpicked.
 pub fn star<S: 'static>(p: &Pal, on: bool, toggle: impl Fn(&mut S) + 'static) -> El {
-    row().key("star").role("button").label(if on { "Unfavorite" } else { "Favorite" })
-        .help(format!("{} {}", if on { "Unfavorite" } else { "Favorite" }, crate::keymap::Bind::Favorite.label()))
+    let words = if on { opencode_i18n::t!("dialog.model.unfavorite") } else { opencode_i18n::t!("dialog.model.favorite") };
+    row().key("star").role("button").label(words)
+        .help(format!("{words} {}", crate::keymap::Bind::Favorite.label()))
         .size(20.0, 20.0).center().radius(4.0).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
@@ -192,7 +193,7 @@ pub fn star<S: 'static>(p: &Pal, on: bool, toggle: impl Fn(&mut S) + 'static) ->
 /// Muted words and a chevron at a row's end: the lit model's effort, which ← → change and a
 /// press opens (`open`).
 pub fn trailing_note<S: 'static>(p: &Pal, label: &str, open: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    row().key("trailing-note").role("button").label("Choose effort").help("Choose effort  ← →")
+    row().key("trailing-note").role("button").label(opencode_i18n::t!("ui.promptInput.chooseVariant")).help(format!("{}  \u{2190} \u{2192}", opencode_i18n::t!("ui.promptInput.chooseVariant")))
         .shrink().min_w(0.0).max_w(136.0).h(20.0).pl(4.0).gap(2.0).center_y().radius(4.0)
         .hover(p.hover).press(p.pressed).on_press_tx(open)
         .child(text(label.to_owned()).font(UI).color(p.muted).shrink().min_w(0.0).truncate_fade())

@@ -187,7 +187,7 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
 /// One answer's value, label and description. A yes/no question's answers are Yes and No.
 pub fn rows(f: &Field) -> Vec<(String, String, String)> {
     if f.kind == FieldKind::Boolean {
-        return vec![("true".into(), "Yes".into(), String::new()), ("false".into(), "No".into(), String::new())];
+        return vec![("true".into(), opencode_i18n::t!("provider.connect.form.yes").into(), String::new()), ("false".into(), opencode_i18n::t!("provider.connect.form.no").into(), String::new())];
     }
     f.options.iter().map(|o| (o.value.clone(), if o.label.is_empty() { o.value.clone() } else { o.label.clone() }, o.description.clone())).collect()
 }

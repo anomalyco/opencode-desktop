@@ -43,7 +43,7 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
         .shrink()
         .min_w(0.0)
         .role("button")
-        .label(format!("{title} failed"))
+        .label(opencode_i18n::t!("rune.tool.failed", tool = title))
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::set::<S>(k, open, id))
         .child(el().key("icon").size(16.0, 16.0).center().child(icon(&rune_theme_opencode::icons::OUTLINE_HEXAGONAL_WARNING, 16.0).color(p.danger)))
@@ -59,7 +59,7 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
     }
     let copy_key = format!("copy-tool-{}-error", c.id);
     let done = crate::copied::is_copied(s, &copy_key);
-    let label = if done { "Copied" } else { "Copy error" };
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.toolErrorCard.copyError") };
     let copied = cleaned.clone();
     let copy = row()
         .key("copy")
@@ -92,24 +92,11 @@ pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
 
 /// The tool's name, as its trigger says it.
 fn name(c: &Call) -> String {
-    let fixed = match c.name {
-        "read" => "Read",
-        "list" => "List",
-        "glob" => "Glob",
-        "grep" => "Grep",
-        "subagent" | "task" => "Agent",
-        "webfetch" => "Webfetch",
-        "shell" | "bash" => "Shell",
-        "execute" => "Execute",
-        "edit" | "multiedit" => "Edit",
-        "write" => "Write",
-        "skill" => "Skill",
-        "patch" | "apply_patch" => "Patch",
-        "question" => "Questions",
-        "websearch" => return super::lists::web_search_title(c.metadata),
-        other => return other.to_owned(),
-    };
-    fixed.to_owned()
+    match c.name {
+        "websearch" => super::lists::web_search_title(c.metadata),
+        "multiedit" => crate::turns::tool_title("edit").to_owned(),
+        other => crate::turns::tool_title(other).to_owned(),
+    }
 }
 
 /// What the call was working on, as its own trigger's subtitle says it (`toolErrorSubtitle`),
@@ -131,8 +118,7 @@ fn subtitle<S: TimelineHost>(s: &S, session: &str, c: &Call) -> Option<String> {
         }
         "question" => match c.input["questions"].as_array().map_or(0, Vec::len) {
             0 => return None,
-            1 => "1 question".to_owned(),
-            n => format!("{n} questions"),
+            n => format!("{n} {}", opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
         },
         "subagent" | "task" => field(c.input, "description")?.to_owned(),
         _ => return None,
@@ -150,6 +136,6 @@ pub fn summary(tool: &str, cleaned: &str) -> String {
     let mut chars = head.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => "Failed".to_owned(),
+        None => opencode_i18n::t!("ui.toolErrorCard.failed").to_owned(),
     }
 }

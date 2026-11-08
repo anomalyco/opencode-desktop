@@ -51,10 +51,10 @@ impl Run {
     /// The one line that says where it is: its step while running, else its result or error.
     pub fn line(&self) -> String {
         match self.state {
-            State::Running => self.steps.last().cloned().unwrap_or_else(|| "Starting".to_owned()),
-            State::Done => self.result.clone().unwrap_or_else(|| "Done".to_owned()),
-            State::Failed => self.error.clone().unwrap_or_else(|| "Failed".to_owned()),
-            State::Steered => "Steered".to_owned(),
+            State::Running => self.steps.last().cloned().unwrap_or_else(|| opencode_i18n::t!("rune.subagent.starting").to_owned()),
+            State::Done => self.result.clone().unwrap_or_else(|| opencode_i18n::t!("session.child.status.succeeded").to_owned()),
+            State::Failed => self.error.clone().unwrap_or_else(|| opencode_i18n::t!("session.child.status.failed").to_owned()),
+            State::Steered => opencode_i18n::t!("rune.subagent.steered").to_owned(),
         }
     }
 }
@@ -104,7 +104,7 @@ pub fn row_for<'a, S: TimelineHost>(s: &'a S, p: &Pal, parent: &str, blocks: &'a
     let running = run.state == State::Running;
     // A finished call whose result says it's still running went to the background.
     let background = metadata["background"].as_bool() == Some(true) || (**status == ToolStatus::Completed && metadata["status"].as_str() == Some("running"));
-    let task = if title.is_empty() { child.unwrap_or_default().to_owned() } else if background { format!("{title} (background)") } else { (*title).to_owned() };
+    let task = if title.is_empty() { child.unwrap_or_default().to_owned() } else if background { opencode_i18n::t!("rune.subagent.background", title = title) } else { (*title).to_owned() };
     let opens = s.can_open_subagent() && child.is_some();
     let words = row().key("words").gap(GAP).center_y().shrink().min_w(0.0)
         .children(running.then(|| spinner(p, child.is_none())))

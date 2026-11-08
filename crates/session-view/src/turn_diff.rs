@@ -45,24 +45,24 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
     let failed = matches!(state, State::Failed);
     let (adds, dels) = diffs.into_iter().flatten().fold((0, 0), |(a, d), f| (a + f["additions"].as_u64().unwrap_or(0), d + f["deletions"].as_u64().unwrap_or(0)));
     let mut head = row().key("turn-diff-head").w_full().h(24.0).gap(8.0).center_y()
-        .child(text(format!("{count} Changed {}", if count == 1 { "file" } else { "files" })).font(TITLE.features("'tnum' 1")).color(p.text));
+        .child(text(opencode_i18n::plural!("ui.sessionTurn.diffs.changed", count)).font(TITLE.features("'tnum' 1")).color(p.text));
     if adds + dels > 0 {
         head = head.child(row().key("changes").gap(8.0).center_y()
             .child(text(format!("+{adds}")).font(COUNT).color(p.success))
             .child(text(format!("-{dels}")).font(COUNT).color(p.danger)));
     }
     if failed {
-        head = head.child(text("Diff unavailable").key("turn-diff-error").font(NOTE).color(p.faint).truncate().shrink().min_w(0.0));
+        head = head.child(text(opencode_i18n::t!("ui.sessionTurn.diffs.failed")).key("turn-diff-error").font(NOTE).color(p.faint).truncate().shrink().min_w(0.0));
     }
     let overflow = count > LIMIT;
     if failed || overflow {
         let (session, from) = (session.to_owned(), from.to_owned());
-        let retry = failed.then(|| text("Retry").key("turn-diff-retry").role("button").label("Retry").font(ACTION).color(p.accent)
+        let retry = failed.then(|| text(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).key("turn-diff-retry").role("button").label(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).font(ACTION).color(p.accent)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 s.retry_turn_diff(&session, &from);
             }));
-        let more = overflow.then(|| text(if all { "Show less" } else { "Show all" }).key("turn-diff-all").role("button").font(ACTION).color(p.accent)
+        let more = overflow.then(|| text(if all { opencode_i18n::t!("ui.sessionTurn.diffs.showLess") } else { opencode_i18n::t!("ui.sessionTurn.diffs.showAll") }).key("turn-diff-all").role("button").font(ACTION).color(p.accent)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 crate::disclosure::toggle_expanded(s, &show_all);

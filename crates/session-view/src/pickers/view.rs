@@ -107,7 +107,7 @@ pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
 /// its room meanwhile.
 pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: bool) -> El {
     let default = variant.is_empty() || variant == "default";
-    let label = if default { "Default".to_owned() } else { capitalize(variant) };
+    let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
     let focused = !s.composer_edit().focused && s.pickers().toolbar_focus == Some(Kind::Effort);
     let shown = !default || s.pickers().open == Some(Kind::Effort) || focused;

@@ -104,7 +104,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, shown: &str, words: El, f
 }
 
 fn toggle<S: TimelineHost>(p: &Pal, id: &str, open: bool, past: bool) -> El {
-    let (id, label) = (id.to_owned(), if open { "Show less" } else { "Read more" });
+    let (id, label) = (id.to_owned(), if open { opencode_i18n::t!("ui.message.showLess") } else { opencode_i18n::t!("ui.message.readMore") });
     row()
         .key("fold-toggle")
         .role("button")

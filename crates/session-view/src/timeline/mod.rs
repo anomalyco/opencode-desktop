@@ -218,7 +218,7 @@ impl RowSpec {
                 _ => unreachable!(),
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
-            RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text("Interrupted").key("label").font(UI).color(p.faint), *run),
+            RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text(opencode_i18n::t!("ui.message.interrupted")).key("label").font(UI).color(p.faint), *run),
             RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::TurnDiff { idle, from, files } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
@@ -375,7 +375,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 .gap(8.0)
                 .center()
                 .child(activity_ring(p))
-                .child(text(s.loading_error(id).unwrap_or("Loading messages…")).font(UI).color(p.faint)),
+                .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
         );
     }
     let mut scroll = col()

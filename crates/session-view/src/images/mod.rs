@@ -385,7 +385,7 @@ pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::M
             if m.viewing.as_deref() == Some(id.as_str()) {
                 return img.key("held").opacity(0.0);
             }
-            let name = if f.alt.is_empty() { "Image preview".to_owned() } else { f.alt.to_owned() };
+            let name = if f.alt.is_empty() { opencode_i18n::t!("ui.imagePreview.alt").to_owned() } else { f.alt.to_owned() };
             let image = f.image.clone();
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
             let img = draggable::<S>(img, dragged.clone());

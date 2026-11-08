@@ -107,9 +107,8 @@ fn page(url: &str) -> Option<(String, String)> {
 /// muted ink; hovered, the pressed overlay and base ink.
 pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
     let label = match chip.count {
-        0 => "No sources".to_owned(),
-        1 => "1 source".to_owned(),
-        n => format!("{n} sources"),
+        0 => opencode_i18n::t!("ui.sources.none").to_owned(),
+        n => opencode_i18n::plural!("ui.sources.count", n),
     };
     let token = |name: &str| crate::palette::token(p.dark, name);
     // The chip's own surface: the hover overlay over the page.

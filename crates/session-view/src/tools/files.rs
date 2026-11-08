@@ -163,9 +163,9 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> El {
     if items.is_empty() {
         // Nothing changed yet: the first tool's title alone, its file count to come.
         let title = match first.name {
-            "edit" | "multiedit" => "Edit",
-            "write" => "Write",
-            _ => "Patch",
+            "edit" | "multiedit" => opencode_i18n::t!("ui.messagePart.title.edit"),
+            "write" => opencode_i18n::t!("ui.messagePart.title.write"),
+            _ => opencode_i18n::t!("ui.tool.patch"),
         };
         let pending = calls.iter().find(|c| super::busy(c.status, cx.live)).unwrap_or(first);
         let d = Display::of(s, cx, pending, false);
@@ -298,8 +298,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
 fn change(p: &Pal, item: &Item) -> Option<El> {
     let word = |w: &'static str, c| Some(text(w).key("change").font(UI_MED.lh(19.5)).color(c));
     match item.kind() {
-        Kind::Add => word("Created", p.diff.add_text),
-        Kind::Delete => word("Deleted", p.diff.del_text),
+        Kind::Add => word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_text),
+        Kind::Delete => word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_text),
         Kind::Update => {
             let (a, d) = item.counts();
             (a + d > 0).then(|| {

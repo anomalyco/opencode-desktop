@@ -27,7 +27,9 @@ const DESC: TextStyle = TextStyle::new(12.0, 440.0).lh(12.0).tracking(0.05);
 const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 /// A number key's cap (`keybind-v2` at the shortcut's 10 px, regular).
 const KEY: TextStyle = TextStyle::new(10.0, 400.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
-const CUSTOM: &str = "Type your own answer…";
+fn custom_label() -> &'static str {
+    opencode_i18n::t!("ui.question.custom.answerPlaceholder")
+}
 /// The footer tray's height: 0.5 pt borders, 16 pt over and 8 pt under the 32 pt buttons.
 const TRAY_H: f32 = 57.0;
 /// How far the tray tucks up under the body (`margin-block-start: -9px`).
@@ -55,7 +57,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let fade = || face_transition(s.knobs());
     let max = s.dock_pane_h().map(|h| (h - PANE_GAP).max(MIN_H));
 
-    let title = if total == 1 { "Question".to_owned() } else { format!("{} of {total} questions", tab + 1) };
+    let title = if total == 1 { opencode_i18n::t!("session.question.title").to_owned() } else { opencode_i18n::t!("session.question.progress", current = tab + 1, total = total) };
     let top = row()
         .key("q-top")
         .w_full()
@@ -68,7 +70,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let text_of = if field.description.is_empty() { &field.title } else { &field.description };
     let question = text(text_of.clone()).key("q-text").font(QUESTION).color(p.text).wrap_anywhere();
     let question = readable(p, if minimized { question.max_lines(3) } else { question });
-    let hint = if multi { "Select all answers that apply" } else { "Select one answer" };
+    let hint = if multi { opencode_i18n::t!("ui.question.classic.multiHint") } else { opencode_i18n::t!("ui.question.singleHint") };
     let details = col()
         .key(format!("q-details-{tab}"))
         .w_full()
@@ -144,8 +146,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
 
     let last = f.last(tab);
     // Both labels keep their room so the button doesn't change width between Next and Submit.
-    let advance_w = ["Next", "Submit"].map(|l| rune::text::measure(l, &[], BUTTON, None).0).into_iter().fold(0.0, f32::max) + 30.0;
-    let (submit, back) = if MAC { ("⌘⏎", "⌘[") } else { ("Ctrl+⏎", "Alt+←") };
+    let advance_w = [opencode_i18n::t!("ui.common.next"), opencode_i18n::t!("ui.common.submit")].map(|l| rune::text::measure(l, &[], BUTTON, None).0).into_iter().fold(0.0, f32::max) + 30.0;
+    let (submit, back) = if MAC { ("⌘⏎".to_owned(), "⌘[".to_owned()) } else { (format!("{}+⏎", opencode_i18n::t!("common.key.ctrl")), format!("{}+←", opencode_i18n::t!("common.key.alt"))) };
     let footer = row()
         .key("question-footer")
         .w_full()
@@ -155,7 +157,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .px(8.5)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", "Dismiss", Variant::GhostMuted, None, true).help("Dismiss Esc").on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, true).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
             if let Some(f) = asking(s) {
                 dismiss(s, &f, tx)
             }
@@ -166,14 +168,14 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", "Back", Variant::Neutral, None, true).help(format!("Back {back}")).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, true).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
                         let Some(f) = asking(s) else { return };
                         let (tab, _) = place(s, &f);
                         jump(s, &f, tab.saturating_sub(1), tx);
                     })
                 }))
                 .child({
-                    let label = if last { "Submit" } else { "Next" };
+                    let label = if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") };
                     button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, true)
                         .w(advance_w)
                         .justify_center()
@@ -218,7 +220,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
         let color = if i == tab { p.icon_muted } else if answered(s, f, i) { p.bg_accent } else { p.q.layer4 };
         el().key(format!("q-seg-{i}"))
             .role("button")
-            .label(format!("Question {}", i + 1))
+            .label(opencode_i18n::t!("ui.tool.questions.numbered", number = i + 1))
             .size(20.0, 20.0)
             .radius(4.0)
             .center()
@@ -237,7 +239,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize) -> El {
 fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
     el().key("q-minimize")
         .role("button")
-        .label(if minimized { "Restore question" } else { "Minimize question" })
+        .label(if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") })
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
@@ -296,12 +298,12 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     let input = text_input(&edit, INPUT)
         .key("q-input")
         .spellcheck(s.composer_spellcheck())
-        .label(CUSTOM)
+        .label(custom_label())
         .single_line()
         .grow(1.0)
         .min_w(0.0)
         .color(p.text)
-        .placeholder(CUSTOM, if editing { p.faint } else { p.text })
+        .placeholder(custom_label(), if editing { p.faint } else { p.text })
         .caret(p.text, p.selection)
         .on_edit(move |s: &mut S| s.dock_mut().typed_mut(&id, &field_key))
         .on_input_change(|s: &mut S, _| {
@@ -345,7 +347,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
             start_typing(s, &f, tab);
             dock(s, &f).keyboard = false;
         })
-        .child(mark(p, multi, on).role(if multi { "checkbox" } else { "radio" }).label(CUSTOM).on_press_tx(|s: &mut S, _: &mut Tx| {
+        .child(mark(p, multi, on).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             toggle_custom(s, &f, tab);

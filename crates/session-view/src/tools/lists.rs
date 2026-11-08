@@ -25,12 +25,12 @@ pub fn column(session: &str) -> f32 {
 /// the instructions it loaded. An image it returned shows under the group.
 pub fn read<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, false);
-    let t = Trigger { title: "Read".into(), subtitle: path(c.input).map(|x| file_name(x).to_owned()), args: read_args(c.input), ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.read").into(), subtitle: path(c.input).map(|x| file_name(x).to_owned()), args: read_args(c.input), ..Default::default() };
     let mut out = still(trigger(s, p, cx, c, d, t, Press::None, None));
     if *c.status == opencode_kit::model::ToolStatus::Completed {
         let loaded: Vec<&str> = c.metadata["loaded"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|x| super::session_relative(s, cx.session, x)).collect();
         if !loaded.is_empty() {
-            out = out.child(loaded_item(s, p, "Loaded", &[(loaded.join(", "), false)], None));
+            out = out.child(loaded_item(s, p, opencode_i18n::t!("ui.tool.loaded"), &[(loaded.join(", "), false)], None));
         }
     }
     out
@@ -60,12 +60,12 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         }
     }
     let pending = calls.iter().any(|c| busy(c.status, cx.live));
-    let title_w = rune::text::measure("Read", &[], UI, None).0;
+    let title_w = rune::text::measure(opencode_i18n::t!("ui.tool.read"), &[], UI, None).0;
     // Wider than the row shows it in one line: Desktop measures the clip, this measures the words.
     let long = rune::text::measure(&list, &[], UI, None).0 > column(cx.session) - 24.0 - 24.0 - title_w - 8.0;
     let k = super::key(first.id);
     let open = long && s.expanded().contains(&k);
-    let title = if pending { crate::working::shimmer(s, p, "Read", UI, 0.0).key("title") } else { text("Read").key("title").font(UI).color(p.text) };
+    let title = if pending { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.read"), UI, 0.0).key("title") } else { text(opencode_i18n::t!("ui.tool.read")).key("title").font(UI).color(p.text) };
     let words = text(list).key("subtitle").font(if open { UI.lh(20.0) } else { UI }).color(p.faint).spans(args);
     let words = if open { words.wrap() } else { words.truncate_fade() };
     let mut r = row()
@@ -83,7 +83,7 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         r = r
             .child(if open { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
-            .label("Read")
+            .label(opencode_i18n::t!("ui.tool.read"))
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{}", first.id)));
     }
     r
@@ -100,9 +100,9 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let out = output(c).trim_end();
     let d = Display::of(s, cx, c, !out.is_empty() && !busy(c.status, cx.live));
     let (title, count) = match c.name {
-        "list" => ("List", None),
-        "glob" => ("Glob", c.metadata["count"].as_u64()),
-        _ => ("Grep", c.metadata["matches"].as_u64()),
+        "list" => (opencode_i18n::t!("ui.tool.list"), None),
+        "glob" => (opencode_i18n::t!("ui.tool.glob"), c.metadata["count"].as_u64()),
+        _ => (opencode_i18n::t!("ui.tool.grep"), c.metadata["matches"].as_u64()),
     };
     let mut args = Vec::new();
     if c.name != "list" {
@@ -111,7 +111,7 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     if c.name == "grep" {
         args.extend(field(c.input, "include").map(|x| format!("include={x}")));
     }
-    let matches = count.filter(|n| *n > 0).map(|n| format!("({n} {})", if n == 1 { "match" } else { "matches" }));
+    let matches = count.filter(|n| *n > 0).map(|n| opencode_i18n::plural!("ui.messagePart.context.match", n));
     let searched = path(c.input).or_else(|| s.session_directory(cx.session)).unwrap_or("/");
     let t = Trigger { title: title.into(), subtitle: directory(s, cx.session, searched), args, matches, ..Default::default() };
     let press = if out.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
@@ -126,7 +126,7 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, false);
     let url = field(c.input, "url").filter(|_| d.phase != super::Phase::Pending);
-    let t = Trigger { title: "Webfetch".into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.webfetch").into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
     still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
@@ -161,10 +161,10 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
 /// "{Provider} Web Search", or "Web Search" (`webSearchProviderLabel`).
 pub fn web_search_title(metadata: &Value) -> String {
     match field(metadata, "provider") {
-        Some("opencode") => "OpenCode Web Search".to_owned(),
-        Some("tinyfish") => "TinyFish Web Search".to_owned(),
-        Some(other) => format!("{} Web Search", opencode_kit::model::capitalize(other)),
-        None => "Web Search".to_owned(),
+        Some("opencode") => opencode_i18n::t!("ui.tool.websearch.provider", provider = "OpenCode"),
+        Some("tinyfish") => opencode_i18n::t!("ui.tool.websearch.provider", provider = "TinyFish"),
+        Some(other) => opencode_i18n::t!("ui.tool.websearch.provider", provider = opencode_kit::model::capitalize(other)),
+        None => opencode_i18n::t!("ui.tool.websearch").to_owned(),
     }
 }
 
@@ -191,7 +191,7 @@ pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             list = list.child(row().key(format!("link-{n}")).w_full().child(link::<S>(p, u)));
         }
         if shown < links.len() {
-            let more = format!("+{} more", links.len() - shown);
+            let more = opencode_i18n::plural!("ui.common.moreCount", links.len() - shown);
             let words = el()
                 .key("more")
                 .role("button")
@@ -213,11 +213,14 @@ pub fn skill_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> 
     let names: Vec<(String, bool)> = calls.iter().filter_map(|c| skill_name(c).map(|n| (n.to_owned(), busy(c.status, cx.live)))).collect();
     if names.is_empty() {
         let d = Display::of(s, cx, first, false);
-        let title = if d.busy() { crate::working::shimmer(s, p, "Skill", UI_MED, 0.0) } else { text("Skill").font(UI_MED).color(p.text) };
+        let title = if d.busy() { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.skill"), UI_MED, 0.0) } else { text(opencode_i18n::t!("ui.tool.skill")).font(UI_MED).color(p.text) };
         return row().key(format!("tool-{}", first.id)).w_full().h(28.0).center_y().child(title.key("title"));
     }
-    let kind = if names.len() == 1 { "skill" } else { "skills" };
-    loaded_item(s, p, "Loaded", &names, Some(kind)).key(format!("tool-{}", first.id))
+    // `ui.tool.loadedSkills` around its name: "Loaded" before it and "skill" or "skills" after.
+    let template = opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.tool.loadedSkills"), names.len() as u64);
+    let (before, after) = template.split_once("{{name}}").unwrap_or((opencode_i18n::t!("ui.tool.loaded"), ""));
+    let after = after.replace("{{count}}", &names.len().to_string());
+    loaded_item(s, p, before.trim(), &names, Some(after.trim()).filter(|a| !a.is_empty())).key(format!("tool-{}", first.id))
 }
 
 /// A skill call's name: its metadata's, else what the model asked for.
@@ -268,6 +271,6 @@ pub fn generic<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         })
         .take(3)
         .collect();
-    let t = Trigger { title: format!("Called `{}`", c.name).into(), subtitle, args, ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.basicTool.called", tool = c.name).into(), subtitle, args, ..Default::default() };
     still(trigger(s, p, cx, c, d, t, Press::None, None))
 }

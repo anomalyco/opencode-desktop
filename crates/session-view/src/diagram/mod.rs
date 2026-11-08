@@ -205,8 +205,8 @@ fn button<S: TimelineHost>(p: &Pal, id: u64) -> El {
         .hover_motion(INSTANT, INSTANT)
         .group_opacity(0.0, 1.0)
         .role("button")
-        .label("Open full size")
-        .help("Open full size")
+        .label(opencode_i18n::t!("rune.diagram.openFullSize"))
+        .help(opencode_i18n::t!("rune.diagram.openFullSize"))
         .on_press_tx(move |s: &mut S, tx| {
             open(s, id, tx);
         })

@@ -165,8 +165,8 @@ pub fn mention_bubble(body: &str, mentions: &[UserMention], title: impl Fn(&str)
 /// What resting on a session badge says.
 pub fn session_tip(id: &str, title: Option<&str>) -> String {
     match title {
-        Some(t) => format!("Open session “{t}”\n{id}"),
-        None => format!("Open session {id}"),
+        Some(t) => opencode_i18n::t!("rune.session.mention.openTitled", title = t, id = id),
+        None => opencode_i18n::t!("rune.session.mention.open", id = id),
     }
 }
 
@@ -222,7 +222,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     let comment = q.comment();
     let quote = quote_preview(&q.text);
     let title = comment.map_or_else(|| quote.clone(), str::to_owned);
-    let label = if comment.is_some() { quote } else { "Quote".to_owned() };
+    let label = if comment.is_some() { quote } else { opencode_i18n::t!("ui.commentCard.quote").to_owned() };
     let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let tip = tooltip(q);
     if comment.is_none() {
@@ -235,7 +235,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     };
     let mut subtitle = el().key("subtitle").w_full().h(14.0);
     if hint {
-        let edit = if comment.is_some() { "Edit comment" } else { "Add comment" };
+        let edit = if comment.is_some() { opencode_i18n::t!("ui.commentCard.editComment") } else { opencode_i18n::t!("ui.commentCard.addComment") };
         subtitle = subtitle
             .child(line("quote-line", &OUTLINE_QUOTE, label, p.muted).group_opacity(1.0, 0.0))
             .child(line("comment-line", &COMMENT, edit.to_owned(), p.text).absolute(0.0, 0.0).group_opacity(0.0, 1.0));
@@ -278,7 +278,7 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
                     tx.instant();
                     s.open_quote_more(id.clone());
                 })
-                .child(text("Show more").font(BUTTON).color(p.muted)),
+                .child(text(opencode_i18n::t!("ui.common.showMore")).font(BUTTON).color(p.muted)),
         );
     }
     Some(c)

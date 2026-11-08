@@ -230,7 +230,7 @@ thread_local! {
 /// The round button on a chip's corner that shows on hover, for a chip `w` wide.
 pub fn remove_button<S: 'static>(
     p: &Pal,
-    name: &str,
+    _name: &str,
     w: f32,
     on: impl Fn(&mut S) + 'static,
 ) -> El {

@@ -356,5 +356,5 @@ pub fn directory<S: TimelineHost>(s: &S, session: &str, path: &str) -> Option<St
 
 /// "1 file", "3 files" (`ui.common.file`).
 pub fn files_count(n: usize) -> String {
-    format!("{n} {}", if n == 1 { "file" } else { "files" })
+    format!("{n} {}", opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.common.file"), n as u64))
 }

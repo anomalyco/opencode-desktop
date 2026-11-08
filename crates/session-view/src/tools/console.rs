@@ -21,10 +21,10 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let writing = command.is_empty() && d.phase == Phase::Pending;
     let subtitle = match (d.open(), writing) {
         (true, _) => None,
-        (false, true) => Some("Writing command…".to_owned()),
+        (false, true) => Some(opencode_i18n::t!("ui.tool.shell.writingCommand").to_owned()),
         (false, false) => Some(one_line(command)),
     };
-    let t = Trigger { title: "Shell".into(), compact: true, subtitle, code: !writing, ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.shell").into(), compact: true, subtitle, code: !writing, ..Default::default() };
     disclosure(trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
         body(console(s, p, c.id, (!command.is_empty()).then_some(command), &clean(output(c))), false, 8.0)
     })
@@ -35,12 +35,12 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>, out: &str) -> El {
     let mut inner = col().key("console-text").w_full();
     if let Some(cmd) = command {
-        inner = inner.child(section(s, p, id, "command", text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere(), cmd, p.bg_base, "Copy", false));
+        inner = inner.child(section(s, p, id, "command", text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere(), cmd, p.bg_base, opencode_i18n::t!("ui.message.copy"), false));
     }
     if !out.is_empty() {
         // A line break that ends the output opens no empty line, as in a `pre`.
         let words = linked::<S>(p, out.strip_suffix('\n').unwrap_or(out), TOOL_CODE, p.muted);
-        inner = inner.child(section(s, p, id, "result", words, out, p.layer1, "Copy output", command.is_some()));
+        inner = inner.child(section(s, p, id, "result", words, out, p.layer1, opencode_i18n::t!("ui.message.copyOutput"), command.is_some()));
     }
     col()
         .key("console")
@@ -71,8 +71,8 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, words: El, cop
     let button = row()
         .key("copy")
         .role("button")
-        .label(if done { "Copied" } else { label })
-        .help(if done { "Copied" } else { label })
+        .label(if done { opencode_i18n::t!("ui.message.copied") } else { label })
+        .help(if done { opencode_i18n::t!("ui.message.copied") } else { label })
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

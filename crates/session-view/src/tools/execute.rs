@@ -20,7 +20,7 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let opens = !calls.is_empty() || error.is_some() || !out.is_empty();
     let d = Display::of(s, cx, c, opens);
     let subtitle = (!d.open()).then(|| subtitle(&calls)).flatten();
-    let t = Trigger { title: "Execute".into(), compact: true, subtitle, code: true, ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.execute").into(), compact: true, subtitle, code: true, ..Default::default() };
     let press = if opens { Press::Toggle(super::key(c.id)) } else { Press::None };
     let code = field(c.input, "code").map(str::trim_end).filter(|code| !code.is_empty());
     // The script is whole once the model has written the call, so it can be read while it runs.
@@ -54,7 +54,7 @@ pub fn error(c: &Call) -> Option<String> {
         let raw = opencode_kit::model::tool_error(c.metadata).filter(|e| !e.is_empty() && *c.status == ToolStatus::Error).unwrap_or(output(c));
         let text = strip_ansi(raw);
         let text = text.trim_start().strip_prefix("Error:").unwrap_or(&text).trim().to_owned();
-        if text.is_empty() { "Failed".to_owned() } else { text }
+        if text.is_empty() { opencode_i18n::t!("ui.toolErrorCard.failed").to_owned() } else { text }
     })
 }
 
@@ -168,8 +168,8 @@ fn output_row<S: TimelineHost>(s: &S, p: &Pal, id: &str, out: &str) -> El {
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")))
         .child(el().w(14.0).center().child(chevron(p, open)))
-        .child(text("Output").key("name").font(TOOL_CODE).color(p.text))
-        .child(text(format!("{lines} {}", if lines == 1 { "line" } else { "lines" })).key("args").font(TOOL_CODE).color(p.muted).group_color(p.text));
+        .child(text(opencode_i18n::t!("ui.tool.execute.output")).key("name").font(TOOL_CODE).color(p.text))
+        .child(text(opencode_i18n::plural!("ui.tool.execute.lines", lines)).key("args").font(TOOL_CODE).color(p.muted).group_color(p.text));
     let c = col().key("output-item").w_full().child(line);
     if open { c.child(col().w_full().pl(20.0).mt(4.0).child(console(s, p, id, None, out))) } else { c }
 }
@@ -180,8 +180,8 @@ fn view_code_button<S: TimelineHost>(p: &Pal, session: &str, id: &str) -> El {
     row()
         .key("view-code")
         .role("button")
-        .label("View code")
-        .help("View code")
+        .label(opencode_i18n::t!("ui.tool.execute.viewCode"))
+        .help(opencode_i18n::t!("ui.tool.execute.viewCode"))
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

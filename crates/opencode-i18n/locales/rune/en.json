@@ -29,6 +29,8 @@
   "rune.composer.shell.noQueue.description": "Press Enter to run it now.",
   "rune.composer.starting": "Starting a session…",
   "rune.composer.uploading": "Uploading…",
+  "rune.diagram.openFullSize": "Open full size",
+  "rune.diagram.title": "Diagram",
   "rune.dialog.images": "Images",
   "rune.home.import.notExport": "Not a session export",
   "rune.home.noServer.checking": "Checking for server",
@@ -42,6 +44,8 @@
   "rune.jobs.readOnly": "This window is read-only. Relaunch without --read-only to act.",
   "rune.picker.rail.jump": "Jump to {{group}}",
   "rune.session.header.openParent": "Open {{title}}",
+  "rune.session.mention.open": "Open session {{id}}",
+  "rune.session.mention.openTitled": "Open session “{{title}}”\n{{id}}",
   "rune.session.untitled": "Untitled session",
   "rune.settings.developer.rewind.title": "Rewind",
   "rune.settings.developer.title": "Developer",
@@ -56,5 +60,9 @@
   "rune.settings.server.local": "Local server",
   "rune.settings.workspaces.active": "Active",
   "rune.status.filePickerFailed": "Couldn't open the file picker",
-  "rune.status.openFolderFailed": "Couldn't open the folder"
+  "rune.status.openFolderFailed": "Couldn't open the folder",
+  "rune.subagent.background": "{{title}} (background)",
+  "rune.subagent.starting": "Starting",
+  "rune.subagent.steered": "Steered",
+  "rune.tool.failed": "{{tool}} failed"
 }

@@ -232,7 +232,7 @@ pub trait ComposerHost: TimelineHost {
     }
 
     fn composer_placeholder(&self) -> String {
-        "Ask anything…".into()
+        opencode_i18n::t!("ui.promptInput.placeholder.normal", slash = "/", at = "@")
     }
     fn composer_shell_mode(&self) -> bool {
         false

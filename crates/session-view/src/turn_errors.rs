@@ -113,31 +113,30 @@ pub fn budget_time(t: LocalTime) -> String {
 
 /// What a limit's row says, at `now` (epoch ms), with its action for a budget.
 pub fn limit_copy(kind: Limit, at: Option<i64>, now: i64) -> (String, Option<&'static str>) {
+    use opencode_i18n::t;
     match kind {
         Limit::Free | Limit::Go => {
-            let (title, reset) = if kind == Limit::Go {
-                ("You've reached your OpenCode Go usage limit.", "You've reached your OpenCode Go usage limit. It resets at")
-            } else {
-                ("You've used today's free messages.", "You've used today's free messages. They reset at")
-            };
+            let go = kind == Limit::Go;
+            let title = if go { t!("ui.sessionTurn.goLimit.title") } else { t!("ui.sessionTurn.freeLimit.title") };
             let Some(at) = at else { return (title.to_owned(), None) };
             let (t, today) = (LocalTime::at(at), LocalTime::at(now));
             let same_day = (t.year, t.month, t.day) == (today.year, today.month, today.day) && at - now < 86_400_000;
-            (format!("{reset} {}.", if same_day { short_time(t) } else { date_time(t) }), None)
+            let time = if same_day { short_time(t) } else { date_time(t) };
+            (if go { t!("ui.sessionTurn.goLimit.lineReset", time = time) } else { t!("ui.sessionTurn.freeLimit.lineReset", time = time) }, None)
         }
         Limit::Budget => (
             match at {
-                Some(at) => format!("Workspace budget reached · paid models paused until {} · free models still work", budget_time(LocalTime::at(at))),
-                None => "Workspace budget reached · paid models paused until it resets · free models still work".to_owned(),
+                Some(at) => t!("ui.sessionTurn.budgetLimit.all", time = budget_time(LocalTime::at(at))),
+                None => t!("ui.sessionTurn.budgetLimit.allUntilReset").to_owned(),
             },
-            Some("Use a free model"),
+            Some(t!("ui.sessionTurn.budgetLimit.useFreeModel")),
         ),
         Limit::ModelBudget => (
             match at {
-                Some(at) => format!("Model budget reached · this model is paused until {}", budget_time(LocalTime::at(at))),
-                None => "Model budget reached · this model is paused until it resets".to_owned(),
+                Some(at) => t!("ui.sessionTurn.budgetLimit.models", time = budget_time(LocalTime::at(at))),
+                None => t!("ui.sessionTurn.budgetLimit.modelsUntilReset").to_owned(),
             },
-            Some("Switch model"),
+            Some(t!("ui.sessionTurn.budgetLimit.switchModel")),
         ),
     }
 }
@@ -214,12 +213,16 @@ pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
 /// The Retry row's lines: what failed, and the attempt with its countdown at `now`.
 pub fn retry_copy(r: &Retry, now: i64) -> (String, String) {
     let message = if r.message.contains("exceeded your current quota") && r.message.contains("gemini") {
-        "gemini is way too hot right now".to_owned()
+        opencode_i18n::t!("ui.sessionTurn.retry.geminiHot").to_owned()
     } else {
         unwrap_error(&r.message)
     };
     let secs = countdown(r, now);
-    let info = if secs > 0 { format!("Attempt {} - retrying in {secs}s", r.attempt) } else { format!("Attempt {} - retrying", r.attempt) };
+    let info = if secs > 0 {
+        opencode_i18n::plural!("ui.sessionTurn.retry.attemptWaiting", secs, attempt = r.attempt)
+    } else {
+        opencode_i18n::t!("ui.sessionTurn.retry.attemptRetryingNow", attempt = r.attempt)
+    };
     (message, info)
 }
 
@@ -278,31 +281,35 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
                 Some(prev) if !prev.is_empty() => format!("{} → {}", capitalize(prev), capitalize(agent)),
                 _ => capitalize(agent),
             };
-            line(vec![faint_med("label", "Agent changed".into()), faint("data", data)])
+            line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.agentChanged").into()), faint("data", data)])
         }
         NoticeKind::Instructions { sources } => {
-            let mut kids = vec![faint_med("label", "Instructions updated".into())];
+            let mut kids = vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.instructionsUpdated").into())];
             if !sources.is_empty() {
                 kids.push(faint("sources", sources.join(", ")));
             }
             line(kids)
         }
-        NoticeKind::Restart => line(vec![faint_med("label", "Continuing after restart".into())]),
+        NoticeKind::Restart => line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.restart").into())]),
         NoticeKind::Idle => col(),
         NoticeKind::Text(t) => line(vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
-                .child(text("Moved to").key("label").font(UI).color(p.faint))
+                .child(text(opencode_i18n::t!("ui.sessionTimeline.notice.movedTo")).key("label").font(UI).color(p.faint))
                 .child(faint("value", directory.clone()));
             crate::compaction::divider_of(s, p, words, run)
         }
         NoticeKind::Model { model, previous } => {
             let variant_only = previous.as_ref().is_some_and(|x| x.provider == model.provider && x.id == model.id);
             let (label, variant) = if variant_only {
-                let v = if model.variant.is_empty() || model.variant == "default" { "Default".to_owned() } else { model.variant.clone() };
-                (format!("Switched variant to {v}"), None)
+                let label = if model.variant.is_empty() || model.variant == "default" {
+                    opencode_i18n::t!("ui.sessionTimeline.notice.variantDefault").to_owned()
+                } else {
+                    opencode_i18n::t!("ui.sessionTimeline.notice.variantSwitched", variant = model.variant)
+                };
+                (label, None)
             } else {
-                (format!("Switched to {}", s.model_name(model)), Some(model.variant.as_str()).filter(|v| !v.is_empty() && *v != "default"))
+                (opencode_i18n::t!("ui.sessionTimeline.notice.modelSwitched", model = s.model_name(model)), Some(model.variant.as_str()).filter(|v| !v.is_empty() && *v != "default"))
             };
             let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(faint("label", label));
             if let Some(v) = variant {

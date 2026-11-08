@@ -32,20 +32,20 @@ const INPUT_MAX_H: f32 = 160.0;
 /// Desktop has none for `shell` (its key is still `bash`), so a command shows the tool's name.
 pub fn description(action: &str) -> Option<&'static str> {
     Some(match action {
-        "read" => "Reading a file (matches the file path)",
-        "edit" => "Modify files, including edits, writes, and patches",
-        "glob" => "Match files using glob patterns",
-        "grep" => "Search file contents using regular expressions",
-        "list" => "List files within a directory",
-        "bash" => "Run shell commands",
-        "task" => "Launch sub-agents",
-        "skill" => "Load a skill by name",
-        "lsp" => "Run language server queries",
-        "todowrite" => "Update the todo list",
-        "webfetch" => "Fetch content from a URL",
-        "websearch" => "Search the web",
-        "external_directory" => "Access files outside the project directory",
-        "doom_loop" => "Detect repeated tool calls with identical input",
+        "read" => opencode_i18n::t!("settings.permissions.tool.read.description"),
+        "edit" => opencode_i18n::t!("settings.permissions.tool.edit.description"),
+        "glob" => opencode_i18n::t!("settings.permissions.tool.glob.description"),
+        "grep" => opencode_i18n::t!("settings.permissions.tool.grep.description"),
+        "list" => opencode_i18n::t!("settings.permissions.tool.list.description"),
+        "bash" => opencode_i18n::t!("settings.permissions.tool.bash.description"),
+        "task" => opencode_i18n::t!("settings.permissions.tool.task.description"),
+        "skill" => opencode_i18n::t!("settings.permissions.tool.skill.description"),
+        "lsp" => opencode_i18n::t!("settings.permissions.tool.lsp.description"),
+        "todowrite" => opencode_i18n::t!("settings.permissions.tool.todowrite.description"),
+        "webfetch" => opencode_i18n::t!("settings.permissions.tool.webfetch.description"),
+        "websearch" => opencode_i18n::t!("settings.permissions.tool.websearch.description"),
+        "external_directory" => opencode_i18n::t!("settings.permissions.tool.external_directory.description"),
+        "doom_loop" => opencode_i18n::t!("settings.permissions.tool.doom_loop.description"),
         _ => return None,
     })
 }
@@ -97,7 +97,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .gap(8.0)
         .center_y()
         .child(el().key("permission-icon").size(ICON_W, 20.0).center().child(icon(&ic::WARNING, 16.0).color(p.v1_icon_warning)))
-        .child(text("Permission required").key("permission-title").font(TITLE).color(p.text).shrink());
+        .child(text(opencode_i18n::t!("notification.permission.title")).key("permission-title").font(TITLE).color(p.text).shrink());
     // What the tool does, else its name in code.
     let what = match description(&action) {
         Some(d) => text(d).key("permission-hint").font(HINT).color(p.muted).wrap(),
@@ -152,9 +152,9 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             row()
                 .key("permission-actions")
                 .gap(8.0)
-                .child(answer("perm-deny", "Deny", Variant::Ghost, "reject"))
-                .child(answer("perm-always", "Allow always", Variant::Neutral, "always"))
-                .child(answer("perm-once", "Allow once", Variant::Submit, "once")),
+                .child(answer("perm-deny", opencode_i18n::t!("ui.permission.deny"), Variant::Ghost, "reject"))
+                .child(answer("perm-always", opencode_i18n::t!("ui.permission.allowAlways"), Variant::Neutral, "always"))
+                .child(answer("perm-once", opencode_i18n::t!("ui.permission.allowOnce"), Variant::Submit, "once")),
         );
     // Its own card (`dock-prompt[data-kind="permission"]`): the raised elevation outside the
     // box over a `bg-base` hairline that masks what's behind, where the composer's card has

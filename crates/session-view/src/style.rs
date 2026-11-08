@@ -118,17 +118,17 @@ pub fn readable(p: &Pal, t: El) -> El {
 #[allow(clippy::too_many_arguments)]
 pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: Option<i64>, live: bool, open: bool, fade: f32) -> El {
     let streaming = live && secs.is_none();
-    let title = if streaming { crate::working::shimmer(s, p, "Thinking", UI_MED, 0.0) } else { text("Thought").font(UI_MED).color(p.text) };
+    let title = if streaming { crate::working::shimmer(s, p, opencode_i18n::t!("ui.sessionTurn.status.thinking"), UI_MED, 0.0) } else { text(opencode_i18n::t!("ui.message.thought")).font(UI_MED).color(p.text) };
     let subtitle = match (streaming, secs) {
         (true, _) if !open => reasoning_heading(body),
-        (false, Some(secs)) => Some(format!("{secs}s")),
+        (false, Some(secs)) => Some(opencode_i18n::t!("ui.message.duration.seconds", count = opencode_i18n::integer(secs))),
         _ => None,
     };
     let a = el().key("arrow").w(16.0).h(24.0).center().child(arrow(p, open));
     let trigger = row()
         .key("trigger")
         .role("button")
-        .label(if streaming { "Thinking" } else { "Thought" })
+        .label(if streaming { opencode_i18n::t!("ui.sessionTurn.status.thinking") } else { opencode_i18n::t!("ui.message.thought") })
         .h(28.0)
         .gap(6.0)
         .center_y()
@@ -304,7 +304,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
     (c.index, c.source).hash(&mut h);
     let key = format!("code-copy-{:016x}", h.finish());
     let done = copied == Some(key.as_str());
-    let label = if done { "Copied" } else { "Copy" };
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copy") };
     let (code, mark) = (c.source.to_owned(), key);
     let button = row()
         .key("copy")
@@ -385,5 +385,5 @@ pub fn interrupted_label(p: &Pal) -> El {
         .h(COPY)
         .center_y()
         .transition(Transition::asymmetric(arrive, Transition::opacity()).springs(SpringPair::new(Spring::new(0.24, 0.0), Spring::new(0.12, 0.0))))
-        .child(text("Interrupted").font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
+        .child(text(opencode_i18n::t!("ui.message.interrupted")).font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
 }

@@ -25,7 +25,7 @@ pub fn answers(input: &Value, metadata: &Value) -> (Vec<String>, Option<Vec<Stri
     if got.is_empty() {
         return (questions, None);
     }
-    let answers = (0..questions.len()).map(|i| got.get(i).map(|a| a.join(", ")).filter(|a| !a.is_empty()).unwrap_or_else(|| "(no answer)".into())).collect();
+    let answers = (0..questions.len()).map(|i| got.get(i).map(|a| a.join(", ")).filter(|a| !a.is_empty()).unwrap_or_else(|| opencode_i18n::t!("ui.question.answer.none").into())).collect();
     (questions, Some(answers))
 }
 
@@ -44,7 +44,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, status: &T
             .h(28.0)
             .center_y()
             .justify_end()
-            .child(text("Questions dismissed").key("dismissed").font(UI).color(p.faint)),
+            .child(text(opencode_i18n::t!("ui.messagePart.questions.dismissed")).key("dismissed").font(UI).color(p.faint)),
         // Failed another way: the tool error card every other tool's failure shows.
         Some(_) => col().key(key).w_full().child(crate::tools::error::card(s, p, session, &crate::tools::Call { id, name: "question", status, input, metadata })),
         None => answered(s, p, &key, input, metadata),
@@ -56,9 +56,8 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
     let n = questions.len();
     let subtitle = match (&answers, n) {
         (_, 0) => String::new(),
-        (Some(_), n) => format!("{n} answered"),
-        (None, 1) => "1 question".into(),
-        (None, n) => format!("{n} questions"),
+        (Some(_), n) => opencode_i18n::t!("ui.question.subtitle.answered", count = n),
+        (None, n) => format!("{n} {}", opencode_i18n::I18N.plural(opencode_i18n::plural_key!("ui.common.question"), n as u64)),
     };
     // Answered, it starts open: `expanded` holds it while closed.
     let closed = format!("{key}-closed");
@@ -66,11 +65,11 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
     let mut trigger = row()
         .key("trigger")
         .role("button")
-        .label(format!("Questions {subtitle}").trim().to_owned())
+        .label(format!("{} {subtitle}", opencode_i18n::t!("ui.tool.questions")).trim().to_owned())
         .h(28.0)
         .gap(8.0)
         .center_y()
-        .child(text("Questions").key("title").font(UI_MED).color(p.text));
+        .child(text(opencode_i18n::t!("ui.tool.questions")).key("title").font(UI_MED).color(p.text));
     if !subtitle.is_empty() {
         trigger = trigger.child(text(subtitle).key("subtitle").font(UI).color(p.muted));
     }

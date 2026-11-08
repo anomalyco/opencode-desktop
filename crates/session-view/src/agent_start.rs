@@ -18,7 +18,9 @@ use crate::style::activity_ring_sized;
 /// brightness to the radar's, with no dip between.
 const WAKE: SpringPair = SpringPair::new(Spring::new(0.7, 0.0), Spring::new(0.7, 0.0));
 
-const WORDS: &str = "Delegating agent…";
+fn delegating() -> &'static str {
+    opencode_i18n::t!("ui.tool.agent.delegating")
+}
 
 /// The 14pt spinner: the starting dots while `starting`, else Desktop's radar. Either fades in
 /// or out over the other, so the handoff is one grid waking up.
@@ -31,7 +33,7 @@ pub fn spinner(p: &Pal, starting: bool) -> El {
 
 /// "Delegating agent…" in the task's place, in `font`.
 pub fn words(p: &Pal, font: TextStyle) -> El {
-    text(WORDS).font(font).color(p.text)
+    text(delegating()).font(font).color(p.text)
 }
 
 const SIZE: f32 = 14.0;

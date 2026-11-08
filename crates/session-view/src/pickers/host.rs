@@ -118,7 +118,7 @@ pub trait PickerHost: ComposerHost {
             Some(Kind::Agent) => pk.agents.iter().map(|a| Item::new(a.clone(), capitalize(a))).collect(),
             Some(Kind::Effort) => {
                 let variants = pk.models.iter().find(|m| m.id == selection.model.id && m.provider == selection.model.provider);
-                std::iter::once(Item::new("default", "Default"))
+                std::iter::once(Item::new("default", opencode_i18n::t!("common.default")))
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item::new(v.clone(), capitalize(v)))).collect()
             }
             Some(Kind::Project) => self.picker_projects(),

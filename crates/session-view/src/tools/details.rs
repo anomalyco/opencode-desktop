@@ -39,23 +39,23 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     // Code and output share one number gutter, so their code starts on the same column.
     let digits = lines(&d.code).max(if d.error.is_none() { lines(&d.output) } else { 0 }).to_string().len();
     let mut sections = col().key("execute-details").w_full().gap(16.0).px(16.0).pb(16.0);
-    sections = sections.child(section(s, p, &d.id, "code", "Code", Some(plural(lines(&d.code), "line")), &d.code, "Copy code", super::diff::code(p, &d.code, Some("js"), digits)));
+    sections = sections.child(section(s, p, &d.id, "code", opencode_i18n::t!("ui.tool.execute.code"), Some(lines_count(lines(&d.code))), &d.code, opencode_i18n::t!("ui.tool.execute.copyCode"), super::diff::code(p, &d.code, Some("js"), digits)));
     match &d.error {
         Some(e) => {
             let pre = col().w_full().px(14.0).py(12.0).fill(p.layer1).child(readable(p, text(e.clone()).font(CODE).color(p.danger).wrap_anywhere()).w_full());
-            sections = sections.child(section(s, p, &d.id, "error", "Error", None, e, "Copy error", pre));
+            sections = sections.child(section(s, p, &d.id, "error", opencode_i18n::t!("ui.tool.execute.error"), None, e, opencode_i18n::t!("ui.toolErrorCard.copyError"), pre));
         }
         None if !d.output.is_empty() => {
             let json = serde_json::from_str::<serde_json::Value>(&d.output).is_ok();
             let view = super::diff::code(p, &d.output, json.then_some("json"), digits);
-            sections = sections.child(section(s, p, &d.id, "output", "Output", Some(plural(lines(&d.output), "line")), &d.output, "Copy output", view));
+            sections = sections.child(section(s, p, &d.id, "output", opencode_i18n::t!("ui.tool.execute.output"), Some(lines_count(lines(&d.output))), &d.output, opencode_i18n::t!("ui.tool.execute.copyOutput"), view));
         }
         None => {}
     }
     let (status, status_ink) = match (&d.error, &d.status) {
-        (Some(_), _) => ("Failed", p.danger),
-        (None, ToolStatus::Running | ToolStatus::Pending) => ("Running", p.muted),
-        _ => ("Completed", p.muted),
+        (Some(_), _) => (opencode_i18n::t!("ui.toolErrorCard.failed"), p.danger),
+        (None, ToolStatus::Running | ToolStatus::Pending) => (opencode_i18n::t!("ui.tool.execute.running"), p.muted),
+        _ => (opencode_i18n::t!("ui.tool.execute.completed"), p.muted),
     };
     let header = row()
         .key("header")
@@ -63,15 +63,15 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         .padding(16.0)
         .gap(8.0)
         .center_y()
-        .child(text("Execute").key("title").font(rune::TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(p.text))
+        .child(text(opencode_i18n::t!("ui.tool.execute")).key("title").font(rune::TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(p.text))
         .child(row().key("status").px(6.0).radius(4.0).fill(p.layer2).child(text(status).font(rune::TextStyle::new(12.0, 440.0).lh(20.0)).color(status_ink)))
-        .child(text(plural(d.calls, "call")).key("meta").font(rune::TextStyle::new(12.0, 440.0).lh(16.0)).color(p.faint))
+        .child(text(opencode_i18n::plural!("ui.tool.execute.calls", d.calls)).key("meta").font(rune::TextStyle::new(12.0, 440.0).lh(16.0)).color(p.faint))
         .child(el().grow(1.0))
         .child(
             row()
                 .key("close")
                 .role("button")
-                .label("Close")
+                .label(opencode_i18n::t!("ui.common.close"))
                 .size(20.0, 20.0)
                 .center()
                 .radius(4.0)
@@ -86,7 +86,7 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let dialog = col()
         .key("execute-dialog")
         .role("dialog")
-        .label("Execute")
+        .label(opencode_i18n::t!("ui.tool.execute"))
         .w(w)
         .max_h((win_h - 92.0).max(120.0))
         .radius(6.0)
@@ -119,8 +119,9 @@ fn find(t: &opencode_kit::model::Transcript, id: &str) -> Option<Details> {
     })
 }
 
-fn plural(n: usize, one: &str) -> String {
-    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
+/// "1 line", "12 lines" (`ui.tool.execute.lines`).
+fn lines_count(n: usize) -> String {
+    opencode_i18n::plural!("ui.tool.execute.lines", n)
 }
 
 /// One section: its label, how long it is, a copy button at the end, and its source in a
@@ -129,7 +130,7 @@ fn plural(n: usize, one: &str) -> String {
 fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, label: &'static str, meta: Option<String>, copy: &str, copy_label: &'static str, source: El) -> El {
     let copy_key = format!("copy-execute-{id}-{part}");
     let done = crate::copied::is_copied(s, &copy_key);
-    let tip = if done { "Copied" } else { copy_label };
+    let tip = if done { opencode_i18n::t!("ui.message.copied") } else { copy_label };
     let copied = copy.to_owned();
     let button = row()
         .key("copy")

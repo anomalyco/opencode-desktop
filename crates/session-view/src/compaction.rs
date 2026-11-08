@@ -144,7 +144,7 @@ pub fn is_divider(piece: Piece) -> bool {
 pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, piece: Piece, run: Run) -> El {
     match piece {
         Piece::Quiet => quiet_view(s, p, c, run),
-        Piece::Start => divider(s, p, "Session compaction started", run),
+        Piece::Start => divider(s, p, opencode_i18n::t!("ui.messagePart.compaction.started"), run),
         Piece::End => {
             let label = [outcome(c).to_owned(), usage(c).unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ");
             divider(s, p, &label, run).key("ended").transition(Transition::none())
@@ -155,7 +155,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, piece: Piece, run: 
 
 /// A compaction the server admitted but hasn't started.
 pub fn queued<S: TimelineHost>(s: &S, p: &Pal, run: Run) -> El {
-    divider(s, p, "Session compaction queued", run)
+    divider(s, p, opencode_i18n::t!("ui.messagePart.compaction.queued"), run)
 }
 
 /// Line to line, in points, for dividers stacked back to back.
@@ -239,11 +239,11 @@ fn error(c: &Compaction) -> Option<&str> {
 
 pub fn outcome(c: &Compaction) -> &'static str {
     match (c.status, c.error.as_ref().map(|e| e.0.as_str())) {
-        (CompactionStatus::Failed, Some("aborted")) => "Session compaction cancelled",
-        (CompactionStatus::Failed, Some("compaction.interrupted")) => "Session compaction interrupted",
-        (CompactionStatus::Failed, _) => "Session compaction failed",
-        (CompactionStatus::Completed, _) if c.native => "Session compacted by provider",
-        _ => "Session compacted",
+        (CompactionStatus::Failed, Some("aborted")) => opencode_i18n::t!("ui.messagePart.compaction.cancelled"),
+        (CompactionStatus::Failed, Some("compaction.interrupted")) => opencode_i18n::t!("ui.messagePart.compaction.interrupted"),
+        (CompactionStatus::Failed, _) => opencode_i18n::t!("ui.messagePart.compaction.failed"),
+        (CompactionStatus::Completed, _) if c.native => opencode_i18n::t!("ui.messagePart.providerCompaction"),
+        _ => opencode_i18n::t!("ui.messagePart.compaction"),
     }
 }
 
@@ -253,7 +253,7 @@ pub fn usage(c: &Compaction) -> Option<String> {
     let t: &Tokens = c.tokens.as_ref().filter(|_| c.status != CompactionStatus::Running)?;
     let input = t.input + t.cache_read + t.cache_write;
     let output = t.output + t.reasoning;
-    (input + output > 0).then(|| format!("{} in · {} out", compact(input), compact(output)))
+    (input + output > 0).then(|| opencode_i18n::t!("ui.messagePart.compaction.usage", input = compact(input), output = compact(output)))
 }
 
 /// `Intl.NumberFormat` with compact notation and at most one fraction digit: 999, 1K, 12.3K, 1.5M.
@@ -303,7 +303,7 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true), (over, under))
         // A new key restarts the fade in, with everything inside at rest as Compacted.
         .key(if enter == Some(Enter::Now) { "divider-now" } else { "divider" })
-        .label(if running { "Compacting" } else { "Compacted" })
+        .label(if running { opencode_i18n::t!("ui.messagePart.compaction.running") } else { opencode_i18n::t!("ui.messagePart.compaction.done") })
         .transition(Transition::none());
     if enter.is_some() && clock - at < delay + 0.5 {
         divider = divider.looping(LoopSpec::sequence(Sequence::new(&ENTER).delay(delay)));
@@ -403,7 +403,10 @@ fn light<S: TimelineHost>(s: &S, p: &Pal, start: f64, end: bool) -> El {
 /// as wide as the wider so nothing beside it moves. While it runs, a brighter copy warms the
 /// label each time the lights land on it.
 fn quiet_label<S: TimelineHost>(s: &S, p: &Pal, running: bool, open: bool, start: f64) -> El {
-    let (stem, ing, ed) = ("Compact", "ing", "ed");
+    // The words' shared start stays while the rest rolls: "Compact" with "ing" and "ed".
+    let (running_w, done_w) = (opencode_i18n::t!("ui.messagePart.compaction.running"), opencode_i18n::t!("ui.messagePart.compaction.done"));
+    let shared = running_w.char_indices().zip(done_w.chars()).take_while(|((_, a), b)| a == b).last().map_or(0, |((at, c), _)| at + c.len_utf8());
+    let (stem, ing, ed) = (&running_w[..shared], &running_w[shared..], &done_w[shared..]);
     let width = |w: &str| rune::text::measure(w, &[], UI, None).0;
     let ending_w = width(ing).max(width(ed)).ceil();
     let calm = s.reduced_motion();
