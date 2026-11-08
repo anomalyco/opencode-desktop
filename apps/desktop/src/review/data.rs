@@ -167,7 +167,7 @@ pub fn parse_diff_entry(v: &Value) -> Option<FileDiff> {
                 }
             }
         }
-        return Some(fd);
+        return Some(if full_context_header(patch) { fd.fold(REVIEW_CONTEXT) } else { fd });
     }
 
     let (old_p, new_p) = match status_str {
@@ -176,6 +176,20 @@ pub fn parse_diff_entry(v: &Value) -> Option<FileDiff> {
         _ => (Some(file.clone()), Some(file)),
     };
     Some(FileDiff::between(old_p, new_p, "", ""))
+}
+
+/// Unchanged lines kept around each change when a whole-file patch folds, as Desktop's review
+/// splits one (`hunkContext` in session-ui's `session-diff.ts`).
+const REVIEW_CONTEXT: u32 = 4;
+
+/// Whether the patch comes from a producer that writes full context (a git header, or jsdiff's
+/// `---`/`+++` lines ending in a tab), so a single hunk from its first line is the whole file:
+/// Desktop's `completePatch` test.
+fn full_context_header(patch: &str) -> bool {
+    let header = patch.find("\n@@ ").map_or(patch, |i| &patch[..i]);
+    let tabbed = |l: &str, p: &str| l.starts_with(p) && l.trim_end_matches('\r').ends_with('\t');
+    header.trim_start().starts_with("diff --git ")
+        || header.lines().zip(header.lines().skip(1)).any(|(a, b)| tabbed(a, "--- ") && tabbed(b, "+++ "))
 }
 
 pub fn parse_diff_list(v: &Value) -> (Vec<FileDiff>, Vec<ReviewFileMeta>) {

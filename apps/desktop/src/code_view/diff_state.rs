@@ -211,6 +211,13 @@ impl DiffDocState {
                     .collect()
             })
             .collect();
+        // A folded full-context diff carries its whole new text, so its unchanged ranges expand
+        // without a fetch, and a stale text from an earlier load gives way to it.
+        for f in &files {
+            if let Some(text) = f.text(Side::New) {
+                self.full_texts.insert(f.path().to_owned(), SourceLines::new(text));
+            }
+        }
         self.files = files;
         self.recompute_metrics();
         self.selection = None;
@@ -254,6 +261,22 @@ impl DiffDocState {
             .unwrap_or(0);
         let full_cols = self.full_texts.values().map(SourceLines::columns).max().unwrap_or(0);
         self.columns = hunk_cols.max(full_cols);
+        self.reveal_short_gaps();
+    }
+
+    /// An unchanged range of one line shows rather than folds, as Pierre's default
+    /// `collapsedContextThreshold` of 1 has it in Desktop's review.
+    fn reveal_short_gaps(&mut self) {
+        for f in 0..self.files.len() {
+            if !self.has_full_text(f) {
+                continue;
+            }
+            for (gap, g) in self.gaps[f].iter().enumerate() {
+                if g.len == Some(1) {
+                    self.ui[f].revealed[gap] = (1, 0);
+                }
+            }
+        }
     }
 
     /// Attaches full file contents for `path` so unchanged gaps can be expanded on demand.
@@ -312,6 +335,7 @@ impl DiffDocState {
                         *r = (0, 0);
                     }
                 }
+                self.reveal_short_gaps();
             }
             ExpandMode::Expand => self.expand_all_loaded_inner(),
         }
@@ -340,6 +364,15 @@ impl DiffDocState {
 
     pub(crate) fn wraps(&self) -> bool {
         self.wrap || self.mode == DiffMode::Split
+    }
+
+    /// In split mode, the one side `file` shows across the whole width, as Desktop's review
+    /// draws an added or deleted file: one column, no empty half.
+    pub(crate) fn single_column(&self, file: usize) -> Option<Side> {
+        if self.mode != DiffMode::Split {
+            return None;
+        }
+        self.files.get(file)?.sole_side()
     }
 
     pub fn collapsed(&self, file: usize) -> bool {

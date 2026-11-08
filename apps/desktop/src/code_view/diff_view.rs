@@ -355,12 +355,13 @@ impl<S: 'static> Inner<S> {
         new: Option<CellData<'a>>,
     ) -> El {
         let digits = st.digits(f);
+        let single = st.single_column(f);
         let half = |side: Side, c: Option<CellData<'a>>| -> El {
             let l = &self.look;
             let k = if side == Side::Old { "old" } else { "new" };
             let mut h = row()
                 .key(k)
-                .w_frac(0.5)
+                .w_frac(if single.is_some() { 1.0 } else { 0.5 })
                 .min_w(0.0)
                 .min_h(LINE_H)
                 .items_start()
@@ -390,14 +391,16 @@ impl<S: 'static> Inner<S> {
                 .child(self.code_cell(st, f, &cell, copy, side).key("code"));
             h
         };
-        let divider = col().key("divider").w(0.5).self_stretch().fill(self.look.border_muted);
-        row()
-            .w_full()
-            .min_h(LINE_H)
-            .items_stretch()
-            .child(half(Side::Old, old))
-            .child(divider)
-            .child(half(Side::New, new))
+        let line = row().w_full().min_h(LINE_H).items_stretch();
+        // Desktop's review draws an added or deleted file's one side as a single column.
+        match single {
+            Some(Side::Old) => line.child(half(Side::Old, old)),
+            Some(Side::New) => line.child(half(Side::New, new)),
+            None => {
+                let divider = col().key("divider").w(0.5).self_stretch().fill(self.look.border_muted);
+                line.child(half(Side::Old, old)).child(divider).child(half(Side::New, new))
+            }
+        }
     }
 
     fn bar(&self, kind: LineKind) -> El {
@@ -597,10 +600,11 @@ impl<S: 'static> Inner<S> {
             inner = inner.max_w(w).sticky_left(0.0);
         }
         if hidden > 0 {
+            // Pierre's separator text, which Desktop's review shows untranslated.
             let count_lbl = if hidden == 1 {
-                "1 unchanged line".to_owned()
+                "1 unmodified line".to_owned()
             } else {
-                format!("{hidden} unchanged lines")
+                format!("{hidden} unmodified lines")
             };
             let count_el = text(count_lbl).font(l.mono_small).color(l.muted).key("count");
             let count_wrap = if can_expand && hidden > EXPAND_STEP {
@@ -630,18 +634,6 @@ impl<S: 'static> Inner<S> {
                 row().key("all").px(6.0).center_y().child(count_el)
             };
             inner = inner.child(count_wrap);
-        }
-        if let Some(h) = file.hunks.get(gap) {
-            inner = inner.child(
-                text(h.header())
-                    .font(l.mono_small)
-                    .color(l.faint)
-                    .grow(1.0)
-                    .shrink()
-                    .min_w(0.0)
-                    .truncate_fade()
-                    .key("header"),
-            );
         }
         row().w_full().h(GAP_H).center_y().fill(l.gap_bg).role("group").child(inner)
     }
