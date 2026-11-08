@@ -27,8 +27,9 @@ impl PickerHost for App {
         let Route::Session(id) = &self.route else { return None };
         self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone() })
     }
+    /// Desktop's order, not another session's model: a server with no sessions still names one.
     fn picker_fallback_model(&self) -> Option<ModelRef> {
-        self.sessions.first().map(|s| s.model.clone())
+        self.pickers.fallback_model()
     }
     fn picker_subagent(&self) -> Option<(String, Selection)> {
         self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone() }))

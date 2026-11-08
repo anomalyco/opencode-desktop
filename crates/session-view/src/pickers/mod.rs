@@ -128,6 +128,11 @@ pub struct Pickers {
     /// Provider names by id from the server's `/api/provider` (`console-openai-test` is
     /// "Anomaly / RITB"): what a model's group header says, and what a search matches.
     pub providers: HashMap<String, String>,
+    /// `/api/provider`'s ids in its order: the connected providers (`global-sync/utils.ts`
+    /// `normalizeProviderList`).
+    pub provider_order: Vec<String>,
+    /// The `model` the config names (`/api/config`, `configured.ts`).
+    pub configured: Option<ModelRef>,
     /// Context windows in tokens by `provider:id`, from the fixture or the server's `/api/model`.
     pub limits: HashMap<String, u64>,
     /// The `provider:id` of models whose tokens cost money (any `cost` tier above 0).
@@ -194,6 +199,7 @@ impl Pickers {
     /// its id; the groups stay keyed by the id. A list that names nothing leaves
     /// the headers as they are, and a fixture may give one too.
     pub fn load_providers(&mut self, providers: &Value) {
+        self.provider_order = providers.as_array().into_iter().flatten().filter_map(|p| p["id"].as_str()).map(str::to_owned).collect();
         self.providers = providers.as_array().into_iter().flatten().filter_map(|p| {
             let (id, name) = (p["id"].as_str()?, p["name"].as_str()?);
             (!name.is_empty() && name != id).then(|| (id.to_owned(), name.to_owned()))
@@ -233,6 +239,37 @@ impl Pickers {
             let model = ModelRef { id: s(m, "id"), provider: s(m, "providerID"), variant: s(m, "variant") };
             (!model.id.is_empty()).then(|| (s(a, "id"), model))
         }).collect();
+    }
+
+    /// The server's `/api/config` documents: the last that names a `model` decides, as
+    /// "provider/model" or `{ providerID, model, variant }` (`configured.ts`).
+    pub fn load_config(&mut self, config: &Value) {
+        let list = config.as_array().or_else(|| config["data"].as_array());
+        let last = list.into_iter().flatten().filter(|e| e["type"] == "document" && !e["info"]["model"].is_null()).last();
+        self.configured = last.map(|e| &e["info"]["model"]).and_then(|m| match m.as_str() {
+            Some(s) => s.split_once('/').map(|(provider, id)| ModelRef { id: id.to_owned(), provider: provider.to_owned(), variant: String::new() }),
+            None => Some(ModelRef {
+                id: m["model"].as_str().unwrap_or("").to_owned(),
+                provider: m["providerID"].as_str().unwrap_or("").to_owned(),
+                variant: m["variant"].as_str().unwrap_or("").to_owned(),
+            }),
+        });
+    }
+
+    /// Desktop's model when neither the session nor its agent names one (`selection.tsx:366-404`):
+    /// the configured model, else the most recent pick, else the first model of the first
+    /// connected provider, each only while a connected provider lists it.
+    pub fn fallback_model(&self) -> Option<ModelRef> {
+        let connected = |provider: &str| self.provider_order.is_empty() || self.provider_order.iter().any(|p| p == provider);
+        let find = |provider: &str, id: &str| self.models.iter().find(|m| m.provider == provider && m.id == id && connected(provider));
+        let pick = |m: &Model| ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant: String::new() };
+        let configured = self.configured.clone().filter(|c| find(&c.provider, &c.id).is_some());
+        configured
+            .or_else(|| self.prefs.recent.iter().find_map(|k| k.split_once(':').and_then(|(p, id)| find(p, id))).map(pick))
+            .or_else(|| match self.provider_order.is_empty() {
+                true => self.models.first().map(pick),
+                false => self.provider_order.iter().find_map(|p| self.models.iter().find(|m| m.provider == *p)).map(pick),
+            })
     }
 
     /// Reads `limit.context` from a list of models, keyed by `provider` or `providerID`.

@@ -132,6 +132,8 @@ pub struct First {
     models: Option<(Value, Value)>,
     providers: Option<Value>,
     active: Option<Value>,
+    /// The config's documents, for the model it names (`configured.ts`).
+    config: Option<Value>,
 }
 
 impl First {
@@ -148,14 +150,15 @@ impl First {
         // The model list names a provider by its id; this names it as a person reads it.
         let providers = get("/api/provider").ok();
         let active = get("/api/session/active").ok();
-        Ok(First { projects, sessions, models, providers, active })
+        let config = get("/api/config").ok();
+        Ok(First { projects, sessions, models, providers, active, config })
     }
 }
 
 #[cfg(test)]
 impl First {
     pub fn from_parts(projects: Value, sessions: Option<Value>) -> First {
-        First { projects, sessions, models: None, providers: None, active: None }
+        First { projects, sessions, models: None, providers: None, active: None, config: None }
     }
 }
 
@@ -459,6 +462,9 @@ impl App {
         }
         if let Some(p) = &f.providers {
             self.pickers.load_providers(p.get("data").unwrap_or(p));
+        }
+        if let Some(c) = &f.config {
+            self.pickers.load_config(c);
         }
         if let Some((m, agents)) = &f.models {
             self.pickers.load_live(m.get("data").unwrap_or(m), agents.get("data").unwrap_or(agents));
