@@ -44,7 +44,7 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
         .on_press_tx(|s: &mut App, tx: &mut Tx| super::location_card::open_card(s, tx))
         .child(crate::icons::badge(s, p, project, name));
     if collapse < 2 {
-        t = t.child(text(name.to_owned()).key("location-project").font(LABEL).color(ink).group_color(p.text).single_line());
+        t = t.child(text(name.to_owned()).key("location-project").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));
     }
     if let Some(w) = worktree {
         // `SessionHeaderSeparator gap 0`: the trigger's own gap each side, less the glyph's bearing.
@@ -52,7 +52,7 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
             .child(text("/").font(TextStyle::new(13.0, 400.0).lh(16.0)).color(p.icon_faint).mx(-0.5))
             .child(rune::icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted));
         if collapse < 1 {
-            t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line());
+            t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));
         }
     }
     if open { t.fill(p.hover) } else { t }

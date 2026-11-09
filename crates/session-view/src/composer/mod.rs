@@ -429,6 +429,9 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                         if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
                                     )
                                     .key("prompt")
+                                    // `editor.tsx:313`: the prompt's own direction, a shell
+                                    // command's left to right.
+                                    .dir(if s.composer_shell_mode() { rune::Direction::Ltr } else { rune::Direction::Auto })
                                     .color(p.text)
                                     .w_full()
                                     .min_h(20.0)

@@ -89,7 +89,7 @@ fn fold(p: &Pal, count: usize, open: bool) -> El {
             tx.instant();
             s.settings_pages.projects.others = !s.settings_pages.projects.others;
         })
-        .child(el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
+        .child(el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
         .child(row().gap(6.0).center_y()
             .child(text(t!("settings.projects.other")).font(FOLD).color(p.text))
             .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(4.0).fill(p.layer3).child(text(count.to_string()).font(COUNT).color(p.muted))))

@@ -335,7 +335,8 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         Some(m) => crate::images::markdown_pictures::<S>(md, m),
         None => md,
     };
-    md.build(crate::palette::kit(p)).selection_group(false)
+    // The reply takes the direction of its own words (`markdown.tsx:1143`'s `dir="auto"`).
+    md.build(crate::palette::kit(p)).selection_group(false).dir(rune::Direction::Auto)
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt

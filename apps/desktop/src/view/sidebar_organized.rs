@@ -58,7 +58,7 @@ fn header(p: &Pal, collapsed: bool) -> El {
             s.project_state.organize_collapsed = !s.project_state.organize_collapsed;
         })
         .child(text(t!("sidebar.organize.projects")).font(HEADER).color(p.muted).group_color(p.text).shrink().truncate())
-        .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }))
+        .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl())
 }
 
 /// The used projects in the list's order (the first seven, or all after Show more), each with its
@@ -297,7 +297,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
             s.project_state.organize_selected = Some(id.clone());
             s.open(&id, tx);
         })
-        .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate())
+        .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto))
         .child(el().key("status").size(16.0, 16.0).center().children(mark));
     if open_tab {
         r = r.child(el().key("open-tab").label(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));

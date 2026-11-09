@@ -118,6 +118,24 @@ pub fn system_locale() -> usize {
     I18N.negotiate(languages.iter().map(String::as_str))
 }
 
+/// Which way a locale's text and the whole window run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    Ltr,
+    Rtl,
+}
+
+/// The current locale's direction, as Desktop's `language.direction()`: right to left for its
+/// `RTL_LOCALES` (Arabic, Hebrew, Urdu, Punjabi, Persian, Dhivehi), whose direction goes on the
+/// document root (`language.tsx:42`, `:397`). The locale switch commits the language and its
+/// direction together, as `runtime/i18n/machine.ts` does.
+pub fn direction() -> Direction {
+    match locale().id() {
+        "ar" | "he" | "ur" | "pa" | "fa" | "dv" => Direction::Rtl,
+        _ => Direction::Ltr,
+    }
+}
+
 /// Whether the current locale is an English one (Desktop compares the tag's language).
 pub fn is_english() -> bool {
     locale().tag().split('-').next().is_some_and(|language| language.eq_ignore_ascii_case("en"))

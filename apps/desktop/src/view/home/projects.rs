@@ -92,7 +92,8 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .hover_group()
         .hover(p.layer1)
         .child(icon(glyph, 14.0).key("icon").color(p.icon_muted))
-        .child(text(label).font(UI).color(p.muted).group_color(p.text).shrink().truncate())
+        // `text-left` on a `flex-1` label: at the left edge right to left too.
+        .child(text(label).font(UI).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()))
 }
 
 /// The project menu's trigger: the menu opens below its end, 6 away (`gutter={6}`).
@@ -140,7 +141,7 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
         .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
-        .child(text(proj.name.clone()).key("label").font(UI).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate());
+        .child(text(proj.name.clone()).key("label").font(UI).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
     let mut r = row()
         .key(format!("hp-{}", proj.id))
         .w(width)

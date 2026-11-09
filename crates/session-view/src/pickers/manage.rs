@@ -154,7 +154,7 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
     let mut trigger = row().key("trigger").role("button").label(format!("{name} models")).h(28.0)
         .pt(4.0).pr(8.0).pb(4.0).pl(4.0).gap(4.0).center_y().radius(4.0)
         .child(row().key("chevron").size(20.0, 20.0).center()
-            .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
+            .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
         .child(row().key("label").gap(8.0).center_y()
             .child(icon(mark::mark(&first), 16.0).color(p.text))
             .child(text(name.clone()).font(UI_MED).color(p.text)));

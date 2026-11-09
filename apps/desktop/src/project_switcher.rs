@@ -469,7 +469,7 @@ fn drill(p: &Pal, key: &str, label: &str, on: impl Fn(&mut App, &mut Tx) + 'stat
         .hover_group()
         .hover(p.hover)
         .on_press_tx(on)
-        .child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_faint).group_color(p.icon))
+        .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_faint).group_color(p.icon))
 }
 
 /// A row's title: `palette-menu-title`, 13 at 530.

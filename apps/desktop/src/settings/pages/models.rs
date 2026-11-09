@@ -130,7 +130,7 @@ fn group(s: &App, p: &Pal, provider: &str, models: &[&Model], open: bool, search
     let name = models.first().map_or(provider.to_owned(), |m| m.group.clone());
     let fold = provider.to_owned();
     let mut trigger = row().key("trigger").role("button").label(name.clone()).h(28.0).pt(4.0).pr(8.0).pb(4.0).pl(4.0).gap(4.0).center_y().radius(4.0)
-        .child(el().size(20.0, 20.0).center().child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
+        .child(el().size(20.0, 20.0).center().child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
         .child(row().gap(8.0).center_y().child(widgets::provider_mark(provider, p.icon)).child(text(name).font(NAME).color(p.text)));
     if !searching {
         trigger = trigger.hover(p.layer2).on_press_tx(move |s: &mut App, tx: &mut Tx| {

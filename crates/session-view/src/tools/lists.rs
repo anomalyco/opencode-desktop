@@ -79,7 +79,8 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         .child(row().shrink().min_w(0.0).center_y().child(readable(p, words).shrink().min_w(0.0)));
     r = if open { r.items_start().py(4.0) } else { r.center_y() };
     if long {
-        let a = el().key("arrow").w(16.0).h(20.0).center().child(arrow(p, open));
+        // The group's arrow turns to the line's start right to left (`message-part.css:1864`).
+        let a = el().key("arrow").w(16.0).h(20.0).center().child(arrow(p, open).mirror_in_rtl());
         r = r
             .child(if open { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")

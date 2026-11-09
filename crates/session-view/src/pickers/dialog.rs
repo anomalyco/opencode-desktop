@@ -127,7 +127,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
         row().key("variant").shrink().min_w(0.0).max_w(VARIANT_W).center_y()
             .child(text(label).font(UI).color(p.muted).shrink().truncate())
-            .child(icon(&ic::CHEVRON_RIGHT, SMALL).color(p.icon_muted).offset(0.0, 0.5))
+            .child(icon(&ic::CHEVRON_RIGHT, SMALL).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
     });
     let r = row()
         .key(format!("option-{key}"))

@@ -196,7 +196,7 @@ fn working_header(s: &App, p: &Pal, open: bool) -> El {
                 .key("chevron")
                 .color(p.muted)
                 .group_color(p.text)
-                .rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })
+                .rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()
                 .rotate_motion(TURN),
         )
 }
@@ -238,7 +238,7 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .gap(8.0)
         .center_y()
         .clip_soft(0.0)
-        .child(text(name.clone()).font(LINE).color(p.muted).shrink().min_w(0.0).truncate());
+        .child(text(name.clone()).font(LINE).color(p.muted).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto));
     if in_worktree(s, info) {
         place = place.child(icon(&ic::OUTLINE_WORKTREE, 16.0).key("worktree").color(p.icon_muted));
     }
@@ -285,7 +285,8 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(el().key("avatar").size(16.0, 16.0).center().child(crate::icons::badge(s, p, project, &name)))
-                .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate()),
+                // Title and project in their own direction (`inbox.tsx:610`, `:625`).
+                .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto)),
         )
         .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().child(place).child(end));
     // The routed session's tab becomes this card as the layout switches, Settings open over it or

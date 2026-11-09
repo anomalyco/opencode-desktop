@@ -116,7 +116,7 @@ pub fn row_for<'a, S: TimelineHost>(s: &'a S, p: &Pal, parent: &str, blocks: &'a
     let chevron = opens.then(|| {
         let reach = 2.0 + MARK;
         let fill = el().key("open-fill").pin(None, Some(0.0), Some(-reach), Some(0.0)).w(reach + RADIUS).corners([0.0, RADIUS, RADIUS, 0.0]).fill(p.layer2);
-        let glyph = el().key("open").pin(None, Some(PAD_Y + 2.0), Some(PAD_X - reach), None).size(MARK, MARK).child(icon(&ic::CHEVRON_RIGHT, MARK).color(p.faint));
+        let glyph = el().key("open").pin(None, Some(PAD_Y + 2.0), Some(PAD_X - reach), None).size(MARK, MARK).child(icon(&ic::CHEVRON_RIGHT, MARK).mirror_in_rtl().color(p.faint));
         [fill.group_opacity(0.0, 1.0), glyph.group_opacity(0.0, 1.0)]
     });
     let surface = if opens { surface.pr(PAD_X + GAP) } else { surface };

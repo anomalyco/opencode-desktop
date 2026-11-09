@@ -122,7 +122,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         .corners([10.0, top, end, 10.0])
         .fill(fill)
         .hover_group()
-        .hover_motion(INSTANT, INSTANT);
+        .hover_motion(INSTANT, INSTANT)
+        // The prompt's own direction, its trailing corners and menu with it
+        // (`message-content.tsx:683`'s `dir="auto"`).
+        .dir(rune::Direction::Auto);
     if glow > 0.0 {
         // A quiet surface lift under the text, with no glow rim.
         let lift = p.lift;

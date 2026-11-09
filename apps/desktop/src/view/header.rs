@@ -70,7 +70,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                             tx.instant();
                             s.open(&pid, tx);
                         })
-                        .child(text(title_of(parent)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink()),
+                        .child(text(title_of(parent)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink().dir(rune::Direction::Auto)),
                 )
                 .child(slash(p, 6.5, 3.5));
         }
@@ -167,7 +167,7 @@ pub(super) fn scoped(scope: &str, key: &str) -> String {
 /// clicked; a subagent's is plain and takes at most 45% of the header.
 fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     if info.parent.is_some() {
-        return vec![text(title_of(info)).key("title").font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0)];
+        return vec![text(title_of(info)).key("title").font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0).dir(rune::Direction::Auto)];
     }
     let target = Target::new(&info.id, Spot::Header);
     let marked = s.menus.on.as_ref() == Some(&target);
@@ -176,7 +176,8 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
         None => {
             let begin = target.clone();
-            let mut t = row().key("title").role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            // The title in its own direction (`session-identity-header.tsx:263`).
+            let mut t = row().key("title").dir(rune::Direction::Auto).role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);

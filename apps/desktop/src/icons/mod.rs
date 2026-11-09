@@ -62,7 +62,8 @@ pub fn session_avatar(s: &App, p: &Pal, project: Option<&Project>, name: &str, o
     }
     if unread {
         // `project-avatar.css:122-133`: a 6 pt `bg-accent` dot centred on the corner.
-        avatar = avatar.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
+        // The corner is the physical top right in either direction, as the cutout's.
+        avatar = avatar.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent).unmirrored());
     }
     avatar
 }

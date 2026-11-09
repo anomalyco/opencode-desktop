@@ -194,7 +194,7 @@ fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) ->
             tx.instant();
             s.close_mcp_detail();
         })
-        .child(icon(&ic::ARROW_LEFT, 14.0).color(p.icon_muted));
+        .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.icon_muted));
     let close = el().key("mcp-close").role("button").label(opencode_i18n::t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_mcp_dialog(tx))

@@ -688,7 +688,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                 let o = Opt::new(row_key(&sub.id), sub.title.clone())
                     .role("menuitem")
                     .active(active == Some(n) || open == Some(n))
-                    .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted));
+                    .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted).mirror_in_rtl());
                 let o = match sub.glyph.and_then(Glyph::mono) {
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,

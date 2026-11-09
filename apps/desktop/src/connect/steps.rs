@@ -671,7 +671,7 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
                         tx.instant();
                         s.connect_event(Event::GroupCollapsed { provider: pid.clone(), collapsed: open }, tx);
                     })
-                    .child(el().size(20.0, 20.0).center().child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
+                    .child(el().size(20.0, 20.0).center().child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
                     .child(row().gap(8.0).center_y().child(widgets::provider_mark(&info.id, p.icon)).child(text(info.name.clone()).font(LABEL).color(p.text))));
             if open {
                 section = section.child(list(models));

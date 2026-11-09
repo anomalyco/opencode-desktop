@@ -369,7 +369,12 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             None if matches!(ev.key, Key::Left | Key::Right) && ev.mods == Default::default()
                 && open == Kind::Model && (s.pickers().search.text.is_empty() || s.pickers().hover.navigated) => {
                 let Some(key) = s.picker_active() else { return false };
-                if !s.step_effort(&key, if ev.key == Key::Right { 1 } else { -1 }) { return false; }
+                // Right to left, ← is forward (`select-dialog.tsx:904`).
+                let step = match (ev.key == Key::Right, opencode_i18n::direction()) {
+                    (true, opencode_i18n::Direction::Ltr) | (false, opencode_i18n::Direction::Rtl) => 1,
+                    (false, opencode_i18n::Direction::Ltr) | (true, opencode_i18n::Direction::Rtl) => -1,
+                };
+                if !s.step_effort(&key, step) { return false; }
                 s.pickers_mut().flyout = None;
             }
             None => return open != Kind::Model,

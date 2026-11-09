@@ -164,6 +164,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         el().w_full().h_full()
     };
     let root = el().key("zoom");
+    // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
+    // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
+    let root = root.dir(ui_direction());
     root.on_key_up(crate::dictation::key_up)
         .on_window_focus(|s: &mut App, focused, tx| { if focused { crate::launch::network_available(s, tx); } })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
@@ -242,7 +245,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .children(band_below)
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
         // it's the titlebar row itself.
-        .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag())
+        .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag().unmirrored())
         // The titlebar row before the page, as in Desktop's DOM, so Tab reaches it first.
         .children(band)
         .child(
@@ -309,6 +312,23 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
 
 // ---------------------------------------------------------------------------------------------
 // Pieces
+
+/// CSS `text-left` in a right-to-left window: the left edge, which a right-to-left text's
+/// `End` is. `Start` left to right.
+pub(crate) fn text_left() -> Align {
+    match opencode_i18n::direction() {
+        opencode_i18n::Direction::Ltr => Align::Start,
+        opencode_i18n::Direction::Rtl => Align::End,
+    }
+}
+
+/// The window's layout direction: the language's (`language.direction()`).
+pub(crate) fn ui_direction() -> rune::Direction {
+    match opencode_i18n::direction() {
+        opencode_i18n::Direction::Ltr => rune::Direction::Ltr,
+        opencode_i18n::Direction::Rtl => rune::Direction::Rtl,
+    }
+}
 
 pub(crate) fn title_of(s: &SessionInfo) -> String {
     if s.title.is_empty() { opencode_i18n::t!("rune.session.untitled").into() } else { s.title.clone() }

@@ -221,13 +221,14 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
 /// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
 fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
-    let title = highlighted(&e.title, q, UI_MED, fade(p.text), p.accent).truncate();
+    // Each in its own direction (`dialog.tsx:166-171`, `:236-243`).
+    let title = highlighted(&e.title, q, UI_MED, fade(p.text), p.accent).truncate().dir(rune::Direction::Auto);
     let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
     if e.description.is_empty() {
         return words.child(title.shrink().min_w(0.0));
     }
     words = words.child(row().key("title").max_w((w * 0.6).max(0.0)).center_y().child(title.shrink().min_w(0.0)));
-    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0))
+    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0).dir(rune::Direction::Auto))
 }
 
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
@@ -303,6 +304,8 @@ fn file_main(p: &Pal, path: &str, q: &str) -> El {
                 .shrink()
                 .min_w(0.0)
                 .center_y()
+                // A path reads left to right (`dialog.tsx:152`).
+                .dir(rune::Direction::Ltr)
                 .child(highlighted(&dir, q, UI, p.muted, p.accent).truncate().shrink().min_w(0.0))
                 // The name never gives way (`flex-shrink: 0`).
                 .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(rune::text::measure(name, &[], UI_MED, None).0)),

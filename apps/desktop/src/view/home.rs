@@ -139,7 +139,8 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     if !groups.is_empty() && can_create {
         // `absolute right-0 top-[108px] z-20`: on the first group's line, staying while the list
         // scrolls, under the search's results (`z-30`).
-        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None));
+        // `right-0` is physical, so it stays on the right right to left as well.
+        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None).unmirrored());
     }
     header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow));
 
@@ -365,8 +366,10 @@ impl Parts {
         let open = s.tabs.iter().any(|t| t.id == ses.id);
         let avatar = avatar(s, p, project, &name, open, marks.unread && !busy);
         // `max-w-[min(70%,480px)] flex-[0_1_auto]` beside the project, else the whole room.
-        let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0);
-        let project_el = show_project.then(|| text(name.clone()).key("project").font(UI).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0));
+        // Each in its own direction (`view.tsx:908`, `:959`), so a Latin project name runs to the
+        // row's far end right to left.
+        let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
+        let project_el = show_project.then(|| text(name.clone()).key("project").font(UI).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0).dir(rune::Direction::Auto));
         if stacked && show_project {
             // The labels' column keeps to the row's top; the avatar stays centred.
             let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().child(title).children(project_el.clone());
@@ -402,6 +405,7 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, inst
         .gap(6.0)
         .center_y()
         .clip_soft(0.0)
+        .dir(rune::Direction::Ltr)
         .child(icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted))
         .child(text(worktree).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
     if let Some(branch) = s.sidebar_inbox.branches.get(&ses.directory) {
@@ -424,7 +428,8 @@ pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &
         a = a.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
     }
     if unread {
-        a = a.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent));
+        // On the top right corner either way, as the cutout is (`project-avatar.css`).
+        a = a.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent).unmirrored());
     }
     a
 }

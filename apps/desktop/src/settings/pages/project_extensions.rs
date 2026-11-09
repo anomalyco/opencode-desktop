@@ -202,7 +202,7 @@ fn section(s: &App, p: &Pal, kind: &str, action: El, own: &[String], shared: &[S
                 let st = &mut s.settings_pages.project.extensions;
                 st.shared = !st.shared;
             })
-            .child(rune::el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })))
+            .child(rune::el().size(20.0, 20.0).center().child(icon(&ic::FILL_TRIANGLE_DOWN, 16.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
             .child(row().gap(6.0).center_y()
                 .child(text(t!("project.settings.extensions.shared")).font(HEAD).color(p.text))
                 .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(3.0).fill(p.layer2).child(text(shared.len().to_string()).font(COUNT).color(p.muted))));

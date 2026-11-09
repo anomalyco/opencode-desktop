@@ -146,7 +146,7 @@ fn back_button(p: &Pal, project: bool) -> El {
                 s.close_settings();
             }
         })
-        .child(icon(&ic::ARROW_LEFT, 14.0).color(p.muted).group_color(p.text))
+        .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.muted).group_color(p.text))
         .child(text(words).font(TAB).color(p.muted).group_color(p.text))
 }
 

@@ -34,7 +34,10 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .height(chrome.row_h)
         .top_padding(chrome.row_pad)
         .leading_padding(leading_pad(top, insets.leading, s.zoom))
-        .fill(p.bg_deep);
+        .fill(p.bg_deep)
+        // Right to left the row runs from the caption buttons, which stay on the right
+        // (`titlebar.tsx:192`), as the traffic lights stay on the left.
+        .direction(ui_direction());
     if !cfg!(target_os = "macos") {
         bar = bar.leading(crate::app_menu::button(s, p).motion(GLIDE));
     }

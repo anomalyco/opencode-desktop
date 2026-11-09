@@ -159,7 +159,7 @@ fn back_button(p: &Pal) -> El {
             tx.instant();
             s.connect_event(Event::Back, tx);
         })
-        .child(icon(&ic::ARROW_LEFT, 14.0).color(p.icon_muted))
+        .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.icon_muted))
 }
 
 fn header(s: &App, p: &Pal, frame: Frame) -> El {
@@ -181,7 +181,7 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
                             tx.instant();
                             s.connect_event(Event::Back, tx);
                         }))
-                    .child(icon(&ic::CHEVRON_RIGHT, 14.0).color(p.icon_muted));
+                    .child(icon(&ic::CHEVRON_RIGHT, 14.0).mirror_in_rtl().color(p.icon_muted));
             }
             row().key("connect-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
                 .child(lead.child(text(title(s)).font(TITLE).color(p.text).truncate()))
