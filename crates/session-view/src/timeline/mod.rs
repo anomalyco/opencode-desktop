@@ -356,8 +356,8 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .key("timeline")
         .w_full()
         .center()
-        .px(24.0)
-        .pt(8.0)
+        .px(crate::style::sides() / 2.0)
+        .pt(crate::style::timeline_top())
         .pb((TAIL - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.

@@ -155,6 +155,7 @@ mod console_tests;
 #[cfg(test)]
 mod motion_gate;
 mod motion_log;
+mod narrow;
 mod new_session;
 mod new_worktree;
 mod notifications;
@@ -556,7 +557,7 @@ impl session_view::TimelineHost for App {
         }
     }
     fn content_width(&self) -> f32 {
-        self.settings.timeline_width.width().content()
+        narrow::content_width(self).unwrap_or_else(|| self.settings.timeline_width.width().content())
     }
     fn timeline_frame_h(&self) -> Option<f32> {
         rune::memo::layout_with("session", |r| r[3])
@@ -1345,6 +1346,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= reconnect::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
+    changed |= narrow::poll(s, now, tx);
     changed |= inbox_model::poll(s, now, tx);
     changed |= view::tab_preview::poll(s, now, tx);
     changed |= session_status::poll(s, now, tx);

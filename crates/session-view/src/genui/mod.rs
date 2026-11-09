@@ -197,7 +197,7 @@ fn md_edges(src: &str) -> (f32, f32) {
 /// Layout rects are in the zoomed shell's points already.
 pub fn width<S: TimelineHost>(s: &S) -> f32 {
     let Some(id) = s.active_session_id() else { return crate::style::content_w() };
-    rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - 48.0).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
+    rune::memo::layout_with(&format!("scroll-{id}"), |r| (r[2] - crate::style::sides()).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
 }
 
 /// Parts in the timeline's colours: status tones from the theme's diff and state colours, frames

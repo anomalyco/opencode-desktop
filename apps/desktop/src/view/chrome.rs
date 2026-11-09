@@ -42,13 +42,15 @@ pub(crate) struct WindowChrome {
     pub caption_w: f32,
     /// One device pixel in shell points, as Chromium draws a 1px CSS rule at this scale and zoom.
     pub hairline: f32,
-    /// The layout the shell shows.
+    /// The layout the shell shows: top tabs' while the window is narrow.
     pub layout: TabLayout,
+    /// The window is below Desktop's 768 px breakpoint (`narrow`).
+    pub narrow: bool,
 }
 
 thread_local! {
     static CHROME: Cell<WindowChrome> = const {
-        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal })
+        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false })
     };
 }
 
@@ -74,7 +76,7 @@ pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32) -> Titlebar {
 /// is the titlebar's height (`titlebar_height`), so it lines up with the caption buttons at
 /// every zoom: 44pt zoomed out (`44 / min(zoom, 1)` in the shell, as Desktop's), and 44 shell
 /// points zoomed in.
-pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout) {
+pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool) {
     let (row_h, row_pad) = match () {
         // Full screen hides the caption buttons, not the row.
         _ if WINDOWS => (titlebar_height(zoom) / zoom, 0.0),
@@ -83,7 +85,7 @@ pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: Ta
     };
     let px = scale * zoom;
     let hairline = px.floor().max(1.0) / px;
-    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing / zoom, hairline, layout };
+    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing / zoom, hairline, layout, narrow };
     CHROME.with(|c| c.set(chrome));
 }
 

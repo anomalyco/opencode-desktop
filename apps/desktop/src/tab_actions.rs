@@ -76,7 +76,7 @@ impl App {
 
     /// ⇧⌘B and the sidebar toggle. Top tabs have no sidebar, so it does nothing there.
     pub(crate) fn toggle_sidebar(&mut self, tx: &mut Tx) -> bool {
-        if !self.tab_layout().has_sidebar() {
+        if !self.shows_sidebar() {
             return false;
         }
         // The side region's contents glide with its edge while the sidebar's flight moves it
@@ -94,7 +94,7 @@ impl App {
 
     /// How wide the docked sidebar is: none for top tabs, or while it's closed.
     pub(crate) fn sidebar_shown_w(&self) -> f32 {
-        if self.sidebar_open && self.tab_layout().has_sidebar() { self.sidebar_w } else { 0.0 }
+        if self.sidebar_open && self.shows_sidebar() { self.sidebar_w } else { 0.0 }
     }
 
     /// The open draft's folder, where its session will start; off a draft, the folder last picked.

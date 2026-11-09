@@ -83,6 +83,32 @@ pub fn set_content_w(w: f32) {
     SESSION_W.set(w);
 }
 
+thread_local! {
+    /// The window is below Desktop's 768 px breakpoint this frame.
+    static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Tells this frame's session views the window is narrow; the host calls it before building them.
+pub fn set_narrow(narrow: bool) {
+    NARROW.set(narrow);
+}
+
+/// The window is below Desktop's 768 px breakpoint this frame.
+pub fn narrow() -> bool {
+    NARROW.get()
+}
+
+/// The timeline's two side paddings together: `px-6`, `px-4` in a narrow window.
+pub fn sides() -> f32 {
+    if NARROW.get() { 32.0 } else { 48.0 }
+}
+
+/// Room above the timeline's first row: 8 under the header, and a narrow window's `h-4` where
+/// the header hides (`virtualizer.tsx:1175`).
+pub fn timeline_top() -> f32 {
+    if NARROW.get() { 16.0 } else { 8.0 }
+}
+
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
 pub const BUBBLE_MAX: f32 = 565.0;
 

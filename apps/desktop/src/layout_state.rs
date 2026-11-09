@@ -244,6 +244,8 @@ pub struct Shell {
     pointer: (bool, bool),
     /// Events heard between polls, applied on the next one at its clock.
     queued: Vec<PeekEvent>,
+    /// The narrow window's layout, views and drawers (`narrow`).
+    pub narrow: crate::narrow::Narrow,
 }
 
 impl Shell {
@@ -305,7 +307,7 @@ impl App {
     /// Hands the peek `event`, applied on the next poll at its clock: handlers don't see the
     /// clock, and a dwell must count from now.
     pub fn queue_peek(&mut self, event: PeekEvent, tx: &mut Tx) {
-        if !self.tab_layout().has_sidebar() {
+        if !self.shows_sidebar() {
             return;
         }
         self.layout.queued.push(event);

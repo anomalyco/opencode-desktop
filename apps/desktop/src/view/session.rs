@@ -20,6 +20,10 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
 // Session
 
 pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
+    // A narrow window hides the header under its view switcher (`screen.tsx`'s `hideHeader`).
+    if s.narrow() {
+        return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0)));
+    }
     let shown = s.displayed_session(id).unwrap_or(id);
     let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
     let head = header(s, p, s.session(shown), t);

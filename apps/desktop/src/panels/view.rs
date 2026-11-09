@@ -585,7 +585,8 @@ fn empty_pane_view(p: &Pal) -> El {
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
 pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
-    if !matches!(s.route, Route::Session(_)) || s.settings.open {
+    // A narrow window has none (`screen.tsx:456`).
+    if !matches!(s.route, Route::Session(_)) || s.settings.open || s.narrow() {
         return None;
     }
     let open = s.side_open();

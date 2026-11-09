@@ -38,6 +38,11 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     if !cfg!(target_os = "macos") {
         bar = bar.leading(crate::app_menu::button(s, p).motion(GLIDE));
     }
+    // A narrow window's row holds one trigger for the tabs' drawer, `px-2` (`titlebar.tsx:581`),
+    // and the titlebar items' row 6 after it, empty or not.
+    if chrome.narrow {
+        return Some(bar.trailing_padding(8.0 + 6.0).tabs(crate::narrow::tabs::trigger(s, p)).build(crate::palette::kit(p)));
+    }
     if !top {
         return Some(bar.leading(toggle_button(s, p, s.sidebar_open)).build(crate::palette::kit(p)));
     }

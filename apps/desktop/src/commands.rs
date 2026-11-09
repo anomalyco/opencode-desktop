@@ -297,7 +297,7 @@ fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
 
 /// Top tabs have no sidebar to toggle (`shell.tsx` registers the command for side tabs only).
 fn has_sidebar(s: &App) -> bool {
-    s.tab_layout().has_sidebar()
+    s.shows_sidebar()
 }
 
 rune_register::register!(COMMANDS: Cmd = [

@@ -302,6 +302,20 @@ impl DiffDocState {
         &self.files
     }
 
+    /// The rows' height one under another, unwrapped: a diff shown whole inside another scroll.
+    pub fn rows_height(&self) -> f32 {
+        use super::{GAP_H, HEADER_H, LINE_H, NOTE_H};
+        self.rows
+            .iter()
+            .map(|r| match r {
+                DiffRow::File(_) => HEADER_H,
+                DiffRow::Note(_) => NOTE_H,
+                DiffRow::Gap { .. } => GAP_H,
+                _ => LINE_H,
+            })
+            .sum()
+    }
+
     pub fn file_index(&self, path: &str) -> Option<usize> {
         self.files
             .iter()

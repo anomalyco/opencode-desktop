@@ -66,7 +66,7 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let switching = s.switching_layout();
     let aside = el().key("sidebar").role("navigation").h_full().clip_soft(0.0).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
-    if !s.tab_layout().has_sidebar() {
+    if !s.shows_sidebar() {
         return aside.w(0.0);
     }
     let w = s.sidebar_w;
@@ -162,7 +162,7 @@ fn list(s: &App, p: &Pal) -> El {
 /// pointer resting at the start edge or on the toggle brings it; straying past the corridor
 /// around it and the toggle sends it back. None while the sidebar is docked or has no peek.
 pub(crate) fn peek(s: &App, p: &Pal) -> Vec<El> {
-    if !s.tab_layout().has_sidebar() || s.sidebar_open && !s.layout.peek.handed_off() {
+    if !s.shows_sidebar() || s.sidebar_open && !s.layout.peek.handed_off() {
         return vec![];
     }
     let chrome = chrome();
@@ -301,7 +301,7 @@ pub(super) fn sidebar_toggle(s: &App, p: &Pal, open: bool, w: f32) -> El {
 /// Room the session header keeps for the collapsed toggle.
 pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
-    let open = s.sidebar_open || !s.tab_layout().has_sidebar();
+    let open = s.sidebar_open || !s.shows_sidebar();
     el().key("toggle-space").w(chrome().toggle_space(open)).h(28.0).motion(SIDEBAR_SPRING)
 }
 

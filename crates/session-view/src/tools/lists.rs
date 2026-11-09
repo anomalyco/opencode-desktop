@@ -17,7 +17,7 @@ const LINKS: usize = 10;
 
 /// The width of session `session`'s timeline column, as laid out.
 pub fn column(session: &str) -> f32 {
-    rune::memo::layout_with(&format!("scroll-{session}"), |r| (r[2] - 48.0).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
+    rune::memo::layout_with(&format!("scroll-{session}"), |r| (r[2] - crate::style::sides()).clamp(0.0, crate::style::content_w())).unwrap_or(crate::style::content_w())
 }
 
 /// A read that doesn't share a line with others (an image, a failed one, or one that loaded

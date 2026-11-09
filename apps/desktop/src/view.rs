@@ -61,12 +61,18 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// path below it stable across zoom changes).
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
-    // Timeline width sets the session column for everything this frame builds.
-    session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
-    let layout = s.tab_layout();
-    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout);
+    // Desktop's `(max-width: 767px)`: the shell's width, read once it crosses or while narrow.
+    let zoom = s.zoom;
+    let width = cx.layout_with("zoom", move |r| (r[2] / zoom).min(crate::narrow::machine::BREAKPOINT));
+    let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
+    // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
+    let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
+    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout, narrow);
+    session_view::style::set_narrow(narrow);
+    // Timeline width sets the session column for everything this frame builds.
+    session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
     // lights move to the layout's titlebar.
     if cfg!(target_os = "macos") {
@@ -91,6 +97,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         }
         None => shell(s, cx),
     };
+    inner = inner.children(crate::narrow::sheet::layer(s, p, cx));
     inner = inner.children(session_view::pickers::view::layer(s, p));
     if let Route::Session(id) = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
@@ -157,6 +164,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let root = el().key("zoom");
     root.on_key_up(crate::dictation::key_up)
         .on_window_focus(|s: &mut App, focused, tx| { if focused { crate::launch::network_available(s, tx); } })
+        // A resize across the breakpoint reaches the drawers in the frame it lands.
+        .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
         // context menu does (`spellcheck.ts`).
@@ -178,7 +187,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     cx.reduced_motion(s.reduced_motion);
     cx.time_scale(crate::knobs::time_scale(s));
     let w = s.sidebar_w;
-    let side_tabs = s.tab_layout().has_sidebar();
+    let side_tabs = s.shows_sidebar();
+    // A narrow window's panel runs edge to edge, 1 pt clear for its outline (`--shell-inline-inset`).
+    let inset = if s.narrow() { 1.0 } else { 8.0 };
     let open = s.sidebar_open && side_tabs;
     // The side region keeps its open width as the far end of a close's travel, so the row's width
     // is read whenever a session shows.
@@ -206,9 +217,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .key("panel")
         .grow(1.0)
         .shrink()
-        .ml(8.0)
+        .ml(inset)
         .mt(chrome().top())
-        .mr(8.0)
+        .mr(inset)
         .mb(8.0 + bottom_reserve)
         .radius(10.0)
         .fill(p.bg_base)

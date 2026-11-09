@@ -140,7 +140,7 @@ fn mode_button(p: &Pal, sr: &SessionReview) -> El {
         .child(icon(&ic::CHEVRON_DOWN, 11.0).color(p.icon_muted))
 }
 
-fn mode_popover(p: &Pal, sr: &SessionReview) -> El {
+pub(super) fn mode_popover(p: &Pal, sr: &SessionReview) -> El {
     let modes = sr.available_modes();
     let cur = sr.mode;
     let mut card = col()

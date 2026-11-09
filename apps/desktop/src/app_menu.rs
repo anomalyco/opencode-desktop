@@ -214,7 +214,7 @@ fn label(keys: Keys) -> String {
 fn enabled(s: &App, act: Act) -> bool {
     match act {
         Act::ToggleTerminal => s.active_session_id().is_some(),
-        Act::ToggleSidebar => s.tab_layout().has_sidebar(),
+        Act::ToggleSidebar => s.shows_sidebar(),
         _ => true,
     }
 }

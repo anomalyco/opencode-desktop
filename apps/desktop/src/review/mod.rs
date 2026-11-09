@@ -2,6 +2,7 @@
 
 pub mod chrome;
 pub mod data;
+pub mod mobile;
 mod stories;
 #[cfg(test)]
 mod tests;
@@ -70,6 +71,8 @@ pub struct SessionReview {
     pub pending_expand: Option<(usize, usize, Expand)>,
     /// A tool step's change to scroll to once the diffs load (`tool_open`).
     pub pending_focus: Option<(String, Option<crate::tool_open::Anchor>)>,
+    /// The narrow window's Changes view: its open files (`mobile`).
+    pub narrow: mobile::NarrowReview,
 }
 
 impl Default for SessionReview {
@@ -88,6 +91,7 @@ impl Default for SessionReview {
             loaded_revision: None,
             pending_expand: None,
             pending_focus: None,
+            narrow: mobile::NarrowReview::default(),
         }
     }
 }
@@ -260,7 +264,7 @@ fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
     if s.review.dirty {
         s.review.dirty = false;
         if let Some(sid) = s.active_session_id().map(str::to_owned)
-            && (s.side_open() || s.stage.is_some())
+            && (s.review_shown() || s.stage.is_some())
         {
             s.ensure_session_review(&sid);
             changed = true;
@@ -377,6 +381,11 @@ impl App {
         self.ensure_session_review(sid);
     }
 
+    /// The changes show somewhere: the side region open, or a narrow window's Changes view.
+    pub fn review_shown(&self) -> bool {
+        self.side_open() || (self.narrow() && self.narrow_view() == "review")
+    }
+
     pub fn is_review_active(&self) -> bool {
         if !(self.side_open() || self.stage.is_some()) {
             return false;
@@ -396,7 +405,7 @@ impl App {
                 | "session.revert.committed"
         ) {
             self.review.revision += 1;
-            if self.side_open() {
+            if self.review_shown() {
                 self.review.dirty = true;
                 return true;
             }
@@ -444,6 +453,7 @@ impl App {
                 sr.active_path = meta.first().map(|m| m.path.clone());
                 sr.diffs.set_mode(diff_mode);
                 sr.diffs.set_files(files);
+                sr.narrow.refresh(sr.diffs.files());
                 for (path, text) in texts {
                     sr.diffs.attach_file_text(&path, &text);
                 }
@@ -489,6 +499,7 @@ impl App {
         sr.tree = build_change_tree(&meta, &collapsed_folders(&sr.tree));
         sr.diffs.set_mode(diff_mode);
         sr.diffs.set_files(files);
+        sr.narrow.refresh(sr.diffs.files());
         sr.diffs.set_expand_mode(expand_mode);
         sr.active_path = prev_active
             .filter(|p| sr.meta.iter().any(|m| &m.path == p))

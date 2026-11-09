@@ -201,7 +201,14 @@ impl App {
         }
     }
 
+    /// The side region shows: open for the routed session, in a wide window (a narrow one folds
+    /// it into its views and keeps it open for when the window widens, as Desktop's `sideVisible`).
     pub fn side_open(&self) -> bool {
+        self.side_stored_open() && !self.narrow()
+    }
+
+    /// The routed session's side region is open, shown or folded away by a narrow window.
+    pub fn side_stored_open(&self) -> bool {
         self.active_session_id()
             .and_then(|id| self.side.sessions.get(id))
             .is_some_and(|st| st.open)
@@ -211,7 +218,12 @@ impl App {
         self.settings.terminal_placement
     }
 
+    /// The bottom pane shows: open for the routed session, in a wide window (`screen.tsx:545`).
     pub fn bottom_open(&self) -> bool {
+        self.bottom_stored_open() && !self.narrow()
+    }
+
+    pub fn bottom_stored_open(&self) -> bool {
         self.active_session_id()
             .and_then(|id| self.side.sessions.get(id))
             .is_some_and(|st| st.bottom_open)
@@ -220,9 +232,9 @@ impl App {
     /// Lands a tab shown with `show` at once when its pane was already on screen, as switching
     /// tabs does; a pane it opens flies on `SIDE_SPRING`, as the region's toggle does.
     pub fn show_pane_tab(&mut self, tx: &mut Tx, show: impl FnOnce(&mut Self)) {
-        let was = (self.side_open(), self.bottom_open());
+        let was = (self.side_stored_open(), self.bottom_stored_open());
         show(self);
-        if (self.side_open(), self.bottom_open()) == was {
+        if (self.side_stored_open(), self.bottom_stored_open()) == was {
             tx.instant();
         }
     }
@@ -424,7 +436,7 @@ impl App {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         self.side.tab_menu = None;
         self.side.add_menu = None;
-        let was_open = self.side_open();
+        let was_open = self.side_stored_open();
         if was_open {
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
@@ -479,6 +491,7 @@ impl App {
         preview: bool,
         first: bool,
     ) {
+        let was = self.side.sessions.get(session_id).map_or((false, false), |st| (st.open, st.bottom_open));
         let transient_launchers: HashSet<String> = self
             .resolve_side_region()
             .map(|r| {
@@ -518,6 +531,7 @@ impl App {
         {
             on_focus(self, session_id, tab_id, false);
         }
+        self.place_narrow(session_id, key, was);
     }
 
     /// The tab pane `pane` of the routed session shows, if any.
@@ -545,7 +559,7 @@ impl App {
             self.side.focused = false;
             return;
         }
-        if self.side_open() {
+        if self.side_stored_open() {
             self.toggle_side_region(tx);
         }
     }
@@ -555,6 +569,7 @@ impl App {
     /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
     /// pane.
     pub fn show_side_tab(&mut self, session_id: &str, key: &str, target: Option<SessionPane>) {
+        let was = self.side.sessions.get(session_id).map_or((false, false), |st| (st.open, st.bottom_open));
         let fallback = split_panel_key(key)
             .and_then(|(pl, _)| self.all_panels().into_iter().find(|p| p.plugin == pl))
             .map(|p| p.home_pane(self));
@@ -582,6 +597,7 @@ impl App {
         {
             on_focus(self, session_id, tab_id, false);
         }
+        self.place_narrow(session_id, key, was);
     }
 
     pub fn open_side_tab(

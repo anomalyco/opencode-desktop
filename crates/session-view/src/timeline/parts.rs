@@ -81,7 +81,8 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
         t.messages[i + 1..end].iter().rev().find_map(model_of)
     });
     let before = t.messages[..message.unwrap_or(t.messages.len())].iter().rev().find_map(model_of);
-    let Some(m) = turn.or(before) else { return Vec::new() };
+    // A narrow window shows the agent and model in the composer instead (`message-content.tsx:339`).
+    let Some(m) = turn.or(before).filter(|_| !crate::style::narrow()) else { return Vec::new() };
     let mut items = vec![(s.model_name(&m), false)];
     if !m.variant.is_empty() && m.variant != "default" {
         let mut v = m.variant.chars();
@@ -248,7 +249,8 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
         Message::Assistant(a) => a.model.clone(),
         _ => None,
     });
-    if let Some(m) = model.filter(|m| !m.id.is_empty() || !m.provider.is_empty()) {
+    // A narrow window leaves out the model (`message-content.tsx:1172`).
+    if let Some(m) = model.filter(|m| (!m.id.is_empty() || !m.provider.is_empty()) && !crate::style::narrow()) {
         items.push((s.model_name(&m), false));
         if !m.variant.is_empty() && m.variant != "default" {
             let mut v = m.variant.chars();

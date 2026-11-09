@@ -79,7 +79,9 @@ impl App {
         let id = self.tab_preview.open.as_deref()?;
         let blocked = self.tab_drag.phase != rune_kit::shell::TabDragPhase::Idle
             || self.menus.rename.as_ref().is_some_and(|t| t.id == id)
-            || self.menus.on.as_ref().is_some_and(|t| t.id == id);
+            || self.menus.on.as_ref().is_some_and(|t| t.id == id)
+            // A narrow window's tabs show no card (`tab-popover.tsx:87`).
+            || self.narrow();
         (!blocked && self.tab_layout() != crate::layout_state::TabLayout::Inbox).then_some(id)
     }
 }
