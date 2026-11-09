@@ -383,6 +383,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         app.plugins.luau.plugins[i].hot = hot;
         for effect in effects {
             match effect {
+                HotEffect::Prewarm => {
+                    if let Some(script) = app.plugins.luau.plugins[i].script() {
+                        cx::with_app(app, || script.prewarm());
+                    }
+                }
                 HotEffect::Swap(prepared) => reload(app, i, Some(prepared)),
                 HotEffect::Report(e) => console::push(&app.plugins.luau.plugins[i].manifest.id, rune_luau::LogLevel::Error, &e),
             }

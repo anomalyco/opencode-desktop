@@ -1,5 +1,6 @@
 //! Save-to-reload: a watcher over every Luau plugin folder. Its thread rereads the files a save
-//! changed and compiles the plugin; the poll after the compile only swaps the VM
+//! changed and recompiles the modules among them; meanwhile the UI thread builds the next VM's
+//! base (`Script::prewarm`), and the poll after the compile only swaps the VM
 //! (`super::reload`).
 
 use std::collections::{BTreeMap, HashMap};
@@ -73,8 +74,16 @@ impl Watcher {
 /// named, and compiles once, unless the files read as they did at the last compile.
 fn compile_saves(folders: &[(usize, PathBuf)], saved: &Receiver<(usize, PathBuf)>, slot: &Ready, waker: Option<&rune::Waker>) {
     let mut files: HashMap<usize, BTreeMap<String, String>> = folders.iter().map(|(i, dir)| (*i, Origin::Dir(dir.clone()).files().into_iter().collect())).collect();
-    // The files each folder compiled from last.
-    let mut last: HashMap<usize, String> = folders.iter().filter_map(|(i, _)| Some((*i, sources::content_hash(&files.get(i)?.iter().map(|(p, t)| (p.clone(), t.clone())).collect::<Vec<_>>())))).collect();
+    // What each folder compiled to last, so a save recompiles only the modules it changed. The
+    // first compile happens here, before any save.
+    let mut last: HashMap<usize, (String, Compiled)> = folders
+        .iter()
+        .filter_map(|(i, dir)| {
+            let list: Vec<(String, String)> = files.get(i)?.iter().map(|(p, t)| (p.clone(), t.clone())).collect();
+            let prepared = compile_folder(dir, &list, None).ok()?;
+            Some((*i, (sources::content_hash(&list), prepared.compiled)))
+        })
+        .collect();
     let push = |events: Vec<(usize, HotEvent)>| {
         if let Ok(mut r) = slot.lock() {
             r.extend(events);
@@ -97,26 +106,31 @@ fn compile_saves(folders: &[(usize, PathBuf)], saved: &Receiver<(usize, PathBuf)
             reread(dir, current, &paths);
             let list: Vec<(String, String)> = current.iter().map(|(p, t)| (p.clone(), t.clone())).collect();
             let hash = sources::content_hash(&list);
-            if last.get(i) == Some(&hash) {
+            if last.get(i).is_some_and(|(h, _)| *h == hash) {
                 continue;
             }
             push(vec![(*i, HotEvent::Changed)]);
-            let prepared = compile_folder(dir, &list);
-            if prepared.is_ok() {
-                last.insert(*i, hash);
+            let prepared = compile_folder(dir, &list, last.get(i).map(|(_, c)| c));
+            if let Ok(p) = &prepared {
+                last.insert(*i, (hash, p.compiled.clone()));
             }
             push(vec![(*i, HotEvent::Compiled(prepared))]);
         }
     }
 }
 
-/// Compiles plugin folder `dir`'s window half from its `files`.
-fn compile_folder(dir: &std::path::Path, files: &[(String, String)]) -> Result<Prepared, String> {
+/// Compiles plugin folder `dir`'s window half from its `files`, reusing `previous`'s bytecode
+/// for the modules that didn't change.
+fn compile_folder(dir: &std::path::Path, files: &[(String, String)], previous: Option<&Compiled>) -> Result<Prepared, String> {
     let start = Instant::now();
     let m = files.iter().find(|(p, _)| p == "plugin.toml").and_then(|(_, t)| sources::parse(t).ok()).ok_or("plugin.toml doesn't read")?;
     let folder = dir.file_name().map_or_else(|| m.id.clone(), |n| n.to_string_lossy().into_owned());
     let script = sources::script_sources(files, &folder, &m.entry);
-    let compiled = script.compile().map_err(|e| e.message)?;
+    let compiled = match previous {
+        Some(previous) => script.compile_from(previous),
+        None => script.compile(),
+    }
+    .map_err(|e| e.message)?;
     Ok(Prepared { sources: script, compiled, compile: start.elapsed(), catalogs: sources::catalogs(files) })
 }
 

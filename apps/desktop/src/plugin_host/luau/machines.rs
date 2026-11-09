@@ -178,11 +178,11 @@ impl Trust {
 
 // ---- Hot reload ------------------------------------------------------------------------------
 
-/// A plugin folder's save-to-reload: the watcher's thread reads and compiles, the UI thread
-/// swaps.
+/// A plugin folder's save-to-reload: the watcher's thread reads and compiles; meanwhile the UI
+/// thread builds the next VM's base, then swaps.
 ///
 /// ```text
-/// Idle ─ Changed ▶ Compiling ─ Compiled(Ok) ▶ Idle + Swap
+/// Idle ─ Changed ▶ Compiling + Prewarm ─ Compiled(Ok) ▶ Idle + Swap
 ///                            └ Compiled(Err) ▶ Failed + Report ─ Changed ▶ Compiling
 /// ```
 pub enum Hot {
@@ -198,6 +198,8 @@ pub enum HotEvent {
 }
 
 pub enum HotEffect {
+    /// Build the next VM's base while the compile runs (`Script::prewarm`).
+    Prewarm,
     Swap(Prepared),
     Report(String),
 }
@@ -205,7 +207,7 @@ pub enum HotEffect {
 impl Hot {
     pub fn step(self, event: HotEvent) -> (Hot, Vec<HotEffect>) {
         match (self, event) {
-            (_, HotEvent::Changed) => (Hot::Compiling, vec![]),
+            (_, HotEvent::Changed) => (Hot::Compiling, vec![HotEffect::Prewarm]),
             (_, HotEvent::Compiled(Ok(p))) => (Hot::Idle, vec![HotEffect::Swap(p)]),
             (_, HotEvent::Compiled(Err(e))) => (Hot::Failed(e.clone()), vec![HotEffect::Report(e)]),
         }
