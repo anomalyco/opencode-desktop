@@ -340,6 +340,8 @@ The clipboard, the system browser and file manager, and the clock. Halves: windo
 | `:Reveal` | `(path: string) -> ()` | Shows a path in the system's file manager. |
 | `:Now` | `() -> number` | The wall clock in milliseconds since the Unix epoch. |
 | `:UtcOffset` | `(ms: number) -> number` | The local time zone's offset from UTC in seconds, at that time. |
+| `:FreePort` | `() -> number?` | A TCP port nothing listens on now on the loopback address, for a server or tunnel a plugin starts. Nil when the system has none. |
+| `:RandomId` | `() -> string` | A random version 4 UUID from the system's secure source, for passwords and tokens. |
 
 ### Notifications
 
@@ -437,7 +439,7 @@ QR codes. Halves: window, app.
 
 | Member | Type | Description |
 |---|---|---|
-| `:Encode` | `(text: string) -> QrCode` | Encodes text, at medium error correction. |
+| `:Encode` | `(text: string) -> QrCode` | Encodes text as UTF-8 bytes at low error correction, in the smallest version that fits. |
 
 ### Askpass
 
@@ -500,6 +502,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
 | `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
+| `ui.serverIndicator(props: UiServerIndicatorProps) -> UiNode` | control | [`UiServerIndicatorProps`](#uiserverindicatorprops) | A server's health indicator, for a server source's row. |
 | `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
@@ -1047,9 +1050,9 @@ A dialog's width.
 
 | Value | Meaning |
 |---|---|
-| `"small"` | A confirmation. |
-| `"medium"` | A form. The default. |
-| `"large"` | A list or a document. |
+| `"small"` | A confirmation: 400 points. |
+| `"medium"` | A form: 480 points. The default. |
+| `"large"` | A list or a document: 640 points. |
 
 ### StoreScope
 
@@ -1164,7 +1167,7 @@ A semantic token, or a literal color from `ui.hex`.
 
 ### IconName
 
-The name of one of the app's icons, such as `"circle-check"`.
+The name of one of the app's icons, such as `"circle-check"`. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
 
 `type IconName = string`
 
@@ -1517,7 +1520,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `text` | `string` | The row's label. |
 | `description` | `string?` | A line under the label. |
 | `checked` | `boolean` | Selected. |
-| `tone` | `Tone?` | Colors the label. |
+| `tone` | `Tone?` | Colors the description, as a status line. |
+| `lineHeight` | `number?` | The label's line height: 20 by default, as Desktop's radio label; 16 for a list row whose label sets its own. |
 | `disabled` | `boolean?` | Cannot change. |
 | `onChange` | `UiHandler?` | Runs as the user picks the row. |
 
@@ -1548,6 +1552,18 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | Field | Type | Description |
 |---|---|---|
 | `size` | `number?` | Width and height in points. Defaults to 16. |
+
+### UiServerIndicatorProps
+
+`ui.serverIndicator` props: a server's health as Settings > Servers shows it (Desktop's `ServerRow.Indicator`).
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `health` | `ServerHealth?` | Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown. |
+| `auth` | `boolean?` | It waits for the user to sign in: a lock. |
+| `connecting` | `boolean?` | It is starting or connecting: a spinner. |
 
 ### UiPillProps
 
@@ -1963,7 +1979,8 @@ A process to start.
 | `stdin` | `string?` | Written to its stdin first. Stdin then closes unless `keepStdin` is set. |
 | `keepStdin` | `boolean?` | Keeps stdin open for `Write`. |
 | `timeout` | `number?` | Seconds before the host kills it. |
-| `encoding` | `TextEncoding?` | How it encodes its output. |
+| `encoding` | `TextEncoding?` | How it encodes its output. Defaults to UTF-8, or UTF-16LE when its first output reads as that. |
+| `stderrFile` | `boolean?` | Sends stderr to a file rather than a pipe, read back as one `stderr` chunk as it exits: for programs that never exit after writing to a stderr pipe, as Windows' OpenSSH does after a failure. |
 
 ### ProcessExit
 
@@ -2357,6 +2374,7 @@ A QR code's module matrix.
 |---|---|---|
 | `size` | `number` | Modules per side. |
 | `modules` | `{ boolean }` | `size * size` modules, row by row: true is dark. |
+| `icon` | `IconName` | Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color. |
 
 ### AskpassPrompt
 
@@ -2364,8 +2382,9 @@ A credential prompt from a child process.
 
 | Member | Type | Description |
 |---|---|---|
+| `.Id` | `string` | Its id within the listener, as `Cleared` names it. |
 | `.Prompt` | `string` | What the process asks. |
-| `.Secret` | `boolean` | The answer is a password. |
+| `.Secret` | `boolean` | The answer is a password. False for a yes/no question, such as trusting a host's key. |
 | `:Respond` | `(answer: string?) -> ()` | Answers it. Nil cancels. |
 
 ### AskpassListener
@@ -2375,7 +2394,8 @@ A loopback endpoint that turns `SSH_ASKPASS` prompts into signals.
 | Member | Type | Description |
 |---|---|---|
 | `.Env` | `{ [string]: string }` | Environment variables to give the child process. |
-| `.Prompted` | `Signal<AskpassPrompt>` | Fires with each prompt. |
+| `.Prompted` | `Signal<AskpassPrompt>` | Fires with each prompt, one at a time. |
+| `.Cleared` | `Signal<string>` | Fires with a prompt's id once it ends: answered, cancelled, or its process stopped asking. |
 | `:Close` | `() -> ()` | Stops listening. |
 
 ### ConsoleLine
@@ -2572,6 +2592,7 @@ A settings page, or a section on a host page. Desktop's plugin API calls it `Set
 |---|---|---|
 | `id` | `string` | The page's id, also for `Layout:OpenSettings`. |
 | `title` | `string` | Its navigation label. |
+| `description` | `string?` | The line under the page's title. A section on a host page has none. |
 | `icon` | `IconName?` | Its navigation icon. |
 | `page` | `HostSettingsPage?` | Adds a section to this host page instead of a page of its own. |
 | `about` | `boolean?` | Lists the page in the About group, such as release notes. |
@@ -2855,7 +2876,7 @@ A modal dialog, opened with `Dialog:Open`.
 | `id` | `string` | Its id within the plugin. |
 | `title` | `string?` | Its heading and accessible name. |
 | `size` | `DialogSize?` | Its width. |
-| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame. |
+| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog, as tall as its content, layer-01 fill, overlay elevation and 6-point corners. |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 
 ### PopoverProps

@@ -2703,6 +2703,7 @@ dependencies = [
  "browser-pane",
  "crc32fast",
  "flate2",
+ "getrandom 0.3.4",
  "hex-client",
  "icu_normalizer",
  "icu_properties",
@@ -2716,14 +2717,12 @@ dependencies = [
  "opencode-kit",
  "opencode-plugin",
  "opencode-plugin-hello-impl",
- "opencode-plugin-pairing-impl",
  "opencode-plugin-spec",
- "opencode-plugin-ssh-impl",
- "opencode-plugin-wsl-impl",
  "otlp-lite",
  "png 0.18.1",
  "procwatch",
  "project-icon",
+ "qrcode",
  "rune",
  "rune-kit",
  "rune-knobs",
@@ -2800,59 +2799,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "opencode-plugin-pairing"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-pairing-impl",
-]
-
-[[package]]
-name = "opencode-plugin-pairing-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "qrcode",
- "serde_json",
-]
-
-[[package]]
 name = "opencode-plugin-spec"
 version = "1.0.0"
 dependencies = [
  "serde",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-ssh"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-ssh-impl",
-]
-
-[[package]]
-name = "opencode-plugin-ssh-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-wsl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-wsl-impl",
-]
-
-[[package]]
-name = "opencode-plugin-wsl-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
  "serde_json",
 ]
 

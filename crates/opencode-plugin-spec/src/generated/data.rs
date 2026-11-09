@@ -355,6 +355,7 @@ pub struct ProcessSpec {
     /// The program, as a path or a name on PATH.
     pub program: String,
     /// Its arguments, passed as they are, without a shell.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub args: Option<Vec<String>>,
     /// Variables to add to the app's environment.
     pub env: Option<BTreeMap<String, String>>,
@@ -366,10 +367,12 @@ pub struct ProcessSpec {
     pub keep_stdin: Option<bool>,
     /// Seconds before the host kills it.
     pub timeout: Option<f64>,
-    /// How it encodes its output.
+    /// How it encodes its output. Defaults to UTF-8, or UTF-16LE when its first output reads as that.
     pub encoding: Option<TextEncoding>,
+    /// Sends stderr to a file rather than a pipe, read back as one `stderr` chunk as it exits: for programs that never exit after writing to a stderr pipe, as Windows' OpenSSH does after a failure.
+    pub stderr_file: Option<bool>,
 }
-impl_record!(ProcessSpec, ["program", "args", "env", "cwd", "stdin", "keepStdin", "timeout", "encoding"], [], []);
+impl_record!(ProcessSpec, ["program", "args", "env", "cwd", "stdin", "keepStdin", "timeout", "encoding", "stderrFile"], [], []);
 
 /// How a process ended.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -439,6 +442,7 @@ pub struct ToastSpec {
     /// Stays until the user or `Dismiss` closes it.
     pub persistent: Option<bool>,
     /// Buttons, in order.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub actions: Option<Vec<ToastAction>>,
 }
 impl_record!(ToastSpec, ["title", "description", "variant", "icon", "duration", "persistent", "actions"], [], []);
@@ -499,6 +503,7 @@ pub struct MenuOpenSpec {
     /// The `key` of the element it opens beside.
     pub anchor_key: String,
     /// Its entries.
+    #[serde(deserialize_with = "crate::lenient::seq")]
     pub items: Vec<MenuEntry>,
     /// Its accessible name.
     pub label: Option<String>,
@@ -671,6 +676,7 @@ pub struct TerminalSpec {
     /// A program to run instead of the user's shell.
     pub command: Option<String>,
     /// Its arguments.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub args: Option<Vec<String>>,
 }
 impl_record!(TerminalSpec, ["directory", "cwd", "title", "command", "args"], [], []);
@@ -715,9 +721,12 @@ pub struct QrCode {
     /// Modules per side.
     pub size: i64,
     /// `size * size` modules, row by row: true is dark.
+    #[serde(deserialize_with = "crate::lenient::seq")]
     pub modules: Vec<bool>,
+    /// Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color.
+    pub icon: String,
 }
-impl_record!(QrCode, ["size", "modules"], [], []);
+impl_record!(QrCode, ["size", "modules", "icon"], [], []);
 
 /// One line of the Studio console.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -845,6 +854,7 @@ pub struct ComposerPillView {
     /// The accessible name and the popover heading, when it differs from `label`.
     pub title: Option<String>,
     /// The menu it opens, when the pill has no `renderMenu`.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub rows: Option<Vec<ComposerPillRow>>,
 }
 impl_record!(ComposerPillView, ["label", "icon", "tone", "title", "rows"], [], []);

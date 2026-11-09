@@ -580,11 +580,11 @@ string_enum! {
 string_enum! {
     /// A dialog's width.
     pub enum DialogSize {
-        /// A confirmation.
+        /// A confirmation: 400 points.
         Small = "small",
-        /// A form. The default.
+        /// A form: 480 points. The default.
         Medium = "medium",
-        /// A list or a document.
+        /// A list or a document: 640 points.
         Large = "large",
     }
 }

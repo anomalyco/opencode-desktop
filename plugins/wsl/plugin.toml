@@ -1,7 +1,13 @@
+#:schema ../plugin.schema.json
 id = "wsl"
 name = "WSL"
-version = "0.1.0"
-description = "OpenCode servers in your WSL distros: Add WSL server, each distro's server started and watched, and its row in Settings › Servers"
-api = "0.1-experimental"
+version = "0.2.0"
+contract = "1.0"
+description = "OpenCode servers in your WSL distros: Add WSL server, each distro's server started and watched, and its row in Settings > Servers"
+entry = "init.luau"
+app = "app.luau"
 os = ["windows"]
-library = "opencode_plugin_wsl"
+
+[[stores]]
+name = "servers"
+scope = "global"

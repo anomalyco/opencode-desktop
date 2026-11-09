@@ -15,6 +15,7 @@
 
 mod color;
 mod generated;
+pub mod lenient;
 mod macros;
 mod props;
 mod version;

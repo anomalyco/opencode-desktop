@@ -257,15 +257,16 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         own.raw_set("isLocal", true)?;
         own.raw_set("current", app.server_key.is_none())?;
         list.raw_push(own)?;
+        cx::read(Dep::Servers);
         for s in crate::plugin_host::contributed_servers(app).into_iter().filter(|s| s.rec.listed) {
             let e = lua.create_table()?;
-            let key = format!("{}:{}", s.rec.source, s.rec.id);
-            e.raw_set("current", app.server_key.as_deref() == Some(key.as_str()))?;
-            e.raw_set("key", key)?;
+            e.raw_set("current", app.server_key.as_deref() == Some(s.key.as_str()))?;
             e.raw_set("name", s.rec.name.as_str())?;
             e.raw_set("label", (!s.rec.label.is_empty()).then_some(s.rec.label.as_str()))?;
-            e.raw_set("state", "ready")?;
+            e.raw_set("state", ["stopped", "starting", "auth", "ready", "failed", "incompatible"].get(s.rec.state as usize).copied().unwrap_or("stopped"))?;
             e.raw_set("isLocal", false)?;
+            e.raw_set("version", app.plugins.shared.facts.health.get(&s.key).cloned())?;
+            e.raw_set("key", s.key)?;
             list.raw_push(e)?;
         }
         Ok(list)
@@ -274,7 +275,14 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Server);
         Ok(app_now("Servers:Current")?.server_key.clone().or_else(|| Some("local".to_owned())))
     })?;
-    method(lua, t, "Health", |_, _key: String| Ok(Value::Nil))?;
+    method(lua, t, "Health", |lua, key: String| {
+        cx::read(Dep::Servers);
+        let Some(version) = app_now("Servers:Health")?.plugins.shared.facts.health.get(&key).cloned() else { return Ok(Value::Nil) };
+        let h = lua.create_table()?;
+        h.raw_set("healthy", true)?;
+        h.raw_set("version", version)?;
+        Ok(Value::Table(h))
+    })?;
     let plugin = vmx.half.id.clone();
     method(lua, t, "Connect", move |_, key: String| {
         cx::ask(&plugin, cx::Request::RunCommand { id: format!("server:{key}"), input: None });

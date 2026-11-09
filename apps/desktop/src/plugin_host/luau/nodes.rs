@@ -3,7 +3,7 @@
 //! with, so a plugin's button or settings row is the app's to the pixel. Native views later
 //! packages bring (terminal, browser, code, diff, tree, UI outlines) draw a note naming them.
 
-use rune::{El, TextStyle, Tx, col, el, row, text};
+use rune::{El, TextStyle, Tx, el, row, text};
 use rune_kit::{ButtonVariant, Loader};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -25,6 +25,7 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("radio", radio),
         HostNode::new("field", field),
         HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
+        HostNode::new("serverIndicator", server_indicator),
         HostNode::new("pill", pill),
         HostNode::new("settingsRow", settings_row),
         HostNode::new("settingsList", settings_list),
@@ -51,6 +52,11 @@ fn gen_ui(a: &mut NodeArgs) -> Result<El, String> {
     }
     let width = a.number("w").map_or_else(session_view::style::content_w, |w| w as f32);
     Ok(session_view::genui::standalone::<App>(&p(a), a.string("source").unwrap_or_default(), width, a.flag("streaming")).unwrap_or_else(el))
+}
+
+/// Icon `name`: the rendering plugin's own (`icons/<name>.svg`), else the host's or the app's.
+fn named_icon(name: &str) -> &'static rune::Icon {
+    crate::plugin_host::icons::resolve(cx::rendering().as_deref().unwrap_or_default(), name)
 }
 
 fn p(a: &NodeArgs) -> Pal {
@@ -98,7 +104,7 @@ fn icon(a: &mut NodeArgs) -> Result<El, String> {
         Some("danger") => pal.danger,
         _ => pal.icon,
     });
-    Ok(rune::icon(crate::plugin_host::icons::resolve("", &name), size).color(color))
+    Ok(rune::icon(named_icon(&name), size).color(color))
 }
 
 /// A number whose changed digits roll (`session_view::odometer`), or plain text.
@@ -162,11 +168,16 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
     let v = if loading && !small { ButtonVariant::Loading } else { variant(a.string("variant")) };
     let mut b = crate::widgets::button(words.clone(), v).size(size).disabled(disabled);
     if let Some(lead) = a.string("icon") {
-        b = b.icon(crate::plugin_host::icons::resolve("", lead));
+        b = b.icon(named_icon(lead));
     }
     if loading && small {
+        // `<Loader class="size-3.5" />` before the label, in the label's color.
         let spinner = Loader::new().size(14.0).build(k);
         b = b.label_with(move |style, ink| row().gap(4.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
+    } else if loading {
+        // Desktop's `variant="loading"` button holds only `<Loader />`.
+        let spinner = Loader::new().size(16.0).build(k);
+        b = b.label_with(move |_, _| spinner);
     }
     let el = b.build(k);
     Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
@@ -182,7 +193,7 @@ fn icon_button(a: &mut NodeArgs) -> Result<El, String> {
     if pressed {
         b = b.fill(pal.pressed);
     }
-    let b = b.child(rune::icon(crate::plugin_host::icons::resolve("", &name), 16.0).color(if a.string("variant") == Some("ghost-muted") { pal.icon_muted } else { pal.icon }));
+    let b = b.child(rune::icon(named_icon(&name), 16.0).color(if a.string("variant") == Some("ghost-muted") { pal.icon_muted } else { pal.icon }));
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
 }
 
@@ -199,13 +210,12 @@ fn switch(a: &mut NodeArgs) -> Result<El, String> {
 fn radio(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
     let checked = a.flag("checked");
+    // A description's tone is Desktop's `state-fg-*` (`data-tone` on a status line).
     let tone = match a.string("tone") {
-        Some("success") => Some(pal.success),
-        Some("warning") => Some(pal.warning),
-        Some("danger") => Some(pal.danger),
+        Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")),
         _ => None,
     };
-    let r = crate::plugin_host::widgets::radio(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, a.flag("disabled"), tone);
+    let r = crate::plugin_host::widgets::radio(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, a.flag("disabled"), tone, a.number("lineHeight").unwrap_or(20.0) as f32);
     Ok(if a.flag("disabled") { r } else { a.on_press_with(r, "onChange", vec![("checked", Data::Bool(true))]) })
 }
 
@@ -234,9 +244,38 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     }
     if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
         input = input.width(Some(w as f32));
+    } else if a.string("w") == Some("full") {
+        input = input.width(None);
     }
     input = input.on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &plugin, index, tx));
     Ok(input.build(kit(&p(a))))
+}
+
+/// Desktop's `ServerHealthIndicator` (`servers/registry/row.tsx`) as a plugin row's
+/// `ServerRow.Indicator`: a lock while it waits for sign-in, a spinner while it connects, a
+/// warning when incompatible, else a 6-point dot (green once healthy, red when unreachable,
+/// faint when unknown).
+fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
+    let pal = p(a);
+    let health = a.data("health");
+    let field = |k: &str| health.as_ref().map(|h| h.get(k).clone()).unwrap_or(Data::Nil);
+    let token = |name: &str, fallback| session_view::palette::token(pal.dark, name).unwrap_or(fallback);
+    let slot = || row().w(6.0).h(14.0).center();
+    if a.flag("auth") {
+        return Ok(slot().role("status").child(rune::icon(named_icon("lock"), 12.0).color(pal.icon_muted)));
+    }
+    if a.flag("connecting") || field("checking") == Data::Bool(true) {
+        return Ok(slot().role("status").child(Loader::new().size(12.0).build(kit(&pal))));
+    }
+    if field("incompatible") == Data::Bool(true) {
+        return Ok(rune::icon(named_icon("warning"), 16.0).color(token("icon-warning-base", pal.warning)));
+    }
+    let color = match field("healthy") {
+        Data::Bool(true) => token("icon-success-base", pal.success),
+        Data::Bool(false) => token("icon-critical-base", pal.danger),
+        _ => pal.icon_faint,
+    };
+    Ok(el().size(6.0, 6.0).my(3.5).radius(3.0).fill(color))
 }
 
 fn pill(a: &mut NodeArgs) -> Result<El, String> {
@@ -250,7 +289,7 @@ fn pill(a: &mut NodeArgs) -> Result<El, String> {
             Some(t @ ("success" | "warning" | "danger")) => session_view::palette::token(pal.dark, &format!("state-fg-{t}")).unwrap_or(pal.icon_muted),
             _ => pal.icon_muted,
         };
-        chip = chip.child(rune::icon(crate::plugin_host::icons::resolve("", name), 14.0).color(ink));
+        chip = chip.child(rune::icon(named_icon(name), 14.0).color(ink));
     }
     chip = chip.child(text(words).font(crate::view::UI).color(pal.text).truncate().max_w(260.0).shrink().min_w(0.0));
     Ok(a.on_press(chip, "onPress"))
@@ -269,7 +308,8 @@ fn settings_list(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
     let key = a.string("key").unwrap_or("plugin-settings").to_owned();
     let rows = std::mem::take(&mut a.children);
-    let card = col().key(key).w_full().px(20.0).py(4.0).radius(8.0).fill(pal.layer1).box_shadow(Pal::ring_in(pal.border_muted)).children(rows);
+    // Desktop's `SettingsList`: the app's own card, its rows split by hairlines.
+    let card = crate::settings::list(&pal, &key, rows);
     Ok(match a.string("title") {
         Some(title) => crate::settings::pages::section(&pal, &format!("plugin-section-{title}"), Some(title), card),
         None => card,
@@ -304,7 +344,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     // An open row's fill is the hover fill (`[data-expanded]`), which the pointer doesn't add to.
     r = if expanded { r.fill(pal.hover) } else { r.hover(pal.hover) };
     if let Some(name) = a.string("icon") {
-        r = r.child(rune::icon(crate::plugin_host::icons::resolve("", name), 16.0).color(pal.icon_muted));
+        r = r.child(rune::icon(named_icon(name), 16.0).color(pal.icon_muted));
     }
     r = r.child(text(words).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
     if a.flag("alert") {

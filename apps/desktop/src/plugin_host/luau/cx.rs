@@ -75,6 +75,8 @@ pub enum Request {
     Menu { anchor: String, menu: crate::popup::Menu, done: rune_luau::Completer },
     /// A developer tool (`Diagnostics:Set`).
     Dev { name: String, value: rune_luau::Data },
+    /// A server source's list changed: the app checks the health of servers that came up.
+    ServersChanged,
     Redraw,
 }
 
@@ -106,6 +108,8 @@ pub enum Dep {
     Narrow,
     Locale,
     Server,
+    /// The listed servers and their health.
+    Servers,
     Contract(String),
     /// A developer setting (`Diagnostics:Get`).
     Dev(String),

@@ -38,7 +38,8 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 }
 
 pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
-    t.raw_set("Process.RunAsync", host.async_function("Process:RunAsync", run)?)?;
+    let owner = Rc::downgrade(half);
+    t.raw_set("Process.RunAsync", host.async_function("Process:RunAsync", move |lua, a, done| run(lua, a, done, &owner))?)?;
     let half = Rc::downgrade(half);
     t.raw_set(
         "Process.WaitAsync",
@@ -66,7 +67,21 @@ fn decode(lua: &Lua, spec: Value) -> mlua::Result<supervisor::Spec> {
         stdin: s.stdin.unwrap_or_default().into_bytes(),
         keep_stdin: s.keep_stdin.unwrap_or(false),
         timeout: s.timeout.filter(|t| *t > 0.0).map(Duration::from_secs_f64),
+        encoding: s.encoding.map(|e| match e {
+            spec::TextEncoding::Utf16le => supervisor::Encoding::Utf16Le,
+            _ => supervisor::Encoding::Utf8,
+        }),
+        stderr_file: s.stderr_file.unwrap_or(false),
     })
+}
+
+/// `ProcessExit.timedOut` and `.killed`, from how the supervisor saw it stop.
+fn stopped(control: Option<&Control>) -> (bool, bool) {
+    match control.and_then(Control::end) {
+        Some(supervisor::End::TimedOut) => (true, false),
+        Some(supervisor::End::Killed) => (false, true),
+        None => (false, false),
+    }
 }
 
 fn spawn(lua: &Lua, vmx: &Rc<Vmx>, spec: Value) -> mlua::Result<Table> {
@@ -118,12 +133,12 @@ pub fn drain(half: &Half, vm: u64) -> Vec<(Value, Data)> {
         match event {
             Event::Output { stream, text } => out.push((p.output.clone(), Data::List(vec![Data::String(if stream == 2 { "stderr" } else { "stdout" }.into()), Data::String(text)]))),
             Event::Exit { code, error } => {
-                let how = p.control.how();
+                let (timed_out, killed) = stopped(Some(&p.control));
                 let exit = map([
                     ("code", code.map_or(Data::Nil, Data::Integer)),
                     ("error", if error.is_empty() { Data::Nil } else { Data::String(error) }),
-                    ("timedOut", Data::Bool(how == 1)),
-                    ("killed", Data::Bool(how == 2)),
+                    ("timedOut", Data::Bool(timed_out)),
+                    ("killed", Data::Bool(killed)),
                 ]);
                 out.push((p.exited.clone(), Data::List(vec![exit.clone()])));
                 if let Some(p) = procs.remove(&id) {
@@ -135,7 +150,7 @@ pub fn drain(half: &Half, vm: u64) -> Vec<(Value, Data)> {
     out
 }
 
-/// Kills every process of the half (it turned off, failed or reloaded).
+/// Kills every process of the half (it turned off, failed or reloaded), `RunAsync`'s too.
 pub fn reap(half: &Half, keep_vm: Option<u64>) {
     half.procs.borrow_mut().retain(|_, p| {
         let keep = Some(p.vm) == keep_vm;
@@ -144,10 +159,17 @@ pub fn reap(half: &Half, keep_vm: Option<u64>) {
         }
         keep
     });
+    half.runs.borrow_mut().retain(|(vm, control)| {
+        let keep = Some(*vm) == keep_vm && control.running();
+        if !keep {
+            control.kill();
+        }
+        keep
+    });
 }
 
 /// `Process:RunAsync(spec)`: runs to the end, then resumes with a `ProcessOutput`.
-fn run(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+fn run(lua: &Lua, a: MultiValue, done: Completer, owner: &std::rc::Weak<Half>) -> mlua::Result<()> {
     let (spec,): (Value,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let spec = decode(lua, spec)?;
     let out: Arc<Mutex<(String, String, Option<Completer>)>> = Arc::new(Mutex::new((String::new(), String::new(), Some(done))));
@@ -159,7 +181,7 @@ fn run(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             Event::Output { stream: 2, text } => o.1.push_str(&text),
             Event::Output { text, .. } => o.0.push_str(&text),
             Event::Exit { code, error } => {
-                let how = held.lock().ok().and_then(|c| c.as_ref().map(Control::how)).unwrap_or(0);
+                let (timed_out, _) = stopped(held.lock().ok().as_ref().and_then(|c| c.as_ref()));
                 let (stdout, stderr) = (std::mem::take(&mut o.0), std::mem::take(&mut o.1));
                 if let Some(done) = o.2.take() {
                     done.complete(map([
@@ -168,14 +190,19 @@ fn run(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                         ("stdout", Data::String(stdout)),
                         ("stderr", Data::String(stderr)),
                         ("error", if error.is_empty() { Data::Nil } else { Data::String(error) }),
-                        ("timedOut", Data::Bool(how == 1)),
+                        ("timedOut", Data::Bool(timed_out)),
                     ]));
                 }
             }
         }
     });
     if let Ok(mut c) = control.lock() {
-        *c = Some(launched);
+        *c = Some(launched.clone());
+    }
+    if let (Some(half), Some(vm)) = (owner.upgrade(), lua.app_data_ref::<Rc<Vmx>>().map(|v| v.vm.get())) {
+        let mut runs = half.runs.borrow_mut();
+        runs.retain(|(_, c)| c.running());
+        runs.push((vm, launched));
     }
     Ok(())
 }

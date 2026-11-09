@@ -141,6 +141,12 @@ fn records(c: &Contract, doc: &str, list: &[&TypeDef]) -> Result<String, String>
             match types::field(c, &f.ty).map_err(|e| format!("{}.{}: {e}", t.name, f.name))? {
                 RustField::Data(ty) => {
                     o.line(&format!("    /// {}", f.doc));
+                    // An empty Luau table arrives as an empty map: list fields take it.
+                    if ty.starts_with("Vec<") {
+                        o.line("    #[serde(deserialize_with = \"crate::lenient::seq\")]");
+                    } else if ty.starts_with("Option<Vec<") {
+                        o.line("    #[serde(default, deserialize_with = \"crate::lenient::opt_seq\")]");
+                    }
                     o.line(&format!("    pub {}: {ty},", snake(&f.name)));
                     data.push(format!("\"{}\"", f.name));
                 }

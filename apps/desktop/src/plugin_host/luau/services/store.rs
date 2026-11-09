@@ -10,6 +10,7 @@ use rune_luau::{Data, LogLevel};
 
 use super::{app_now, lazy_signals, method, signal};
 use crate::plugin_host::luau::cx::{self, Dep};
+use crate::plugin_host::luau::plugin::Kind;
 use crate::plugin_host::luau::{console, vm::Vmx};
 
 thread_local! {
@@ -22,6 +23,8 @@ thread_local! {
 /// provider's VM.
 struct Provided {
     owner: Rc<str>,
+    /// The half that provided it: each half withdraws only its own.
+    kind: Kind,
     vm: u64,
     data: Data,
     fns: Vec<(Vec<String>, Function)>,
@@ -138,11 +141,11 @@ pub fn contract_generation(id: &str) -> u64 {
     CONTRACTS.with_borrow(|c| c.get(id).map_or(0, |p| p.generation))
 }
 
-/// Forgets what plugin `owner` provided from any VM but `keep`.
-pub fn withdraw_owner(owner: &str, keep: Option<u64>) {
+/// Forgets what plugin `owner`'s `kind` half provided from any VM but `keep`.
+pub fn withdraw_owner(owner: &str, kind: Kind, keep: Option<u64>) {
     let changed = CONTRACTS.with_borrow_mut(|c| {
         let before = c.len();
-        c.retain(|_, p| &*p.owner != owner || Some(p.vm) == keep);
+        c.retain(|_, p| &*p.owner != owner || p.kind != kind || Some(p.vm) == keep);
         before != c.len()
     });
     if changed {
@@ -156,7 +159,7 @@ fn contracts(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let mut fns = Vec::new();
         let data = split(&value, &mut Vec::new(), &mut fns, 0);
         let generation = contract_generation(&id) + 1;
-        CONTRACTS.with_borrow_mut(|c| c.insert(id.clone(), Provided { owner: v.half.id.clone(), vm: v.vm.get(), data, fns, generation }));
+        CONTRACTS.with_borrow_mut(|c| c.insert(id.clone(), Provided { owner: v.half.id.clone(), kind: v.half.kind, vm: v.vm.get(), data, fns, generation }));
         crate::plugin_host::luau::bump();
         let handle = lua.create_table()?;
         let gone = id.clone();
@@ -189,6 +192,18 @@ fn split(v: &Value, path: &mut Vec<String>, fns: &mut Vec<(Vec<String>, Function
         Value::Function(f) => {
             fns.push((path.clone(), f.clone()));
             Data::Nil
+        }
+        // An array stays a list (its items may hold functions too).
+        Value::Table(t) if depth < 16 && t.raw_len() > 0 => {
+            let items = (1..=t.raw_len())
+                .map(|i| {
+                    path.push(i.to_string());
+                    let d = split(&t.raw_get::<Value>(i).unwrap_or(Value::Nil), path, fns, depth + 1);
+                    path.pop();
+                    d
+                })
+                .collect();
+            Data::List(items)
         }
         Value::Table(t) if depth < 16 => {
             let mut fields = std::collections::BTreeMap::new();
@@ -249,14 +264,19 @@ fn live(lua: &Lua, vmx: &Rc<Vmx>, id: String) -> mlua::Result<Table> {
 fn set_path(lua: &Lua, root: &Value, path: &[String], v: Value) -> mlua::Result<()> {
     let Value::Table(mut t) = root.clone() else { return Ok(()) };
     for (n, key) in path.iter().enumerate() {
+        // A list's items go by their index.
+        let key: Value = match key.parse::<i64>() {
+            Ok(i) if t.raw_len() > 0 => Value::Integer(i as _),
+            _ => Value::String(lua.create_string(key)?),
+        };
         if n + 1 == path.len() {
-            return t.raw_set(key.as_str(), v);
+            return t.raw_set(key, v);
         }
-        t = match t.raw_get::<Value>(key.as_str())? {
+        t = match t.raw_get::<Value>(key.clone())? {
             Value::Table(next) => next,
             _ => {
                 let next = lua.create_table()?;
-                t.raw_set(key.as_str(), &next)?;
+                t.raw_set(key, &next)?;
                 next
             }
         };

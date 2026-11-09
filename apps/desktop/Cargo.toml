@@ -14,7 +14,7 @@ hot = ["rune/hot"]
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
 # rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports. The Hello
 # test plugin is the tests' alone (a dev-dependency).
-static-builtins = ["dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-pairing-impl"]
+static-builtins = []
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -37,12 +37,13 @@ opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
-opencode-plugin-ssh-impl = { path = "../../plugins/ssh/impl", optional = true }
-opencode-plugin-wsl-impl = { path = "../../plugins/wsl/impl", optional = true }
-opencode-plugin-pairing-impl = { path = "../../plugins/pairing/impl", optional = true }
 otlp-lite = { path = "../../crates/otlp-lite" }
 project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
+# The pairing QR code's encoder (Qr service), without its image or SVG renderers.
+qrcode = { version = "0.14", default-features = false }
+# Random ids and passwords for plugins (System:RandomId, the askpass token).
+getrandom = "0.3"
 rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
 # Luau plugins (`plugin_host::luau`). mlua is rune-luau's own, named here for the bindings.
@@ -72,7 +73,7 @@ libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Power", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 # The exe's icon, version and manifest resources on Windows.

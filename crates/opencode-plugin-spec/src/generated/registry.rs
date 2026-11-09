@@ -254,7 +254,7 @@ impl ServiceName {
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],
             Self::App => &["Version", "Channel", "Platform", "Locale", "Arg", "LogsDir", "DownloadsDir", "LocaleChanged"],
-            Self::System => &["CopyText", "OpenExternal", "Reveal", "Now", "UtcOffset"],
+            Self::System => &["CopyText", "OpenExternal", "Reveal", "Now", "UtcOffset", "FreePort", "RandomId"],
             Self::Notifications => &["Notify"],
             Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "FileChanged"],
             Self::Diff => &["Open"],

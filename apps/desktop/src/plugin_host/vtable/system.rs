@@ -56,6 +56,8 @@ pub(super) unsafe extern "C" fn process_spawn(ctx: *mut c_void, spec: *const Pro
         stdin: unsafe { spec.stdin.as_bytes() }.to_vec(),
         keep_stdin: spec.flags & PROCESS_KEEP_STDIN != 0,
         timeout: (spec.timeout_ms > 0).then(|| Duration::from_millis(spec.timeout_ms)),
+        encoding: None,
+        stderr_file: false,
     };
     let events = CallbackEnv::new(events, s.lib.clone());
     s.shared.processes.spawn(s.slot, s.generation, s.scope, spec, events, s.wake)

@@ -67,6 +67,18 @@ pub fn intern_icon(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
     id
 }
 
+/// Interns plugin `plugin`'s SVG file as its icon `name`: the `<svg>` element's content, sized
+/// by its `viewBox` width (else its `width`, else 16). False when it isn't an `<svg>`.
+pub fn intern_svg(plugin: &str, name: &str, svg: &str) -> bool {
+    let Some(open) = svg.find("<svg") else { return false };
+    let Some(end) = svg[open..].find('>').map(|e| open + e + 1) else { return false };
+    let Some(close) = svg.rfind("</svg>").filter(|c| *c >= end) else { return false };
+    let tag = &svg[open..end];
+    let attr = |key: &str| tag.split(&format!("{key}=\"")).nth(1).and_then(|rest| rest.split('"').next());
+    let view = attr("viewBox").and_then(|v| v.split_whitespace().nth(2)).or_else(|| attr("width")).and_then(|w| w.trim_end_matches("px").parse::<f32>().ok()).unwrap_or(16.0);
+    intern_icon(plugin, name, svg[end..close].trim(), view) != 0
+}
+
 /// The icon with id `id`.
 pub fn icon(id: u32) -> Option<&'static Icon> {
     let guard = pool();
@@ -77,8 +89,11 @@ pub fn icon(id: u32) -> Option<&'static Icon> {
 /// `chevron-right` …), else the host's panel icon by that name.
 pub fn resolve(plugin: &str, name: &str) -> &'static Icon {
     let own = intern_icon(plugin, name, "", 0.0);
+    // Icons the host made itself (a QR code) go by the empty plugin.
+    let host = || intern_icon("", name, "", 0.0);
     let panel_names = ["globe", "terminal", "console", "review", "code", "file-tree", "folder"];
     icon(own)
+        .or_else(|| icon(host()))
         .or_else(|| (!panel_names.contains(&name)).then(|| rune_theme_opencode::icons::ALL.iter().copied().find(|i| i.name == name)).flatten())
         .unwrap_or_else(|| crate::panels::icon_by_name(Some(name)))
 }

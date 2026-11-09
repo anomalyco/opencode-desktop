@@ -47,8 +47,8 @@ fn dismiss(app: &mut App, tx: &mut Tx) {
 
 /// Esc closes the open dialog.
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.key == Key::Escape && app.plugins.luau.dialog.take().is_some() {
-        tx.instant();
+    if ev.key == Key::Escape && app.plugins.luau.dialog.is_some() {
+        super::luau::requests::dismiss_dialog(app, tx);
         return true;
     }
     if app.plugins.dialog.is_none() || ev.key != Key::Escape {

@@ -118,6 +118,11 @@ pub struct Half {
     /// Its processes, and the inbox their threads fill.
     pub procs: RefCell<HashMap<u64, super::services::process::Proc>>,
     pub inbox: super::services::process::Inbox,
+    /// `Process:RunAsync`'s processes, by VM, killed with the half.
+    pub runs: RefCell<Vec<(u64, crate::plugin_host::process::Control)>>,
+    /// What the half holds of the host's process-wide services (display locks, prompt
+    /// listeners), by VM, let go with the half.
+    pub held: RefCell<Vec<(u64, super::services::Held)>>,
     /// Bumped when anything a surface may read from this half changes outside a render.
     pub epoch: Cell<u64>,
     /// What each watched signal saw last (`services::watch`).
@@ -142,6 +147,8 @@ impl Half {
             catalogs: RefCell::default(),
             procs: RefCell::default(),
             inbox: Default::default(),
+            runs: RefCell::default(),
+            held: RefCell::default(),
             epoch: Cell::new(0),
             seen: RefCell::default(),
             failed: RefCell::default(),

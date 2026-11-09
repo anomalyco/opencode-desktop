@@ -183,16 +183,26 @@ pub fn relative(root: &Path, path: &Path) -> Option<String> {
     Some(rel.join("/"))
 }
 
-/// Whether a plugin runs from the file at `rel`: its manifest, Luau modules, `.luaurc` and
-/// `locales/*.json` catalogs, outside hidden folders and a native plugin's `src/`, `impl/` and
-/// `target/`.
+/// Whether a plugin runs from the file at `rel`: its manifest, Luau modules, `.luaurc`,
+/// `locales/*.json` catalogs and `icons/*.svg` icons, outside hidden folders and a native
+/// plugin's `src/`, `impl/` and `target/`.
 pub fn kept(rel: &str) -> bool {
     let mut parts: Vec<&str> = rel.split('/').collect();
     let Some(name) = parts.pop() else { return false };
     if parts.iter().any(|d| d.starts_with('.') || matches!(*d, "target" | "src" | "impl")) {
         return false;
     }
-    name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || (parts.last() == Some(&"locales") && name.ends_with(".json"))
+    let under = |dir: &str, ext: &str| parts.last() == Some(&dir) && name.ends_with(ext);
+    name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || under("locales", ".json") || under("icons", ".svg")
+}
+
+/// Interns plugin `plugin`'s `icons/<name>.svg` files as its icons, by file name.
+pub fn intern_icons(plugin: &str, files: &[(String, String)]) {
+    for (path, svg) in files {
+        if let Some(name) = path.strip_prefix("icons/").and_then(|p| p.strip_suffix(".svg")) {
+            crate::plugin_host::icons::intern_svg(plugin, name, svg);
+        }
+    }
 }
 /// The script sources of the half that starts at `entry`, with the plugins folder's `.luaurc`
 /// above them as editors see it.

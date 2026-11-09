@@ -69,7 +69,8 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
                 }
                 continue;
             }
-            let keep = name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || (name.ends_with(".json") && path.parent().is_some_and(|p| p.ends_with("locales")));
+            let under = |dir: &str, ext: &str| name.ends_with(ext) && path.parent().is_some_and(|p| p.ends_with(dir));
+            let keep = name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || under("locales", ".json") || under("icons", ".svg");
             if let (true, Ok(rel)) = (keep, path.strip_prefix(root)) {
                 let rel: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
                 out.push((rel.join("/"), path));

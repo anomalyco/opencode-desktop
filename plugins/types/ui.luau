@@ -23,6 +23,7 @@ export type SwitchProps = UiSwitchProps
 export type RadioProps = UiRadioProps
 export type FieldProps = UiFieldProps
 export type LoaderProps = UiLoaderProps
+export type ServerIndicatorProps = UiServerIndicatorProps
 export type PillProps = UiPillProps
 export type KeybindProps = UiKeybindProps
 export type SettingsRowProps = UiSettingsRowProps

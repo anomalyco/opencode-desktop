@@ -140,7 +140,18 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             });
         }
         Request::Dev { name, value } => super::services::diag::apply(app, &name, value, tx),
+        Request::ServersChanged => crate::plugin_host::servers_changed(app, tx),
         Request::Redraw => {}
+    }
+}
+
+/// Esc or a press outside closed the open dialog: its `onDismiss` runs.
+pub fn dismiss_dialog(app: &mut App, tx: &mut Tx) {
+    let Some(open) = app.plugins.luau.dialog.take() else { return };
+    tx.instant();
+    let found = app.plugins.luau.running().find_map(|(i, p)| (p.half.id == open.plugin).then(|| p.half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).and_then(|c| c.f("onDismiss").cloned()).map(|f| (i, f))).flatten());
+    if let Some((i, f)) = found {
+        super::commands::spawn(app, i, &f, (), tx);
     }
 }
 

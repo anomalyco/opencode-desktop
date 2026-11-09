@@ -42,6 +42,8 @@ string_enum! {
         Loader = "loader",
         /// The app's progress ring: a track and an arc from twelve o'clock, clockwise.
         ProgressCircle = "progressCircle",
+        /// A server's health indicator, for a server source's row.
+        ServerIndicator = "serverIndicator",
         /// A status capsule.
         Pill = "pill",
         /// A settings row: title and description beside a control.
@@ -92,7 +94,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -120,6 +122,7 @@ impl NodeKind {
             Self::Field => &UI_FIELD_PROPS,
             Self::Loader => &UI_LOADER_PROPS,
             Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
+            Self::ServerIndicator => &UI_SERVER_INDICATOR_PROPS,
             Self::Pill => &UI_PILL_PROPS,
             Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
             Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
@@ -382,8 +385,16 @@ pub static UI_RADIO_PROPS: PropsSpec = PropsSpec::new("UiRadioProps", Some(&UI_L
     PropSpec::new("description", PropType::String, false),
     PropSpec::new("checked", PropType::Bool, true),
     PropSpec::new("tone", PropType::Enum("Tone"), false),
+    PropSpec::new("lineHeight", PropType::Number, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onChange", PropType::Handler, false),
+]);
+
+/// `UiServerIndicatorProps`.
+pub static UI_SERVER_INDICATOR_PROPS: PropsSpec = PropsSpec::new("UiServerIndicatorProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("health", PropType::Record("ServerHealth"), false),
+    PropSpec::new("auth", PropType::Bool, false),
+    PropSpec::new("connecting", PropType::Bool, false),
 ]);
 
 /// `UiSettingsListProps`.

@@ -69,7 +69,7 @@ use rune::Waker;
 pub use contrib::sync_luau as contrib_sync_luau;
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
 pub use dialog::{key as dialog_key, view as dialog_view};
-pub use servers::{all as contributed_servers, connect as connect_server, row as server_row};
+pub use servers::{all as contributed_servers, changed as servers_changed, connect as connect_server, row as server_row};
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};
@@ -267,9 +267,10 @@ pub fn setup(app: &mut App, waker: Waker) {
     }
     if !app.plugins.slots.is_empty() {
         tasks::start();
-        process::warm();
-        servers::read_own_version(app);
     }
+    // Luau plugins start processes and compare against the app's own server's version too.
+    process::warm();
+    servers::read_own_version(app);
     for i in 0..app.plugins.slots.len() {
         if app.plugins.slots[i].state == PluginState::Discovered {
             swap::load(app, i, None);

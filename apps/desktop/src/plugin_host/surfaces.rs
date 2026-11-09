@@ -214,7 +214,7 @@ pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, E
     let Some((i, c)) = own_page(app, key) else {
         let (i, _, spec, f) = luau_page(app, key)?;
         let body = super::luau::surfaces::settings_page_body(app, p, i, &spec, f.as_ref()?, None);
-        return Some((spec.title.clone(), String::new(), body));
+        return Some((spec.title.clone(), spec.description.clone().unwrap_or_default(), body));
     };
     let body = match render::surface(app, i, c.render.as_ref()?, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), p) {
         Ok(el) => el.unwrap_or_else(rune::el),

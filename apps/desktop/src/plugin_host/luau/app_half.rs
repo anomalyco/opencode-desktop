@@ -32,6 +32,7 @@ pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], entry:
     }
     let half = Half::new(&manifest.id, Kind::App);
     *half.catalogs.borrow_mut() = super::sources::catalogs(files);
+    super::sources::intern_icons(&manifest.id, files);
     let sources = super::sources::script_sources(files, &manifest.id, entry);
     let script = cx::with_app(app, || Script::with_options(&format!("{}@app", manifest.id), sources, vm::options(half.clone())));
     if let Some(w) = app.plugins.luau.waker.clone() {
@@ -48,8 +49,8 @@ pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], entry:
 pub fn stop(id: &str) {
     let gone = HALVES.with_borrow_mut(|h| h.iter().position(|a| &*a.half.id == id).map(|i| h.remove(i)));
     if let Some(a) = gone {
-        super::services::process::reap(&a.half, None);
-        super::services::store::withdraw_owner(id, None);
+        super::services::reap(&a.half, None);
+        super::services::store::withdraw_owner(id, Kind::App, None);
     }
 }
 
@@ -62,7 +63,9 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
     HALVES.with_borrow(|halves| {
         halves.iter().fold(false, |changed, a| {
             let vm = a.script.vm_id().unwrap_or(0);
-            for (signal, args) in super::services::process::drain(&a.half, vm) {
+            let prompts = super::services::askpass::drain(&a.half, vm).into_iter().filter_map(|(name, args)| Some((a.half.signals.borrow().get(&(vm, name))?.clone(), args)));
+            let fired: Vec<_> = super::services::process::drain(&a.half, vm).into_iter().chain(prompts).collect();
+            for (signal, args) in fired {
                 if let Some(fire) = a.half.fire.borrow().get(&vm).cloned() {
                     let args = match args {
                         rune_luau::Data::List(items) => items,

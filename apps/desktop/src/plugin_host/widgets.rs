@@ -49,7 +49,7 @@ pub fn build(b: &Build, spec: &ElSpec, label: &str, help: &str) -> Option<El> {
             button.build(k)
         }
         ElKind::Loader => Loader::new().size(if spec.font_size > 0.0 { spec.font_size } else { 16.0 }).build(k),
-        ElKind::Radio => radio(k, label, help, spec.value > 0.5, f & flags::DISABLED != 0, (spec.text_color[3] > 0.0).then(|| color(spec.text_color))),
+        ElKind::Radio => radio(k, label, help, spec.value > 0.5, f & flags::DISABLED != 0, (spec.text_color[3] > 0.0).then(|| color(spec.text_color)), 20.0),
         ElKind::Field => field(b, spec, label),
         ElKind::Switch => {
             let switch = crate::settings::switch(b.pal, "switch", spec.value > 0.5);
@@ -97,7 +97,8 @@ fn over(top: Color, bottom: Color) -> Color {
 
 /// A `radio-v2` item (`radio.css`): the 16 pt control in its 16 × 20 stack, the 13/440 label on
 /// a 20 line and the 12/440 description under it, 8 apart; the description in `tone` when given.
-pub(crate) fn radio(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, tone: Option<Color>) -> El {
+/// Desktop's `RadioItem`: its label's line box is `label_lh` tall (20, or 16 where a list row's`n/// label sets its own), the description 6 under it.
+pub(crate) fn radio(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, tone: Option<Color>, label_lh: f32) -> El {
     let c = &k.c;
     let (base, sheen) = if checked { (c.bg_accent, k.light_on(0.2, c.bg_accent)) } else { (c.bg_base, k.light(0.06)) };
     let mut control = el()
@@ -128,9 +129,11 @@ pub(crate) fn radio(k: &rune_kit::Kit, label: &str, description: &str, checked: 
         control = control.layer_opacity(0.5);
     }
     let ink = if disabled { c.text_muted } else { c.text_base };
-    let mut words = col().key("text").gap(8.0).grow(1.0).shrink().min_w(0.0).child(text(label.to_owned()).key("label").font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(ink).mt(2.0));
+    // The 16-point text sits centred in its line box.
+    let lead = ((label_lh - 16.0) / 2.0).max(0.0);
+    let mut words = col().key("text").gap(6.0 + lead).grow(1.0).shrink().min_w(0.0).child(text(label.to_owned()).key("label").font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(ink).mt(lead));
     if !description.is_empty() {
-        let ink = if disabled { c.text_muted } else { tone.unwrap_or(c.text_muted) };
+        let ink = if disabled { c.text_faint } else { tone.unwrap_or(c.text_muted) };
         words = words.child(text(description.to_owned()).key("description").font(TextStyle::new(12.0, 440.0).lh(12.0).tracking(0.05).features("\"tnum\"")).color(ink));
     }
     row()

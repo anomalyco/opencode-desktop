@@ -232,7 +232,7 @@ declare extern type PluginHalf with end
 --- A semantic token, or a literal color from `ui.hex`.
 export type Color = SemanticToken | HexColor
 
---- The name of one of the app's icons, such as `"circle-check"`.
+--- The name of one of the app's icons, such as `"circle-check"`. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
 export type IconName = string
 
 --- A memo's version. The host rebuilds the memo only when it changes.
@@ -1257,8 +1257,10 @@ export type UiRadioProps = {
     description: string?,
     --- Selected.
     checked: boolean,
-    --- Colors the label.
+    --- Colors the description, as a status line.
     tone: Tone?,
+    --- The label's line height: 20 by default, as Desktop's radio label; 16 for a list row whose label sets its own.
+    lineHeight: number?,
     --- Cannot change.
     disabled: boolean?,
     --- Runs as the user picks the row.
@@ -1407,6 +1409,74 @@ export type UiLoaderProps = {
     helpSide: Side?,
     --- Width and height in points. Defaults to 16.
     size: number?,
+}
+
+--- `ui.serverIndicator` props: a server's health as Settings > Servers shows it (Desktop's `ServerRow.Indicator`).
+export type UiServerIndicatorProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown.
+    health: ServerHealth?,
+    --- It waits for the user to sign in: a lock.
+    auth: boolean?,
+    --- It is starting or connecting: a spinner.
+    connecting: boolean?,
 }
 
 --- `ui.pill` props: a status capsule like the composer's pills.
@@ -2781,8 +2851,10 @@ export type ProcessSpec = {
     keepStdin: boolean?,
     --- Seconds before the host kills it.
     timeout: number?,
-    --- How it encodes its output.
+    --- How it encodes its output. Defaults to UTF-8, or UTF-16LE when its first output reads as that.
     encoding: TextEncoding?,
+    --- Sends stderr to a file rather than a pipe, read back as one `stderr` chunk as it exits: for programs that never exit after writing to a stderr pipe, as Windows' OpenSSH does after a failure.
+    stderrFile: boolean?,
 }
 
 --- How a process ended.
@@ -3249,13 +3321,17 @@ export type QrCode = {
     size: number,
     --- `size * size` modules, row by row: true is dark.
     modules: { boolean },
+    --- Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color.
+    icon: IconName,
 }
 
 --- A credential prompt from a child process.
 export type AskpassPrompt = {
+    --- Its id within the listener, as `Cleared` names it.
+    Id: string,
     --- What the process asks.
     Prompt: string,
-    --- The answer is a password.
+    --- The answer is a password. False for a yes/no question, such as trusting a host's key.
     Secret: boolean,
     --- Answers it. Nil cancels.
     Respond: (self: AskpassPrompt, answer: string?) -> (),
@@ -3265,8 +3341,10 @@ export type AskpassPrompt = {
 export type AskpassListener = {
     --- Environment variables to give the child process.
     Env: { [string]: string },
-    --- Fires with each prompt.
+    --- Fires with each prompt, one at a time.
     Prompted: Signal<AskpassPrompt>,
+    --- Fires with a prompt's id once it ends: answered, cancelled, or its process stopped asking.
+    Cleared: Signal<string>,
     --- Stops listening.
     Close: (self: AskpassListener) -> (),
 }
@@ -3509,6 +3587,8 @@ export type SettingsPageSpec = {
     id: string,
     --- Its navigation label.
     title: string,
+    --- The line under the page's title. A section on a host page has none.
+    description: string?,
     --- Its navigation icon.
     icon: IconName?,
     --- Adds a section to this host page instead of a page of its own.
@@ -3835,7 +3915,7 @@ export type DialogSpec = {
     title: string?,
     --- Its width.
     size: DialogSize?,
-    --- Draws its body inside the host's dialog frame.
+    --- Draws its body inside the host's dialog frame: Desktop's dialog, as tall as its content, layer-01 fill, overlay elevation and 6-point corners.
     render: (view: View, props: DialogProps) -> UiNode?,
     --- Runs when Esc or a click outside closes it.
     onDismiss: (() -> ())?,
@@ -4099,6 +4179,10 @@ export type SystemService = {
     Now: (self: SystemService) -> number,
     --- The local time zone's offset from UTC in seconds, at that time.
     UtcOffset: (self: SystemService, ms: number) -> number,
+    --- A TCP port nothing listens on now on the loopback address, for a server or tunnel a plugin starts. Nil when the system has none.
+    FreePort: (self: SystemService) -> number?,
+    --- A random version 4 UUID from the system's secure source, for passwords and tokens.
+    RandomId: (self: SystemService) -> string,
 }
 
 --- System notifications that follow the user's notification settings. Both halves: `ctx:GetService("Notifications")`.
@@ -4193,7 +4277,7 @@ export type PowerService = {
 
 --- QR codes. Both halves: `ctx:GetService("Qr")`.
 export type QrService = {
-    --- Encodes text, at medium error correction.
+    --- Encodes text as UTF-8 bytes at low error correction, in the smallest version that fits.
     Encode: (self: QrService, text: string) -> QrCode,
 }
 
@@ -4475,6 +4559,8 @@ export type UiLibrary = {
     loader: (props: UiLoaderProps?) -> UiNode,
     --- The app's progress ring: a track and an arc from twelve o'clock, clockwise.
     progressCircle: (props: UiProgressCircleProps) -> UiNode,
+    --- A server's health indicator, for a server source's row.
+    serverIndicator: (props: UiServerIndicatorProps) -> UiNode,
     --- A status capsule.
     pill: (props: UiPillProps) -> UiNode,
     --- A settings row: title and description beside a control.

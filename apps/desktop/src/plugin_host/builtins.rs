@@ -17,13 +17,6 @@ pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
     // Hello is the host's test plugin: the app's tests load it; no build a person runs lists it.
     #[cfg(test)]
     all.push((include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry));
-    // The server plugins run wsl.exe and ssh: the app's own tests leave them out.
-    #[cfg(feature = "static-builtins")]
-    all.extend([
-        (include_str!("../../../../plugins/ssh/plugin.toml"), opencode_plugin_ssh_impl::__opencode_plugin_entry as PluginEntryFn),
-        (include_str!("../../../../plugins/wsl/plugin.toml"), opencode_plugin_wsl_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/pairing/plugin.toml"), opencode_plugin_pairing_impl::__opencode_plugin_entry),
-    ]);
     all
 }
 

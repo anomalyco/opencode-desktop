@@ -5,14 +5,17 @@
 //!
 //! LU-2 implements: Sessions, Models, Server, Servers, Http, Process, Store, Contracts, Console,
 //! Toast, Popover, Dialog, Menu, Layout, Links, Commands, Theme, App, System, Notifications,
-//! Workspace (files and downloads), Diagnostics (metrics) and I18n. The rest answer with an error
-//! naming the package that brings them (see `PENDING`).
+//! Workspace (files and downloads), Diagnostics (metrics) and I18n; LU-4 Power, Qr and Askpass.
+//! The rest answer with an error naming the package that brings them (see `PENDING`).
 
 mod app;
+pub mod askpass;
 pub mod diag;
 mod i18n;
 mod net;
+pub mod power;
 pub mod process;
+mod qr;
 mod session;
 pub mod store;
 mod ui;
@@ -41,14 +44,41 @@ const PENDING: &[(&str, &str)] = &[
     ("Browser", "LU-7"),
     ("Office", "LU-5"),
     ("Updater", "LU-5"),
-    ("Power", "LU-4"),
-    ("Qr", "LU-4"),
-    ("Askpass", "LU-4"),
     ("Images", "LU-5"),
 ];
 
 /// Window-half-only services.
 const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff"];
+
+/// App-half-only services.
+const APP_ONLY: &[&str] = &["Askpass"];
+
+/// What a half holds of a process-wide service, let go when the half goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// A `Power:KeepAwake` lock.
+    Power(u64),
+    /// An `Askpass:Listen` endpoint.
+    Askpass(u64),
+}
+
+/// Lets go of what a half's VMs other than `keep_vm` started or hold: processes, display locks
+/// and prompt endpoints (the half turned off, failed or reloaded).
+pub fn reap(half: &Half, keep_vm: Option<u64>) {
+    process::reap(half, keep_vm);
+    let gone: Vec<Held> = {
+        let mut held = half.held.borrow_mut();
+        let (keep, gone): (Vec<_>, Vec<_>) = held.drain(..).partition(|(vm, _)| Some(*vm) == keep_vm);
+        *held = keep;
+        gone.into_iter().map(|(_, h)| h).collect()
+    };
+    for h in gone {
+        match h {
+            Held::Power(id) => power::release(id),
+            Held::Askpass(id) => askpass::close(id),
+        }
+    }
+}
 
 /// `ctx:GetService(name)`, built once per VM.
 pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
@@ -66,6 +96,9 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
     if vmx.half.kind == Kind::App && WINDOW_ONLY.contains(&name) {
         return Err(mlua::Error::runtime(format!("{name} is a window service: the app half has no window")));
     }
+    if vmx.half.kind == Kind::Window && APP_ONLY.contains(&name) {
+        return Err(mlua::Error::runtime(format!("{name} is an app service: get it in the app half (app.luau)")));
+    }
     let t = lua.create_table()?;
     match name {
         "Sessions" | "Models" | "Server" | "Servers" | "Theme" => session::build(lua, vmx, name, &t)?,
@@ -73,6 +106,9 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "Process" => process::build(lua, vmx, &t)?,
         "Store" | "Contracts" | "Console" => store::build(lua, vmx, name, &t)?,
         "Diagnostics" => diag::build(lua, vmx, &t)?,
+        "Power" => power::build(lua, vmx, &t)?,
+        "Qr" => qr::build(lua, vmx, &t)?,
+        "Askpass" => askpass::build(lua, vmx, &t)?,
         "Toast" | "Popover" | "Dialog" | "Menu" | "Layout" | "Links" | "Commands" | "Notifications" => ui::build(lua, vmx, name, &t)?,
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
@@ -211,10 +247,21 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Narrow => ui::narrow(app).hash(&mut h),
         Dep::Locale => opencode_i18n::locale().id().hash(&mut h),
         Dep::Server => (&app.server_key, app.can_write()).hash(&mut h),
+        Dep::Servers => servers_version(app).hash(&mut h),
         Dep::Contract(id) => store::contract_generation(id).hash(&mut h),
         Dep::Dev(name) => format!("{:?}", diag::get(app, name)).hash(&mut h),
         Dep::Console => super::console::version().hash(&mut h),
     }
+    h.finish()
+}
+
+/// A number that changes with the listed servers and their health.
+pub fn servers_version(app: &App) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    super::servers::version().hash(&mut h);
+    let mut health: Vec<_> = app.plugins.shared.facts.health.iter().collect();
+    health.sort();
+    health.hash(&mut h);
     h.finish()
 }
 

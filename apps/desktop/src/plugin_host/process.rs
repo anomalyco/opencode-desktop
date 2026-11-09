@@ -7,6 +7,9 @@
 //! (on Windows that runs every library's thread-attach code under the loader lock). Output and
 //! the exit land in an inbox and wake the plugin's slot; `drain` hands them to the plugin's
 //! callback on the half that spawned it. A process at rest costs the app's thread nothing.
+//!
+//! Each process's life is one explicit machine ([`Life`]) behind one lock that the app's thread
+//! (a kill), the timeout thread and the supervisor's threads (start, exit) all step.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -32,6 +35,75 @@ pub struct Spec {
     pub stdin: Vec<u8>,
     pub keep_stdin: bool,
     pub timeout: Option<Duration>,
+    /// How its output is encoded; `None` reads its first chunk to tell.
+    pub encoding: Option<Encoding>,
+    /// Stderr goes to a file, read back as it exits (Windows' OpenSSH never exits after writing
+    /// to a stderr pipe once something failed).
+    pub stderr_file: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Encoding {
+    Utf8,
+    Utf16Le,
+}
+
+/// Why a process that ended was stopped, when it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    TimedOut,
+    Killed,
+}
+
+/// One process's life. A stop's reason sticks: the first of a timeout and a kill wins.
+enum Life {
+    /// Queued on the supervisor, not started yet.
+    Queued,
+    /// Stopped before it started: the supervisor never starts it.
+    Cancelled(End),
+    Running(Killer),
+    /// Asked to stop; it runs until its waiter sees it go.
+    Stopping(End),
+    /// Gone, and why it was stopped if it was. Nothing is left to kill.
+    Exited(Option<End>),
+}
+
+enum LifeEvent {
+    Started(Killer),
+    Stop(End),
+    Exited,
+}
+
+/// What a step asks for, done under the lock so the handle can't be reused meanwhile: kill it
+/// (stopped while running, or started after a stop).
+enum LifeEffect {
+    Terminate(Killer),
+}
+
+impl Life {
+    fn step(self, event: LifeEvent) -> (Life, Option<LifeEffect>) {
+        match (self, event) {
+            (Life::Queued, LifeEvent::Started(k)) => (Life::Running(k), None),
+            (Life::Cancelled(end), LifeEvent::Started(k)) => (Life::Stopping(end), Some(LifeEffect::Terminate(k))),
+            (Life::Queued, LifeEvent::Stop(end)) => (Life::Cancelled(end), None),
+            (Life::Running(k), LifeEvent::Stop(end)) => (Life::Stopping(end), Some(LifeEffect::Terminate(k))),
+            (Life::Running(_), LifeEvent::Exited) => (Life::Exited(None), None),
+            (Life::Stopping(end), LifeEvent::Exited) | (Life::Cancelled(end), LifeEvent::Exited) => (Life::Exited(Some(end)), None),
+            (Life::Queued, LifeEvent::Exited) => (Life::Exited(None), None),
+            (life, _) => (life, None),
+        }
+    }
+
+    fn running(&self) -> bool {
+        !matches!(self, Life::Exited(_) | Life::Cancelled(_))
+    }
+
+    fn end(&self) -> Option<End> {
+        match self {
+            Life::Cancelled(end) | Life::Stopping(end) | Life::Exited(Some(end)) => Some(*end),
+            _ => None,
+        }
+    }
 }
 
 /// One running process, on the app's thread: whose callback hears it.
@@ -44,13 +116,15 @@ struct Proc {
 }
 
 /// What the supervisor's threads and the app's thread share about one process.
-#[derive(Default)]
 struct Ctl {
-    /// The process, while it can still be killed; the waiter empties it as it exits.
-    kill: Mutex<Option<Killer>>,
+    life: Mutex<Life>,
     stdin: Mutex<Option<ChildStdin>>,
-    /// 1 when its timeout killed it, 2 when a kill did.
-    how: std::sync::atomic::AtomicU8,
+}
+
+impl Default for Ctl {
+    fn default() -> Ctl {
+        Ctl { life: Mutex::new(Life::Queued), stdin: Mutex::new(None) }
+    }
 }
 
 enum Msg {
@@ -105,7 +179,7 @@ impl Processes {
     /// Kills slot `slot`'s process `handle`.
     pub fn kill(&self, slot: usize, handle: u32) {
         if let Some(p) = self.table.get(&handle).filter(|p| p.slot == slot) {
-            p.ctl.terminate(2);
+            p.ctl.step(LifeEvent::Stop(End::Killed));
         }
     }
 
@@ -115,7 +189,7 @@ impl Processes {
         self.table.retain(|_, p| {
             let gone = p.slot == slot && gone(p.generation);
             if gone {
-                p.ctl.terminate(2);
+                p.ctl.step(LifeEvent::Stop(End::Killed));
             }
             !gone
         });
@@ -133,7 +207,12 @@ pub fn drain(app: &mut App, tx: &mut Tx) -> bool {
     let view = |s: &str| AbiStr { ptr: s.as_ptr(), len: s.len(), _lt: std::marker::PhantomData };
     for (handle, msg) in queued {
         let Some(p) = app.plugins.shared.processes.table.get(&handle) else { continue };
-        let (slot, generation, scope, cb, how) = (p.slot, p.generation, p.scope, p.events.cb, p.ctl.how.load(std::sync::atomic::Ordering::Acquire));
+        let how = match p.ctl.end() {
+            None => 0u8,
+            Some(End::TimedOut) => 1,
+            Some(End::Killed) => 2,
+        };
+        let (slot, generation, scope, cb) = (p.slot, p.generation, p.scope, p.events.cb);
         let (kind, text, extra, x, y, ended) = match msg {
             Msg::Out { stream, text } => (EVENT_PROCESS_OUTPUT, text, String::new(), f32::from(stream), 0.0, false),
             Msg::Exit { code, error } => (EVENT_PROCESS_EXIT, code.map(|c| c.to_string()).unwrap_or_default(), error, 0.0, f32::from(how), true),
@@ -183,16 +262,17 @@ impl Control {
     }
 
     pub fn kill(&self) {
-        self.0.terminate(2);
+        self.0.step(LifeEvent::Stop(End::Killed));
     }
 
+    /// It hasn't exited (queued counts: it will run).
     pub fn running(&self) -> bool {
-        self.0.kill.lock().is_ok_and(|k| k.is_some())
+        self.0.life.lock().is_ok_and(|l| l.running())
     }
 
-    /// 1 when its timeout killed it, 2 when a kill did.
-    pub fn how(&self) -> u8 {
-        self.0.how.load(std::sync::atomic::Ordering::Acquire)
+    /// Why it was stopped, once a kill or its timeout stopped it.
+    pub fn end(&self) -> Option<End> {
+        self.0.end()
     }
 }
 
@@ -243,8 +323,16 @@ pub fn warm() {
 /// On the supervisor: starts `job`'s process and the threads that read and wait for it.
 fn start(job: Job) {
     let spec = &job.spec;
+    if job.ctl.life.lock().is_ok_and(|l| matches!(*l, Life::Cancelled(_))) {
+        job.ctl.step(LifeEvent::Exited);
+        return job.send(Msg::Exit { code: None, error: String::new() });
+    }
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let log = spec.stderr_file.then(StderrFile::create).flatten();
+    if let Some(file) = log.as_ref().and_then(|l| l.handle()) {
+        cmd.stderr(file);
+    }
     for (k, v) in &spec.env {
         cmd.env(k, v);
     }
@@ -254,7 +342,10 @@ fn start(job: Job) {
     platform::hide(&mut cmd);
     let mut child: Child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return job.send(Msg::Exit { code: None, error: format!("{}: {e}", spec.program) }),
+        Err(e) => {
+            job.ctl.step(LifeEvent::Exited);
+            return job.send(Msg::Exit { code: None, error: format!("{}: {e}", spec.program) });
+        }
     };
     platform::adopt(&child);
     let mut stdin = child.stdin.take();
@@ -270,9 +361,7 @@ fn start(job: Job) {
     } else {
         drop(stdin);
     }
-    if let Ok(mut kill) = job.ctl.kill.lock() {
-        *kill = Some(Killer::of(&child));
-    }
+    job.ctl.step(LifeEvent::Started(Killer::of(&child)));
     let job = Arc::new(job);
     let (read_done, readers_done) = channel::<()>();
     let readers = [(1u8, child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>)), (2, child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>))]
@@ -295,18 +384,16 @@ fn start(job: Job) {
             .name("plugin-process-timeout".into())
             .spawn(move || {
                 std::thread::sleep(after);
-                ctl.terminate(1);
+                ctl.step(LifeEvent::Stop(End::TimedOut));
             })
             .ok();
     }
     let waiter = job.clone();
     let spawned = std::thread::Builder::new().name("plugin-process-wait".into()).spawn(move || {
         let status = child.wait();
-        // Under the kill lock: a kill from now on finds nothing, so it never reaches a handle the
-        // system may have handed to another process once `child` drops.
-        if let Ok(mut kill) = waiter.ctl.kill.lock() {
-            *kill = None;
-        }
+        // Under the life lock: a kill from now on finds it exited, so it never reaches a handle
+        // the system may have handed to another process once `child` drops.
+        waiter.ctl.step(LifeEvent::Exited);
         drop(child);
         // Its output ends with it, unless a process it started holds its pipes open (`wsl.exe`
         // hands them to its service): then the exit doesn't wait on them.
@@ -318,6 +405,9 @@ fn start(job: Job) {
         if let Ok(mut stdin) = waiter.ctl.stdin.lock() {
             *stdin = None;
         }
+        if let Some(text) = log.map(|l| l.take(waiter.spec.encoding)).filter(|t| !t.is_empty()) {
+            waiter.send(Msg::Out { stream: 2, text });
+        }
         let msg = match status {
             Ok(s) => Msg::Exit { code: s.code().map(i64::from), error: String::new() },
             Err(e) => Msg::Exit { code: None, error: e.to_string() },
@@ -325,14 +415,46 @@ fn start(job: Job) {
         waiter.send(msg);
     });
     if spawned.is_err() {
-        job.ctl.terminate(2);
+        job.ctl.step(LifeEvent::Stop(End::Killed));
+    }
+}
+
+/// Where a process with `stderr_file` writes its stderr: a file of its own in the temp folder,
+/// read back and removed as it exits.
+struct StderrFile(std::path::PathBuf, Option<std::fs::File>);
+
+impl StderrFile {
+    fn create() -> Option<StderrFile> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("opencode-stderr-{}-{n}.log", std::process::id()));
+        let file = std::fs::File::create(&path).ok()?;
+        Some(StderrFile(path, Some(file)))
+    }
+
+    fn handle(&self) -> Option<Stdio> {
+        self.1.as_ref()?.try_clone().ok().map(Stdio::from)
+    }
+
+    fn take(self, encoding: Option<Encoding>) -> String {
+        let bytes = std::fs::read(&self.0).unwrap_or_default();
+        let mut decoder = Decoder::new(encoding);
+        decoder.decode(&bytes) + &decoder.flush()
+    }
+}
+
+impl Drop for StderrFile {
+    fn drop(&mut self) {
+        // Windows removes no file a handle still holds open.
+        drop(self.1.take());
+        std::fs::remove_file(&self.0).ok();
     }
 }
 
 /// Reads one pipe to its end, sending decoded chunks.
 fn read(mut pipe: Box<dyn Read + Send>, stream: u8, job: &Job) {
     let mut buf = vec![0u8; 8192];
-    let mut decoder = Decoder::default();
+    let mut decoder = Decoder::new(job.spec.encoding);
     loop {
         match pipe.read(&mut buf) {
             Ok(0) | Err(_) => break,
@@ -353,13 +475,17 @@ fn read(mut pipe: Box<dyn Read + Send>, stream: u8, job: &Job) {
 /// Desktop's output decoder (`runtime.ts`): a stream whose first chunk reads as UTF-16LE (a BOM,
 /// or zero high bytes, as `wsl.exe` writes) stays UTF-16LE; anything else is UTF-8. Bytes split
 /// across chunks carry over.
-#[derive(Default)]
 struct Decoder {
     utf16: Option<bool>,
     carry: Vec<u8>,
 }
 
 impl Decoder {
+    /// A decoder for `encoding`, or one that tells from the first chunk.
+    fn new(encoding: Option<Encoding>) -> Decoder {
+        Decoder { utf16: encoding.map(|e| e == Encoding::Utf16Le), carry: Vec::new() }
+    }
+
     fn decode(&mut self, chunk: &[u8]) -> String {
         let utf16 = *self.utf16.get_or_insert_with(|| utf16_like(chunk));
         let mut bytes = std::mem::take(&mut self.carry);
@@ -400,17 +526,23 @@ fn utf16_like(chunk: &[u8]) -> bool {
 }
 
 impl Ctl {
-    /// Kills the process if it still runs; `how` says why (1 timeout, 2 kill).
-    fn terminate(&self, how: u8) {
-        let Ok(kill) = self.kill.lock() else { return };
-        if let Some(k) = kill.as_ref() {
-            self.how.compare_exchange(0, how, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire).ok();
+    /// Steps the process's life, and kills it under the lock when the step asks.
+    fn step(&self, event: LifeEvent) {
+        let Ok(mut life) = self.life.lock() else { return };
+        let (next, effect) = std::mem::replace(&mut *life, Life::Queued).step(event);
+        *life = next;
+        if let Some(LifeEffect::Terminate(k)) = effect {
             k.kill();
         }
+    }
+
+    fn end(&self) -> Option<End> {
+        self.life.lock().ok().and_then(|l| l.end())
     }
 }
 
 /// Kills a process the waiter thread owns.
+#[derive(Clone, Copy)]
 struct Killer {
     #[cfg(windows)]
     handle: isize,

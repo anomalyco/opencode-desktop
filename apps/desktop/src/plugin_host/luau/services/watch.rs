@@ -40,7 +40,7 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
             }
             "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
             "Server.Connected" => Some((hash(&app.server_key), Data::Bool(true))),
-            "Servers.Changed" => Some((hash(super::super::servers::all().len()), Data::Nil)),
+            "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
             "Sessions.Changed" => {
                 for s in &app.sessions {
                     let key = format!("Sessions.Changed:{}", s.id);

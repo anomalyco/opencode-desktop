@@ -30,19 +30,20 @@ pub fn all(app: &App) -> Vec<Contributed> {
             out.push((order, Contributed { key, slot: i, rec: rec.clone() }));
         }
     }
-    // Luau server sources' entries, shared by every window; their plugin draws no row yet.
-    out.extend(super::luau::servers().into_iter().map(|(plugin, rec)| (0, Contributed { key: format!("{plugin}:{}", rec.id), slot: usize::MAX, rec })));
+    // Luau server sources' entries, shared by every window; a window half draws their rows.
+    out.extend(super::luau::servers().into_iter().map(|(plugin, order, rec)| (order as i32, Contributed { key: format!("{plugin}:{}", rec.id), slot: usize::MAX, rec })));
     out.sort_by_key(|(order, _)| *order);
     out.into_iter().map(|(_, c)| c).collect()
 }
 
 /// What sources list changed: checks the health of servers that became ready, and forgets it
-/// for the ones that aren't any more.
+/// for the ones that aren't any more (a Luau source whose list isn't complete keeps it).
 pub fn changed(app: &mut App, tx: &mut Tx) {
     tx.instant();
     let servers = all(app);
+    let pending = super::luau::servers::pending_sources();
     let facts = &mut app.plugins.shared.facts;
-    facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == SERVER_READY));
+    facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == SERVER_READY) || pending.iter().any(|(plugin, _)| key.starts_with(&format!("{plugin}:"))));
     let fresh: Vec<Contributed> = servers.into_iter().filter(|s| s.rec.state == SERVER_READY && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
     for s in fresh {
         app.plugins.checking.insert(s.key.clone());
@@ -55,7 +56,11 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
                 let still = all(app).into_iter().any(|c| c.key == s.key && c.rec.url == s.rec.url && c.rec.state == SERVER_READY);
                 if let (Some(v), true) = (version, still) {
                     app.plugins.shared.facts.health.insert(s.key.clone(), v);
-                    app.plugins.wake.wake(super::vtable::slot_bit(s.slot), false);
+                    if s.slot == usize::MAX {
+                        super::luau::bump();
+                    } else {
+                        app.plugins.wake.wake(super::vtable::slot_bit(s.slot), false);
+                    }
                     tx.instant();
                 }
             }));
@@ -90,6 +95,10 @@ pub fn connect(app: &mut App, key: &str, tx: &mut Tx) {
 
 /// Contributed server `c`'s connection row in Settings › Servers, as its plugin draws it.
 pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::El> {
+    if c.slot == usize::MAX {
+        let health = app.plugins.shared.facts.health.get(&c.key).cloned();
+        return super::luau::surfaces::server_row(app, p, &c.key, &c.rec, health);
+    }
     let (i, rec) = active(&app.plugins, kinds::SERVER).find(|(s, r)| *s == c.slot && r.id == c.rec.source)?;
     let render = rec.render.as_ref()?;
     let props = super::render::Props::new(opencode_plugin::abi::SURFACE_SERVER_ROW, &c.rec.id);

@@ -1,6 +1,12 @@
+#:schema ../plugin.schema.json
 id = "ssh"
 name = "SSH"
-version = "0.1.0"
-description = "OpenCode servers on hosts you reach over SSH: Add SSH server, the tunnel, sign-in prompts and each host's row in Settings › Servers"
-api = "0.1-experimental"
-library = "opencode_plugin_ssh"
+version = "0.2.0"
+contract = "1.0"
+description = "OpenCode servers on hosts you reach over SSH: Add SSH server, the tunnel, sign-in prompts and each host's row in Settings > Servers"
+entry = "init.luau"
+app = "app.luau"
+
+[[stores]]
+name = "servers"
+scope = "global"

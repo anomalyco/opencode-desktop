@@ -168,6 +168,8 @@ pub struct SettingsPageSpec {
     pub id: String,
     /// Its navigation label.
     pub title: String,
+    /// The line under the page's title. A section on a host page has none.
+    pub description: Option<String>,
     /// Its navigation icon.
     pub icon: Option<String>,
     /// Adds a section to this host page instead of a page of its own.
@@ -175,9 +177,10 @@ pub struct SettingsPageSpec {
     /// Lists the page in the About group, such as release notes.
     pub about: Option<bool>,
     /// Search entries.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub entries: Option<Vec<SettingEntry>>,
 }
-impl_record!(SettingsPageSpec, ["id", "title", "icon", "page", "about", "entries"], ["render"], []);
+impl_record!(SettingsPageSpec, ["id", "title", "description", "icon", "page", "about", "entries"], ["render"], []);
 
 /// An item of a host menu.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -265,6 +268,7 @@ pub struct CodeBlockSpec {
     /// Its id within the plugin.
     pub id: String,
     /// The languages it renders. The host resolves no aliases.
+    #[serde(deserialize_with = "crate::lenient::seq")]
     pub languages: Vec<String>,
 }
 impl_record!(CodeBlockSpec, ["id", "languages"], ["render"], []);
@@ -277,6 +281,7 @@ pub struct CodeBlockActionSpec {
     /// Its id within the plugin.
     pub id: String,
     /// The languages whose blocks show it.
+    #[serde(deserialize_with = "crate::lenient::seq")]
     pub languages: Vec<String>,
     /// Its icon.
     pub icon: String,
@@ -365,6 +370,7 @@ pub struct FileViewerSpec {
     /// Its name, such as `"Word document"`.
     pub title: String,
     /// The extensions it shows, without the dot.
+    #[serde(deserialize_with = "crate::lenient::seq")]
     pub extensions: Vec<String>,
 }
 impl_record!(FileViewerSpec, ["id", "title", "extensions"], ["render"], []);

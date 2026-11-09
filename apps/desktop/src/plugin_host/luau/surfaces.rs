@@ -236,20 +236,35 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &super::Flyout) -> Option<E
     Some(col().key(format!("plugin-flyout-{key}")).anchored(row.clone(), *side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(col().mt(-2.0).child(content)))
 }
 
-/// The open Luau dialog over a scrim, as the app's own dialogs sit.
+/// The open Luau dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
+/// (`dialog.css`, `<Dialog fit>`: as tall as its content). Esc or a press outside closes it and
+/// runs its `onDismiss`.
 pub fn dialog_view(app: &App, p: &Pal) -> Vec<El> {
     let Some(open) = &app.plugins.luau.dialog else { return Vec::new() };
     let Some((i, _)) = app.plugins.luau.running().find(|(_, pl)| pl.half.id == open.plugin) else { return Vec::new() };
-    let found = app.plugins.luau.plugins[i].half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).map(|c| (c.key, c.spec.size, c.f("render").cloned()));
-    let Some((key, size, Some(f))) = found else { return Vec::new() };
-    let width = match size {
+    let found = app.plugins.luau.plugins[i].half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).map(|c| (c.key, c.spec.clone(), c.f("render").cloned()));
+    let Some((key, spec, Some(f))) = found else { return Vec::new() };
+    let width = match spec.size {
         Some(opencode_plugin_spec::DialogSize::Small) => 400.0,
-        Some(opencode_plugin_spec::DialogSize::Large) => 720.0,
-        _ => 520.0,
+        Some(opencode_plugin_spec::DialogSize::Large) => 640.0,
+        _ => 480.0,
     };
     let content = render(app, p, i, &format!("dialog:{}", open.id), &f, map([("data", open.data.clone())]));
-    let card = col().key(format!("plugin-dialog-{key}")).w(width).radius(12.0).fill(p.bg_base).elevate(p.overlay).on_press(|_: &mut App| {}).child(content);
+    let card = col().w(width).radius(6.0).fill(p.layer1).elevate(p.overlay).clip_rounded(6.0).child(content);
+    let card = col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).modal(true, |s: &mut App| super::requests::dismiss_dialog(s, &mut Tx::default())).child(card);
     crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
+}
+
+/// A Luau server source's entry `rec` (key `key`), as its window half's `row` draws it in
+/// Settings › Servers, with its latest health check.
+pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec, health: Option<String>) -> Option<El> {
+    let plugin = key.split_once(':')?.0;
+    let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
+        (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("row").cloned())).flatten().map(|f| (i, f))
+    })?;
+    let health = health.map_or(Data::Nil, |v| map([("healthy", Data::Bool(true)), ("version", Data::String(v))]));
+    let props = map([("id", Data::String(rec.id.clone())), ("key", Data::String(key.to_owned())), ("health", health)]);
+    Some(render(app, p, i, &format!("server:{key}"), &f, props))
 }
 
 // ---- Settings ----------------------------------------------------------------------------------

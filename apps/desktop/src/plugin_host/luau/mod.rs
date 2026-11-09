@@ -30,7 +30,7 @@ mod nodes;
 pub mod panels;
 mod plugin;
 pub mod requests;
-mod servers;
+pub mod servers;
 pub mod services;
 pub mod sources;
 pub mod surfaces;
@@ -318,6 +318,7 @@ fn start(app: &mut App, i: usize) {
     let (id, manifest) = (p.manifest.id.clone(), p.manifest.clone());
     app.plugins.shared.stores.load(&id);
     *p.half.catalogs.borrow_mut() = sources::catalogs(&files);
+    sources::intern_icons(&id, &files);
     if let Some(entry) = &manifest.app {
         app_half::ensure(app, &manifest, &files, entry);
     }
@@ -331,8 +332,8 @@ fn start(app: &mut App, i: usize) {
     let half = app.plugins.luau.plugins[i].half.clone();
     let vm = script.vm_id();
     let adopted = half.adopt(vm);
-    services::process::reap(&half, vm);
-    services::store::withdraw_owner(&id, vm);
+    services::reap(&half, vm);
+    services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
     let event = match (script.error(), adopted) {
         (None, true) => LifeEvent::Started(script),
         (error, _) => {
@@ -356,8 +357,8 @@ fn stop(app: &mut App, i: usize, script: Script) {
     }
     drop(script);
     *half.contribs.borrow_mut() = plugin::Contribs::default();
-    services::process::reap(&half, None);
-    services::store::withdraw_owner(&half.id, None);
+    services::reap(&half, None);
+    services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
     app.plugins.luau.overlay.close_for(&half.id);
 }
 
@@ -379,6 +380,7 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
         },
     };
     *p.half.catalogs.borrow_mut() = prepared.catalogs;
+    sources::intern_icons(&p.manifest.id, &p.origin.files());
     drive(app, i, LifeEvent::Reload);
     let p = &app.plugins.luau.plugins[i];
     let Some(script) = p.script() else { return };
@@ -389,8 +391,8 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
     let outcome = match result {
         Ok(report) => {
             half.adopt(vm);
-            services::process::reap(&half, vm);
-            services::store::withdraw_owner(&id, vm);
+            services::reap(&half, vm);
+            services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
             console::reloaded(&id, report);
             Ok(())
         }

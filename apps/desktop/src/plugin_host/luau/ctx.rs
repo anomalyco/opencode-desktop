@@ -139,12 +139,25 @@ fn contribution(lua: &Lua, vmx: &Rc<Vmx>, kind: ContributionKind, id: String) ->
         })?,
     )?;
     if kind == ContributionKind::ServerSource {
-        let (v, source) = (vmx.clone(), id);
+        let order = vmx.with_contribs(|c| c.server_sources.iter().find(|s| s.spec.id == id).and_then(|s| s.spec.order)).unwrap_or(0);
+        super::servers::add(&vmx.half.id, &id, order);
+        let (v, source) = (vmx.clone(), id.clone());
         t.raw_set(
             "SetEntries",
             lua.create_function(move |lua, (_, entries, ready): (Value, Value, Option<bool>)| {
-                let entries: Vec<spec::ServerEntry> = Data::from_lua(entries, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("ServerSource:SetEntries: {e}")))?;
+                let entries: Vec<spec::ServerEntry> = spec::lenient::list(Data::from_lua(entries, lua)?.to_json()).map_err(|e| mlua::Error::runtime(format!("ServerSource:SetEntries: {e}")))?;
                 super::servers::set_entries(&v.half.id, &source, entries, ready.unwrap_or(true));
+                super::cx::ask(&v.half.id, super::cx::Request::ServersChanged);
+                Ok(())
+            })?,
+        )?;
+        let (v, source) = (vmx.clone(), id);
+        t.raw_set(
+            "Withdraw",
+            lua.create_function(move |_, _: Value| {
+                v.with_contribs(|c: &mut Contribs| c.withdraw(kind, &source));
+                super::servers::withdraw(&v.half.id, &source);
+                super::cx::ask(&v.half.id, super::cx::Request::ServersChanged);
                 Ok(())
             })?,
         )?;

@@ -306,9 +306,9 @@
       { "value": "separator", "doc": "A divider." }
     ] },
     { "name": "DialogSize", "rust": true, "doc": "A dialog's width.", "values": [
-      { "value": "small", "doc": "A confirmation." },
-      { "value": "medium", "doc": "A form. The default." },
-      { "value": "large", "doc": "A list or a document." }
+      { "value": "small", "doc": "A confirmation: 400 points." },
+      { "value": "medium", "doc": "A form: 480 points. The default." },
+      { "value": "large", "doc": "A list or a document: 640 points." }
     ] },
     { "name": "StoreScope", "rust": true, "doc": "What a declared store keeps a value for.", "values": [
       { "value": "global", "doc": "One value for the whole app." },
@@ -367,7 +367,7 @@
     { "name": "SemanticToken", "kind": "tokens", "doc": "A theme color by meaning. The host resolves it for the current theme and color scheme." },
     { "name": "HexColor", "kind": "opaque", "doc": "A literal color from `ui.hex(\"#RRGGBB\")` or `ui.hex(\"#RRGGBBAA\")`. Prefer a `SemanticToken`: a literal color does not follow the theme." },
     { "name": "Color", "kind": "alias", "type": "SemanticToken | HexColor", "doc": "A semantic token, or a literal color from `ui.hex`." },
-    { "name": "IconName", "kind": "alias", "type": "string", "doc": "The name of one of the app's icons, such as `\"circle-check\"`." },
+    { "name": "IconName", "kind": "alias", "type": "string", "doc": "The name of one of the app's icons, such as `\"circle-check\"`. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin." },
     { "name": "MemoVersion", "kind": "alias", "type": "string | number | boolean", "doc": "A memo's version. The host rebuilds the memo only when it changes." },
     { "name": "UiSize", "kind": "alias", "type": "number | \"full\"", "doc": "A length in logical points, or `\"full\"` to fill the parent." },
     { "name": "UiNode", "kind": "opaque", "doc": "An element a `ui.*` constructor built. Pass it to a parent or return it from a render." },
@@ -564,7 +564,8 @@
       { "name": "text", "type": "string", "doc": "The row's label." },
       { "name": "description", "type": "string?", "doc": "A line under the label." },
       { "name": "checked", "type": "boolean", "doc": "Selected." },
-      { "name": "tone", "type": "Tone?", "doc": "Colors the label." },
+      { "name": "tone", "type": "Tone?", "doc": "Colors the description, as a status line." },
+      { "name": "lineHeight", "type": "number?", "doc": "The label's line height: 20 by default, as Desktop's radio label; 16 for a list row whose label sets its own." },
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs as the user picks the row." }
     ] },
@@ -581,6 +582,11 @@
     ] },
     { "name": "UiLoaderProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.loader` props: the app's spinner.", "fields": [
       { "name": "size", "type": "number?", "doc": "Width and height in points. Defaults to 16." }
+    ] },
+    { "name": "UiServerIndicatorProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.serverIndicator` props: a server's health as Settings > Servers shows it (Desktop's `ServerRow.Indicator`).", "fields": [
+      { "name": "health", "type": "ServerHealth?", "doc": "Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown." },
+      { "name": "auth", "type": "boolean?", "doc": "It waits for the user to sign in: a lock." },
+      { "name": "connecting", "type": "boolean?", "doc": "It is starting or connecting: a spinner." }
     ] },
     { "name": "UiPillProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.pill` props: a status capsule like the composer's pills.", "fields": [
       { "name": "text", "type": "string", "doc": "The capsule's label." },
@@ -805,7 +811,8 @@
       { "name": "stdin", "type": "string?", "doc": "Written to its stdin first. Stdin then closes unless `keepStdin` is set." },
       { "name": "keepStdin", "type": "boolean?", "doc": "Keeps stdin open for `Write`." },
       { "name": "timeout", "type": "number?", "doc": "Seconds before the host kills it." },
-      { "name": "encoding", "type": "TextEncoding?", "doc": "How it encodes its output." }
+      { "name": "encoding", "type": "TextEncoding?", "doc": "How it encodes its output. Defaults to UTF-8, or UTF-16LE when its first output reads as that." },
+      { "name": "stderrFile", "type": "boolean?", "doc": "Sends stderr to a file rather than a pipe, read back as one `stderr` chunk as it exits: for programs that never exit after writing to a stderr pipe, as Windows' OpenSSH does after a failure." }
     ] },
     { "name": "ProcessExit", "kind": "record", "rust": true, "doc": "How a process ended.", "fields": [
       { "name": "code", "type": "integer?", "doc": "Its exit code, when it has one." },
@@ -1038,16 +1045,19 @@
     ] },
     { "name": "QrCode", "kind": "record", "rust": true, "doc": "A QR code's module matrix.", "fields": [
       { "name": "size", "type": "integer", "doc": "Modules per side." },
-      { "name": "modules", "type": "{ boolean }", "doc": "`size * size` modules, row by row: true is dark." }
+      { "name": "modules", "type": "{ boolean }", "doc": "`size * size` modules, row by row: true is dark." },
+      { "name": "icon", "type": "IconName", "doc": "Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color." }
     ] },
     { "name": "AskpassPrompt", "kind": "object", "doc": "A credential prompt from a child process.", "members": [
+      { "name": "Id", "kind": "field", "type": "string", "doc": "Its id within the listener, as `Cleared` names it." },
       { "name": "Prompt", "kind": "field", "type": "string", "doc": "What the process asks." },
-      { "name": "Secret", "kind": "field", "type": "boolean", "doc": "The answer is a password." },
+      { "name": "Secret", "kind": "field", "type": "boolean", "doc": "The answer is a password. False for a yes/no question, such as trusting a host's key." },
       { "name": "Respond", "kind": "method", "sig": "(answer: string?) -> ()", "doc": "Answers it. Nil cancels." }
     ] },
     { "name": "AskpassListener", "kind": "object", "doc": "A loopback endpoint that turns `SSH_ASKPASS` prompts into signals.", "members": [
       { "name": "Env", "kind": "field", "type": "{ [string]: string }", "doc": "Environment variables to give the child process." },
-      { "name": "Prompted", "kind": "signal", "payload": "AskpassPrompt", "doc": "Fires with each prompt." },
+      { "name": "Prompted", "kind": "signal", "payload": "AskpassPrompt", "doc": "Fires with each prompt, one at a time." },
+      { "name": "Cleared", "kind": "signal", "payload": "string", "doc": "Fires with a prompt's id once it ends: answered, cancelled, or its process stopped asking." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Stops listening." }
     ] },
     { "name": "ConsoleLine", "kind": "record", "rust": true, "doc": "One line of the Studio console.", "fields": [
@@ -1170,6 +1180,7 @@
     { "name": "SettingsPageSpec", "kind": "record", "rust": true, "official": "SettingsPage", "doc": "A settings page, or a section on a host page.", "fields": [
       { "name": "id", "type": "string", "doc": "The page's id, also for `Layout:OpenSettings`." },
       { "name": "title", "type": "string", "doc": "Its navigation label." },
+      { "name": "description", "type": "string?", "doc": "The line under the page's title. A section on a host page has none." },
       { "name": "icon", "type": "IconName?", "doc": "Its navigation icon." },
       { "name": "page", "type": "HostSettingsPage?", "doc": "Adds a section to this host page instead of a page of its own." },
       { "name": "about", "type": "boolean?", "doc": "Lists the page in the About group, such as release notes." },
@@ -1333,7 +1344,7 @@
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
       { "name": "size", "type": "DialogSize?", "doc": "Its width." },
-      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame." },
+      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog, as tall as its content, layer-01 fill, overlay elevation and 6-point corners." },
       { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
     ] },
     { "name": "PopoverProps", "kind": "record", "doc": "What a popover's render receives.", "fields": [
@@ -1496,7 +1507,9 @@
       { "name": "OpenExternal", "kind": "method", "sig": "(url: string) -> ()", "doc": "Opens a URL in the system's browser." },
       { "name": "Reveal", "kind": "method", "sig": "(path: string) -> ()", "doc": "Shows a path in the system's file manager." },
       { "name": "Now", "kind": "method", "sig": "() -> number", "doc": "The wall clock in milliseconds since the Unix epoch." },
-      { "name": "UtcOffset", "kind": "method", "sig": "(ms: number) -> number", "doc": "The local time zone's offset from UTC in seconds, at that time." }
+      { "name": "UtcOffset", "kind": "method", "sig": "(ms: number) -> number", "doc": "The local time zone's offset from UTC in seconds, at that time." },
+      { "name": "FreePort", "kind": "method", "sig": "() -> number?", "doc": "A TCP port nothing listens on now on the loopback address, for a server or tunnel a plugin starts. Nil when the system has none." },
+      { "name": "RandomId", "kind": "method", "sig": "() -> string", "doc": "A random version 4 UUID from the system's secure source, for passwords and tokens." }
     ] },
     { "name": "Notifications", "halves": ["window", "app"], "doc": "System notifications that follow the user's notification settings.", "members": [
       { "name": "Notify", "kind": "method", "sig": "(spec: NotificationSpec) -> ()", "doc": "Shows a notification when the window is not in front." }
@@ -1544,7 +1557,7 @@
       { "name": "KeepAwake", "kind": "method", "sig": "(reason: string) -> PowerLock", "doc": "Keeps the display awake until the lock is released or the plugin goes away." }
     ] },
     { "name": "Qr", "halves": ["window", "app"], "doc": "QR codes.", "members": [
-      { "name": "Encode", "kind": "method", "sig": "(text: string) -> QrCode", "doc": "Encodes text, at medium error correction." }
+      { "name": "Encode", "kind": "method", "sig": "(text: string) -> QrCode", "doc": "Encodes text as UTF-8 bytes at low error correction, in the smallest version that fits." }
     ] },
     { "name": "Askpass", "halves": ["app"], "doc": "Credential prompts from child processes such as `ssh`.", "members": [
       { "name": "Listen", "kind": "method", "sig": "() -> AskpassListener", "doc": "Starts a loopback prompt endpoint." }
@@ -1592,6 +1605,7 @@
     { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
     { "name": "loader", "category": "control", "sig": "(props: UiLoaderProps?) -> UiNode", "props": "UiLoaderProps", "doc": "The app's spinner." },
     { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },
+    { "name": "serverIndicator", "category": "control", "sig": "(props: UiServerIndicatorProps) -> UiNode", "props": "UiServerIndicatorProps", "doc": "A server's health indicator, for a server source's row." },
     { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },

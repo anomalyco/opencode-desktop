@@ -154,7 +154,7 @@ pub struct ContribRec {
 }
 
 /// One server a server source listed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ServerRec {
     pub source: String,
     pub id: String,
