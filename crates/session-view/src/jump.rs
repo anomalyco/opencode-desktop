@@ -1,12 +1,13 @@
 //! "Jump to latest": the arrow over the timeline's bottom edge while you read more than a screen
 //! up (`session/timeline/virtualizer.tsx`, `interaction.ts`). Pressing it glides to the end, and
 //! the timeline follows new content again once it lands.
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
+use crate::follow::{self, Effect, Event, Follow};
 use crate::palette::Pal;
 use crate::style::{DOCK_SIDE, activity_ring};
 
@@ -56,8 +57,8 @@ static ARROW_DOWN: Icon = Icon {
 pub struct Ends {
     /// Sessions whose timeline you're reading more than a screen up.
     far: HashSet<String>,
-    /// Sessions whose timeline doesn't show its end, where nothing lands in view.
-    off_end: HashSet<String>,
+    /// Each session's follow state; one not listed follows its end ([`Follow::Following`]).
+    follow: HashMap<String, Follow>,
 }
 
 impl Ends {
@@ -65,14 +66,26 @@ impl Ends {
         self.far.contains(id)
     }
 
+    /// Whether session `id`'s timeline follows its end, where what lands shows.
     pub fn at_end(&self, id: &str) -> bool {
-        !self.off_end.contains(id)
+        self.follow.get(id).is_none_or(Follow::following)
     }
 
     /// A timeline that mounts afresh starts on its end.
     pub fn forget(&mut self, id: &str) {
         self.far.remove(id);
-        self.off_end.remove(id);
+        self.follow.remove(id);
+    }
+
+    /// Steps session `id`'s follow state (`follow::step`); `None` steps a timeline that belongs
+    /// to no session as a detached one. Returns the hold to make.
+    pub fn step(&mut self, id: Option<&str>, event: Event) -> Option<Effect> {
+        let Some(id) = id else { return follow::step(Follow::Detached, event).1 };
+        let (next, effect) = follow::step(self.follow.remove(id).unwrap_or_default(), event);
+        if next != Follow::Following {
+            self.follow.insert(id.to_owned(), next);
+        }
+        effect
     }
 
     pub fn set_far(&mut self, id: &str, far: bool) {
@@ -84,11 +97,7 @@ impl Ends {
     }
 
     pub fn set_at_end(&mut self, id: &str, at: bool) {
-        if at {
-            self.off_end.remove(id);
-        } else {
-            self.off_end.insert(id.to_owned());
-        }
+        self.step(Some(id), Event::AtEnd(at));
     }
 }
 

@@ -16,7 +16,7 @@ use opencode_kit::client::Write;
 use opencode_kit::model::{Message, Part, ToolStatus};
 
 use crate::palette::Pal;
-use crate::view::UI;
+use crate::view::UI_MED;
 use crate::{App, Route, Source};
 
 
@@ -24,7 +24,7 @@ use crate::{App, Route, Source};
 pub fn hint_label() -> String {
     opencode_i18n::t!("session.background.moveInline", keybind = crate::keymap::Bind::Background.label())
 }
-const HINT_H: f32 = 22.0;
+const HINT_H: f32 = 24.0;
 
 #[derive(Default)]
 pub struct Background {
@@ -123,7 +123,10 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 /// "Move to background ⌃B" beside Working while the open run has blocking work, as Desktop
-/// shows it in the same lane, fading in and out as Desktop's does.
+/// shows it in the same lane, fading in and out as Desktop's does. Desktop's small ghost-faint
+/// `Button` (`message-timeline.tsx:57-68`, `button.css:6-26,46-50,304-322`): 24 tall, 9 a side,
+/// 4 corners, 6 between its words and keys, 13 px at 530 in `text-faint`, `overlay-hover` under
+/// the pointer and `overlay-pressed` held, with no fade; its keys the neutral `Keybind`.
 pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     if !busy || blocking(s, session).is_empty() {
         return None;
@@ -138,10 +141,10 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
         .label(hint_label())
         .absolute(x, y)
         .h(HINT_H)
-        .px(6.0)
+        .px(9.0)
         .gap(6.0)
         .center_y()
-        .radius(6.0)
+        .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
@@ -149,8 +152,8 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.move_to_background(tx);
         })
-        .child(text(opencode_i18n::t!("session.background.moveRunning")).font(UI).color(p.faint))
-        .children(crate::keymap::Bind::Background.keycaps().iter().map(|k| crate::queue::keycap(p, &k.to_uppercase())));
+        .child(text(opencode_i18n::t!("session.background.moveRunning")).font(UI_MED).color(p.faint))
+        .child(crate::keymap::keycaps(p, crate::keymap::Bind::Background));
     Some(hint)
 }
 

@@ -18,6 +18,7 @@ pub mod disclosure;
 pub mod dock;
 pub mod fixture;
 pub mod fold;
+pub mod follow;
 pub mod genui;
 pub mod images;
 pub mod jump;

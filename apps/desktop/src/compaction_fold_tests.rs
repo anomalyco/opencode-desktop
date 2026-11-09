@@ -1,6 +1,6 @@
-//! The quiet Compacted divider opening its summary (p162): it holds where it was pressed, at the
-//! timeline's end too, sticks to the top while the summary scrolls under it, shuts from there
-//! without leaving the screen, and its label lights up as one word.
+//! The quiet Compacted divider opening its summary (p162): at the timeline's end the end holds,
+//! scrolled up the divider does; it sticks to the top while the summary scrolls under it, shuts
+//! from there without leaving the screen, and its label lights up as one word.
 
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus};
 use rune::{ElementInfo, Runtime};
@@ -68,8 +68,10 @@ fn scroll_down(rt: &mut Runtime<App>, dy: f32) {
     settle(rt);
 }
 
+/// At the end, the end holds as Desktop's virtualizer keeps it (`anchorTo: "end"`): the summary
+/// grows up and the divider rides up with it.
 #[test]
-fn opening_at_the_bottom_holds_the_divider_and_pushes_the_end_down() {
+fn opening_at_the_bottom_keeps_the_end_and_the_divider_rides_up() {
     let mut rt = runtime();
     assert!(at_bottom(&rt), "the timeline starts at its end");
     let y = bar(&rt).rect[1];
@@ -77,14 +79,14 @@ fn opening_at_the_bottom_holds_the_divider_and_pushes_the_end_down() {
     press(&mut rt);
     assert!(open(&rt), "the press opens the summary");
     let after = bar(&rt).rect[1];
-    assert!((after - y).abs() < 1.0, "the divider stays under the pointer: {y} -> {after}");
-    assert!(!at_bottom(&rt), "the summary pushes the end down rather than growing up");
+    assert!(after < y - 1.0, "the divider rides up: {y} -> {after}");
+    assert!(at_bottom(&rt), "the end stays where it is");
 }
 
 /// The other disclosures on the timeline hold the same way: a thought's "Thought for Ns" opened
-/// at the timeline's end stays under the pointer.
+/// at the timeline's end keeps the end, its trigger riding up.
 #[test]
-fn a_thought_opened_at_the_bottom_holds_its_trigger() {
+fn a_thought_opened_at_the_bottom_keeps_the_end() {
     let mut app = App::fixture_session();
     let t = app.transcripts.get_mut(SID).expect("session");
     t.messages.push(Message::User { id: "msg_zzthought0".into(), text: "Why did it reconnect?".into() });
@@ -111,7 +113,8 @@ fn a_thought_opened_at_the_bottom_holds_its_trigger() {
     settle(&mut rt);
     assert!(rt.state.expanded.iter().any(|k| k.starts_with("r-msg_zzthought1-")), "the press opens the thought");
     let after = trigger(&rt).rect[1];
-    assert!((after - b.rect[1]).abs() < 1.0, "the thought's trigger stays under the pointer: {} -> {after}", b.rect[1]);
+    assert!(after < b.rect[1] - 1.0, "the thought's trigger rides up: {} -> {after}", b.rect[1]);
+    assert!(at_bottom(&rt), "the end stays where it is");
 }
 
 /// The summary's row height as drawn.
@@ -121,7 +124,7 @@ fn row_h(rt: &Runtime<App>) -> f32 {
 }
 
 /// Kit's p162 follow-up, "it doesn't animate open": at the timeline's end the row folds open on
-/// the tool group's spring over several frames with the divider held, and a press mid-glide
+/// the tool group's spring over several frames with the end held, and a press mid-glide
 /// springs it back shut from where it is.
 #[test]
 fn the_summary_folds_open_over_frames_and_springs_back_mid_glide() {
@@ -139,8 +142,7 @@ fn the_summary_folds_open_over_frames_and_springs_back_mid_glide() {
     for _ in 0..5 {
         rt.frame(DT);
         opening.push(row_h(&rt));
-        let at = bar(&rt).rect[1];
-        assert!((at - y).abs() < 1.0, "the divider holds while it folds open: {y} -> {at}");
+        assert!(at_bottom(&rt), "the end holds while it folds open");
     }
     let grew = opening.windows(2).filter(|w| w[1] > w[0] + 0.5).count();
     let last = *opening.last().unwrap();
@@ -181,7 +183,8 @@ fn opening_mid_page_holds_the_divider() {
 fn scrolled_into_the_open_summary_the_divider_sticks_and_shuts_from_there() {
     let mut rt = runtime();
     press(&mut rt);
-    scroll_down(&mut rt, 800.0);
+    // Opened at the end, it already sticks over the summary: scroll up off the end, inside it.
+    scroll_down(&mut rt, -400.0);
     let v = viewport(&rt);
     let b = bar(&rt);
     assert!(b.stuck > 0.0, "scrolled into the summary, the divider sticks to the top");

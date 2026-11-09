@@ -158,7 +158,7 @@ fn story(s: &App) -> Option<&opencode_kit::model::Compaction> {
 // ---------------------------------------------------------------------------------------------
 // Timeline › Compacted summary: Kit's capture (p162). A quiet compaction with a summary several
 // screens long sits near the end of a timeline that's at its bottom. O folds it open or shut on
-// the tool group's spring with the divider held where it is, S presses Page Down to scroll into
+// the tool group's spring with the end held, as Desktop's pinned timeline keeps it, S presses Page Down to scroll into
 // the open summary so the divider sticks to the top, and R replays: open and shut at the end,
 // open and shut again mid-glide so it springs back, then open, page down, and shut from the stuck
 // divider.

@@ -1,7 +1,8 @@
 //! Kit's capture (p162): at the timeline's end, the Compacted divider folds open a summary
-//! several screens long on the tool group's spring. It holds under the pointer while the end
-//! moves down, shuts there in place, springs back from a press mid-glide, sticks to the top once
-//! scrolled into the summary, and a press there shuts it without the divider leaving the screen.
+//! several screens long on the tool group's spring. The end holds, as Desktop's virtualizer
+//! keeps it, so the divider rides up until it sticks to the top; a press there shuts it back
+//! onto the end, a press mid-glide springs back, and scrolled up into the summary a press on the
+//! stuck divider shuts it without the divider leaving the screen.
 
 use rune::ElementInfo;
 
@@ -45,7 +46,9 @@ pub fn open_at_bottom(r: &mut Run) {
     tap(r);
     r.play(0.5);
     assert!(open(r), "the press opens the summary");
-    held(r, "opening");
+    let (b, v) = (bar(r), viewport(r));
+    assert_eq!(r.rt.scroll_at_bottom(&format!("scroll-{SID}")), Some(true), "opening at the end keeps the end where it is");
+    assert!(b.stuck > 0.0 && (b.rect[1] - v[1]).abs() < 1.0, "the divider rides up and sticks to the top: {:?} in {v:?}", b.rect);
     tap(r);
     r.play(0.5);
     held(r, "shutting at the end");
@@ -58,7 +61,9 @@ pub fn open_at_bottom(r: &mut Run) {
     assert!(!open(r) && (row_h(r) - shut).abs() < 0.5, "reversed mid-glide, it springs back shut: {} vs {shut}", row_h(r));
     tap(r);
     r.play(0.5);
-    r.swipe_down(800.0, 0.6);
+    // Opened at the end, the divider sticks over the summary: scroll up, off the end and still
+    // inside it.
+    r.swipe_up(400.0, 0.6);
     let (b, v) = (bar(r), viewport(r));
     assert!(b.stuck > 0.0 && (b.rect[1] - v[1]).abs() < 1.0, "scrolled into the summary, the divider sticks to the top: {:?} in {v:?}", b.rect);
     tap(r);

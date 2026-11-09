@@ -67,7 +67,17 @@ pub fn set<S: TimelineHost>(key: String, open: bool, hold: String) -> impl Fn(&m
     move |s: &mut S, tx: &mut Tx| {
         tx.instant();
         set_open(s, &key, !open);
-        tx.keep_on_screen(hold.clone());
+        anchor(s, tx, !open, &hold, &hold);
+    }
+}
+
+/// Steps the open session's follow state with a disclosure opening or shutting, `row` the
+/// opened row and `header` the pressed one, and makes the hold it asks for: none at the
+/// timeline's end, where the end holds; scrolled up, the row or header (`follow::step`).
+pub fn anchor<S: TimelineHost>(s: &mut S, tx: &mut Tx, opening: bool, row: &str, header: &str) {
+    let id = s.active_session_id().map(str::to_owned);
+    if let Some(crate::follow::Effect::Keep(key)) = s.ends_mut().step(id.as_deref(), crate::follow::Event::Disclosure { opening, row, header }) {
+        tx.keep_on_screen(key);
     }
 }
 
@@ -80,13 +90,12 @@ pub fn is_shutting<S: TimelineHost>(s: &S, key: &str) -> bool {
 }
 
 /// A press handler that flips `key` at once: a disclosure opens and closes as a thought's does.
-/// `hold`, the pressed trigger, stays where it shows, at the timeline's end too, so what opens
-/// pushes the rows below it down rather than growing up past the pointer.
+/// `hold`, the pressed trigger, holds as [`anchor`] says.
 pub fn toggle<S: TimelineHost>(key: String, hold: String) -> impl Fn(&mut S, &mut Tx) + 'static {
     move |s: &mut S, tx: &mut Tx| {
         tx.instant();
-        toggle_expanded(s, &key);
-        tx.keep_on_screen(hold.clone());
+        let opening = toggle_expanded(s, &key);
+        anchor(s, tx, opening, &hold, &hold);
     }
 }
 
@@ -104,21 +113,15 @@ pub fn flip_fold<S: TimelineHost>(s: &mut S, key: &str) -> bool {
     open
 }
 
-/// Opens or shuts tool group `key` (`turns::group`). Its header holds where it shows, stuck at
-/// the timeline's top or not, while the row folds open or shut under it on its own spring: the timeline
-/// scrolls to keep it there rather than following its end.
+/// Opens or shuts tool group `key` (`turns::group`), the row folding open or shut on its own
+/// spring. The timeline holds as [`anchor`] says: at its end, the end stays and the header rides
+/// up as the steps open; scrolled up, the group's row keeps its top and the steps push the rows
+/// below down. One pressed half under the top edge keeps its row's top there, and the header,
+/// sticky once open, stops at the edge with its steps under it (p277).
 pub fn toggle_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 'static {
     move |s: &mut S, tx: &mut Tx| {
-        if flip_fold(s, &key) {
-            // Opening, the header is revealed rather than held: it turns sticky in the same
-            // commit, so one pressed half under the top edge draws stuck lower than it was, and
-            // holding that place chased it until its steps scrolled out of sight above it (p277).
-            // Revealed, it comes down to the edge with its steps under it, and one already in
-            // view stays put while they open below it.
-            tx.scroll_into_view(format!("{key}/trigger"));
-        } else {
-            tx.keep_on_screen(format!("{key}/trigger"));
-        }
+        let opening = flip_fold(s, &key);
+        anchor(s, tx, opening, &key, &format!("{key}/trigger"));
     }
 }
 

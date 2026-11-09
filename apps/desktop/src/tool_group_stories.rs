@@ -1,6 +1,6 @@
 //! The storybook's Long tool group story (Timeline › Long tool group): a turn that used 40
-//! tools, its group near the timeline's end as in Kit's capture (t988). O opens or shuts it with
-//! its header held where it is; S scrolls into the open group so its header sticks to the top;
+//! tools, its group near the timeline's end as in Kit's capture (t988). O opens or shuts it, the
+//! end held as Desktop's pinned timeline keeps it; S scrolls into the open group so its header sticks to the top;
 //! R replays open, scroll, then shut from the stuck header.
 
 use opencode_kit::model::{Assistant, Message, Part, ToolStatus};

@@ -425,7 +425,7 @@ fn grouped_read(st: &Step) -> bool {
 /// rail (`collapsed-tool-group`), 8 under the label and 8 apart. Plain reads in a row share a
 /// line, edits, writes and patches in a row share one card of files, and named skills in a row
 /// share one "Loaded" line, as Desktop's `CurrentContextToolGroup` merges them. The row springs
-/// open and shut on the timeline's growth with its header held in place
+/// open and shut on the timeline's growth, the timeline holding as Desktop's does
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
 /// the group scrolls past. `busy`: the group is the live end of the turn; `live`: the turn is
 /// still running, so a step still under way shimmers.

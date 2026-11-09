@@ -342,18 +342,14 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
 }
 
 /// Opens or shuts quiet compaction `id`'s summary, folding on the tool group's spring (the
-/// row's `fold_glide`). The divider holds where it was pressed, at the timeline's end too, so
-/// the summary pushes what's below it down; pressed while stuck to the top, it stays there as
-/// the summary folds away.
+/// row's `fold_glide`). The timeline holds as a tool group's does (Desktop's virtualizer: its
+/// `QuietCompaction` keeps no anchor of its own): opening at the timeline's end keeps the end
+/// and the divider rides up, scrolled up the summary pushes what's below it down; shutting holds
+/// the divider where it was pressed, stuck to the top or not.
 pub fn press<S: TimelineHost>(s: &mut S, tx: &mut Tx, id: &str) {
     let row = Piece::Quiet.key(id);
-    if crate::disclosure::flip_fold(s, &row) {
-        // Opening, the row's top holds: the divider turns sticky in the same commit, and a stuck
-        // divider's drawn place can't say how far the timeline's end ran on.
-        tx.keep_on_screen(row);
-    } else {
-        tx.keep_on_screen(format!("{row}/bar"));
-    }
+    let opening = crate::disclosure::flip_fold(s, &row);
+    crate::disclosure::anchor(s, tx, opening, &row, &format!("{row}/bar"));
 }
 
 /// A divider's hairline that brightens when the compaction ends, with a light that gathers

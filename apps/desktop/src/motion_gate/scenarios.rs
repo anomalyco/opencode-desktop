@@ -35,6 +35,8 @@ const ALLOW: &[Allow] = &[
     ("stop-start", "", "sends-behind-steers/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "stream/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
     ("stop-start", "", "line-reveal-", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
+    ("flicker", "trigger/arrow", "tool-group-shut-short/pinned/", "pressed open and shut at the timeline's end, the group's header rides up from under the still pointer and back down to it, as Desktop's end-anchored timeline moves it (virtualizer.tsx:379-385), so its arrow fades out and in with the hover as collapsible.css:26-29 fades it"),
+    ("jump", "-quiet/#0/bar", "compaction-open-at-bottom/pinned/long/wide/zoomed/", "opened at the timeline's end, the end holds as Desktop's virtualizer keeps it (virtualizer.tsx:379-385) and the summary, three thousand points zoomed, rides up from it on the fold's spring; the divider, 51 pt under the top of a viewport that shows 102, sticks there in the spring's first frame (disclosure::anchor, Rune ride_from_end)"),
     ("jerk", "timeline/", "compaction-open-at-bottom/", "the Compacted summary folds on the tool group's ~180 ms spring (p162, t1012), so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight, and from the stuck divider near the end the timeline's end holds as the divider settles onto the rows above (El::fold_glide)"),
     ("jerk", "timeline/", "tool-group-fold/", "Kit asked for a fold of about 180 ms (t1012): what shows of a 40-tool group folds that fast, so its speed changes by up to ~20 pt a frame and the rows under it ride it; shutting, the part below the timeline goes at once, out of sight (El::fold_glide)"),
     ("fade-snap", "labels/location", "home-hold/", "a Home row's location fades in under the pointer and hides at once when it leaves, as Desktop's HomeSessionLocation does (view.tsx:921-938)"),
@@ -450,9 +452,10 @@ const ACTIONS: &[Action] = &[
             }
         }
     } },
-    // A 40-tool group near the end opens and shuts in about 0.2 s with its header held where it
-    // was pressed; a second press mid-motion springs back from there; scrolled into, its header sticks to
-    // the top, and a press there shuts it in place (t988).
+    // A 40-tool group near the end opens and shuts in about 0.2 s with the end held, as Desktop's
+    // pinned timeline keeps it, its header riding up to stick to the top; a second press
+    // mid-motion springs back from there; scrolled up into it, a press on the stuck header shuts
+    // it in place (t988).
     Action { name: "tool-group-fold", circs: || {
         let base = Circ { long_group: true, ..Circ::default() };
         vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
@@ -465,31 +468,33 @@ const ACTIONS: &[Action] = &[
         // The group's own height, header and steps, as presented.
         let row_h = |r: &Run| r.rt.elements().into_iter().find(|e| e.key.as_deref() == Some(crate::tool_group_stories::GROUP)).map_or(0.0, |e| e.rect[3]);
         let shut_h = row_h(r);
+        let viewport = format!("scroll-{SID}");
         tap_trigger(r, Some(&path));
         r.play(0.3);
-        assert!(near(held(r), at), "{}: {:?} vs {:?}", "opening holds the header where it was pressed", held(r), at);
+        // At the end, as Desktop's virtualizer (`anchorTo: "end"`), the end holds and the header
+        // rides up until it sticks to the top over its steps.
+        assert_eq!(r.rt.scroll_at_bottom(&viewport), Some(true), "opening at the end keeps the end where it is");
         let open_h = row_h(r);
         r.play(0.3);
         assert!(open_h > shut_h + 300.0 && (row_h(r) - open_h).abs() < 0.5, "a 40-tool group is open within 0.3 s: {shut_h} -> {open_h} -> {}", row_h(r));
         tap_trigger(r, Some(&path));
         r.play(0.3);
-        assert!(near(held(r), at), "{}: {:?} vs {:?}", "shutting holds the header where it was pressed", held(r), at);
-        assert!((row_h(r) - shut_h).abs() < 0.5, "and shut within 0.3 s: {} vs {shut_h}", row_h(r));
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "shutting from the stuck header lands back on the end", held(r), at);
+        // Shutting at the end lets the rows above come down on the fold's spring; zoomed, its
+        // last half point is still settling at 0.3 s.
+        assert!((row_h(r) - shut_h).abs() < 1.0, "and shut within 0.3 s: {} vs {shut_h}", row_h(r));
         r.play(0.3);
         tap_trigger(r, Some(&path));
         r.play(0.06);
         tap_trigger(r, Some(&path));
         r.play(0.5);
-        assert!(near(held(r), at), "{}: {:?} vs {:?}", "a press mid-motion springs back with the header held", held(r), at);
+        assert!(near(held(r), at), "{}: {:?} vs {:?}", "a press mid-motion springs back to the end", held(r), at);
         assert!(row_h(r) < shut_h + 0.5, "reversed mid-fold, it shuts again: {} vs {shut_h}", row_h(r));
         tap_trigger(r, Some(&path));
         r.play(0.5);
-        // Scroll the header 200 pt past the timeline's top, into the open group.
-        let viewport = format!("scroll-{SID}");
-        let els = r.rt.elements();
-        let top_of = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key)).map_or(0.0, |e| e.rect[1]);
-        let dy = held(r).unwrap_or(0.0) - top_of(&viewport) + 200.0;
-        r.swipe_down(dy, 0.6);
+        // Opened at the end, the header sticks over its steps: scroll 200 pt up, off the end and
+        // still inside the open group.
+        r.swipe_up(200.0, 0.6);
         let stuck = r.rt.elements().into_iter().find(|e| e.path == path).map(|e| e.stuck).unwrap_or(0.0);
         assert!(stuck > 0.0, "scrolled into the open group, its header sticks to the top");
         let top = held(r);
