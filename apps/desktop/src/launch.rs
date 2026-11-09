@@ -333,7 +333,7 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
-    if s.launch.offline && s.launch.first.is_none() && s.live() && !crate::headless() {
+    if s.launch.offline && s.launch.first.is_none() && s.live() && crate::attended() {
         if s.clock + 1e-3 < s.launch.next_retry {
             return false;
         }
