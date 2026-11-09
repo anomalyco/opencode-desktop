@@ -146,7 +146,10 @@ impl App {
                 self.insert_trigger("@");
                 self.sync_mentions();
             }
-            Item::Shell => self.enter_shell(),
+            Item::Shell => {
+                tx.animated();
+                self.enter_shell();
+            }
         }
     }
 
@@ -237,7 +240,8 @@ impl App {
         if self.composer.preedit().is_some() || self.mentions.open || !self.composer_mode(event) {
             return false;
         }
-        tx.instant();
+        // The + button and the pickers fade back in (`editor.tsx:178-182`).
+        tx.animated();
         true
     }
 
@@ -367,8 +371,10 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .focus_ring(2.0, -2.0, p.v2.border_focus)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
+        // It shows and goes at once with all it holds, as Desktop's `<Show>` does.
+        .transition(rune::Transition::none())
+        .instant_changes()
+        .on_press_tx(|s: &mut App, _: &mut Tx| {
             s.exit_shell();
             s.composer.focused = true;
         })

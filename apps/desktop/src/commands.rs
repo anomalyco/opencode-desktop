@@ -247,7 +247,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn toggle_shell(s: &mut App, tx: &mut Tx) {
-    tx.instant();
+    tx.animated();
     if s.add.shell() { s.exit_shell() } else { s.enter_shell() }
 }
 

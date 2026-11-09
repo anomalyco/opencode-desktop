@@ -186,7 +186,8 @@ impl ComposerHost for App {
     }
     fn composer_on_change(&mut self, tx: &mut Tx) {
         if self.composer_typed() {
-            tx.instant();
+            // The + button and the pickers fade out over 200 ms (`editor.tsx:178-182`).
+            tx.animated();
             return;
         }
         crate::quote::typed(self, tx);
@@ -284,7 +285,8 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     out.push(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children(actions));
     out.extend(crate::auto_accept::indicator(s, p));
     // Shell mode keeps only Exit beside Send (`editor.tsx:491-528`), unless a dictation runs.
-    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating));
+    // It goes and comes back at once, so Exit never lands over it.
+    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating).map(|m| m.transition(rune::Transition::none()).instant_changes()));
     out
 }
 
