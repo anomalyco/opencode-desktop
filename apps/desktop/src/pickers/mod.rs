@@ -17,6 +17,9 @@ impl PickerHost for App {
     fn pickers_mut(&mut self) -> &mut Pickers {
         &mut self.pickers
     }
+    fn picker_provider_mark(&self, p: &crate::palette::Pal, provider: &str) -> Option<rune::El> {
+        Some(crate::widgets::provider_mark(provider, p.icon))
+    }
     fn picker_scope(&self) -> String {
         match &self.route { Route::Session(id) => id.clone(), _ => "draft".into() }
     }

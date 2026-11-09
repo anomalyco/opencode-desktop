@@ -10,6 +10,7 @@
 //! [`view::layer`] over its window and calls [`hover::poll`] each frame.
 
 pub mod dialog;
+pub mod drawer;
 pub mod flyout;
 mod host;
 pub mod hover;

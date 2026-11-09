@@ -50,6 +50,11 @@ pub trait PickerHost: ComposerHost {
     /// Connect was pressed; the list has closed.
     fn picker_model_action(&mut self, _action: ModelAction, _tx: &mut Tx) {}
 
+    /// A provider's mark beside its name in the narrow window's model drawer.
+    fn picker_provider_mark(&self, _p: &Pal, _provider: &str) -> Option<El> {
+        None
+    }
+
     /// The project picker's rows (a host without one lists none).
     fn picker_projects(&self) -> Vec<Item> {
         Vec::new()

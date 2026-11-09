@@ -21,10 +21,8 @@ pub const PENDING_TTL: f64 = 5.0;
 /// (`MOBILE_TABS_CLOSE_TIMEOUT_MS`).
 pub const TABS_CLOSE_TIMEOUT: f64 = 0.5;
 
-/// A drawer's slide in (`mobile-drawer.css`: `transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1)`).
-pub const SLIDE_IN: f64 = 0.24;
-/// Its slide out (`[data-closing] { transition-duration: 200ms }`).
-pub const SLIDE_OUT: f64 = 0.2;
+/// A drawer's slide out (`mobile-drawer.css`: `[data-closing] { transition-duration: 200ms }`).
+pub const SLIDE_OUT: f64 = session_view::sheet::SLIDE_OUT as f64;
 
 // ---------------------------------------------------------------------------------------------
 // Mode

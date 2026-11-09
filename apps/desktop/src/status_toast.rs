@@ -328,7 +328,13 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .on_press(|_: &mut App| {})
         .child(body);
 
-    // Sonner's region: 32 in from the window's right, 48 up from its bottom (`toast.tsx` offset).
+    // Sonner's region: 32 in from the window's right, 48 up from its bottom (`toast.tsx` offset);
+    // at 600 pt or narrower, 16 in from its left and bottom, 64 short of its width
+    // (`toast.css:226`, Sonner's mobile offsets).
+    let width = s.layout.narrow.width();
+    if width > 0.0 && width <= 600.0 {
+        return Some(card.w(width - 64.0).pin(Some(16.0), None, None, Some(16.0)).raise());
+    }
     Some(card.pin(None, None, Some(32.0), Some(48.0)).raise())
 }
 

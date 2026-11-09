@@ -12,6 +12,12 @@ use crate::style::UI;
 
 /// The open picker over everything: the model dialog, or a menu over a scrim that closes it.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
+    // A narrow window picks from drawers (`composer.tsx:192`, `editor.tsx:1126`); a project
+    // keeps its menu.
+    if crate::style::narrow() && s.pickers().open.is_some_and(|k| k != Kind::Project) {
+        let win_h = rune::memo::layout_with("zoom", |r| r[3]).map_or(800.0, |h| h / s.zoom());
+        return super::drawer::layer(s, p, win_h);
+    }
     match s.pickers().open {
         None => super::manage::layer(s, p),
         Some(Kind::Model) => super::dialog::layer(s, p),

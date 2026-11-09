@@ -17,6 +17,15 @@ use opencode_i18n::t;
 const HEAD_H: f32 = 6.0 + 28.0 + 17.0;
 /// A compact row (`search-list-row[data-size=compact]`) and a section header, both 28 tall.
 const ROW_H: f32 = 28.0;
+/// A row whose description goes under its title in a window 640 pt or narrower (`min-height: 40px`).
+const STACKED_H: f32 = 40.0;
+
+/// Whether `e`'s row stacks its description under its title: the window is 640 pt or narrower
+/// and it has one (a file's row keeps its own line).
+fn stacked(s: &App, e: &Entry) -> bool {
+    let w = s.layout.narrow.width();
+    w > 0.0 && w <= 640.0 && !e.description.is_empty() && !matches!(e.action, Action::File(_))
+}
 /// Rows and the header sit 4 apart in a section, and a section ends 4 above the next
 /// (`dialog.css:196-202`).
 const GAP: f32 = 4.0;
@@ -110,7 +119,8 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         for e in &entries[i..end] {
             section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, w));
         }
-        content_h += ROW_H + (end - i) as f32 * (ROW_H + GAP) + if last { 0.0 } else { GAP };
+        let tall = entries[i..end].iter().filter(|e| stacked(s, e)).count() as f32;
+        content_h += ROW_H + (end - i) as f32 * (ROW_H + GAP) + tall * (STACKED_H - ROW_H) + if last { 0.0 } else { GAP };
         results = results.child(section);
         i = end;
     }
@@ -180,7 +190,7 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
             let trailing_w = trailing.as_ref().map_or(0.0, |(_, w)| w + 8.0);
             let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
             let archived = s.switcher.mode == SwitcherMode::Archived;
-            row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(row_text(p, e, q, text_w, archived))
+            row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(row_text(p, e, q, text_w, archived, stacked(s, e)))
         }
     };
     let r = row()
@@ -188,7 +198,7 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .role("option")
         .label(e.title.clone())
         .w_full()
-        .h(ROW_H)
+        .h(if stacked(s, e) { STACKED_H } else { ROW_H })
         .px(6.0)
         .gap(8.0)
         .center_y()
@@ -219,10 +229,16 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
 /// `command-palette-row-text`: the title (`palette-menu-title`, 13 at 530) and, 6 after it, the
 /// description in `text-faint` taking what is left; with a description the title keeps at most
 /// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
-fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool) -> El {
+fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
     // Each in its own direction (`dialog.tsx:166-171`, `:236-243`).
     let title = highlighted(&e.title, q, UI_MED, fade(p.text), p.accent).truncate().dir(rune::Direction::Auto);
+    // At 640 pt or narrower the description goes under the title (`dialog.css:127-138`).
+    if stacked {
+        return col().key("words").grow(1.0).shrink().min_w(0.0).gap(1.0)
+            .child(title.shrink().min_w(0.0))
+            .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto));
+    }
     let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
     if e.description.is_empty() {
         return words.child(title.shrink().min_w(0.0));

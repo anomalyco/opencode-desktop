@@ -8,7 +8,12 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        let typed = !self.composer.text.is_empty();
         self.record_sent(|s| s.send_prompt(alternate, tx));
+        // A narrow window lets go of the composer once it sends (`submit.ts:436`).
+        if self.narrow() && typed && self.composer.text.is_empty() {
+            self.composer.focused = false;
+        }
     }
 
     fn send_prompt(&mut self, alternate: bool, tx: &mut Tx) {
