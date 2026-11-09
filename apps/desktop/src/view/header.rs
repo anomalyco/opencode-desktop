@@ -176,8 +176,9 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
         Some(field) => row().key("title").h(28.0).px(4.0).center_y().min_w(0.0).shrink().child(field),
         None => {
             let begin = target.clone();
-            // The title in its own direction (`session-identity-header.tsx:263`).
-            let mut t = row().key("title").dir(rune::Direction::Auto).role("button").focusable(true).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            // The title in its own direction (`session-identity-header.tsx:263`): an `h1` that renames
+            // on a click, no Tab stop (`message-timeline.tsx:540-547`).
+            let mut t = row().key("title").dir(rune::Direction::Auto).role("heading").label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);

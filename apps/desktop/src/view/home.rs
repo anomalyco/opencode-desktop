@@ -136,18 +136,19 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
         .pb(if tier == Tier::Narrow { 4.0 } else { 12.0 })
         .fill(p.bg_base)
         .sticky_top(0.0);
+    header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow));
     if !groups.is_empty() && can_create {
         // `absolute right-0 top-[108px] z-20`: on the first group's line, staying while the list
-        // scrolls, under the search's results (`z-30`).
-        // `right-0` is physical, so it stays on the right right to left as well.
-        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None).unmirrored());
+        // scrolls, under the search's results (`z-30`), and after the search in Tab order, as in
+        // Desktop's DOM. `right-0` is physical, so it stays on the right right to left as well.
+        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None).unmirrored().paint_order(-1));
     }
-    header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow));
 
     // The groups' `pt-1 md:pt-3 pb-16`; the empty state sits straight in the list.
     let count = groups.len();
     // While the pointer is on the list its order holds, so no row moves under it (`list.rs`).
-    let mut list = col().key("groups").role("list").focus_group().w_full().on_hover_change(|s: &mut App, inside, tx: &mut Tx| s.hold_home_order(inside, tx));
+    // Every row is a Tab stop of its own, as Desktop's row buttons are; arrows don't move between them.
+    let mut list = col().key("groups").role("list").w_full().on_hover_change(|s: &mut App, inside, tx: &mut Tx| s.hold_home_order(inside, tx));
     if count > 0 {
         list = list.pt(if tier == Tier::Narrow { 4.0 } else { 12.0 }).pb(64.0);
     }
