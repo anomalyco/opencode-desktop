@@ -109,6 +109,7 @@ const ALLOW: &[Allow] = &[
     ("pop-out", "status-toast", "", "toasts appear and dismiss at once, as Desktop's instant utility UI does (status_toast::view)"),
     ("jerk", "editor-pad/prompt", "long-prompt", "a 26-line paste grows the editor to its 180 pt cap from rest, and the send drops it back: a spring's first frames over a long way (view::composer). The fold and the flight are what these cells check"),
     ("jump", "picker-options/lit-", "model-efforts", "the pointer lights its row in the frame it gets there, as Desktop's list paints its active row's background with no transition (list.css:289-292); only the arrow keys slide the fill (popover::slide, p169)"),
+    ("fade-snap", "/shade", "model-efforts", "the eased fade under a stuck group header shows as far as rows have scrolled beneath it, so it steps with the scroll, as Desktop sets --model-dialog-header-fade from the scroll position (select-dialog.tsx:817); the arrow keys move the list a row at once"),
     ("jump", "option-", "model-efforts", "the lit row shows its effort (Default ›) at once, so its words give it the room in that frame, as Desktop's row does (session_view::pickers::dialog::model_row)"),
     ("pop-in", "option-", "model-efforts", "the lit row's effort (Default ›) shows at once with its highlight, as Desktop's row does (session_view::pickers::dialog::model_row)"),
     ("pop-out", "option-", "model-efforts", "the row the pointer leaves drops its effort at once with its highlight (session_view::pickers::dialog::model_row)"),

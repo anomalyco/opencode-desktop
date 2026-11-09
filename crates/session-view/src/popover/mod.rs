@@ -333,6 +333,10 @@ impl List {
                     .stuck_shadow(band).sticky_top(0.0).stuck_fade(top + HEADER_H - 2.0 - self.look.head, 16.0)
                     .child(row().key("label").grow(1.0).shrink().min_w(0.0).h_full().center_y().fill(stuck.fill)
                         .child(text(label.to_owned()).font(HEADER).color(p.faint).shrink().truncate()))
+                    // `::after`: the home page's 16 pt eased fade under the stuck header, faded in by
+                    // how far rows have scrolled beneath it, whole at 16 (`select-dialog.tsx:817`).
+                    .child(rune::el().key("shade").absolute(0.0, top + HEADER_H).w_full().h(16.0)
+                        .linear_gradient(std::f32::consts::PI, crate::style::eased_fade(stuck.fill)).stuck_reveal(16.0))
             }
             None => group_header(p, self.look, key, label, top),
         };
@@ -389,10 +393,10 @@ impl List {
     /// The scroll keyed `key`, at most `max_h` tall.
     pub fn build(self, key: &str, max_h: f32) -> El {
         let list = col().key(self.key).w_full().padding(self.look.inset).pt(self.top).gap(self.look.row_gap).children(self.under).children(self.rows);
-        // A stuck header's 16 point eased fade, whole once 16 points are hidden under it, and the
-        // list's 24 point linear mask at its bottom (`search-list.css`'s `--search-list-edge`).
+        // The list's 24 point linear mask at its bottom (`search-list.css`'s `--search-list-edge`);
+        // under a stuck header its gradient fades the rows instead.
         let fade = if self.stuck.is_some() {
-            rune::ScrollFade::strength(16.0).full_at(16.0).below_sticky().with_end(rune::ScrollFade::strength(24.0).linear())
+            rune::ScrollFade::strength(24.0).linear().end_only()
         } else {
             rune::ScrollFade::strength(8.0)
         };

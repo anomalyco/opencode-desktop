@@ -177,7 +177,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             // cover over the gap above it, and a 16 pt eased gradient into the rows under it; only
             // the title fades as the next header comes up.
             .child(el().key("cover").absolute(0.0, -12.0).w_full().h(12.0).fill(p.bg_base))
-            .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, eased_shade(p.bg_base)));
+            .child(el().key("shade").absolute(0.0, 28.0).w_full().h(16.0).linear_gradient(std::f32::consts::PI, session_view::style::eased_fade(p.bg_base)));
         // `gap-px pt-2 md:pt-4`, `mb-6` but the last. Rows are the list's own children, so one
         // that changes day glides to its new group rather than leaving one and entering another.
         list = list.child(head).child(el().key(format!("pad-{title}")).w_full().h(if tier == Tier::Narrow { 8.0 } else { 16.0 }));
@@ -202,12 +202,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     column.child(header).child(list).scroll_bar_hover("home")
 }
 
-/// The eased fade of a group header's `::after` (`index.css:224-243`), `bg` at full strength into
-/// clear, at eight of its sixteen stops (Rune draws up to eight).
-fn eased_shade(bg: Color) -> [(f32, Color); 8] {
-    [(0.0, 1.0), (0.1414, 0.849947), (0.2285, 0.729394), (0.3191, 0.574815), (0.4465, 0.411884), (0.599, 0.276484), (0.8387, 0.10416), (1.0, 0.0)]
-        .map(|(at, a)| (at, bg.alpha(bg.a * a)))
-}
+
 
 /// The ghost-muted New session button (`h-7 px-2 [font-weight:530]`, the `edit` icon).
 fn new_session_button(p: &Pal) -> El {

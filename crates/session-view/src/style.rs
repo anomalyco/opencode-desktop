@@ -440,3 +440,14 @@ pub fn interrupted_label(p: &Pal) -> El {
         .transition(Transition::asymmetric(arrive, Transition::opacity()).springs(SpringPair::new(Spring::new(0.24, 0.0), Spring::new(0.12, 0.0))))
         .child(text(opencode_i18n::t!("ui.message.interrupted")).font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
 }
+
+/// Desktop's eased fade into clear (`index.css:224-243`, `select-dialog.css:131-148`): `bg` at
+/// full strength through its sixteen stops, as CSS writes an eased curve as a stop list.
+pub fn eased_fade(bg: Color) -> [(f32, Color); 16] {
+    [
+        (0.0, 1.0), (0.0793, 0.920456), (0.1414, 0.849947), (0.19, 0.786813), (0.2285, 0.729394), (0.2605, 0.676028),
+        (0.2895, 0.625055), (0.3191, 0.574815), (0.3527, 0.523647), (0.394, 0.46989), (0.4465, 0.411884), (0.5136, 0.347969),
+        (0.599, 0.276484), (0.7062, 0.195767), (0.8387, 0.10416), (1.0, 0.0),
+    ]
+    .map(|(at, a)| (at, bg.alpha(bg.a * a)))
+}
