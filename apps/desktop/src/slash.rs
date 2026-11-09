@@ -132,11 +132,12 @@ impl App {
     /// The commands the query finds by name or title (`editor/interaction.ts:336-340`), best first.
     pub fn slash_items(&self) -> Vec<Item> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        let needle = query.to_lowercase();
-        let mut scored: Vec<(i64, Item)> = self.slash_list().into_iter()
-            .filter_map(|c| Some((crate::mentions::fuzzy(&needle, &c.name).max(crate::mentions::fuzzy(&needle, &c.title))?, c)))
+        use crate::mentions::fuzzy::{Needle, Prepared, score};
+        let needle = Needle::new(&query);
+        let mut scored: Vec<_> = self.slash_list().into_iter()
+            .filter_map(|c| Some((score(&needle, &Prepared::new(&c.name)).max(score(&needle, &Prepared::new(&c.title)))?, c)))
             .collect();
-        scored.sort_by_key(|(s, _)| -s);
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
         scored.into_iter().map(|(_, c)| c).collect()
     }
 

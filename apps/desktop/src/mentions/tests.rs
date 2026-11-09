@@ -1,4 +1,5 @@
 use super::*;
+use opencode_kit::model::SessionInfo;
 use rune::Runtime;
 
 #[test]
@@ -12,21 +13,6 @@ fn the_trigger_follows_desktops_patterns() {
     assert_eq!(trigger("@fix  the", true), None);
     assert_eq!(trigger("@ fix", true), None);
     assert_eq!(trigger("a\n@x", false), Some((2, "x")));
-}
-
-#[test]
-fn session_titles_match_word_starts() {
-    assert!(matches_session_title("Fix flaky reconnect", "fla rec"));
-    assert!(matches_session_title("Fix flaky reconnect", "FIX"));
-    assert!(!matches_session_title("Fix flaky reconnect", "fix rec"));
-    assert!(!matches_session_title("HOME", "home "));
-    assert!(matches_session_title("HOME base", "home "));
-}
-
-#[test]
-fn fuzzy_prefers_substrings() {
-    assert!(fuzzy("exp", "@explore").unwrap() > fuzzy("epl", "@explore").unwrap());
-    assert!(fuzzy("xyz", "@explore").is_none());
 }
 
 #[test]
@@ -109,8 +95,8 @@ fn at_lists_skills_agents_and_sessions_and_filters() {
     assert!((popover.target[2] - composer.target[2]).abs() < 0.1, "full width");
     let all = keys(&rt);
     assert_eq!(&all[..3], ["skill:opencode", "agent:general", "agent:explore"]);
-    // The open session isn't offered; the five newest others are.
-    assert_eq!(all.iter().filter(|k| k.starts_with("session:")).count(), 5);
+    // The open session and its subagent aren't offered; this project's other three are.
+    assert_eq!(all.iter().filter(|k| k.starts_with("session:")).count(), 3);
     assert!(!all.contains(&"session:ses_fx0001aaaaaaaaaaaaaaaaaa".to_owned()));
     assert_eq!(rt.state.mention_active(&rt.state.mention_items()).as_deref(), Some("skill:opencode"));
 
@@ -212,6 +198,56 @@ fn row_text_stays_inside_its_row() {
     check(&rt, "backspace");
 }
 
+/// Kit's Scrawl (Nov 8): clicking a row closed the popover and left `@rune` as typed. The
+/// press blurred the composer, which closed the popover before the release landed.
+#[test]
+fn clicking_a_row_picks_it_on_press() {
+    let mut rt = runtime();
+    tap(&mut rt, "prompt");
+    typed(&mut rt, "ask @exp");
+    let (x, y) = rt.find("mention-agent:explore").expect("the row shows");
+    rt.pointer_down(x, y);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.composer.text, "ask @explore ", "the press picks, before the release");
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.composer.text, "ask @explore ");
+    assert_eq!(rt.state.composer.pills().map(|(_, id)| id.to_owned()).collect::<Vec<_>>(), ["agent:explore"]);
+    assert!(rt.state.composer.focused, "typing carries on");
+    assert!(shown(&rt, "mentions").is_none());
+    typed(&mut rt, "x");
+    assert_eq!(rt.state.composer.text, "ask @explore x");
+}
+
+/// Kit's Scrawl (Nov 8): `@runedes` and `@runedesktop` listed files, never the session
+/// "RUNE DESKTOP"; he had to type the space.
+#[test]
+fn spaceless_queries_find_sessions_first() {
+    let mut rt = runtime();
+    crate::mentions::bench_tests::large(&mut rt);
+    tap(&mut rt, "prompt");
+    for typed_query in ["runedes", "runedesktop", "rune des", "RuneDesk"] {
+        typed(&mut rt, &format!(" @{typed_query}"));
+        let found = keys(&rt);
+        assert_eq!(found.first().map(String::as_str), Some("session:ses_benchrunedesktopaaaaaaa"), "{typed_query}: {:?}", &found[..found.len().min(4)]);
+        assert!(found.iter().all(|k| !k.starts_with("file:research/")), "{typed_query}: scattered letters across a path aren't a match");
+        key(&mut rt, Key::Escape);
+    }
+}
+
+#[test]
+fn the_whole_name_then_its_start_then_a_word() {
+    let mut rt = runtime();
+    let s = |id: &str, title: &str, updated| SessionInfo { id: id.into(), title: title.into(), project: rt.state.sessions[0].project.clone(), directory: rt.state.sessions[0].directory.clone(), updated, ..Default::default() };
+    let added = [s("ses_wordaaaaaaaaaaaaaaaaaaaa", "Pin the rune dev rev", 30), s("ses_prefixaaaaaaaaaaaaaaaaaa", "RUNE DESKTOP", 20), s("ses_exactaaaaaaaaaaaaaaaaaaa", "RUNE", 10)];
+    rt.state.sessions.extend(added);
+    rt.state.mentions.skills.push(Skill { id: "rune-ui".into(), name: "rune-ui".into(), description: String::new() });
+    tap(&mut rt, "prompt");
+    typed(&mut rt, "@rune");
+    let found = keys(&rt);
+    assert_eq!(&found[..4], ["session:ses_exactaaaaaaaaaaaaaaaaaaa", "skill:rune-ui", "session:ses_prefixaaaaaaaaaaaaaaaaaa", "session:ses_wordaaaaaaaaaaaaaaaaaaaa"], "{found:?}");
+}
+
 #[test]
 fn multi_word_queries_list_sessions_only() {
     let mut rt = runtime();
@@ -260,17 +296,14 @@ fn keys_move_wrap_and_pick_into_a_pill() {
 }
 
 #[test]
-fn files_follow_sessions_and_pick_into_a_pill() {
+fn files_rank_with_sessions_and_pick_into_a_pill() {
     let mut rt = runtime();
     tap(&mut rt, "prompt");
     typed(&mut rt, "@");
     assert!(keys(&rt).iter().all(|k| !k.starts_with("file:")), "no file search without a query");
     typed(&mut rt, "rec");
-    let found = keys(&rt);
-    let first_file = found.iter().position(|k| k.starts_with("file:")).expect("files listed");
-    assert!(found[..first_file].iter().all(|k| !k.starts_with("file:")));
-    assert!(found[first_file..].iter().all(|k| k.starts_with("file:")), "{found:?}");
-    assert_eq!(found[first_file], "file:src/stream/reconnect.rs");
+    // A word that starts with "rec" beats "Re…c…" across a title.
+    assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs", "session:ses_fx0007aaaaaaaaaaaaaaaaaa"]);
     typed(&mut rt, "onnect.rs");
     assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs"]);
     let row = shown(&rt, "mention-file:src/stream/reconnect.rs").expect("the row shows");

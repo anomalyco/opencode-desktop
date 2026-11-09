@@ -14,11 +14,12 @@ use opencode_kit::client::Server;
 use opencode_kit::model::{self, SessionInfo};
 
 use crate::palette::Pal;
-use crate::view::title_of;
 use crate::{App, Route, Source};
 use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key, upsert_sessions};
 
 pub mod badge;
+pub mod fuzzy;
+mod index;
 pub mod list;
 mod wire;
 
@@ -93,6 +94,8 @@ pub struct Mentions {
     files_fetch: Latest<(String, Vec<String>)>,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
+    /// What the rows are matched against, kept until what they come from changes.
+    cache: std::cell::RefCell<index::Cache>,
 }
 
 impl Default for Mentions {
@@ -113,6 +116,7 @@ impl Default for Mentions {
             files_asked: None,
             files_fetch: Latest::default().debounce(FILE_DEBOUNCE),
             file_index: Vec::new(),
+            cache: Default::default(),
         }
     }
 }
@@ -189,9 +193,11 @@ impl Mentions {
         });
     }
 
-    /// Files for a one-word query, after a pause for more typing.
+    /// Files for a query, spaces left out, after a pause for more typing.
     fn ask_files(&mut self, server: &Server, directory: String, query: &str) {
-        if query.trim().is_empty() || query.contains(char::is_whitespace) {
+        let query: String = query.split_whitespace().collect();
+        let query = query.as_str();
+        if query.is_empty() {
             if self.files_asked.take().is_some() {
                 self.files_fetch.cancel();
             }
@@ -285,54 +291,6 @@ pub fn trigger(before: &str, open: bool) -> Option<(usize, &str)> {
     ok.then_some((at, query))
 }
 
-/// `matchesSessionTitle`: each query word starts consecutive title words, ignoring case. A
-/// trailing space asks for one more title word.
-#[cfg(test)]
-pub fn matches_session_title(title: &str, query: &str) -> bool {
-    rank_session_title(title, query).is_some()
-}
-
-/// `rankSessionTitle` (`composer/session-match.ts:6-18`): 0 for the whole title, 1 when the
-/// query's words start the title's first words, 2 when they start later ones; none otherwise.
-pub fn rank_session_title(title: &str, query: &str) -> Option<u8> {
-    if title.to_lowercase() == query.to_lowercase() {
-        return Some(0);
-    }
-    let words: Vec<String> = query.to_lowercase().split(' ').map(str::to_owned).collect();
-    let title = title.to_lowercase();
-    let titles: Vec<&str> = title.split_whitespace().collect();
-    let start = (0..titles.len()).find(|start| words.iter().enumerate().all(|(i, w)| titles.get(start + i).is_some_and(|t| t.starts_with(w.as_str()))))?;
-    Some(if start == 0 { 1 } else { 2 })
-}
-
-/// A fuzzy match of `needle` (lowercase) in `hay`, higher is better: a substring beats a
-/// scattered match, and earlier and tighter beat later and looser.
-pub fn fuzzy(needle: &str, hay: &str) -> Option<i64> {
-    let hay = hay.to_lowercase();
-    if needle.is_empty() {
-        return Some(0);
-    }
-    if let Some(at) = hay.find(needle) {
-        return Some(10_000 - at as i64 * 10 - (hay.len() - needle.len()) as i64);
-    }
-    let mut chars = hay.char_indices();
-    let (mut first, mut last) = (None, 0);
-    for n in needle.chars() {
-        let (i, _) = chars.find(|&(_, c)| c == n)?;
-        first.get_or_insert(i);
-        last = i;
-    }
-    Some(5_000 - (last - first.unwrap_or(0)) as i64 * 10 - hay.len() as i64)
-}
-
-/// Filters and ranks `items` by [`fuzzy`] score against `query` (best first, ties in input order).
-pub fn fuzzy_rank<T>(query: &str, items: impl IntoIterator<Item = T>, label: impl Fn(&T) -> &str) -> Vec<T> {
-    let needle = query.to_lowercase();
-    let mut scored: Vec<(i64, T)> = items.into_iter().filter_map(|i| Some((fuzzy(&needle, label(&i))?, i))).collect();
-    scored.sort_by_key(|(s, _)| -s);
-    scored.into_iter().map(|(_, i)| i).collect()
-}
-
 impl App {
     /// The composer's directory: the open session's, or where a new one starts.
     pub fn composer_directory(&self) -> String {
@@ -402,86 +360,6 @@ impl App {
             .into_iter()
             .filter(|s| Some(s.id.as_str()) != current && session_id_ok(&s.id))
             .collect()
-    }
-
-    /// The popover's rows: skills, then agents (both fuzzy on their labels), then sessions whose
-    /// titles match. A query with a space only lists sessions.
-    pub fn mention_items(&self) -> Vec<Item> {
-        let Some(query) = self.mention_query() else { return Vec::new() };
-        // `searchSessions` (`composer/model.ts:360-407`): this project's sessions first, then by
-        // how well the title matches, then those open in a tab, then the newest. A bare `@`
-        // offers only this project's.
-        let project = self.project_at(&self.composer_directory()).map(|p| p.id.clone());
-        let directory = self.composer_directory();
-        let mut ranked: Vec<(bool, u8, bool, &SessionInfo)> = self
-            .mention_sessions()
-            .into_iter()
-            .filter_map(|s| {
-                let local = project.as_ref().is_none_or(|id| *id == s.project) || s.directory == directory;
-                if query.is_empty() && !local {
-                    return None;
-                }
-                let rank = if query.is_empty() { 0 } else { rank_session_title(&title_of(s), &query)? };
-                Some((local, rank, self.tabs.iter().any(|t| t.id == s.id), s))
-            })
-            .collect();
-        // Stable on the newest-first order `mention_sessions` keeps.
-        ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(b.2.cmp(&a.2)));
-        let sessions: Vec<Item> = ranked
-            .into_iter()
-            .take(SESSIONS)
-            .map(|(_, _, _, s)| {
-                let title = title_of(s);
-                Item {
-                    key: format!("session:{}", s.id),
-                    kind: Kind::Session,
-                    content: format!("@{title}"),
-                    label: title,
-                    description: self.project_label(s),
-                }
-            })
-            .collect();
-        if query.contains(char::is_whitespace) {
-            return sessions;
-        }
-        let skills = self.mentions.skills.iter().map(|s| Item {
-            key: format!("skill:{}", s.id),
-            kind: Kind::Skill,
-            label: format!("@{}", s.id),
-            description: s.description.split_whitespace().collect::<Vec<_>>().join(" "),
-            content: format!("@{}", s.id),
-        });
-        let agents = self.mentions.agents.iter().map(|(name, _)| Item {
-            key: format!("agent:{name}"),
-            kind: Kind::Agent,
-            label: format!("@{name}"),
-            description: String::new(),
-            content: format!("@{name}"),
-        });
-        let mut out = fuzzy_rank(&query, skills, |i| &i.label);
-        out.extend(fuzzy_rank(&query, agents, |i| &i.label));
-        out.extend(sessions);
-        out.extend(self.mention_files(&query).into_iter().map(|path| {
-            let shown = shown_path(&path);
-            Item { key: format!("file:{path}"), kind: Kind::File, content: format!("@{shown}"), label: shown, description: String::new() }
-        }));
-        out
-    }
-
-    /// Files for a query: the fixture's, searched here, or the server's latest answer. Until
-    /// the server answers a new query, the last answer stays, narrowed to what still matches.
-    fn mention_files(&self, query: &str) -> Vec<String> {
-        if query.trim().is_empty() {
-            return Vec::new();
-        }
-        let narrow = |paths: &[String]| -> Vec<String> {
-            fuzzy_rank(query, paths.iter().cloned(), String::as_str).into_iter().take(FILE_LIMIT).collect()
-        };
-        match &self.source {
-            Source::Live { .. } if self.mentions.files.0 == query => self.mentions.files.1.clone(),
-            Source::Live { .. } => narrow(&self.mentions.files.1),
-            _ => narrow(&self.mentions.file_index),
-        }
     }
 
     /// The highlighted row: the one picked under this query, else the first.
@@ -626,3 +504,5 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod bench_tests;

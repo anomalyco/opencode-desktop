@@ -109,8 +109,8 @@ pub fn popup(
     let count = rows.len();
     let mut list = col().key(format!("{}-list", spec.key)).w_full().padding(PAD);
     for r in rows {
-        let (id, id_hover) = (r.id.clone(), r.id.clone());
-        let (hover, pick) = (hover.clone(), pick.clone());
+        let (id, id_hover, id_press) = (r.id.clone(), r.id.clone(), r.id.clone());
+        let (hover, pick, press) = (hover.clone(), pick.clone(), pick.clone());
         let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(r.lead);
         words = words.child(text(r.label.clone()).key("label").font(UI).color(p.text));
         if !r.description.is_empty() {
@@ -136,9 +136,17 @@ pub fn popup(
                         hover(s, &id_hover);
                     }
                 })
+                // A row picks on the press, as a menu does: by the release the pick has landed.
+                .on_drag(move |s: &mut App, d, tx: &mut Tx| {
+                    if d.phase == rune::Phase::Down {
+                        s.composer.focused = true;
+                        pick(s, &id, tx);
+                    }
+                })
+                // VoiceOver's press, which has no pointer.
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     s.composer.focused = true;
-                    pick(s, &id, tx);
+                    press(s, &id_press, tx);
                 })
                 .child(words)
                 .children(trail),
@@ -167,6 +175,9 @@ pub fn popup(
         .fill(p.bg_base)
         .clip_soft(0.0)
         .transition(rune::Transition::none())
+        // A press anywhere on it leaves the composer focused: a blur would close the popover
+        // under the pointer before its row's press landed (Kit's Scrawl, Nov 8).
+        .preserve_focus_on_press(true)
         .on_press(|_: &mut App| {})
         .child(body)
 }
