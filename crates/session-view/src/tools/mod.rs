@@ -62,6 +62,9 @@ pub struct Ctx<'a> {
     /// The turn is still running. A call a finished or stopped turn left pending or running is
     /// [`Phase::Stopped`]: it never shimmers, so an idle window draws nothing.
     pub live: bool,
+    /// How far below the timeline's top a header in these calls sticks, as Desktop's
+    /// `--sticky-accordion-top` says: under an open group's header, else at the top.
+    pub sticky: f32,
 }
 
 /// Where a call is in its run.
@@ -203,7 +206,7 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         return build();
     }
     let mut h = std::hash::DefaultHasher::new();
-    (cx.session, cx.live, p.theme, p.generation, p.dark, s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
+    (cx.session, cx.live, cx.sticky.to_bits(), p.theme, p.generation, p.dark, s.reduced_motion(), s.session_directory(cx.session), s.timeline_detail()).hash(&mut h);
     let copied = crate::copied::current(s);
     for c in calls {
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);

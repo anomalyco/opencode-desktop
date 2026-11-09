@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::{Call, Ctx, Display, Press, TEXT_CONTEXT, Trigger, field, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{INSTANT, UI, UI_MED, readable};
+use crate::style::{HOVER_FADE, UI, UI_MED, readable};
 
 /// A file row's `+N -M` (`DiffChanges`, standard): 14 px mono, regular.
 const COUNTS: rune::TextStyle = rune::TextStyle::new(14.0, 440.0).mono().lh(21.0);
@@ -243,7 +243,9 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     // The host's button sits beside the row's words, a sibling of its button rather than inside
     // it; the whole row presses as the button does, and counts as hovered for the host's button.
     let action = s.tool_row_action(p, cx.session, &owner, Some(item.path));
-    let header = row()
+    // The row eases its hover in and out over 0.15 s (`accordion.css`: `transition:
+    // background-color 0.15s ease`).
+    let trigger = row()
         .key(row_key.clone())
         .w_full()
         .h(32.0)
@@ -255,10 +257,17 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .border(1.0, p.border)
         .corners([top, top, bottom, bottom])
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
+        .hover_motion(HOVER_FADE, HOVER_FADE)
         .on_press_tx(toggle())
         .child(info)
-        .child(row().key("actions").h_full().gap(16.0).center_y().children(action).child(marks));    // A key holds no `/`, which separates the parts of a path.
+        .child(row().key("actions").h_full().gap(16.0).center_y().children(action).child(marks));
+    // The row sticks over its change as the timeline scrolls, under an open group's label
+    // (`sticky-accordion-header`, `message-part.css:1330-1332`), until the change's end takes it
+    // away. Square and on `bg-base` behind the row (`[data-scope="apply-patch"]
+    // [data-slot="accordion-header"]`), so the lines scrolling under it don't show at its
+    // rounded corners.
+    let header = row().key("head").w_full().fill(p.bg_base).sticky_top(cx.sticky).child(trigger);
+    // A key holds no `/`, which separates the parts of a path.
     let mut out = col().key(format!("item-{}", shown.replace(['/', '\\'], ":"))).w_full().child(header);
     if !first {
         out = out.mt(-1.0);

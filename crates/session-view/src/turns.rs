@@ -421,6 +421,9 @@ fn grouped_read(st: &Step) -> bool {
     **status != ToolStatus::Error && !image && !loaded
 }
 
+/// Between an open group's label and its steps (`--tool-content-gap` in `collapsed-tool-group`).
+const GROUP_GAP: f32 = 8.0;
+
 /// The folded row: its label, and when open, every step in order, inset 24 behind a hairline
 /// rail (`collapsed-tool-group`), 8 under the label and 8 apart. Plain reads in a row share a
 /// line, edits, writes and patches in a row share one card of files, and named skills in a row
@@ -447,11 +450,21 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         // A step joining or the label changing crossfades the words while the arrow slides over.
         .animate_layout()
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
+    // A card of files in the group holds headers that stick 8 under this one (Desktop's
+    // `--sticky-accordion-top`, `message-part.css:1330-1332`).
+    let files = steps.iter().any(file_tool);
     if open || shutting {
-        // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
-        // shutting from there they slide away under it.
-        let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
-        trigger = trigger.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
+        trigger = trigger.fill(p.bg_base).sticky_top(0.0);
+        trigger = if files {
+            // Desktop's solid 8 pt under the label (`padding-bottom: var(--tool-content-gap)`
+            // on the stuck trigger), which a stuck file header meets; the soft edge would wash
+            // over that header. It presses and hovers as the label does.
+            trigger.child(el().key("pad").pin(Some(0.0), Some(28.0), Some(0.0), None).h(GROUP_GAP).fill(p.bg_base))
+        } else {
+            // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
+            // shutting from there they slide away under it.
+            trigger.stuck_shadow(rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() })
+        };
     }
     let words = |key: &'static str, words: &str| (!words.is_empty()).then(|| text(words.to_owned()).key(key).font(UI).color(p.muted));
     trigger = match l.count {
@@ -477,11 +490,12 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     trigger = trigger.child(if open { a } else { a.group_opacity(0.0, 1.0) });
     let mut c = col().w_full().child(trigger);
     if open || shutting {
-        let cx = crate::tools::Ctx { session, live };
+        // A file header in the steps sticks under the label and its 8 pt.
+        let cx = crate::tools::Ctx { session, live, sticky: 28.0 + GROUP_GAP };
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
         // 8 under the label (inside the steps, so a shut box is no taller than nothing), then the
         // rail 6 in from the steps' top and bottom.
-        let mut list = col().key("steps").w_full().pt(8.0).pl(12.0).gap(8.0).transition(rune::Transition::none());
+        let mut list = col().key("steps").w_full().pt(GROUP_GAP).pl(12.0).gap(8.0).transition(rune::Transition::none());
         list = list.child(el().key("rail").pin(Some(-0.25), Some(14.0), None, Some(6.0)).w(0.5).fill(p.border));
         let mut i = 0;
         while i < steps.len() {
@@ -546,7 +560,7 @@ pub fn thought<S: TimelineHost>(s: &S, p: &Pal, st: &Step, live: bool, fade: f32
 /// `SessionFileToolGroup`), drawn as they draw in a group: one call, plain reads sharing a line,
 /// or edits sharing a file card.
 pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps: &[Step], live: bool) -> El {
-    let cx = crate::tools::Ctx { session, live };
+    let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
     let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
     let Some(first) = calls.first() else { return col() };
     match kind {
