@@ -41,6 +41,14 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             tx.instant();
             s.close_picker(true);
         })
+        // Desktop's dialog: Tab cycles its search, Connect and Manage; Escape or a press outside
+        // closes it and the composer takes the keys back. The modal is the scrim rather than the
+        // dialog, as Desktop's overlay holds both, so the pointer over the scrim still reaches the
+        // flyout's watch (`hover::watch`) and the flyout drawn after it.
+        .modal_tx(true, |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            s.close_picker(true);
+        })
         .child(dialog(s, p));
     let mut out = vec![hover::watch::<S>(scrim)];
     out.extend(flyout::view(s, p));
@@ -71,12 +79,6 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .instant_changes()
         // Presses on its own space stay in it, off the scrim.
         .on_press(|_: &mut S| {})
-        // Desktop's dialog: Tab cycles its search, Connect and Manage; Escape or a press outside
-        // closes it and the composer takes the keys back.
-        .modal_tx(true, |s: &mut S, tx: &mut Tx| {
-            tx.instant();
-            s.close_picker(true);
-        })
         .child(pop::search_row(p, "picker-search-row", field, trailing))
         .child(list(s, p))
 }
