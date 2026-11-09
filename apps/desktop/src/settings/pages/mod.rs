@@ -366,13 +366,22 @@ pub fn text_field(p: &Pal, key: &str, label: &str, placeholder: &str, edit: &Tex
 /// `button-v2` ghost or ghost-muted with an optional leading icon (Add project, Add server,
 /// Reset to defaults, History on GitHub).
 pub fn ghost_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
-    let ink = if !enabled { p.faint } else if muted { p.muted } else { p.text };
+    ghost_menu_button(p, key, label, glyph, muted, enabled, false, press)
+}
+
+/// [`ghost_button`] as a menu's trigger: while its menu is open (`aria-expanded`) it keeps the
+/// pressed fill and draws in the base ink.
+#[allow(clippy::too_many_arguments)]
+pub fn ghost_menu_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, open: bool, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    let ink = if !enabled { p.faint } else if muted && !open { p.muted } else { p.text };
+    let glyph_ink = if !enabled { p.icon_faint } else if open { p.icon } else { p.icon_muted };
     let b = row().key(key.to_owned()).role("button").label(label.to_owned()).h(28.0).px(if glyph.is_some() { 8.0 } else { 11.0 }).gap(6.0).center_y().radius(6.0)
-        .children(glyph.map(|g| icon(g, 16.0).color(if enabled { p.icon_muted } else { p.icon_faint })))
+        .children(glyph.map(|g| icon(g, 16.0).color(glyph_ink)))
         .child(text(label.to_owned()).font(super::super::view::UI).color(ink));
     if !enabled {
         return b.disabled(true);
     }
+    let b = if open { b.fill(p.pressed) } else { b };
     b.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
         tx.instant();
         press(s, tx);

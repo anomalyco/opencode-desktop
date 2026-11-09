@@ -1,6 +1,8 @@
-//! The servers plugins contribute (`contrib::SERVER`, Desktop's `Server` registry), as the app
-//! sees them: keyed `<plugin>:<id>`, ordered by their source's `order`, checked for health once
-//! they're ready (their version, as Desktop's health poll reads it), and connected to on request.
+//! The app's registry of servers besides its own (Desktop's `Server` registry): the ones plugins
+//! contribute (`contrib::SERVER` and Luau server sources), keyed `<plugin>:<id>`, ordered by
+//! their source's `order`, checked for health once they're ready (their version, as Desktop's
+//! health poll reads it); then the ones added by address (`crate::servers`), keyed by it. Every
+//! window shares it: servers are added to the app, not switched to.
 
 use opencode_plugin::abi::{SERVER_READY, contrib as kinds};
 use rune::Tx;
@@ -9,13 +11,23 @@ use super::contrib::active;
 use super::instance::ServerRec;
 use crate::App;
 
-/// A contributed server with what the app knows of it.
+/// The slot of a server added by address (Luau sources' use `usize::MAX`).
+pub const BY_ADDRESS: usize = usize::MAX - 1;
+
+/// A server in the registry with what the app knows of it.
 #[derive(Clone, Debug)]
 pub struct Contributed {
-    /// `<plugin>:<id>`.
+    /// `<plugin>:<id>`, or the address of one added by address.
     pub key: String,
     pub slot: usize,
     pub rec: ServerRec,
+}
+
+impl Contributed {
+    /// Added by address, rather than by a plugin.
+    pub fn by_address(&self) -> bool {
+        self.slot == BY_ADDRESS
+    }
 }
 
 /// Every contributed server, its source's `order` first, then as listed.
@@ -33,7 +45,13 @@ pub fn all(app: &App) -> Vec<Contributed> {
     // Luau server sources' entries, shared by every window; a window half draws their rows.
     out.extend(super::luau::servers().into_iter().map(|(plugin, order, rec)| (order as i32, Contributed { key: format!("{plugin}:{}", rec.id), slot: usize::MAX, rec })));
     out.sort_by_key(|(order, _)| *order);
-    out.into_iter().map(|(_, c)| c).collect()
+    // Then the servers added by address, as Desktop lists its stored ones after those provided.
+    let by_address = crate::servers::list().into_iter().map(|s| Contributed {
+        key: s.url.clone(),
+        slot: BY_ADDRESS,
+        rec: ServerRec { source: "http".into(), id: s.url.clone(), name: s.label(), label: String::new(), state: SERVER_READY, url: s.url, password: s.password.unwrap_or_default(), listed: true },
+    });
+    out.into_iter().map(|(_, c)| c).chain(by_address).collect()
 }
 
 /// What sources list changed: checks the health of servers that became ready, and forgets it
@@ -44,7 +62,7 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
     let pending = super::luau::servers::pending_sources();
     let facts = &mut app.plugins.shared.facts;
     facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == SERVER_READY) || pending.iter().any(|(plugin, _)| key.starts_with(&format!("{plugin}:"))));
-    let fresh: Vec<Contributed> = servers.into_iter().filter(|s| s.rec.state == SERVER_READY && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
+    let fresh: Vec<Contributed> = servers.into_iter().filter(|s| !s.by_address() && s.rec.state == SERVER_READY && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
     for s in fresh {
         app.plugins.checking.insert(s.key.clone());
         let deliver = app.deliverer();
@@ -86,15 +104,19 @@ pub fn read_own_version(app: &mut App) {
     });
 }
 
-/// Connects the window to contributed server `key` once it's ready and listed.
+/// Connects the window to plugin server `key` once it's ready and listed. Servers added by
+/// address join the registry only: the window doesn't switch to them.
 pub fn connect(app: &mut App, key: &str, tx: &mut Tx) {
-    let Some(s) = all(app).into_iter().find(|s| s.key == key && s.rec.listed && s.rec.state == SERVER_READY) else { return };
+    let Some(s) = all(app).into_iter().find(|s| !s.by_address() && s.key == key && s.rec.listed && s.rec.state == SERVER_READY) else { return };
     let server = opencode_kit::client::Server::new(&s.rec.url).with_password(&s.rec.password).with_media_refs().with_remote_files();
     app.switch_server(server, Some(key.to_owned()), tx);
 }
 
 /// Contributed server `c`'s connection row in Settings › Servers, as its plugin draws it.
 pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::El> {
+    if c.by_address() {
+        return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| crate::settings::pages::servers::http_row(p, &s));
+    }
     if c.slot == usize::MAX {
         let health = app.plugins.shared.facts.health.get(&c.key).cloned();
         return super::luau::surfaces::server_row(app, p, &c.key, &c.rec, health);

@@ -14,7 +14,6 @@ return plugin.defineWindow(function(ctx)
     local Toast = ctx:GetService("Toast")
     local Dialog = ctx:GetService("Dialog")
     local Menu = ctx:GetService("Menu")
-    local Servers = ctx:GetService("Servers")
     local System = ctx:GetService("System")
     local Contracts = ctx:GetService("Contracts")
     local live = Contracts:Use("ssh")
@@ -123,12 +122,9 @@ return plugin.defineWindow(function(ctx)
             elseif effect.type == "cancel" then
                 request("cancel", { id = nextState.id })
             elseif effect.type == "complete" then
+                -- A ready server joins the app's registry of servers; no window switches to it.
                 Dialog:Close()
-                local openProject = controller.openProject
                 controller.state = nil
-                if openProject then
-                    Servers:Connect(`ssh:{nextState.id}`)
-                end
             end
         end
         rev:Fire()
@@ -147,13 +143,12 @@ return plugin.defineWindow(function(ctx)
         dispatch({ type = "responded", snapshot = controller.snapshot() })
     end
 
-    local function openDialog(config: any?, promptOnly: boolean, openProject: boolean)
+    local function openDialog(config: any?, promptOnly: boolean)
         local id = if config then config.id else System:RandomId()
         target:SetText(if config then config.target else "")
         name:SetText(if config then config.name else "")
         response:SetText("")
         controller.state = dialog.create(id, config, promptOnly)
-        controller.openProject = openProject
         Dialog:Open("connect")
         dispatch({ type = "synced", snapshot = controller.snapshot() })
     end
@@ -188,7 +183,7 @@ return plugin.defineWindow(function(ctx)
             if it and (it.prompt or it.stage == "incompatible") then
                 local config = it.config
                 prompting = nil
-                openDialog(config, true, false)
+                openDialog(config, true)
             elseif not (it and it.stage == "connecting") then
                 prompting = nil
             end
@@ -232,7 +227,7 @@ return plugin.defineWindow(function(ctx)
         title = I18n:T("add"),
         order = 1,
         run = function()
-            openDialog(nil, false, false)
+            openDialog(nil, false)
         end,
     })
 
@@ -242,7 +237,7 @@ return plugin.defineWindow(function(ctx)
         group = I18n:T("command.category.server"),
         keywords = "server ssh remote host",
         run = function()
-            openDialog(nil, false, true)
+            openDialog(nil, false)
         end,
     })
 

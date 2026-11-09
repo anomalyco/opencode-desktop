@@ -206,6 +206,7 @@ mod short_group;
 mod selection_stories;
 mod send;
 mod served;
+mod servers;
 mod session_menu;
 mod session_menu_stories;
 #[cfg(test)]

@@ -153,6 +153,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::usage::layer(s, p, cx));
     inner = inner.children(move_recovery::view(s, p));
     inner = inner.children(crate::plugin_host::dialog_view(s, p));
+    inner = inner.children(crate::servers::dialog::view(s, p));
     inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));

@@ -83,7 +83,9 @@ return plugin.defineApp(function(ctx)
                     name = command.name(item.config),
                     label = I18n:T("label"),
                     state = if stage == "connecting" then "starting" elseif stage == "authentication" then "auth" elseif stage == "ready" or stage == "failed" or stage == "incompatible" then stage else "stopped",
-                    listed = stage == "ready",
+                    -- Every saved host is in the app's registry, up or not, as Desktop lists it
+                    -- (renderer.tsx sets no `listed`): Home shows its lock, spinner or red dot.
+                    listed = true,
                     http = item.http,
                 })
             end

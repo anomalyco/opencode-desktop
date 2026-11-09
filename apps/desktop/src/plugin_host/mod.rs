@@ -73,7 +73,7 @@ pub use servers::{all as contributed_servers, changed as servers_changed, connec
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};
-pub use contrib::{run_menu_item, server_menu_items, servers, settings_search};
+pub use contrib::{run_menu_item, server_menu_items, settings_search};
 pub use surfaces::{composer_pills, pill_views, file_viewer, settings_page, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, slot, slot_with, titlebar_items};
 pub use requests::reveal;
 pub use trust::dialog as trust_dialog;
@@ -271,6 +271,8 @@ pub fn setup(app: &mut App, waker: Waker) {
     // Luau plugins start processes and compare against the app's own server's version too.
     process::warm();
     servers::read_own_version(app);
+    // The servers added by address are in the registry from launch, their health checked.
+    crate::servers::refresh(app);
     for i in 0..app.plugins.slots.len() {
         if app.plugins.slots[i].state == PluginState::Discovered {
             swap::load(app, i, None);
