@@ -17,21 +17,20 @@
 pub mod machine;
 
 use std::hash::{Hash, Hasher};
-use std::time::Duration;
 
+use rune::machine::Attempt;
 use rune::{El, PointerEvent, Tx};
 
 use super::{Kind, PickerHost};
 use machine::{Effect, Event, Onto, Point, Rect, State, Timer};
 
 /// The machine's one timer (Desktop's `timer`): `Schedule` replaces it and `Cancel` clears it.
-/// A handler doesn't know the time, so the next poll sets when it's due.
+/// It's due at `at` on the window's clock (`Tx::clock`), and the poll fires it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum Wait {
     #[default]
     Idle,
-    Asked { kind: Timer, attempt: u32, delay: f64 },
-    Due { kind: Timer, attempt: u32, at: f64 },
+    Due { kind: Timer, attempt: Attempt, at: f64 },
 }
 
 /// The pointer (Desktop's `pointer`): `Moved` in this frame's input, else `Still`. A row coming
@@ -89,13 +88,10 @@ impl Hover {
         self.lit.as_ref().filter(|(model, _)| self.flyout_model() == Some(model)).map(|(_, option)| option.as_str())
     }
 
-    fn timer_due(&mut self, now: f64, tx: &mut Tx) -> Option<(Timer, u32)> {
-        if let Wait::Asked { kind, attempt, delay } = self.wait {
-            self.wait = Wait::Due { kind, attempt, at: now + delay };
-        }
+    fn timer_due(&mut self, now: f64, tx: &mut Tx) -> Option<(Timer, Attempt)> {
         let Wait::Due { kind, attempt, at } = self.wait else { return None };
         if now + 1e-6 < at {
-            tx.wake_after(Duration::from_secs_f64(at - now));
+            tx.wake_at(at);
             return None;
         }
         self.wait = Wait::Idle;
@@ -135,8 +131,9 @@ pub trait ModelHover: PickerHost + Sized + 'static {
                     self.pickers_mut().activate(id);
                 }
                 Effect::Schedule { kind, attempt, delay } => {
-                    self.pickers_mut().hover.wait = Wait::Asked { kind, attempt, delay };
-                    tx.wake_after(Duration::ZERO);
+                    let at = tx.clock() + delay;
+                    self.pickers_mut().hover.wait = Wait::Due { kind, attempt, at };
+                    tx.wake_at(at);
                 }
                 Effect::Cancel => self.pickers_mut().hover.wait = Wait::Idle,
             }

@@ -3,6 +3,8 @@
 //! and transition for transition. The flyout is laid out against its row's anchor, so Desktop's
 //! `place` effect and `placed` event, which measure the row by hand, have no counterpart here.
 
+use rune::machine::{Attempt, Effects};
+
 /// `FLYOUT_OPEN_DELAY_MS`: how long the pointer rests on a row before its flyout opens, unless
 /// a flyout was just open.
 pub const OPEN_DELAY: f64 = 0.1;
@@ -28,19 +30,19 @@ pub enum Input {
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
     /// `warm` holds for a moment after a flyout closes under the pointer.
-    Closed { attempt: u32, input: Input, warm: bool },
+    Closed { attempt: Attempt, input: Input, warm: bool },
     /// The pointer rests on row `id`; its flyout opens after the delay.
-    Opening { attempt: u32, id: String, apex: Point },
-    Open { attempt: u32, id: String, apex: Point },
+    Opening { attempt: Attempt, id: String, apex: Point },
+    Open { attempt: Attempt, id: String, apex: Point },
     /// The pointer crossed onto row `target` on its way to the flyout; the flyout stays on `id`
     /// while it keeps moving.
-    Aiming { attempt: u32, id: String, apex: Point, target: String },
+    Aiming { attempt: Attempt, id: String, apex: Point, target: String },
 }
 
 impl Default for State {
     /// `createDialogFlyoutState`.
     fn default() -> State {
-        State::Closed { attempt: 0, input: Input::Keyboard, warm: false }
+        State::Closed { attempt: Attempt(0), input: Input::Keyboard, warm: false }
     }
 }
 
@@ -75,9 +77,9 @@ pub enum Event<'a> {
     Dismissed,
     /// Rows scrolled under the pointer; `target` is the row now under it.
     Scrolled { target: Option<(&'a str, Point)> },
-    OpenDue { attempt: u32 },
-    AimDue { attempt: u32, point: Option<Point> },
-    WarmExpired { attempt: u32 },
+    OpenDue { attempt: Attempt },
+    AimDue { attempt: Attempt, point: Option<Point> },
+    WarmExpired { attempt: Attempt },
 }
 
 /// `DialogFlyoutEffect`, less `place`.
@@ -85,21 +87,19 @@ pub enum Event<'a> {
 pub enum Effect {
     Activate(String),
     /// Replaces the one pending timer: `kind` fires `delay` seconds from now with `attempt`.
-    Schedule { kind: Timer, attempt: u32, delay: f64 },
+    Schedule { kind: Timer, attempt: Attempt, delay: f64 },
     Cancel,
 }
 
-pub type Effects = Vec<Effect>;
-
 /// `transitionDialogFlyout`.
-pub fn step(state: &mut State, event: Event<'_>) -> Effects {
+pub fn step(state: &mut State, event: Event<'_>) -> Effects<Effect> {
     let was_timed = timed(state);
-    let cancel = move || if was_timed { vec![Effect::Cancel] } else { vec![] };
-    let next = attempt(state) + was_timed as u32;
+    let cancel = move || if was_timed { Effects::one(Effect::Cancel) } else { Effects::none() };
+    let next = if was_timed { following(attempt(state)) } else { attempt(state) };
     match event {
         Event::Keyboard => {
             if matches!(state, State::Closed { input: Input::Keyboard, warm: false, .. }) {
-                return vec![];
+                return Effects::none();
             }
             let effects = cancel();
             *state = State::Closed { attempt: next, input: Input::Keyboard, warm: false };
@@ -109,7 +109,7 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects {
             if let State::Closed { input, .. } = state {
                 *input = Input::Pointer;
             }
-            vec![]
+            Effects::none()
         }
         Event::RowMoved { id, active, point, flyout } => moved(state, id, active, point, flyout),
         Event::RowLeft { onto, point, flyout } => match state {
@@ -120,21 +120,21 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects {
             }
             State::Open { .. } | State::Aiming { .. } => match onto {
                 // The row the pointer enters decides.
-                Onto::Row => vec![],
+                Onto::Row => Effects::none(),
                 Onto::Flyout => settle(state),
                 Onto::Outside if inside(point, apex(state), flyout) => settle(state),
                 Onto::Outside => cool(state),
             },
-            State::Closed { .. } => vec![],
+            State::Closed { .. } => Effects::none(),
         },
         Event::PointerOutside { point, flyout } => match state {
             State::Open { .. } | State::Aiming { .. } if !inside(point, apex(state), flyout) => cool(state),
-            _ => vec![],
+            _ => Effects::none(),
         },
         Event::FlyoutEntered => settle(state),
         Event::Dismissed => {
             if matches!(state, State::Closed { warm: false, .. }) {
-                return vec![];
+                return Effects::none();
             }
             let input = match state {
                 State::Closed { input, .. } => *input,
@@ -147,31 +147,31 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects {
         Event::Scrolled { target } => {
             // Scrolled by the arrow keys: the highlight stays, and nothing opens.
             if matches!(state, State::Closed { input: Input::Keyboard, .. }) {
-                return vec![];
+                return Effects::none();
             }
             match target {
                 None => step(state, Event::Dismissed),
-                Some((id, _)) if matches!(state, State::Open { id: open, .. } if open.as_str() == id) => vec![],
+                Some((id, _)) if matches!(state, State::Open { id: open, .. } if open.as_str() == id) => Effects::none(),
                 Some((id, point)) => show(state, id, point),
             }
         }
         Event::OpenDue { attempt: due } => {
-            let State::Opening { attempt, id, apex } = state else { return vec![] };
+            let State::Opening { attempt, id, apex } = state else { return Effects::none() };
             if *attempt != due {
-                return vec![];
+                return Effects::none();
             }
             *state = State::Open { attempt: *attempt, id: std::mem::take(id), apex: *apex };
-            vec![]
+            Effects::none()
         }
         Event::AimDue { attempt: due, point } => {
-            let State::Aiming { attempt, apex, target, .. } = state else { return vec![] };
+            let State::Aiming { attempt, apex, target, .. } = state else { return Effects::none() };
             if *attempt != due {
-                return vec![];
+                return Effects::none();
             }
             let apex = point.unwrap_or(*apex);
             let target = std::mem::take(target);
-            *state = State::Open { attempt: *attempt + 1, id: target.clone(), apex };
-            vec![Effect::Activate(target)]
+            *state = State::Open { attempt: following(*attempt), id: target.clone(), apex };
+            Effects::one(Effect::Activate(target))
         }
         Event::WarmExpired { attempt: due } => {
             if let State::Closed { attempt, warm, .. } = state
@@ -180,13 +180,13 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects {
             {
                 *warm = false;
             }
-            vec![]
+            Effects::none()
         }
     }
 }
 
 /// `moved`: the pointer moved on row `id`.
-fn moved(state: &mut State, id: &str, active: Option<&str>, point: Point, flyout: Option<Rect>) -> Effects {
+fn moved(state: &mut State, id: &str, active: Option<&str>, point: Point, flyout: Option<Rect>) -> Effects<Effect> {
     let open = matches!(state, State::Open { .. } | State::Aiming { .. });
     // On its way to the flyout, the pointer crosses other rows without taking the flyout with it.
     if open && flyout_id(state) != Some(id) && inside(point, apex(state), flyout) {
@@ -194,12 +194,12 @@ fn moved(state: &mut State, id: &str, active: Option<&str>, point: Point, flyout
         if let State::Aiming { attempt, target, .. } = state
             && target.as_str() == id
         {
-            return vec![Effect::Schedule { kind: Timer::Aim, attempt: *attempt, delay: AIM_TIMEOUT }];
+            return Effects::one(Effect::Schedule { kind: Timer::Aim, attempt: *attempt, delay: AIM_TIMEOUT });
         }
-        let attempt = attempt(state) + 1;
+        let attempt = following(attempt(state));
         let (from, apex) = (flyout_id(state).unwrap_or_default().to_owned(), apex(state));
         *state = State::Aiming { attempt, id: from, apex, target: id.to_owned() };
-        return vec![Effect::Schedule { kind: Timer::Aim, attempt, delay: AIM_TIMEOUT }];
+        return Effects::one(Effect::Schedule { kind: Timer::Aim, attempt, delay: AIM_TIMEOUT });
     }
     // Back on the flyout's own row: the pointer becomes the triangle's apex again.
     if let State::Open { id: on, apex, .. } | State::Opening { id: on, apex, .. } = state
@@ -207,20 +207,20 @@ fn moved(state: &mut State, id: &str, active: Option<&str>, point: Point, flyout
         && active == Some(id)
     {
         *apex = point;
-        return vec![];
+        return Effects::none();
     }
     if let State::Aiming { attempt, id: on, .. } = state
         && on.as_str() == id
     {
-        let attempt = *attempt + 1;
+        let attempt = following(*attempt);
         *state = State::Open { attempt, id: id.to_owned(), apex: point };
-        return if active == Some(id) { vec![Effect::Cancel] } else { vec![Effect::Cancel, Effect::Activate(id.to_owned())] };
+        return if active == Some(id) { Effects::one(Effect::Cancel) } else { Effects::two(Effect::Cancel, Effect::Activate(id.to_owned())) };
     }
     if warm(state) {
         return show(state, id, point);
     }
-    let attempt = attempt(state) + 1;
-    let mut effects = if timed(state) { vec![Effect::Cancel] } else { vec![] };
+    let attempt = following(attempt(state));
+    let mut effects = if timed(state) { Effects::one(Effect::Cancel) } else { Effects::none() };
     *state = State::Opening { attempt, id: id.to_owned(), apex: point };
     effects.push(Effect::Activate(id.to_owned()));
     effects.push(Effect::Schedule { kind: Timer::Open, attempt, delay: OPEN_DELAY });
@@ -228,9 +228,9 @@ fn moved(state: &mut State, id: &str, active: Option<&str>, point: Point, flyout
 }
 
 /// `show`: opens the flyout on row `id` at once.
-fn show(state: &mut State, id: &str, point: Point) -> Effects {
-    let attempt = attempt(state) + 1;
-    let mut effects = if timed(state) { vec![Effect::Cancel] } else { vec![] };
+fn show(state: &mut State, id: &str, point: Point) -> Effects<Effect> {
+    let attempt = following(attempt(state));
+    let mut effects = if timed(state) { Effects::one(Effect::Cancel) } else { Effects::none() };
     *state = State::Open { attempt, id: id.to_owned(), apex: point };
     effects.push(Effect::Activate(id.to_owned()));
     effects
@@ -238,21 +238,26 @@ fn show(state: &mut State, id: &str, point: Point) -> Effects {
 
 /// `settle`: the pointer reached the flyout or rests in its triangle, so a pending move to
 /// another row is called off.
-fn settle(state: &mut State) -> Effects {
-    let State::Aiming { attempt, id, apex, .. } = state else { return vec![] };
-    *state = State::Open { attempt: *attempt + 1, id: std::mem::take(id), apex: *apex };
-    vec![Effect::Cancel]
+fn settle(state: &mut State) -> Effects<Effect> {
+    let State::Aiming { attempt, id, apex, .. } = state else { return Effects::none() };
+    *state = State::Open { attempt: following(*attempt), id: std::mem::take(id), apex: *apex };
+    Effects::one(Effect::Cancel)
 }
 
 /// `cool`: the pointer left the flyout behind; it closes, and the next row's flyout opens at
 /// once for a moment.
-fn cool(state: &mut State) -> Effects {
-    let attempt = attempt(state) + 1;
+fn cool(state: &mut State) -> Effects<Effect> {
+    let attempt = following(attempt(state));
     *state = State::Closed { attempt, input: Input::Pointer, warm: true };
-    vec![Effect::Schedule { kind: Timer::Warm, attempt, delay: WARM }]
+    Effects::one(Effect::Schedule { kind: Timer::Warm, attempt, delay: WARM })
 }
 
-fn attempt(state: &State) -> u32 {
+/// The attempt after `a`: Desktop's `state.attempt + 1`.
+fn following(a: Attempt) -> Attempt {
+    Attempt(a.0 + 1)
+}
+
+fn attempt(state: &State) -> Attempt {
     match state {
         State::Closed { attempt, .. } | State::Opening { attempt, .. } | State::Open { attempt, .. } | State::Aiming { attempt, .. } => *attempt,
     }

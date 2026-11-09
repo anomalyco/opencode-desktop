@@ -4,6 +4,7 @@
 //! attempt, so a late answer can't reach a dialog opened since.
 
 use opencode_i18n::t;
+use rune::machine::{Attempt, Seq};
 use rune::{El, Key, KeyEvent, ScrollSpec, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, Loader};
 
@@ -30,7 +31,7 @@ pub enum Reason {
 #[derive(Clone, Debug, PartialEq)]
 enum Dialog {
     /// It keeps showing `reason` until the action settles.
-    Open { attempt: u32, reason: Reason },
+    Open { attempt: Attempt, reason: Reason },
     /// Closed while the action kept running; a late failure toasts instead.
     Dismissed,
 }
@@ -41,9 +42,9 @@ enum Dialog {
 #[derive(Clone, Debug, PartialEq)]
 enum State {
     /// `dialog` is the one a retry runs from; none for the first move.
-    Moving { attempt: u32, dialog: Option<Dialog> },
-    Recovering { dialog: u32, reason: Reason },
-    Removing { attempt: u32, dialog: Dialog },
+    Moving { attempt: Attempt, dialog: Option<Dialog> },
+    Recovering { dialog: Attempt, reason: Reason },
+    Removing { attempt: Attempt, dialog: Dialog },
 }
 
 /// The worktree a move made, the session bound for it, and where that stands.
@@ -52,29 +53,29 @@ pub struct Recovery {
     project: String,
     directory: String,
     /// The last attempt handed to a move, delete or dialog.
-    issued: u32,
+    issued: Seq,
     state: State,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Event {
-    MoveSucceeded { attempt: u32 },
+    MoveSucceeded { attempt: Attempt },
     /// A failure, a timeout, or `move.blocked` (`Reason::Running`).
-    MoveFailed { attempt: u32, reason: Reason },
-    Retry { attempt: u32, running: bool },
-    Remove { attempt: u32 },
-    RemoveSucceeded { attempt: u32 },
-    RemoveFailed { attempt: u32, reason: Reason },
+    MoveFailed { attempt: Attempt, reason: Reason },
+    Retry { attempt: Attempt, running: bool },
+    Remove { attempt: Attempt },
+    RemoveSucceeded { attempt: Attempt },
+    RemoveFailed { attempt: Attempt, reason: Reason },
     /// Keep worktree, Esc, the close cross or a press outside.
-    Dismissed { attempt: u32 },
+    Dismissed { attempt: Attempt },
 }
 
 #[derive(Clone, Debug, PartialEq)]
 enum Effect {
     /// Moves the session into the worktree, unless it started running (`run-move`).
-    Move { attempt: u32 },
+    Move { attempt: Attempt },
     /// Force-removes the worktree (`run-remove`).
-    Remove { attempt: u32 },
+    Remove { attempt: Attempt },
     /// Reports a failure no dialog shows.
     Toast { remove: bool, reason: Reason },
     /// The delete went through: the project's worktrees are listed again.
@@ -94,8 +95,7 @@ fn step(r: &mut Recovery, event: Event) -> (bool, Vec<Effect>) {
                 (true, vec![])
             }
             None => {
-                r.issued += 1;
-                r.state = State::Recovering { dialog: r.issued, reason };
+                r.state = State::Recovering { dialog: r.issued.next(), reason };
                 (true, vec![])
             }
         },
@@ -106,16 +106,14 @@ fn step(r: &mut Recovery, event: Event) -> (bool, Vec<Effect>) {
         }
         (State::Recovering { dialog, .. }, Event::Dismissed { attempt: due }) if *dialog == due => idle(vec![]),
         (State::Recovering { dialog, reason }, Event::Retry { attempt: due, running: false }) if *dialog == due => {
-            r.issued += 1;
-            let dialog = Dialog::Open { attempt: *dialog, reason: reason.clone() };
-            r.state = State::Moving { attempt: r.issued, dialog: Some(dialog) };
-            (true, vec![Effect::Move { attempt: r.issued }])
+            let (attempt, dialog) = (r.issued.next(), Dialog::Open { attempt: *dialog, reason: reason.clone() });
+            r.state = State::Moving { attempt, dialog: Some(dialog) };
+            (true, vec![Effect::Move { attempt }])
         }
         (State::Recovering { dialog, reason }, Event::Remove { attempt: due }) if *dialog == due => {
-            r.issued += 1;
-            let dialog = Dialog::Open { attempt: *dialog, reason: reason.clone() };
-            r.state = State::Removing { attempt: r.issued, dialog };
-            (true, vec![Effect::Remove { attempt: r.issued }])
+            let (attempt, dialog) = (r.issued.next(), Dialog::Open { attempt: *dialog, reason: reason.clone() });
+            r.state = State::Removing { attempt, dialog };
+            (true, vec![Effect::Remove { attempt }])
         }
         (State::Removing { attempt, .. }, Event::RemoveSucceeded { attempt: due }) if *attempt == due => idle(vec![Effect::Removed]),
         (State::Removing { attempt, dialog }, Event::RemoveFailed { attempt: due, reason }) if *attempt == due => match dialog {
@@ -129,7 +127,7 @@ fn step(r: &mut Recovery, event: Event) -> (bool, Vec<Effect>) {
     }
 }
 
-fn open_attempt(dialog: &Dialog) -> Option<u32> {
+fn open_attempt(dialog: &Dialog) -> Option<Attempt> {
     match dialog {
         Dialog::Open { attempt, .. } => Some(*attempt),
         Dialog::Dismissed => None,
@@ -140,10 +138,12 @@ fn open_attempt(dialog: &Dialog) -> Option<u32> {
 /// while the worktree was made (`worktree.created`); either failure opens the dialog.
 pub(super) fn move_into(s: &mut App, sid: String, project: String, directory: String) {
     let running = s.busy(&sid);
-    let state = if running { State::Recovering { dialog: 1, reason: Reason::Running } } else { State::Moving { attempt: 1, dialog: None } };
-    s.location.recovery = Some(Recovery { session: sid, project, directory, issued: 1, state });
+    let mut issued = Seq::default();
+    let attempt = issued.next();
+    let state = if running { State::Recovering { dialog: attempt, reason: Reason::Running } } else { State::Moving { attempt, dialog: None } };
+    s.location.recovery = Some(Recovery { session: sid, project, directory, issued, state });
     if !running {
-        run(s, vec![Effect::Move { attempt: 1 }]);
+        run(s, vec![Effect::Move { attempt }]);
     }
 }
 
@@ -230,7 +230,7 @@ fn reason_text(reason: &Reason) -> String {
 }
 
 /// The open dialog's attempt, while it shows.
-fn dialog(r: &Recovery) -> Option<u32> {
+fn dialog(r: &Recovery) -> Option<Attempt> {
     match &r.state {
         State::Recovering { dialog, .. } => Some(*dialog),
         State::Moving { dialog: Some(Dialog::Open { attempt, .. }), .. } | State::Removing { dialog: Dialog::Open { attempt, .. }, .. } => Some(*attempt),

@@ -9,6 +9,8 @@
 //! tab's `popoverOpen` (`tab-nav.tsx:182-185, 535-550`), and [`State`] is the preview shared by
 //! every strip (`TabPreviewState`), which hears the card open and close.
 
+use rune::machine::Attempt;
+
 use super::*;
 
 /// The hover before a card first shows (`TAB_PREVIEW_OPEN_DELAY_MS`).
@@ -25,17 +27,17 @@ const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(19.5).tracking(-0.04);
 /// has no entrance either way, `tab-popover.css:28-45`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
-    Cold { attempt: u32 },
+    Cold { attempt: Attempt },
     /// `pointer`: over a side tab, the pointer's height in window points and the row's top,
     /// which the card follows (`follow`, `pointerY`).
-    Open { attempt: u32, tab: String, instant: bool, pointer: Option<(f32, f32)> },
+    Open { attempt: Attempt, tab: String, instant: bool, pointer: Option<(f32, f32)> },
     /// Closed a moment ago, until `until` on the app's clock (`warm.start`).
-    Warm { attempt: u32, until: f64, instant: bool },
+    Warm { attempt: Attempt, until: f64, instant: bool },
 }
 
 impl Default for State {
     fn default() -> State {
-        State::Cold { attempt: 0 }
+        State::Cold { attempt: Attempt(0) }
     }
 }
 
@@ -46,7 +48,7 @@ pub enum Event<'a> {
     Opened(&'a str),
     Closed(&'a str),
     Pointer { tab: &'a str, at: (f32, f32) },
-    WarmExpired { attempt: u32 },
+    WarmExpired { attempt: Attempt },
 }
 
 /// `transitionTabPreview`. The warm timer is the `until` the state carries, so `warm.start`
@@ -67,7 +69,7 @@ pub fn step(state: &mut State, event: Event<'_>, now: f64) {
             if t != tab {
                 return;
             }
-            *state = State::Warm { attempt: *attempt + 1, until: now + SKIP_WINDOW, instant: *instant };
+            *state = State::Warm { attempt: Attempt(attempt.0 + 1), until: now + SKIP_WINDOW, instant: *instant };
         }
         Event::Pointer { tab, at } => {
             if let State::Open { tab: t, pointer, .. } = state
@@ -86,7 +88,7 @@ pub fn step(state: &mut State, event: Event<'_>, now: f64) {
     }
 }
 
-fn attempt(state: &State) -> u32 {
+fn attempt(state: &State) -> Attempt {
     match state {
         State::Cold { attempt } | State::Open { attempt, .. } | State::Warm { attempt, .. } => *attempt,
     }
@@ -124,7 +126,7 @@ pub struct Preview {
 impl App {
     /// The pointer came onto (`inside`) or left tab `id`.
     pub(crate) fn preview_hover(&mut self, id: &str, inside: bool, tx: &mut Tx) {
-        let now = self.clock;
+        let now = tx.clock();
         self.expire_preview(now);
         let shown = self.previewed().map(str::to_owned);
         let p = &mut self.tab_preview;
@@ -154,7 +156,7 @@ impl App {
             return;
         }
         let at = (window_y, window_y - local_y * self.zoom);
-        step(&mut self.tab_preview.state, Event::Pointer { tab: id, at }, self.clock);
+        step(&mut self.tab_preview.state, Event::Pointer { tab: id, at }, tx.clock());
         tx.instant();
     }
 
@@ -191,7 +193,7 @@ impl App {
     fn settle_preview(&mut self, now: f64, tx: &mut Tx) {
         if let Card::Waiting { tab, at } = &self.tab_preview.card {
             if now + 1e-3 < *at {
-                tx.wake_after(std::time::Duration::from_secs_f64(at - now));
+                tx.wake_at(*at);
             } else {
                 // The card asks to open; a blocked tab refuses, and the card doesn't ask again
                 // until the pointer comes back (`if (value && previewBlocked()) return`).

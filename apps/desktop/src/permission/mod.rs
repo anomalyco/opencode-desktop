@@ -73,7 +73,7 @@ impl App {
             self.write(Write::Permission { session, request: id.to_owned(), decision: decision.to_owned() });
             return;
         }
-        let r = self.permission_sent.0.entry(id.to_owned()).or_insert(Request { kind: Kind::Permission(reply::Reply::Idle { attempt: 0 }), owed: 0 });
+        let r = self.permission_sent.0.entry(id.to_owned()).or_insert(Request { kind: Kind::Permission(reply::Reply::Idle { attempt: rune::machine::Attempt(0) }), owed: 0 });
         let Kind::Permission(state) = &mut r.kind else { return };
         let effects = reply::step(state, reply::Event::Decide { session: &session, decision });
         self.permission_effects(id, effects);
@@ -87,7 +87,7 @@ impl App {
             self.write(Write::CancelForm { session, form: id.to_owned() });
             return;
         }
-        let r = self.permission_sent.0.entry(id.to_owned()).or_insert(Request { kind: Kind::Form(form::Reply::Answering { attempt: 0 }), owed: 0 });
+        let r = self.permission_sent.0.entry(id.to_owned()).or_insert(Request { kind: Kind::Form(form::Reply::Answering { attempt: rune::machine::Attempt(0) }), owed: 0 });
         let Kind::Form(state) = &mut r.kind else { return };
         let effects = form::step(state, form::Event::Send(action));
         self.form_effects(id, &session, effects);
@@ -111,7 +111,7 @@ impl App {
         self.permission_effects(id, effects);
     }
 
-    fn permission_effects(&mut self, id: &str, effects: Vec<reply::Effect>) {
+    fn permission_effects(&mut self, id: &str, effects: rune::machine::Effects<reply::Effect>) {
         for effect in effects {
             match effect {
                 reply::Effect::Send { attempt, session, decision } => {
@@ -150,7 +150,7 @@ impl App {
         self.form_effects(id, &session, effects);
     }
 
-    fn form_effects(&mut self, id: &str, session: &str, effects: Vec<form::Effect>) {
+    fn form_effects(&mut self, id: &str, session: &str, effects: rune::machine::Effects<form::Effect>) {
         for effect in effects {
             match effect {
                 form::Effect::Send { attempt, action } => {

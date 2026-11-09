@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use opencode_kit::integration::{Authorization, McpServer, McpStatus, MethodKind};
+use rune::machine::{Attempt, Seq};
 use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::App;
@@ -24,10 +25,10 @@ const TOGGLE_TIMEOUT_S: f64 = 60.0;
 pub enum Detail {
     Closed,
     /// Opened on a server before the list loaded.
-    Opening { attempt: u32, name: String },
+    Opening { attempt: Attempt, name: String },
     /// `error` is the server's latest failure, kept while a retry runs; `copied` is the error
     /// text last copied.
-    Open { attempt: u32, name: String, error: String, copied: Option<String> },
+    Open { attempt: Attempt, name: String, error: String, copied: Option<String> },
 }
 
 pub struct Dialog {
@@ -43,7 +44,7 @@ pub struct Dialog {
 struct Toggle {
     dir: String,
     name: String,
-    attempt: u32,
+    attempt: Attempt,
 }
 
 /// The MCP servers and their machine (Desktop's `McpState`, `mcp-machine.ts`): the toggles in
@@ -55,7 +56,7 @@ pub struct Mcp {
     /// Servers by folder ("" for the server's default location).
     servers: HashMap<String, Vec<McpServer>>,
     toggles: Vec<Toggle>,
-    issued: u32,
+    issued: Seq,
     /// The sign-in that also takes a pasted redirect URL.
     pub sign_in: Option<sign_in::SignIn>,
 }
@@ -103,8 +104,7 @@ fn step(mcp: &mut Mcp, event: Event<'_>) -> Vec<Effect> {
             if mcp.toggles.iter().any(|t| t.dir == dir && t.name == name) || status == Some(&McpStatus::Pending) {
                 return vec![];
             }
-            mcp.issued += 1;
-            let toggle = Toggle { dir: dir.to_owned(), name: name.to_owned(), attempt: mcp.issued };
+            let toggle = Toggle { dir: dir.to_owned(), name: name.to_owned(), attempt: mcp.issued.next() };
             mcp.toggles.push(toggle.clone());
             vec![Effect::RunToggle(toggle, enabled)]
         }
@@ -139,8 +139,7 @@ fn step(mcp: &mut Mcp, event: Event<'_>) -> Vec<Effect> {
         Event::DetailOpened { name, loaded, status, focus } => {
             let Some(open) = mcp.open.as_mut() else { return vec![] };
             if !loaded {
-                mcp.issued += 1;
-                open.detail = Detail::Opening { attempt: mcp.issued, name: name.to_owned() };
+                open.detail = Detail::Opening { attempt: mcp.issued.next(), name: name.to_owned() };
                 return vec![];
             }
             // Only a failed server has an error to show.
@@ -148,8 +147,7 @@ fn step(mcp: &mut Mcp, event: Event<'_>) -> Vec<Effect> {
                 open.detail = Detail::Closed;
                 return vec![];
             };
-            mcp.issued += 1;
-            open.detail = Detail::Open { attempt: mcp.issued, name: name.to_owned(), error: error.clone(), copied: None };
+            open.detail = Detail::Open { attempt: mcp.issued.next(), name: name.to_owned(), error: error.clone(), copied: None };
             if focus { vec![Effect::Focus { search: false }] } else { vec![] }
         }
         Event::DetailDismissed => {

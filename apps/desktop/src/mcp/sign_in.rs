@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use opencode_i18n::t;
 use opencode_kit::integration::{AttemptStatus, Authorization};
+use rune::machine::{Attempt, Seq};
 use rune::{El, Key, KeyEvent, Spring, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
@@ -32,16 +33,16 @@ pub struct SignIn {
     state: State,
     field: TextEdit,
     /// Requests take numbers from here, so an answer whose number the state no longer holds is stale.
-    issued: u32,
+    issued: Seq,
 }
 
 /// `McpSignInState`, less `disposed`: closing the dialog drops it.
 enum State {
     /// `accepted`: the server took a pasted URL and finishes the sign-in; the poll reports it.
-    Waiting { poll: u32, accepted: bool, entry: Option<Entry>, unreachable: Option<String> },
-    Submitting { poll: u32, submit: u32, unreachable: Option<String> },
+    Waiting { poll: Attempt, accepted: bool, entry: Option<Entry>, unreachable: Option<String> },
+    Submitting { poll: Attempt, submit: Attempt, unreachable: Option<String> },
     /// Signed in; the server list reloads before the dialog closes.
-    Completing { sync: u32 },
+    Completing { sync: Attempt },
     Failed(Failure),
     Done,
 }
@@ -71,16 +72,16 @@ enum Outcome {
 
 /// `McpSignInEvent`, less `browser.open`, which the Open browser button does itself.
 enum Event {
-    Polled { poll: u32, outcome: Outcome },
+    Polled { poll: Attempt, outcome: Outcome },
     PasteChanged,
     PasteSubmitted,
-    SubmitSucceeded { submit: u32 },
-    SubmitFailed { submit: u32, message: String },
+    SubmitSucceeded { submit: Attempt },
+    SubmitFailed { submit: Attempt, message: String },
     /// The attempt's lifetime ended before the server reported an outcome.
     WaitingTimedOut,
-    SyncSucceeded { sync: u32 },
-    SyncFailed { sync: u32, message: String },
-    SyncTimedOut { sync: u32 },
+    SyncSucceeded { sync: Attempt },
+    SyncFailed { sync: Attempt, message: String },
+    SyncTimedOut { sync: Attempt },
     Retry,
     /// Esc, the close cross or a press outside.
     Disposed,
@@ -89,10 +90,10 @@ enum Event {
 /// `McpSignInEffect`. The deadline is the attempt's lifetime, and a poll, submit or reload
 /// answers with its number, so a stale one is dropped and `*.abort`, `*.clear` have nothing to do.
 enum Effect {
-    Poll { poll: u32, delay: Duration },
-    Submit { submit: u32, code: String },
+    Poll { poll: Attempt, delay: Duration },
+    Submit { submit: Attempt, code: String },
     /// Reloads the server list, reporting back within [`SYNC_TIMEOUT`].
-    Sync { sync: u32 },
+    Sync { sync: Attempt },
     /// Reloads the list without reporting back, for a sign-in the server finishes after the
     /// dialog closed.
     Refresh,
@@ -140,10 +141,9 @@ fn step(x: &mut SignIn, event: Event) -> Vec<Effect> {
         }
         (State::Submitting { submit, unreachable, .. }, Event::SubmitSucceeded { submit: due }) if *submit == due => {
             // Polls at once, so the dialog moves on as soon as the server finishes.
-            let unreachable = unreachable.take();
-            x.issued += 1;
-            x.state = State::Waiting { poll: x.issued, accepted: true, entry: None, unreachable };
-            vec![Effect::Poll { poll: x.issued, delay: Duration::ZERO }]
+            let (unreachable, poll) = (unreachable.take(), x.issued.next());
+            x.state = State::Waiting { poll, accepted: true, entry: None, unreachable };
+            vec![Effect::Poll { poll, delay: Duration::ZERO }]
         }
         (State::Submitting { poll, submit, unreachable }, Event::SubmitFailed { submit: due, message }) if *submit == due => {
             x.state = State::Waiting { poll: *poll, accepted: false, entry: Some(Entry::Rejected(message)), unreachable: unreachable.take() };
@@ -159,10 +159,9 @@ fn step(x: &mut SignIn, event: Event) -> Vec<Effect> {
                 *entry = Some(Entry::Required);
                 return vec![];
             }
-            let (poll, unreachable) = (*poll, unreachable.take());
-            x.issued += 1;
-            x.state = State::Submitting { poll, submit: x.issued, unreachable };
-            vec![Effect::Submit { submit: x.issued, code }]
+            let (poll, unreachable, submit) = (*poll, unreachable.take(), x.issued.next());
+            x.state = State::Submitting { poll, submit, unreachable };
+            vec![Effect::Submit { submit, code }]
         }
         _ => vec![],
     }
@@ -176,8 +175,7 @@ fn polled(x: &mut SignIn, outcome: Outcome) -> Vec<Effect> {
         Outcome::Expired => Failure::Expired,
         Outcome::Failed(m) => Failure::Auth(m),
         Outcome::Pending | Outcome::Unreachable(_) => {
-            x.issued += 1;
-            let next = x.issued;
+            let next = x.issued.next();
             if let State::Waiting { poll, unreachable, .. } | State::Submitting { poll, unreachable, .. } = &mut x.state {
                 *poll = next;
                 *unreachable = match outcome {
@@ -194,9 +192,9 @@ fn polled(x: &mut SignIn, outcome: Outcome) -> Vec<Effect> {
 
 /// The sign-in succeeded: the server list reloads before the dialog closes.
 fn sync(x: &mut SignIn) -> Vec<Effect> {
-    x.issued += 1;
-    x.state = State::Completing { sync: x.issued };
-    vec![Effect::Sync { sync: x.issued }]
+    let sync = x.issued.next();
+    x.state = State::Completing { sync };
+    vec![Effect::Sync { sync }]
 }
 
 impl App {
@@ -206,10 +204,12 @@ impl App {
         let lifetime = Duration::from_millis((auth.expires - auth.created).max(0) as u64);
         let mut field = TextEdit::new("");
         field.focused = true;
-        self.mcp.sign_in = Some(SignIn { dir, name, integration, attempt: auth.attempt.clone(), url: auth.url, state: State::Waiting { poll: 1, accepted: false, entry: None, unreachable: None }, field, issued: 1 });
+        let mut issued = Seq::default();
+        let poll = issued.next();
+        self.mcp.sign_in = Some(SignIn { dir, name, integration, attempt: auth.attempt.clone(), url: auth.url, state: State::Waiting { poll, accepted: false, entry: None, unreachable: None }, field, issued });
         let attempt = auth.attempt;
         self.job_after(lifetime, move |_| Box::new(move |s: &mut App, tx: &mut Tx| sign_in_step(s, &attempt, Event::WaitingTimedOut, tx)) as Apply);
-        run(self, vec![Effect::Poll { poll: 1, delay: Duration::ZERO }]);
+        run(self, vec![Effect::Poll { poll, delay: Duration::ZERO }]);
     }
 }
 

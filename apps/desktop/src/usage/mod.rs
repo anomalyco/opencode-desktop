@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use rune::Tx;
+use rune::machine::{Attempt, Seq};
 use serde_json::Value;
 
 use crate::pickers::PickerHost as _;
@@ -34,15 +35,15 @@ pub struct Open {
     credits: bool,
     pub load: Load,
     /// The last load's attempt: a load whose attempt `load` no longer holds is stale.
-    issued: u32,
+    issued: Seq,
 }
 
 /// `UsageDialogState` (`usage/machine.ts:16-28`) for the open dialog's location. `Refreshing`
 /// shows limits read before while the dialog's own load runs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Load {
-    Loading { attempt: u32 },
-    Refreshing { attempt: u32, info: Info },
+    Loading { attempt: Attempt },
+    Refreshing { attempt: Attempt, info: Info },
     Ready(Info),
     SignedOut,
     Failed,
@@ -53,9 +54,9 @@ pub enum Load {
 #[derive(Clone, Debug, PartialEq)]
 enum Event {
     /// `None`: the server isn't signed in to Console.
-    Loaded { attempt: u32, info: Option<Info> },
-    Failed { attempt: u32 },
-    TimedOut { attempt: u32 },
+    Loaded { attempt: Attempt, info: Option<Info> },
+    Failed { attempt: Attempt },
+    TimedOut { attempt: Attempt },
     Retry,
 }
 
@@ -63,7 +64,7 @@ enum Event {
 /// `timer.stop` has nothing to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Sync {
-    attempt: u32,
+    attempt: Attempt,
 }
 
 /// `USAGE_LOAD_TIMEOUT_MS`.
@@ -71,8 +72,7 @@ const TIMEOUT_S: f64 = 15.0;
 
 /// `load`: a fresh attempt, showing `cached` while it runs.
 fn load(open: &mut Open, cached: Option<Info>) -> Sync {
-    open.issued += 1;
-    let attempt = open.issued;
+    let attempt = open.issued.next();
     open.load = match cached {
         Some(info) => Load::Refreshing { attempt, info },
         None => Load::Loading { attempt },
@@ -120,7 +120,7 @@ impl App {
             })
         });
         let credits = last.and_then(|a| a.failure.as_ref()).is_some_and(|e| e.status == Some(402));
-        let mut open = Open { directory, model, credits, load: Load::Failed, issued: 0 };
+        let mut open = Open { directory, model, credits, load: Load::Failed, issued: Seq::default() };
         let sync = load(&mut open, cached);
         self.usage.open = Some(open);
         self.sync_usage(sync);
@@ -173,7 +173,7 @@ fn usage_step(s: &mut App, event: Event, tx: &mut Tx) {
 
 /// A read's answer: limits, signed out (`null`), or a failure. It fills the location's cache
 /// either way; the dialog takes it only while it waits for that attempt at that location.
-fn loaded(s: &mut App, attempt: u32, directory: &str, answer: Result<Value, String>) {
+fn loaded(s: &mut App, attempt: Attempt, directory: &str, answer: Result<Value, String>) {
     let info = answer.as_ref().ok().map(|v| v.get("data").unwrap_or(v));
     if let Some(info) = info.and_then(Info::parse) {
         s.usage.cache.insert(directory.to_owned(), info);
