@@ -108,11 +108,46 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
             continue;
         }
         let script = app.plugins.luau.plugins[i].script();
-        let tabs: Vec<PanelTab> = script.and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(list, (ctx.session_id.to_owned(), open.clone())).ok())).and_then(|d| d.decode().ok()).unwrap_or_default();
+        let tabs = listed(app, script, list, ctx.plugin, &p.spec.id, ctx.session_id, &open);
         let group = intern(&p.spec.id);
         out.extend(tabs.into_iter().filter(|t| open.contains(&t.instance)).map(|t| instance_tab(&p.spec, group, t)));
     }
     out
+}
+
+thread_local! {
+    /// Each instance panel's last `list` answer, by plugin, panel and session, with what it was
+    /// asked on: the strip is built every frame, and an unchanged frame enters no VM.
+    static LISTED: std::cell::RefCell<std::collections::HashMap<(String, String, String), Listed>> = std::cell::RefCell::default();
+}
+
+/// An instance panel's `list` answer and what it was asked on: the script's version, the open
+/// tabs, and what the call read (`cx::Dep`) as it read it.
+struct Listed {
+    asked: u64,
+    reads: Vec<cx::Dep>,
+    read: u64,
+    tabs: Vec<PanelTab>,
+}
+
+/// `list(session, open)` of an instance panel, asked again only when the script ran, the open
+/// tabs changed, or something the last call read did: the strip is built every frame, and an
+/// unchanged frame enters no VM.
+fn listed(app: &App, script: Option<&rune_luau::Script>, list: &Function, plugin: &str, panel: &str, session: &str, open: &[String]) -> Vec<PanelTab> {
+    let Some(script) = script else { return Vec::new() };
+    let mut h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&(script.version(), open), &mut h);
+    let asked = std::hash::Hasher::finish(&h);
+    let key = (plugin.to_owned(), panel.to_owned(), session.to_owned());
+    let hit = LISTED.with_borrow(|c| c.get(&key).filter(|l| l.asked == asked && cx::stamp(app, &l.reads) == l.read).map(|l| l.tabs.clone()));
+    if let Some(tabs) = hit {
+        return tabs;
+    }
+    let (answer, reads) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(list, (session.to_owned(), open.to_vec())).ok()));
+    let tabs: Vec<PanelTab> = answer.and_then(|d| d.decode().ok()).unwrap_or_default();
+    let read = cx::stamp(app, &reads);
+    LISTED.with_borrow_mut(|c| c.insert(key, Listed { asked, reads, read, tabs: tabs.clone() }));
+    tabs
 }
 
 fn instance_tab(spec: &PanelSpec, group: &'static str, t: PanelTab) -> PanelTabDesc {

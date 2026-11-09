@@ -33,13 +33,10 @@ local function summary(env: Env, lines: { ConsoleLine }): string
             errors += 1
         end
     end
-    return env.I18n:T(
-        "console.summary",
-        {
-            lines = env.I18n:T("console.lines", { count = #lines }),
-            errors = env.I18n:T("console.errors", { count = errors }),
-        }
-    )
+    return env.I18n:T("console.summary", {
+        lines = env.I18n:T("console.lines", { count = #lines }),
+        errors = env.I18n:T("console.errors", { count = errors }),
+    })
 end
 
 local function card(env: Env, view: View, n: number, l: ConsoleLine): ui.Node
@@ -87,18 +84,15 @@ local function card(env: Env, view: View, n: number, l: ConsoleLine): ui.Node
     if trace:match("%S") then
         table.insert(
             body,
-            ui.text(
-                trace,
-                {
-                    size = MONO.size,
-                    weight = MONO.weight,
-                    lineHeight = MONO.lineHeight,
-                    mono = true,
-                    color = "text-faint",
-                    wrap = true,
-                    selectable = true,
-                }
-            )
+            ui.text(trace, {
+                size = MONO.size,
+                weight = MONO.weight,
+                lineHeight = MONO.lineHeight,
+                mono = true,
+                color = "text-faint",
+                wrap = true,
+                selectable = true,
+            })
         )
     end
     return ui.col(
@@ -111,29 +105,23 @@ end
 local function costs(env: Env, target: string): ui.Node
     local m = env.Diagnostics:Metrics(target)
     local words = if m
-        then env.I18n:T(
-            "console.costs",
-            {
-                plugin = target,
-                kb = env.I18n:Number(math.round(m.memoryKb)),
-                us = env.I18n:Number(math.round(m.renderUs)),
-                hits = env.I18n:Number(m.memoHitRate, { style = "percent" }),
-            }
-        )
+        then env.I18n:T("console.costs", {
+            plugin = target,
+            kb = env.I18n:Number(math.round(m.memoryKb)),
+            us = env.I18n:Number(math.round(m.renderUs)),
+            hits = env.I18n:Number(m.memoHitRate, { style = "percent" }),
+        })
         else env.I18n:T("console.stopped", { plugin = target })
-    return ui.text(
-        words,
-        {
-            size = MONO.size,
-            weight = MONO.weight,
-            lineHeight = MONO.lineHeight,
-            mono = true,
-            color = "text-faint",
-            truncate = true,
-            shrink = true,
-            minW = 0,
-        }
-    )
+    return ui.text(words, {
+        size = MONO.size,
+        weight = MONO.weight,
+        lineHeight = MONO.lineHeight,
+        mono = true,
+        color = "text-faint",
+        truncate = true,
+        shrink = true,
+        minW = 0,
+    })
 end
 
 -- Runs the command bar's text in the target plugin and writes the result to the console.
@@ -168,66 +156,57 @@ function console.render(env: Env, view: View, props: PanelProps): ui.Node?
     local head = ui.row({ w = "full", align = "center", gap = 8 }, {
         ui.text(summary(env, lines), { size = 13, weight = "regular", lineHeight = 18, color = "text-faint" }),
         ui.spacer(),
-        ui.row(
-            {
-                key = "luau-console-clear",
-                role = "button",
-                label = env.I18n:T("console.clear"),
-                h = 24,
-                px = 8,
-                radius = 4,
-                center = true,
-                hover = "surface-hover",
-                hoverTransition = "instant",
-                onPress = view:Handler(function()
-                    env.Console:Clear()
-                end),
-            },
-            {
-                ui.text(
-                    env.I18n:T("console.clear"),
-                    { size = 13, weight = "regular", lineHeight = 18, color = "text-muted" }
-                ),
-            }
-        ),
+        ui.row({
+            key = "luau-console-clear",
+            role = "button",
+            label = env.I18n:T("console.clear"),
+            h = 24,
+            px = 8,
+            radius = 4,
+            center = true,
+            hover = "surface-hover",
+            hoverTransition = "instant",
+            onPress = view:Handler(function()
+                env.Console:Clear()
+            end),
+        }, {
+            ui.text(
+                env.I18n:T("console.clear"),
+                { size = 13, weight = "regular", lineHeight = 18, color = "text-muted" }
+            ),
+        }),
     })
     local bar: { ui.Node } = {}
     if target then
         local current = target
         table.insert(
             bar,
-            ui.row(
-                {
-                    key = "luau-console-target",
-                    role = "button",
-                    label = env.I18n:T("console.target", { plugin = current }),
-                    help = env.I18n:T("console.target.tip"),
-                    helpSide = "top",
-                    h = 28,
-                    px = 8,
-                    radius = 6,
-                    center = true,
-                    border = "border-weak",
-                    hover = "surface-hover",
-                    hoverTransition = "instant",
-                    onPress = view:Handler(function()
-                        local i = table.find(plugins, current) or 0
-                        env.state.target = plugins[i % #plugins + 1]
-                    end),
-                },
-                {
-                    ui.text(
-                        current,
-                        {
-                            size = MONO.size,
-                            weight = MONO.weight,
-                            lineHeight = MONO.lineHeight,
-                            mono = true,
-                            color = "text-strong",
-                        }
-                    ),
-                }
-            )
+            ui.row({
+                key = "luau-console-target",
+                role = "button",
+                label = env.I18n:T("console.target", { plugin = current }),
+                help = env.I18n:T("console.target.tip"),
+                helpSide = "top",
+                h = 28,
+                px = 8,
+                radius = 6,
+                center = true,
+                border = "border-weak",
+                hover = "surface-hover",
+                hoverTransition = "instant",
+                onPress = view:Handler(function()
+                    local i = table.find(plugins, current) or 0
+                    env.state.target = plugins[i % #plugins + 1]
+                end),
+            }, {
+                ui.text(current, {
+                    size = MONO.size,
+                    weight = MONO.weight,
+                    lineHeight = MONO.lineHeight,
+                    mono = true,
+                    color = "text-strong",
+                }),
+            })
         )
         table.insert(
             bar,

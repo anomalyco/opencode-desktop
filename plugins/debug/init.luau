@@ -202,19 +202,16 @@ return plugin.defineWindow(function(ctx)
                 -- `surface-raised-base`: a pressed cell, and any cell under the pointer.
                 local raised = ui.hex(if dark then "#ffffff0f" else "#00000008")
                 local function name(words: string, mt: number): ui.Node
-                    return ui.text(
-                        words,
-                        {
-                            size = 10,
-                            weight = 900 :: any,
-                            lineHeight = 10,
-                            tracking = 0.4,
-                            mono = true,
-                            color = dim,
-                            noWrap = true,
-                            mt = mt,
-                        }
-                    )
+                    return ui.text(words, {
+                        size = 10,
+                        weight = 900 :: any,
+                        lineHeight = 10,
+                        tracking = 0.4,
+                        mono = true,
+                        color = dim,
+                        noWrap = true,
+                        mt = mt,
+                    })
                 end
                 -- A reading (`Cell`): its name and value on one baseline; the 10 pt name sits 1.4
                 -- lower than the 12 pt value line so their baselines meet.
@@ -222,18 +219,15 @@ return plugin.defineWindow(function(ctx)
                     return ui.col({ key = key, help = tip, helpSide = "top", minH = 20, px = 6, pt = 3, pb = 5 }, {
                         ui.row({ gap = 6 }, {
                             name(label, 1.4),
-                            ui.text(
-                                value:upper(),
-                                {
-                                    size = 11,
-                                    weight = "bold",
-                                    lineHeight = 12,
-                                    mono = true,
-                                    tabular = true,
-                                    color = if isDim then dim else ink,
-                                    noWrap = true,
-                                }
-                            ),
+                            ui.text(value:upper(), {
+                                size = 11,
+                                weight = "bold",
+                                lineHeight = 12,
+                                mono = true,
+                                tabular = true,
+                                color = if isDim then dim else ink,
+                                noWrap = true,
+                            }),
                         }),
                     })
                 end

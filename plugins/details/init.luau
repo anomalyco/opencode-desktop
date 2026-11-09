@@ -222,50 +222,44 @@ return plugin.defineWindow(function(ctx)
             end
             if state.drawer then
                 local service = state.drawer
-                return ui.col(
-                    {
-                        key = "details-drawer",
+                return ui.col({
+                    key = "details-drawer",
+                    w = "full",
+                    pad = 2,
+                    radius = 6,
+                    fill = if Theme:IsDark() then "surface-1" else "bg-base",
+                    shadow = "raised",
+                }, {
+                    ui.row({
+                        key = "details-drawer-back",
+                        role = "button",
+                        label = I18n:T(service),
                         w = "full",
-                        pad = 2,
-                        radius = 6,
-                        fill = if Theme:IsDark() then "surface-1" else "bg-base",
-                        shadow = "raised",
-                    },
-                    {
-                        ui.row({
-                            key = "details-drawer-back",
-                            role = "button",
-                            label = I18n:T(service),
-                            w = "full",
-                            minH = 44,
-                            pl = 12,
-                            pr = 8,
-                            py = 4,
-                            gap = 8,
-                            align = "center",
-                            radius = 4,
-                            hover = "surface-hover",
-                            hoverTransition = "instant",
-                            onPress = view:Handler(function()
-                                state.drawer = nil
-                            end),
-                        }, {
-                            ui.icon("chevron-left", { size = 16, color = "icon-weak" }),
-                            ui.text(
-                                I18n:T(service),
-                                {
-                                    size = 13,
-                                    weight = "regular",
-                                    lineHeight = 16,
-                                    color = "text-faint",
-                                    truncate = true,
-                                    shrink = true,
-                                }
-                            ),
+                        minH = 44,
+                        pl = 12,
+                        pr = 8,
+                        py = 4,
+                        gap = 8,
+                        align = "center",
+                        radius = 4,
+                        hover = "surface-hover",
+                        hoverTransition = "instant",
+                        onPress = view:Handler(function()
+                            state.drawer = nil
+                        end),
+                    }, {
+                        ui.icon("chevron-left", { size = 16, color = "icon-weak" }),
+                        ui.text(I18n:T(service), {
+                            size = 13,
+                            weight = "regular",
+                            lineHeight = 16,
+                            color = "text-faint",
+                            truncate = true,
+                            shrink = true,
                         }),
-                        lists.pane(env, view, service, session.directory, true),
-                    }
-                )
+                    }),
+                    lists.pane(env, view, service, session.directory, true),
+                })
             end
             local rows: { ui.Node } = {}
             for _, service in lists.all() do
@@ -291,39 +285,33 @@ return plugin.defineWindow(function(ctx)
                         end),
                     }, {
                         ui.icon(lists.icon(service), { size = 16, color = "icon-weak" }),
-                        ui.text(
-                            I18n:T(service),
-                            {
-                                size = 13,
-                                weight = "regular",
-                                lineHeight = 16,
-                                color = "text-chrome",
-                                truncate = true,
-                                grow = 1,
-                                shrink = true,
-                                minW = 0,
-                            }
-                        ),
+                        ui.text(I18n:T(service), {
+                            size = 13,
+                            weight = "regular",
+                            lineHeight = 16,
+                            color = "text-chrome",
+                            truncate = true,
+                            grow = 1,
+                            shrink = true,
+                            minW = 0,
+                        }),
                         ui.icon("chevron-right", { size = 16, color = "icon-weak", ml = 4 }),
                     })
                 )
             end
             return ui.col({ key = "session-summary-panel", w = "full", gap = 8 }, {
-                ui.col(
-                    {
-                        key = "session-summary-card",
-                        w = "full",
-                        pad = 2,
-                        gap = 2,
-                        radius = 6,
-                        fill = if Theme:IsDark() then "surface-1" else "bg-base",
-                        shadow = "raised",
-                    },
-                    {
-                        headingRow(true),
-                        ui.col({ key = "session-summary-rows", w = "full", gap = 2 }, rows),
-                    }
-                ),
+                ui.col({
+                    key = "session-summary-card",
+                    w = "full",
+                    pad = 2,
+                    gap = 2,
+                    radius = 6,
+                    fill = if Theme:IsDark() then "surface-1" else "bg-base",
+                    shadow = "raised",
+                }, {
+                    headingRow(true),
+                    ui.col({ key = "session-summary-rows", w = "full", gap = 2 }, rows),
+                }),
             })
         end,
     })
