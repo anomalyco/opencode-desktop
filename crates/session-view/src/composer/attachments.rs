@@ -189,10 +189,10 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         );
     }
     // An upload's card and its cancel (`editor.tsx:880-899`).
-    for (id, name) in uploading {
+    for (id, name, percent) in uploading {
         let gone = id.clone();
         let cancel = remove_button(p, &name, 160.0, move |s: &mut S| s.composer_cancel_upload(&gone)).label(opencode_i18n::t!("ui.promptInput.cancelUpload"));
-        r = r.child(el().key(format!("uploading-{id}")).hover_group().child(card(p, &name, opencode_i18n::t!("rune.composer.uploading").into())).child(cancel));
+        r = r.child(el().key(format!("uploading-{id}")).hover_group().child(upload_card(p, &name, percent)).child(cancel));
     }
     // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
     // fade on each side that shows while chips hide under it (`attachments.css`).
@@ -272,6 +272,61 @@ pub fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .box_shadow(Pal::ring_in(p.border))
         .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
         .child(row().key("subtitle").w_full().min_h(16.0).center_y().child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade()))
+}
+
+/// An upload's card (`editor.tsx:880-890`): its file's name over the progress ring and the
+/// percent 4 apart.
+pub fn upload_card(p: &Pal, title: &str, percent: u32) -> El {
+    let subtitle = row()
+        .key("subtitle")
+        .w_full()
+        .min_h(16.0)
+        .gap(4.0)
+        .center_y()
+        .child(progress_circle(p, percent))
+        .child(text(opencode_i18n::t!("ui.promptInput.uploading", percent = percent)).font(CARD_SUBTITLE).color(p.muted).truncate_fade());
+    col()
+        .key("card")
+        .w(160.0)
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .fill(p.hover)
+        .box_shadow(Pal::ring_in(p.border))
+        .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
+        .child(subtitle)
+}
+
+/// `ProgressCircle`'s compact look (`progress-circle.css`): a 14 pt ring, 1.5 wide, its track
+/// `bg-layer-04` and the part done `icon-base` from twelve o'clock clockwise, which moves on
+/// `stroke-dashoffset 0.35s cubic-bezier(0.65, 0, 0.35, 1)`. Each half of the ring is a
+/// half-circle turning into a clip of its own, so the arc grows as the halves turn.
+pub fn progress_circle(p: &Pal, percent: u32) -> El {
+    const SIZE: f32 = 14.0;
+    const STROKE: f32 = 1.5;
+    let r = SIZE / 2.0 - STROKE / 2.0;
+    // Clockwise from twelve o'clock, `from` to `to` turns.
+    let arc = |from: f32, to: f32| -> Vec<[f32; 2]> {
+        (0..=24).map(|i| {
+            let t = std::f32::consts::TAU * (from + (to - from) * i as f32 / 24.0);
+            [SIZE / 2.0 + r * t.sin(), SIZE / 2.0 - r * t.cos()]
+        }).collect()
+    };
+    let ring = |from: f32, to: f32, color: rune::Color| rune::Shape::new().view_box(SIZE, SIZE).stroke_with(arc(from, to), false, STROKE, rune::LineCap::Butt, color);
+    let done = (percent.min(100) as f32) / 100.0;
+    let curve = || rune::Curve::tween(0.35, rune::Easing::cubic(0.65, 0.0, 0.35, 1.0));
+    // A half turned `turn` of half a circle about the ring's centre, seen through the half at `x`.
+    let half = |key: &'static str, x: f32, from: f32, turn: f32| {
+        el().key(key).absolute(x, 0.0).size(SIZE / 2.0, SIZE).clip_soft(0.0).child(
+            el().absolute(-x, 0.0).size(SIZE, SIZE).shape(ring(from, from + 0.5, p.icon)).rotate(turn * std::f32::consts::PI).rotate_motion(curve()),
+        )
+    };
+    el()
+        .key("progress-circle")
+        .size(SIZE, SIZE)
+        .shape(ring(0.0, 1.0, p.q.layer4))
+        .child(half("progress-right", SIZE / 2.0, 0.5, (done * 2.0).min(1.0)))
+        .child(half("progress-left", 0.0, 0.0, (done * 2.0 - 1.0).max(0.0)))
 }
 
 /// A file sent as context without a mention (`editor.tsx:802-830`): the card on the base

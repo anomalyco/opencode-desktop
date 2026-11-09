@@ -350,7 +350,12 @@ pub(super) fn hover_session(s: &mut App, id: &str, inside: bool, tx: &mut Tx) {
 /// `createAltHold`: while Alt is held on Desktop, every Home row and search result shows its
 /// worktree and branch, and their branches load (`alt-hold.ts`, `onRevealLocations`).
 pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
+    // The quote comment editor shows its alternate send while Mod is held.
+    let quote = crate::quote::editor::modifiers(s, mods, tx);
     if s.home_search.alt_held == mods.alt {
+        if quote {
+            return;
+        }
         return tx.live_only();
     }
     s.home_search.alt_held = mods.alt;

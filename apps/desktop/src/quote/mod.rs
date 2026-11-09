@@ -23,6 +23,8 @@ const TOO_LONG: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 pub use session_view::user_parts::OUTLINE_QUOTE;
 
+pub mod comment;
+pub mod editor;
 pub mod machine;
 use machine::Ident;
 
@@ -44,6 +46,13 @@ pub struct Quotes {
     /// Takes an edit that lands after the comment editor closed: the field's `on_edit` needs
     /// somewhere to write.
     pub(crate) spare: TextEdit,
+    pub(crate) comment_seq: rune::machine::Seq,
+    /// The editor's height when it opened, which its bottom edge keeps as the draft grows.
+    pub(crate) opening: std::cell::Cell<f32>,
+    /// Where the offered selection stands, for the editor that replaces the toolbar.
+    pub(crate) placed: std::cell::RefCell<Option<comment::Anchor>>,
+    /// The comment field's `@` file search.
+    pub(crate) mention_fetch: rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -156,7 +165,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.quote.step(machine::Event::Reset, tx);
         changed = true;
     }
-    changed |= crate::quote_cards::poll(s);
+    changed |= editor::poll(s, tx);
     if s.quote.toolbar.settle.is_some_and(|w| now + 1e-3 >= w.due) {
         let read = machine::step(&mut s.quote.seq, &mut s.quote.toolbar, machine::Event::Due { now });
         if read.into_iter().any(|e| e == machine::Effect::Read) {
@@ -214,8 +223,9 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
     }
 }
 
-/// The toolbar's click: the selection becomes a quote in the composer. With Alt held its comment
-/// editor opens; otherwise the prompt takes focus.
+/// The toolbar's click: the selection becomes a quote in the composer and its comment editor
+/// opens where the toolbar stood; with Alt held it skips the comment and the prompt takes focus
+/// (`quote.tsx:343-395`).
 pub fn add(s: &mut App, comment: bool, tx: &mut Tx) {
     let Some(offer) = s.quote.offer().filter(|o| !o.truncated) else { return };
     let text = offer.text.clone();
@@ -253,7 +263,8 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
     s.quote.step(machine::Event::Reset, tx);
     let key = s.quote.push(quote);
     if comment {
-        crate::quote_cards::open_editor(s, key);
+        let anchor = s.quote.placed.borrow_mut().take();
+        editor::open(s, key, anchor);
     } else {
         s.composer.focused = true;
     }
@@ -290,6 +301,14 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let fits_below = below + h <= b_bottom - GAP && bottom >= b_top;
     let sides = if short || offer.backward { [(fits_above, above), (fits_below, below)] } else { [(fits_below, below), (fits_above, above)] };
     let y = sides.iter().find(|(fits, _)| *fits).map_or(b_bottom - h - GAP, |(_, y)| *y);
+    // Where the quoted lines stand from their first text, for an editor that replaces the bar.
+    let first_path = s.quote.selection.as_ref().and_then(|h| h.ident.first().map(|(path, _)| path.rsplit('/').next().unwrap_or(path).to_owned()));
+    if let Some(path) = first_path
+        && let Some(origin) = cx.window_layout(&path).map(shell)
+    {
+        let rects = rects.iter().map(|r| [r[0] - origin[0], r[1] - origin[1], r[2], r[3]]).collect();
+        *s.quote.placed.borrow_mut() = Some(comment::Anchor { session: offer.session.clone(), path, rects, short, backward: offer.backward });
+    }
     let x = ((left + right - w) / 2.0).max(b_left + GAP).min(b_right - w - GAP);
     Some(bar(p, offer.truncated).absolute(x, y).opacity(if size.is_some() { 1.0 } else { 0.0 }))
 }
@@ -299,7 +318,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .key("quote-add")
         .role("button")
         .label(opencode_i18n::t!("session.quote.add"))
-        .help(format!("{} {}", opencode_i18n::t!("session.quote.addWithComment"), crate::keymap::modifier_label(rune::ChordMod::Alt)))
+        .help(opencode_i18n::t!("session.quote.addWithoutComment")).help_keys([crate::keymap::modifier_label(rune::ChordMod::Alt)])
         .h(24.0)
         .px(9.0)
         .gap(6.0)
@@ -310,7 +329,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
     button = if truncated {
         button.opacity(0.5)
     } else {
-        button.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add(s, tx.mods().alt, tx))
+        button.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add(s, !tx.mods().alt, tx))
     };
     row()
         .key("quote-toolbar")

@@ -40,9 +40,13 @@ pub struct Attach {
     pub context: Vec<crate::add_selection::ContextFile>,
     /// Uploads still copying to a remote server; sending waits for them.
     pub uploads: uploads::Uploads,
+    /// When the upload toast came up: the first upload since none were listed.
+    pub toast_at: f64,
     seq: rune::machine::Seq,
-    uploads_tx: Sender<(Attempt, Result<PathAttachment, Failed>)>,
-    uploads_rx: Receiver<(Attempt, Result<PathAttachment, Failed>)>,
+    uploads_tx: Sender<Copied>,
+    uploads_rx: Receiver<Copied>,
+    /// Each running upload's stop (Desktop's `runs`, its `AbortController`).
+    runs: std::collections::HashMap<Attempt, std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// A file drag over the page, which shows the drop overlay.
     pub drop: crate::dropzone::Dropzone,
     /// Prompts shown before the server's copy: (session, local id, text).
@@ -59,9 +63,11 @@ impl Default for Attach {
             paths: Vec::new(),
             context: Vec::new(),
             uploads: uploads::Uploads::default(),
+            toast_at: 0.0,
             seq: rune::machine::Seq::default(),
             uploads_tx,
             uploads_rx,
+            runs: Default::default(),
             drop: Default::default(),
             echoes: Vec::new(),
             store: MediaStore::default(),
@@ -97,6 +103,16 @@ impl Attach {
     pub fn add(&mut self, a: Attachment) {
         push_unique(&mut self.files, a);
     }
+}
+
+/// How often a moving body's progress reaches the window.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// What an upload's copy reports: how far its body has gone, then its answer (`Err(None)` when
+/// it was stopped).
+pub enum Copied {
+    Progress(Attempt, u64),
+    Done(Attempt, Result<PathAttachment, Option<Failed>>),
 }
 
 /// An upload that didn't reach the server: the file, to try again.
@@ -151,62 +167,135 @@ impl App {
                 });
             }
         };
-        let id = path.to_string_lossy().into_owned();
+        // Each upload is its own (`attachments.ts:132`, a fresh id), so the same file twice
+        // copies twice and lands once (`addPath` keeps one per path).
+        let id = opencode_kit::client::message_id();
+        let size = size as u64;
+        let clock = self.clock;
         let a = &mut self.attach;
-        let Some(attempt) = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Started { id: &id, name: &name }).into_iter().find_map(|e| match e {
+        if a.uploads.is_empty() {
+            a.toast_at = clock;
+        }
+        let Some(attempt) = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Started { id: &id, name: &name, mime: &mime, size }).into_iter().find_map(|e| match e {
             uploads::Effect::Run(attempt) => Some(attempt),
             _ => None,
         }) else {
             return;
         };
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        a.runs.insert(attempt, stop.clone());
         let (out, wake, directory, path) = (a.uploads_tx.clone(), a.waker.clone(), self.composer_directory(), path.to_owned());
         std::thread::spawn(move || {
-            let copied = std::fs::read(&path)
-                .map_err(|e| format!("{name}: {e}"))
-                .and_then(|bytes| server.upload(&directory, &name, &bytes));
-            let _ = out.send((attempt, match copied {
+            let woke = || {
+                if let Some(w) = &wake {
+                    w();
+                }
+            };
+            // The body's progress reaches the window about as often as an XHR's does (every 50 ms
+            // while it moves), and once all of it has gone.
+            let mut last: Option<std::time::Instant> = None;
+            let mut sent = |n: u64| {
+                if last.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY) || n >= size {
+                    last = Some(std::time::Instant::now());
+                    let _ = out.send(Copied::Progress(attempt, n));
+                    woke();
+                }
+                !stop.load(std::sync::atomic::Ordering::Relaxed)
+            };
+            let copied = std::fs::File::open(&path)
+                .map_err(|e| opencode_kit::client::UploadError::Failed(format!("{name}: {e}")))
+                .and_then(|mut file| server.upload(&directory, &name, &mut file, size, &mut sent));
+            let done = match copied {
                 Ok(at) => Ok(PathAttachment { name, mime, path: at }),
-                Err(error) => Err(Failed { path, error }),
-            }));
-            if let Some(w) = wake {
-                w();
-            }
+                Err(opencode_kit::client::UploadError::Aborted) => Err(None),
+                Err(opencode_kit::client::UploadError::Failed(error)) => Err(Some(Failed { path, error })),
+            };
+            let _ = out.send(Copied::Done(attempt, done));
+            woke();
         });
     }
 
-    /// Takes in finished uploads; one cancelled since lands nowhere.
-    pub fn poll_uploads(&mut self) -> bool {
+    /// Takes in the uploads' progress and answers, and stalls that came due; an upload cancelled
+    /// or stalled since lands nowhere.
+    pub fn poll_uploads(&mut self, tx: &mut Tx) -> bool {
+        let now = tx.clock();
         let mut changed = false;
-        while let Ok((attempt, done)) = self.attach.uploads_rx.try_recv() {
-            let a = &mut self.attach;
-            let event = if done.is_ok() { uploads::Event::Succeeded { attempt } } else { uploads::Event::Failed { attempt } };
-            if uploads::step(&mut a.seq, &mut a.uploads, event).is_empty() {
-                continue;
-            }
-            match done {
-                Ok(r) => self.attach.add_path(r),
-                Err(f) => {
-                    let line = crate::status_toast::plain(f.error.trim_start_matches("upload "));
-                    crate::status_toast::fail_retry(
-                        self,
-                        opencode_i18n::t!("prompt.toast.uploadFailed.title"),
-                        line,
-                        crate::status_toast::ToastAction::Attach(f.path),
-                    );
+        let mut events = Vec::new();
+        while let Ok(copied) = self.attach.uploads_rx.try_recv() {
+            events.push(copied);
+        }
+        for copied in events {
+            let (event, done) = match copied {
+                Copied::Progress(attempt, loaded) => (uploads::Event::Progress { attempt, loaded, now }, None),
+                Copied::Done(attempt, done) => {
+                    let event = if done.is_ok() { uploads::Event::Succeeded { attempt } } else { uploads::Event::Failed { attempt } };
+                    (event, Some(done))
                 }
-            }
-            changed = true;
+            };
+            let a = &mut self.attach;
+            let before = a.uploads.clone();
+            let effects = uploads::step(&mut a.seq, &mut a.uploads, event);
+            changed |= a.uploads != before;
+            self.upload_effects(effects, done, tx);
+        }
+        if self.attach.uploads.next_stall().is_some_and(|due| now + 1e-9 >= due) {
+            let a = &mut self.attach;
+            let effects = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Tick { now });
+            changed |= !effects.is_empty();
+            self.upload_effects(effects, None, tx);
         }
         changed
     }
 
-    /// The upload card's cancel (`upload.cancelled`): it leaves the composer, and what the copy
-    /// answers later is dropped.
-    pub fn cancel_upload(&mut self, id: &str) {
-        let a = &mut self.attach;
-        uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Cancelled { id });
+    fn upload_effects(&mut self, effects: rune::machine::Effects<uploads::Effect>, mut done: Option<Result<PathAttachment, Option<Failed>>>, tx: &mut Tx) {
+        for effect in effects {
+            match effect {
+                uploads::Effect::Run(_) => {}
+                uploads::Effect::WakeAt(due) => tx.wake_at(due),
+                uploads::Effect::Abort(attempt) => {
+                    if let Some(stop) = self.attach.runs.remove(&attempt) {
+                        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                uploads::Effect::Resolve(attempt) => {
+                    self.attach.runs.remove(&attempt);
+                    if let Some(Ok(r)) = done.take() {
+                        self.attach.add_path(r);
+                    }
+                }
+                uploads::Effect::Reject(attempt, why) => {
+                    self.attach.runs.remove(&attempt);
+                    let failed = match done.take() {
+                        Some(Err(Some(f))) => Some(f),
+                        _ => None,
+                    };
+                    let line = match (why, &failed) {
+                        (uploads::Reject::Failed, Some(f)) => crate::status_toast::plain(f.error.trim_start_matches("upload ")),
+                        _ => opencode_i18n::t!("common.requestFailed").to_owned(),
+                    };
+                    let title = opencode_i18n::t!("prompt.toast.uploadFailed.title");
+                    match failed {
+                        Some(f) => crate::status_toast::fail_retry(self, title, line, crate::status_toast::ToastAction::Attach(f.path)),
+                        None => crate::status_toast::fail(self, title, line),
+                    }
+                }
+            }
+        }
     }
 
+    /// The upload card's cancel (`upload.cancelled`): it leaves the composer, its copy stops,
+    /// and what the copy answers later is dropped.
+    pub fn cancel_upload(&mut self, id: &str) {
+        let a = &mut self.attach;
+        let effects = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Cancelled { id });
+        for effect in effects {
+            if let uploads::Effect::Abort(attempt) = effect
+                && let Some(stop) = self.attach.runs.remove(&attempt)
+            {
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
     /// ⌘U and the + menu's first item: the system's file picker, then the file.
     pub fn pick_attachment(&mut self, tx: &mut Tx) {
         let options = rune::FileDialogOptions {
@@ -231,6 +320,7 @@ pub(crate) fn remove_button(p: &Pal, name: &str, w: f32, on: impl Fn(&mut App) +
 }
 
 mod reply_image;
+pub mod toast;
 pub mod uploads;
 
 #[cfg(test)]

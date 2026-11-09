@@ -230,8 +230,8 @@ pub trait ComposerHost: TimelineHost {
         &[]
     }
     fn composer_remove_path_attachment(&mut self, _path: &str) {}
-    /// Uploads still copying, by id and file name.
-    fn composer_uploading(&self) -> Vec<(String, String)> {
+    /// Uploads still copying, by id, file name and percent sent.
+    fn composer_uploading(&self) -> Vec<(String, String, u32)> {
         Vec::new()
     }
     /// The upload card's cancel.

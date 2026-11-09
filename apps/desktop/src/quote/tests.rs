@@ -84,14 +84,16 @@ fn a_tall_selection_puts_the_button_below_its_last_line() {
 }
 
 #[test]
-fn quote_puts_a_card_in_the_composer_and_focuses_the_prompt() {
+fn alt_quote_puts_a_card_in_the_composer_and_focuses_the_prompt() {
     let mut rt = quoting("");
     let para = text(&rt, "Treat silence as failure");
     drag(&mut rt, first_line(&para, 0.0), first_line(&para, 0.4));
     wait(&mut rt);
     let selected = rt.selected_text().expect("selected");
     let button = shown(&rt, "quote-add").unwrap();
+    rt.physical_input(PhysicalInput::Modifiers(Mods { alt: true, ..Mods::default() }));
     click(&mut rt, centre(&button));
+    rt.physical_input(PhysicalInput::Modifiers(Mods::default()));
     settle(&mut rt);
     let items = &rt.state.quote.items;
     assert_eq!(items.len(), 1);
@@ -108,7 +110,9 @@ fn quote_puts_a_card_in_the_composer_and_focuses_the_prompt() {
     drag(&mut rt, first_line(&para, 0.5), first_line(&para, 0.8));
     wait(&mut rt);
     let button = shown(&rt, "quote-add").expect("offered again");
+    rt.physical_input(PhysicalInput::Modifiers(Mods { alt: true, ..Mods::default() }));
     click(&mut rt, centre(&button));
+    rt.physical_input(PhysicalInput::Modifiers(Mods::default()));
     settle(&mut rt);
     assert_eq!(rt.state.quote.items.len(), 2);
     let card = shown(&rt, "quote-chip-2").unwrap();
@@ -120,21 +124,17 @@ fn quote_puts_a_card_in_the_composer_and_focuses_the_prompt() {
 }
 
 #[test]
-fn alt_click_opens_the_comment_editor_and_enter_keeps_the_comment() {
+fn a_click_opens_the_comment_editor_and_enter_keeps_the_comment() {
     let mut rt = quoting("");
     let para = text(&rt, "Treat silence as failure");
     drag(&mut rt, first_line(&para, 0.0), first_line(&para, 0.4));
     wait(&mut rt);
     let button = shown(&rt, "quote-add").unwrap();
-    rt.physical_input(PhysicalInput::Modifiers(Mods { alt: true, ..Mods::default() }));
     click(&mut rt, centre(&button));
-    rt.physical_input(PhysicalInput::Modifiers(Mods::default()));
     settle(&mut rt);
     assert_eq!(rt.state.quote.comment.key(), Some(1));
     assert!(!rt.state.composer.focused && matches!(&rt.state.quote.comment, crate::quote::machine::Comment::Open { draft, .. } if draft.focused));
-    let editor = shown(&rt, "quote-comment").expect("the editor");
-    let card = shown(&rt, "quote-chip-1").unwrap();
-    assert!(editor.rect[1] + editor.rect[3] <= card.rect[1] - 7.0, "above its card: {:?} {:?}", editor.rect, card.rect);
+    shown(&rt, "quote-comment").expect("the editor");
     rt.update(|s, _| if let crate::quote::machine::Comment::Open { draft, .. } = &mut s.quote.comment { draft.text = "why this?".into() });
     rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
     settle(&mut rt);

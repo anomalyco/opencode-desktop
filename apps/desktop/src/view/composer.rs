@@ -139,8 +139,8 @@ impl ComposerHost for App {
         self.attach.paths.retain(|f| f.path != path);
         self.suggest_edited();
     }
-    fn composer_uploading(&self) -> Vec<(String, String)> {
-        self.attach.uploads.list().iter().map(|u| (u.id.clone(), u.name.clone())).collect()
+    fn composer_uploading(&self) -> Vec<(String, String, u32)> {
+        self.attach.uploads.list().iter().map(|u| (u.id.clone(), u.name.clone(), u.percent())).collect()
     }
     fn composer_cancel_upload(&mut self, id: &str) {
         self.cancel_upload(id);

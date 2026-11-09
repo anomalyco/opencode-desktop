@@ -299,7 +299,9 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
     }
     let lead = entry.icon.map(|glyph| el().key("toast-icon").w(16.0).h(20.0).center().child(icon(glyph, 16.0).color(p.icon)));
-    let body = row().key("toast-head").w_full().gap(12.0).children(lead).child(content).child(close);
+    // Behind a newer upload toast it waits in Sonner's stack, its contents hidden.
+    let back = !s.attach.uploads.is_empty() && crate::attachments::toast::in_front(s);
+    let body = row().key("toast-head").w_full().gap(12.0).opacity(if back { 0.0 } else { 1.0 }).children(lead).child(content).child(close);
 
     let card = col()
         .key("status-toast")
@@ -327,6 +329,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         })
         .on_press(|_: &mut App| {})
         .child(body);
+    let card = if back { crate::attachments::toast::behind(card, "upload-toast") } else { card };
 
     // Sonner's region: 32 in from the window's right, 48 up from its bottom (`toast.tsx` offset);
     // at 600 pt or narrower, 16 in from its left and bottom, 64 short of its width

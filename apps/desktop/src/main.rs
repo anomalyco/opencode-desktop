@@ -1220,7 +1220,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_commands(tx);
     changed |= s.poll_suggestions(tx);
     changed |= s.poll_rename();
-    changed |= s.poll_uploads();
+    changed |= s.poll_uploads(tx);
     changed |= s.attach.poll();
     changed |= s.poll_panels(tx);
     changed |= rune_mcp::poll(s, tx);
@@ -1261,6 +1261,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
     s.mentions.set_waker(waker.clone());
+    s.quote.mention_fetch.set_waker(waker.clone());
     s.switcher.set_waker(waker.clone());
     s.home_search.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());

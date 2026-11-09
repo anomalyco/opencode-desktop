@@ -10,7 +10,6 @@
 
 use std::ops::Range;
 
-use rune::TextEdit;
 use rune::machine::{Attempt, Effects, Seq};
 
 /// `QUOTE_SETTLE_MS`.
@@ -120,20 +119,4 @@ pub fn step(seq: &mut Seq, t: &mut Toolbar, event: Event<'_>) -> Effects<Effect>
     }
 }
 
-/// The quote whose comment editor is open, and the comment being written (`QuoteCommentState`'s
-/// `closed` and `open`; the draft starts as the saved comment).
-#[derive(Clone, Debug, Default)]
-pub enum Comment {
-    #[default]
-    Closed,
-    Open { key: u64, draft: TextEdit },
-}
-
-impl Comment {
-    pub fn key(&self) -> Option<u64> {
-        match self {
-            Comment::Closed => None,
-            Comment::Open { key, .. } => Some(*key),
-        }
-    }
-}
+pub use super::comment::Comment;

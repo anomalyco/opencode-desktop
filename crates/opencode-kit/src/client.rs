@@ -19,12 +19,14 @@ mod downloads;
 mod hub;
 mod ids;
 mod mentions;
+mod upload;
 mod wire;
 mod worker;
 
 pub use downloads::{export_filename, save_download, set_download_dir};
 pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};
+pub use upload::UploadError;
 #[cfg(test)]
 use ids::{id_at, message_id_at};
 pub use wire::{Incoming, Request, Write};
@@ -376,27 +378,6 @@ impl Server {
             body["id"] = id.into();
         }
         self.write("POST", &format!("/api/session/{session}/shell"), Some(body)).map(|_| ())
-    }
-
-    /// Copies `bytes` into the server's temporary directory as `name` (one folder per upload,
-    /// as Desktop does) and returns the path there.
-    pub fn upload(&self, directory: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
-        let info = self.get("/api/info")?;
-        let tmp = info["paths"]["tmp"].as_str().ok_or("GET /api/info: no paths.tmp")?;
-        let target = format!("{}/uploads/{}/{name}", tmp.trim_end_matches('/'), message_id());
-        let path = format!(
-            "/api/experimental/fs/write?location%5Bdirectory%5D={}&path={}",
-            encode_component(directory),
-            encode_component(&target)
-        );
-        let mut req = Self::agent(Some(Duration::from_secs(120))).post(format!("{}{path}", self.base)).header("Content-Type", "application/octet-stream");
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        let mut resp = req.send(bytes).map_err(|e| format!("upload {name}: {e}"))?;
-        let text = resp.body_mut().read_to_string().map_err(|e| format!("upload {name}: {e}"))?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| format!("upload {name}: {e}"))?;
-        v["data"]["path"].as_str().map(str::to_owned).ok_or_else(|| format!("upload {name}: no path in the reply"))
     }
 
     /// `decision`: `once`, `always` or `reject`.
