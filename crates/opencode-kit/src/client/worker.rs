@@ -91,6 +91,12 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }
                         _ => None,
                     };
+                    // A dock's reply: its request, so the dock hears it was taken.
+                    let request_id = match &w {
+                        Write::Permission { request, .. } => Some(request.clone()),
+                        Write::Form { form, .. } | Write::CancelForm { form, .. } => Some(form.clone()),
+                        _ => None,
+                    };
                     let result = match w {
                         Write::Prompt { session, text } => server.send_prompt(&session, &text),
                         Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
@@ -168,6 +174,9 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
                         }),
                     };
+                    if result.is_ok() && let Some(id) = &request_id {
+                        let _ = inbox_tx.send(Incoming::Event { ty: "client.request.replied".into(), data: serde_json::json!({ "requestID": id }) });
+                    }
                     if result.is_ok() && let Some((session,id)) = &prompt_id {
                         let _ = inbox_tx.send(Incoming::Event { ty: "client.prompt.accepted".into(), data: serde_json::json!({"sessionID":session,"id":id}) });
                     }

@@ -69,6 +69,9 @@ pub enum Request {
 
 pub enum Write {
     Prompt { session: String, text: String },
+    /// A permission's reply. Once the server takes it, `Incoming::Event` with type
+    /// `client.request.replied` and data `{ requestID }` follows (also for `Form` and
+    /// `CancelForm`, with the form's id); a failure reports `Incoming::Status`.
     Permission { session: String, request: String, decision: String },
     Form { session: String, form: String, answer: Value },
     CancelForm { session: String, form: String },

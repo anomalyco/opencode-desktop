@@ -6,7 +6,8 @@
 //! Deny, Allow always and Allow once. Several wait one at a time, the page's own first, then
 //! oldest first. With auto-accept on it never shows.
 //!
-//! A press answers at once: the dock goes and the composer comes back with its draft.
+//! A press claims the request: its buttons go off until the server takes the reply, then the dock
+//! goes and the composer comes back with its draft (`permission-machine.ts`).
 
 use opencode_kit::model::Pending;
 use rune::{El, Shadow, TextStyle, Tx, col, el, icon, row, spacer, text};
@@ -138,9 +139,10 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .child(header)
         // Keyed by request: the next one's words fade in over the last's instead of swapping.
         .child(col().key(format!("permission-{id}")).w_full().pl(INDENT).gap(4.0).transition(fade()).child(what).children(message).children(input).children(patterns));
+    let live = !s.dock_busy(&id);
     let answer = |key: &str, label: &str, variant: Variant, decision: &'static str| {
         let id = id.clone();
-        button(p, key, label, variant, None, true).h(28.0).px(12.0).on_press_tx(move |s: &mut S, tx: &mut Tx| decide(s, &id, decision, tx))
+        button(p, key, label, variant, None, live).h(28.0).px(12.0).on_press_tx(move |s: &mut S, tx: &mut Tx| decide(s, &id, decision, tx))
     };
     let footer = row()
         .key("permission-footer")

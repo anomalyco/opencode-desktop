@@ -202,6 +202,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     };
 
     let last = f.last(tab);
+    let live = !super::busy(s, &f);
     let footer = row()
         .key("question-footer")
         .w_full()
@@ -210,7 +211,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .pb(8.0)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).on_press_tx(|s: &mut S, tx: &mut Tx| {
             if let Some(f) = asking(s) {
                 dismiss(s, &f, tx)
             }
@@ -221,14 +222,14 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, true).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).on_press_tx(|s: &mut S, tx: &mut Tx| {
                         let Some(f) = asking(s) else { return };
                         let (tab, _) = place(s, &f);
                         jump(s, &f, tab.saturating_sub(1), tx);
                     })
                 }))
                 .child({
-                    let ready = answered(s, &f, tab);
+                    let ready = answered(s, &f, tab) && live;
                     let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
                     if ready { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),

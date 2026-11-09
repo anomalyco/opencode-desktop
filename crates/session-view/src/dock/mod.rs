@@ -41,6 +41,11 @@ pub trait DockHost: ComposerHost {
     fn dock_dismiss_form(&mut self, id: &str);
     /// Whether request `id` still waits.
     fn dock_waiting(&self, id: &str) -> bool;
+    /// Whether request `id`'s reply is on its way or taken (Desktop's `isPermissionResponding`,
+    /// `isQuestionBusy`): the dock shows it with its buttons off and takes no answers.
+    fn dock_busy(&self, _id: &str) -> bool {
+        false
+    }
     /// Whether the composer takes the keyboard back when the dock closes.
     fn dock_refocus(&self) -> bool {
         true
@@ -140,7 +145,9 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .child(text(label.to_owned()).font(BUTTON).color(fg))
         .children(hint.map(|h| text(h.to_owned()).key("hint").font(BUTTON).color(fg).opacity(0.6)));
-    b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(0.4) };
+    // Disabled, as `button-v2` dims it: 0.4 for Submit and Contrast (`submit.css`), else 0.5.
+    let dim = if matches!(variant, Variant::Submit | Variant::Contrast) { 0.4 } else { 0.5 };
+    b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(dim) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),

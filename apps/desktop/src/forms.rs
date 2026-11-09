@@ -1,11 +1,11 @@
 //! Answering open permission requests and structured forms (`Pending`).
 
-use opencode_kit::client::Write;
 use opencode_kit::model::Pending;
 use rune::TextEdit;
 use serde_json::Value;
 
 use crate::App;
+use crate::question::reply::Action;
 
 impl App {
     /// The open requests in a session's family (a subagent's question shows on its root).
@@ -15,8 +15,8 @@ impl App {
     }
 
     pub(crate) fn add_pending(&mut self, p: Pending) {
-        // A reply on its way: a re-read before the server has it doesn't bring it back.
-        if self.permission_sent.0.contains_key(p.id()) {
+        // An answered permission: a re-read before the server drops it doesn't bring it back.
+        if self.permission_sent.replied(p.id()) {
             return;
         }
         self.requests.insert((p.session().to_owned(), p.id().to_owned()));
@@ -51,17 +51,10 @@ impl App {
             crate::status_toast::say(self, "Answer the questions first", "");
             return;
         };
-        let Some(p) = self.pending.iter().find(|p| p.id() == id) else { return };
-        if self.write(Write::Form { session: p.session().to_owned(), form: id.to_owned(), answer })
-        {
-            self.forget(id);
-        }
+        self.send_form(id, Action::Reply(answer));
     }
 
     pub fn dismiss_form(&mut self, id: &str) {
-        let Some(p) = self.pending.iter().find(|p| p.id() == id) else { return };
-        if self.write(Write::CancelForm { session: p.session().to_owned(), form: id.to_owned() }) {
-            self.forget(id);
-        }
+        self.send_form(id, Action::Dismiss);
     }
 }

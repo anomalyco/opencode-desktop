@@ -56,6 +56,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let ring = d.keyboard && !editing;
     let fade = || face_transition(s.knobs());
     let max = s.dock_pane_h().map(|h| (h - PANE_GAP).max(MIN_H));
+    let live = !super::busy(s, &f);
 
     let title = if total == 1 { opencode_i18n::t!("session.question.title").to_owned() } else { opencode_i18n::t!("session.question.progress", current = tab + 1, total = total) };
     let top = row()
@@ -157,7 +158,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .px(8.5)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, true).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
             if let Some(f) = asking(s) {
                 dismiss(s, &f, tx)
             }
@@ -168,7 +169,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, true).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
+                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
                         let Some(f) = asking(s) else { return };
                         let (tab, _) = place(s, &f);
                         jump(s, &f, tab.saturating_sub(1), tx);
@@ -176,7 +177,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }))
                 .child({
                     let label = if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") };
-                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, true)
+                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
                         .w(advance_w)
                         .justify_center()
                         .help(format!("{label} {submit}"))
@@ -390,6 +391,10 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let count = count(field);
     let minimized = s.dock().minimized;
     dock(s, &f).keyboard = true;
+    // A reply on its way: Esc, Back and the advance key do nothing, and the rest aren't the dock's.
+    if super::busy(s, &f) {
+        return ev.key == Key::Escape || back(ev) || advance(ev);
+    }
     if ev.key == Key::Escape {
         dismiss(s, &f, tx);
         return true;

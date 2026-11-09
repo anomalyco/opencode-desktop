@@ -84,6 +84,9 @@ impl session_view::dock::DockHost for App {
     fn dock_waiting(&self, id: &str) -> bool {
         self.pending.iter().any(|p| p.id() == id)
     }
+    fn dock_busy(&self, id: &str) -> bool {
+        self.permission_sent.busy(id)
+    }
     fn dock_refocus(&self) -> bool {
         self.subagent_page().is_none()
     }

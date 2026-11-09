@@ -77,7 +77,7 @@ impl App {
                 Some(Pending::Permission { .. }) => false,
                 None => !id.starts_with("per"),
             };
-            if !form && (self.permission_sent.0.contains_key(id) || self.auto_accepts(session)) {
+            if !form && (self.permission_sent.busy(id) || self.auto_accepts(session)) {
                 continue;
             }
             let slot = if form { &mut found.1 } else { &mut found.0 };

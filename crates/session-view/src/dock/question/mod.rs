@@ -262,6 +262,11 @@ fn pick_focus<S: DockHost>(s: &S, f: &Form, tab: usize) -> usize {
     list.iter().position(|(v, ..)| picks.is_some_and(|p| p.contains(v))).unwrap_or(0)
 }
 
+/// Whether the form's reply is on its way or taken (`isQuestionBusy`): the dock takes no answers.
+fn busy<S: DockHost>(s: &S, f: &Form) -> bool {
+    s.dock_busy(&f.id)
+}
+
 fn editing<S: DockHost>(s: &S, f: &Form, tab: usize) -> bool {
     s.dock().typed.get(&f.key(tab)).is_some_and(|t| t.focused)
 }
@@ -316,6 +321,9 @@ fn stop_typing<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
 
 /// Picks answer `i`: the one answer of a single choice, or one more (or one fewer) of many.
 fn select<S: DockHost>(s: &mut S, f: &Form, tab: usize, i: usize) {
+    if busy(s, f) {
+        return;
+    }
     let Some((value, ..)) = rows(&f.fields[tab]).into_iter().nth(i) else { return };
     let k = f.key(tab);
     let d = s.dock_mut();
@@ -335,6 +343,9 @@ fn select<S: DockHost>(s: &mut S, f: &Form, tab: usize, i: usize) {
 }
 
 fn start_typing<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
+    if busy(s, f) {
+        return;
+    }
     let k = f.key(tab);
     dock(s, f).focus = rows(&f.fields[tab]).len();
     let d = s.dock_mut();
@@ -347,6 +358,9 @@ fn start_typing<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
 }
 
 fn toggle_custom<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
+    if busy(s, f) {
+        return;
+    }
     let k = f.key(tab);
     if !f.multi(tab) || !s.dock().custom_on(&k) {
         return start_typing(s, f, tab);
@@ -358,7 +372,7 @@ fn toggle_custom<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
 
 fn jump<S: DockHost>(s: &mut S, f: &Form, tab: usize, tx: &mut Tx) {
     let (from, _) = place(s, f);
-    if tab == from || tab >= f.fields.len() {
+    if tab == from || tab >= f.fields.len() || busy(s, f) {
         return;
     }
     stop_typing(s, f, from);
@@ -436,7 +450,12 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     } else {
         Zone::Option
     };
-    match intent(ev, zone, count(field)) {
+    let intent = intent(ev, zone, count(field));
+    // A reply on its way: the dock's keys do nothing (Desktop's `nav` while `sending`).
+    if busy(s, &f) {
+        return intent != Intent::None;
+    }
+    match intent {
         Intent::None => return false,
         Intent::Dismiss => dismiss(s, &f, tx),
         // Next and Submit are lit only on an answered question; → skips one.

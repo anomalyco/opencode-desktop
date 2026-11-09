@@ -116,6 +116,7 @@ impl App {
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= self.apply_status(ty, data, &sid);
+        changed |= crate::permission::event(self, ty, data);
         changed |= self.note_review_event(ty);
         if ty.starts_with("pty.") || ty.starts_with("persistent-pty.") {
             changed |= self.apply_pty_event(ty, data);
