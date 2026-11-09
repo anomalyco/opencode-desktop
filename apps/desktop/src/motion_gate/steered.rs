@@ -12,5 +12,6 @@ pub fn steered(r: &mut Run) {
         r.play(1.0);
     }
     r.act("it finishes", |rt| rt.update(|s, tx| st::finish(s, tx)));
-    r.play(1.0);
+    // The capsule leaves with the agent and the pills' lane closes after it, about 0.8 s.
+    r.play(1.5);
 }

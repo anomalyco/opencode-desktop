@@ -892,7 +892,8 @@ fn agents(r: &mut Run) {
     r.act("the first finishes", |rt| rt.update(st::finish_oldest));
     r.play(1.0);
     r.act("the second fails", |rt| rt.update(st::fail_newest));
-    r.play(1.0);
+    // The capsule leaves with the last agent and the pills' lane closes after it, about 0.8 s.
+    r.play(1.5);
 }
 
 /// One background agent on its own: a card with one row that starts, steps and finishes.
@@ -905,7 +906,8 @@ fn one_agent(r: &mut Run) {
     r.act("it steps again", |rt| rt.update(st::advance));
     r.play(0.6);
     r.act("it finishes", |rt| rt.update(st::finish_oldest));
-    r.play(1.0);
+    // The capsule leaves with the agent and the pills' lane closes after it, about 0.8 s.
+    r.play(1.5);
 }
 
 /// "Delegating agent…" wakes into a running row three times: the first call opens the card,
