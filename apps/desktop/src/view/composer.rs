@@ -279,14 +279,12 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     }
     // Shell mode has no other delivery, and its Exit stands where that hint would.
     let actions = if s.add.shell() {
-        let w = s.layout.narrow.width();
-        let wide = w <= 0.0 || w >= 640.0;
-        Some(crate::add_menu::exit_shell_button(p, wide))
+        Some(crate::add_menu::exit_shell_button(p, s.layout.narrow.sm()))
     } else {
         queues
             .then(|| {
                 let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                crate::queue::alternate_hint(p, room)
+                crate::queue::alternate_hint(p, room, s.layout.narrow.sm())
             })
             .flatten()
     };
@@ -317,8 +315,9 @@ fn folds(
         // The add button and its 2 pt margin, the room, Send, and auto-accept's mark when it's on.
         let mut items = vec![30.0, 0.0, 28.0];
         if s.add.shell() {
-            // Exit and its keys, 6 in and 6 apart, and 10 before Send.
-            items.push(narrow::text_w(t!("ui.promptInput.exitShell"), UI_MED) + 6.0 + narrow::text_w(t!("common.key.esc"), UI_SMALL) + 8.0 + 12.0 + 10.0);
+            // Exit and its keys (from 640 wide), 6 in and 6 apart, and 10 before Send.
+            let keys = if s.layout.narrow.sm() { 6.0 + narrow::text_w(t!("common.key.esc"), UI_SMALL) + 8.0 } else { 0.0 };
+            items.push(narrow::text_w(t!("ui.promptInput.exitShell"), UI_MED) + keys + 12.0 + 10.0);
         }
         if s.settings.auto_accept {
             items.push(28.0);

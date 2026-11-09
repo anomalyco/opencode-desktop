@@ -432,10 +432,19 @@ thread_local! {
     static COMPACT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Notes the page's width (`.settings-panel`'s, 0 at full size) for the rows this frame builds.
-pub(crate) fn note_panel_width(width: f32) {
-    ROWS_WRAP.set(width > 0.0 && width <= 520.0);
+/// Notes the page's width (`.settings-panel`'s, 0 at full size) for the rows this frame builds,
+/// and whether the window is at least 640 wide: below it each row's control wraps under its
+/// words too (`settings-row` wraps and its control is 100% wide until `min-width: 640px`,
+/// `settings.css:810-831, 864-869`).
+pub(crate) fn note_panel_width(width: f32, sm: bool) {
+    ROWS_WRAP.set((width > 0.0 && width <= 520.0) || !sm);
     COMPACT.set(width > 0.0);
+}
+
+/// The rows wrap their controls under their words (a page 520 wide or less, or a window under
+/// 640).
+pub(crate) fn rows_wrap() -> bool {
+    ROWS_WRAP.get()
 }
 
 /// The screen has the narrow layout: Back and the page menu over the page.

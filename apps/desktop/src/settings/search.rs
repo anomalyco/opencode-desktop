@@ -16,6 +16,8 @@ use opencode_i18n::{key, t};
 
 /// The results' labels and rows: 13 on 16 at 440, -0.04 tracking.
 const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+/// The field's text below 800 pt: 16 on `line-height-compact`'s 16.
+const NARROW_INPUT: TextStyle = TextStyle::new(16.0, 440.0).lh(16.0).tracking(-0.04);
 /// How many results show before "Narrow your search" (`shown`'s 60).
 const SHOWN: usize = 60;
 /// How long a revealed row stays lit (`settings-search-reveal`).
@@ -447,8 +449,9 @@ fn active_index(list: &[Entry], highlighted: Option<&str>) -> usize {
 }
 
 /// The rail's field (`.settings-search`): 28 pt, transparent until hovered, focused or typed in,
-/// the glass 8 pt in and a clear button once typed.
-pub fn field(s: &App, p: &Pal) -> El {
+/// the glass 8 pt in and a clear button once typed. Below 800 pt the screen's container query sets
+/// its text in 16 (`settings.css:1022-1024`).
+pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
     let q = &s.settings_pages.find.query;
     let lit = q.focused || !q.text.is_empty();
     let clear_button = (!q.text.is_empty()).then(|| {
@@ -470,7 +473,7 @@ pub fn field(s: &App, p: &Pal) -> El {
     let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
     field
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
-        .child(rune::text_input(q, ROW).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
+        .child(rune::text_input(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label(t!("settings.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
             // Enter opens the lit result, else the first (`search-machine.ts`).

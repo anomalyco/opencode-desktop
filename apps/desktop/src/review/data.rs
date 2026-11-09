@@ -16,6 +16,9 @@ pub struct ReviewFileMeta {
     pub status: FileStatus,
     pub additions: u32,
     pub deletions: u32,
+    /// Its place in the server's list, the order the narrow Changes view keeps (`mobile.tsx`
+    /// passes `review.diffs()` unsorted; only the wide tree sorts).
+    pub listed: usize,
 }
 
 pub struct FetchedDiffs {
@@ -216,6 +219,7 @@ pub fn parse_diff_list(v: &Value) -> (Vec<FileDiff>, Vec<ReviewFileMeta>) {
             status: fd.status,
             additions,
             deletions,
+            listed: raw_paths.len(),
         };
         raw_paths.push(path.clone());
         by_path.insert(path, (fd, meta));

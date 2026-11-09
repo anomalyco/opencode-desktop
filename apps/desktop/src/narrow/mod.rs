@@ -59,6 +59,13 @@ impl Narrow {
     pub fn width(&self) -> f32 {
         self.width.get()
     }
+
+    /// The window is at least 640 wide: Tailwind's `sm:` (`min-width: 640px`); below it the
+    /// `max-width: 639px` rules apply. Before the first layout it counts as wide.
+    pub fn sm(&self) -> bool {
+        let w = self.width.get();
+        w <= 0.0 || w >= 640.0
+    }
 }
 
 impl App {

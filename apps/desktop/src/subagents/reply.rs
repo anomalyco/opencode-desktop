@@ -146,6 +146,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
             s.open_parent(tx);
         })
         .child(text(opencode_i18n::t!("session.child.backToParent")).font(BACK).color(p.faint))
-        .child(row().key("esc").h(14.0).min_w(14.0).px(4.0).center().radius(2.0).fill(p.layer3).child(text("ESC").font(KEY).color(p.muted)));
+        // The key shows only in a window at least 640 wide (`hidden sm:block`, `subagent-bar.tsx:110`).
+        .children(s.layout.narrow.sm().then(|| row().key("esc").h(14.0).min_w(14.0).px(4.0).center().radius(2.0).fill(p.layer3).child(text("ESC").font(KEY).color(p.muted))));
     Some(col().key("subagent-status").w_full().center().child(line.child(summary).child(back)))
 }

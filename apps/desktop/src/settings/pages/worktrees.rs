@@ -55,11 +55,19 @@ pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
         let n = list.len();
         let active = s.active_session_id().and_then(|id| s.session(&id).map(|i| i.directory.clone()));
         let rows: Vec<El> = list.iter().enumerate().map(|(i, (project, name, dir))| worktree_row(s, p, project, name, dir, active.as_deref(), i + 1 < n)).collect();
+        // A page 520 wide or less, or a window under 640, takes the inventory 14 in
+        // (`settings.css:2119-2121, 2151-2153`).
+        let pad = if crate::settings::rows_wrap() { 14.0 } else { 16.0 };
         col().w_full().gap(8.0)
             .child(row().key("settings-workspaces-toolbar").w_full().pb(8.0)
-                .child(text(opencode_i18n::plural!("settings.workspaces.count", n)).font(BODY).color(p.muted)))
-            .child(col().key("settings-workspaces-inventory").w_full().padding(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
+                // `.settings-section-title`: 13 on 16 at 530 in text-base.
+                .child(text(opencode_i18n::plural!("settings.workspaces.count", n)).font(NAME).color(p.text)))
+            .child(col().key("settings-workspaces-inventory").w_full().padding(pad).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
     };
+    // Under 640 the body stands 20 in (`.settings-tab-body.settings-workspaces`,
+    // `settings.css:2100-2102`) where the narrow screen's other pages stand 8 in; the header
+    // keeps the screen's inset, its own rule losing to the screen's (`settings.css:997-1000`).
+    let body = if s.layout.narrow.sm() || !s.narrow() { body } else { col().w_full().px(12.0).child(body) };
     let switcher = if only.is_none() { super::servers::switcher(s, p) } else { None };
     page(p, "settings-workspaces-page", header_with(p, t!("settings.tab.workspaces"), t!("settings.workspaces.description"), switcher), body)
 }
@@ -94,13 +102,19 @@ fn worktree_row(s: &App, p: &Pal, project: &str, project_name: &str, dir: &str, 
         .children((!before.is_empty()).then(|| text(before.to_owned()).font(BODY).color(p.faint)))
         .children(label.rfind(project_name).map(|_| text(project_name.to_owned()).font(BODY).color(p.muted)))
         .children((!after.is_empty()).then(|| text(after.to_owned()).font(BODY).color(p.faint)));
+    // `.settings-workspaces-path`: the whole folder in text-base, its name at 530, cut short at
+    // its end; a page 520 wide or less, or a window under 640, wraps it anywhere instead and
+    // hides the row's faint status (`settings.css:2123-2132, 2155-2164`).
+    let compact = crate::settings::rows_wrap();
+    let folder = text(dir.to_owned()).font(BODY).color(p.text).spans(vec![rune::Span::new(parent.len(), dir.len()).weight(530.0)]).shrink().min_w(0.0);
+    let folder = if compact { folder.wrap_anywhere() } else { folder.truncate() };
     col().key(format!("settings-worktree-{}", path::trim(dir))).w_full().gap(12.0).pb(if divided { 20.0 } else { 0.0 }).mb(if divided { 20.0 } else { 0.0 })
         .child(row().w_full().gap(20.0).items_start()
             .child(col().grow(1.0).shrink().min_w(0.0).gap(8.0)
-                .child(row().min_w(0.0).help(dir.to_owned()).child(text(parent).font(BODY).color(p.muted).shrink().min_w(0.0).truncate_head()).child(text(base).font(NAME).color(p.text)))
+                .child(row().w_full().min_w(0.0).help(dir.to_owned()).child(folder))
                 .child(meta))
             .child(row().gap(12.0).center_y()
-                .children(is_active.then(|| text(t!("rune.settings.workspaces.active")).font(BODY).color(p.faint)))
+                .children((is_active && !compact).then(|| text(t!("rune.settings.workspaces.active")).font(BODY).color(p.faint)))
                 .child(delete)))
         .children(divided.then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
 }

@@ -191,10 +191,13 @@ fn empty_state(p: &Pal, sr: &SessionReview) -> El {
     col().key("narrow-review-empty").w_full().px(8.0).py(8.0).child(text(msg).font(crate::view::UI).color(p.faint))
 }
 
-/// The accordion, edge to edge: 1 px `border-base` rules between rows, none at its ends.
+/// The accordion, edge to edge: 1 px `border-base` rules between rows, none at its ends. Files
+/// keep the server's order, as Desktop's narrow list does.
 fn list(s: &App, p: &Pal, id: &str, sr: &SessionReview) -> El {
     let n = sr.meta.len();
-    let items = sr.meta.iter().enumerate().fold(col().key("narrow-review-list").w_full(), |list, (i, m)| {
+    let mut listed: Vec<_> = sr.meta.iter().collect();
+    listed.sort_by_key(|m| m.listed);
+    let items = listed.into_iter().enumerate().fold(col().key("narrow-review-list").w_full(), |list, (i, m)| {
         let open = sr.narrow.is_open(&m.path);
         let item = col()
             .key(format!("narrow-review-item-{}", m.path))
@@ -224,8 +227,12 @@ fn trigger(p: &Pal, id: &str, m: &super::data::ReviewFileMeta, open: bool, last:
         .center_y()
         .fill(p.bg_base)
         .border_sides([0.0, 0.0, if last { 0.0 } else { 1.0 }, 0.0], p.border)
+        // `simple-overlay-hover` under the pointer, eased in and out over 0.15 s
+        // (`accordion.css`'s `transition: background-color 0.15s ease`). Desktop's selected file
+        // (`session-review.css:53-57`) never fills: Kobalte's item overwrites the
+        // `session-review-accordion-item` slot that rule needs.
         .hover(p.hover)
-        .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
+        .hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
         .child(
             row()
                 .key("file")
@@ -248,7 +255,14 @@ fn trigger(p: &Pal, id: &str, m: &super::data::ReviewFileMeta, open: bool, last:
         );
     if can {
         r = r
-            .child(icon(if open { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).key("chevron").color(p.text))
+            // `session-review-diff-chevron`: chevron-down at small (14) in icon-weaker, turned
+            // -90deg while shut (`session-review.css:163-172`); the press lands at once.
+            .child(
+                icon(&ic::CHEVRON_DOWN, 14.0)
+                    .key("chevron")
+                    .color(p.icon_faint)
+                    .icon_rotation(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }),
+            )
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 if let Some(sr) = s.review.sessions.get_mut(&sid) {

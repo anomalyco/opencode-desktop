@@ -53,7 +53,7 @@ fn glyph(s: &App, page: &Page) -> &'static rune::Icon {
 pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     // `.settings-panel` (`padding-inline: 4px`) is the rows' container.
     let narrow = width > 0.0 && width < 800.0;
-    crate::settings::note_panel_width(if narrow { width - 8.0 } else { 0.0 });
+    crate::settings::note_panel_width(if narrow { width - 8.0 } else { 0.0 }, s.layout.narrow.sm());
     let content = pages::view(s, p);
     let screen = col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
         .scroll(rune::ScrollSpec { stick_bottom: false });
@@ -61,7 +61,7 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
         // `--settings-mobile-inner-inset`: 8 in a narrow window, else 16 (`settings.css:33`).
         let inset = if s.narrow() { 8.0 } else { 16.0 };
         // `.settings-sidebar` collapses to the search field under the bar, `8 inset` round it.
-        let field = col().key("settings-search-list").w_full().child(search::field(s, p));
+        let field = col().key("settings-search-list").w_full().child(search::field(s, p, true));
         let field = if search::active(s) { field.child(search::results(s, p).max_h((height - 96.0).max(120.0))) } else { field };
         return col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
             .child(narrow_bar(s, p, inset))
@@ -90,7 +90,7 @@ fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
     let room = |gap: f32| if height > 0.0 { (height - 50.0 - 48.0 - 28.0 - 28.0 - 16.0 - 28.0 - gap).max(120.0) } else { 480.0 };
     // `.settings-search` holds the field and its results (`search.tsx:124`), so they meet without
     // the nav's gap.
-    let field = col().key("settings-search-list").w_full().child(search::field(s, p));
+    let field = col().key("settings-search-list").w_full().child(search::field(s, p, false));
     if search::active(s) {
         return nav.child(field.child(search::results(s, p).max_h(room(0.0))));
     }

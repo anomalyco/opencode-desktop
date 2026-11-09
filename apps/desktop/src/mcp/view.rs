@@ -73,7 +73,8 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w / zoom, h / zoom]);
     let body = match &open.detail {
         Detail::Open { name, error, copied, .. } => detail(s, p, &open.dir, name, error, copied.as_deref() == Some(error.as_str())),
-        _ => list(s, p, &open.dir),
+        // `max-width: 639px`: each row stands at least 44 tall, 8 in above and below (`search-list.css:291-297`).
+        _ => list(s, p, &open.dir, win_w < 640.0),
     };
     let dialog = widgets::overlay(p, col())
         .key("mcp-dialog")
@@ -91,7 +92,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     widgets::modal("mcp", p, dialog, Some(((win_h - 480.0) / 2.0).max(48.0)))
 }
 
-fn list(s: &App, p: &Pal, dir: &str) -> El {
+fn list(s: &App, p: &Pal, dir: &str, tall: bool) -> El {
     let open = s.mcp.open.as_ref().expect("open");
     let field = row().key("mcp-search-field").w_full().h(28.0).pr(6.0).gap(6.0).center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
@@ -118,7 +119,7 @@ fn list(s: &App, p: &Pal, dir: &str) -> El {
     }
     let active = open.active.clone().or_else(|| servers.first().map(|m| m.name.clone()));
     for m in &servers {
-        results = results.child(server_row(s, p, dir, m, active.as_deref() == Some(m.name.as_str())));
+        results = results.child(server_row(s, p, dir, m, active.as_deref() == Some(m.name.as_str()), tall));
     }
     col().key("mcp-list").w_full().min_h(0.0).shrink()
         .child(search)
@@ -126,9 +127,11 @@ fn list(s: &App, p: &Pal, dir: &str) -> El {
 }
 
 /// One server: its dot and name, then View error and its switch, or Sign in.
-fn server_row(s: &App, p: &Pal, dir: &str, m: &McpServer, active: bool) -> El {
+fn server_row(s: &App, p: &Pal, dir: &str, m: &McpServer, active: bool, tall: bool) -> El {
     let (name, hover) = (m.name.clone(), m.name.clone());
-    row().key(format!("mcp-row-{}", m.name)).role("option").label(m.name.clone()).w_full().h(28.0).px(6.0).gap(16.0).center_y().radius(6.0)
+    let r = row().key(format!("mcp-row-{}", m.name)).role("option").label(m.name.clone()).w_full();
+    let r = if tall { r.min_h(44.0).py(8.0) } else { r.h(28.0) };
+    r.px(6.0).gap(16.0).center_y().radius(6.0)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         .transition(Transition::none())
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {

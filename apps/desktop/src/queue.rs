@@ -330,18 +330,20 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
 }
 
 /// "Queue ⌘⏎" (or "Steer ⌘⏎") beside the submit button while a turn runs and the composer holds
-/// a prompt: submits with the delivery Enter doesn't use. It sits in the toolbar's free `room`,
-/// which it never widens, as the word and the keys, the keys alone, or nothing: in a narrow
-/// window it can't push the mic and Send aside.
-pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
-    // The two keycaps and the gap between them, its padding and its right margin.
+/// a prompt: submits with the delivery Enter doesn't use. The keys show only in a window at least
+/// 640 wide (`sm`; `hidden sm:block`, `editor.tsx:1456-1458`). It sits in the toolbar's free
+/// `room`, which it never widens, as the word and the keys, the word alone, or nothing: in a
+/// narrow window it can't push the mic and Send aside.
+pub fn alternate_hint(p: &Pal, room: f32, sm: bool) -> Option<El> {
+    // Its padding and right margin, the word, and the two keycaps 6 after it and 6 apart.
     let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
     let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
-    let keys = caps + 6.0 * labels.len().saturating_sub(1) as f32 + 12.0 + 10.0;
-    let word = rune::text::measure(opencode_i18n::t!("ui.promptInput.queue"), &[], UI_MED, None).0 + 6.0;
-    if room < keys {
+    let keys = caps + 6.0 * labels.len() as f32;
+    let word = rune::text::measure(opencode_i18n::t!("ui.promptInput.queue"), &[], UI_MED, None).0 + 12.0 + 10.0;
+    if room < word {
         return None;
     }
+    let labels = if sm && room >= word + keys { labels } else { Vec::new() };
     let hint = row()
         .key("alternate-delivery")
         .role("button")
@@ -358,7 +360,7 @@ pub fn alternate_hint(p: &Pal, room: f32) -> Option<El> {
         .press(p.pressed)
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
-        .children((room >= keys + word).then(|| text(opencode_i18n::t!("ui.promptInput.queue")).font(UI_MED).color(p.faint)))
+        .child(text(opencode_i18n::t!("ui.promptInput.queue")).font(UI_MED).color(p.faint))
         .children(labels.iter().map(|k| keycap(p, k)));
     Some(hint)
 }
