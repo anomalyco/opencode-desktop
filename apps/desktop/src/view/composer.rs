@@ -285,8 +285,9 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     out.push(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children(actions));
     out.extend(crate::auto_accept::indicator(s, p));
     // Shell mode keeps only Exit beside Send (`editor.tsx:491-528`), unless a dictation runs.
-    // It goes and comes back at once, so Exit never lands over it.
-    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating).map(|m| m.transition(rune::Transition::none()).instant_changes()));
+    // It goes and comes back at once, so Exit never lands over it; while it shows, it rides the
+    // composer's edge as Send does (an instant-changes slot would jump to where it lands).
+    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating).map(|m| m.transition(rune::Transition::none())));
     out
 }
 
