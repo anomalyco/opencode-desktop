@@ -107,16 +107,21 @@ impl App {
         server.chain(own).collect()
     }
 
-    /// The commands the query finds by name or title (`editor/interaction.ts:336-340`), best first.
+    /// The commands the query finds by name or title, best first, as Desktop's `commandList`
+    /// filters them (`editor/interaction.ts:336-340`: fuzzysort over `trigger` and `title`); all
+    /// of them, in order, for no query.
     pub fn slash_items(&self) -> Vec<Item> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        use crate::mentions::fuzzy::{Needle, Prepared, score};
-        let needle = Needle::new(&query);
-        let mut scored: Vec<_> = self.slash_list().into_iter()
-            .filter_map(|c| Some((score(&needle, &Prepared::new(&c.name)).max(score(&needle, &Prepared::new(&c.title)))?, c)))
-            .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
-        scored.into_iter().map(|(_, c)| c).collect()
+        use crate::mentions::fuzzysort::{Target, go};
+        let list = self.slash_list();
+        let needle = query.to_lowercase();
+        if needle.is_empty() {
+            return list;
+        }
+        let targets: Vec<[Target; 2]> = list.iter().map(|c| [Target::new(&c.name), Target::new(&c.title)]).collect();
+        let objects: Vec<&[Target]> = targets.iter().map(|t| &t[..]).collect();
+        let mut list: Vec<Option<Item>> = list.into_iter().map(Some).collect();
+        go(&needle, &objects).into_iter().filter_map(|i| list[i].take()).collect()
     }
 
     pub fn slash_active(&self) -> Option<String> {

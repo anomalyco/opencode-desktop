@@ -1,5 +1,4 @@
 use super::*;
-use opencode_kit::model::SessionInfo;
 use rune::{Key, KeyEvent, Runtime};
 
 #[test]
@@ -199,16 +198,17 @@ fn row_text_stays_inside_its_row() {
 }
 
 /// Kit's Scrawl (Nov 8): clicking a row closed the popover and left `@rune` as typed. The
-/// press blurred the composer, which closed the popover before the release landed.
+/// press blurred the composer, which closed the popover before the release landed. The row
+/// picks on the click, as Desktop's does.
 #[test]
-fn clicking_a_row_picks_it_on_press() {
+fn clicking_a_row_picks_it() {
     let mut rt = runtime();
     tap(&mut rt, "prompt");
     typed(&mut rt, "ask @exp");
     let (x, y) = rt.find("mention-agent:explore").expect("the row shows");
     rt.pointer_down(x, y);
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.composer.text, "ask @explore ", "the press picks, before the release");
+    assert_eq!(rt.state.composer.text, "ask @exp", "the press alone picks nothing");
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.state.composer.text, "ask @explore ");
@@ -217,35 +217,6 @@ fn clicking_a_row_picks_it_on_press() {
     assert!(shown(&rt, "mentions").is_none());
     typed(&mut rt, "x");
     assert_eq!(rt.state.composer.text, "ask @explore x");
-}
-
-/// Kit's Scrawl (Nov 8): `@runedes` and `@runedesktop` listed files, never the session
-/// "RUNE DESKTOP"; he had to type the space.
-#[test]
-fn spaceless_queries_find_sessions_first() {
-    let mut rt = runtime();
-    crate::mentions::bench_tests::large(&mut rt);
-    tap(&mut rt, "prompt");
-    for typed_query in ["runedes", "runedesktop", "rune des", "RuneDesk"] {
-        typed(&mut rt, &format!(" @{typed_query}"));
-        let found = keys(&rt);
-        assert_eq!(found.first().map(String::as_str), Some("session:ses_benchrunedesktopaaaaaaa"), "{typed_query}: {:?}", &found[..found.len().min(4)]);
-        assert!(found.iter().all(|k| !k.starts_with("file:research/")), "{typed_query}: scattered letters across a path aren't a match");
-        key(&mut rt, Key::Escape);
-    }
-}
-
-#[test]
-fn the_whole_name_then_its_start_then_a_word() {
-    let mut rt = runtime();
-    let s = |id: &str, title: &str, updated| SessionInfo { id: id.into(), title: title.into(), project: rt.state.sessions[0].project.clone(), directory: rt.state.sessions[0].directory.clone(), updated, ..Default::default() };
-    let added = [s("ses_wordaaaaaaaaaaaaaaaaaaaa", "Pin the rune dev rev", 30), s("ses_prefixaaaaaaaaaaaaaaaaaa", "RUNE DESKTOP", 20), s("ses_exactaaaaaaaaaaaaaaaaaaa", "RUNE", 10)];
-    rt.state.sessions.extend(added);
-    rt.state.mentions.skills.push(Skill { id: "rune-ui".into(), name: "rune-ui".into(), description: String::new() });
-    tap(&mut rt, "prompt");
-    typed(&mut rt, "@rune");
-    let found = keys(&rt);
-    assert_eq!(&found[..4], ["session:ses_exactaaaaaaaaaaaaaaaaaaa", "skill:rune-ui", "session:ses_prefixaaaaaaaaaaaaaaaaaa", "session:ses_wordaaaaaaaaaaaaaaaaaaaa"], "{found:?}");
 }
 
 #[test]

@@ -26,6 +26,9 @@ crc32fast = "1"
 flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 hex-client = { path = "../../crates/hex-client" }
+# fuzzysort's accent folding (`mentions::fuzzysort`): NFD and the Latin script, already in the tree.
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
+icu_properties = "2"
 libloading = "0.8"
 notify = "8"
 rune-mac.workspace = true

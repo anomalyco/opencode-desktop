@@ -18,7 +18,7 @@ use crate::{App, Route, Source};
 use list::{Row, Spec, data_list, popup, upsert_sessions};
 
 pub mod badge;
-pub mod fuzzy;
+pub mod fuzzysort;
 mod index;
 mod chip_stories;
 pub mod list;
@@ -43,6 +43,8 @@ pub enum Kind {
     Skill,
     Agent,
     Session,
+    /// A project reference (`/api/reference`), mentioned as its folder.
+    Reference,
     File,
 }
 
@@ -56,6 +58,17 @@ pub struct Item {
     pub description: String,
     /// The pill's text.
     pub content: String,
+    /// A file open in the session's side tabs (Desktop's `recent`), which the query filters.
+    pub recent: bool,
+}
+
+/// `/api/reference`'s shown references (`composer/model.ts:181-200`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reference {
+    pub name: String,
+    pub path: String,
+    /// Its own, or where it comes from: the git repository or the local folder.
+    pub description: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,13 +78,14 @@ pub struct Skill {
     pub description: String,
 }
 
-/// A directory's subagents and skills, each `None` when its read failed.
-type Catalog = (Attempt, Option<Vec<(String, String)>>, Option<Vec<Skill>>);
+/// A directory's subagents, skills and references, each `None` when its read failed.
+type Catalog = (Attempt, Option<Vec<(String, String)>>, Option<Vec<Skill>>, Option<Vec<Reference>>);
 
 pub struct Mentions {
     /// Subagents (`mode != primary`, not hidden) by name, with their descriptions.
     pub agents: Vec<(String, String)>,
     pub skills: Vec<Skill>,
+    pub references: Vec<Reference>,
     /// Whose `agents` and `skills` these are.
     catalog: search::Catalog,
     catalog_fetch: Latest<Catalog>,
@@ -93,6 +107,7 @@ impl Default for Mentions {
         Mentions {
             agents: Vec::new(),
             skills: Vec::new(),
+            references: Vec::new(),
             catalog: search::Catalog::default(),
             catalog_fetch: Latest::default(),
             search: search::Search::default(),
@@ -122,6 +137,7 @@ impl Mentions {
     pub fn load(&mut self, fixture: &Value) {
         self.agents = subagents(&fixture["agent_list"]);
         self.skills = skills(&fixture["skills"]);
+        self.references = references(&fixture["references"]);
         self.file_index = found_paths(&fixture["files"]);
     }
 }
@@ -134,21 +150,32 @@ fn subagents(v: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A found path as a row and its pill say it: the server's relative path with `/` between its
-/// parts, and a folder's trailing `/`. On Windows `/api/fs/find` ends a folder with `\` after
-/// `/`-joined parts (`src/util\`).
-fn shown_path(path: &str) -> String {
-    use opencode_kit::path::{SEPARATORS, is_absolute, trim};
-    if is_absolute(path) {
-        return path.to_owned();
-    }
-    let joined = trim(path).split(SEPARATORS).collect::<Vec<_>>().join("/");
-    if path.ends_with(SEPARATORS) && !joined.is_empty() { format!("{joined}/") } else { joined }
+/// A found path as a row and its pill say it: the server's path as it comes, separators and all,
+/// as Desktop's `path.normalize` keeps them (`workspaces/files/path.ts:91-121`), so a folder
+/// on Windows reads `src/util\` there too; a `./` before it goes.
+pub(crate) fn shown_path(path: &str) -> String {
+    path.strip_prefix("./").or_else(|| path.strip_prefix(".\\")).unwrap_or(path).to_owned()
 }
 
 /// `/api/fs/find`'s paths.
-fn found_paths(v: &Value) -> Vec<String> {
+pub(crate) fn found_paths(v: &Value) -> Vec<String> {
     data_list(v).filter_map(|f| f["path"].as_str().or(f.as_str()).map(str::to_owned)).collect()
+}
+
+/// `/api/reference`'s references that aren't hidden, described by their own words or their source.
+fn references(v: &Value) -> Vec<Reference> {
+    data_list(v)
+        .filter(|r| r["hidden"].as_bool() != Some(true))
+        .filter_map(|r| {
+            let source = &r["source"];
+            let from = if source["type"].as_str() == Some("git") { &source["repository"] } else { &source["path"] };
+            Some(Reference {
+                name: r["name"].as_str()?.to_owned(),
+                path: r["path"].as_str()?.to_owned(),
+                description: r["description"].as_str().or(from.as_str()).unwrap_or("").to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn skills(v: &Value) -> Vec<Skill> {
@@ -222,7 +249,7 @@ impl App {
     /// (`addMention`): from the last `@` before the caret that isn't a pill's, or at the caret
     /// when there's none.
     pub fn pick_mention(&mut self, key: &str) {
-        let Some(item) = self.mention_items().into_iter().find(|i| i.key == key) else { return };
+        let Some(item) = self.mention_items().into_iter().find(|i| i.key == key).or_else(|| self.shown_mention(key)) else { return };
         let caret = self.caret();
         let pills: Vec<_> = self.composer.pills().map(|(r, _)| r).collect();
         let at = self.composer.text[..caret].rmatch_indices('@').map(|(i, _)| i).find(|i| !pills.iter().any(|r| r.start <= *i && *i < r.end)).unwrap_or(caret);
@@ -254,7 +281,8 @@ impl App {
             let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
             let agents = server.get(&format!("/api/agent?{at}")).ok().map(|v| subagents(&v));
             let skills = server.get_ready(&format!("/api/skill?{at}")).ok().map(|v| skills(&v));
-            (attempt, agents, skills)
+            let references = server.get(&format!("/api/reference?{at}")).ok().map(|v| references(&v));
+            (attempt, agents, skills, references)
         });
     }
 
@@ -300,13 +328,14 @@ impl App {
         let now = tx.clock();
         let m = &mut self.mentions;
         let mut changed = false;
-        if let Some((attempt, agents, skills)) = m.catalog_fetch.take() {
+        if let Some((attempt, agents, skills, references)) = m.catalog_fetch.take() {
             // A failed read keeps what was there, as Desktop's location data does, rather than
             // settling on an empty list.
-            let failed = agents.is_none() || skills.is_none();
+            let failed = agents.is_none() || skills.is_none() || references.is_none();
             if matches!(&m.catalog, search::Catalog::Reading { attempt: a, .. } if *a == attempt) {
                 m.agents = agents.unwrap_or(std::mem::take(&mut m.agents));
                 m.skills = skills.unwrap_or(std::mem::take(&mut m.skills));
+                m.references = references.unwrap_or(std::mem::take(&mut m.references));
                 changed = true;
             }
             search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Answered { attempt, failed });
@@ -352,15 +381,16 @@ use session_view::user_parts::SESSION as SPEECH_BUBBLE;
 
 /// A row's mark (`editor.tsx:1671-1686`): the small (14 pt) speech bubble, brain and skill
 /// icons, which take the row button's own ink (`buttontext`: black, or white in dark), the
-/// brain in `icon-info-active`; a file's 16 pt colour badge.
-fn row_icon(p: &Pal, kind: Kind, label: &str) -> El {
+/// brain in `icon-info-active`; a file's 16 pt colour badge, a reference's its folder's.
+fn row_icon(p: &Pal, item: &Item) -> El {
     let ink = if p.dark { rune::Color::WHITE } else { rune::Color::BLACK };
     let info = rune::color::hex(if p.dark { "#fabbff" } else { "#912a9a" }).unwrap_or(p.info);
-    match kind {
+    match item.kind {
         Kind::Session => icon(&SPEECH_BUBBLE, 14.0).color(ink),
         Kind::Agent => icon(&ic::BRAIN, 14.0).color(info),
         Kind::Skill => icon(&ic::POST_SKILL, 14.0).color(ink),
-        Kind::File => icon(rune_theme_opencode::file_icons::file(label), 16.0).color(p.text),
+        Kind::File => icon(rune_theme_opencode::file_icons::file(&item.label), 16.0).color(p.text),
+        Kind::Reference => icon(rune_theme_opencode::file_icons::folder(item.key.strip_prefix("reference:").unwrap_or(&item.label), false), 16.0).color(p.text),
     }
 }
 
@@ -373,7 +403,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let active = s.mention_active();
     let rows = items
         .iter()
-        .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind, &i.label)), description: i.description.clone(), trail: None })
+        .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i)), description: i.description.clone(), trail: None })
         .collect();
     let spec = Spec { key: "mentions", label: opencode_i18n::t!("rune.composer.mentions"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: list::boundary(cx), search: None };
     Some(popup(p, spec, rows, active.as_deref(), |s, key, tx| s.suggest_pointed(key, tx), |s, key, tx| s.suggest_pick(key, tx)))

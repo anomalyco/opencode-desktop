@@ -74,12 +74,13 @@ pub fn mention_style(p: &Pal, kind: MentionKind) -> PillStyle {
     }
 }
 
-/// The kind of a composer pill by its id (`agent:`, `skill:`, `file:`, `session:`).
+/// The kind of a composer pill by its id (`agent:`, `skill:`, `file:`, `reference:`, `session:`).
 pub fn mention_kind_of(id: &str) -> Option<MentionKind> {
     Some(match id.split_once(':')?.0 {
         "agent" => MentionKind::Agent,
         "skill" => MentionKind::Skill,
         "file" => MentionKind::File,
+        "reference" => MentionKind::Directory,
         "session" => MentionKind::Session,
         _ => return None,
     })

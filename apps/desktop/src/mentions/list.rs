@@ -118,7 +118,7 @@ pub fn popup(
     let mut list = col().key(format!("{}-list", spec.key)).w_full().padding(PAD).children(spec.search);
     for r in rows {
         let (id, id_hover, id_press) = (r.id.clone(), r.id.clone(), r.id.clone());
-        let (hover, pick, press) = (hover.clone(), pick.clone(), pick.clone());
+        let (hover, press) = (hover.clone(), pick.clone());
         let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(r.lead);
         words = words.child(text(r.label.clone()).key("label").font(UI).color(p.text));
         if !r.description.is_empty() {
@@ -141,14 +141,8 @@ pub fn popup(
                 // a list opening under a resting pointer keeps its first row lit. Not `on_hover`:
                 // its commit would animate the highlight's fill from row to row.
                 .on_pointer_move_local(move |s: &mut App, _, tx: &mut Tx| hover(s, &id_hover, tx))
-                // A row picks on the press, as a menu does: by the release the pick has landed.
-                .on_drag(move |s: &mut App, d, tx: &mut Tx| {
-                    if d.phase == rune::Phase::Down {
-                        s.composer.focused = true;
-                        pick(s, &id, tx);
-                    }
-                })
-                // VoiceOver's press, which has no pointer.
+                // A row picks on the click, a release over the row it went down on, as Desktop's
+                // row button does (`editor.tsx:1388`, `onClick`); VoiceOver's press too.
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     s.composer.focused = true;
                     press(s, &id_press, tx);

@@ -118,7 +118,7 @@ impl App {
         match &self.suggest.state {
             Popover::Context(list) => {
                 let stale = !matches!(self.source, crate::Source::Fixture) && self.mentions.search.files_stale(&list.query);
-                self.mention_items().into_iter().filter(|i| !(stale && i.kind == crate::mentions::Kind::File)).map(|i| i.key).collect()
+                self.mention_items().into_iter().filter(|i| !(stale && i.kind == crate::mentions::Kind::File && !i.recent)).map(|i| i.key).collect()
             }
             Popover::CommandInline(_) | Popover::CommandMenu(_) => self.slash_items().into_iter().map(|c| c.id).collect(),
             Popover::History { list, .. } => self.history_rows(&list.query).into_iter().map(|(id, _)| id).collect(),

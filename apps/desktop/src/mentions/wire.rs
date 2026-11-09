@@ -95,6 +95,13 @@ pub fn wire<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)], directory: &
                 mime: Some("text/plain".into()),
                 mention,
             }),
+            // A reference is its folder, named as it was picked (`composer/model.ts:190-198`).
+            "reference" => out.files.push(FileInput {
+                uri: format!("file://{}", encode_path(&absolute(directory, value))),
+                name: shown.trim_start_matches('@').to_owned(),
+                mime: Some("application/x-directory".into()),
+                mention,
+            }),
             _ => {}
         }
         at = range.end;

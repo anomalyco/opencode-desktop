@@ -2704,6 +2704,8 @@ dependencies = [
  "crc32fast",
  "flate2",
  "hex-client",
+ "icu_normalizer",
+ "icu_properties",
  "image",
  "libc",
  "libloading",

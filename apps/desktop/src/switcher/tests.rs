@@ -253,7 +253,7 @@ fn a_click_opens_a_row_and_outside_closes() {
 }
 
 #[test]
-fn cold_session_shows_on_pointer_down_without_a_page_reply() {
+fn cold_session_shows_on_click_without_a_page_reply() {
     let mut rt = runtime();
     let id = crate::fixture_ids::THIRD;
     let (pool, _unanswered) = crate::session_pages::Pages::fixture(None);
@@ -262,6 +262,8 @@ fn cold_session_shows_on_pointer_down_without_a_page_reply() {
     cmd_k(&mut rt);
     let (x, y) = rt.find(&format!("sw-session:{id}")).unwrap();
     rt.pointer_down(x, y);
+    rt.frame(0.0);
+    rt.pointer_up(x, y);
     rt.frame(0.0);
     assert_eq!(rt.state.route, Route::Session(id.into()));
     assert_eq!(rt.state.displayed_session(id), Some(id));

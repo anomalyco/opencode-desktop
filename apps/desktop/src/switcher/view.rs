@@ -237,10 +237,14 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_run(action.clone(), tx))
         .child(main);
+    // A row runs on the click, a release over the row it went down on (`SearchList`'s
+    // `onClick`); a session's page starts loading on the press so it's there by then.
     let r = if let Action::Session(id) = &e.action {
         let id = id.clone();
-        r.on_drag(move |s: &mut App, d, tx| {
-            if d.phase == rune::Phase::Down { s.switcher_run(Action::Session(id.clone()), tx); }
+        r.on_drag(move |s: &mut App, d, _: &mut Tx| {
+            if d.phase == rune::Phase::Down {
+                s.prefetch_session(&id);
+            }
         })
     } else { r };
     r.children(trailing.map(|(el, _)| el))
