@@ -20,7 +20,9 @@ use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key, upsert_se
 pub mod badge;
 pub mod fuzzy;
 mod index;
+mod chip_stories;
 pub mod list;
+pub mod refs;
 mod wire;
 
 pub use wire::{Wire, context_input, wire};

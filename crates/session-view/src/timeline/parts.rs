@@ -141,11 +141,17 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         for link in links {
             words = words.link(link);
         }
-        words = words.on_link(|s: &mut S, link: &str, tx: &mut Tx| {
-            if let Some(sid) = crate::user_parts::session_of_link(link) {
-                s.open_session(sid, tx);
-            }
-        });
+        words = words
+            .on_link(|s: &mut S, link: &str, tx: &mut Tx| {
+                if let Some(sid) = crate::user_parts::session_of_link(link) {
+                    s.open_session(sid, tx);
+                }
+            })
+            .on_link_secondary(|s: &mut S, link: &str, press, tx: &mut Tx| {
+                if let Some(sid) = crate::user_parts::session_of_link(link) {
+                    s.session_chip_menu(sid, press, tx);
+                }
+            });
     }
     let words = crate::fold::view(s, p, id, &shown, readable(p, words), fold, quotes.is_some() && !body.trim().is_empty());
     let mut face = match quotes {
@@ -405,10 +411,15 @@ pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: 
 /// A reply's markdown, `message` being the reply it is: a right-click on it (or on one of its
 /// images) opens the reply's menu.
 pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, message: Option<&str>) -> El {
+    // Session ids read as chips, except while Find marks the text as written.
+    let hits = s.find_row_hits(row_key);
+    let chips = if hits.is_none() { crate::session_chips::chips(s, src) } else { None };
+    let tips = if chips.is_some() { crate::session_chips::tips(s, src) } else { Vec::new() };
+    let src = chips.as_deref().unwrap_or(src);
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
-    let el = crate::genui::reply(s, p, src, fade, streaming, s.find_row_hits(row_key)).unwrap_or_else(|| {
+    let el = crate::genui::reply(s, p, src, fade, streaming, hits, &tips).unwrap_or_else(|| {
         let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), ..crate::images::md_media(s) };
-        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media))
+        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media), &tips)
     });
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),

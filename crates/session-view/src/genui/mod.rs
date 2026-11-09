@@ -130,7 +130,8 @@ fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, b
 }
 
 /// A reply with outlines in it, or None to draw it as plain Markdown.
-pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>) -> Option<El> {
+/// `chips` are its session chips' tooltips (`session_chips::tips`).
+pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>, chips: &[(String, String)]) -> Option<El> {
     let segs = split(src, streaming)?;
     let width = width(s);
     let mut root: Option<El> = None;
@@ -140,7 +141,7 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
         let (el, (top, bottom)) = match seg {
             Seg::Md(r) => {
                 let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)));
+                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)), chips);
                 // The first run is the root and keeps its blocks' keys from before any fence.
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))

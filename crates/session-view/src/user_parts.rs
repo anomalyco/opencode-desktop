@@ -136,6 +136,12 @@ pub fn bubble_marks(body: &str, mentions: &[UserMention], title: impl Fn(&str) -
     for (r, id) in mention::session_tokens(body) {
         marks.push((r, MentionKind::Session, Some((id, title(id).filter(|t| !t.trim().is_empty())))));
     }
+    // A session id pasted as it is reads as its badge too, once its title is known.
+    for (r, id) in crate::session_chips::plain_ids(body) {
+        if let Some(t) = title(id).filter(|t| !t.trim().is_empty()) {
+            marks.push((r, MentionKind::Session, Some((id, Some(t)))));
+        }
+    }
     marks.sort_by_key(|(r, _, _)| r.start);
     let (mut out, mut ranges, mut at) = (String::with_capacity(body.len()), Vec::new(), 0);
     for (r, kind, session) in marks {
@@ -182,7 +188,8 @@ pub fn session_of_link(link: &str) -> Option<&str> {
 /// Message `id`'s bubble text and its mention badges: pills styled by kind, a session's with
 /// its icon, and a link per session badge (opening it when the host can).
 pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>) {
-    let (text, marks) = bubble_marks(body, &mention::user_mentions(id), |sid| s.session_title(sid));
+    let title = |sid: &str| s.session_ref(sid).map(|r| r.title).filter(|t| !t.trim().is_empty()).or_else(|| s.session_title(sid));
+    let (text, marks) = bubble_marks(body, &mention::user_mentions(id), title);
     let links = marks
         .iter()
         .filter(|_| s.can_open_session())

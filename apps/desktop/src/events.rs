@@ -130,6 +130,9 @@ impl App {
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= self.apply_revert(ty, data, &sid);
         }
+        if ty == "session.lookup.missing" {
+            self.session_refs.missing(data);
+        }
         changed |= self.apply_selected(ty, data, &sid);
         changed |= self.apply_archive(ty, data, &sid);
         if matches!(ty, "session.archived" | "session.unarchived") { self.switcher.invalidate_sessions(); }
