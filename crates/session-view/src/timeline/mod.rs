@@ -34,6 +34,9 @@ pub enum RowContent {
     /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
     /// beside it should it draw as a divider.
     Notice(usize, Run),
+    /// A background shell or subagent that came back, its message still waiting in the inbox:
+    /// the notice it shows as once delivered, under the same row key.
+    PendingNotice(String),
     /// The turn's last step's error, or its Retry row while the server waits to try it again.
     Error { message: usize, pt: f32 },
     Retry { message: usize, pt: f32 },
@@ -204,6 +207,10 @@ impl RowSpec {
             RowContent::Notice(i, run) => match &t.messages[*i] {
                 Message::Notice(n) => crate::turn_errors::notice(s, p, n, *run),
                 _ => unreachable!(),
+            },
+            RowContent::PendingNotice(id) => match s.inbox_for(&t.session).and_then(|i| i.waiting_notices().find(|n| &n.id == id)) {
+                Some(n) => crate::turn_errors::notice(s, p, n, Run::default()),
+                None => col(),
             },
             RowContent::Error { message, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => crate::turn_errors::error(s, p, a).pt(*pt),
@@ -559,12 +566,26 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         Some(Message::User { text, .. }) if steps.is_empty() && !runs_off => Some(text.as_str()),
         _ => None,
     };
+    // Background shells and subagents that came back wait among them, in the order the server
+    // admitted them (`visibleTimelineMessages`), each a notice of its own.
+    let notices: Vec<&model::Notice> = match s.inbox_for(&t.session) {
+        Some(i) if revert.is_none() => i.waiting_notices().filter(|n| crate::detail::notice_placement(n, &detail) != crate::detail::Placement::Hidden).collect(),
+        _ => Vec::new(),
+    };
+    let mut notices = notices.into_iter().peekable();
     for (k, item) in pending.iter().enumerate() {
+        while let Some(n) = notices.next_if(|n| n.id < item.id) {
+            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone()), streaming: false });
+            prev = None;
+        }
         let above = prev.is_some_and(|x| prompts_join(x, item));
-        let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n));
+        let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n)) && notices.peek().is_none_or(|n| n.id > pending[k + 1].id);
         let tight = prompt_images(&mut out, &item.id, older);
         out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
+    }
+    for n in notices {
+        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone()), streaming: false });
     }
     dividers::stack(t, &mut out);
     // Input waiting to send (queued, or steers) lands as the turn ends, so the reply's footer

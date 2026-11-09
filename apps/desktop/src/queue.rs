@@ -33,7 +33,7 @@ const MAX_LIST_H: f32 = 148.0;
 impl App {
     /// The open session's undelivered prompts.
     pub fn inbox_for(&self, session: &str) -> Option<&Inbox> {
-        self.inboxes.get(session).filter(|i| !i.items.is_empty())
+        self.inboxes.get(session).filter(|i| !i.items.is_empty() || i.waiting_notices().next().is_some())
     }
 
     /// Admits a prompt sent while the session is busy: shown at once, as Desktop does, and
@@ -124,14 +124,25 @@ impl App {
         // already shows as its prompt, which is where it stays, so it never waits as a steer.
         if let Some(t) = self.transcripts.get(sid) {
             inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
+            inbox.settle_notices(|id| t.messages.iter().any(|m| m.id() == id));
         }
+        let delivered = inbox.take_notice_effects();
         if ty == "session.inbox.listed" {
             let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
             admitted |= self.judge_sends_by_inbox(sid, &ids);
             self.check_sends();
         }
+        // A background shell or subagent's notice the server delivered keeps its row as a message.
+        let notices = !delivered.is_empty();
+        for model::NoticeEffect::ToTranscript(n) in delivered {
+            if let Some(t) = self.transcripts.get_mut(sid)
+                && !t.messages.iter().any(|m| m.id() == n.id)
+            {
+                t.messages.push(Message::Notice(n));
+            }
+        }
         match change {
-            InboxChange::None => admitted,
+            InboxChange::None => admitted || notices,
             InboxChange::Changed => true,
             InboxChange::Delivered(item) => {
                 if !item.files.is_empty() {
@@ -144,6 +155,7 @@ impl App {
                 }
                 true
             }
+
         }
     }
 
@@ -151,6 +163,8 @@ impl App {
     pub fn settle_inbox(&mut self, session: &str, fetched: &[String]) {
         if let Some(inbox) = self.inboxes.get_mut(session) {
             inbox.items.retain(|i| !fetched.contains(&i.id));
+            inbox.settle_notices(|id| fetched.iter().any(|f| f == id));
+            inbox.take_notice_effects();
         }
     }
 }

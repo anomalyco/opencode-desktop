@@ -66,10 +66,77 @@ pub enum NoticeKind {
     /// Instruction files changed, by their sources.
     Instructions { sources: Vec<String> },
     Restart,
+    /// A background shell or subagent came back (`Shell finished`, `Explore failed`).
+    Finished(Finished),
     Text(String),
     /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
     /// Changed files lists.
     Idle,
+}
+
+/// A synthetic message a background shell or subagent sends back when it ends, as Desktop's
+/// timeline shows it: who (`Shell`, or the agent's name), how it ended, and what it was.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Finished {
+    /// The subagent's agent (`explore`); `None` for a shell.
+    pub agent: Option<String>,
+    pub subagent: bool,
+    pub outcome: Outcome,
+    /// Its `description`: the subagent's task, or the command that failed to start.
+    pub data: Option<String>,
+    /// Shown however Timeline detail places notices: it failed (`timelineNoticeRequired`).
+    pub required: bool,
+    /// The shell (`metadata.shellID`) or child session (`metadata.childID`) it came from.
+    pub shell: Option<String>,
+    pub child: Option<String>,
+}
+
+/// How a background shell or subagent ended (`metadata.state`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Completed,
+    Error,
+    Cancelled,
+}
+
+/// A shell or subagent's synthetic message as a notice, or `None` when Desktop shows none: one
+/// with no description that didn't fail (`isNotice`, `timelineNoticeRequired`).
+fn finished(m: &Value, description: Option<&str>) -> Option<NoticeKind> {
+    let meta = &m["metadata"];
+    let subagent = meta["source"] == "subagent";
+    let state = meta["state"].as_str();
+    // Shell completion reports the process outcome in metadata, not its state (`shellResultFailed`).
+    let shell_failed = meta["timeout"] == true || meta["exit"].as_i64().is_some_and(|e| e != 0);
+    let required = state == Some("error") || (!subagent && state == Some("completed") && shell_failed);
+    if description.is_none() && !required {
+        return None;
+    }
+    let outcome = match state {
+        Some("error") => Outcome::Error,
+        Some("cancelled") => Outcome::Cancelled,
+        _ => Outcome::Completed,
+    };
+    let id = |k: &str| meta[k].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
+    Some(NoticeKind::Finished(Finished {
+        agent: subagent.then(|| id("agent")).flatten(),
+        subagent,
+        outcome,
+        data: description.map(str::to_owned),
+        required,
+        shell: (!subagent).then(|| id("shellID")).flatten(),
+        child: subagent.then(|| id("childID")).flatten(),
+    }))
+}
+
+/// A synthetic inbox item (`{id, type, payload, delivery}` or `{inboxID, item}`) as the notice
+/// Desktop shows for it while it waits: a background shell or subagent that came back.
+pub fn parse_inbox_notice(v: &Value) -> Option<Notice> {
+    let (id, item) = if v["item"].is_object() { (&v["inboxID"], &v["item"]) } else { (&v["id"], v) };
+    if item["type"] != "synthetic" {
+        return None;
+    }
+    let kind = kind("synthetic", &item["payload"])?;
+    Some(Notice { id: s(id), kind })
 }
 
 fn model_ref(v: &Value) -> Option<ModelRef> {
@@ -108,9 +175,8 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
             if m["metadata"]["notice"] == "restart" || description == Some("Continuing after restart") {
                 return Some(NoticeKind::Restart);
             }
-            // Finished subagents and background shells have rows of their own.
             if matches!(m["metadata"]["source"].as_str(), Some("subagent" | "shell")) {
-                return None;
+                return finished(m, description);
             }
             NoticeKind::Text(description?.to_owned())
         }

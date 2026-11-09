@@ -68,7 +68,7 @@ fn usage_counts_the_cache_in_and_reasoning_out() {
 #[test]
 fn a_queued_compaction_waits_under_the_turn() {
     let mut s = app(vec![shell("msg_a")]);
-    s.inboxes.insert(SID.into(), Inbox { items: vec![], compaction: Some("inb_cmp".into()) });
+    s.inboxes.insert(SID.into(), { let mut i = Inbox::default(); i.compaction = Some("inb_cmp".into()); i });
     let keys = crate::view::row_keys(&s, &s.transcripts[SID]);
     let group = keys.iter().position(|k| k.starts_with("c-")).unwrap();
     let queued = keys.iter().position(|k| k == "cmpq-inb_cmp").expect("the queued divider");

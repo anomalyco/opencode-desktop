@@ -64,6 +64,40 @@ pub enum InboxChange {
     Delivered(InboxItem),
 }
 
+/// A background shell or subagent's notice on its way to the model (`visibleTimelineMessages`):
+/// it waits in the inbox, showing under the running work, until the server delivers it to the
+/// transcript, where it keeps its row, or cancels it. A listing without it means it went on.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NoticeState {
+    Waiting(Notice),
+    Delivered,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NoticeEvent {
+    /// Admitted, or admitted again with a newer payload.
+    Admitted(Notice),
+    Delivered,
+    Cancelled,
+}
+
+/// What the transcript does for a notice's step: take it as a message of its own.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NoticeEffect {
+    ToTranscript(Notice),
+}
+
+/// One notice's transition.
+pub fn step_notice(state: NoticeState, event: NoticeEvent) -> (NoticeState, Option<NoticeEffect>) {
+    match (state, event) {
+        (NoticeState::Waiting(_), NoticeEvent::Admitted(n)) => (NoticeState::Waiting(n), None),
+        (NoticeState::Waiting(n), NoticeEvent::Delivered) => (NoticeState::Delivered, Some(NoticeEffect::ToTranscript(n))),
+        (NoticeState::Waiting(_), NoticeEvent::Cancelled) => (NoticeState::Cancelled, None),
+        (done, _) => (done, None),
+    }
+}
+
 /// One session's undelivered prompts, in admission order, kept current from
 /// `session.inbox.*` events.
 #[derive(Clone, Debug, Default)]
@@ -71,9 +105,51 @@ pub struct Inbox {
     pub items: Vec<InboxItem>,
     /// The id of a compaction the server admitted but hasn't started.
     pub compaction: Option<String>,
+    /// Background shells and subagents that came back, in admission order: the notices
+    /// Desktop shows for them under the running work while they wait ([`NoticeState`]).
+    notices: Vec<NoticeState>,
+    /// The effects of the notices' steps, for the caller to take ([`Inbox::take_notice_effects`]).
+    notice_effects: Vec<NoticeEffect>,
 }
 
 impl Inbox {
+    /// The notices still waiting, in admission order.
+    pub fn waiting_notices(&self) -> impl Iterator<Item = &Notice> {
+        self.notices.iter().filter_map(|n| match n {
+            NoticeState::Waiting(n) => Some(n),
+            _ => None,
+        })
+    }
+
+    /// The waiting notices `seen` says the transcript already holds were delivered.
+    pub fn settle_notices(&mut self, seen: impl Fn(&str) -> bool) {
+        let ids: Vec<String> = self.waiting_notices().filter(|n| seen(&n.id)).map(|n| n.id.clone()).collect();
+        for id in ids {
+            self.step_notice(&id, NoticeEvent::Delivered);
+        }
+    }
+
+    pub fn take_notice_effects(&mut self) -> Vec<NoticeEffect> {
+        std::mem::take(&mut self.notice_effects)
+    }
+
+    /// Steps the waiting notice `id` (or a new one, when admitted), dropping it once it's done.
+    fn step_notice(&mut self, id: &str, event: NoticeEvent) {
+        let at = self.notices.iter().position(|n| matches!(n, NoticeState::Waiting(w) if w.id == id));
+        let state = match (at, event) {
+            (Some(at), event) => (self.notices.remove(at), event),
+            // Admitted for the first time: it starts out waiting.
+            (None, NoticeEvent::Admitted(n)) => return self.notices.push(NoticeState::Waiting(n)),
+            (None, _) => return,
+        };
+        let (state, event) = state;
+        let (next, effect) = step_notice(state, event);
+        self.notice_effects.extend(effect);
+        if matches!(next, NoticeState::Waiting(_)) {
+            self.notices.insert(at.unwrap_or(self.notices.len()), next);
+        }
+    }
+
     pub fn queued(&self) -> impl Iterator<Item = &InboxItem> {
         self.items.iter().filter(|i| i.delivery == Delivery::Queue)
     }
@@ -113,6 +189,30 @@ impl Inbox {
         };
         let moved = compaction != self.compaction;
         self.compaction = compaction;
+        let notices = self.notices.clone();
+        match ty {
+            "session.inbox.listed" => {
+                let listed: Vec<Notice> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_notice).collect();
+                let gone: Vec<String> = self.waiting_notices().filter(|n| !listed.iter().any(|l| l.id == n.id)).map(|n| n.id.clone()).collect();
+                for g in gone {
+                    self.step_notice(&g, NoticeEvent::Delivered);
+                }
+                for n in listed {
+                    let id = n.id.clone();
+                    self.step_notice(&id, NoticeEvent::Admitted(n));
+                }
+            }
+            "session.inbox.enqueued" => {
+                if let Some(n) = parse_inbox_notice(d) {
+                    let id = n.id.clone();
+                    self.step_notice(&id, NoticeEvent::Admitted(n));
+                }
+            }
+            "session.inbox.cancelled" => self.step_notice(id, NoticeEvent::Cancelled),
+            "session.inbox.delivered" => self.step_notice(id, NoticeEvent::Delivered),
+            _ => {}
+        }
+        let moved = moved || notices != self.notices;
         let changed = match ty {
             "session.inbox.listed" => {
                 let items: Vec<InboxItem> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_item).collect();

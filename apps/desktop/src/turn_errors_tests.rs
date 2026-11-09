@@ -100,7 +100,7 @@ fn notices_parse_from_messages_and_events() {
         { "id": "msg_5", "type": "synthetic", "text": "", "description": "Shell done", "metadata": { "source": "shell" }, "time": { "created": 5 } },
     ] }));
     let kinds: Vec<NoticeKind> = list.into_iter().filter_map(|m| if let Message::Notice(n) = m { Some(n.kind) } else { None }).collect();
-    assert_eq!(kinds.len(), 4, "a background shell's notice isn't one: {kinds:?}");
+    assert_eq!(kinds.len(), 5, "a background shell's notice with a description is one: {kinds:?}");
     assert_eq!(kinds[2], NoticeKind::Instructions { sources: vec!["AGENTS.md".into(), "a/AGENTS.md".into()] });
     assert_eq!(kinds[3], NoticeKind::Restart);
 

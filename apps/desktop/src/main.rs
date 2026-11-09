@@ -716,6 +716,12 @@ impl session_view::TimelineHost for App {
     fn session_chip_menu(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) {
         self.open_session_chip_menu(id, press, tx);
     }
+    fn can_reveal_shell(&self) -> bool {
+        true
+    }
+    fn reveal_shell(&mut self, shell: &str, tx: &mut Tx) {
+        crate::message_nav::reveal_shell(self, shell, tx);
+    }
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error.as_deref())
     }

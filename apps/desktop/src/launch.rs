@@ -570,6 +570,15 @@ fn connect(s: &mut App, tx: &mut Tx) {
     {
         s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
     }
+    // And what waits in its inbox: steers, and shells and subagents that came back.
+    if headless()
+        && let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
+        && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
+    {
+        let id = id.clone();
+        let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
+        s.apply_inbox("session.inbox.listed", &serde_json::json!({ "sessionID": id, "items": items }), &id);
+    }
 }
 
 #[cfg(test)]

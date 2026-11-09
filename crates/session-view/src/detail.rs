@@ -192,11 +192,17 @@ pub fn part_category(part: &Part) -> Option<Category> {
 }
 
 /// Where a notice shows (`timelineNoticePlacement`, `groupMessages`' separate set): a switched
-/// model or a move keeps its own row unless notices are hidden; the rest follow Notices.
+/// model or a move keeps its own row unless notices are hidden; the rest follow Notices. A
+/// background shell or subagent that came back has a row of its own unless Notices (Subagents,
+/// for a subagent) are hidden, and one that failed always.
 pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placement {
     use opencode_kit::model::NoticeKind;
     match (&n.kind, d.placement(Category::Notices)) {
         (NoticeKind::Idle, _) => Placement::Hidden,
+        (NoticeKind::Finished(f), notices) => {
+            let placement = if f.subagent { d.placement(Category::Subagents) } else { notices };
+            if placement == Placement::Hidden && !f.required { Placement::Hidden } else { Placement::Separate }
+        }
         (NoticeKind::Model { .. } | NoticeKind::Moved { .. }, Placement::Grouped) => Placement::Separate,
         (_, p) => p,
     }
