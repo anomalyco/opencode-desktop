@@ -177,6 +177,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 /// at the end.
 fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
     let action = e.action.clone();
+    let keyed = e.action.clone();
     let hover = e.key.clone();
     let (lead, trailing) = match &e.action {
         Action::Session(id) => session_parts(s, p, e, id),
@@ -204,6 +205,19 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .center_y()
         .radius(6.0)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
+        // Each row is a `<button>`, so Tab goes from the search field down the rows and wraps in
+        // the dialog; one Tab reached shows the highlight's overlay and no ring, and Return or
+        // Space runs it (`dialog.css:208-215`). The highlight stays where the keys left it.
+        .focusable(true)
+        .focus_fill(if active { Color::TRANSPARENT } else { p.hover })
+        .no_focus_ring()
+        .on_key(move |s: &mut App, ev, tx: &mut Tx| {
+            let press = matches!(ev.key, rune::Key::Enter) || ev.key == rune::Key::Text(" ".into());
+            if press && !ev.mods.cmd && !ev.mods.alt && !ev.mods.shift {
+                s.switcher_run(keyed.clone(), tx);
+            }
+            press
+        })
         .transition(Transition::none())
         .motion(Spring::NONE)
         // Only a moving pointer takes the row (`SearchList`'s `onMouseMove`), and not `on_hover`:
