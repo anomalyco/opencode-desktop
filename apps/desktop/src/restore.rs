@@ -211,6 +211,7 @@ impl App {
             self.queue_terminal_save();
         }
         self.window_closed();
+        crate::windows::shared::leave(self);
         crate::disk::flush();
     }
 

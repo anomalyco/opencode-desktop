@@ -2,6 +2,7 @@
 //! threads, answering only it, while `/api/event` is read once and every event, reconnect and
 //! stream error reaches every window that subscribed.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -46,10 +47,26 @@ impl EventHub {
     }
 }
 
+/// Numbers the stream's events across every hub of the process, so windows sharing one copy of
+/// the session data apply each event to it once.
+static SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// The key a stream event's data carries its number under: windows that share their session data
+/// apply an event to it only the first time one of them sees the number, and each window still
+/// reacts to every event in its own view.
+pub const HUB_SEQ: &str = "hubSeq";
+
 /// Every stream message to every window still listening, each woken once per batch.
 fn fan_out(inbox: &Receiver<Incoming>, subscribers: &Mutex<Vec<(Sender<Incoming>, Waker)>>) {
     while let Ok(first) = inbox.recv() {
-        let batch: Vec<Incoming> = std::iter::once(first).chain(inbox.try_iter()).collect();
+        let mut batch: Vec<Incoming> = std::iter::once(first).chain(inbox.try_iter()).collect();
+        for m in &mut batch {
+            if let Incoming::Event { data, .. } = m
+                && let Some(map) = data.as_object_mut()
+            {
+                map.insert(HUB_SEQ.into(), (SEQ.fetch_add(1, Ordering::Relaxed) + 1).into());
+            }
+        }
         let mut subs = subscribers.lock().unwrap();
         subs.retain(|(tx, wake)| {
             let alive = batch.iter().all(|m| tx.send(m.clone()).is_ok());

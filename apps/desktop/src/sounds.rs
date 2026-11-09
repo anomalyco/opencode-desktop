@@ -47,7 +47,8 @@ pub fn event(app: &App, ty: &str, data: &Value, sid: &str) {
         "form.created" if has_tab(app.root_of(data["sessionID"].as_str().unwrap_or(sid))) => sounds.questions.as_deref(),
         _ => None,
     };
-    if let Some(id) = id {
+    // Each window with the session's tab decides; the sound plays once for the event.
+    if let Some(id) = id.filter(|_| crate::windows::shared::first_sound(app, data)) {
         play(id);
     }
 }

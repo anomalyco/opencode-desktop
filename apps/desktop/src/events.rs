@@ -133,9 +133,12 @@ impl App {
         changed |= self.apply_selected(ty, data, &sid);
         changed |= self.apply_archive(ty, data, &sid);
         if matches!(ty, "session.archived" | "session.unarchived") { self.switcher.invalidate_sessions(); }
-        if let Some(t) = self.transcripts.get_mut(&sid) {
-            // A transcript shows only in its own family's page, so another session's stream
-            // updates its state without rebuilding the view.
+        // A transcript shows only in its own family's page, so another session's stream
+        // updates its state without rebuilding the view. Windows share transcripts: the first
+        // to hear an event applies its deltas, the others only draw them.
+        if !crate::windows::shared::first_sight(self, data) {
+            changed |= self.transcripts.contains_key(&sid) && self.shows_transcript(&sid);
+        } else if let Some(t) = self.transcripts.get_mut(&sid) {
             changed |= t.apply(ty, data, now) && self.shows_transcript(&sid);
         }
         if ty.starts_with("session.") && !sid.is_empty() {

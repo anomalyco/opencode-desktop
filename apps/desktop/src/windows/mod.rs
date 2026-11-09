@@ -1,7 +1,7 @@
 //! The app's windows, all in this process as Desktop's are in its main process
 //! (`packages/desktop/src/main/windows`): each has its own tabs, page and layout, and they share
-//! the server connection's event stream (`opencode_kit::client::EventHub`), the session data it
-//! brings, and the plugins' app halves (`plugin_host`).
+//! the server connection's event stream (`opencode_kit::client::EventHub`), one copy of the session
+//! data it brings (`shared`), and the plugins' app halves (`plugin_host`).
 //!
 //! New Window (Ctrl+Shift+N, the ≡ menu) opens one with Rune's `open_window`; Close Window
 //! (Ctrl+Shift+W) closes the one in front. Each keeps its tabs, closed tabs, panes, page and
@@ -18,6 +18,7 @@ use rune::{AppHandle, Tx, WindowHandle, WindowPlacement};
 use crate::App;
 
 mod open;
+pub mod shared;
 pub mod store;
 pub mod tear;
 

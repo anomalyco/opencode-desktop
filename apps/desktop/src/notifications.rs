@@ -256,6 +256,10 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
         app.notify.asked.push_back(id);
     }
     let Some((kind, title, session, body)) = decide(app, ty, data, sid) else { return };
+    // Each window with the session's tab decides; one notification goes out for the event.
+    if !crate::windows::shared::first_notice(app, data) {
+        return;
+    }
     let server = app.server_base().to_owned();
     app.notify.post(kind, title, &session, body, &server);
 }

@@ -129,7 +129,7 @@ fn call_tool_msg(id: u64, name: &str, args: Value, session_id: Option<&str>) -> 
 
 fn make_single_folder_app(server: Server, dir: &str, sid: &str) -> App {
     let mut app = App::empty();
-    app.projects = vec![Project {
+    *app.projects = vec![Project {
         id: "proj_1".into(),
         name: "repo".into(),
         directory: dir.into(),
@@ -137,7 +137,7 @@ fn make_single_folder_app(server: Server, dir: &str, sid: &str) -> App {
         icon: ProjectIcon::default(),
     }];
     app.project_state.used = vec!["proj_1".into()];
-    app.sessions = vec![SessionInfo {
+    *app.sessions = vec![SessionInfo {
         id: sid.into(),
         parent: None,
         project: "proj_1".into(),

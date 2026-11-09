@@ -356,6 +356,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     tx.instant();
     let Some(result) = ready.first else {
         s.launch.cold_transcript = None;
+        crate::windows::shared::leave(s);
         s.transcripts.clear();
         s.tabs.clear();
         s.route = Route::Home;
@@ -396,6 +397,8 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 return true;
             }
             s.launch.cold_transcript = None;
+            // The other windows keep what they show while this one waits for the server.
+            crate::windows::shared::leave(s);
             s.transcripts.clear();
             if s.launch.held_tabs.is_empty() {
                 s.launch.held_tabs = std::mem::take(&mut s.tabs);
@@ -430,6 +433,8 @@ impl App {
         self.opening = None;
         self.route = Route::Home;
         self.tabs = crate::tabs::load(&self.window, &server.base).unwrap_or_default();
+        // Its windows keep the old server's data; this one starts empty for the new server.
+        crate::windows::shared::leave(self);
         self.sessions.clear();
         self.transcripts.clear();
         self.projects.clear();
@@ -473,9 +478,13 @@ impl App {
     }
 
     pub(crate) fn apply_first(&mut self, f: First) {
-        self.projects = opencode_kit::model::parse_projects(&f.projects);
+        *self.projects = opencode_kit::model::parse_projects(&f.projects);
         if let Some(sessions) = &f.sessions {
-            self.sessions = opencode_kit::model::parse_sessions(sessions);
+            // Sessions past the page (another window's tab, a subagent's parent) stay known.
+            let mut list = opencode_kit::model::parse_sessions(sessions);
+            let rest: Vec<_> = self.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
+            list.extend(rest);
+            *self.sessions = list;
             self.sidebar_inbox.heard_sessions();
         }
         if let Some(p) = &f.providers {
@@ -489,7 +498,7 @@ impl App {
         }
         if let Some(a) = &f.active {
             let map = a.get("data").unwrap_or(a);
-            self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
+            *self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
         }
         // A fresh profile has used no projects yet: Home lists none, as Desktop's
         // `usedProjectIDs` starts empty.
@@ -531,6 +540,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
         }
         *requests = Some(r);
         s.inbox = Some(inbox);
+        crate::windows::shared::join(s);
         s.list_unlisted_worktrees();
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session(id) = s.route.clone() {

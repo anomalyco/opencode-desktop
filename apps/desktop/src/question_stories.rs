@@ -46,7 +46,8 @@ fn variant(v: usize) -> (&'static [Q], Option<Vec<Vec<&'static str>>>) {
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     // The story's question alone: without the one the fixture's turn ends on.
-    if let Some(t) = s.transcripts.get_mut(&crate::stories::sid(s)) {
+    let id = crate::stories::sid(s);
+    if let Some(t) = s.transcripts.get_mut(&id) {
         for m in &mut t.messages {
             if let Message::Assistant(a) = m {
                 a.parts.retain(|p| !matches!(p, Part::Tool { name, .. } if name == "question"));

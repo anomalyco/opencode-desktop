@@ -57,7 +57,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     s.composer = TextEdit::new(prompt(s));
     if s.variant == 3 || s.variant == 4 {
         // While a run works the prompt waits: as a Pending steer, or in the queue.
-        s.running.insert(sid(s));
+        let id = sid(s);        s.running.insert(id);
     }
     tx.after(0.6, |s, tx| send(s, tx));
     if s.variant == 1 {

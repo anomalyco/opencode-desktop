@@ -271,6 +271,7 @@ use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInf
 use keys::on_key;
 pub(crate) use scenes::open_scene;
 use tabs::Tab;
+use windows::shared::Shared;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
 
@@ -308,12 +309,13 @@ pub struct App {
     pages: session_pages::State,
     opening: Option<session_pages::Opening>,
     open_demo: Option<open_story::Demo>,
-    pub projects: Vec<Project>,
-    pub sessions: Vec<SessionInfo>,
+    /// The server's projects and sessions, shared with the server's other windows (windows::shared).
+    pub projects: Shared<Vec<Project>>,
+    pub sessions: Shared<Vec<SessionInfo>>,
     pub route: Route,
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: history::History,
-    pub transcripts: HashMap<String, Transcript>,
+    pub transcripts: Shared<HashMap<String, Transcript>>,
     pub expanded: HashSet<String>,
     /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
     pub shutting: HashMap<String, f64>,
@@ -342,17 +344,19 @@ pub struct App {
     /// Changed files' diffs (`turn_diffs.rs`).
     pub turn_diffs: turn_diffs::TurnDiffs,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
-    pub running: HashSet<String>,
+    pub running: Shared<HashSet<String>>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
     pub stops: stop::Stops,
     /// Pending permission and form requests: (session, request id).
-    pub requests: HashSet<(String, String)>,
+    pub requests: Shared<HashSet<(String, String)>>,
     /// Which sessions' requests this connection has read (`session_status.rs`).
     pub request_reads: session_status::RequestReads,
     /// The open permission requests and forms we know the details of.
-    pub pending: Vec<Pending>,
+    pub pending: Shared<Vec<Pending>>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
-    pub inboxes: HashMap<String, Inbox>,
+    pub inboxes: Shared<HashMap<String, Inbox>>,
+    /// This window's place in the shared session data.
+    pub store: windows::shared::Link,
     /// The question dock's place and in-progress answers for the forms it shows.
     pub question: question::Dock,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
@@ -866,8 +870,8 @@ impl App {
         self.add.slash.commands = slash::commands(&v["commands"]);
         self.base_ms = v["now"].as_i64().unwrap_or(0);
         self.now_ms = self.base_ms;
-        self.projects = opencode_kit::model::parse_projects(&v["projects"]);
-        self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
+        *self.projects = opencode_kit::model::parse_projects(&v["projects"]);
+        *self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
         if let Some(map) = v["messages"].as_object() {
             for (id, list) in map {
                 let msgs = opencode_kit::model::parse_messages(&serde_json::json!({ "data": list }));
@@ -876,7 +880,7 @@ impl App {
         }
         let ids: Vec<String> = v["tabs"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         self.tabs = ids.iter().map(|id| Tab::session(id.clone(), "", "")).collect();
-        self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+        *self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         for r in v["requests"].as_array().into_iter().flatten() {
             if let (Some(s), Some(id)) = (r["sessionID"].as_str(), r["id"].as_str()) {
                 self.requests.insert((s.to_owned(), id.to_owned()));
@@ -954,9 +958,9 @@ impl App {
             m
         });
         let key = |p: &Project| latest.get(p.id.as_str()).copied().unwrap_or(0).max(p.active);
-        let mut ps = std::mem::take(&mut self.projects);
+        let mut ps = std::mem::take(&mut *self.projects);
         ps.sort_by_key(|p| std::cmp::Reverse(key(p)));
-        self.projects = ps;
+        *self.projects = ps;
     }
 
     pub fn set_zoom(&mut self, dir: i32) {
@@ -1095,7 +1099,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.stage.is_some_and(|st| st.watch()) {
         s.composer.focused = false;
     }
-    let mut changed = dictation::poll(s, now, tx);
+    // Another window changed the session data this one shows.
+    let mut changed = windows::shared::behind(s);
+    changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);
     changed |= glitch::poll(s, tx);
@@ -1119,7 +1125,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if let Some(inbox) = s.inbox.take() {
         if let Ok(first_in) = inbox.try_recv() {
             arrivals = Some(arrivals::Arrivals::before(s));
+            let mut replies = false;
             for m in std::iter::once(first_in).chain(inbox.try_iter()) {
+                // Every window hears the stream's events; a reply reaches only the window that asked.
+                replies |= !matches!(&m, Incoming::Event { data, .. } if data.get(opencode_kit::client::HUB_SEQ).is_some());
                 if !matches!(m, Incoming::Status(_) | Incoming::SendFailed { .. }) {
                     changed |= reconnect::heard(s);
                 }
@@ -1134,7 +1143,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         // Sessions past the page (a tab's, a subagent's parent) stay known.
                         let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
                         list.extend(rest);
-                        s.sessions = list;
+                        *s.sessions = list;
                         s.sidebar_inbox.heard_sessions();
                         s.sort_projects();
                     }
@@ -1218,12 +1227,12 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                         s.stops.reconcile(&ids);
                         reconnect::active(s, &ids);
                         // A stop the server hasn't confirmed yet stays stopped.
-                        s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
+                        *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
                     }
                     Incoming::Projects(projects) => {
                         s.switcher.invalidate_sessions();
                         tx.instant();
-                        s.projects = projects;
+                        *s.projects = projects;
                         s.sort_projects();
                         s.list_unlisted_worktrees();
                     }
@@ -1248,6 +1257,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                     }
                 }
                 changed = true;
+            }
+            // A reply only this window heard changed the session data its server's windows share.
+            if replies {
+                windows::shared::changed(s);
             }
         }
         s.inbox = Some(inbox);

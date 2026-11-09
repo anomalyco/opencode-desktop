@@ -33,7 +33,7 @@ const PART: &str = "call_story_todowrite";
 /// Two done, one in progress, the changelog dropped, and the list open.
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    s.running.insert(sid(s));
+    let id = sid(s);    s.running.insert(id);
     set_step(s, 2);
     s.todo_open = true;
 }

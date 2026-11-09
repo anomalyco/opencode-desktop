@@ -69,7 +69,7 @@ fn start(s: &mut App, tx: &mut Play<App>) {
     match s.variant {
         2 => crate::capsule_stories::run_thirty(s),
         3 => {
-            s.running.insert(sid(s));
+            let id = sid(s);            s.running.insert(id);
             crate::todo_stories::set_step(s, 2);
         }
         _ => {}

@@ -3,9 +3,9 @@
 
 use std::collections::HashMap;
 
-use opencode_kit::model::{Inbox, Pending, Project, SessionInfo, Transcript};
 use rune::{AppSpec, Display, WindowHandle, WindowSpec};
 
+use super::shared;
 use super::store::{self, Frame};
 use super::{Window, register};
 use crate::tabs::Tab;
@@ -15,37 +15,24 @@ use crate::{App, Route};
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 800.0);
 
 /// What a window opened from another starts with, so it shows its tabs at once: the opener's
-/// session data, and the tabs it moves.
+/// shared session data, and the tabs it moves.
 pub struct Seed {
     pub tabs: Vec<Tab>,
     pub route: Route,
     pub drafts: HashMap<String, String>,
-    projects: Vec<Project>,
-    sessions: Vec<SessionInfo>,
-    running: std::collections::HashSet<String>,
-    requests: std::collections::HashSet<(String, String)>,
-    pending: Vec<Pending>,
-    inboxes: HashMap<String, Inbox>,
-    transcripts: HashMap<String, Transcript>,
+    share: Option<shared::Share>,
     default_dir: String,
 }
 
 impl Seed {
-    /// `s`'s session data, with `tabs` (their drafts and the transcripts of their sessions'
-    /// families) moving into the new window, `route` showing.
+    /// `tabs` (with their drafts) moving out of `s` into the new window, `route` showing, in
+    /// `s`'s session data.
     pub fn from(s: &App, tabs: Vec<Tab>, route: Route) -> Seed {
-        let moved = |id: &str| tabs.iter().any(|t| t.id == s.root_of(id));
         Seed {
             drafts: tabs.iter().filter_map(|t| Some((t.id.clone(), s.draft_text(&t.id)?))).collect(),
-            transcripts: s.transcripts.iter().filter(|(id, _)| moved(id)).map(|(k, v)| (k.clone(), v.clone())).collect(),
             tabs,
             route,
-            projects: s.projects.clone(),
-            sessions: s.sessions.clone(),
-            running: s.running.clone(),
-            requests: s.requests.clone(),
-            pending: s.pending.clone(),
-            inboxes: s.inboxes.clone(),
+            share: shared::share(s),
             default_dir: s.default_dir.clone(),
         }
     }
@@ -63,13 +50,9 @@ impl App {
     }
 
     fn plant(&mut self, seed: Seed) {
-        self.projects = seed.projects;
-        self.sessions = seed.sessions;
-        self.running = seed.running;
-        self.requests = seed.requests;
-        self.pending = seed.pending;
-        self.inboxes = seed.inboxes;
-        self.transcripts.extend(seed.transcripts);
+        if let Some(share) = seed.share {
+            shared::adopt(self, share);
+        }
         self.default_dir = seed.default_dir;
         self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);

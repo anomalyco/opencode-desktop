@@ -57,7 +57,8 @@ pub fn failed(s: &mut App, e: &str) -> bool {
     if let Some((at, p)) = s.permission_sent.0.remove(rid) {
         s.requests.insert((p.session().to_owned(), rid.to_owned()));
         if !s.pending.iter().any(|x| x.id() == rid) {
-            s.pending.insert(at.min(s.pending.len()), p);
+            let at = at.min(s.pending.len());
+            s.pending.insert(at, p);
         }
     }
     crate::status_toast::fail(s, "Couldn't answer the permission", why);
