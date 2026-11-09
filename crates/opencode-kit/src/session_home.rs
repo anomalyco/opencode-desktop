@@ -10,9 +10,10 @@ use serde_json::{Value, json};
 use crate::client::{Prompt, Server};
 
 impl Server {
-    /// Moves `session` to `directory` (`POST /api/session/:id/move`).
+    /// Moves `session` to `directory` (`POST /api/session/:id/move`), waiting up to 30 s
+    /// (Desktop's `WORKSPACE_MOVE_TIMEOUT_MS`).
     pub fn move_session(&self, session: &str, directory: &str) -> Result<(), String> {
-        self.write("POST", &format!("/api/session/{session}/move"), Some(json!({ "directory": directory }))).map(|_| ())
+        self.write_within("POST", &format!("/api/session/{session}/move"), Some(json!({ "directory": directory })), std::time::Duration::from_secs(30)).map(|_| ())
     }
 
     /// [`Server::send`], and when the prompt 404s because the session's folder is gone, moves the

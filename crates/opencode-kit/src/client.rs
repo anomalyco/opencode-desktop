@@ -264,7 +264,7 @@ impl Server {
     }
 
     /// `write`, waiting up to `timeout` for the reply.
-    fn write_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+    pub(crate) fn write_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
         let url = format!("{}{path}", self.base);
         let agent = Self::agent(Some(timeout));
         let auth = self.auth.as_deref();
@@ -483,6 +483,13 @@ impl Server {
         }
         let v = self.write_within("POST", "/api/worktree", Some(body), Duration::from_secs(600))?;
         v.get("data").unwrap_or(&v)["directory"].as_str().map(str::to_owned).ok_or_else(|| "POST /api/worktree: no directory in the reply".into())
+    }
+
+    /// `worktree.remove`, forced: deletes the worktree `directory` of `project` and every file in
+    /// it, waiting up to two minutes (Desktop's `WORKSPACE_REMOVE_TIMEOUT_MS`).
+    pub fn remove_worktree(&self, project: &str, directory: &str) -> Result<(), String> {
+        let body = serde_json::json!({ "projectID": project, "directory": directory, "force": true });
+        self.write_within("DELETE", "/api/worktree", Some(body), Duration::from_secs(120)).map(|_| ())
     }
 
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
