@@ -14,7 +14,7 @@ hot = ["rune/hot"]
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
 # rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports. The Hello
 # test plugin is the tests' alone (a dev-dependency).
-static-builtins = ["dep:opencode-plugin-context-impl", "dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl", "dep:opencode-plugin-goal-impl", "dep:opencode-plugin-sources-impl", "dep:opencode-plugin-pairing-impl", "dep:opencode-plugin-debug-impl"]
+static-builtins = ["dep:opencode-plugin-details-impl", "dep:opencode-plugin-ssh-impl", "dep:opencode-plugin-wsl-impl", "dep:opencode-plugin-btw-impl", "dep:opencode-plugin-goal-impl", "dep:opencode-plugin-sources-impl", "dep:opencode-plugin-pairing-impl", "dep:opencode-plugin-debug-impl"]
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -33,7 +33,6 @@ rune-notify.workspace = true
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
-opencode-plugin-context-impl = { path = "../../plugins/context/impl", optional = true }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 opencode-plugin-details-impl = { path = "../../plugins/details/impl", optional = true }
 opencode-plugin-ssh-impl = { path = "../../plugins/ssh/impl", optional = true }
@@ -83,7 +82,6 @@ win-install = { path = "../../crates/win-install", features = ["resources"] }
 
 [dev-dependencies]
 # The built-ins the tests link in (`plugin_host::builtins`), so the motion gate covers what they draw.
-opencode-plugin-context-impl = { path = "../../plugins/context/impl" }
 opencode-plugin-details-impl = { path = "../../plugins/details/impl" }
 opencode-plugin-hello-impl = { path = "../../plugins/hello/impl" }
 png = "0.18"

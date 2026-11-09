@@ -13,7 +13,6 @@ use opencode_plugin::abi::PluginEntryFn;
 #[cfg(any(test, feature = "static-builtins"))]
 pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
     let mut all: Vec<(&'static str, PluginEntryFn)> = vec![
-        (include_str!("../../../../plugins/context/plugin.toml"), opencode_plugin_context_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/details/plugin.toml"), opencode_plugin_details_impl::__opencode_plugin_entry),
     ];
     // Hello is the host's test plugin: the app's tests load it; no build a person runs lists it.

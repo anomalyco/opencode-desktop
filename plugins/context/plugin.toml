@@ -1,6 +1,6 @@
+#:schema ../plugin.schema.json
 id = "context"
 name = "Context"
-version = "0.1.0"
+version = "0.2.0"
+contract = "1.0"
 description = "A session's context window and spend: the ring in its header and the Context tab with its tokens, cost, system prompt and raw messages"
-api = "0.1-experimental"
-library = "opencode_plugin_context"
