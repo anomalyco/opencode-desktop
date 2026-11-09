@@ -302,7 +302,10 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     let labels = match crate::session_menu_view::field(s, p, &target, UI_MED) {
         Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(field).children(parts.project),
         None => {
-            r = r.on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            r = r.pointer_buttons([rune::PointerButton::Middle]).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                if opens_in_background(tx) {
+                    return s.open_in_background(&id);
+                }
                 s.clear_home_search(false, tx);
                 s.open(&id, tx);
             });
@@ -310,6 +313,19 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         }
     };
     crate::session_menu::on(r.child(labels).children(parts.ring), target)
+}
+
+/// A middle click, or ⌘-click (Ctrl+click off macOS) without Shift or Alt, opens a session as a
+/// tab behind the page, as a browser opens a link (`home/sessions/open.ts`).
+pub(super) fn opens_in_background(tx: &Tx) -> bool {
+    match tx.button() {
+        rune::PointerButton::Middle => true,
+        rune::PointerButton::Primary => {
+            let m = tx.mods();
+            !m.shift && !m.alt && m.cmd && if cfg!(target_os = "macos") { !m.ctrl } else { !m.logo }
+        }
+        _ => false,
+    }
 }
 
 /// The pointer on a session row or search result: it shows its worktree and branch, and its

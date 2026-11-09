@@ -138,11 +138,16 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
                 tx.instant();
             }
         })
+        .pointer_buttons([rune::PointerButton::Middle])
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             if s.session(&id).is_none()
                 && let Some(ses) = s.home_search.loaded.iter().find(|x| x.id == id).cloned()
             {
                 s.sessions.push(ses);
+            }
+            // In the background the search stays open (`search.ts` `select`).
+            if super::opens_in_background(tx) {
+                return s.open_in_background(&id);
             }
             s.clear_home_search(false, tx);
             s.open(&id, tx);

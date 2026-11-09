@@ -17,6 +17,19 @@ impl App {
         }
     }
 
+    /// Opens a session as a tab behind the page that shows (Desktop's `open` with `background`,
+    /// `home/sessions/controller.tsx:567-586`): the page stays, its messages aren't read yet and
+    /// its project isn't touched.
+    pub fn open_in_background(&mut self, id: &str) {
+        let root = self.root_of(id).to_owned();
+        if self.tabs.iter().any(|t| t.id == root) {
+            return;
+        }
+        let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
+        self.tabs.push(Tab::session(root, title, directory));
+        self.save_tabs();
+    }
+
     /// Commits the input destination immediately; the transcript can still be loading.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
         crate::telemetry::committed(id, false);
