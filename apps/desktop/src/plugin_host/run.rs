@@ -222,6 +222,7 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
 /// Queues a server event for the plugins listening for its type (`contrib::EVENTS`), delivered
 /// on the next poll; nothing when none listens.
 pub fn server_event(app: &mut App, ty: &str, data: &serde_json::Value) {
+    super::luau::server_event(app, ty, data);
     let host = &mut app.plugins;
     let bits = super::contrib::active(host, opencode_plugin::abi::contrib::EVENTS).filter(|(_, c)| ty.starts_with(c.target.as_str())).fold(0, |b, (i, _)| b | slot_bit(i));
     if bits == 0 {
@@ -296,12 +297,12 @@ pub(crate) fn hover(app: &mut App, tx: &mut Tx, hover: &Press, on: bool) {
 
 /// Runs plugin command `id` (`<plugin>.<command>`); false when it declined or is gone.
 pub fn run_command(app: &mut App, id: &str, tx: &mut Tx) -> bool {
-    run_command_as(app, id, EVENT_COMMAND, "", tx)
+    run_command_as(app, id, EVENT_COMMAND, "", tx) || super::luau::commands::run(app, id, None, tx)
 }
 
 /// Runs plugin command `id` from the composer's `/name words` with `words` as its input.
 pub fn run_slash(app: &mut App, id: &str, input: &str, tx: &mut Tx) -> bool {
-    run_command_as(app, id, EVENT_COMMAND, input, tx)
+    run_command_as(app, id, EVENT_COMMAND, input, tx) || super::luau::commands::run(app, id, Some(input), tx)
 }
 
 /// One plugin command the composer's `/` offers: hidden ones too (`/btw`), while enabled.
@@ -322,6 +323,7 @@ pub fn slash_commands(app: &App) -> Vec<SlashCommand> {
         .flat_map(|inst| &inst.contributions.commands)
         .filter(|c| enabled(app, c))
         .filter_map(|c| Some(SlashCommand { id: c.id, name: c.slash?, title: c.title, description: c.description, args: c.slash_args }))
+        .chain(super::luau::commands::all(app).into_iter().filter(|c| super::luau::commands::offered(app, c)).filter_map(|c| Some(SlashCommand { id: c.id, name: c.slash?, title: c.title, description: c.description, args: c.slash_args })))
         .collect()
 }
 
@@ -341,7 +343,7 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let hit = app.plugins.slots.iter().filter_map(Slot::active).flat_map(|inst| &inst.contributions.commands).find(|c| {
         c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)) && (!plain || c.editable || tx.focused().is_none())
     });
-    let Some(id) = hit.map(|c| c.id) else { return false };
+    let Some(id) = hit.map(|c| c.id) else { return super::luau::commands::key(app, ev, tx) };
     run_command_as(app, id, EVENT_KEY, "", tx)
 }
 
@@ -350,32 +352,40 @@ fn enabled(app: &App, c: &super::instance::CommandRec) -> bool {
     !c.needs_session || app.active_session_id().is_some()
 }
 
-/// The palette's plugin commands.
-pub fn commands(app: &App) -> Vec<crate::commands::Command> {
-    app.plugins
-        .slots
-        .iter()
-        .filter_map(Slot::active)
-        .flat_map(|inst| &inst.contributions.commands)
-        .filter(|c| !c.hidden && enabled(app, c))
-        .map(|c| crate::commands::Command {
-            id: c.id,
-            title: c.title,
-            description: c.description,
-            slash: c.slash,
-            keys: None,
-            chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
-            run: crate::commands::Run::Plugin(c.id),
-        })
-        .collect()
+/// The plugins' commands, native and Luau: the ones offered now (`offered`), or every one, as
+/// Settings › Shortcuts lists them. Hidden ones come too, marked: the palette leaves them out.
+pub fn commands(app: &App, offered: bool) -> Vec<crate::commands::Command> {
+    let native = app.plugins.slots.iter().filter_map(Slot::active).flat_map(|inst| &inst.contributions.commands).filter(|c| !offered || enabled(app, c)).map(|c| crate::commands::Command {
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        slash: c.slash,
+        keys: None,
+        chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
+        section: c.section,
+        hidden: c.hidden,
+        run: crate::commands::Run::Plugin(c.id),
+    });
+    let luau = super::luau::commands::all(app).into_iter().filter(|c| !offered || super::luau::commands::offered(app, c)).map(|c| crate::commands::Command {
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        slash: c.slash,
+        keys: None,
+        chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
+        section: c.section,
+        hidden: c.hidden,
+        run: crate::commands::Run::Plugin(c.id),
+    });
+    native.chain(luau).collect()
 }
-
 /// Polls the plugins whose waker fired or whose `wake_after` came due, and swaps in libraries
 /// the watcher rebuilt and loaded. At rest: two atomic swaps, one comparison, no call into any
 /// plugin.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     sync_experiments(app);
-    let mut changed = deliver_events(app, tx);
+    let mut changed = super::luau::poll(app, tx);
+    changed |= deliver_events(app, tx);
     let now = app.clock;
     let host = &mut app.plugins;
     let dirty = host.wake.dirty.swap(0, Ordering::AcqRel);

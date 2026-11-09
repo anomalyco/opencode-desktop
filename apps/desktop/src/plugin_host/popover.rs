@@ -52,6 +52,10 @@ pub fn close(app: &mut App, tx: &mut Tx) {
 
 /// Esc closes the open popover.
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key == Key::Escape && app.plugins.luau.overlay.is_open() {
+        super::luau::requests::close_popover(app, tx);
+        return true;
+    }
     if app.plugins.popover.is_none() || ev.key != Key::Escape {
         return false;
     }
@@ -61,7 +65,7 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The open popover and the scrim under it that closes it, for the window's top layer.
 pub fn view(app: &App, p: &Pal) -> Vec<El> {
-    let Some(open) = &app.plugins.popover else { return vec![] };
+    let Some(open) = &app.plugins.popover else { return super::luau::surfaces::popover_view(app, p) };
     if open.pill {
         return pill(app, p, open);
     }

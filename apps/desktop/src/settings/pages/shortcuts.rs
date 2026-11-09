@@ -63,7 +63,7 @@ fn entries(s: &App) -> Vec<Entry> {
             continue;
         }
         let keybind = overrides::command(c.id).cloned().or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
-        let section = crate::commands::section_of(c.id).unwrap_or_else(|| group_for(c.id));
+        let section = c.section.or_else(|| crate::commands::section_of(c.id)).unwrap_or_else(|| group_for(c.id));
         out.push(Entry { id: c.id.to_owned(), title: c.title.to_owned(), section, keybind });
     }
     out

@@ -34,6 +34,7 @@ opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
 opencode-plugin = { path = "../../crates/opencode-plugin" }
 opencode-plugin-context-impl = { path = "../../plugins/context/impl", optional = true }
+opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 opencode-plugin-details-impl = { path = "../../plugins/details/impl", optional = true }
 opencode-plugin-ssh-impl = { path = "../../plugins/ssh/impl", optional = true }
 opencode-plugin-wsl-impl = { path = "../../plugins/wsl/impl", optional = true }
@@ -47,6 +48,9 @@ project-icon = { path = "../../crates/project-icon" }
 procwatch.workspace = true
 rune-knobs.workspace = true
 rune-parts = { path = "../../crates/rune-parts", features = ["view"] }
+# Luau plugins (`plugin_host::luau`). mlua is rune-luau's own, named here for the bindings.
+rune-luau = { workspace = true, features = ["serde"] }
+mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 rune-perf.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["native-file-dialog", "metal-backend"] }
@@ -57,7 +61,7 @@ serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 session-view = { path = "../../crates/session-view" }
 terminal = { path = "../../crates/terminal" }
-toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "serde"] }
 ureq = { workspace = true, features = ["rustls"] }
 # The build's identity everywhere; its install, uninstall and update registration on Windows.
 win-install = { path = "../../crates/win-install" }

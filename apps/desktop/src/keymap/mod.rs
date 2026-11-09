@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use rune::{Chord, Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
 pub mod overrides;
-mod view;
+pub(crate) mod view;
 pub use view::{chips, keycaps};
 
 use KeyPlatform::{Linux, Mac, Windows};

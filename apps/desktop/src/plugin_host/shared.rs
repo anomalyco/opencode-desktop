@@ -272,7 +272,12 @@ impl Stores {
         Some((value.as_ptr(), value.len()))
     }
 
-    pub fn set(&mut self, plugin: &str, name: &str, session: &str, value: &str) {
+    /// The value as text.
+    pub fn text(&self, plugin: &str, name: &str, session: &str) -> Option<String> {
+        self.plugins.borrow().get(plugin)?.get(&key(name, session)).cloned()
+    }
+
+    pub fn set(&self, plugin: &str, name: &str, session: &str, value: &str) {
         let mut plugins = self.plugins.borrow_mut();
         let values = plugins.entry(plugin.to_owned()).or_default();
         if values.get(&key(name, session)).map(String::as_str) == Some(value) {

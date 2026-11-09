@@ -20,7 +20,7 @@ fn shown(app: &App) -> Option<usize> {
 
 /// The prompt, over everything (`view::app`'s layers).
 pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
-    let Some(i) = shown(s) else { return Vec::new() };
+    let Some(i) = shown(s) else { return super::luau::trust::dialog(s, p) };
     let slot = &s.plugins.slots[i];
     let (id, name) = (slot.manifest.id.clone(), slot.manifest.name.clone());
     let button = |key: &str, label: &str, ink: Color, fill: Option<Color>| {

@@ -38,7 +38,8 @@ fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         if p.flags & PANEL_FALLBACK != 0 { tab.fallback() } else { tab }
     });
     let failed = host.slots.iter().filter(|s| s.state == PluginState::Failed).flat_map(|s| &s.tabs);
-    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).collect()
+    let luau = super::luau::surfaces::panel_tabs(app, ctx);
+    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).chain(luau).collect()
 }
 
 /// The tabs of instance panel `p` the session has open (`<plugin>.<panel>/<instance>`), as the
@@ -114,13 +115,22 @@ fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
         order: c.order,
         opened: false,
     });
-    panels.chain(items).collect()
+    let luau_items = super::luau::commands::menu_items(app, "session.panel").into_iter().map(|(key, title, description, icon, order)| PanelLauncherDesc {
+        id: intern(&format!("menu:{key}")),
+        title,
+        description,
+        icon: resolve("", icon.as_deref().unwrap_or("plus")),
+        shortcut: &[],
+        order: order as i32,
+        opened: false,
+    });
+    panels.chain(items).chain(super::luau::surfaces::panel_launchers(app, ctx)).chain(luau_items).collect()
 }
 
 /// A plugin panel's own tab label (`PanelSpec` `label`), drawn for the routed session.
 fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
     let host = &app.plugins;
-    let (i, rec, instance) = panel_of(host, &tab.id)?;
+    let Some((i, rec, instance)) = panel_of(host, &tab.id) else { return super::luau::surfaces::tab_lead(app, pal, tab, selected) };
     let label = rec.label.as_ref()?;
     let session = app.active_session_id().unwrap_or_default();
     let directory = app.session(session).map_or("", |s| s.directory.as_str());
@@ -131,12 +141,19 @@ fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<
 
 fn open_entry(app: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {
     match id.strip_prefix("menu:") {
-        Some(key) => super::contrib::run_menu_item(app, key, "", tx),
+        Some(key) => {
+            if !super::luau::commands::run_menu_item(app, key, "", tx) {
+                super::contrib::run_menu_item(app, key, "", tx);
+            }
+        }
         None => app.open_side_tab(&panel_key(PANEL, id), Some(pane), false, false, tx),
     }
 }
 
 fn render(app: &App, pal: &Pal, ctx: &PanelViewCtx) -> El {
+    if let Some(el) = super::luau::surfaces::owns_tab(app, &ctx.tab.id).then(|| super::luau::surfaces::panel(app, pal, ctx)).flatten() {
+        return el;
+    }
     let host = &app.plugins;
     let (base, instance) = ctx.tab.id.split_once('/').unwrap_or((&ctx.tab.id, ""));
     let (plugin, panel) = base.split_once('.').unwrap_or((base, ""));
@@ -168,18 +185,61 @@ fn render(app: &App, pal: &Pal, ctx: &PanelViewCtx) -> El {
 /// rows. Nothing when no plugin is installed.
 pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
     let host = &s.plugins;
-    if host.slots.is_empty() {
+    if host.slots.is_empty() && host.luau.plugins.is_empty() {
         return None;
     }
-    let titles: Vec<String> = host.slots.iter().map(|slot| format!("{} {}", slot.manifest.name, slot.manifest.version).trim().to_owned()).collect();
-    let rows = host.slots.iter().enumerate().zip(&titles).map(|((i, slot), title)| {
+    let titles: Vec<String> = host.slots.iter().map(|slot| format!("{} {}", slot.manifest.name, slot.manifest.version).trim().to_owned()).chain(host.luau.plugins.iter().map(|lp| format!("{} {}", lp.manifest.name, lp.manifest.version))).collect();
+    let native = host.slots.iter().enumerate().zip(&titles).map(|((i, slot), title)| {
         let id = slot.manifest.id.clone();
         let key = format!("plugin-{id}");
         (key, title.as_str(), status(host, i, slot), controls(p, slot, id))
     });
-    let list = crate::settings::settings_card(p, "plugins-list", rows);
+    let luau = host.luau.plugins.iter().zip(&titles[host.slots.len()..]).map(|(lp, title)| (format!("plugin-{}", lp.manifest.id), title.as_str(), luau_status(lp), luau_controls(p, lp)));
+    let list = crate::settings::settings_card(p, "plugins-list", native.chain(luau));
     let own = host.slots.iter().enumerate().filter_map(|(i, slot)| plugin_rows(s, p, i, slot));
-    Some(col().key("plugins-settings").w_full().gap(32.0).child(crate::settings::section(p, "Plugins", list)).children(own))
+    let luau_own = (0..host.luau.plugins.len()).filter_map(|i| luau_rows(s, p, i));
+    Some(col().key("plugins-settings").w_full().gap(32.0).child(crate::settings::section(p, "Plugins", list)).children(own).children(luau_own))
+}
+
+fn luau_status(lp: &super::luau::Plugin) -> String {
+    let mut parts = vec![format!("{} · Luau {} · {}", lp.tier.label(), lp.manifest.contract, lp.life.label())];
+    parts.extend(lp.manifest.description.clone().filter(|d| !d.is_empty()));
+    parts.extend(lp.life.why().map(str::to_owned));
+    parts.push(lp.origin.describe());
+    parts.join("\n")
+}
+
+fn luau_controls(p: &Pal, lp: &super::luau::Plugin) -> El {
+    use super::luau::Life;
+    let id = lp.manifest.id.clone();
+    let switchable = matches!(lp.life, Life::Running(_) | Life::Reloading(_) | Life::Disabled | Life::Errored { .. } | Life::AwaitingTrust);
+    let toggle = switchable.then(|| {
+        let id = id.clone();
+        crate::settings::switch(p, &format!("plugin-switch-{id}"), lp.running()).on_press_tx(move |app: &mut App, tx: &mut Tx| super::luau::toggle(app, &id, tx))
+    });
+    let reload = matches!(lp.life, Life::Running(_) | Life::Errored { .. }).then(|| {
+        let id = id.clone();
+        render::button(p, &format!("plugin-reload-{id}"), "Reload", move |app: &mut App, tx: &mut Tx| {
+            tx.instant();
+            if let Some(i) = app.plugins.luau.find(&id) {
+                super::luau::reload(app, i, None);
+            }
+        })
+    });
+    row().gap(12.0).center_y().children(reload).children(toggle)
+}
+
+fn luau_rows(s: &App, p: &Pal, i: usize) -> Option<El> {
+    let lp = &s.plugins.luau.plugins[i];
+    if !lp.running() {
+        return None;
+    }
+    let rows = super::luau::surfaces::setting_rows(s, p, i);
+    if rows.is_empty() {
+        return None;
+    }
+    let card = crate::settings::settings_card(p, &format!("plugin-{}-settings", lp.manifest.id), rows.iter().map(|(k, t, d, c)| (k.clone(), t.as_str(), d.clone(), c.clone())));
+    Some(crate::settings::section(p, intern(&lp.manifest.name), card))
 }
 
 fn status(host: &PluginHost, i: usize, slot: &Slot) -> String {

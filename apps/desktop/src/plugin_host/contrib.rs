@@ -37,6 +37,24 @@ struct CodeAction {
 
 thread_local! {
     static CODE_ACTIONS: RefCell<Vec<CodeAction>> = const { RefCell::new(Vec::new()) };
+    /// The Luau plugins' code block actions, mirrored by `sync_luau`.
+    static LUAU_ACTIONS: RefCell<Vec<CodeAction>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The Luau plugins' MCP tools, mirrored by `sync_luau`.
+static LUAU_TOOLS: Mutex<Vec<McpTool>> = Mutex::new(Vec::new());
+
+/// Mirrors the Luau plugins' code block actions and MCP tools, read off the app's state.
+pub fn sync_luau(app: &App) {
+    let all: Vec<CodeAction> = app.plugins.luau.running().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
+    LUAU_ACTIONS.with(|a| *a.borrow_mut() = all);
+    let tools: Vec<McpTool> = super::luau::commands::mcp_tools(app).into_iter().map(|(name, description, schema)| McpTool::new(name, description, schema)).collect();
+    if let Ok(mut t) = LUAU_TOOLS.lock()
+        && *t != tools
+    {
+        *t = tools;
+        MCP_TOOLS_GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 static MCP_TOOLS: Mutex<Vec<(String, &'static str, McpTool)>> = Mutex::new(Vec::new());
@@ -73,7 +91,9 @@ static MCP_TOOLS_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// `<plugin>_<tool>`. A connection lists the tools there were when it opened, so the hub
 /// reconnects when `mcp_tools_generation` moves.
 pub fn mcp_tools() -> Vec<McpTool> {
-    MCP_TOOLS.lock().map(|t| t.iter().map(|(_, _, tool)| tool.clone()).collect()).unwrap_or_default()
+    let mut tools: Vec<McpTool> = MCP_TOOLS.lock().map(|t| t.iter().map(|(_, _, tool)| tool.clone()).collect()).unwrap_or_default();
+    tools.extend(LUAU_TOOLS.lock().map(|t| t.clone()).unwrap_or_default());
+    tools
 }
 
 /// Which list of plugin MCP tools `mcp_tools` returns: it changes when a plugin adds,
@@ -85,7 +105,19 @@ pub fn mcp_tools_generation() -> u64 {
 /// Runs a plugin's MCP tool, or hands `call` back when no plugin has one by its name.
 pub fn mcp_call(app: &mut App, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
     let key = MCP_TOOLS.lock().ok()?.iter().find(|(name, _, _)| *name == call.name).map(|(_, key, _)| *key);
-    let Some(key) = key else { return Some(call) };
+    let Some(key) = key else {
+        return match super::luau::commands::mcp_call(app, &call.name, &call.arguments) {
+            Some(Ok(value)) => {
+                call.respond(McpResult::json(value));
+                None
+            }
+            Some(Err(e)) => {
+                call.respond(McpResult::error(e));
+                None
+            }
+            None => Some(call),
+        };
+    };
     let Some((i, scope, query)) = find(&app.plugins, kinds::MCP_TOOL, key).and_then(|(i, c)| Some((i, c.scope, c.query.as_ref()?.cb))) else {
         call.respond(McpResult::error("That plugin isn't running"));
         return None;
@@ -103,6 +135,9 @@ pub fn mcp_call(app: &mut App, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
 /// Follows `href` with the highest-priority plugin link handler that takes it; false when none
 /// does.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
+    if super::luau::commands::open_link(app, href, tx) {
+        return true;
+    }
     let mut handlers: Vec<_> = active(&app.plugins, kinds::LINK_HANDLER).filter_map(|(i, c)| Some((c.order, i, c.scope, c.query.as_ref()?.cb, c.run.as_ref()?.cb))).collect();
     // Highest priority first; ties keep registration order.
     handlers.sort_by_key(|h| std::cmp::Reverse(h.0));
@@ -117,7 +152,13 @@ pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
 
 /// Plugins' buttons for a code block's hover row, beside Copy (`TimelineHost::code_block_actions`).
 pub fn code_block_actions(p: &Pal, language: Option<&str>, source: &str) -> Vec<El> {
-    CODE_ACTIONS.with(|actions| {
+    let mut out = code_actions(&CODE_ACTIONS, p, language, source);
+    out.extend(code_actions(&LUAU_ACTIONS, p, language, source));
+    out
+}
+
+fn code_actions(list: &'static std::thread::LocalKey<RefCell<Vec<CodeAction>>>, p: &Pal, language: Option<&str>, source: &str) -> Vec<El> {
+    list.with(|actions| {
         let actions = actions.borrow();
         let lang = language.unwrap_or_default();
         actions
@@ -145,6 +186,9 @@ pub fn code_block_actions(p: &Pal, language: Option<&str>, source: &str) -> Vec<
 }
 
 fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &str, tx: &mut Tx) {
+    if super::luau::commands::code_block_actions(app, language).iter().any(|(k, ..)| *k == key) {
+        return super::luau::commands::run_code_block_action(app, key, code, language, tx);
+    }
     let Some((i, scope, cb)) = find(&app.plugins, kinds::CODE_BLOCK_ACTION, key).and_then(|(i, c)| Some((i, c.scope, c.run.as_ref()?.cb))) else { return };
     tx.instant();
     run::action(app, tx, i, scope, cb, EVENT_CODE_BLOCK, code, language);
@@ -152,6 +196,9 @@ fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &str, t
 
 /// Runs menu item `key` (`<plugin>.<id>`) on `target` (a server's id for `server.row`).
 pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
+    if super::luau::commands::run_menu_item(app, key, target, tx) {
+        return;
+    }
     let Some((i, scope, cb)) = find(&app.plugins, kinds::MENU_ITEM, key).and_then(|(i, c)| Some((i, c.scope, c.run.as_ref()?.cb))) else { return };
     tx.instant();
     run::action(app, tx, i, scope, cb, EVENT_MENU, target, "");
@@ -160,13 +207,15 @@ pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
 /// The `server.add` or `server.row` menu items, for Settings › Servers once it has those menus:
 /// `(key, title)`.
 pub fn server_menu_items(app: &App, menu: &str) -> Vec<(&'static str, String)> {
-    active(&app.plugins, kinds::MENU_ITEM).filter(|(_, c)| c.target == menu).map(|(_, c)| (c.key, c.title.clone())).collect()
+    let luau = super::luau::commands::menu_items(app, menu).into_iter().map(|(key, title, ..)| (key, title));
+    active(&app.plugins, kinds::MENU_ITEM).filter(|(_, c)| c.target == menu).map(|(_, c)| (c.key, c.title.clone())).chain(luau).collect()
 }
 
 /// The app menu's plugin items: `(submenu, key, title)`, the submenu one of `file`, `edit`,
 /// `view`, `go`, `window`, `help` (`app` items join Help where there's no app menu).
 pub fn menubar_items(app: &App) -> Vec<(&'static str, &'static str, String)> {
-    let mut items: Vec<_> = active(&app.plugins, kinds::MENUBAR_ITEM).map(|(_, c)| (c.order, menu_name(&c.target), c.key, c.title.clone())).collect();
+    let mut items: Vec<_> = active(&app.plugins, kinds::MENUBAR_ITEM).map(|(_, c)| (i64::from(c.order), menu_name(&c.target), c.key, c.title.clone())).collect();
+    items.extend(super::luau::commands::menubar_items().into_iter().map(|(key, menu, label, order)| (order, menu_name(&menu), key, label)));
     items.sort_by_key(|i| i.0);
     items.into_iter().map(|(_, menu, key, title)| (menu, key, title)).collect()
 }
@@ -184,6 +233,9 @@ fn menu_name(target: &str) -> &'static str {
 
 /// Runs app menu item `key`; false when no plugin has it.
 pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
+    if super::luau::commands::run_menubar(app, key, tx) {
+        return true;
+    }
     let Some((i, scope, cb)) = find(&app.plugins, kinds::MENUBAR_ITEM, key).and_then(|(i, c)| Some((i, c.scope, c.run.as_ref()?.cb))) else { return false };
     tx.instant();
     run::action(app, tx, i, scope, cb, EVENT_MENU, "", "");
@@ -233,6 +285,11 @@ pub fn settings_search(app: &App) -> Vec<SearchEntry> {
             }));
         }
     }
+    for lp in &host.luau.plugins {
+        let owner = lp.manifest.name.clone();
+        out.extend(lp.half.contribs.borrow().settings.iter().map(|c| SearchEntry { owner: owner.clone(), page: "plugins".to_owned(), id: c.spec.id.clone(), title: c.spec.title.clone(), description: c.spec.description.clone().unwrap_or_default(), keywords: c.spec.keywords.clone().unwrap_or_default() }));
+        out.extend(lp.manifest.settings_search.iter().filter(|e| !out.iter().any(|o| o.id == e.id)).map(|e| SearchEntry { owner: owner.clone(), page: e.page.clone(), id: e.id.clone(), title: e.title.clone(), description: e.description.clone().unwrap_or_default(), keywords: e.keywords.clone().unwrap_or_default() }).collect::<Vec<_>>());
+    }
     // A manifest's entries, unless the running plugin registered the same row itself.
     let manifest = host.slots.iter().flat_map(|s| {
         s.manifest.search.iter().map(|e| SearchEntry {
@@ -277,6 +334,7 @@ pub(super) fn print_index(app: &App) {
             eprintln!("plugin index: {kind}: {} {} (order {})", c.key, c.target, c.order);
         }
     }
+    super::luau::print_index(app);
     for e in settings_search(app) {
         eprintln!("plugin index: settings search: {} › {} › {} ({}): {} [{}]", e.owner, e.page, e.title, e.id, e.description, e.keywords);
     }

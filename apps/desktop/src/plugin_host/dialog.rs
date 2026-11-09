@@ -47,6 +47,10 @@ fn dismiss(app: &mut App, tx: &mut Tx) {
 
 /// Esc closes the open dialog.
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key == Key::Escape && app.plugins.luau.dialog.take().is_some() {
+        tx.instant();
+        return true;
+    }
     if app.plugins.dialog.is_none() || ev.key != Key::Escape {
         return false;
     }
@@ -56,7 +60,7 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The open dialog over its scrim, for the window's top layer.
 pub fn view(app: &App, p: &Pal) -> Vec<El> {
-    let Some(open) = &app.plugins.dialog else { return vec![] };
+    let Some(open) = &app.plugins.dialog else { return super::luau::surfaces::dialog_view(app, p) };
     let Some((i, c)) = active(&app.plugins, kinds::DIALOG).find(|(s, c)| *s == open.slot && c.id == open.id) else { return vec![] };
     let Some(render) = c.render.as_ref() else { return vec![] };
     let Ok(Some(card)) = render::surface(app, i, render, &Props::new(SURFACE_DIALOG, &c.id), p) else { return vec![] };

@@ -97,7 +97,7 @@ fn over(top: Color, bottom: Color) -> Color {
 
 /// A `radio-v2` item (`radio.css`): the 16 pt control in its 16 × 20 stack, the 13/440 label on
 /// a 20 line and the 12/440 description under it, 8 apart; the description in `tone` when given.
-fn radio(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, tone: Option<Color>) -> El {
+pub(crate) fn radio(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, tone: Option<Color>) -> El {
     let c = &k.c;
     let (base, sheen) = if checked { (c.bg_accent, k.light_on(0.2, c.bg_accent)) } else { (c.bg_base, k.light(0.06)) };
     let mut control = el()

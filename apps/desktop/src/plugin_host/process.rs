@@ -73,7 +73,14 @@ impl Processes {
         let handle = self.next;
         let ctl = Arc::new(Ctl::default());
         self.table.insert(handle, Proc { slot, generation, scope, events, ctl: ctl.clone() });
-        let job = Job { handle, spec, ctl, inbox: self.inbox.clone(), wake: wake.clone(), bit: slot_bit(slot) };
+        let (inbox, wake2, bit) = (self.inbox.clone(), wake.clone(), slot_bit(slot));
+        let sink: Sink = Arc::new(move |msg| {
+            if let Ok(mut inbox) = inbox.lock() {
+                inbox.push((handle, msg));
+            }
+            wake2.wake(bit, false);
+        });
+        let job = Job { spec, ctl, sink };
         let sent = supervisor().lock().ok().is_some_and(|tx| tx.send(job).is_ok());
         if !sent {
             if let Ok(mut inbox) = self.inbox.lock() {
@@ -146,22 +153,70 @@ pub fn drain(app: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
+/// Where a process's output and exit go.
+type Sink = Arc<dyn Fn(Msg) + Send + Sync>;
+
 struct Job {
-    handle: u32,
     spec: Spec,
     ctl: Arc<Ctl>,
-    inbox: Arc<Mutex<Vec<(u32, Msg)>>>,
-    wake: Arc<WakeShared>,
-    bit: u64,
+    sink: Sink,
 }
 
 impl Job {
     fn send(&self, msg: Msg) {
-        if let Ok(mut inbox) = self.inbox.lock() {
-            inbox.push((self.handle, msg));
-        }
-        self.wake.wake(self.bit, false);
+        (self.sink)(msg);
     }
+}
+
+/// A process started for the Luau host: write to it, kill it, ask whether it runs.
+#[derive(Clone)]
+pub struct Control(Arc<Ctl>);
+
+impl Control {
+    pub fn write(&self, bytes: &[u8], close: bool) -> bool {
+        let Ok(mut stdin) = self.0.stdin.lock() else { return false };
+        let ok = stdin.as_mut().is_some_and(|s| s.write_all(bytes).and_then(|()| s.flush()).is_ok());
+        if close {
+            *stdin = None;
+        }
+        ok
+    }
+
+    pub fn kill(&self) {
+        self.0.terminate(2);
+    }
+
+    pub fn running(&self) -> bool {
+        self.0.kill.lock().is_ok_and(|k| k.is_some())
+    }
+
+    /// 1 when its timeout killed it, 2 when a kill did.
+    pub fn how(&self) -> u8 {
+        self.0.how.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+/// What a process sends the Luau host.
+pub enum Event {
+    Output { stream: u8, text: String },
+    Exit { code: Option<i64>, error: String },
+}
+
+/// Starts `spec` on the supervisor, as a plugin's process (window hidden, in the app's job);
+/// `sink` hears its output and exit on the supervisor's threads.
+pub fn launch(spec: Spec, sink: impl Fn(Event) + Send + Sync + 'static) -> Control {
+    let ctl = Arc::new(Ctl::default());
+    let sink: Sink = Arc::new(move |msg| {
+        sink(match msg {
+            Msg::Out { stream, text } => Event::Output { stream, text },
+            Msg::Exit { code, error } => Event::Exit { code, error },
+        })
+    });
+    let job = Job { spec, ctl: ctl.clone(), sink: sink.clone() };
+    if !supervisor().lock().ok().is_some_and(|tx| tx.send(job).is_ok()) {
+        sink(Msg::Exit { code: None, error: "the process supervisor isn't running".into() });
+    }
+    Control(ctl)
 }
 
 fn supervisor() -> &'static Mutex<Sender<Job>> {

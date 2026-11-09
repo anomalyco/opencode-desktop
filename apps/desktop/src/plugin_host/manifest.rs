@@ -135,10 +135,15 @@ pub fn scan(tiers: &[(Tier, PathBuf)]) -> Vec<Found> {
 
 fn scan_tier(tier: Tier, dir: &Path) -> Vec<Found> {
     if tier == Tier::Dev && dir.join("plugin.toml").is_file() {
+        if std::fs::read_to_string(dir.join("plugin.toml")).is_ok_and(|t| super::luau::sources::is_luau(&t)) {
+            return Vec::new();
+        }
         return vec![read(tier, dir)];
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut dirs: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.join("plugin.toml").is_file()).collect();
+    // Folders whose manifest names a `contract` are Luau plugins: the Luau host takes them.
+    let native = |p: &PathBuf| std::fs::read_to_string(p.join("plugin.toml")).is_ok_and(|t| !super::luau::sources::is_luau(&t));
+    let mut dirs: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).filter(native).collect();
     dirs.sort();
     dirs.iter().map(|d| read(tier, d)).collect()
 }

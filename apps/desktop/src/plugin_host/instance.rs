@@ -98,6 +98,8 @@ pub struct CommandRec {
     pub keybind: Option<rune::Keybind>,
     pub editable: bool,
     pub hidden: bool,
+    /// Its Settings › Shortcuts group (`CommandSpecAbi::section`).
+    pub section: Option<crate::keymap::Section>,
     /// /name words runs it with words (slash.arguments).
     pub slash_args: bool,
     /// Offered only while a session is open in a desktop-width window.

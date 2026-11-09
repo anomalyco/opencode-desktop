@@ -96,6 +96,10 @@ pub struct Command {
     pub keys: Option<Bind>,
     /// A plugin command's chord, drawn when it has no keymap entry.
     pub chord: Option<rune::Chord>,
+    /// Its Settings › Shortcuts group, when it names one.
+    pub section: Option<Section>,
+    /// Kept out of the palette; its keys and Settings › Shortcuts still have it.
+    pub hidden: bool,
     pub run: Run,
 }
 
@@ -119,8 +123,7 @@ impl App {
 
     /// What the palette lists: the enabled commands less the hidden ones.
     pub fn palette_commands(&self) -> Vec<Command> {
-        let hidden: Vec<&str> = collect(&COMMANDS).into_iter().filter(|c| c.hidden).map(|c| c.id).collect();
-        self.commands().into_iter().filter(|c| !hidden.contains(&c.id)).collect()
+        self.commands().into_iter().filter(|c| !c.hidden).collect()
     }
 
     /// Every command, offered here or not, as Desktop's `command.catalog` remembers them:
@@ -137,6 +140,8 @@ impl App {
             slash: c.slash,
             keys: c.keys,
             chord: None,
+            section: c.section,
+            hidden: c.hidden,
             run: Run::Fn(c.run),
         });
         let panels = self.all_panels().into_iter().filter_map(|p| {
@@ -147,14 +152,19 @@ impl App {
                 slash: p.slash,
                 keys: p.shortcut,
                 chord: None,
+                section: None,
+                hidden: false,
                 run: Run::Panel(p.plugin),
             })
         });
-        own.chain(panels).chain(crate::plugin_host::commands(self)).collect()
+        own.chain(panels).chain(crate::plugin_host::commands(self, offered)).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
-        let Some(c) = self.commands().into_iter().find(|c| c.id == id) else { return };
+        let Some(c) = self.commands().into_iter().find(|c| c.id == id) else {
+            crate::plugin_host::run_command(self, id, tx);
+            return;
+        };
         match c.run {
             Run::Fn(f) => f(self, tx),
             Run::Plugin(id) => {

@@ -483,6 +483,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+dependencies = [
+ "memchr",
+ "serde_core",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -908,6 +918,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "either"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -953,6 +969,17 @@ name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
+
+[[package]]
+name = "erased-serde"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e59b668157f32d3459d4bd634861a06ffa2503a461ca5f0916b9f0252605e66"
+dependencies = [
+ "serde",
+ "serde_core",
+ "typeid",
+]
 
 [[package]]
 name = "errno"
@@ -1870,6 +1897,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3bd0dd2cd90571056fdb71f6275fada10131182f84899f4b2a916e565d81d86"
 
 [[package]]
+name = "luau0-src"
+version = "0.23.0+luau745"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44a77f4ce1adc38145ccd67a0e4b1928e642aedf906d1131d7f703e573c31162"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1932,6 +1968,35 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mlua"
+version = "0.12.2"
+source = "git+https://github.com/mlua-rs/mlua?rev=a0ad4535fc72ba89967a931c5be57b162b5f0f3f#a0ad4535fc72ba89967a931c5be57b162b5f0f3f"
+dependencies = [
+ "bstr",
+ "either",
+ "erased-serde",
+ "libc",
+ "mlua-sys",
+ "num-traits",
+ "parking_lot",
+ "rustc-hash 2.1.3",
+ "serde",
+ "serde-value",
+]
+
+[[package]]
+name = "mlua-sys"
+version = "0.13.0"
+source = "git+https://github.com/mlua-rs/mlua?rev=a0ad4535fc72ba89967a931c5be57b162b5f0f3f#a0ad4535fc72ba89967a931c5be57b162b5f0f3f"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "luau0-src",
+ "pkg-config",
 ]
 
 [[package]]
@@ -2496,6 +2561,7 @@ dependencies = [
  "libc",
  "libloading",
  "memchr",
+ "mlua",
  "notify",
  "opencode-i18n",
  "opencode-kit",
@@ -2508,6 +2574,7 @@ dependencies = [
  "opencode-plugin-hello-impl",
  "opencode-plugin-pairing-impl",
  "opencode-plugin-sources-impl",
+ "opencode-plugin-spec",
  "opencode-plugin-ssh-impl",
  "opencode-plugin-wsl-impl",
  "otlp-lite",
@@ -2517,6 +2584,7 @@ dependencies = [
  "rune",
  "rune-kit",
  "rune-knobs",
+ "rune-luau",
  "rune-mac",
  "rune-notify",
  "rune-parts",
@@ -2763,6 +2831,15 @@ checksum = "5df339f526ea9a60e371768d50efc2f2508c7203290731565d1f7a6f71d21747"
 dependencies = [
  "libc",
  "libredox",
+]
+
+[[package]]
+name = "ordered-float"
+version = "2.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -3489,6 +3566,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-luau"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=2bdfae16568782a56cb93818944d05b93546bce5#2bdfae16568782a56cb93818944d05b93546bce5"
+dependencies = [
+ "js-sys",
+ "mlua",
+ "rune",
+ "rustc-hash 2.1.3",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "rune-mac"
 version = "0.0.1"
 source = "git+https://github.com/anomalyco/rune?rev=2bdfae16568782a56cb93818944d05b93546bce5#2bdfae16568782a56cb93818944d05b93546bce5"
@@ -3717,6 +3810,16 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.10.1",
+ "serde",
 ]
 
 [[package]]
@@ -4342,6 +4445,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
 dependencies = [
  "indexmap",
+ "serde_core",
+ "serde_spanned",
  "toml_datetime",
  "toml_parser",
  "winnow",
@@ -4423,6 +4528,12 @@ dependencies = [
  "utf-8",
  "webpki-roots 0.26.11",
 ]
+
+[[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
@@ -4928,7 +5039,7 @@ dependencies = [
  "objc2-metal 0.3.2",
  "objc2-quartz-core 0.3.2",
  "once_cell",
- "ordered-float",
+ "ordered-float 5.5.1",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",

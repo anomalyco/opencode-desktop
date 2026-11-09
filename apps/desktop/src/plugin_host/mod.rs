@@ -34,16 +34,17 @@ mod contrib;
 mod dialog;
 mod editors;
 mod hot;
-mod icons;
+pub(crate) mod icons;
 mod images;
-mod instance;
+pub(crate) mod instance;
 mod lifecycle;
 mod loader;
+pub mod luau;
 mod manifest;
 mod memory;
 mod motw;
 mod popover;
-mod process;
+pub(crate) mod process;
 mod render;
 mod requests;
 mod run;
@@ -51,11 +52,11 @@ mod servers;
 mod shared;
 mod surfaces;
 mod swap;
-mod tasks;
+pub(crate) mod tasks;
 mod trust;
-mod view;
-mod vtable;
-mod widgets;
+pub(crate) mod view;
+pub(crate) mod vtable;
+pub(crate) mod widgets;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -65,6 +66,7 @@ use std::sync::Arc;
 use opencode_plugin::abi::PluginEntryFn;
 use rune::Waker;
 
+pub use contrib::sync_luau as contrib_sync_luau;
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
 pub use dialog::{key as dialog_key, view as dialog_view};
 pub use servers::{all as contributed_servers, connect as connect_server, row as server_row};
@@ -118,6 +120,8 @@ pub struct PluginHost {
     checking: HashSet<String>,
     /// Server events plugins listen for, waiting for the next poll (contrib::EVENTS).
     server_events: Vec<(String, String)>,
+    /// The Luau plugins of this window (`luau::Host`, the window plugin host).
+    pub luau: luau::Host,
 }
 
 impl PluginHost {
@@ -186,6 +190,7 @@ impl Slot {
 
 /// Discovers and loads the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
+    let luau_waker = waker.clone();
     let persists = app.persists();
     let keep_screen = app.settings.keep_screen_active;
     let host = &mut app.plugins;
@@ -271,6 +276,7 @@ pub fn setup(app: &mut App, waker: Waker) {
         }
     }
     swap::settle(app);
+    luau::setup(app, luau_waker, isolated);
     let host = &mut app.plugins;
     if hot {
         // Third-party libraries aren't watched: a changed one waits for the user's OK again.
@@ -335,7 +341,7 @@ fn load_state() -> (BTreeSet<String>, BTreeMap<String, String>) {
     (disabled, trusted)
 }
 
-fn save_state(app: &App) {
+pub(crate) fn save_state(app: &App) {
     if !app.persists() {
         return;
     }

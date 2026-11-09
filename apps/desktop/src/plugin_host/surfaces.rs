@@ -39,7 +39,8 @@ pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
     if chrome.row_h <= 0.0 {
         return None;
     }
-    let items: Vec<El> = sorted(app, kinds::TITLEBAR_ITEM).into_iter().filter_map(|(i, c)| draw(app, p, i, c, &Props::new(SURFACE_TITLEBAR, &c.id), true)).collect();
+    let mut items: Vec<El> = sorted(app, kinds::TITLEBAR_ITEM).into_iter().filter_map(|(i, c)| draw(app, p, i, c, &Props::new(SURFACE_TITLEBAR, &c.id), true)).collect();
+    items.extend(super::luau::surfaces::titlebar_items(app, p));
     if items.is_empty() {
         return None;
     }
@@ -76,6 +77,7 @@ pub fn pill_view(app: &App, i: usize, c: &ContribRec, session: &str) -> Option<P
 /// capsule every lane pill shares, its icon in its tone, its label cut past 260. A pill with a
 /// menu opens it as a popover above; one without runs its press.
 pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
+    let luau = super::luau::surfaces::pill_views(app, p, session);
     sorted(app, kinds::COMPOSER_PILL)
         .into_iter()
         .filter_map(|(i, c)| {
@@ -103,6 +105,7 @@ pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
                 }
             }))
         })
+        .chain(luau)
         .collect()
 }
 
@@ -126,16 +129,22 @@ pub fn slot(app: &App, p: &Pal, name: &str, session: &str) -> Vec<El> {
 /// [`slot`] with the slot's `RENDER_*` flags (`session.header`'s `active` and `compact`).
 pub fn slot_with(app: &App, p: &Pal, name: &str, session: &str, flags: u32) -> Vec<El> {
     let directory = app.session(session).map_or("", |i| i.directory.as_str());
-    sorted(app, kinds::SLOT)
+    let native = sorted(app, kinds::SLOT)
         .into_iter()
         .filter(|(_, c)| c.target == name)
-        .filter_map(|(i, c)| draw(app, p, i, c, &Props { session, directory, flags, ..Props::new(SURFACE_SLOT, &c.id) }, false))
-        .collect()
+        .filter_map(|(i, c)| Some((i64::from(c.order), draw(app, p, i, c, &Props { session, directory, flags, ..Props::new(SURFACE_SLOT, &c.id) }, false)?)));
+    let luau = super::luau::surfaces::slot(app, p, name, session, flags & RENDER_ACTIVE != 0, flags & opencode_plugin::abi::RENDER_COMPACT != 0);
+    let mut all: Vec<(i64, El)> = native.chain(luau).collect();
+    all.sort_by_key(|(order, _)| *order);
+    all.into_iter().map(|(_, el)| el).collect()
 }
 
 /// A plugin's view of file `path` (in session `session`'s folder `directory`, its loaded
 /// `text` when it has loaded as text), when a file viewer takes its extension.
 pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &str, text: &str) -> Option<El> {
+    if let Some(el) = super::luau::surfaces::file_viewer(app, p, session, directory, path) {
+        return Some(el);
+    }
     let ext = std::path::Path::new(path).extension()?.to_string_lossy().to_ascii_lowercase();
     let (i, c) = sorted(app, kinds::FILE_VIEWER).into_iter().find(|(_, c)| c.target.split_whitespace().any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(&ext)))?;
     let abs = if std::path::Path::new(path).is_absolute() { path.to_owned() } else { format!("{}/{path}", directory.trim_end_matches(['/', '\\'])) };
@@ -158,6 +167,11 @@ pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
             let card = col().key(format!("plugin-page-{}", c.key)).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
             Some(crate::settings::section(p, intern(&c.title), card))
         })
+        .chain(super::luau::surfaces::settings_pages(app, Some(page)).into_iter().filter_map(|(i, key, spec, f)| {
+            let body = super::luau::surfaces::settings_page_body(app, p, i, &spec, f.as_ref()?, None);
+            let card = col().key(format!("plugin-page-{key}")).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
+            Some(crate::settings::section(p, intern(&spec.title), card))
+        }))
         .collect()
 }
 
@@ -168,6 +182,7 @@ pub fn settings_page_ids(app: &App) -> Vec<(String, bool)> {
         .into_iter()
         .filter(|(_, c)| c.target.is_empty())
         .map(|(_, c)| (c.key.to_owned(), c.flags & opencode_plugin::abi::SETTINGS_PAGE_ABOUT != 0))
+        .chain(super::luau::surfaces::settings_pages(app, None).into_iter().map(|(_, key, spec, _)| (key.to_owned(), spec.about == Some(true))))
         .collect()
 }
 
@@ -181,18 +196,26 @@ pub fn settings_page_key(app: &App, id: &str) -> String {
 }
 
 pub fn settings_page_title(app: &App, key: &str) -> Option<String> {
-    own_page(app, key).map(|(_, c)| c.title.clone())
+    own_page(app, key).map(|(_, c)| c.title.clone()).or_else(|| luau_page(app, key).map(|(_, _, spec, _)| spec.title))
+}
+
+fn luau_page(app: &App, key: &str) -> Option<(usize, &'static str, opencode_plugin_spec::SettingsPageSpec, Option<mlua::Function>)> {
+    super::luau::surfaces::settings_pages(app, None).into_iter().find(|(_, k, spec, _)| *k == key || spec.id == key)
 }
 
 /// A plugin page's rail icon: one it interned or a host icon by name.
 pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
-    let (i, c) = own_page(app, key)?;
+    let Some((i, c)) = own_page(app, key) else { return luau_page(app, key).and_then(|(_, _, spec, _)| spec.icon).map(|icon| super::icons::resolve("", &icon)) };
     (!c.icon.is_empty()).then(|| super::icons::resolve(&app.plugins.slots[i].manifest.id, &c.icon))
 }
 
 /// A plugin page: its title and what it draws, a failed render's card in its place.
 pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, El)> {
-    let (i, c) = own_page(app, key)?;
+    let Some((i, c)) = own_page(app, key) else {
+        let (i, _, spec, f) = luau_page(app, key)?;
+        let body = super::luau::surfaces::settings_page_body(app, p, i, &spec, f.as_ref()?, None);
+        return Some((spec.title.clone(), String::new(), body));
+    };
     let body = match render::surface(app, i, c.render.as_ref()?, &Props::new(SURFACE_SETTINGS_PAGE, &c.id), p) {
         Ok(el) => el.unwrap_or_else(rune::el),
         Err(e) => render::card(p, &app.plugins.slots[i].manifest.name, &format!("Stopped drawing: {e}"), Some(&app.plugins.slots[i].manifest.id), true),

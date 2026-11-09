@@ -30,6 +30,8 @@ pub fn all(app: &App) -> Vec<Contributed> {
             out.push((order, Contributed { key, slot: i, rec: rec.clone() }));
         }
     }
+    // Luau server sources' entries, shared by every window; their plugin draws no row yet.
+    out.extend(super::luau::servers().into_iter().map(|(plugin, rec)| (0, Contributed { key: format!("{plugin}:{}", rec.id), slot: usize::MAX, rec })));
     out.sort_by_key(|(order, _)| *order);
     out.into_iter().map(|(_, c)| c).collect()
 }

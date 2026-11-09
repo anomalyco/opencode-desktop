@@ -1446,6 +1446,9 @@ fn main() {
     #[cfg(windows)]
     install::run_if_asked();
     launch::print_version_if_asked();
+    if plugin_host::luau::types::from_args() {
+        return;
+    }
     if genui::skill::maybe_cli() {
         return;
     }

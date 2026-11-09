@@ -1,0 +1,145 @@
+//! Carrying out what plugins asked for ([`cx::ask`]) with `&mut App` and the transaction, right
+//! after the entry that asked.
+
+use std::cell::RefCell;
+
+use rune::Tx;
+use rune_luau::Data;
+
+use super::cx::{self, Request};
+use super::{OpenDialog, Overlay};
+use crate::App;
+use crate::panels::panel_key;
+use crate::plugin_host::view::PANEL;
+
+pub fn carry_out(app: &mut App, tx: &mut Tx) {
+    let asked = cx::take_asked();
+    if asked.is_empty() {
+        return;
+    }
+    for (plugin, request) in asked {
+        apply(app, &plugin, request, tx);
+    }
+    super::bump();
+}
+
+fn tab_key(plugin: &str, panel: &str, instance: Option<&str>) -> String {
+    match instance {
+        Some(i) if !i.is_empty() => panel_key(PANEL, &format!("{plugin}.{panel}/{i}")),
+        _ => panel_key(PANEL, &format!("{plugin}.{panel}")),
+    }
+}
+
+fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx) {
+    match request {
+        Request::OpenPanel { panel, instance, instant } => {
+            if instant {
+                tx.instant();
+            }
+            if app.active_session_id().is_some() {
+                app.open_side_tab(&tab_key(plugin, &panel, instance.as_deref()), None, false, false, tx);
+            }
+        }
+        Request::TogglePanel { panel, session, instant } => {
+            if instant {
+                tx.instant();
+            }
+            let Some(active) = app.active_session_id().map(str::to_owned) else { return };
+            let session = session.unwrap_or(active);
+            let key = tab_key(plugin, &panel, None);
+            if super::services::ui_panel_state(app, plugin, &panel, &session) == 3 {
+                app.close_side_tab(&key, tx);
+            } else {
+                app.open_side_tab(&key, None, false, false, tx);
+            }
+        }
+        Request::ClosePanel { panel, .. } => app.close_side_tab(&tab_key(plugin, &panel, None), tx),
+        Request::OpenPopover { id, anchor, side, align, gap, data, toggle } => {
+            if toggle && app.plugins.luau.overlay.popover_open(plugin, &id) {
+                close_popover(app, tx);
+                return;
+            }
+            tx.instant();
+            app.plugins.luau.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data };
+            crate::popover::motion::opening(&app.knobs, tx);
+        }
+        Request::ClosePopover => close_popover(app, tx),
+        Request::OpenDialog { id, data } => {
+            tx.instant();
+            app.plugins.luau.dialog = Some(OpenDialog { plugin: plugin.clone(), id, data });
+        }
+        Request::CloseDialog => {
+            if app.plugins.luau.dialog.take().is_some() {
+                tx.instant();
+            }
+        }
+        Request::Toast { variant, title, description, reveal } => {
+            match variant.as_str() {
+                "error" => crate::status_toast::fail(app, title, description),
+                "loading" => {
+                    crate::status_toast::waiting(app, &title);
+                }
+                _ => crate::status_toast::say(app, title, description),
+            }
+            if let Some(e) = app.toast.current.as_mut() {
+                if variant == "success" {
+                    e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
+                }
+                if let Some((label, path)) = reveal {
+                    e.action = Some(crate::status_toast::ToastAction::Reveal(label, path.into()));
+                }
+            }
+        }
+        Request::OpenSettings(page) => {
+            tx.instant();
+            app.open_settings();
+            match page.as_deref() {
+                Some("servers") => app.open_settings_page(crate::settings::pages::Page::Servers, tx),
+                Some(page) if !page.is_empty() => app.open_settings_page(crate::settings::pages::Page::Plugin(format!("{plugin}.{page}")), tx),
+                _ => {}
+            }
+        }
+        Request::NewDraft { directory, prompt } => {
+            tx.instant();
+            if !directory.is_empty() {
+                app.default_dir = directory;
+            }
+            app.close_settings();
+            app.open_draft_tab();
+            app.composer.replace_text(prompt);
+            tx.settle();
+        }
+        Request::RunCommand { id, input } => match (id.strip_prefix("server:"), input) {
+            (Some(key), _) => crate::plugin_host::connect_server(app, key, tx),
+            (None, Some(input)) => {
+                crate::plugin_host::run_slash(app, &id, &input, tx);
+            }
+            (None, None) => app.run_command(&id, tx),
+        },
+        Request::OpenLink { href } => app.open_reply_link(&href, tx),
+        Request::OpenExternal(url) => {
+            if app.live() {
+                tx.open_url(&url).ok();
+            }
+        }
+        Request::Reveal(path) => crate::plugin_host::reveal(&path),
+        Request::CopyText(text) => tx.copy(text),
+        Request::Notify { title, body } => crate::status_toast::say(app, title, body),
+        Request::Menu { anchor, menu, done } => {
+            let done = RefCell::new(Some(done));
+            crate::popup::open(app, menu, anchor, tx, move |_: &mut App, picked: Option<&str>, _: &mut Tx| {
+                if let Some(done) = done.borrow_mut().take() {
+                    done.complete(picked.map_or(Data::Nil, |p| Data::String(p.to_owned())));
+                }
+            });
+        }
+        Request::Redraw => {}
+    }
+}
+
+pub fn close_popover(app: &mut App, tx: &mut Tx) {
+    if std::mem::take(&mut app.plugins.luau.overlay).is_open() {
+        tx.instant();
+        crate::popover::motion::closing(&app.knobs, tx);
+    }
+}

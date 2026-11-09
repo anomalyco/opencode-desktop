@@ -1,0 +1,158 @@
+//! Requests off the UI thread: `Server:RequestAsync`, `Http:FetchAsync`, and Workspace's files
+//! and downloads. Each yields its task and resumes it with the answer.
+
+use std::rc::Rc;
+use std::time::Duration;
+
+use mlua::{FromLua, Lua, MultiValue, Table, Value};
+use opencode_plugin_spec as spec;
+use rune_luau::{Completer, Data, Host};
+
+use super::{async_method, json_to_data, map, method};
+use crate::App;
+use crate::plugin_host::luau::cx;
+use crate::plugin_host::luau::plugin::Half;
+use crate::plugin_host::luau::vm::Vmx;
+
+pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()> {
+    match name {
+        "Http" => async_method(lua, vmx, t, "FetchAsync", "Http.FetchAsync"),
+        _ => {
+            async_method(lua, vmx, t, "ReadFileAsync", "Workspace.ReadFileAsync")?;
+            async_method(lua, vmx, t, "SaveDownloadAsync", "Workspace.SaveDownloadAsync")?;
+            for name in ["OpenDocument", "OpenTree", "OpenInApps", "OpenIn"] {
+                method(lua, t, name, move |_, _: MultiValue| -> mlua::Result<()> { Err(mlua::Error::runtime(format!("Workspace:{name} isn't in this app yet (LU-6 brings it)"))) })?;
+            }
+            super::lazy_signals(lua, vmx, t, "Workspace", &["FileChanged"])
+        }
+    }
+}
+
+pub fn asyncs(host: &Host<'_>, t: &Table, _half: &Rc<Half>) -> mlua::Result<()> {
+    t.raw_set("Server.RequestAsync", host.async_function("Server:RequestAsync", request)?)?;
+    t.raw_set("Http.FetchAsync", host.async_function("Http:FetchAsync", fetch)?)?;
+    t.raw_set("Workspace.ReadFileAsync", host.async_function("Workspace:ReadFileAsync", read_file)?)?;
+    t.raw_set("Workspace.SaveDownloadAsync", host.async_function("Workspace:SaveDownloadAsync", save_download)?)?;
+    Ok(())
+}
+
+fn args<T: mlua::FromLuaMulti>(lua: &Lua, args: MultiValue) -> mlua::Result<T> {
+    T::from_lua_multi(args, lua)
+}
+
+/// `Server:RequestAsync(method, path, body?)`: on the window's server (`local:` asks the app's
+/// own); resumes with a `ServerResponse`.
+fn request(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (method, path, body): (String, String, Value) = args(lua, a)?;
+    let body = match body {
+        Value::Nil => None,
+        other => Some(Data::from_lua(other, lua)?.to_json()),
+    };
+    let app = cx::app().ok_or_else(|| mlua::Error::runtime("Server:RequestAsync needs a window"))?;
+    let send = move |srv: &opencode_kit::client::Server, path: &str| {
+        let answer = if method.eq_ignore_ascii_case("GET") {
+            srv.get_text(path).map(|text| (serde_json::from_str(&text).ok(), text))
+        } else {
+            srv.call_within(&method.to_ascii_uppercase(), path, body, Duration::from_secs(600)).map(|v| {
+                let text = v.to_string();
+                (Some(v), text)
+            })
+        };
+        done.complete(match answer {
+            Ok((json, text)) => map([("ok", Data::Bool(true)), ("status", Data::Integer(200)), ("json", json.as_ref().map_or(Data::Nil, json_to_data)), ("text", Data::String(text))]),
+            Err(e) => map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(e))]),
+        });
+    };
+    match (path.strip_prefix("local:"), app.own_server.clone()) {
+        (Some(local), Some(own)) => {
+            let local = local.to_owned();
+            rune_luau::spawn_blocking(move || send(&own, &local));
+        }
+        (local, _) => {
+            let path = local.map_or(path.clone(), str::to_owned);
+            app.job(move |srv| {
+                send(srv, &path);
+                Box::new(|_: &mut App, _: &mut rune::Tx| {}) as crate::jobs::Apply
+            });
+        }
+    }
+    Ok(())
+}
+
+/// `Http:FetchAsync(request)`: any URL, off the UI thread; resumes with an `HttpResponse`.
+fn fetch(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (req,): (Value,) = args(lua, a)?;
+    let req: spec::HttpRequest = Data::from_lua(req, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("HttpRequest: {e}")))?;
+    rune_luau::spawn_blocking(move || done.complete(send(&req)));
+    Ok(())
+}
+
+fn send(r: &spec::HttpRequest) -> Data {
+    let timeout = Duration::from_secs_f64(r.timeout.unwrap_or(30.0).max(0.1));
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into();
+    let method = r.method.map_or("GET", |m| m.as_str());
+    let mut req = ureq::http::Request::builder().method(method).uri(r.url.as_str());
+    for (k, v) in r.headers.iter().flatten() {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    if let Some(auth) = &r.basic_auth {
+        use base64::Engine as _;
+        let token = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", auth.user, auth.password));
+        req = req.header("authorization", format!("Basic {token}"));
+    }
+    let body = match (&r.json, &r.body) {
+        (Some(json), _) => {
+            req = req.header("content-type", "application/json");
+            Some(json.to_string())
+        }
+        (None, Some(body)) => Some(body.clone()),
+        _ => None,
+    };
+    let sent = match body {
+        Some(body) => req.body(body).map(|req| agent.run(req)),
+        None => req.body(()).map(|req| agent.run(req)),
+    };
+    let failed = |e: String| map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("headers", Data::Map(Default::default())), ("text", Data::String(String::new())), ("error", Data::String(e))]);
+    let mut resp = match sent {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => return failed(e.to_string()),
+        Err(e) => return failed(e.to_string()),
+    };
+    let status = resp.status().as_u16();
+    let headers = resp.headers().iter().map(|(k, v)| (k.as_str().to_owned(), Data::String(v.to_str().unwrap_or_default().to_owned()))).collect();
+    match resp.body_mut().with_config().limit(16 << 20).read_to_string() {
+        Ok(text) => {
+            let json = serde_json::from_str::<serde_json::Value>(&text).ok();
+            map([
+                ("ok", Data::Bool((200..300).contains(&status))),
+                ("status", Data::Integer(i64::from(status))),
+                ("headers", Data::Map(headers)),
+                ("json", json.as_ref().map_or(Data::Nil, json_to_data)),
+                ("text", Data::String(text)),
+            ])
+        }
+        Err(e) => failed(e.to_string()),
+    }
+}
+
+fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (path,): (String,) = args(lua, a)?;
+    rune_luau::spawn_blocking(move || {
+        done.complete(match std::fs::read_to_string(&path) {
+            Ok(text) => map([("text", Data::String(text))]),
+            Err(e) => map([("error", Data::String(format!("{path}: {e}")))]),
+        });
+    });
+    Ok(())
+}
+
+fn save_download(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (name, content): (String, String) = args(lua, a)?;
+    let persists = cx::app().is_some_and(App::persists);
+    let saved = if persists { opencode_kit::client::save_download(&name, &content) } else { Err("This window doesn't save files".to_owned()) };
+    done.complete(match saved {
+        Ok(path) => map([("path", Data::String(path))]),
+        Err(e) => map([("error", Data::String(e))]),
+    });
+    Ok(())
+}
