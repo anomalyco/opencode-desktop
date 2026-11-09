@@ -387,6 +387,8 @@ pub struct App {
     pub pickers: pickers::Pickers,
     /// The composer's `@` popover and what it lists.
     pub mentions: mentions::Mentions,
+    /// Session ids named in replies, looked up once (`mentions::refs`).
+    pub session_refs: mentions::refs::Lookups,
     /// Live look-and-feel sliders (⌘⇧K).
     pub knobs: rune_knobs::Knobs,
     /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
@@ -707,6 +709,12 @@ impl session_view::TimelineHost for App {
     }
     fn open_session(&mut self, id: &str, tx: &mut Tx) {
         self.open_mentioned(id, tx);
+    }
+    fn session_ref(&self, id: &str) -> Option<session_view::session_chips::SessionRef> {
+        self.session_ref_of(id)
+    }
+    fn session_chip_menu(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) {
+        self.open_session_chip_menu(id, press, tx);
     }
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error.as_deref())

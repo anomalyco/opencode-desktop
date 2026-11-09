@@ -223,6 +223,11 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Status(e)),
                         },
+                        // A miss (deleted, another server's) says so quietly, not as a status.
+                        Request::Lookup(id) => match server.get(&format!("/api/session/{id}")) {
+                            Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
+                            Err(_) => send(Incoming::Event { ty: "session.lookup.missing".into(), data: serde_json::json!({ "sessionID": id }) }),
+                        },
                         Request::Active => match server.get("/api/session/active") {
                             Ok(v) => {
                                 let map = v.get("data").unwrap_or(&v);

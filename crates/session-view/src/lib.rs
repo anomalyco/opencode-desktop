@@ -29,6 +29,7 @@ pub mod palette;
 pub mod pickers;
 pub mod popover;
 pub mod question_row;
+pub mod session_chips;
 pub mod sources_chip;
 pub mod story;
 pub mod style;
@@ -252,6 +253,14 @@ pub trait TimelineHost: Sized + 'static {
         false
     }
     fn open_session(&mut self, _id: &str, _tx: &mut Tx) {}
+    /// What session `id`, named in a reply or a prompt, stands for: `None` while the host doesn't
+    /// know it, and for good when the server doesn't either, so it stays text. A host that
+    /// looks one up remembers asking, as this runs on every build of the row.
+    fn session_ref(&self, _id: &str) -> Option<session_chips::SessionRef> {
+        None
+    }
+    /// A right-click on the chip of session `id` (`session_chips`): its menu at `press`.
+    fn session_chip_menu(&mut self, _id: &str, _press: rune::PointerPress, _tx: &mut Tx) {}
 
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None

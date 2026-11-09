@@ -144,7 +144,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     let mut c = col().w_full().child(trigger);
     if open {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
-        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), None, None);
+        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), None, None, &[]);
         c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }
     c
@@ -263,6 +263,7 @@ fn checkbox_border(p: &Pal) -> Color {
 }
 
 /// `copied` is the copy button showing its tick (`copied::current`), for code blocks' own.
+/// `chips` are the tooltips of the session chips in `src` (`session_chips::tips`), by link.
 #[allow(clippy::too_many_arguments)]
 pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     p: &Pal,
@@ -273,13 +274,16 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     highlights: Vec<H>,
     copied: Option<String>,
     media: Option<crate::images::markdown::MdMedia>,
+    chips: &[(String, String)],
 ) -> El {
+    use crate::user_parts::session_of_link;
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
     let full = std::rc::Rc::new(style.clone());
     let pal = *p;
     let rewritten = S::rewrite_markdown(src);
-    let md = Markdown::new(rewritten.as_deref().unwrap_or(src))
+    let tips = chips.to_vec();
+    let mut md = Markdown::new(rewritten.as_deref().unwrap_or(src))
         .style(style)
         .highlights(highlights)
         .reveal(fade)
@@ -288,8 +292,19 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .scroll_wide(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame(move |card, c| code_card::<S>(&pal, card, c, copied.as_deref()))
-        .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| s.open_link(url, tx))
-        .link_help(S::reply_link_help);
+        .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
+            Some(id) => s.open_session(id, tx),
+            None => s.open_link(url, tx),
+        })
+        .link_help(move |url| tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)));
+    if !chips.is_empty() {
+        // Only a reply with chips takes right-clicks on its links; others keep the reply's menu.
+        md = md.link_style(move |url| crate::session_chips::look(&pal, url)).on_link_secondary(|s: &mut S, url: &str, press, tx: &mut Tx| {
+            if let Some(id) = session_of_link(url) {
+                s.session_chip_menu(id, press, tx);
+            }
+        });
+    }
     let md = match media {
         Some(m) => crate::images::markdown_pictures::<S>(md, m),
         None => md,
@@ -341,7 +356,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None, None)
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None, None, &[])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -355,8 +370,9 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     highlights: Vec<(&[Range<usize>], rune_kit::Highlight)>,
     copied: Option<String>,
     media: Option<crate::images::markdown::MdMedia>,
+    chips: &[(String, String)],
 ) -> El {
-    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media)
+    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media, chips)
 }
 
 /// Desktop's activity spinner, Soft Radar (`ActivityRing`, `spinner-radar.ts`): 14px, icon-muted.

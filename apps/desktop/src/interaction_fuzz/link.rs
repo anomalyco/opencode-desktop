@@ -507,7 +507,7 @@ fn call(job: &Job) -> String {
             Request::Sessions => "GET /api/session?limit=120".into(),
             Request::ProjectSessions(p) => format!("GET /api/session?project={p}"),
             Request::Projects => "GET /api/project".into(),
-            Request::Info(id) => format!("GET /api/session/{id}"),
+            Request::Info(id) | Request::Lookup(id) => format!("GET /api/session/{id}"),
             Request::Pending(id) => format!("GET /api/session/{id}/pending"),
             Request::Inbox(id) => format!("GET /api/session/{id}/inbox"),
             Request::Active => "GET /api/session/active".into(),
@@ -552,7 +552,7 @@ fn apply(job: &Job, sim: &mut Sim, log: &mut Vec<String>) -> Option<Out> {
             Request::Session(id) => Incoming::Messages { session: id.clone(), messages: vec![] },
             Request::Sessions | Request::ProjectSessions(_) => Incoming::Sessions(sim.sessions()),
             Request::Projects | Request::Worktrees { .. } | Request::Branches { .. } => return None,
-            Request::Info(id) => Incoming::Info(sim.info(id)),
+            Request::Info(id) | Request::Lookup(id) => Incoming::Info(sim.info(id)),
             Request::Pending(id) => Incoming::Pending { session: id.clone(), items: vec![] },
             Request::Inbox(id) => {
                 let items = if *id == sim.sid { sim.inbox_json() } else { json!([]) };

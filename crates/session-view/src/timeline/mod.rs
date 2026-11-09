@@ -129,7 +129,9 @@ impl RowSpec {
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()))
                         });
                         let footer = footer_text(t, *message, *part);
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits()));
+                        // A session id it names being looked up, renamed, starting or stopping.
+                        let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer)
@@ -162,7 +164,7 @@ impl RowSpec {
                         && !s.user_menu_open_on(id)
                         && model::user_quotes(id).is_empty()
                         && opencode_kit::mention::user_mentions(id).is_empty()
-                        && !text.contains("@ses_")
+                        && !text.contains("ses_")
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));

@@ -40,6 +40,10 @@ pub enum Request {
     Projects,
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
+    /// [`Request::Info`] for a session named in a message, which may not exist: replied as
+    /// `Incoming::Info`, or `Incoming::Event` with type `session.lookup.missing` and data
+    /// `{sessionID}` when the server can't give it.
+    Lookup(String),
     Pending(String),
     /// A project's newest unarchived sessions, subagents included (`/api/session?project=`),
     /// replied as `Incoming::Sessions`.
