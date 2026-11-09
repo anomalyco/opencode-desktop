@@ -261,9 +261,12 @@ pub fn action(s: &App, p: &Pal, session: &str, call: &session_view::tools::Call,
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
-        // Its glyph shows while the tool is hovered; the button stays pressable, as Desktop's
-        // tool actions do.
-        .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink).group_opacity(0.0, 1.0))
+        // It shows while the pointer is anywhere over its tool's row and hides at once as it
+        // leaves (`basic-tool.css:200-213`, no transition); hidden, it stays pressable, as
+        // Desktop's tool actions do. On the button rather than its glyph, so the row's hover
+        // reveals it, not only its own.
+        .group_opacity(0.0, 1.0)
+        .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink))
         .on_press_tx({
             let (step, t) = (step.clone(), t.clone());
             move |s: &mut App, tx: &mut Tx| s.open_tool_step(&step, t.clone(), tx)
