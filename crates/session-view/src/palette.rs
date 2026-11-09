@@ -196,6 +196,8 @@ pub struct Code {
     pub variable: Color,
     /// `variable.parameter`: the v1 `text-base`.
     pub parameter: Color,
+    /// `link_text` in Markdown.
+    pub info: Color,
 }
 
 impl Code {
@@ -215,6 +217,9 @@ impl Code {
             (K::Inserted, add),
             (K::Deleted, del),
             (K::Parameter, self.parameter),
+            // `title` and `link_text`.
+            (K::Heading, self.keyword),
+            (K::Link, self.info),
         ]
         .into_iter()
         .fold(base, |t, (k, c)| t.with(k, c))
@@ -288,6 +293,8 @@ fn build(theme: usize, dark: bool) -> Pal {
         punctuation: c("syntax-punctuation"),
         variable: c("syntax-variable"),
         parameter: c("text-base"),
+        // The default theme names no `syntax-info`; Desktop's resolves it to these.
+        info: t.try_color("syntax-info").unwrap_or_else(|| rune::color::hex(if dark { "#facffe" } else { "#8c1896" }).unwrap_or(text)),
     };
     let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
     Pal {
@@ -486,10 +493,30 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
         del_word_text: if dark { text } else { ramp("red-1200", text) },
         add_bar: if dark { ramp("green-400", add) } else { ramp("green-900", add) },
         del_bar: if dark { ramp("red-500", del) } else { ramp("red-800", del) },
-        separator: bg.mix(mixer, if dark { 0.05 } else { 0.02 }),
+        separator: mix_lab(bg, mixer, if dark { 0.05 } else { 0.02 }),
     }
 }
 
+/// `t` of the way from `a` to `b` in CIE Lab, as CSS `color-mix(in lab, a, b t)` mixes:
+/// session-ui's `--diffs-bg-separator-override`.
+fn mix_lab(a: Color, b: Color, t: f32) -> Color {
+    const M: [[f32; 3]; 3] = [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]];
+    const INV: [[f32; 3]; 3] = [[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]];
+    const WHITE: [f32; 3] = [0.9505, 1.0, 1.089];
+    let f = |v: f32| if v > 0.008856 { v.cbrt() } else { 7.787 * v + 16.0 / 116.0 };
+    let finv = |v: f32| if v.powi(3) > 0.008856 { v.powi(3) } else { (v - 16.0 / 116.0) / 7.787 };
+    let lab = |c: Color| {
+        let xyz = M.map(|r| r[0] * c.r + r[1] * c.g + r[2] * c.b);
+        let [x, y, z] = [0, 1, 2].map(|i| f(xyz[i] / WHITE[i]));
+        [116.0 * y - 16.0, 500.0 * (x - y), 200.0 * (y - z)]
+    };
+    let (la, lb) = (lab(a), lab(b));
+    let [l, aa, bb] = [0, 1, 2].map(|i| la[i] + (lb[i] - la[i]) * t);
+    let y = (l + 16.0) / 116.0;
+    let xyz = [finv(y + aa / 500.0) * WHITE[0], finv(y) * WHITE[1], finv(y - bb / 200.0) * WHITE[2]];
+    let [r, g, b2] = INV.map(|r| (r[0] * xyz[0] + r[1] * xyz[1] + r[2] * xyz[2]).clamp(0.0, 1.0));
+    Color { r, g, b: b2, a: a.a + (b.a - a.a) * t }
+}
 /// The tokens for an appearance in this thread's theme (`themes::active`), built once each.
 pub fn pal(dark: bool) -> &'static Pal {
     static PALS: [[OnceLock<Pal>; 2]; 2] = [const { [const { OnceLock::new() }; 2] }; 2];

@@ -10,7 +10,7 @@ use rune::{El, col, el, icon, row, text};
 use rune_kit::diff::{FileDiff, parse};
 use serde_json::Value;
 
-use super::{Call, Ctx, Display, Press, Trigger, field, path, still, sub_key, trigger};
+use super::{Call, Ctx, Display, Press, TEXT_CONTEXT, Trigger, field, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{INSTANT, UI, UI_MED, readable};
@@ -44,8 +44,8 @@ enum Source<'a> {
 impl Source<'_> {
     fn diff(&self, path: &str) -> FileDiff {
         match self {
-            Source::Patch(p) => parse(p).into_iter().next().unwrap_or_else(|| FileDiff::from_texts(path, "", "")),
-            Source::Texts(old, new) => FileDiff::from_texts(path, old, new),
+            Source::Patch(p) => parse(p).into_iter().next().unwrap_or_else(|| FileDiff::from_texts_with_context(path, "", "", TEXT_CONTEXT)),
+            Source::Texts(old, new) => FileDiff::from_texts_with_context(path, old, new, TEXT_CONTEXT),
         }
     }
 
@@ -96,7 +96,7 @@ impl Item<'_> {
             return None;
         }
         let contents: Vec<(String, String)> = self.entries.iter().map(|e| e.source.contents()).collect::<Option<_>>()?;
-        contents.windows(2).all(|w| w[0].1 == w[1].0).then(|| FileDiff::from_texts(self.path, &contents[0].0, &contents[contents.len() - 1].1))
+        contents.windows(2).all(|w| w[0].1 == w[1].0).then(|| FileDiff::from_texts_with_context(self.path, &contents[0].0, &contents[contents.len() - 1].1, TEXT_CONTEXT))
     }
 
     fn counts(&self) -> (usize, usize) {
@@ -125,7 +125,7 @@ fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
     match c.name {
         "edit" | "multiedit" => {
             let (Some(old), Some(new)) = (c.input["oldString"].as_str(), c.input["newString"].as_str()) else { return Vec::new() };
-            let fd = FileDiff::from_texts(path, old, new);
+            let fd = FileDiff::from_texts_with_context(path, old, new, TEXT_CONTEXT);
             let (a, d) = (fd.additions(), fd.deletions());
             if a + d == 0 { Vec::new() } else { vec![entry(Source::Texts(old, new), a, d)] }
         }

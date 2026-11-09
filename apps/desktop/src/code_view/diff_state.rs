@@ -5,22 +5,14 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rune_kit::diff::{
-    DiffMode, EXPAND_STEP, Expand, FileDiff, Hunk, LineKind, LineRange, Side,
-};
+use rune_kit::diff::{DiffMode, Expand, FileDiff, Hunk, LineKind, LineRange, Side};
 use rune_kit::syntax::Paint;
 
+use super::fold::{ExpandMode, Fold, FoldEffect, FoldEvent, GapFacts, Reveal};
 use super::{
     CHUNK_LINES, ChunkMap, GAP_H, HEADER_H, HighlightChunk, LINE_H, NOTE_H, SourceLines,
     lang_for_path, visual_columns,
 };
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ExpandMode {
-    #[default]
-    Collapse,
-    Expand,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DiffRow {
@@ -55,7 +47,8 @@ pub(crate) struct GapSpan {
 #[derive(Clone, Debug, Default)]
 struct FileUi {
     collapsed: bool,
-    revealed: Vec<(u32, u32)>,
+    /// Each unchanged range's fold, by range (before each hunk, then after the last).
+    folds: Vec<Fold>,
 }
 
 fn hunk_first(h: &Hunk, side: Side) -> u32 {
@@ -193,7 +186,7 @@ impl DiffDocState {
     pub fn set_files(&mut self, files: Vec<FileDiff>) {
         self.ui = files
             .iter()
-            .map(|f| FileUi { collapsed: false, revealed: vec![(0, 0); f.hunks.len() + 1] })
+            .map(|f| FileUi { collapsed: false, folds: vec![Fold::Folded { top: 0, bottom: 0 }; f.hunks.len() + 1] })
             .collect();
         self.side_lines = files
             .iter()
@@ -220,14 +213,19 @@ impl DiffDocState {
         }
         self.files = files;
         self.recompute_metrics();
+        for f in 0..self.files.len() {
+            for gap in 0..self.gaps[f].len() {
+                self.ui[f].folds[gap] = Fold::initial(self.gap_facts(f, gap));
+            }
+        }
+        if let (_, Some(event)) = ExpandMode::Collapse.step(self.expand_mode) {
+            self.step_file_folds(None, event);
+        }
         self.selection = None;
         self.chunks.borrow_mut().clear();
         self.visible = 0;
         self.reported = None;
         self.visible_rows = 0..0;
-        if self.expand_mode == ExpandMode::Expand {
-            self.expand_all_loaded_inner();
-        }
         self.rebuild();
     }
 
@@ -240,14 +238,12 @@ impl DiffDocState {
         self.digits = self
             .files
             .iter()
-            .enumerate()
-            .map(|(i, f)| {
+            .map(|f| {
                 let last_hunk = f
                     .hunks
                     .last()
                     .map_or(1, |h| hunk_end(h, Side::Old).max(hunk_end(h, Side::New)));
                 let last_full = self.full_texts.get(f.path()).map_or(0, SourceLines::len);
-                let _ = i;
                 (last_hunk.max(last_full).max(1).ilog10() + 1).max(3)
             })
             .collect();
@@ -261,35 +257,54 @@ impl DiffDocState {
             .unwrap_or(0);
         let full_cols = self.full_texts.values().map(SourceLines::columns).max().unwrap_or(0);
         self.columns = hunk_cols.max(full_cols);
-        self.reveal_short_gaps();
     }
 
-    /// An unchanged range of one line shows rather than folds, as Pierre's default
-    /// `collapsedContextThreshold` of 1 has it in Desktop's review.
-    fn reveal_short_gaps(&mut self) {
-        for f in 0..self.files.len() {
-            if !self.has_full_text(f) {
-                continue;
-            }
-            for (gap, g) in self.gaps[f].iter().enumerate() {
-                if g.len == Some(1) {
-                    self.ui[f].revealed[gap] = (1, 0);
-                }
+    /// What range `gap` of file `f`'s transitions read.
+    fn gap_facts(&self, f: usize, gap: usize) -> GapFacts {
+        GapFacts {
+            len: self.gaps[f][gap].len,
+            has_text: self.has_full_text(f),
+            first: gap == 0,
+            last: gap + 1 == self.gaps[f].len(),
+        }
+    }
+
+    /// Steps every range of file `only` (every file's when `None`) with `event`.
+    fn step_file_folds(&mut self, only: Option<usize>, event: FoldEvent) {
+        for f in (0..self.files.len()).filter(|&f| only.is_none_or(|o| o == f)) {
+            for gap in 0..self.gaps[f].len() {
+                let facts = self.gap_facts(f, gap);
+                // Only a range's own reveal asks for text; these events never do.
+                self.ui[f].folds[gap] = self.ui[f].folds[gap].step(event, facts).0;
             }
         }
     }
 
-    /// Attaches full file contents for `path` so unchanged gaps can be expanded on demand.
+    /// Attaches full file contents for `path`: every range of that file waiting on it opens as
+    /// it was asked to, and under "Show all lines" the rest open too.
     pub fn attach_file_text(&mut self, path: &str, text: &str) -> bool {
         let src = SourceLines::new(text);
         self.full_texts.insert(path.to_owned(), src);
         self.recompute_metrics();
         self.chunks.borrow_mut().clear();
-        if self.expand_mode == ExpandMode::Expand {
-            self.expand_all_loaded_inner();
+        let of_path: Vec<usize> = (0..self.files.len()).filter(|&f| self.files[f].path() == path).collect();
+        for f in of_path {
+            self.step_file_folds(Some(f), FoldEvent::TextArrived);
+            if self.expand_mode == ExpandMode::Expand {
+                self.step_file_folds(Some(f), FoldEvent::Unfold);
+            }
         }
         self.rebuild();
         true
+    }
+
+    /// The text of `path` can't be had: ranges waiting on it fold again.
+    pub fn text_failed(&mut self, path: &str) {
+        let of_path: Vec<usize> = (0..self.files.len()).filter(|&f| self.files[f].path() == path).collect();
+        for f in of_path {
+            self.step_file_folds(Some(f), FoldEvent::TextFailed);
+        }
+        self.rebuild();
     }
 
     pub fn has_full_text(&self, file: usize) -> bool {
@@ -338,34 +353,11 @@ impl DiffDocState {
     }
 
     pub fn set_expand_mode(&mut self, mode: ExpandMode) {
-        if self.expand_mode == mode {
-            return;
-        }
-        self.expand_mode = mode;
-        match mode {
-            ExpandMode::Collapse => {
-                for u in &mut self.ui {
-                    for r in &mut u.revealed {
-                        *r = (0, 0);
-                    }
-                }
-                self.reveal_short_gaps();
-            }
-            ExpandMode::Expand => self.expand_all_loaded_inner(),
-        }
-        self.rebuild();
-    }
-
-    fn expand_all_loaded_inner(&mut self) {
-        for f in 0..self.files.len() {
-            if !self.has_full_text(f) {
-                continue;
-            }
-            for gap in 0..self.gaps[f].len() {
-                if let Some(len) = self.gaps[f][gap].len {
-                    self.ui[f].revealed[gap] = (len, 0);
-                }
-            }
+        let (next, event) = self.expand_mode.step(mode);
+        self.expand_mode = next;
+        if let Some(event) = event {
+            self.step_file_folds(None, event);
+            self.rebuild();
         }
     }
 
@@ -402,34 +394,30 @@ impl DiffDocState {
 
     pub fn hidden(&self, file: usize, gap: usize) -> Option<u32> {
         let g = self.gaps.get(file)?.get(gap)?;
-        let (top, bottom) = self.ui[file].revealed[gap];
-        g.len.map(|n| n.saturating_sub(top + bottom))
+        self.ui[file].folds[gap].hidden(g.len)
     }
 
+    /// Range `gap` of `file`'s fold.
+    pub fn fold(&self, file: usize, gap: usize) -> Option<Fold> {
+        self.ui.get(file)?.folds.get(gap).copied()
+    }
+
+    /// Opens range `gap` of `file` as a separator does. Asks the app to load the file's text
+    /// (`FetchText`) when it has to wait for it; the range shows as expanding until
+    /// [`Self::attach_file_text`] or [`Self::text_failed`].
+    pub fn reveal(&mut self, file: usize, gap: usize, how: Reveal) -> Option<FoldEffect> {
+        let fold = self.fold(file, gap)?;
+        let (next, effect) = fold.step(FoldEvent::Reveal(how), self.gap_facts(file, gap));
+        if next != fold {
+            self.ui[file].folds[gap] = next;
+            self.rebuild();
+        }
+        effect
+    }
+
+    /// Opens `gap` of `file` by `how`, when the file's text is loaded.
     pub fn expand(&mut self, file: usize, gap: usize, how: Expand) -> bool {
-        if !self.has_full_text(file) {
-            return false;
-        }
-        let Some(hidden) = self.hidden(file, gap) else { return false };
-        if hidden == 0 {
-            return true;
-        }
-        let last = gap == self.files[file].hunks.len();
-        let r = &mut self.ui[file].revealed[gap];
-        match how {
-            Expand::All => r.0 += hidden,
-            Expand::Up if gap > 0 || last => {
-                if last {
-                    r.0 += hidden.min(EXPAND_STEP);
-                } else {
-                    r.1 += hidden.min(EXPAND_STEP);
-                }
-            }
-            Expand::Up => r.1 += hidden.min(EXPAND_STEP),
-            Expand::Down => r.0 += hidden.min(EXPAND_STEP),
-        }
-        self.rebuild();
-        true
+        self.has_full_text(file) && self.reveal(file, gap, Reveal::Step(how)).is_none()
     }
 
     pub fn digits(&self, file: usize) -> u32 {
@@ -576,7 +564,7 @@ impl DiffDocState {
             }
             for gap in 0..=file.hunks.len() {
                 let g = self.gaps[f][gap];
-                let (top, bottom) = self.ui[f].revealed[gap];
+                let (top, bottom) = self.ui[f].folds[gap].shown(g.len);
                 let ctx = |k: u32| DiffRow::Ctx { f: fu, old: g.old + k, new: g.new + k };
                 rows.extend((0..top).map(ctx));
                 let hidden = g.len.map(|n| n.saturating_sub(top + bottom));

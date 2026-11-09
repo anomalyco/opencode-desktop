@@ -9,7 +9,7 @@ use rune::{
 };
 
 use super::file_state::CodeDocState;
-use super::{CODE_PAD, CodeLook, EDGE_FADE, LINE_H, expand_tabs, layer_spans};
+use super::{CODE_PAD, CodeLook, EDGE_FADE, LINE_H, expand_tabs, lang_for_path};
 use crate::palette::Pal;
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -187,11 +187,7 @@ impl<S: 'static> Inner<S> {
         }
 
         let raw = st.line(n).unwrap_or("");
-        let syntax: Vec<(Range<usize>, Color)> = st
-            .highlights(n)
-            .into_iter()
-            .map(|(r, p)| (r, l.syntax.paint(p)))
-            .collect();
+
         let match_bgs: Vec<(Range<usize>, Color)> = st
             .line_matches(n)
             .iter()
@@ -199,11 +195,11 @@ impl<S: 'static> Inner<S> {
                 (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
             })
             .collect();
-        let spans = layer_spans(raw.len(), &syntax, &match_bgs);
+        let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs);
         let (shown, spans) = expand_tabs(raw, spans);
         let mut code_txt = rich(shown, spans)
             .font(l.mono)
-            .color(l.text)
+            .color(l.ink(lang_for_path(st.path())))
             .selectable(true)
             .selection_color(l.selection)
             .key("text");

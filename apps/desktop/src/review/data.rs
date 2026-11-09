@@ -129,9 +129,7 @@ pub fn parse_diff_entry(v: &Value) -> Option<FileDiff> {
     let status_str = v["status"].as_str().unwrap_or("modified");
     let patch = v["patch"].as_str().unwrap_or("");
     let trimmed = patch.trim_start();
-    let parsed = if trimmed.starts_with("diff --git ") || trimmed.starts_with("--- ") {
-        parse(patch).into_iter().next()
-    } else if trimmed.starts_with("@@ ") {
+    let parsed = if trimmed.starts_with("@@ ") {
         let old_hdr = if status_str == "added" {
             "/dev/null".to_owned()
         } else {
@@ -145,7 +143,9 @@ pub fn parse_diff_entry(v: &Value) -> Option<FileDiff> {
         let full = format!("--- {old_hdr}\n+++ {new_hdr}\n{patch}");
         parse(&full).into_iter().next()
     } else {
-        None
+        // Any file header rune-kit reads: git's, or the `Index:` and `===` lines jsdiff writes
+        // before its `---`/`+++` (the server's hg and capped patches, a tool's edit).
+        parse(patch).into_iter().next()
     };
 
     if let Some(mut fd) = parsed {

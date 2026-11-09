@@ -132,7 +132,8 @@ fn markdown_code_diffs_and_the_odometer_share_one_kit_that_follows_the_theme() {
     assert_eq!(dracula.4, desktop("dracula", "dark", "syntax-keyword"));
     let p = srgb_pal(true);
     let before = rune::theme::with_blend(true, || rune_kit::syntax::SyntaxTheme::from_kit(rune_theme_opencode::kit(true)));
-    assert_eq!(format!("{:?}", crate::code_view::CodeLook::new(&p).syntax), format!("{before:?}"), "the default's code keeps its colours");
+    let desktop_code = p.syntax.syntax(before, p.diff_add, p.diff_del);
+    assert_eq!(format!("{:?}", crate::code_view::CodeLook::new(&p).syntax), format!("{desktop_code:?}"), "the default's code takes Desktop's syntax tokens");
 }
 
 /// `app` in a window with the app's own fonts and families, as it launches.

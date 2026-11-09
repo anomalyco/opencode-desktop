@@ -6,7 +6,7 @@ use rune::{
     Anim, Color, Cursor, Drag, El, GrowthSpec, Icon, Phase, ScrollSpec, TextEdit, TextStyle, Tx,
     col, el, icon, row, text,
 };
-use rune_kit::diff::{DiffMode, Expand, FileStatus};
+use rune_kit::diff::{DiffMode, FileStatus};
 use rune_theme_opencode::tree_icons;
 use rune_theme_opencode::icons as ic;
 
@@ -662,9 +662,7 @@ fn review_main(
                 r.tree.select(&path);
             }
         })
-        .on_request_expand(|s: &mut App, f: usize, gap: usize, how: Expand| {
-            s.request_review_gap_expand(f, gap, how);
-        })
+        .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))
         .build(s, p)
     };
 

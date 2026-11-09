@@ -42,7 +42,7 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
                 _ => (None, p.faint, None, l.new, &paint.new),
             };
             let at = paint.at[li];
-            let mut spans = theme.spans(&side.within(at..at + l.text.len()), 0);
+            let mut spans = spans(&theme, &side.within(at..at + l.text.len()));
             if let Some(word) = match l.kind {
                 LineKind::Added => Some((p.diff.add_word, p.diff.add_word_text)),
                 LineKind::Removed => Some((p.diff.del_word, p.diff.del_word_text)),
@@ -60,7 +60,7 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
                     row().key("n").w(numbers).h(ROW).justify_end().center_y()
                         .child(text(number.map(|n| n.to_string()).unwrap_or_default()).font(font).color(ink)),
                 )
-                .child(readable(p, text(shown).font(font).color(p.text).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch));
+                .child(readable(p, text(shown).font(font).color(plain_ink(p, lang.as_deref())).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch));
             if let Some(f) = fill {
                 line = line.fill(f);
             }
@@ -73,15 +73,33 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
     out
 }
 
-/// The theme a file's code colours by: the timeline's code theme where it has one.
+/// The theme a file's code colours by: Desktop's `syntax-*` tokens in every theme, as Pierre's
+/// `OpenCodeTheme` paints them.
 fn syntax(p: &Pal) -> SyntaxTheme {
-    let base = SyntaxTheme::from_kit(crate::palette::kit(p));
-    match p.code {
-        Some(code) => code.syntax(base, p.diff_add, p.diff_del),
-        None => base,
+    p.syntax.syntax(SyntaxTheme::from_kit(crate::palette::kit(p)), p.diff_add, p.diff_del)
+}
+
+/// The colour of code no token colours: Desktop's `editor.foreground` (the v1 `text-base`) in
+/// Markdown and in text no scanner knows; in code, the text colour stands in for the
+/// `syntax-variable` Desktop gives the names rune-kit's scanners leave unmarked.
+fn plain_ink(p: &Pal, lang: Option<&str>) -> rune::Color {
+    match lang.filter(|l| rune_kit::syntax::known(l)) {
+        None => p.syntax.parameter,
+        Some(l) if matches!(l.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdx") => p.syntax.parameter,
+        Some(_) => p.text,
     }
 }
 
+/// `highlights` as colour spans, a Markdown heading in bold (Desktop's `title`, weight 700).
+fn spans(theme: &SyntaxTheme, highlights: &[Highlight]) -> Vec<Span> {
+    let mut spans = theme.spans(highlights, 0);
+    for (sp, (_, paint)) in spans.iter_mut().zip(highlights) {
+        if *paint == rune_kit::syntax::Paint::Kind(rune_kit::syntax::Syntax::Heading) {
+            sp.weight = Some(700.0);
+        }
+    }
+    spans
+}
 /// The highlighter's name for `fd`'s language: its extension, or `sh` for a Makefile or
 /// Dockerfile, which the shell scanner colours best.
 fn language(fd: &FileDiff) -> Option<String> {
@@ -150,13 +168,13 @@ pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize) -> El {
     let mut out = col().key("code").w_full().py(4.0).fill(p.code_bg);
     let mut at = 0;
     for (n, l) in content.split('\n').enumerate() {
-        let spans = theme.spans(&paint.within(at..at + l.len()), 0);
+        let spans = spans(&theme, &paint.within(at..at + l.len()));
         at += l.len() + 1;
         let (shown, spans) = expand_tabs(l, spans);
         out = out.child(
             row().key(format!("l-{n}")).w_full().min_h(ROW).items_start()
                 .child(row().key("n").w(numbers).h(ROW).justify_end().center_y().child(text((n + 1).to_string()).font(font).color(p.faint)))
-                .child(readable(p, text(shown).font(font).color(p.text).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch)),
+                .child(readable(p, text(shown).font(font).color(plain_ink(p, lang)).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch)),
         );
     }
     out

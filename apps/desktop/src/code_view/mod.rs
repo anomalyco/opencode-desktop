@@ -9,6 +9,7 @@ pub mod diff_state;
 pub mod diff_view;
 pub mod file_state;
 pub mod file_view;
+pub mod fold;
 #[cfg(test)]
 mod edge_fade_tests;
 #[cfg(test)]
@@ -20,18 +21,20 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rune::{Color, Span, TextStyle};
-use rune_kit::syntax::{Highlight, SyntaxTheme, highlight};
+use rune_kit::syntax::{Highlight, Paint, Syntax, SyntaxTheme, highlight};
 
 use crate::palette::Pal;
 
-pub use diff_state::{DiffDocState, ExpandMode};
+pub use diff_state::DiffDocState;
 pub use diff_view::DiffViewer;
 pub use file_state::{CodeDocState, FileLineSelection};
 pub use file_view::CodeViewer;
+pub use fold::{ExpandMode, Fold, FoldEffect, FoldEvent, Reveal};
 
 pub const LINE_H: f32 = 20.0;
 pub const HEADER_H: f32 = 38.0;
-pub const GAP_H: f32 = 28.0;
+/// Desktop's fold separator row (session-ui `[data-separator] { height: 24px }`).
+pub const GAP_H: f32 = 24.0;
 pub const NOTE_H: f32 = 36.0;
 pub const BAR_W: f32 = 3.0;
 pub const CODE_PAD: (f32, f32) = (10.0, 20.0);
@@ -60,6 +63,9 @@ pub struct CodeLook {
     pub bg: Color,
     pub header_bg: Color,
     pub text: Color,
+    /// Code no token colours (Pierre's `editor.foreground`, the v1 `text-base`): a Markdown or
+    /// plain text file's words, and a fold separator's button under the pointer.
+    pub plain: Color,
     pub muted: Color,
     pub faint: Color,
     pub border: Color,
@@ -119,6 +125,7 @@ impl CodeLook {
             bg,
             header_bg: p.layer1,
             text: p.text,
+            plain: p.syntax.parameter,
             muted: p.muted,
             faint: p.faint,
             border: p.border,
@@ -134,10 +141,9 @@ impl CodeLook {
             match_bg: tint(bg, p.warning, if dark { 0.28 } else { 0.22 }),
             active_match_bg: tint(bg, p.warning, if dark { 0.48 } else { 0.38 }),
             accent: p.info,
-            syntax: match p.code {
-                Some(code) => code.syntax(SyntaxTheme::from_kit(kit), p.diff_add, p.diff_del),
-                None => SyntaxTheme::from_kit(kit),
-            },
+            // Desktop colours code with its own theme's `syntax-*` tokens in every theme
+            // (`OpenCodeTheme`), the default's included.
+            syntax: p.syntax.syntax(SyntaxTheme::from_kit(kit), p.diff_add, p.diff_del),
             version: h.finish(),
         }
     }
@@ -147,6 +153,30 @@ impl CodeLook {
     }
 }
 
+impl CodeLook {
+    /// The colour of code no token colours in `lang`: Desktop draws it in `editor.foreground`
+    /// (`plain`), and for languages whose scanner leaves names unmarked (Desktop colours them
+    /// `syntax-variable`) the text colour stands in for that.
+    pub fn ink(&self, lang: Option<&str>) -> Color {
+        match lang {
+            None | Some("md") => self.plain,
+            Some(_) => self.text,
+        }
+    }
+
+    /// `highlights` coloured, with `bgs` (word changes, find matches) under them: a Markdown
+    /// heading in Desktop's bold mono (its highlight theme's `title`, weight 700).
+    pub fn spans(&self, len: usize, highlights: &[(Range<usize>, Paint)], bgs: &[(Range<usize>, Color)]) -> Vec<Span> {
+        let syntax: Vec<(Range<usize>, Color)> = highlights.iter().map(|(r, p)| (r.clone(), self.syntax.paint(*p))).collect();
+        let mut spans = layer_spans(len, &syntax, bgs);
+        for (r, _) in highlights.iter().filter(|(_, p)| *p == Paint::Kind(Syntax::Heading)) {
+            for sp in spans.iter_mut().filter(|sp| r.start <= sp.start as usize && sp.end as usize <= r.end) {
+                sp.weight = Some(700.0);
+            }
+        }
+        spans
+    }
+}
 /// Maps a file path to a `rune_kit::syntax` language tag, when supported.
 pub fn lang_for_path(path: &str) -> Option<&'static str> {
     let name = opencode_kit::path::basename(path);
@@ -169,6 +199,8 @@ pub fn lang_for_path(path: &str) -> Option<&'static str> {
         "html" | "htm" | "xhtml" | "xml" | "svg" => "html",
         "css" | "scss" => "css",
         "yaml" | "yml" => "yaml",
+        "toml" => "toml",
+        "md" | "markdown" | "mdx" => "md",
         "diff" | "patch" => "diff",
         _ => return None,
     })

@@ -1398,8 +1398,10 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         scenes: stories::scenes(),
         fonts: &[
             include_bytes!("../assets/fonts/InterVariable.ttf"),
-            // Desktop sets every IBM Plex Mono weight below 600 in its Text cut (`index.css`).
+            // Desktop sets every IBM Plex Mono weight below 600 in its Text cut and the rest in its
+            // Bold cut (`index.css`), which a Markdown heading in a diff takes.
             include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
+            include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
             include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
             include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
             include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),

@@ -88,10 +88,11 @@ fn setup_review(s: &mut App, _play: &mut Play<'_, App>) {
 pub fn init_inline(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
-    let mut inline = DiffDocState::inline(FileDiff::from_texts(
+    let mut inline = DiffDocState::inline(FileDiff::from_texts_with_context(
         "src/net/stream.ts",
         "export function watchdog(stream: EventStream, reconnect: () => void) {\n  stream.on(\"error\", reconnect)\n}\n",
         "const QUIET_MS = 25_000\n\nexport function watchdog(stream: EventStream, reconnect: () => void) {\n  let timer = setTimeout(fire, QUIET_MS)\n  function fire() {\n    stream.close()\n    reconnect()\n  }\n  stream.on(\"message\", () => {\n    clearTimeout(timer)\n    timer = setTimeout(fire, QUIET_MS)\n  })\n}\n",
+        session_view::tools::TEXT_CONTEXT,
     ));
     inline.set_mode(if s.variant == 1 { DiffMode::Split } else { DiffMode::Unified });
     s.review.empty_diffs = inline;

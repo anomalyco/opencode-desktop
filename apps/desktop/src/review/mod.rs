@@ -11,12 +11,12 @@ pub mod view;
 use std::collections::HashMap;
 
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
-use rune_kit::diff::{DiffMode, Expand};
+use rune_kit::diff::DiffMode;
 use rune_kit::{FileNode, TreeModel};
 use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
-use crate::code_view::{DiffDocState, ExpandMode};
+use crate::code_view::{DiffDocState, ExpandMode, FoldEvent};
 use crate::panels::{PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane};
 use crate::{App, Route, Source};
 use data::{
@@ -68,7 +68,6 @@ pub struct SessionReview {
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     pub loaded_revision: Option<(ChangeMode, u64)>,
-    pub pending_expand: Option<(usize, usize, Expand)>,
     /// A tool step's change to scroll to once the diffs load (`tool_open`).
     pub pending_focus: Option<(String, Option<crate::tool_open::Anchor>)>,
     /// The narrow window's Changes view: its open files (`mobile`).
@@ -89,7 +88,6 @@ impl Default for SessionReview {
             branch_current: None,
             branch_default: None,
             loaded_revision: None,
-            pending_expand: None,
             pending_focus: None,
             narrow: mobile::NarrowReview::default(),
         }
@@ -249,17 +247,18 @@ fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
         s.apply_pending_review_focus(&sid, tx);
         changed = true;
     }
-    if let Some((session_id, path, content)) = s.review.file_fetch.take() {
-        if let Some(text) = content
-            && let Some(sr) = s.review.sessions.get_mut(&session_id)
-        {
-            tx.instant();
-            sr.diffs.attach_file_text(&path, &text);
-            if let Some((f, gap, how)) = sr.pending_expand.take() {
-                let _ = sr.diffs.expand(f, gap, how);
+    if let Some((session_id, path, content)) = s.review.file_fetch.take()
+        && let Some(sr) = s.review.sessions.get_mut(&session_id)
+    {
+        tx.instant();
+        // The ranges waiting on this file's text open as asked, or fold again without it.
+        match content {
+            Some(text) => {
+                sr.diffs.attach_file_text(&path, &text);
             }
-            changed = true;
+            None => sr.diffs.text_failed(&path),
         }
+        changed = true;
     }
     if s.review.dirty {
         s.review.dirty = false;
@@ -536,17 +535,16 @@ impl App {
     }
 
     pub fn set_review_expand_mode(&mut self, mode: ExpandMode) {
-        if self.review.expand_mode == mode {
-            return;
-        }
-        self.review.expand_mode = mode;
-        if mode == ExpandMode::Expand
+        let (next, event) = self.review.expand_mode.step(mode);
+        self.review.expand_mode = next;
+        let Some(event) = event else { return };
+        if event == FoldEvent::Unfold
             && let Some(sid) = self.active_session_id().map(str::to_owned)
         {
             self.request_missing_review_texts(&sid);
         }
         for sr in self.review.sessions.values_mut() {
-            sr.diffs.set_expand_mode(mode);
+            sr.diffs.set_expand_mode(next);
         }
     }
 
@@ -572,29 +570,29 @@ impl App {
         }
     }
 
-    pub fn request_review_gap_expand(&mut self, f: usize, gap: usize, how: Expand) {
+    /// Loads the whole text of file `f` of the active session's review, which a fold waits on
+    /// (`FoldEffect::FetchText`); without a server to ask, the fold gives up at once.
+    pub fn request_review_file_text(&mut self, f: usize) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        let path = {
-            let Some(sr) = self.review.sessions.get_mut(&sid) else { return };
-            let Some(fd) = sr.diffs.files().get(f) else { return };
-            sr.pending_expand = Some((f, gap, how));
-            fd.path().to_owned()
+        let Some(path) = self.review.sessions.get(&sid).and_then(|sr| sr.diffs.files().get(f)).map(|fd| fd.path().to_owned()) else { return };
+        let Source::Live { server, .. } = &self.source else {
+            if let Some(sr) = self.review.sessions.get_mut(&sid) {
+                sr.diffs.text_failed(&path);
+            }
+            return;
         };
-        if let Source::Live { server, .. } = &self.source {
-            let directory = self
-                .session(&sid)
-                .map(|i| i.directory.clone())
-                .unwrap_or_default();
-            let srv = server.clone();
-            self.review
-                .file_fetch
-                .request((sid, directory, path), move |(sid, dir, path)| {
-                    let content = fetch_live_file_text(&srv, &dir, &path);
-                    (sid, path, content)
-                });
-        }
+        let directory = self
+            .session(&sid)
+            .map(|i| i.directory.clone())
+            .unwrap_or_default();
+        let srv = server.clone();
+        self.review
+            .file_fetch
+            .request((sid, directory, path), move |(sid, dir, path)| {
+                let content = fetch_live_file_text(&srv, &dir, &path);
+                (sid, path, content)
+            });
     }
-
     pub fn submit_review_filter(&mut self, tx: &mut Tx) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         let query = self.review.filter.text.clone();

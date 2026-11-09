@@ -5,37 +5,45 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Icon, Phase, ScrollSpec, Tx, col, el, icon, memo,
-    rich, row, text,
+    Anim, Color, Cursor, Drag, El, GrowthSpec, Icon, Phase, ScrollSpec, Span, Tx, col, el, icon,
+    memo, rich, row, text,
 };
 use rune_kit::diff::{
     DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side,
 };
 
 use super::diff_state::{DiffDocState, DiffRow};
+use super::fold::{FoldEffect, Reveal};
 use super::{
     BAR_W, CODE_PAD, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
-    layer_spans,
+    lang_for_path,
 };
 use crate::palette::Pal;
 
 const INSTANT: Anim = Anim::INSTANT;
 
+// Pierre's separator glyphs (`diffs-icon-expand`, `diffs-icon-expand-all`). Its "up" button
+// shows the chevron as drawn, pointing down into the lines it opens; its "down" button flips it
+// (`[data-expand-down] [data-icon] { transform: scaleY(-1) }`).
 static EXPAND_UP: Icon = Icon {
     name: "oc-diff-expand-up",
     view: 16.0,
-    body: r#"<path d="M4.5 9.5L8 6L11.5 9.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+    body: r#"<path fill="currentColor" d="M3.47 5.47a.75.75 0 0 1 1.06 0L8 8.94l3.47-3.47a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 0-1.06"/>"#,
 };
 static EXPAND_DOWN: Icon = Icon {
     name: "oc-diff-expand-down",
     view: 16.0,
-    body: r#"<path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+    body: r#"<g transform="matrix(1 0 0 -1 0 16)"><path fill="currentColor" d="M3.47 5.47a.75.75 0 0 1 1.06 0L8 8.94l3.47-3.47a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 0-1.06"/></g>"#,
 };
 static EXPAND_ALL: Icon = Icon {
     name: "oc-diff-expand-all",
     view: 16.0,
-    body: r#"<path d="M5 5.5L8 2.5L11 5.5M5 10.5L8 13.5L11 10.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+    body: r#"<path fill="currentColor" d="M11.47 9.47a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 1 1 1.06-1.06L8 12.94zM7.526 1.418a.75.75 0 0 1 1.004.052l4 4a.75.75 0 1 1-1.06 1.06L8 3.06 4.53 6.53a.75.75 0 1 1-1.06-1.06l4-4z"/>"#,
 };
+/// The separator's "N unmodified lines": the page's sans at Pierre's 13 px on the 24 px row.
+const SEPARATOR_TEXT: rune::TextStyle = crate::view::UI.lh(GAP_H);
+/// Pierre's 2 px of diff background right of the buttons, and between two stacked ones.
+const SEPARATOR_GAP: f32 = 2.0;
 
 type Get<S> = Rc<dyn Fn(&S) -> &DiffDocState>;
 type GetMut<S> = Rc<dyn Fn(&mut S) -> &mut DiffDocState>;
@@ -47,7 +55,7 @@ pub struct DiffViewer<S> {
     get_mut: GetMut<S>,
     sticky_headers: bool,
     on_visible_file: Option<Rc<dyn Fn(&mut S, usize)>>,
-    on_request_expand: Option<Rc<dyn Fn(&mut S, usize, usize, Expand)>>,
+    on_fetch_text: Option<Rc<dyn Fn(&mut S, usize)>>,
     header_actions: Option<Rc<dyn Fn(&S, usize) -> El>>,
 }
 
@@ -63,7 +71,7 @@ impl<S: 'static> DiffViewer<S> {
             get_mut: Rc::new(get_mut),
             sticky_headers: true,
             on_visible_file: None,
-            on_request_expand: None,
+            on_fetch_text: None,
             header_actions: None,
         }
     }
@@ -78,11 +86,10 @@ impl<S: 'static> DiffViewer<S> {
         self
     }
 
-    pub fn on_request_expand(
-        mut self,
-        f: impl Fn(&mut S, usize, usize, Expand) + 'static,
-    ) -> Self {
-        self.on_request_expand = Some(Rc::new(f));
+    /// Called with a file whose whole text a fold waits for (`FoldEffect::FetchText`); the app
+    /// loads it into `DiffDocState::attach_file_text`, or `text_failed`.
+    pub fn on_fetch_text(mut self, f: impl Fn(&mut S, usize) + 'static) -> Self {
+        self.on_fetch_text = Some(Rc::new(f));
         self
     }
 
@@ -93,7 +100,10 @@ impl<S: 'static> DiffViewer<S> {
 
     pub fn build(self, s: &S, p: &Pal) -> El {
         let st = (self.get)(s);
-        let look = CodeLook::new(p);
+        let mut look = CodeLook::new(p);
+        // Desktop draws a diff's rows on `background-stronger` (session-ui's `--diffs-bg`), the
+        // panel's own background showing past the last of them.
+        look.bg = p.code_bg;
         let wrap = st.wraps();
         let root_key = self.key.clone();
         if !wrap && let Some(r) = rune::memo::layout(&format!("{root_key}/scroll")) {
@@ -141,7 +151,7 @@ impl<S: 'static> DiffViewer<S> {
             .w_full()
             .grow(1.0)
             .min_h(0.0)
-            .fill(inner.look.bg)
+            .fill(p.bg_base)
             .child(scroll);
         if sticky_on && let Some(f) = st.sticky() {
             root = root.child(
@@ -492,18 +502,14 @@ impl<S: 'static> Inner<S> {
     ) -> El {
         let l = &self.look;
         let (src_side, n) = c.source();
-        let syntax: Vec<(Range<usize>, Color)> = st
-            .highlights(f, src_side, n)
-            .into_iter()
-            .map(|(r, p)| (r, l.syntax.paint(p)))
-            .collect();
         let word_bgs: Vec<(Range<usize>, Color)> = match self.tints(c.kind) {
             Some(t) => c.changes.iter().cloned().map(|r| (r, t.word)).collect(),
             None => Vec::new(),
         };
-        let spans = layer_spans(c.text.len(), &syntax, &word_bgs);
+        let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs);
         let (shown, spans) = expand_tabs(c.text, spans);
-        let mut t = rich(shown, spans).font(l.mono).color(l.text).key("text");
+        let ink = l.ink(lang_for_path(st.files()[f].path()));
+        let mut t = rich(shown, spans).font(l.mono).color(ink).key("text");
         t = if st.wraps() { t.w_full() } else { t.single_line() };
         if copy {
             t = t.selectable(true).selection_color(l.selection);
@@ -536,106 +542,103 @@ impl<S: 'static> Inner<S> {
         code
     }
 
+    /// The unchanged lines between two hunks, folded, as Desktop's review draws them (Pierre's
+    /// `line-info-basic` separator on session-ui's 24 px row): buttons across the gutter, then
+    /// "N unmodified lines" in the page's sans where the code starts. A range of more than
+    /// twenty lines between hunks gets two half-height buttons, each opening twenty more lines at
+    /// its end; a shorter one gets one button that opens it all; the first and last ranges get
+    /// one button that opens toward their hunk. The count opens twenty lines at each end, and
+    /// Shift on a button opens the whole range.
     fn gap_row(&self, st: &DiffDocState, f: usize, gap: usize) -> El {
-        let l = &self.look;
-        let file = &st.files()[f];
+        let p = &self.pal;
         let hidden = st.hidden(f, gap).unwrap_or(0);
-        let last = gap == file.hunks.len();
-        let can_expand = st.has_full_text(f) || self.d.on_request_expand.is_some();
-        let mut buttons = Vec::new();
-        if can_expand && hidden > 0 {
-            let mut add = |how: Expand, glyph: &'static Icon, label: String| {
-                let get_mut = self.d.get_mut.clone();
-                let req = self.d.on_request_expand.clone();
-                buttons.push(
-                    row()
-                        .key(format!("{how:?}"))
-                        .size(22.0, 22.0)
-                        .center()
-                        .radius(5.0)
-                        .hover(l.hover)
-                        .hover_motion(INSTANT, INSTANT)
-                        .cursor(Cursor::Pointer)
-                        .role("button")
-                        .label(label)
-                        .child(icon(glyph, 14.0).color(l.muted))
-                        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-                            tx.instant();
-                            if !get_mut(s).expand(f, gap, how)
-                                && let Some(cb) = &req
-                            {
-                                cb(s, f, gap, how);
-                            }
-                        }),
-                );
-            };
-            let step = hidden.min(EXPAND_STEP);
-            if hidden <= EXPAND_STEP {
-                add(Expand::All, &EXPAND_ALL, opencode_i18n::t!("rune.diff.showHidden", count = hidden));
-            } else {
-                if gap > 0 {
-                    add(Expand::Down, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showBelow", count = step));
+        let (first, last) = (gap == 0, gap == st.files()[f].hunks.len());
+        let can_expand = hidden > 0 && (st.has_full_text(f) || self.d.on_fetch_text.is_some());
+        let fill = p.diff.separator;
+        let open = {
+            let (get_mut, fetch) = (self.d.get_mut.clone(), self.d.on_fetch_text.clone());
+            Rc::new(move |s: &mut S, how: Reveal| {
+                if get_mut(s).reveal(f, gap, how) == Some(FoldEffect::FetchText)
+                    && let Some(cb) = &fetch
+                {
+                    cb(s, f);
                 }
-                if !last {
-                    add(Expand::Up, &EXPAND_UP, opencode_i18n::t!("rune.diff.showAbove", count = step));
-                }
-            }
-        }
-        let btn_box = row()
-            .key("expand")
-            .w(self.gutter_w(st, f))
-            .h(GAP_H)
-            .center()
-            .gap(2.0)
-            .children(buttons);
-        let mut inner = row()
-            .key("inner")
-            .h(GAP_H)
-            .min_w(0.0)
-            .center_y()
-            .gap(10.0)
-            .pr(12.0)
-            .child(btn_box);
-        if let Some(w) = self.view_w(st) {
-            inner = inner.max_w(w).sticky_left(0.0);
-        }
-        if hidden > 0 {
-            // Pierre's separator text, which Desktop's review shows untranslated.
-            let count_lbl = if hidden == 1 {
-                "1 unmodified line".to_owned()
-            } else {
-                format!("{hidden} unmodified lines")
+            })
+        };
+        // Pierre's text, which Desktop's review shows untranslated.
+        let count = if hidden == 1 { "1 unmodified line".to_owned() } else { format!("{hidden} unmodified lines") };
+        let mut inner = row().key("inner").h(GAP_H).min_w(0.0);
+        if can_expand {
+            let steps: Vec<(Expand, &'static Icon, String)> = match (first, last) {
+                (true, _) => vec![(Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = hidden.min(EXPAND_STEP)))],
+                (_, true) => vec![(Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = hidden.min(EXPAND_STEP)))],
+                _ if hidden <= EXPAND_STEP => vec![(Expand::All, &EXPAND_ALL, opencode_i18n::t!("rune.diff.showHidden", count = hidden))],
+                _ => vec![
+                    (Expand::Down, &EXPAND_UP, opencode_i18n::t!("rune.diff.showBelow", count = EXPAND_STEP)),
+                    (Expand::Up, &EXPAND_DOWN, opencode_i18n::t!("rune.diff.showAbove", count = EXPAND_STEP)),
+                ],
             };
-            let count_el = text(count_lbl).font(l.mono_small).color(l.muted).key("count");
-            let count_wrap = if can_expand && hidden > EXPAND_STEP {
-                let get_mut = self.d.get_mut.clone();
-                let req = self.d.on_request_expand.clone();
+            let w = self.gutter_w(st, f) - SEPARATOR_GAP;
+            let h = if steps.len() == 2 { (GAP_H - SEPARATOR_GAP) / 2.0 } else { GAP_H };
+            let buttons = steps.into_iter().map(|(how, glyph, label)| {
+                let open = open.clone();
                 row()
-                    .key("all")
-                    .px(6.0)
-                    .h(22.0)
-                    .center_y()
-                    .radius(5.0)
-                    .hover(l.hover)
+                    .key(format!("{how:?}"))
+                    .w(w)
+                    .h(h)
+                    .fill(fill)
+                    .hover_group()
                     .hover_motion(INSTANT, INSTANT)
                     .cursor(Cursor::Pointer)
                     .role("button")
-                    .label(opencode_i18n::t!("rune.diff.showAll", count = hidden))
+                    .label(label)
+                    .child(icon(glyph, 16.0).color(p.faint).group_color(self.look.plain).absolute((w - 16.0) / 2.0, (h - 16.0) / 2.0))
                     .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                         tx.instant();
-                        if !get_mut(s).expand(f, gap, Expand::All)
-                            && let Some(cb) = &req
-                        {
-                            cb(s, f, gap, Expand::All);
-                        }
+                        open(s, Reveal::Step(if tx.mods().shift { Expand::All } else { how }));
                     })
-                    .child(count_el)
-            } else {
-                row().key("all").px(6.0).center_y().child(count_el)
-            };
-            inner = inner.child(count_wrap);
+            });
+            // The diff's background shows 2 px right of the buttons and between two of them.
+            inner = inner.child(col().key("expand").w(w + SEPARATOR_GAP).h(GAP_H).gap(SEPARATOR_GAP).fill(self.look.bg).children(buttons));
+            // Hovering anywhere over the count underlines it; only the words open the range.
+            let words = col()
+                .key("words")
+                .role("button")
+                .label(count.clone())
+                .cursor(Cursor::Pointer)
+                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                    tx.instant();
+                    open(s, Reveal::Around);
+                })
+                .child(text(count.clone()).key("count").font(SEPARATOR_TEXT).color(p.faint).group_opacity(1.0, 0.0))
+                .child(
+                    rich(count.clone(), vec![Span::new(0, count.len()).underline(p.faint)])
+                        .key("underlined")
+                        .font(SEPARATOR_TEXT)
+                        .color(p.faint)
+                        .group_opacity(0.0, 1.0)
+                        .absolute(0.0, 0.0),
+                );
+            inner = inner.child(
+                row()
+                    .key("content")
+                    .h(GAP_H)
+                    .px(CODE_PAD.0)
+                    .center_y()
+                    .hover_group()
+                    .hover_motion(INSTANT, INSTANT)
+                    .cursor(Cursor::Pointer)
+                    .child(words),
+            );
+        } else {
+            // With no way to open the range, the count starts 1ch into the gutter.
+            let ch = rune::text::measure("0", &[], SEPARATOR_TEXT, None).0;
+            inner = inner.child(row().key("content").h(GAP_H).px(ch).center_y().child(text(count.clone()).key("count").font(SEPARATOR_TEXT).color(p.faint)));
         }
-        row().w_full().h(GAP_H).center_y().fill(l.gap_bg).role("group").child(inner)
+        if let Some(w) = self.view_w(st) {
+            inner = inner.max_w(w).sticky_left(0.0);
+        }
+        row().w_full().h(GAP_H).fill(fill).role("group").label(count).child(inner)
     }
 
     fn note_row(&self, st: &DiffDocState, f: usize) -> El {

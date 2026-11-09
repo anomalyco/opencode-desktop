@@ -39,6 +39,11 @@ pub use files::{group as file_group, is_file_tool, shut_group};
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
 
+/// Unchanged lines around each change in a diff of two texts: jsdiff's default, which Desktop's
+/// text diffs keep (`createTwoFilesPatch`, Pierre's `parseDiffFromFile`), where `git diff` keeps
+/// three.
+pub const TEXT_CONTEXT: u32 = 4;
+
 /// A tool call, as its part has it.
 #[derive(Clone, Copy)]
 pub struct Call<'a> {
