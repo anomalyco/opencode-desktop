@@ -16,7 +16,6 @@ use super::diff_state::{DiffDocState, DiffRow};
 use super::fold::{FoldEffect, Reveal};
 use super::{
     BAR_W, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
-    lang_for_path,
 };
 use crate::palette::Pal;
 
@@ -507,7 +506,7 @@ impl<S: 'static> Inner<S> {
         };
         let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, tints.map(|t| (t.word, t.word_text)));
         let (shown, spans) = expand_tabs(c.text, spans);
-        let ink = l.ink(lang_for_path(st.files()[f].path()));
+        let ink = l.plain;
         let mut t = rich(shown, spans).font(l.mono).color(ink).key("text");
         // Pierre's `[data-overflow='wrap'] [data-line] { white-space: pre-wrap; word-break:
         // break-word }`: at spaces, inside a word only when it alone overflows.

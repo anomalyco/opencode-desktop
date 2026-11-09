@@ -97,6 +97,8 @@ const V1 = [
   "syntax-constant",
   "syntax-punctuation",
   "syntax-operator",
+  "syntax-regexp",
+  "syntax-info",
   "syntax-variable",
   "syntax-diff-add",
   "syntax-diff-delete",

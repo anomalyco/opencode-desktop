@@ -164,15 +164,6 @@ impl CodeLook {
 }
 
 impl CodeLook {
-    /// The colour of code no token colours in `lang`: Desktop draws it in `editor.foreground`
-    /// (`plain`), and for languages whose scanner leaves names unmarked (Desktop colours them
-    /// `syntax-variable`) the text colour stands in for that.
-    pub fn ink(&self, lang: Option<&str>) -> Color {
-        match lang {
-            None | Some("md") => self.plain,
-            Some(_) => self.text,
-        }
-    }
 
     /// `highlights` coloured, with `bgs` (word changes, find matches) under them: a Markdown
     /// heading in Desktop's bold mono (its highlight theme's `title`, weight 700). A changed
@@ -194,35 +185,11 @@ impl CodeLook {
         spans
     }
 }
-/// Maps a file path to a `rune_kit::syntax` language tag, when supported.
+/// The language Desktop's diffs and file views colour `path` as (Pierre's file-name map), when
+/// Highlights has a lexer for it.
 pub fn lang_for_path(path: &str) -> Option<&'static str> {
-    let name = opencode_kit::path::basename(path);
-    match name {
-        "Dockerfile" | "Makefile" | "Justfile" | ".zshrc" | ".bashrc" => return Some("sh"),
-        _ => {}
-    }
-    let (_, ext) = name.rsplit_once('.')?;
-    Some(match ext.to_ascii_lowercase().as_str() {
-        "rs" => "rs",
-        "ts" | "mts" | "cts" => "ts",
-        "tsx" => "tsx",
-        "js" | "mjs" | "cjs" | "jsx" => "js",
-        "json" | "jsonc" | "json5" => "json",
-        "py" | "pyi" => "py",
-        "go" => "go",
-        "swift" => "swift",
-        "sh" | "bash" | "zsh" => "sh",
-        "sql" => "sql",
-        "html" | "htm" | "xhtml" | "xml" | "svg" => "html",
-        "css" | "scss" => "css",
-        "yaml" | "yml" => "yaml",
-        "toml" => "toml",
-        "md" | "markdown" | "mdx" => "md",
-        "diff" | "patch" => "diff",
-        _ => return None,
-    })
+    rune_kit::syntax::lang_for_path(path)
 }
-
 /// Split source lines (`1`-based) with lazy 128-line `rune_kit::syntax` highlight chunks.
 #[derive(Clone, Debug, Default)]
 pub struct SourceLines {
@@ -295,17 +262,41 @@ pub struct HighlightChunk {
     hl: Rc<[Highlight]>,
 }
 
+/// Bytes of the lines before a chunk that its highlighting reads, so a comment or string opened
+/// above it keeps its colour, as Desktop colours a whole file at once. Within `rune_kit::syntax`'s
+/// 128 KiB, so every chunk of a file up to that size is coloured exactly as the whole file is.
+const CONTEXT_BYTES: usize = 120 * 1024;
+
 impl HighlightChunk {
-    pub fn from_lines<'a>(lang: Option<&str>, iter: impl IntoIterator<Item = &'a str>) -> Rc<Self> {
-        let mut buf = String::new();
-        let mut starts = Vec::with_capacity(CHUNK_LINES as usize + 1);
-        for line in iter {
-            starts.push(buf.len() as u32);
-            buf.push_str(line);
+    /// Lines `first..=last` of a text whose 1-based lines `line` gives, coloured after up to
+    /// [`CONTEXT_BYTES`] of the lines before them. Consecutive chunks extend one source, which
+    /// `rune_kit::syntax` lexes incrementally.
+    pub fn lines<'a>(lang: Option<&str>, first: u32, last: u32, line: impl Fn(u32) -> &'a str) -> Rc<Self> {
+        let mut from = first;
+        let mut context = 0;
+        while from > 1 && context + line(from - 1).len() < CONTEXT_BYTES {
+            from -= 1;
+            context += line(from).len() + 1;
+        }
+        let mut buf = String::with_capacity(context);
+        for m in from..first {
+            buf.push_str(line(m));
             buf.push('\n');
         }
-        starts.push(buf.len() as u32);
-        let hl = highlight(lang, &buf);
+        let base = buf.len();
+        let mut starts = Vec::with_capacity(CHUNK_LINES as usize + 1);
+        for m in first..=last {
+            starts.push((buf.len() - base) as u32);
+            buf.push_str(line(m));
+            buf.push('\n');
+        }
+        starts.push((buf.len() - base) as u32);
+        let all = highlight(lang, &buf);
+        let hl = all
+            .iter()
+            .filter(|(r, _)| r.end > base)
+            .map(|(r, p)| (r.start.max(base) - base..r.end - base, *p))
+            .collect();
         Rc::new(Self { starts, hl })
     }
 

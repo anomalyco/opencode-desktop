@@ -235,7 +235,8 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .inline_code_font(1.0, 530.0)
         .inline_code_pad(4.0)
         .code_block(p.code_bg, p.border)
-        .code_block_text(p.syntax.variable)
+        // Code no token colours: Pierre's `editor.foreground`, the v1 `text-base`.
+        .code_block_text(p.syntax.parameter)
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).
         .plain_code_text(p.muted)
         .shell_code(p.code_bg, p.border_muted, p.text)

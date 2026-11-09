@@ -370,10 +370,7 @@ impl CodeDocState {
         let chunk = cached.unwrap_or_else(|| {
             let first_n = c * CHUNK_LINES + 1;
             let last_n = ((c + 1) * CHUNK_LINES).min(self.source.len().max(1));
-            let built = HighlightChunk::from_lines(
-                Some(lang),
-                (first_n..=last_n).map(|m| self.source.line(m).unwrap_or("")),
-            );
+            let built = HighlightChunk::lines(Some(lang), first_n, last_n, |m| self.source.line(m).unwrap_or(""));
             let mut cache = self.chunks.borrow_mut();
             if cache.len() > 512 {
                 cache.clear();

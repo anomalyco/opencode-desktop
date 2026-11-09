@@ -223,11 +223,14 @@ pub struct Code {
     pub parameter: Color,
     /// `link_text` in Markdown.
     pub info: Color,
+    pub operator: Color,
+    pub regexp: Color,
 }
 
 impl Code {
-    /// Desktop's highlight theme on rune-kit's token kinds: functions `syntax-primitive`,
-    /// numbers `syntax-constant`, properties `syntax-variable`.
+    /// Desktop's highlight theme (`highlight-theme.tsx`) on rune-kit's token kinds: functions
+    /// `syntax-primitive`, numbers and constants `syntax-constant`, properties and variables
+    /// `syntax-variable`, attributes `syntax-property`, headings bold `syntax-keyword`.
     pub fn syntax(&self, base: SyntaxTheme, add: Color, del: Color) -> SyntaxTheme {
         use rune_kit::syntax::Syntax as K;
         [
@@ -245,9 +248,14 @@ impl Code {
             // `title` and `link_text`.
             (K::Heading, self.keyword),
             (K::Link, self.info),
+            (K::Operator, self.operator),
+            (K::Regex, self.regexp),
+            (K::Attribute, self.property),
+            (K::Variable, self.variable),
         ]
         .into_iter()
         .fold(base, |t, (k, c)| t.with(k, c))
+        .with_weight(K::Heading, 700.0)
     }
 }
 
@@ -320,6 +328,8 @@ fn build(theme: usize, dark: bool) -> Pal {
         parameter: c("text-base"),
         // The default theme names no `syntax-info`; Desktop's resolves it to these.
         info: t.try_color("syntax-info").unwrap_or_else(|| rune::color::hex(if dark { "#facffe" } else { "#8c1896" }).unwrap_or(text)),
+        operator: c("syntax-operator"),
+        regexp: t.try_color("syntax-regexp").unwrap_or_else(|| c("text-base")),
     };
     let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
     Pal {

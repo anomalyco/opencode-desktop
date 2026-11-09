@@ -20,6 +20,8 @@
    "syntax-constant": "#007b80ff",
    "syntax-punctuation": "#6f6f6fff",
    "syntax-operator": "#6f6f6fff",
+   "syntax-regexp": "#6f6f6fff",
+   "syntax-info": "#8c1896ff",
    "syntax-variable": "#171717ff",
    "syntax-diff-add": "#198b43ff",
    "syntax-diff-delete": "#b82d35ff"
@@ -42,6 +44,8 @@
    "syntax-constant": "#93e9f6ff",
    "syntax-punctuation": "#707070ff",
    "syntax-operator": "#707070ff",
+   "syntax-regexp": "#a0a0a0ff",
+   "syntax-info": "#facffeff",
    "syntax-variable": "#edededff",
    "syntax-diff-add": "#6bd586ff",
    "syntax-diff-delete": "#f17471ff"
@@ -129,6 +133,8 @@
    "syntax-constant": "#6200ffff",
    "syntax-punctuation": "#0a0a0aff",
    "syntax-operator": "#0a0a0aff",
+   "syntax-regexp": "#0a0a0aff",
+   "syntax-info": "#13608aff",
    "syntax-variable": "#010101ff",
    "syntax-diff-add": "#15733cff",
    "syntax-diff-delete": "#b40a2dff"
@@ -212,6 +218,8 @@
    "syntax-constant": "#b388ffff",
    "syntax-punctuation": "#dbdbdbff",
    "syntax-operator": "#dbdbdbff",
+   "syntax-regexp": "#ffffffff",
+   "syntax-info": "#a9fdfcff",
    "syntax-variable": "#ffffffff",
    "syntax-diff-add": "#92fdb3ff",
    "syntax-diff-delete": "#fdc3c1ff"
@@ -299,6 +307,8 @@
    "syntax-constant": "#d94f4fff",
    "syntax-punctuation": "#271f39ff",
    "syntax-operator": "#271f39ff",
+   "syntax-regexp": "#271f39ff",
+   "syntax-info": "#11637bff",
    "syntax-variable": "#170e28ff",
    "syntax-diff-add": "#336e54ff",
    "syntax-diff-delete": "#8d494cff"
@@ -382,6 +392,8 @@
    "syntax-constant": "#ff6767ff",
    "syntax-punctuation": "#c9c8caff",
    "syntax-operator": "#c9c8caff",
+   "syntax-regexp": "#edeceeff",
+   "syntax-info": "#a7e9ffff",
    "syntax-variable": "#fdfdfdff",
    "syntax-diff-add": "#a9ffddff",
    "syntax-diff-delete": "#fec3beff"
@@ -469,6 +481,8 @@
    "syntax-constant": "#a37accff",
    "syntax-punctuation": "#3d4752ff",
    "syntax-operator": "#3d4752ff",
+   "syntax-regexp": "#3d4752ff",
+   "syntax-info": "#156184ff",
    "syntax-variable": "#2b3540ff",
    "syntax-diff-add": "#4d6c17ff",
    "syntax-diff-delete": "#b3102fff"
@@ -552,6 +566,8 @@
    "syntax-constant": "#d2a6ffff",
    "syntax-punctuation": "#b3b7bcff",
    "syntax-operator": "#b3b7bcff",
+   "syntax-regexp": "#d6dae0ff",
+   "syntax-info": "#b7e7feff",
    "syntax-variable": "#fbfbfcff",
    "syntax-diff-add": "#3cfa8aff",
    "syntax-diff-delete": "#fbc5baff"
@@ -639,6 +655,8 @@
    "syntax-constant": "#da1e28ff",
    "syntax-punctuation": "#151515ff",
    "syntax-operator": "#151515ff",
+   "syntax-regexp": "#151515ff",
+   "syntax-info": "#0246d4ff",
    "syntax-variable": "#070707ff",
    "syntax-diff-add": "#0f7430ff",
    "syntax-diff-delete": "#b2171fff"
@@ -722,6 +740,8 @@
    "syntax-constant": "#ff8389ff",
    "syntax-punctuation": "#ced0d3ff",
    "syntax-operator": "#ced0d3ff",
+   "syntax-regexp": "#f2f4f8ff",
+   "syntax-info": "#cde0ffff",
    "syntax-variable": "#fefefeff",
    "syntax-diff-add": "#45fa7eff",
    "syntax-diff-delete": "#fec2c2ff"
@@ -809,6 +829,8 @@
    "syntax-constant": "#fe640bff",
    "syntax-punctuation": "#3c3e58ff",
    "syntax-operator": "#3c3e58ff",
+   "syntax-regexp": "#3c3e58ff",
+   "syntax-info": "#096188ff",
    "syntax-variable": "#2a2c46ff",
    "syntax-diff-add": "#22740cff",
    "syntax-diff-delete": "#b11631ff"
@@ -892,6 +914,8 @@
    "syntax-constant": "#fab387ff",
    "syntax-punctuation": "#abb3ceff",
    "syntax-operator": "#abb3ceff",
+   "syntax-regexp": "#cdd6f5ff",
+   "syntax-info": "#7deafdff",
    "syntax-variable": "#fafbfeff",
    "syntax-diff-add": "#65f7e3ff",
    "syntax-diff-delete": "#fec0cfff"
@@ -979,6 +1003,8 @@
    "syntax-constant": "#fe640bff",
    "syntax-punctuation": "#3c3e58ff",
    "syntax-operator": "#3c3e58ff",
+   "syntax-regexp": "#3c3e58ff",
+   "syntax-info": "#096188ff",
    "syntax-variable": "#2a2c46ff",
    "syntax-diff-add": "#22740cff",
    "syntax-diff-delete": "#b11631ff"
@@ -1062,6 +1088,8 @@
    "syntax-constant": "#ef9f76ff",
    "syntax-punctuation": "#c6d0f5ff",
    "syntax-operator": "#99d1dbff",
+   "syntax-regexp": "#c8d2f9ff",
+   "syntax-info": "#56fceaff",
    "syntax-variable": "#e78284ff",
    "syntax-diff-add": "#b4e592ff",
    "syntax-diff-delete": "#fbc4c3ff"
@@ -1149,6 +1177,8 @@
    "syntax-constant": "#fe640bff",
    "syntax-punctuation": "#3c3e58ff",
    "syntax-operator": "#3c3e58ff",
+   "syntax-regexp": "#3c3e58ff",
+   "syntax-info": "#096188ff",
    "syntax-variable": "#2a2c46ff",
    "syntax-diff-add": "#22740cff",
    "syntax-diff-delete": "#b11631ff"
@@ -1232,6 +1262,8 @@
    "syntax-constant": "#f5a97fff",
    "syntax-punctuation": "#cad3f5ff",
    "syntax-operator": "#91d7e3ff",
+   "syntax-regexp": "#cbd4f8ff",
+   "syntax-info": "#4cfdeaff",
    "syntax-variable": "#ed8796ff",
    "syntax-diff-add": "#abe798ff",
    "syntax-diff-delete": "#ffc1c8ff"
@@ -1319,6 +1351,8 @@
    "syntax-constant": "#e91e63ff",
    "syntax-punctuation": "#193549ff",
    "syntax-operator": "#ff5722ff",
+   "syntax-regexp": "#102d41ff",
+   "syntax-info": "#9e2b01ff",
    "syntax-variable": "#193549ff",
    "syntax-diff-add": "#367037ff",
    "syntax-diff-delete": "#b10e48ff"
@@ -1402,6 +1436,8 @@
    "syntax-constant": "#ff628cff",
    "syntax-punctuation": "#ffffffff",
    "syntax-operator": "#ff9d00ff",
+   "syntax-regexp": "#ffffffff",
+   "syntax-info": "#fed7b0ff",
    "syntax-variable": "#ffffffff",
    "syntax-diff-add": "#c8feb5ff",
    "syntax-diff-delete": "#fdbfdaff"
@@ -1489,6 +1525,8 @@
    "syntax-constant": "#b8448bff",
    "syntax-punctuation": "#141414ff",
    "syntax-operator": "#141414ff",
+   "syntax-regexp": "#131313ff",
+   "syntax-info": "#055f92ff",
    "syntax-variable": "#141414ff",
    "syntax-diff-add": "#0c7251ff",
    "syntax-diff-delete": "#ae1945ff"
@@ -1572,6 +1610,8 @@
    "syntax-constant": "#f8c762ff",
    "syntax-punctuation": "#e4e4e4ff",
    "syntax-operator": "#e4e4e4ff",
+   "syntax-regexp": "#e4e4e4ff",
+   "syntax-info": "#c7e2feff",
    "syntax-variable": "#e4e4e4ff",
    "syntax-diff-add": "#75f1a8ff",
    "syntax-diff-delete": "#fcc3c8ff"
@@ -1659,6 +1699,8 @@
    "syntax-constant": "#7c6bf5ff",
    "syntax-punctuation": "#1b1b2bff",
    "syntax-operator": "#1b1b2bff",
+   "syntax-regexp": "#1b1b2bff",
+   "syntax-info": "#0f5e95ff",
    "syntax-variable": "#0c0b1aff",
    "syntax-diff-add": "#1b7241ff",
    "syntax-diff-delete": "#983c5aff"
@@ -1742,6 +1784,8 @@
    "syntax-constant": "#bd93f9ff",
    "syntax-punctuation": "#d4d4ceff",
    "syntax-operator": "#d4d4ceff",
+   "syntax-regexp": "#f8f8f2ff",
+   "syntax-info": "#aef0feff",
    "syntax-variable": "#fefefeff",
    "syntax-diff-add": "#3af7adff",
    "syntax-diff-delete": "#fcc2c6ff"
@@ -1829,6 +1873,8 @@
    "syntax-constant": "#f57d26ff",
    "syntax-punctuation": "#5c6a72ff",
    "syntax-operator": "#35a77cff",
+   "syntax-regexp": "#46535bff",
+   "syntax-info": "#006a4aff",
    "syntax-variable": "#f85552ff",
    "syntax-diff-add": "#15724aff",
    "syntax-diff-delete": "#ae1a45ff"
@@ -1912,6 +1958,8 @@
    "syntax-constant": "#e69875ff",
    "syntax-punctuation": "#d3c6aaff",
    "syntax-operator": "#83c092ff",
+   "syntax-regexp": "#daccafff",
+   "syntax-info": "#7bffa3ff",
    "syntax-variable": "#e67e80ff",
    "syntax-diff-add": "#b5ed55ff",
    "syntax-diff-delete": "#fec2c4ff"
@@ -1999,6 +2047,8 @@
    "syntax-constant": "#5e409dff",
    "syntax-punctuation": "#6f6e69ff",
    "syntax-operator": "#6f6e69ff",
+   "syntax-regexp": "#100f0fff",
+   "syntax-info": "#0a6761ff",
    "syntax-variable": "#205ea6ff",
    "syntax-diff-add": "#57682dff",
    "syntax-diff-delete": "#9f3a32ff"
@@ -2082,6 +2132,8 @@
    "syntax-constant": "#8b7ec8ff",
    "syntax-punctuation": "#b7b5acff",
    "syntax-operator": "#b7b5acff",
+   "syntax-regexp": "#d2d1c7ff",
+   "syntax-info": "#26ffefff",
    "syntax-variable": "#4385beff",
    "syntax-diff-add": "#c9e170ff",
    "syntax-diff-delete": "#ffc3baff"
@@ -2169,6 +2221,8 @@
    "syntax-constant": "#1b7c83ff",
    "syntax-punctuation": "#24292fff",
    "syntax-operator": "#cf222eff",
+   "syntax-regexp": "#1e2329ff",
+   "syntax-info": "#933b04ff",
    "syntax-variable": "#bc4c00ff",
    "syntax-diff-add": "#396e42ff",
    "syntax-diff-delete": "#ab272bff"
@@ -2252,6 +2306,8 @@
    "syntax-constant": "#58a6ffff",
    "syntax-punctuation": "#c9d1d9ff",
    "syntax-operator": "#ff7b72ff",
+   "syntax-regexp": "#ccd4dcff",
+   "syntax-info": "#fcd9a0ff",
    "syntax-variable": "#d29922ff",
    "syntax-diff-add": "#6af679ff",
    "syntax-diff-delete": "#fec3bbff"
@@ -2339,6 +2395,8 @@
    "syntax-constant": "#8f3f71ff",
    "syntax-punctuation": "#322e2cff",
    "syntax-operator": "#322e2cff",
+   "syntax-regexp": "#322e2cff",
+   "syntax-info": "#961f70ff",
    "syntax-variable": "#211d1bff",
    "syntax-diff-add": "#676313ff",
    "syntax-diff-delete": "#b31413ff"
@@ -2422,6 +2480,8 @@
    "syntax-constant": "#d3869bff",
    "syntax-punctuation": "#c7b892ff",
    "syntax-operator": "#c7b892ff",
+   "syntax-regexp": "#ecdbb0ff",
+   "syntax-info": "#fed1dcff",
    "syntax-variable": "#fdfbf7ff",
    "syntax-diff-add": "#dade19ff",
    "syntax-diff-delete": "#fcc4baff"
@@ -2509,6 +2569,8 @@
    "syntax-constant": "#cc6d00ff",
    "syntax-punctuation": "#54433aff",
    "syntax-operator": "#735896ff",
+   "syntax-regexp": "#46352cff",
+   "syntax-info": "#32579cff",
    "syntax-variable": "#54433aff",
    "syntax-diff-add": "#496d06ff",
    "syntax-diff-delete": "#b11b1aff"
@@ -2592,6 +2654,8 @@
    "syntax-constant": "#d7a657ff",
    "syntax-punctuation": "#dcd7baff",
    "syntax-operator": "#d27e99ff",
+   "syntax-regexp": "#ddd8b9ff",
+   "syntax-info": "#aff592ff",
    "syntax-variable": "#dcd7baff",
    "syntax-diff-add": "#a1ef2dff",
    "syntax-diff-delete": "#fec3bdff"
@@ -2679,6 +2743,8 @@
    "syntax-constant": "#ec5b2bff",
    "syntax-punctuation": "#1a1a1aff",
    "syntax-operator": "#318795ff",
+   "syntax-regexp": "#181818ff",
+   "syntax-info": "#116571ff",
    "syntax-variable": "#d1383dff",
    "syntax-diff-add": "#2f60a4ff",
    "syntax-diff-delete": "#ae1a45ff"
@@ -2762,6 +2828,8 @@
    "syntax-constant": "#fff7f1ff",
    "syntax-punctuation": "#eeeeeeff",
    "syntax-operator": "#56b6c2ff",
+   "syntax-regexp": "#eeeeeeff",
+   "syntax-info": "#91f1fdff",
    "syntax-variable": "#e06c75ff",
    "syntax-diff-add": "#b8d6feff",
    "syntax-diff-delete": "#fec2c4ff"
@@ -2849,6 +2917,8 @@
    "syntax-constant": "#f4511eff",
    "syntax-punctuation": "#263238ff",
    "syntax-operator": "#39adb5ff",
+   "syntax-regexp": "#1e2a30ff",
+   "syntax-info": "#9d2d07ff",
    "syntax-variable": "#263238ff",
    "syntax-diff-add": "#536932ff",
    "syntax-diff-delete": "#ad2523ff"
@@ -2932,6 +3002,8 @@
    "syntax-constant": "#ffcb6bff",
    "syntax-punctuation": "#eeffffff",
    "syntax-operator": "#89ddffff",
+   "syntax-regexp": "#efffffff",
+   "syntax-info": "#fcda9fff",
    "syntax-variable": "#eeffffff",
    "syntax-diff-add": "#bbe57bff",
    "syntax-diff-delete": "#fcc3c3ff"
@@ -3019,6 +3091,8 @@
    "syntax-constant": "#ffa83dff",
    "syntax-punctuation": "#203022ff",
    "syntax-operator": "#24f6d9ff",
+   "syntax-regexp": "#19291cff",
+   "syntax-info": "#0c608dff",
    "syntax-variable": "#203022ff",
    "syntax-diff-add": "#127346ff",
    "syntax-diff-delete": "#b11a22ff"
@@ -3102,6 +3176,8 @@
    "syntax-constant": "#ffa83dff",
    "syntax-punctuation": "#62ff94ff",
    "syntax-operator": "#24f6d9ff",
+   "syntax-regexp": "#6ffd99ff",
+   "syntax-info": "#c2e3fcff",
    "syntax-variable": "#62ff94ff",
    "syntax-diff-add": "#b8fdcfff",
    "syntax-diff-delete": "#fcc4c0ff"
@@ -3189,6 +3265,8 @@
    "syntax-constant": "#a44200ff",
    "syntax-punctuation": "#363644ff",
    "syntax-operator": "#465bd1ff",
+   "syntax-regexp": "#2c2c3aff",
+   "syntax-info": "#0a6576ff",
    "syntax-variable": "#007f95ff",
    "syntax-diff-add": "#3a6d50ff",
    "syntax-diff-delete": "#a22d5dff"
@@ -3272,6 +3350,8 @@
    "syntax-constant": "#fc9b6fff",
    "syntax-punctuation": "#dddde5ff",
    "syntax-operator": "#8da4f5ff",
+   "syntax-regexp": "#dddde5ff",
+   "syntax-info": "#a4edfeff",
    "syntax-variable": "#77becfff",
    "syntax-diff-add": "#90eab8ff",
    "syntax-diff-delete": "#ffbfd2ff"
@@ -3359,6 +3439,8 @@
    "syntax-constant": "#9b5fe0ff",
    "syntax-punctuation": "#241e13ff",
    "syntax-operator": "#241e13ff",
+   "syntax-regexp": "#241e13ff",
+   "syntax-info": "#136089ff",
    "syntax-variable": "#140e04ff",
    "syntax-diff-add": "#456e1fff",
    "syntax-diff-delete": "#964050ff"
@@ -3442,6 +3524,8 @@
    "syntax-constant": "#ae81ffff",
    "syntax-punctuation": "#d4d4ceff",
    "syntax-operator": "#d4d4ceff",
+   "syntax-regexp": "#f8f8f2ff",
+   "syntax-info": "#9fedfdff",
    "syntax-variable": "#fefefeff",
    "syntax-diff-add": "#95f055ff",
    "syntax-diff-delete": "#fdc1ccff"
@@ -3529,6 +3613,8 @@
    "syntax-constant": "#c96765ff",
    "syntax-punctuation": "#343346ff",
    "syntax-operator": "#343346ff",
+   "syntax-regexp": "#343346ff",
+   "syntax-info": "#0d48d0ff",
    "syntax-variable": "#232234ff",
    "syntax-diff-add": "#166f68ff",
    "syntax-diff-delete": "#b3131dff"
@@ -3612,6 +3698,8 @@
    "syntax-constant": "#f78c6cff",
    "syntax-punctuation": "#b4bac7ff",
    "syntax-operator": "#b4bac7ff",
+   "syntax-regexp": "#d6deecff",
+   "syntax-info": "#d0dffeff",
    "syntax-variable": "#fbfcfdff",
    "syntax-diff-add": "#c9f43cff",
    "syntax-diff-delete": "#fbc4beff"
@@ -3699,6 +3787,8 @@
    "syntax-constant": "#8d6886ff",
    "syntax-punctuation": "#252b37ff",
    "syntax-operator": "#252b37ff",
+   "syntax-regexp": "#252b37ff",
+   "syntax-info": "#325d85ff",
    "syntax-variable": "#141a26ff",
    "syntax-diff-add": "#4e6b33ff",
    "syntax-diff-delete": "#a13545ff"
@@ -3782,6 +3872,8 @@
    "syntax-constant": "#b48eadff",
    "syntax-punctuation": "#c2c5cbff",
    "syntax-operator": "#c2c5cbff",
+   "syntax-regexp": "#e5e9f0ff",
+   "syntax-info": "#c7e2feff",
    "syntax-variable": "#fcfdfeff",
    "syntax-diff-add": "#b4d8fcff",
    "syntax-diff-delete": "#fdc2c5ff"
@@ -3869,6 +3961,8 @@
    "syntax-constant": "#986801ff",
    "syntax-punctuation": "#383a42ff",
    "syntax-operator": "#0184bcff",
+   "syntax-regexp": "#2e3038ff",
+   "syntax-info": "#785206ff",
    "syntax-variable": "#e45649ff",
    "syntax-diff-add": "#057512ff",
    "syntax-diff-delete": "#b70009ff"
@@ -3952,6 +4046,8 @@
    "syntax-constant": "#d19a66ff",
    "syntax-punctuation": "#abb2bfff",
    "syntax-operator": "#56b6c2ff",
+   "syntax-regexp": "#bac1cfff",
+   "syntax-info": "#fdd6b4ff",
    "syntax-variable": "#e06c75ff",
    "syntax-diff-add": "#a7ec59ff",
    "syntax-diff-delete": "#ffc1c5ff"
@@ -4039,6 +4135,8 @@
    "syntax-constant": "#986801ff",
    "syntax-punctuation": "#232833ff",
    "syntax-operator": "#232833ff",
+   "syntax-regexp": "#232833ff",
+   "syntax-info": "#105e93ff",
    "syntax-variable": "#131722ff",
    "syntax-diff-add": "#3f6c50ff",
    "syntax-diff-delete": "#854e54ff"
@@ -4122,6 +4220,8 @@
    "syntax-constant": "#d19a66ff",
    "syntax-punctuation": "#989eabff",
    "syntax-operator": "#989eabff",
+   "syntax-regexp": "#bac1cfff",
+   "syntax-info": "#91f1fdff",
    "syntax-variable": "#f8f9faff",
    "syntax-diff-add": "#8beda7ff",
    "syntax-diff-delete": "#fdc2c5ff"
@@ -4209,6 +4309,8 @@
    "syntax-constant": "#ec5b2bff",
    "syntax-punctuation": "#1a1a1aff",
    "syntax-operator": "#318795ff",
+   "syntax-regexp": "#181818ff",
+   "syntax-info": "#116571ff",
    "syntax-variable": "#d1383dff",
    "syntax-diff-add": "#2f60a4ff",
    "syntax-diff-delete": "#ae1a45ff"
@@ -4292,6 +4394,8 @@
    "syntax-constant": "#fff7f1ff",
    "syntax-punctuation": "#eeeeeeff",
    "syntax-operator": "#56b6c2ff",
+   "syntax-regexp": "#eeeeeeff",
+   "syntax-info": "#91f1fdff",
    "syntax-variable": "#e06c75ff",
    "syntax-diff-add": "#b8d6feff",
    "syntax-diff-delete": "#fec2c4ff"
@@ -4379,6 +4483,8 @@
    "syntax-constant": "#a8527aff",
    "syntax-punctuation": "#111c18ff",
    "syntax-operator": "#b5a020ff",
+   "syntax-regexp": "#0f1a16ff",
+   "syntax-info": "#006957ff",
    "syntax-variable": "#111c18ff",
    "syntax-diff-add": "#466a50ff",
    "syntax-diff-delete": "#a4342aff"
@@ -4462,6 +4568,8 @@
    "syntax-constant": "#d2689cff",
    "syntax-punctuation": "#c1c497ff",
    "syntax-operator": "#459451ff",
+   "syntax-regexp": "#cace9eff",
+   "syntax-info": "#43ffddff",
    "syntax-variable": "#c1c497ff",
    "syntax-diff-add": "#65f597ff",
    "syntax-diff-delete": "#fec2bfff"
@@ -4549,6 +4657,8 @@
    "syntax-constant": "#f4511eff",
    "syntax-punctuation": "#292d3eff",
    "syntax-operator": "#00acc1ff",
+   "syntax-regexp": "#222637ff",
+   "syntax-info": "#9d2d07ff",
    "syntax-variable": "#292d3eff",
    "syntax-diff-add": "#536932ff",
    "syntax-diff-delete": "#ad2523ff"
@@ -4632,6 +4742,8 @@
    "syntax-constant": "#f78c6cff",
    "syntax-punctuation": "#a6accdff",
    "syntax-operator": "#89ddffff",
+   "syntax-regexp": "#b6bcdfff",
+   "syntax-info": "#fdd4c8ff",
    "syntax-variable": "#a6accdff",
    "syntax-diff-add": "#bbe57bff",
    "syntax-diff-delete": "#fcc3c3ff"
@@ -4719,6 +4831,8 @@
    "syntax-constant": "#907aa9ff",
    "syntax-punctuation": "#797593ff",
    "syntax-operator": "#797593ff",
+   "syntax-regexp": "#454066ff",
+   "syntax-info": "#146571ff",
    "syntax-variable": "#575279ff",
    "syntax-diff-add": "#416677ff",
    "syntax-diff-delete": "#894a5cff"
@@ -4802,6 +4916,8 @@
    "syntax-constant": "#c4a7e7ff",
    "syntax-punctuation": "#908caaff",
    "syntax-operator": "#908caaff",
+   "syntax-regexp": "#e0def5ff",
+   "syntax-info": "#9beffdff",
    "syntax-variable": "#e0def4ff",
    "syntax-diff-add": "#9bdffdff",
    "syntax-diff-delete": "#fec0ceff"
@@ -4889,6 +5005,8 @@
    "syntax-constant": "#e04d7aff",
    "syntax-punctuation": "#32224fff",
    "syntax-operator": "#32224fff",
+   "syntax-regexp": "#32224fff",
+   "syntax-info": "#03637fff",
    "syntax-variable": "#210f3dff",
    "syntax-diff-add": "#386d50ff",
    "syntax-diff-delete": "#854777ff"
@@ -4972,6 +5090,8 @@
    "syntax-constant": "#ff628cff",
    "syntax-punctuation": "#d1ccd8ff",
    "syntax-operator": "#d1ccd8ff",
+   "syntax-regexp": "#f5f0feff",
+   "syntax-info": "#bae6fdff",
    "syntax-variable": "#fefeffff",
    "syntax-diff-add": "#24f6c0ff",
    "syntax-diff-delete": "#fdbfdcff"
@@ -5059,6 +5179,8 @@
    "syntax-constant": "#d33682ff",
    "syntax-punctuation": "#41575eff",
    "syntax-operator": "#41575eff",
+   "syntax-regexp": "#41575eff",
+   "syntax-info": "#146761ff",
    "syntax-variable": "#2e444bff",
    "syntax-diff-add": "#596911ff",
    "syntax-diff-delete": "#964245ff"
@@ -5142,6 +5264,8 @@
    "syntax-constant": "#d33682ff",
    "syntax-punctuation": "#889595ff",
    "syntax-operator": "#889595ff",
+   "syntax-regexp": "#a9b8b8ff",
+   "syntax-info": "#0bfff1ff",
    "syntax-variable": "#f6f8f8ff",
    "syntax-diff-add": "#9ce9abff",
    "syntax-diff-delete": "#fbc4c0ff"
@@ -5229,6 +5353,8 @@
    "syntax-constant": "#9c27b0ff",
    "syntax-punctuation": "#262335ff",
    "syntax-operator": "#e91e63ff",
+   "syntax-regexp": "#211e30ff",
+   "syntax-info": "#9e2b01ff",
    "syntax-variable": "#262335ff",
    "syntax-diff-add": "#367037ff",
    "syntax-diff-delete": "#af2219ff"
@@ -5312,6 +5438,8 @@
    "syntax-constant": "#b084ebff",
    "syntax-punctuation": "#ffffffff",
    "syntax-operator": "#ff7edbff",
+   "syntax-regexp": "#ffffffff",
+   "syntax-info": "#fcd6bfff",
    "syntax-variable": "#ffffffff",
    "syntax-diff-add": "#9cfde3ff",
    "syntax-diff-delete": "#fcc4beff"
@@ -5399,6 +5527,8 @@
    "syntax-constant": "#b15c00ff",
    "syntax-punctuation": "#1f284aff",
    "syntax-operator": "#1f284aff",
+   "syntax-regexp": "#1f284aff",
+   "syntax-info": "#176280ff",
    "syntax-variable": "#0f1638ff",
    "syntax-diff-add": "#1a705aff",
    "syntax-diff-delete": "#a92351ff"
@@ -5482,6 +5612,8 @@
    "syntax-constant": "#ff9e64ff",
    "syntax-punctuation": "#a3abd2ff",
    "syntax-operator": "#a3abd2ff",
+   "syntax-regexp": "#c4cefbff",
+   "syntax-info": "#bfe5fcff",
    "syntax-variable": "#f9faffff",
    "syntax-diff-add": "#5beaffff",
    "syntax-diff-delete": "#fec3beff"
@@ -5569,6 +5701,8 @@
    "syntax-constant": "#ffb224ff",
    "syntax-punctuation": "#171717ff",
    "syntax-operator": "#e93d82ff",
+   "syntax-regexp": "#161616ff",
+   "syntax-info": "#1255b0ff",
    "syntax-variable": "#0070f3ff",
    "syntax-diff-add": "#0a752bff",
    "syntax-diff-delete": "#b11829ff"
@@ -5652,6 +5786,8 @@
    "syntax-constant": "#f2a700ff",
    "syntax-punctuation": "#edededff",
    "syntax-operator": "#f75590ff",
+   "syntax-regexp": "#edededff",
+   "syntax-info": "#c8e1feff",
    "syntax-variable": "#52a8ffff",
    "syntax-diff-add": "#38fc61ff",
    "syntax-diff-delete": "#fbc4c1ff"
@@ -5739,6 +5875,8 @@
    "syntax-constant": "#8d541cff",
    "syntax-punctuation": "#101010ff",
    "syntax-operator": "#101010ff",
+   "syntax-regexp": "#101010ff",
+   "syntax-info": "#814a13ff",
    "syntax-variable": "#040404ff",
    "syntax-diff-add": "#0d715eff",
    "syntax-diff-delete": "#b1192eff"
@@ -5822,6 +5960,8 @@
    "syntax-constant": "#ffc799ff",
    "syntax-punctuation": "#dbdbdbff",
    "syntax-operator": "#dbdbdbff",
+   "syntax-regexp": "#ffffffff",
+   "syntax-info": "#fcd7b9ff",
    "syntax-variable": "#ffffffff",
    "syntax-diff-add": "#b3fee9ff",
    "syntax-diff-delete": "#fbc4c1ff"
@@ -5909,6 +6049,8 @@
    "syntax-constant": "#5f8f5fff",
    "syntax-punctuation": "#3f3f3fff",
    "syntax-operator": "#8f8f5fff",
+   "syntax-regexp": "#333333ff",
+   "syntax-info": "#6c5729ff",
    "syntax-variable": "#3f3f3fff",
    "syntax-diff-add": "#4c694cff",
    "syntax-diff-delete": "#7b5555ff"
@@ -5992,6 +6134,8 @@
    "syntax-constant": "#8fb28fff",
    "syntax-punctuation": "#dcdcccff",
    "syntax-operator": "#f0dfafff",
+   "syntax-regexp": "#dcdccbff",
+   "syntax-info": "#fed5baff",
    "syntax-variable": "#dcdcccff",
    "syntax-diff-add": "#aae6aaff",
    "syntax-diff-delete": "#fcc3c3ff"

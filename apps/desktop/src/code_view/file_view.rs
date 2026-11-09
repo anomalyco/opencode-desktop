@@ -9,7 +9,7 @@ use rune::{
 };
 
 use super::file_state::CodeDocState;
-use super::{CodeLook, EDGE_FADE, LINE_H, expand_tabs, lang_for_path};
+use super::{CodeLook, EDGE_FADE, LINE_H, expand_tabs};
 use crate::palette::Pal;
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -201,7 +201,7 @@ impl<S: 'static> Inner<S> {
         let (shown, spans) = expand_tabs(raw, spans);
         let mut code_txt = rich(shown, spans)
             .font(l.mono)
-            .color(l.ink(lang_for_path(st.path())))
+            .color(l.plain)
             .selectable(true)
             .selection_color(l.selection)
             .key("text");
