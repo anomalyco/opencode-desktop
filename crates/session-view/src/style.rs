@@ -220,8 +220,9 @@ fn hit_bg(p: &Pal) -> Color {
 ///
 /// Every value is Desktop's `markdown.css`: links with no underline until hovered, inline code
 /// at the text's size in the medium weight, code blocks on `background-stronger` coloured by
-/// the theme's `syntax-*` (shell commands plain on `layer-02`), a hairline quote rule, invisible
-/// rules, outside list markers, the browser's disabled checkboxes, and the Console's data table.
+/// the theme's `syntax-*` (shell commands plain on `layer-02`), invisible rules, outside list
+/// markers, the browser's disabled checkboxes, and the Console's data table. Quotes take a
+/// calmer look than its hairline: a 2 pt rounded rule, 12 pt in, and text a step towards muted.
 pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
     let k = crate::palette::kit(p);
     let [h1, h2, h3, h4] = MD_H;
@@ -240,7 +241,7 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).
         .plain_code_text(p.muted)
         .shell_code(p.code_bg, p.border_muted, p.text)
-        .quote(p.border, 0.5, 8.0, p.muted)
+        .quote(p.border, 2.0, 12.0, p.text.mix(p.muted, 0.5))
         .rule(Color::TRANSPARENT)
         .body_font(MD)
         .heading_font(1, h1)
@@ -318,7 +319,11 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .selectable(true)
         .scroll_wide(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
-        .code_frame(move |card, c| code_card::<S>(&pal, card, c, copied.as_deref()))
+        .code_frame({
+            let copied = copied.clone();
+            move |card, c| code_card::<S>(&pal, card, c, copied.as_deref())
+        })
+        .quote_frame(move |quote, q| quote_card::<S>(&pal, quote, q, copied.as_deref()))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
             Some(id) => s.open_session(id, tx),
             None => s.open_link(url, tx),
@@ -344,30 +349,8 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
 /// ghost icon button 4 pt in from the top right, fading in over 0.15 s while the pointer is over
 /// the block (`markdown.css:352-381`), its glyph a tick for a moment after a copy.
 fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: Option<&str>) -> El {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (c.index, c.source).hash(&mut h);
-    let key = format!("code-copy-{:016x}", h.finish());
-    let done = copied == Some(key.as_str());
-    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copy") };
-    let (code, mark) = (c.source.to_owned(), key);
-    let button = row()
-        .key("copy")
-        .role("button")
-        .label(label)
-        .help(label)
-        .help_above()
-        .size(24.0, 24.0)
-        .center()
-        .radius(6.0)
-        .hover(p.hover)
-        .press(p.pressed)
-        .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            tx.copy(code.clone());
-            crate::copied::mark_copied(s, mark.clone(), tx);
-        })
-        .child(icon(if done { &ic::CHECK } else { &ic::OUTLINE_COPY }, 16.0).color(p.icon_muted));
+    let key = copy_key("code-copy", &(c.index, c.source));
+    let button = copy_button::<S>(p, c.source, key, opencode_i18n::t!("ui.message.copy"), copied);
     let actions = if c.open { Vec::new() } else { S::code_block_actions(p, c.language, c.source) };
     let buttons = if actions.is_empty() {
         button.pin(None, Some(4.0), Some(4.0), None)
@@ -380,6 +363,56 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
         .child(buttons.group_opacity(0.0, 1.0))
+}
+
+/// A block quote with a Copy button that copies all of it as Cmd+C would (`QuoteFrame::text`):
+/// the code block's 24 pt ghost button, level with the first line at the right, fading in while
+/// the pointer is over the quote. The text keeps clear of it.
+fn quote_card<S: TimelineHost>(p: &Pal, quote: El, q: &rune_kit::QuoteFrame<'_>, copied: Option<&str>) -> El {
+    let key = copy_key("quote-copy", &q.text);
+    let button = copy_button::<S>(p, q.text, key, opencode_i18n::t!("rune.message.copyQuote"), copied);
+    col()
+        .w_full()
+        .hover_group()
+        .hover_motion(HOVER_FADE, HOVER_FADE)
+        .child(quote.pr(QUOTE_BUTTON_ROOM))
+        .child(button.pin(None, Some(-1.0), Some(0.0), None).group_opacity(0.0, 1.0))
+}
+
+/// Room at a quote's right for its Copy button: the button and a 4 pt gap.
+const QUOTE_BUTTON_ROOM: f32 = 28.0;
+
+/// A copy button's `copied::mark_copied` mark: `prefix` and a hash of `what`.
+fn copy_key(prefix: &str, what: &impl std::hash::Hash) -> String {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    what.hash(&mut h);
+    format!("{prefix}-{:016x}", h.finish())
+}
+
+/// The 24 pt ghost button that copies `text`, its glyph a tick for a moment after (while
+/// `copied` is its `key`), its tooltip `label` until then.
+fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'static str, copied: Option<&str>) -> El {
+    let done = copied == Some(key.as_str());
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { label };
+    let text = text.to_owned();
+    row()
+        .key("copy")
+        .role("button")
+        .label(label)
+        .help(label)
+        .help_above()
+        .size(24.0, 24.0)
+        .center()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.copy(text.clone());
+            crate::copied::mark_copied(s, key.clone(), tx);
+        })
+        .child(icon(if done { &ic::CHECK } else { &ic::OUTLINE_COPY }, 16.0).color(p.icon_muted))
 }
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.

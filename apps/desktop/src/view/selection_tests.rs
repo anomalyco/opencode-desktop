@@ -102,7 +102,7 @@ fn a_code_block_copies_its_code_verbatim() {
 }
 
 #[test]
-fn a_drag_runs_across_messages_and_list_markers_stay_behind() {
+fn a_drag_runs_across_messages_with_blank_lines_and_list_markers() {
     let (mut rt, board) = session("");
     let prompt = text(&rt, "The event stream drops");
     let bullet = text(&rt, "The sidebar store ignores");
@@ -111,9 +111,9 @@ fn a_drag_runs_across_messages_and_list_markers_stay_behind() {
     let copied = pasted(&board);
     assert!(copied.starts_with("The event stream drops"), "{copied:?}");
     assert!(copied.contains("\nI'll start with how the client"), "through the reply: {copied:?}");
-    assert!(copied.contains("\nWhat's happening\n"), "into the next message: {copied:?}");
-    assert!(copied.contains("\n`backoff.ts` resets") || copied.contains("\nbackoff.ts resets"), "{copied:?}");
-    assert!(!copied.contains('•') && !copied.contains("\n- "), "no list markers: {copied:?}");
+    assert!(copied.contains("\n\nWhat's happening\n\n"), "into the next message: {copied:?}");
+    assert!(copied.contains(":\n\n- backoff.ts resets"), "a list item after its marker: {copied:?}");
+    assert!(!copied.contains('•'), "{copied:?}");
     assert!(copied.trim_end().ends_with("first list fetch."), "{copied:?}");
 }
 
@@ -303,4 +303,41 @@ fn select_all_copies_rows_never_built() {
     assert!(never.iter().all(|t| copied.contains(&format!("{t}\n"))));
     assert!(at("The event stream drops") < at(CODE));
     assert!(copied.contains(end_words.trim_end()), "to the last reply: {copied:?}");
+}
+
+const QUOTED: &str = "Before the quote.\n\n> First paragraph of the quote.\n>\n> Second paragraph, with `code`.\n>\n> - one\n> - two\n>\n> ```\n> let a = 1;\n> let b = 2;\n> ```\n\nAfter the quote.";
+
+/// The fixture's session with a reply holding `QUOTED` last.
+fn quoted_session() -> (Runtime<App>, MemoryClipboard) {
+    let (mut rt, board) = session("");
+    rt.update(|s, _| {
+        s.composer.focused = false;
+        let t = s.transcripts.get_mut(crate::fixture_ids::MAIN).unwrap();
+        let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.iter_mut().rev().find(|m| matches!(m, opencode_kit::model::Message::Assistant(_))) else { unreachable!() };
+        a.parts.push(opencode_kit::model::Part::Text { text: QUOTED.into() });
+    });
+    settle(&mut rt);
+    (rt, board)
+}
+
+#[test]
+fn a_drag_across_a_quote_copies_its_paragraphs_list_and_code_on_their_own_lines() {
+    let (mut rt, board) = quoted_session();
+    let (from, to) = (text(&rt, "Before the quote."), text(&rt, "After the quote."));
+    drag(&mut rt, first_line(&from, 0.0), last_line(&to));
+    command(&mut rt, 'c');
+    assert_eq!(
+        pasted(&board),
+        "Before the quote.\n\nFirst paragraph of the quote.\n\nSecond paragraph, with code.\n\n- one\n- two\n\nlet a = 1;\nlet b = 2;\n\nAfter the quote."
+    );
+}
+
+#[test]
+fn a_quotes_copy_button_copies_all_of_it() {
+    let (mut rt, board) = quoted_session();
+    let button = find(&rt, |e| e.label.as_deref() == Some("Copy quote"));
+    click(&mut rt, (button.rect[0] + 12.0, button.rect[1] + 12.0));
+    assert_eq!(pasted(&board), "First paragraph of the quote.\n\nSecond paragraph, with code.\n\n- one\n- two\n\nlet a = 1;\nlet b = 2;");
+    settle(&mut rt);
+    assert!(rt.elements().iter().any(|e| e.label.as_deref() == Some("Copied")), "the button says it copied");
 }
