@@ -415,8 +415,13 @@ fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx
     s.popup.query.focused = false;
     let (focus, effect) = restore::step(std::mem::take(&mut s.popup.focus), restore::Event::Closed(reason));
     s.popup.focus = focus;
-    if let Some(restore::Effect::FocusTrigger { key, ring }) = effect {
-        tx.focus(key, ring);
+    match effect {
+        Some(restore::Effect::FocusTrigger { key, ring }) => tx.focus(key, ring),
+        // Only a key handler knows what has focus: a press that picked leaves no ring.
+        Some(restore::Effect::RingFocused) => {
+            if let Some(key) = tx.focused().filter(|k| !k.starts_with('#')).map(str::to_owned) { tx.focus(key, true); }
+        }
+        None => {}
     }
     popover::motion::closing(&s.knobs, tx);
     (shown.pick)(s, picked, tx);

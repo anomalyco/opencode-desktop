@@ -249,6 +249,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag().unmirrored())
         // The titlebar row before the page, as in Desktop's DOM, so Tab reaches it first.
         .children(band)
+        // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
+        // chat panel), and paints over the page and the panels after it.
+        .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1)))
         .child(
             // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
             panel
@@ -282,9 +285,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     }
     if let Some(handle) = crate::panels::view::resize_handle(s, p, win_w) {
         root = root.child(handle);
-    }
-    if let Some(toggle) = crate::panels::view::side_toggle(s, p) {
-        root = root.child(toggle);
     }
     root = root.children(sidebar::peek(s, p));
     // Without a titlebar row, the toggle rides the sidebar header's line (`sidebar-toggle.tsx`).
