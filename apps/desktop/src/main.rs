@@ -1321,7 +1321,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
-                traffic_lights: Some((25.0, 25.0)),
+                traffic_lights: Some((20.0, 25.0)),
                 drag_regions: true,
             }),
     )

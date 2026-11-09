@@ -63,13 +63,16 @@ pub(crate) fn titlebar_height(zoom: f32) -> f32 {
     TITLEBAR_H * zoom.max(1.0)
 }
 
-/// The titlebar macOS declares for `layout` at `zoom`: top tabs' 36pt band with the traffic
-/// lights at its start, 14pt in and centred on its controls (`titlebar.tsx`), or the sidebar
-/// header's 48pt line, where `App::chrome` places them.
-pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32) -> Titlebar {
+/// The titlebar macOS declares for `layout` at `zoom` (`titlebar.tsx`): top tabs' 36pt band
+/// with the traffic lights at its start, 14pt in and centred on its controls; at the window's
+/// top edge, `(14, 14)`, while a narrow window keeps the row along its foot (`bottom`); or the
+/// sidebar header's 48pt line, the buttons centred 27pt in and 32pt down at every zoom, as the
+/// sidebar's icons are (`macVerticalTrafficLights`).
+pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32, bottom: bool) -> Titlebar {
     match layout {
+        TabLayout::Horizontal if bottom => Titlebar::new((TOP_ROW_H * zoom).round()).traffic_lights(14.0, 14.0),
         TabLayout::Horizontal => Titlebar::new((TOP_ROW_H * zoom).round()).traffic_lights(14.0, (22.0 * zoom - 7.0).round()),
-        TabLayout::Vertical | TabLayout::Inbox => Titlebar::new(TITLEBAR_H),
+        TabLayout::Vertical | TabLayout::Inbox => Titlebar::new(TITLEBAR_H).traffic_lights((27.0 * zoom - 7.0).round(), (32.0 * zoom - 7.0).round()),
     }
 }
 
@@ -118,14 +121,14 @@ impl WindowChrome {
     }
 
     /// The room a header at the panel's top-left keeps for the collapsed sidebar toggle,
-    /// counted from the shell inset plus the header's padding (18): past the traffic lights,
-    /// or just the toggle and its gap (32). None while the toggle stays in the titlebar row,
-    /// or top tabs have no sidebar.
+    /// counted from the shell inset plus the header's padding (18): past the traffic lights and
+    /// their 10pt gap (`macTrafficLightsGap`), or just the toggle and its gap (32). None while
+    /// the toggle stays in the titlebar row, or top tabs have no sidebar.
     pub fn collapsed_slot(&self) -> f32 {
         if !self.sidebar_header() {
             return 0.0;
         }
-        if self.lights_end > 0.0 { self.lights_end + 16.0 - 18.0 + 32.0 } else { 32.0 }
+        if self.lights_end > 0.0 { self.lights_end + 10.0 - 18.0 + 32.0 } else { 32.0 }
     }
 
     /// What a header's `toggle-space` takes: the collapsed slot less the toggle's 4pt gap

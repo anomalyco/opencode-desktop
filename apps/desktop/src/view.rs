@@ -75,7 +75,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
     // lights move to the layout's titlebar.
     if cfg!(target_os = "macos") {
-        cx.set_titlebar(mac_titlebar(layout, s.zoom));
+        cx.set_titlebar(mac_titlebar(layout, s.zoom, chrome().bottom));
     } else {
         cx.titlebar_height(titlebar_height(s.zoom));
     }
