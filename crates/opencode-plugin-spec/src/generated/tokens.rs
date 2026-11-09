@@ -35,6 +35,10 @@ string_enum! {
         TextWeak = "text-weak",
         /// Tertiary text: hints, placeholders and timestamps.
         TextWeaker = "text-weaker",
+        /// Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`.
+        TextMuted = "text-muted",
+        /// Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`.
+        TextFaint = "text-faint",
         /// Text on an `accent` fill.
         TextOnAccent = "text-on-accent",
         /// Links and other interactive text.
@@ -84,7 +88,7 @@ impl SemanticToken {
             Self::IconStrong | Self::IconBase | Self::IconWeak | Self::IconWeaker | Self::IconOnAccent => "icon",
             Self::StatusSuccess | Self::StatusWarning | Self::StatusDanger | Self::StatusInfo => "status",
             Self::Surface1 | Self::Surface2 | Self::Surface3 | Self::Surface4 | Self::SurfaceHover | Self::SurfacePress | Self::SurfaceSelected => "surface",
-            Self::TextStrong | Self::TextBase | Self::TextWeak | Self::TextWeaker | Self::TextOnAccent | Self::TextInteractive => "text",
+            Self::TextStrong | Self::TextBase | Self::TextWeak | Self::TextWeaker | Self::TextMuted | Self::TextFaint | Self::TextOnAccent | Self::TextInteractive => "text",
         }
     }
 }

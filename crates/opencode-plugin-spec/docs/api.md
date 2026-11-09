@@ -544,6 +544,8 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `text-base` | text | Body text. |
 | `text-weak` | text | Secondary text: descriptions and labels. |
 | `text-weaker` | text | Tertiary text: hints, placeholders and timestamps. |
+| `text-muted` | text | Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`. |
+| `text-faint` | text | Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`. |
 | `text-on-accent` | text | Text on an `accent` fill. |
 | `text-interactive` | text | Links and other interactive text. |
 | `icon-strong` | icon | An icon that needs emphasis. |
@@ -1377,6 +1379,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `animate` | `boolean?` | Animates changed digits where the host can. Defaults to true. Other hosts show the text. |
 | `size` | `number?` | Font size in points. |
 | `weight` | `FontWeight?` | Weight. |
+| `lineHeight` | `number?` | Line height in points. |
+| `tracking` | `number?` | Letter spacing in points. |
 | `color` | `Color?` | Color. |
 
 ### UiButtonProps
@@ -2311,6 +2315,8 @@ What a panel's render receives.
 | `instance` | `string?` | An instance panel's tab. |
 | `active` | `boolean` | The tab is selected. |
 | `placement` | `"side" \| "mobile"` | Where it renders. |
+| `width` | `number` | The pane's width in points: lay out for it as a container query would. |
+| `height` | `number` | The pane's height in points. |
 
 ### PanelTabLabelProps
 
@@ -2350,6 +2356,8 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `width` | `number?` | A width of its own for the side region, in points. |
 | `transient` | `boolean?` | Its tabs are not restored. |
 | `launcher` | `boolean?` | Offered in the + menu and the New tab view. Defaults to true. |
+| `first` | `boolean?` | Its tab sits at the front of the strip. |
+| `fallback` | `boolean?` | Its tab is selected when the selected tab closes. |
 | `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. |
 | `render` | `(view: View, props: PanelProps) -> UiNode?` | Draws a tab's content. |
 | `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |

@@ -326,6 +326,8 @@ pub static UI_METRIC_PROPS: PropsSpec = PropsSpec::new("UiMetricProps", Some(&UI
     PropSpec::new("animate", PropType::Bool, false),
     PropSpec::new("size", PropType::Number, false),
     PropSpec::new("weight", PropType::Enum("FontWeight"), false),
+    PropSpec::new("lineHeight", PropType::Number, false),
+    PropSpec::new("tracking", PropType::Number, false),
     PropSpec::new("color", PropType::Color, false),
 ]);
 

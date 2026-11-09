@@ -84,8 +84,12 @@ pub struct PanelSpec {
     pub transient: Option<bool>,
     /// Offered in the + menu and the New tab view. Defaults to true.
     pub launcher: Option<bool>,
+    /// Its tab sits at the front of the strip.
+    pub first: Option<bool>,
+    /// Its tab is selected when the selected tab closes.
+    pub fallback: Option<bool>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher"], ["list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback"], ["list", "render", "label", "onClose", "onFocus"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

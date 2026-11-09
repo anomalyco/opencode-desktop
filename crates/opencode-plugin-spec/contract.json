@@ -27,6 +27,8 @@
     { "name": "text-base", "group": "text", "doc": "Body text." },
     { "name": "text-weak", "group": "text", "doc": "Secondary text: descriptions and labels." },
     { "name": "text-weaker", "group": "text", "doc": "Tertiary text: hints, placeholders and timestamps." },
+    { "name": "text-muted", "group": "text", "doc": "Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`." },
+    { "name": "text-faint", "group": "text", "doc": "Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`." },
     { "name": "text-on-accent", "group": "text", "doc": "Text on an `accent` fill." },
     { "name": "text-interactive", "group": "text", "doc": "Links and other interactive text." },
     { "name": "icon-strong", "group": "icon", "doc": "An icon that needs emphasis." },
@@ -490,6 +492,8 @@
       { "name": "animate", "type": "boolean?", "doc": "Animates changed digits where the host can. Defaults to true. Other hosts show the text." },
       { "name": "size", "type": "number?", "doc": "Font size in points." },
       { "name": "weight", "type": "FontWeight?", "doc": "Weight." },
+      { "name": "lineHeight", "type": "number?", "doc": "Line height in points." },
+      { "name": "tracking", "type": "number?", "doc": "Letter spacing in points." },
       { "name": "color", "type": "Color?", "doc": "Color." }
     ] },
     { "name": "UiButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.button` props: the app's own button.", "fields": [
@@ -1015,7 +1019,9 @@
       { "name": "directory", "type": "string", "doc": "Its workspace folder." },
       { "name": "instance", "type": "string?", "doc": "An instance panel's tab." },
       { "name": "active", "type": "boolean", "doc": "The tab is selected." },
-      { "name": "placement", "type": "\"side\" | \"mobile\"", "doc": "Where it renders." }
+      { "name": "placement", "type": "\"side\" | \"mobile\"", "doc": "Where it renders." },
+      { "name": "width", "type": "number", "doc": "The pane's width in points: lay out for it as a container query would." },
+      { "name": "height", "type": "number", "doc": "The pane's height in points." }
     ] },
     { "name": "PanelTabLabelProps", "kind": "record", "doc": "What a panel's `label` render receives.", "fields": [
       { "name": "sessionId", "type": "string", "doc": "The routed session." },
@@ -1040,6 +1046,8 @@
       { "name": "width", "type": "number?", "doc": "A width of its own for the side region, in points." },
       { "name": "transient", "type": "boolean?", "doc": "Its tabs are not restored." },
       { "name": "launcher", "type": "boolean?", "doc": "Offered in the + menu and the New tab view. Defaults to true." },
+      { "name": "first", "type": "boolean?", "doc": "Its tab sits at the front of the strip." },
+      { "name": "fallback", "type": "boolean?", "doc": "Its tab is selected when the selected tab closes." },
       { "name": "list", "type": "((sessionId: string, open: { string }) -> { PanelTab })?", "doc": "Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`." },
       { "name": "render", "type": "(view: View, props: PanelProps) -> UiNode?", "doc": "Draws a tab's content." },
       { "name": "label", "type": "((view: View, props: PanelTabLabelProps) -> UiNode?)?", "doc": "Draws the tab's label in the strip, instead of its icon and title." },

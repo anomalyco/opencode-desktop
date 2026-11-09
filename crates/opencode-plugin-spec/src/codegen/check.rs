@@ -17,8 +17,8 @@ pub fn validate(c: &Contract) -> Result<(), Vec<String>> {
         .chain(BUILTINS.iter().map(|b| (*b).to_owned()))
         .collect();
 
-    if c.tokens.len() != 32 {
-        errors.push(format!("contract {} has {} semantic tokens; 1.0 fixes 32", c.contract, c.tokens.len()));
+    if c.tokens.len() != 34 {
+        errors.push(format!("contract {} has {} semantic tokens; 1.0 fixes 34", c.contract, c.tokens.len()));
     }
     unique(&mut errors, "token", c.tokens.iter().map(|t| t.name.as_str()));
     unique(&mut errors, "type", c.types.iter().map(|t| t.name.as_str()).chain(c.enums.iter().map(|e| e.name.as_str())));

@@ -20,6 +20,8 @@ export type SemanticToken =
     | "text-base" -- Body text.
     | "text-weak" -- Secondary text: descriptions and labels.
     | "text-weaker" -- Tertiary text: hints, placeholders and timestamps.
+    | "text-muted" -- Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`.
+    | "text-faint" -- Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`.
     | "text-on-accent" -- Text on an `accent` fill.
     | "text-interactive" -- Links and other interactive text.
     | "icon-strong" -- An icon that needs emphasis.
@@ -932,6 +934,10 @@ export type UiMetricProps = {
     size: number?,
     --- Weight.
     weight: FontWeight?,
+    --- Line height in points.
+    lineHeight: number?,
+    --- Letter spacing in points.
+    tracking: number?,
     --- Color.
     color: Color?,
 }
@@ -3140,6 +3146,10 @@ export type PanelProps = {
     active: boolean,
     --- Where it renders.
     placement: "side" | "mobile",
+    --- The pane's width in points: lay out for it as a container query would.
+    width: number,
+    --- The pane's height in points.
+    height: number,
 }
 
 --- What a panel's `label` render receives.
@@ -3188,6 +3198,10 @@ export type PanelSpec = {
     transient: boolean?,
     --- Offered in the + menu and the New tab view. Defaults to true.
     launcher: boolean?,
+    --- Its tab sits at the front of the strip.
+    first: boolean?,
+    --- Its tab is selected when the selected tab closes.
+    fallback: boolean?,
     --- Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`.
     list: ((sessionId: string, open: { string }) -> { PanelTab })?,
     --- Draws a tab's content.
