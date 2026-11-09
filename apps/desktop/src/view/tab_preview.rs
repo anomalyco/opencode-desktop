@@ -4,6 +4,10 @@
 //! tabs within 500 ms. It comes and goes without animating, under a top tab (`bottom-start`, 6
 //! away) or beside a side tab (`right-start`, 6 away), following the pointer down the side tabs.
 //! A drag, a press, a rename or the tab's menu keeps it away.
+//!
+//! Two machines, as in Desktop: [`Card`] is Kobalte's `HoverCard` on the hovered tab with the
+//! tab's `popoverOpen` (`tab-nav.tsx:182-185, 535-550`), and [`State`] is the preview shared by
+//! every strip (`TabPreviewState`), which hears the card open and close.
 
 use super::*;
 
@@ -16,88 +20,209 @@ const W: f32 = 256.0;
 const PROJECT: TextStyle = TextStyle::new(13.0, 440.0).lh(19.5).tracking(-0.04);
 const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(19.5).tracking(-0.04);
 
-/// The preview machine: one card at a time across the window's strips.
+/// `TabPreviewState`: `cold` waits the full open delay; `open` and `warm` (just closed) open the
+/// next preview at once. `instant` marks a preview opened during such a streak (Desktop's card
+/// has no entrance either way, `tab-popover.css:28-45`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum State {
+    Cold { attempt: u32 },
+    /// `pointer`: over a side tab, the pointer's height in window points and the row's top,
+    /// which the card follows (`follow`, `pointerY`).
+    Open { attempt: u32, tab: String, instant: bool, pointer: Option<(f32, f32)> },
+    /// Closed a moment ago, until `until` on the app's clock (`warm.start`).
+    Warm { attempt: u32, until: f64, instant: bool },
+}
+
+impl Default for State {
+    fn default() -> State {
+        State::Cold { attempt: 0 }
+    }
+}
+
+/// `TabPreviewEvent`. `Closed` is also `owner.disposed`; `Pointer` stands in for `follow.attached`
+/// and the trigger's `pointermove`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event<'a> {
+    Opened(&'a str),
+    Closed(&'a str),
+    Pointer { tab: &'a str, at: (f32, f32) },
+    WarmExpired { attempt: u32 },
+}
+
+/// `transitionTabPreview`. The warm timer is the `until` the state carries, so `warm.start`
+/// and `warm.clear` have nothing left to do.
+pub fn step(state: &mut State, event: Event<'_>, now: f64) {
+    match event {
+        Event::Opened(tab) => {
+            if matches!(state, State::Open { tab: t, .. } if t == tab) {
+                return;
+            }
+            let attempt = attempt(state);
+            let instant = !matches!(state, State::Cold { .. });
+            // Another tab's preview takes over at once and closes the one that was up.
+            *state = State::Open { attempt, tab: tab.to_owned(), instant, pointer: None };
+        }
+        Event::Closed(tab) => {
+            let State::Open { attempt, tab: t, instant, .. } = state else { return };
+            if t != tab {
+                return;
+            }
+            *state = State::Warm { attempt: *attempt + 1, until: now + SKIP_WINDOW, instant: *instant };
+        }
+        Event::Pointer { tab, at } => {
+            if let State::Open { tab: t, pointer, .. } = state
+                && t == tab
+            {
+                *pointer = Some(at);
+            }
+        }
+        Event::WarmExpired { attempt: due } => {
+            if let State::Warm { attempt, .. } = state
+                && *attempt == due
+            {
+                *state = State::Cold { attempt: due };
+            }
+        }
+    }
+}
+
+fn attempt(state: &State) -> u32 {
+    match state {
+        State::Cold { attempt } | State::Open { attempt, .. } | State::Warm { attempt, .. } => *attempt,
+    }
+}
+
+/// `selectTabPreviewOpenDelay`: Kobalte reads it as the pointer enters a tab.
+fn open_delay(state: &State) -> f64 {
+    if matches!(state, State::Cold { .. }) { OPEN_DELAY } else { 0.0 }
+}
+
+/// Kobalte's `HoverCard` on the hovered tab, with that tab's `popoverOpen`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Card {
+    #[default]
+    Idle,
+    /// The pointer entered `tab`: its card asks to open at `at` (`openWithDelay`), unless the
+    /// pointer leaves first (`cancelOpening`).
+    Waiting { tab: String, at: f64 },
+    /// `tab` took the card (`popoverOpen`): it shows while nothing blocks it.
+    Asked { tab: String },
+}
+
+/// The card, and the preview it feeds.
 #[derive(Default)]
 pub struct Preview {
-    /// The session tab under the pointer, and when it came (`App::clock`).
-    hovered: Option<(String, f64)>,
-    /// The tab whose card shows.
-    open: Option<String>,
-    /// Until when the next tab's card shows at once.
-    warm_until: f64,
-    /// Over a side tab: the pointer's height in its row, and the row's top, in window points.
-    pointer: Option<(f32, f32)>,
+    card: Card,
+    state: State,
 }
 
 impl App {
     /// The pointer came onto (`inside`) or left tab `id`.
     pub(crate) fn preview_hover(&mut self, id: &str, inside: bool, tx: &mut Tx) {
         let now = self.clock;
+        self.expire_preview(now);
+        let shown = self.previewed().map(str::to_owned);
         let p = &mut self.tab_preview;
         if !inside {
-            if p.hovered.as_ref().is_some_and(|(h, _)| h == id) {
-                p.hovered = None;
+            // Leaving the tab cancels its opening, and the pointer off the tab and its card
+            // closes it (`onHoverOutside`, `closeDelay` 0).
+            if matches!(&p.card, Card::Waiting { tab, .. } | Card::Asked { tab } if tab == id) {
+                p.card = Card::Idle;
             }
-            if p.open.as_deref() == Some(id) {
-                p.open = None;
-                p.warm_until = now + SKIP_WINDOW;
-                tx.instant();
-            } else {
-                tx.live_only();
-            }
-            return;
+        } else if !self.tabs.iter().any(|t| t.id == id && t.is_draft()) && !matches!(&p.card, Card::Asked { tab } if tab == id) {
+            // A draft has no session, so it never takes the card (`!props.session`).
+            p.card = Card::Waiting { tab: id.to_owned(), at: now + open_delay(&p.state) };
         }
-        if self.tabs.iter().any(|t| t.id == id && t.is_draft()) {
+        self.settle_preview(now, tx);
+        if self.previewed() == shown.as_deref() {
             tx.live_only();
-            return;
-        }
-        let warm = p.open.is_some() || now < p.warm_until;
-        p.hovered = Some((id.to_owned(), now));
-        p.pointer = None;
-        if warm {
-            p.open = Some(id.to_owned());
-            tx.instant();
         } else {
-            tx.live_only();
-            tx.wake_after(std::time::Duration::from_secs_f64(OPEN_DELAY));
+            tx.instant();
         }
     }
 
     /// Over a side tab: the pointer's height, which the card follows.
     pub(crate) fn preview_pointer(&mut self, id: &str, local_y: f32, window_y: f32, tx: &mut Tx) {
-        let p = &mut self.tab_preview;
-        if p.open.as_deref() != Some(id) {
+        if !matches!(&self.tab_preview.state, State::Open { tab, .. } if tab == id) {
             tx.live_only();
             return;
         }
-        p.pointer = Some((window_y, window_y - local_y * self.zoom));
+        let at = (window_y, window_y - local_y * self.zoom);
+        step(&mut self.tab_preview.state, Event::Pointer { tab: id, at }, self.clock);
         tx.instant();
     }
 
-    /// The tab whose card shows now, unless something keeps it away.
-    fn previewed(&self) -> Option<&str> {
-        let id = self.tab_preview.open.as_deref()?;
-        let blocked = self.tab_drag.phase != rune_kit::shell::TabDragPhase::Idle
+    /// What keeps tab `id`'s card away (`previewBlocked`): a drag or press in the strip, its
+    /// rename, its menu.
+    fn preview_blocked(&self, id: &str) -> bool {
+        self.tab_drag.phase != rune_kit::shell::TabDragPhase::Idle
             || self.menus.rename.as_ref().is_some_and(|t| t.id == id)
             || self.menus.on.as_ref().is_some_and(|t| t.id == id)
-            // A narrow window's tabs show no card (`tab-popover.tsx:87`).
-            || self.narrow();
-        (!blocked && self.tab_layout() != crate::layout_state::TabLayout::Inbox).then_some(id)
+    }
+
+    /// Whether tab `id`'s card shows once it has it (`open() && !previewBlocked()`): a narrow
+    /// window's tabs show none (`tab-popover.tsx:87`).
+    fn preview_open(&self, id: &str) -> bool {
+        !self.preview_blocked(id) && !self.narrow()
+    }
+
+    /// The tab whose card shows now.
+    fn previewed(&self) -> Option<&str> {
+        let State::Open { tab, .. } = &self.tab_preview.state else { return None };
+        (self.preview_open(tab) && self.tab_layout() != crate::layout_state::TabLayout::Inbox).then_some(tab.as_str())
+    }
+
+    fn expire_preview(&mut self, now: f64) {
+        if let State::Warm { attempt, until, .. } = self.tab_preview.state
+            && now + 1e-9 >= until
+        {
+            step(&mut self.tab_preview.state, Event::WarmExpired { attempt }, now);
+        }
+    }
+
+    /// The card's opening comes due, a menu takes the tab, and the preview hears whether the
+    /// card is open (`createComputed` over `open() && !previewBlocked()`).
+    fn settle_preview(&mut self, now: f64, tx: &mut Tx) {
+        if let Card::Waiting { tab, at } = &self.tab_preview.card {
+            if now + 1e-3 < *at {
+                tx.wake_after(std::time::Duration::from_secs_f64(at - now));
+            } else {
+                // The card asks to open; a blocked tab refuses, and the card doesn't ask again
+                // until the pointer comes back (`if (value && previewBlocked()) return`).
+                let tab = tab.clone();
+                self.tab_preview.card = if self.preview_blocked(&tab) { Card::Idle } else { Card::Asked { tab } };
+            }
+        }
+        // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
+        if matches!(&self.tab_preview.card, Card::Asked { tab } if self.menus.on.as_ref().is_some_and(|t| t.id == *tab)) {
+            self.tab_preview.card = Card::Idle;
+        }
+        let open = match &self.tab_preview.card {
+            Card::Asked { tab } if self.preview_open(tab) => Some(tab.clone()),
+            _ => None,
+        };
+        let p = &mut self.tab_preview;
+        match (&p.state, open) {
+            (State::Open { tab, .. }, None) => {
+                let tab = tab.clone();
+                step(&mut p.state, Event::Closed(&tab), now);
+            }
+            (_, Some(tab)) => step(&mut p.state, Event::Opened(&tab), now),
+            _ => {}
+        }
     }
 }
 
-/// `poll`: the cold delay ran out over the same tab.
+/// `poll`: the warm streak ends, a card's opening comes due, and blocks come and go.
 pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let p = &mut s.tab_preview;
-    let Some((id, since)) = p.hovered.clone().filter(|_| p.open.is_none()) else { return false };
-    let left = OPEN_DELAY - (now - since);
-    if left > 1e-3 {
-        tx.wake_after(std::time::Duration::from_secs_f64(left));
-        return false;
+    s.expire_preview(now);
+    let shown = s.previewed().map(str::to_owned);
+    s.settle_preview(now, tx);
+    let changed = s.previewed() != shown.as_deref();
+    if changed {
+        tx.instant();
     }
-    p.open = Some(id);
-    tx.instant();
-    true
+    changed
 }
 
 /// The card, at the window's root.
@@ -131,7 +256,11 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
                 .child(text(title).key("title").font(TITLE).color(p.text).wrap()),
         )
         .child(row().key("row").w_full().child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap()));
-    if let (Some(card_h), Some((y, top))) = (card_h, s.tab_preview.pointer) {
+    let pointer = match &s.tab_preview.state {
+        State::Open { pointer, .. } => *pointer,
+        _ => None,
+    };
+    if let (Some(card_h), Some((y, top))) = (card_h, pointer) {
         // The pointer stays level with the middle of a row-sized slot, clamped to the strip
         // (`cursorOffset`), in window points; the offset is the card's own.
         let (row_h, card_h, z) = (28.0 * s.zoom, card_h * s.zoom, s.zoom);
