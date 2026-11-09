@@ -75,7 +75,7 @@ impl App {
             && self.rewind.menu.is_none()
             && !self.popup.is_open()
             && !self.project_state.home_menu_open
-            && !self.activity_open
+            && !self.shells.activity.is_open()
             && !self.todo_open
             && self.connect.open.is_none()
             && self.mcp.open.is_none()

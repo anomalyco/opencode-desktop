@@ -266,7 +266,7 @@ impl App {
         self.project_state.home_menu_open = false;
         self.settings.open = false;
         self.menus.on = None;
-        self.activity_open = false;
+        crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
         let options = FileDialogOptions { title: opencode_i18n::t!("command.project.open").into(), ..Default::default() };
         tx.open_folder(options, move |s: &mut App, result, tx| match result {

@@ -127,6 +127,9 @@ impl App {
             crate::subagents::reply::event(self, ty, data, &sid);
             crate::background::admitted(self, ty, data, &sid);
         }
+        if ty.starts_with("shell.") {
+            changed |= crate::subagents::shells::event(self, ty, data);
+        }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= self.apply_revert(ty, data, &sid);
         }

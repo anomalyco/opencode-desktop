@@ -12,7 +12,7 @@ fn runtime(menu: bool) -> rune::Runtime<App> {
     if menu {
         app.transcripts.get_mut(MAIN).unwrap().messages.clear();
         app.running.insert(CHILD.into());
-        app.activity_open = true;
+        crate::subagents::shells::set_open(&mut app, true);
     }
     app.pages.set(Pages::fixture(None).0);
     let mut rt = app.into_runtime();

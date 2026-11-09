@@ -28,7 +28,7 @@ fn is_open(s: &App) -> bool {
         0 => s.add.open,
         1 => s.rewind.menu.is_some() && s.popup.is_open(),
         4 => s.popup.is_open(),
-        2 => s.activity_open,
+        2 => s.shells.activity.is_open(),
         _ => s.todo_open,
     }
 }
@@ -45,7 +45,7 @@ fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
         }
         4 if open => right_click(s, tx),
         1 | 4 => crate::popup::dismiss(s, tx),
-        2 => s.activity_open = open,
+        2 => crate::subagents::shells::set_open(s, open),
         _ => s.todo_open = open,
     }
     motion::toggled(&s.knobs, tx, open);
@@ -64,7 +64,7 @@ fn start(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.close_add_menu();
     s.close_message_menu();
-    s.activity_open = false;
+    crate::subagents::shells::set_open(s, false);
     s.todo_open = false;
     match s.variant {
         2 => crate::capsule_stories::run_thirty(s),

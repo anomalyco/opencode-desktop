@@ -24,7 +24,7 @@ impl App {
         self.close_picker(false);
         self.close_message_menu();
         self.close_fork_dialog(false);
-        self.activity_open = false;
+        crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
         if self.route != Route::Session(id.to_owned()) {
             // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
@@ -62,6 +62,9 @@ impl App {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Inbox(id.to_owned()));
                 self.read_open_requests(id);
+                if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
+                    crate::subagents::shells::list(self, &dir);
+                }
             }
             Source::Live { .. } => {}
             Source::Fixture => self.start_stream_if_due(id),
@@ -85,6 +88,10 @@ impl App {
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();
+        crate::subagents::shells::forget_lists(self);
+        if let Some(dir) = open.as_deref().and_then(|id| self.session(id)).map(|i| i.directory.clone()) {
+            crate::subagents::shells::list(self, &dir);
+        }
         let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
         asked.sort();
         asked.dedup();

@@ -480,7 +480,7 @@ impl super::App {
 
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
-        self.activity_open = false;
+        crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
         let from = self.opening.as_ref().filter(|o| !o.loading).map_or_else(|| self.route.clone(), |o| o.from.clone());
         self.opening = Some(Opening { id: id.into(), from, started: Instant::now(), clock: self.clock, loading: false, received: self.transcripts.contains_key(id), error:None });

@@ -168,10 +168,10 @@ fn one_list_opens_at_a_time() {
     assert!((pill[0] - (chip[0] + chip[2] + 8.0)).abs() < 0.5, "beside the capsule, 8 apart: {chip:?} {pill:?}");
 
     tap(&mut rt, "activity-chip");
-    assert!(rt.state.activity_open && !has(&rt, "todo-panel"));
+    assert!(rt.state.shells.activity.is_open() && !has(&rt, "todo-panel"));
     tap(&mut rt, "activity-dismiss");
     tap(&mut rt, "todo-pill");
-    assert!(rt.state.todo_open && !rt.state.activity_open);
+    assert!(rt.state.todo_open && !rt.state.shells.activity.is_open());
     assert!(has(&rt, "todo-panel") && !has(&rt, "activity-panel"));
 }
 

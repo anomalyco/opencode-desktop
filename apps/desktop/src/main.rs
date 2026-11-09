@@ -417,8 +417,8 @@ pub struct App {
     pub links: Vec<String>,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
-    /// The running-subagents list above the composer is open.
-    pub activity_open: bool,
+    /// Background shells, and the running-work list above the composer (`subagents::activity`).
+    pub shells: subagents::shells::Shells,
     /// Replies to subagents still on their way, to take back if the send fails.
     pub subagent_replies: subagents::reply::Sent,
     /// Permission replies still on their way, to bring back if the server refuses one.
@@ -1312,7 +1312,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= stop::poll(s, now, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
-    changed |= subagents::sync(s) | todos::sync(s, now, tx);
+    changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx);
     if s.dock_face() != asked {
         s.morph(tx);
     }

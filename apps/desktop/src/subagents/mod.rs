@@ -5,7 +5,11 @@
 //! A subagent runs while its child session, or any session below it, runs. A background call's
 //! tool part finishes at once, so the call's own status only counts until it names its child.
 
+pub mod activity;
 pub mod reply;
+mod shell_tail;
+pub mod shells;
+mod shells_view;
 mod stories;
 #[cfg(test)]
 mod reply_tests;
@@ -90,7 +94,7 @@ impl App {
             });
             self.fetch_info(child);
         }
-        self.activity_open = false;
+        shells::set_open(self, false);
         self.open(child, tx);
     }
 
@@ -117,36 +121,48 @@ pub fn child_of<'a>(s: &'a App, parent: &str, named: Option<&'a str>, descriptio
     })
 }
 
-/// "2 subagents" over the composer while anything below the session runs; it opens a list.
-/// Desktop's capsule (`activity-chips.tsx`): a 28pt hairline capsule filled like the composer
-/// (layer 1 in dark, the page in light) with its raised shadow, 10pt insets, the 16pt spinner and
-/// the count in 13pt text. The fill's strength is the "Capsule fill" knob.
+/// "2 subagents · 1 shell" over the composer while anything below the session or one of its
+/// background shells runs; it opens a list. Desktop's capsule (`activity-chips.tsx`): a 28pt
+/// hairline capsule filled like the composer (layer 1 in dark, the page in light) with its
+/// raised shadow, 10pt insets, the 16pt spinner and the counts in 13pt text, the separator faint
+/// (`session.activity.summary`). The fill's strength is the "Capsule fill" knob.
 pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
-    let n = s.running_subagents(id).len();
-    if n == 0 {
+    let (subs, sh) = counts(s, id);
+    if subs + sh == 0 {
         return None;
     }
-    let label = format!("{n} subagent{}", if n == 1 { "" } else { "s" });
-    let chip = chip(s, p, "activity-chip", label.clone(), s.activity_open)
+    let subs_label = opencode_i18n::plural!("session.activity.subagents", subs);
+    let shells_label = opencode_i18n::plural!("session.activity.shells", sh);
+    // The summary's words between its two counts, in the language's order.
+    let summary = opencode_i18n::t!("session.activity.summary", subagents = "\u{1}", shells = "\u{2}");
+    let between = summary.split(['\u{1}', '\u{2}']).nth(1).unwrap_or("").trim().to_owned();
+    let label = match (subs, sh) {
+        (0, _) => shells_label.clone(),
+        (_, 0) => subs_label.clone(),
+        _ => opencode_i18n::t!("session.activity.summary", subagents = subs_label.clone(), shells = shells_label.clone()).to_string(),
+    };
+    let mut chip = chip(s, p, "activity-chip", label, s.shells.activity.is_open())
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            s.activity_open = !s.activity_open;
+            shells::set_open(s, !s.shells.activity.is_open());
             s.todo_open = false;
-            crate::popover::motion::toggled(&s.knobs, tx, s.activity_open);
+            crate::popover::motion::toggled(&s.knobs, tx, s.shells.activity.is_open());
         })
-        .child(activity_ring_sized(p, 16.0))
-        .child(odometer(format!("chip-count-{id}"), label, n as f64, UI, p.text));
+        .child(activity_ring_sized(p, 16.0));
+    if subs > 0 {
+        chip = chip.child(odometer(format!("chip-count-{id}"), subs_label, subs as f64, UI, p.text));
+    }
+    if subs > 0 && sh > 0 {
+        chip = chip.child(text(between).key("chip-between").font(UI).color(p.faint));
+    }
+    if sh > 0 {
+        chip = chip.child(odometer(format!("chip-shells-{id}"), shells_label, sh as f64, UI, p.text));
+    }
     Some(chip)
 }
 
-/// Closes the list once its capsule goes, as Desktop's menu does, so the next subagent to start
-/// doesn't bring it back open over the timeline: only a press opens it (t1132).
-pub fn sync(s: &mut App) -> bool {
-    let Route::Session(id) = &s.route else { return false };
-    if !s.activity_open || !s.running_subagents(id).is_empty() {
-        return false;
-    }
-    s.activity_open = false;
-    true
+/// The capsule's counts: running subagents, and background shells with the one its list shows.
+fn counts(s: &App, id: &str) -> (usize, usize) {
+    (s.running_subagents(id).len(), shells::running_for(s, id).len() + usize::from(shells::held(s)))
 }
 
 /// The capsule every pill over the composer shares (`[data-composer-pill]`,
@@ -188,13 +204,22 @@ pub const CHIP_H: f32 = session_view::jump::CHIP_H;
 
 /// The capsule's list (`session-activity-panel`): a floating menu above the capsule, start
 /// edges aligned, one 28pt row per running subagent with the spinner, the agent in medium, its
-/// task in muted text and the run time in 11pt at the end. Agents and run times line up in
-/// columns; the task takes the rest and fades out where it's cut once the menu reaches 360pt.
-/// Past 270pt the rows scroll inside the menu, fading only where rows hide under its edge, and
-/// nothing draws outside it.
+/// task in muted text and the run time in 11pt at the end, then one per background shell with
+/// the console mark and its command across the agent and task columns. Agents and run times
+/// line up in columns; the task takes the rest and fades out where it's cut once the menu
+/// reaches 360pt. Hovering a row swaps its run time for a stop button. Past 270pt the rows
+/// scroll inside the menu, fading only where rows hide under its edge, and nothing draws
+/// outside it. A shell's row opens its own panel in place (`shells_view::panel`).
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
+    if !s.shells.activity.is_open() {
+        return None;
+    }
+    if s.shells.activity.shown().is_some() {
+        return shells_view::panel(s, p);
+    }
     let items = s.running_subagents(id);
-    if !s.activity_open || items.is_empty() {
+    let shell_items = shells::running_for(s, id);
+    if items.is_empty() && shell_items.is_empty() {
         return None;
     }
     let name_of = |it: &Running| if it.agent.is_empty() { opencode_i18n::t!("ui.tool.agent.default").to_owned() } else { model::capitalize(&it.agent) };
@@ -202,11 +227,15 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let time_of = |it: &Running| ms_of(it).map(elapsed).unwrap_or_default();
     let width = |t: &str, style| rune::text::measure(t, &[], style, None).0;
     let agent_w = items.iter().map(|it| width(&name_of(it), UI_MED)).fold(0.0, f32::max);
-    let time_w = time_column(items.iter().map(time_of), &width);
+    let shell_times = shell_items.iter().map(|sh| (sh.started > 0).then(|| elapsed(s.run_clock() - sh.started)).unwrap_or_default());
+    let time_w = time_column(items.iter().map(time_of).chain(shell_times), &width);
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
-    // Panel inset 4 + hairline 0.5, row inset 6, then spinner, agent, task and time, 8 apart,
-    // with 8 more before the time.
-    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + agent_w + 8.0 + label_w + 16.0 + time_w;
+    // A shell's command spans the agent and task columns and the gap between them.
+    let command_w = shell_items.iter().map(|sh| width(&sh.command, shells_view::COMMAND)).fold(0.0, f32::max);
+    let span = (agent_w + 8.0 + label_w).max(command_w);
+    // Panel inset 4 + hairline 0.5, row inset 6, then the mark, agent and task (or command) and
+    // time, 8 apart, with 8 more before the time.
+    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w;
     let mut list = col().key("activity-list").w_full().padding(PANEL_PAD);
     for it in &items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
@@ -225,6 +254,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .radius(4.0)
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
+                .hover_group()
                 .on_layout_tx(move |s: &mut App, _, tx| {
                     tx.live_only();
                     s.prefetch_session(&visible);
@@ -240,10 +270,14 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .child(activity_ring_sized(p, 16.0))
                 .child(text(name).font(UI_MED).color(p.text).w(agent_w))
                 .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
-                .child(row().key("time").w(time_w).ml(8.0).justify_end().children(ms_of(it).map(|ms| run_time(format!("sub-time-{}", it.session), ms, ELAPSED, p.muted)))),
+                .child(shells_view::end(s, p, &it.session, true, ms_of(it), time_w)),
         );
     }
-    let h = (items.len() as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
+    for sh in &shell_items {
+        list = list.child(shells_view::row_of(s, p, sh, span, time_w));
+    }
+    let n = items.len() + shell_items.len();
+    let h = (n as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
     let rows = col()
         .key("activity-scroll")
         .w_full()
@@ -254,10 +288,11 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         // What it holds comes in with the list, not on fades of its own.
         .instant_changes()
         .child(list);
+    let label = if items.is_empty() { opencode_i18n::t!("session.activity.section.shells") } else { opencode_i18n::t!("session.activity.section.subagents") };
     let panel = col()
         .key("activity-panel")
         .role("menu")
-        .label(opencode_i18n::t!("session.activity.section.subagents"))
+        .label(label)
         .above("activity-chip", 8.0)
         .w(natural.clamp(240.0, 360.0).ceil())
         .radius(10.0)
@@ -269,21 +304,21 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         .child(rows);
     Some(panel)
 }
-
-/// The run-time column's width: room for "59m 59s" at least, and for the widest time shown with
-/// every digit at its widest, so ticking never moves the tasks beside it.
+/// The run-time column's width: the longest time shown, its figures tabular so ticking moves
+/// nothing until a time gains a unit, as Desktop's grid column is as wide as its longest run
+/// time (`activity-chips.css:77-91`); at least the stop button that swaps in for it.
 fn time_column(times: impl Iterator<Item = String>, width: &impl Fn(&str, rune::TextStyle) -> f32) -> f32 {
     let widest = |t: &str| width(&t.chars().map(|c| if c.is_ascii_digit() { '0' } else { c }).collect::<String>(), ELAPSED);
-    times.map(|t| widest(&t)).fold(widest("00m 00s"), f32::max).ceil()
+    times.map(|t| widest(&t)).fold(20.0, f32::max)
 }
 
-const PANEL_PAD: f32 = 4.0;
-const PANEL_ROW: f32 = 28.0;
+pub(crate) const PANEL_PAD: f32 = 4.0;
+pub(crate) const PANEL_ROW: f32 = 28.0;
 /// Desktop's `max-height: min(270px, …)`.
 const PANEL_MAX_H: f32 = 270.0;
 
 /// The run time in the list: 11pt, tabular figures.
-const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
+pub(crate) const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 #[cfg(test)]
 mod tests {
@@ -371,7 +406,7 @@ mod tests {
         assert!(has(&rt, "", &format!("sub-{REVIEW}")));
         press(&mut rt, &format!("sub-{REVIEW}"));
         assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
-        assert!(!rt.state.activity_open);
+        assert!(!rt.state.shells.activity.is_open());
     }
 
     /// The list grows out of its capsule, all it holds with it, and goes at once (t1150).
@@ -403,7 +438,7 @@ mod tests {
             s.running.remove(REVIEW);
         });
         rt.frame(1.0 / 120.0);
-        assert!(!has(&rt, "", "activity-chip") && !rt.state.activity_open);
+        assert!(!has(&rt, "", "activity-chip") && !rt.state.shells.activity.is_open());
         rt.update(|s, _| {
             s.running.insert(REVIEW.into());
         });
@@ -438,7 +473,7 @@ mod tests {
         let mut rt = rt();
         rt.update(|s, tx| {
             crate::capsule_stories::run_thirty(s);
-            s.activity_open = true;
+            crate::subagents::shells::set_open(s, true);
             tx.instant();
         });
         rt.frame(1.0 / 120.0);
@@ -501,7 +536,7 @@ mod tests {
         let mut rt = rt();
         rt.update(|s, tx| {
             s.running.insert(REVIEW.into());
-            s.activity_open = true;
+            crate::subagents::shells::set_open(s, true);
             tx.instant();
         });
         rt.frame(1.0 / 60.0);

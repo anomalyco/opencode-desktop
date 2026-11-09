@@ -9,7 +9,7 @@ use rune::Play;
 use crate::App;
 use crate::stories::{Trigger, replay, sid};
 
-pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'o', label: "Open or close the list", run: |s, _| s.activity_open = !s.activity_open }];
+pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'o', label: "Open or close the list", run: |s, _| crate::subagents::shells::set_open(s, !s.shells.activity.is_open()) }];
 
 const TASKS: &[(&str, &str)] = &[
     ("general", "Slack messages prototype"),
@@ -52,7 +52,7 @@ fn child(k: usize) -> String {
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     run_thirty(s);
-    s.activity_open = true;
+    crate::subagents::shells::set_open(s, true);
 }
 
 /// Thirty agents run below the open session; every third was made hours ago and woke again a

@@ -98,7 +98,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                s.activity_open = false;
+                crate::subagents::shells::set_open(s, false);
             }))
             .child(panel);
     }

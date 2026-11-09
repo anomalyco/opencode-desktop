@@ -230,7 +230,7 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
         .min_w(0.0)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             s.todo_open = !s.todo_open;
-            s.activity_open = false;
+            crate::subagents::shells::set_open(s, false);
             crate::popover::motion::toggled(&s.knobs, tx, s.todo_open);
             if s.todo_open {
                 reveal_current(s, &sid, tx);

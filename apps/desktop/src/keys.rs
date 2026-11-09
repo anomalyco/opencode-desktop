@@ -30,9 +30,9 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.project_state.home_menu_open = false;
             true
         }
-        Key::Escape if s.activity_open => {
+        Key::Escape if s.shells.activity.is_open() => {
             tx.instant();
-            s.activity_open = false;
+            crate::subagents::shells::set_open(s, false);
             true
         }
         Key::Escape if s.todo_open => {

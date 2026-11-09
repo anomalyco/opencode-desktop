@@ -578,6 +578,9 @@ fn connect(s: &mut App, tx: &mut Tx) {
         let id = id.clone();
         let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
         s.apply_inbox("session.inbox.listed", &serde_json::json!({ "sessionID": id, "items": items }), &id);
+        if let Some(dir) = s.session(&id).map(|i| i.directory.clone()) {
+            crate::subagents::shells::list(s, &dir);
+        }
     }
 }
 
