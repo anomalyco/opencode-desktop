@@ -437,7 +437,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                     .min_h(20.0)
                                     .animate_edit_layout()
                                     .placeholder(s.composer_placeholder(), p.faint)
-                                    .caret(p.text, p.selection)
+                                    .caret(p.text, p.selection).selection_style(p.field_selection)
                                     .spellcheck(s.composer_spellcheck() && !s.composer_shell_mode())
                                     .on_edit(S::composer_edit_mut)
                                     .pill_style(mention_pill_style(p))

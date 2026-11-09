@@ -512,7 +512,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .min_w(0.0)
                 .color(p.text)
                 .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
-                .caret(p.text, p.selection)
+                .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.project_switcher.search)
                 .on_input_key(|s: &mut App, ev, tx| s.project_switcher_key(ev, tx) || s.shortcut(ev, tx)),
         );

@@ -334,7 +334,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .min_w(0.0)
                 .color(p.text)
                 .placeholder(opencode_i18n::t!("common.search.placeholder"), p.text.alpha(p.text.a * 0.5))
-                .caret(p.text, p.selection)
+                .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.fork.search)
                 .on_input_change(|s: &mut App, tx| {
                     tx.instant();

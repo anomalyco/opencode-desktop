@@ -148,7 +148,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             .min_w(0.0)
             .color(p.text)
             .placeholder(custom_label(), if editing { p.faint } else { p.text })
-            .caret(p.text, p.selection)
+            .caret(p.text, p.selection).selection_style(p.field_selection)
             .on_layout(|s: &mut S, r| {
                 let d = s.dock_mut();
                 if (d.input_w - r[2]).abs() > 0.5 {

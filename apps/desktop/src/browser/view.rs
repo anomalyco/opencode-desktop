@@ -85,6 +85,7 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
             text_input(&s.browser.address, MONO_URL)
                 .key("browser-address")
                 .placeholder(opencode_i18n::t!("plugin.browser.address.search"), p.faint)
+                .selection_style(p.field_selection)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()

@@ -115,6 +115,7 @@ pub fn filter_field(
                 .key(key)
                 .spellcheck(spellcheck)
                 .placeholder(opencode_i18n::t!("ui.sessionReviewV2.filterFiles"), p.faint)
+                .selection_style(p.field_selection)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()

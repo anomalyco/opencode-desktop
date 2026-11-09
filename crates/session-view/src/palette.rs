@@ -60,6 +60,12 @@ pub struct Pal {
     pub search_bg: Color,
     pub inline_code_bg: Color,
     pub selection: Color,
+    /// A text field's selection: Chromium's default (`::selection` unstyled), white text on its
+    /// blue while the window is active and #323232 on grey while it isn't.
+    pub field_selection: rune::SelectionStyle,
+    /// The timeline's selection (`quote-highlight.css`): `blue-1100` at 10% in light, `blue-400`
+    /// at 25% in dark, the text keeping its colour.
+    pub timeline_selection: Color,
     /// A cancelled background shell or subagent's notice: `yellow-900`, `state-fg-warning` in dark.
     pub cancelled: Color,
     pub avatar_fg: Color,
@@ -398,6 +404,8 @@ fn build(theme: usize, dark: bool) -> Pal {
         // color-mix(in oklch, text-base 8%, transparent)
         inline_code_bg: t.alpha(text, 0.08),
         selection: t.alpha(c("text-text-accent"), 0.3),
+        field_selection: rune::SelectionStyle::chromium(),
+        timeline_selection: if dark { t.alpha(c("blue-400"), 0.25) } else { t.alpha(c("blue-1100"), 0.1) },
         cancelled: if dark { c("state-fg-warning") } else { c("yellow-900") },
         avatar_fg: c("avatar-fg"),
         avatars: [

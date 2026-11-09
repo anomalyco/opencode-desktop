@@ -131,7 +131,7 @@ static TRIANGLE_RIGHT: Icon = Icon {
 /// Text people can select and copy, as Desktop's content is (`user-select: text`); the chrome
 /// around it (triggers, labels, buttons) stays unselectable.
 pub fn readable(p: &Pal, t: El) -> El {
-    t.selectable(true).selection_color(p.selection)
+    t.selectable(true).selection_color(p.timeline_selection)
 }
 
 /// A thought in a tool group, as Desktop's `AssistantReasoningContent` (`message-content.tsx`)

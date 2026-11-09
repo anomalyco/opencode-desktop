@@ -96,7 +96,7 @@ fn list(s: &App, p: &Pal, dir: &str) -> El {
     let field = row().key("mcp-search-field").w_full().h(28.0).pr(6.0).gap(6.0).center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(text_input(&open.search, crate::view::UI).key("mcp-search").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder(opencode_i18n::t!("dialog.mcp.search.placeholder"), p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection)
+            .color(p.text).placeholder(opencode_i18n::t!("dialog.mcp.search.placeholder"), p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection).selection_style(p.field_selection)
             .label(opencode_i18n::t!("dialog.mcp.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.mcp.open.as_mut().expect("open").search)
             .on_input_change(|s: &mut App, tx: &mut Tx| {

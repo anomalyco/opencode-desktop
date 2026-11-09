@@ -139,7 +139,7 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
         .animate_edit_layout()
         .color(p.text)
         .placeholder(placeholder.to_owned(), p.faint)
-        .caret(p.text, p.selection)
+        .caret(p.text, p.selection).selection_style(p.field_selection)
 }
 
 /// The model dialog's search row and the hairline under it (`select-dialog.css:49-96`): 6 pt

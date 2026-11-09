@@ -120,7 +120,7 @@ fn search(s: &App, p: &Pal) -> El {
         .hover(p.layer2)
         .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(rune::text_input(&s.settings_pages.search, NAME_REGULAR).key("settings-models-input").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder(t!("dialog.model.search.placeholder"), p.faint).caret(p.text, p.selection).label(t!("dialog.model.search.placeholder"))
+            .color(p.text).placeholder(t!("dialog.model.search.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label(t!("dialog.model.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.search)
             .on_input_change(|_: &mut App, tx: &mut Tx| tx.instant()))
 }

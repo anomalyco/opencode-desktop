@@ -305,7 +305,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .min_w(0.0)
         .color(p.text)
         .placeholder(custom_label(), if editing { p.faint } else { p.text })
-        .caret(p.text, p.selection)
+        .caret(p.text, p.selection).selection_style(p.field_selection)
         .on_edit(move |s: &mut S| s.dock_mut().typed_mut(&id, &field_key))
         .on_input_change(|s: &mut S, _| {
             let Some(f) = asking(s) else { return };

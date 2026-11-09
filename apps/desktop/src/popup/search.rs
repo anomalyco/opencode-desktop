@@ -24,7 +24,7 @@ pub(super) fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
         .min_w(0.0)
         .color(p.text)
         .placeholder(placeholder.to_owned(), p.faint)
-        .caret(p.text, p.selection)
+        .caret(p.text, p.selection).selection_style(p.field_selection)
         .on_edit(|s: &mut App| &mut s.popup.query)
         .on_input_key(|s: &mut App, ev, tx: &mut Tx| matches!(ev.key, Key::Up | Key::Down | Key::Escape | Key::Tab | Key::PageUp | Key::PageDown) && key(s, ev, tx))
         .on_submit(|s: &mut App, tx: &mut Tx| {

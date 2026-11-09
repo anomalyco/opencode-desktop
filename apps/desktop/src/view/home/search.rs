@@ -22,16 +22,17 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         .hover(p.layer2)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            text_input(&s.search, UI.lh(20.0))
+            // The input's 24 line (13/24, `home-sessions`), which its selection fills.
+            text_input(&s.search, UI.lh(24.0))
                 .key("search-input")
                 .spellcheck(s.settings.spellcheck)
                 .single_line()
                 .grow(1.0)
                 .shrink()
-                .h(20.0)
+                .h(24.0)
                 .color(p.text)
                 .placeholder(placeholder, p.faint)
-                .caret(p.text, p.selection)
+                .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.search)
                 .on_input_key(|s: &mut App, ev, tx| s.home_search_key(ev, tx)),
         );

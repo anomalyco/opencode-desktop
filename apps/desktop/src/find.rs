@@ -589,7 +589,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                     .h(20.0)
                     .color(p.text)
                     .placeholder(opencode_i18n::t!("session.search.placeholder"), p.faint)
-                    .caret(p.text, p.selection)
+                    .caret(p.text, p.selection).selection_style(p.field_selection)
                     .on_edit(|s: &mut App| &mut s.find.input)
                     .on_input_change(typed)
                     .on_input_key(input_key),

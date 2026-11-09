@@ -73,7 +73,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .min_w(0.0)
         .color(p.text)
         .placeholder(opencode_i18n::t!("common.search.placeholder"), p.faint)
-        .caret(p.text, p.selection)
+        .caret(p.text, p.selection).selection_style(p.field_selection)
         .on_edit(|s: &mut S| &mut s.pickers_mut().manage.as_mut().expect("open").search)
         .on_input_key(|s: &mut S, ev, tx: &mut Tx| {
             if ev.key != Key::Escape || s.pickers().manage.as_ref().is_some_and(|m| m.search.is_composing()) {

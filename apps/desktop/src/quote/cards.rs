@@ -104,7 +104,7 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .w_full()
         .min_h(64.0)
         .placeholder(opencode_i18n::t!("session.quote.commentPlaceholder"), p.faint)
-        .caret(p.text, p.selection)
+        .caret(p.text, p.selection).selection_style(p.field_selection)
         .spellcheck(s.settings.spellcheck)
         .on_edit(|s: &mut App| &mut s.quote.draft)
         .on_input_key(|s: &mut App, ev, tx| {

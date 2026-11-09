@@ -59,7 +59,7 @@ pub(super) fn field(s: &App, p: &Pal, id: &str) -> Option<El> {
             .radius(4.0)
             .fill(p.layer1)
             .color(p.text)
-            .caret(p.text, p.selection)
+            .caret(p.text, p.selection).selection_style(p.field_selection)
             .on_edit(|s: &mut App| &mut s.terminal.renaming.as_mut().expect("renaming").field)
             .on_submit(save)
             .on_key(|s: &mut App, ev: &KeyEvent, tx: &mut Tx| {

@@ -351,7 +351,7 @@ pub fn filter_field(s: &App, p: &Pal, key: &str, placeholder: &str, edit: &TextE
         .hover(p.layer2)
         .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(rune::text_input(edit, NAME_REGULAR).key(format!("{key}-input")).single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder(placeholder.to_owned(), p.faint).caret(p.text, p.selection).label(placeholder.to_owned())
+            .color(p.text).placeholder(placeholder.to_owned(), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label(placeholder.to_owned())
             .on_edit(field)
             .on_input_change(|_: &mut App, tx: &mut Tx| tx.instant()))
         .children(clear)

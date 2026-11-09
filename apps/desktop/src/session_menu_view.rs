@@ -24,7 +24,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     Some(
         input
             .color(p.text)
-            .caret(p.text, p.selection)
+            .caret(p.text, p.selection).selection_style(p.field_selection)
             .on_edit(|s: &mut App| &mut s.menus.edit)
             .on_input_key(|s: &mut App, ev, tx: &mut Tx| crate::session_menu::key(s, ev, tx))
             .on_submit(|s: &mut App, tx: &mut Tx| {

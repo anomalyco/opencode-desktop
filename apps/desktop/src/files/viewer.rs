@@ -200,6 +200,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
                 .key("files-find-input")
                 .spellcheck(spellcheck)
                 .placeholder(opencode_i18n::t!("rune.files.findPlaceholder"), p.faint)
+                .selection_style(p.field_selection)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()

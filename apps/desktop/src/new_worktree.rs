@@ -449,7 +449,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                 .min_w(0.0)
                 .color(p.text)
                 .placeholder(opencode_i18n::t!("session.new.workspace.branch.search.placeholder"), p.faint)
-                .caret(p.text, p.selection)
+                .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.new_worktree.picker.search)
                 .on_input_change(App::branch_search_changed)
                 .on_input_key(|s: &mut App, ev, tx| s.branch_picker_key(ev, tx)),
