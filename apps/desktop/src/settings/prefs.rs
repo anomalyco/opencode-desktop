@@ -130,3 +130,8 @@ impl Sounds {
         }
     }
 }
+
+choice! {
+    /// Where a narrow window keeps its titlebar and view switcher (`general.mobileTitlebarPosition`).
+    TitlebarPosition { Top => "top", "settings.general.row.mobileTitlebarBottom.title", Bottom => "bottom", "settings.general.row.mobileTitlebarBottom.title" } default Top
+}

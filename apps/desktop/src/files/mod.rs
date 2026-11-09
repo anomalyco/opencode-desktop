@@ -11,6 +11,7 @@ pub mod links;
 #[cfg(test)]
 mod links_tests;
 pub mod markdown;
+pub mod narrow;
 mod markdown_stories;
 #[cfg(test)]
 mod markdown_tests;
@@ -60,6 +61,8 @@ pub struct SessionFiles {
     pub link_opens: HashMap<String, LinkOpen>,
     pub md: HashMap<String, markdown::MdView>,
     pub ready: bool,
+    /// What the narrow window's Files view shows (`narrow`).
+    pub narrow: narrow::NarrowFiles,
 }
 
 /// Where a link asked to land in the file it opens.
@@ -86,6 +89,7 @@ impl Default for SessionFiles {
             link_opens: HashMap::new(),
             md: HashMap::new(),
             ready: false,
+            narrow: narrow::NarrowFiles::default(),
         }
     }
 }
@@ -578,6 +582,7 @@ impl App {
             (self.composer.focused, self.side.focused) = saved_focus;
         }
         let ws = self.files.sessions.entry(sid.to_owned()).or_default();
+        ws.narrow = ws.narrow.step(narrow::NarrowFilesEvent::Opened);
         ws.push_recent(path);
         // Ensure parent folders in the tree are expanded so the active file highlights in context.
         let parts: Vec<&str> = path.split('/').collect();

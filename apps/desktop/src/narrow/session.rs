@@ -54,17 +54,19 @@ fn find(view: &str) -> Option<&'static MobileView> {
 /// the location bar, or the picked view.
 pub fn page(s: &App, p: &Pal, id: &str, conversation: impl FnOnce() -> El) -> El {
     let shown = s.narrow_view();
-    let page = col().key("session").grow(1.0).w_full().min_h(0.0).child(tabs(s, p, id, shown));
-    if shown == CONVERSATION {
-        return page.child(location_bar(s, p, id)).child(conversation());
-    }
-    page.child(view(s, p, id, shown))
+    // Settings › Bottom navigation puts the switcher under everything, its rule along its top.
+    let bottom = crate::view::chrome().bottom;
+    let switcher = tabs(s, p, id, shown, bottom);
+    let (above, below) = if bottom { (None, Some(switcher)) } else { (Some(switcher), None) };
+    let page = col().key("session").grow(1.0).w_full().min_h(0.0).children(above);
+    let page = if shown == CONVERSATION { page.child(location_bar(s, p, id)).child(conversation()) } else { page.child(view(s, p, id, shown)) };
+    page.children(below)
 }
 
 /// `session-mobile-view-navigation`: 36 tall, a 1 px `border-base` rule along its foot, each
 /// view an equal share (`flex-1`); the picked one in `text-base` over a 1 px `text-faint` rule,
 /// the others `text-muted` until hovered.
-fn tabs(s: &App, p: &Pal, id: &str, shown: &str) -> El {
+fn tabs(s: &App, p: &Pal, id: &str, shown: &str, bottom: bool) -> El {
     let more_open = s.layout.narrow.more.is_open();
     let picked = if shown == CONVERSATION || VIEWS.iter().any(|v| v.kind == Kind::Tab && v.plugin == shown) { shown } else { "more" };
     let mut bar = row()
@@ -75,7 +77,7 @@ fn tabs(s: &App, p: &Pal, id: &str, shown: &str) -> El {
         .w_full()
         .h(36.0)
         .min_h(36.0)
-        .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.border))
+        .child(el().key("rule").pin(Some(0.0), if bottom { Some(0.0) } else { None }, Some(0.0), if bottom { None } else { Some(0.0) }).h(1.0).fill(p.border))
         .child(tab(p, "narrow-view-session", t!("session.tab.session"), picked == CONVERSATION, {
             let id = id.to_owned();
             move |s: &mut App, tx: &mut Tx| s.select_narrow_view(&id, CONVERSATION, tx)
@@ -105,19 +107,32 @@ fn tab(p: &Pal, key: &str, label: &str, selected: bool, press: impl Fn(&mut App,
         .min_w(0.0)
         .h_full()
         .padding(6.0)
+        // `border-bottom: 1px` (`text-faint` when picked) takes its device pixel of the height.
+        .pb(6.0 + crate::view::chrome().hairline)
         .center()
         .hover_group()
         .on_press_tx(press)
+        .border_sides([0.0, 0.0, 1.0, 0.0], if selected { p.faint } else { rune::Color::TRANSPARENT })
         .child(text(label.to_owned()).font(TAB).color(if selected { p.text } else { p.muted }).group_color(p.text).truncate())
-        .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(if selected { p.faint } else { rune::Color::TRANSPARENT }))
 }
 
 /// Shows `view` for session `id`, as its tab or More row does, readying what it reads.
 fn enter(s: &mut App, id: &str, view: &str, tx: &mut Tx) {
-    if view == "review" {
-        s.ensure_session_review(id);
-    }
     s.select_narrow_view(id, view, tx);
+    match view {
+        "review" => s.ensure_session_review(id),
+        "file" => s.ensure_workspace_files(id),
+        // The narrow Terminal view starts the first terminal of a session that has none.
+        "terminal" => {
+            let wk = s.terminal_workspace_key_for_session(id);
+            s.ensure_terminal_workspace_hydrated(&wk);
+            let empty = s.terminal.workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
+            if empty && s.live_terminals().is_some_and(|(_, observer)| !observer) {
+                s.create_terminal_tab(None, tx);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `session-location-bar`: 36 tall, `px-2`, a 1 px `border-base` rule along its foot, the
@@ -134,8 +149,9 @@ fn location_bar(s: &App, p: &Pal, id: &str) -> El {
         .h(36.0)
         .min_h(36.0)
         .px(8.0)
+        .pb(crate::view::chrome().hairline)
         .center_y()
-        .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.border))
+        .border_sides([0.0, 0.0, 1.0, 0.0], p.border)
         .children(info.map(|_| crate::view::location::trigger(s, p, project, &name, worktree.as_deref(), collapse)))
 }
 
@@ -143,6 +159,8 @@ fn location_bar(s: &App, p: &Pal, id: &str) -> El {
 fn view(s: &App, p: &Pal, id: &str, shown: &str) -> El {
     let body = match shown {
         "review" => crate::review::mobile::view(s, p, id),
+        "file" => crate::files::narrow::view(s, p, id, s.session(id).map_or("", |i| i.project.as_str()), s.layout.narrow.width() - 2.0),
+        "terminal" => crate::terminal::narrow::view(s, p, id),
         plugin => panel(s, p, id, plugin),
     };
     col().key(format!("narrow-view-{shown}-body")).w_full().grow(1.0).min_h(0.0).child(body)

@@ -46,7 +46,7 @@ pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
     Some(
         row()
             .key("plugin-titlebar-items")
-            .pin(None, Some(0.0), Some(chrome.caption_w + 8.0), None)
+            .pin(None, (!chrome.bottom).then_some(0.0), Some(chrome.caption_w + 8.0), chrome.bottom.then_some(0.0))
             .h(chrome.row_h)
             .gap(6.0)
             .center_y()

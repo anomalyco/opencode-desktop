@@ -57,6 +57,13 @@ impl NarrowReview {
             .collect();
     }
 
+    /// Settings › Wrap lines: the open diffs wrap long lines or scroll them.
+    pub fn set_wrap(&mut self, wrap: bool) {
+        for (_, d) in &mut self.open {
+            d.set_wrap(wrap);
+        }
+    }
+
     fn diff(&self, path: &str) -> Option<&DiffDocState> {
         self.open.iter().find(|(p, _)| p == path).map(|(_, d)| d)
     }

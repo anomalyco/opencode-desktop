@@ -86,7 +86,7 @@ pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
         }))
 }
 
-fn files_sidebar(
+pub(super) fn files_sidebar(
     s: &App,
     p: &Pal,
     session_id: &str,

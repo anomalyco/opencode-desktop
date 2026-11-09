@@ -6,6 +6,7 @@ mod bench;
 mod draw;
 pub mod grid;
 pub mod input;
+pub mod narrow;
 pub mod persist;
 mod rename;
 mod side_ops;

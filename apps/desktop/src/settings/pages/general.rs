@@ -34,8 +34,21 @@ pub fn view(s: &App, p: &Pal) -> El {
             switch(p, "pinch-zoom-switch", st.pinch_zoom).on_press_tx(|s: &mut App, tx: &mut Tx| s.set_pinch_zoom(!s.settings.pinch_zoom, tx)))),
         ("settings-spellcheck", setting(p, "settings-spellcheck", t!("settings.general.row.spellcheck.title"), t!("settings.general.row.spellcheck.description"),
             switch(p, "spellcheck-switch", st.spellcheck).on_press(|s: &mut App| s.change_settings(|x| x.spellcheck = !x.spellcheck)))),
-        ("terminal-placement", setting(p, "terminal-placement", t!("rune.settings.general.row.terminalPlacement.title"), t!("rune.settings.general.row.terminalPlacement.description"), placement(s, p))),
+        // The review plugin's row in this section (`review/settings.tsx`).
+        ("settings-mobile-diff-wrap", setting(p, "settings-mobile-diff-wrap", t!("plugin.review.settings.wrapLines.title"), t!("plugin.review.settings.wrapLines.description"),
+            switch(p, "mobile-diff-wrap-switch", st.mobile_diff_wrap).on_press(|s: &mut App| s.change_settings(|x| x.mobile_diff_wrap = !x.mobile_diff_wrap)))),
     ];
+    // A narrow window's own row (`general.tsx:299`).
+    if s.narrow() {
+        let bottom = st.mobile_titlebar == settings::TitlebarPosition::Bottom;
+        let control = switch(p, "mobile-titlebar-bottom-switch", bottom).on_press(|s: &mut App| {
+            s.change_settings(|x| x.mobile_titlebar = if x.mobile_titlebar == settings::TitlebarPosition::Bottom { settings::TitlebarPosition::Top } else { settings::TitlebarPosition::Bottom })
+        });
+        rows.push(("settings-mobile-titlebar-bottom", setting(p, "settings-mobile-titlebar-bottom", t!("settings.general.row.mobileTitlebarBottom.title"), t!("settings.general.row.mobileTitlebarBottom.description"), control)));
+    }
+    rows.extend([
+        ("terminal-placement", setting(p, "terminal-placement", t!("rune.settings.general.row.terminalPlacement.title"), t!("rune.settings.general.row.terminalPlacement.description"), placement(s, p))),
+    ]);
     if !s.browser_unsupported() {
         let control = switch(p, "prefetch-browser-switch", st.prefetch_browser).on_press(|s: &mut App| s.set_prefetch_browser(!s.settings.prefetch_browser));
         rows.push(("prefetch-browser", setting(p, "prefetch-browser", t!("rune.settings.general.row.prefetchBrowser.title"), &crate::browser::prefetch::describe(&s.browser.host.status()), control)));

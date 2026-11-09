@@ -46,11 +46,13 @@ pub(crate) struct WindowChrome {
     pub layout: TabLayout,
     /// The window is below Desktop's 768 px breakpoint (`narrow`).
     pub narrow: bool,
+    /// A narrow window keeps its titlebar row along its foot (Settings › Bottom navigation).
+    pub bottom: bool,
 }
 
 thread_local! {
     static CHROME: Cell<WindowChrome> = const {
-        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false })
+        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false, bottom: false })
     };
 }
 
@@ -76,7 +78,7 @@ pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32) -> Titlebar {
 /// is the titlebar's height (`titlebar_height`), so it lines up with the caption buttons at
 /// every zoom: 44pt zoomed out (`44 / min(zoom, 1)` in the shell, as Desktop's), and 44 shell
 /// points zoomed in.
-pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool) {
+pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool, bottom: bool) {
     let (row_h, row_pad) = match () {
         // Full screen hides the caption buttons, not the row.
         _ if WINDOWS => (titlebar_height(zoom) / zoom, 0.0),
@@ -85,7 +87,7 @@ pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: Ta
     };
     let px = scale * zoom;
     let hairline = px.floor().max(1.0) / px;
-    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing / zoom, hairline, layout, narrow };
+    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing / zoom, hairline, layout, narrow, bottom: narrow && bottom };
     CHROME.with(|c| c.set(chrome));
 }
 
@@ -98,12 +100,19 @@ impl WindowChrome {
     /// Where the sidebar and panels start: under the titlebar row, or the shell's inset.
     pub fn top(&self) -> f32 {
         match () {
+            // A titlebar along the foot leaves the panels' top edge to the window's (`shell.tsx:221`).
+            _ if self.bottom => 0.0,
             _ if self.row_h > 0.0 && self.row_pad == 0.0 => self.row_h + TOP_INSET_UNDER_ROW,
             _ => self.row_h + TOP_INSET,
         }
     }
 
     /// Whether the sidebar opens with its own header line (traffic lights, the toggle's slot).
+    /// Room the shell keeps along its foot for a titlebar there.
+    pub fn foot(&self) -> f32 {
+        if self.bottom { self.row_h } else { 0.0 }
+    }
+
     pub fn sidebar_header(&self) -> bool {
         self.row_h == 0.0
     }

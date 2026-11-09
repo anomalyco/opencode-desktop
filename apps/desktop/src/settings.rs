@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::palette::{Pal, kit};
 
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, Sounds, TimelineWidth};
+pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Organize, Sounds, TimelineWidth, TitlebarPosition};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Scheme {
@@ -100,6 +100,10 @@ pub struct Settings {
     /// The dictionaries a text field's Spellcheck Languages menu chose (Desktop's
     /// `spellcheckLanguages`); none follows the system languages.
     pub spellcheck_languages: Vec<String>,
+    /// A narrow window's diffs wrap long lines rather than scroll (the review plugin's `mobileDiff.wrap`).
+    pub mobile_diff_wrap: bool,
+    /// Where a narrow window keeps its titlebar (`general.mobileTitlebarPosition`).
+    pub mobile_titlebar: TitlebarPosition,
     /// The ChatGPT plan welcome has shown (Desktop's `chatgpt-plan-welcome.v1`).
     pub chatgpt_welcome_seen: bool,
     /// Experimental › New icons (`general.newIcons`).
@@ -152,6 +156,8 @@ impl Default for Settings {
             pinch_zoom: false,
             spellcheck: true,
             spellcheck_languages: Vec::new(),
+            mobile_diff_wrap: false,
+            mobile_titlebar: TitlebarPosition::default(),
             chatgpt_welcome_seen: false,
             new_icons: false,
             sidebar_organize: Organize::default(),
@@ -191,6 +197,8 @@ impl Settings {
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
             "spellcheckLanguages": self.spellcheck_languages,
+            "mobileDiffWrap": self.mobile_diff_wrap,
+            "mobileTitlebarPosition": self.mobile_titlebar.name(),
             "chatgptPlanWelcomeSeen": self.chatgpt_welcome_seen,
             "newIcons": self.new_icons,
             "sidebarOrganize": self.sidebar_organize.name(),
@@ -235,6 +243,8 @@ impl Settings {
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
+            mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),
+            mobile_titlebar: TitlebarPosition::parse(v["mobileTitlebarPosition"].as_str()),
             spellcheck_languages: v["spellcheckLanguages"].as_array().map(|a| a.iter().filter_map(|l| Some(l.as_str()?.to_owned())).collect()).unwrap_or_default(),
             chatgpt_welcome_seen: v["chatgptPlanWelcomeSeen"].as_bool().unwrap_or(false),
             new_icons: v["newIcons"].as_bool().unwrap_or(false),
@@ -413,21 +423,41 @@ pub(crate) fn setting_at(p: &Pal, key: &str, title: &str, description: &str, con
     setting_with(p, key, title, about, control, centred)
 }
 
+thread_local! {
+    /// The page is 520 pt or narrower (`@container settings-panel (max-width: 520px)`): each
+    /// row's control wraps under its words, at the row's end.
+    static ROWS_WRAP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The screen is under 800 pt (`@container settings-screen (max-width: 799px)`).
+    static COMPACT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Notes the page's width (`.settings-panel`'s, 0 at full size) for the rows this frame builds.
+pub(crate) fn note_panel_width(width: f32) {
+    ROWS_WRAP.set(width > 0.0 && width <= 520.0);
+    COMPACT.set(width > 0.0);
+}
+
+/// The screen has the narrow layout: Back and the page menu over the page.
+pub(crate) fn compact() -> bool {
+    COMPACT.get()
+}
+
 /// A row whose description is built apart (a link after its words).
 pub(crate) fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: El, centred: bool) -> El {
+    let copy = col()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(8.0)
+        .child(text(title.to_owned()).font(ROW_TITLE).color(p.text).wrap())
+        // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
+        .child(about.my(-3.5));
+    if ROWS_WRAP.get() {
+        return col().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0).child(copy.w_full()).child(row().key("control").w_full().justify_end().child(control));
+    }
     let r = row().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0);
     let r = if centred { r.center_y() } else { r };
-    r.child(
-        col()
-            .grow(1.0)
-            .shrink()
-            .min_w(0.0)
-            .gap(8.0)
-            .child(text(title.to_owned()).font(ROW_TITLE).color(p.text).wrap())
-            // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
-            .child(about.my(-3.5)),
-    )
-    .child(row().key("control").justify_end().child(control))
+    r.child(copy).child(row().key("control").justify_end().child(control))
 }
 
 /// `settings-row-description` text, for a description built apart.

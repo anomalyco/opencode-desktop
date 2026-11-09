@@ -51,13 +51,22 @@ fn glyph(s: &App, page: &Page) -> &'static rune::Icon {
 
 /// The screen at `width` points: the rail and the page, or the narrow layout.
 pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
+    // `.settings-panel` (`padding-inline: 4px`) is the rows' container.
+    let narrow = width > 0.0 && width < 800.0;
+    crate::settings::note_panel_width(if narrow { width - 8.0 } else { 0.0 });
     let content = pages::view(s, p);
     let screen = col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
         .scroll(rune::ScrollSpec { stick_bottom: false });
-    if width > 0.0 && width < 800.0 {
+    if narrow {
+        // `--settings-mobile-inner-inset`: 8 in a narrow window, else 16 (`settings.css:33`).
+        let inset = if s.narrow() { 8.0 } else { 16.0 };
+        // `.settings-sidebar` collapses to the search field under the bar, `8 inset` round it.
+        let field = col().key("settings-search-list").w_full().child(search::field(s, p));
+        let field = if search::active(s) { field.child(search::results(s, p).max_h((height - 96.0).max(120.0))) } else { field };
         return col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
-            .child(narrow_bar(s, p))
-            .child(screen.child(col().w_full().px(12.0).child(content)));
+            .child(narrow_bar(s, p, inset))
+            .child(col().key("settings-sidebar").w_full().px(inset).py(8.0).child(field))
+            .child(screen.child(col().w_full().px(inset).child(content)));
     }
     let wide = width <= 0.0 || width >= 1048.0;
     let (rail_w, pad_start, pad_end, gutter) = if wide { (328.0, 24.0, 64.0, 0.0) } else { (240.0, 16.0, 24.0, 24.0) };
@@ -142,7 +151,7 @@ fn back_button(p: &Pal, project: bool) -> El {
 }
 
 /// `.settings-mobile-nav`: Back on the bar's start, the open page's menu at its end.
-fn narrow_bar(s: &App, p: &Pal) -> El {
+fn narrow_bar(s: &App, p: &Pal, inset: f32) -> El {
     let current = label(s, &s.settings_pages.page);
     let trigger = row().key("settings-mobile-menu").role("button").label(current.clone()).h(28.0).px(11.0).gap(6.0).center_y().radius(6.0)
         .fill(p.bg_base).box_shadow(Pal::ring_out(p.ring)).hover(p.hover)
@@ -164,7 +173,7 @@ fn narrow_bar(s: &App, p: &Pal) -> El {
         })
         .child(text(current).font(TAB).color(p.text))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
-    row().key("settings-mobile-nav").w_full().h(48.0).px(16.0).center_y().justify_between().fill(p.bg_base)
+    row().key("settings-mobile-nav").w_full().px(inset).py(8.0).pb(8.5).center_y().justify_between().fill(p.bg_base)
         .child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))))
         .child(trigger)
         .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border_muted))

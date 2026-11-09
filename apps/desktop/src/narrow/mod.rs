@@ -155,6 +155,10 @@ pub fn settle(s: &mut App, tx: &mut Tx) -> bool {
 /// Runs the machines' clocks and hears route changes, at the start of every frame.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = settle(s, tx);
+    let wrap = s.settings.mobile_diff_wrap;
+    for sr in s.review.sessions.values_mut() {
+        sr.narrow.set_wrap(wrap);
+    }
     let routed = match &s.route {
         Route::Session(id) => Some(id.clone()),
         _ => None,

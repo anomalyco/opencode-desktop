@@ -68,7 +68,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
-    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout, narrow);
+    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
@@ -213,7 +213,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // page. The titlebar row comes and goes at once, and below the panel while it does.
     let switching = s.switching_layout();
     let band = titlebar::titlebar(s, p, cx)
-        .map(|bar| el().key("titlebar-band").pin(Some(0.0), Some(0.0), Some(0.0), None).h(chrome().row_h).transition(rune::Transition::none()).child(bar));
+        .map(|bar| {
+            // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
+            let band = el().key("titlebar-band").h(chrome().row_h).transition(rune::Transition::none()).child(bar);
+            if chrome().bottom { band.pin(Some(0.0), None, Some(0.0), Some(0.0)) } else { band.pin(Some(0.0), Some(0.0), Some(0.0), None) }
+        });
     let (band_below, band) = if switching { (band, None) } else { (None, band) };
     let mut panel = col()
         .key("panel")
@@ -222,7 +226,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .ml(inset)
         .mt(chrome().top())
         .mr(inset)
-        .mb(8.0 + bottom_reserve)
+        .mb(8.0 + bottom_reserve + chrome().foot())
         .radius(10.0)
         .fill(p.bg_base)
         .elevate(p.raised)

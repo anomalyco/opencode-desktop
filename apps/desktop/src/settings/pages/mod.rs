@@ -302,7 +302,7 @@ pub fn page(p: &Pal, key: &str, header: El, body: El) -> El {
 pub fn page_with(p: &Pal, key: &str, header: El, body: El, sectioned: bool) -> El {
     let fade = el().key("settings-tab-header-fade").pin(Some(0.0), None, Some(0.0), Some(-24.0)).h(24.0).gradient(p.bg_base, p.bg_base.alpha(0.0));
     col().key(key.to_owned()).w_full().px(4.0)
-        .child(col().key("settings-tab-header-band").w_full().pt(48.0).fill(p.bg_base).sticky_top(0.0).child(header).child(fade))
+        .child(col().key("settings-tab-header-band").w_full().pt(if crate::settings::compact() { 12.0 } else { 48.0 }).fill(p.bg_base).sticky_top(0.0).child(header).child(fade))
         .child(col().key(format!("{key}-body")).w_full().gap(32.0).pt(if sectioned { 32.0 } else { 24.0 }).pb(80.0).child(body))
 }
 
