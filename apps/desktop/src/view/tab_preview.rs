@@ -100,8 +100,13 @@ fn open_delay(state: &State) -> f64 {
 /// Kobalte's `HoverCard` on the hovered tab, with that tab's `popoverOpen`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Card {
+    /// The pointer is on no tab.
     #[default]
-    Idle,
+    Away,
+    /// The pointer rests on `tab` and its card is closed, refused or shut by its menu: it asks
+    /// again only when the pointer comes back (Kobalte opens on `pointerenter`), however often
+    /// the tab says the pointer is on it.
+    Resting { tab: String },
     /// The pointer entered `tab`: its card asks to open at `at` (`openWithDelay`), unless the
     /// pointer leaves first (`cancelOpening`).
     Waiting { tab: String, at: f64 },
@@ -126,12 +131,13 @@ impl App {
         if !inside {
             // Leaving the tab cancels its opening, and the pointer off the tab and its card
             // closes it (`onHoverOutside`, `closeDelay` 0).
-            if matches!(&p.card, Card::Waiting { tab, .. } | Card::Asked { tab } if tab == id) {
-                p.card = Card::Idle;
+            if matches!(&p.card, Card::Waiting { tab, .. } | Card::Asked { tab } | Card::Resting { tab } if tab == id) {
+                p.card = Card::Away;
             }
-        } else if !self.tabs.iter().any(|t| t.id == id && t.is_draft()) && !matches!(&p.card, Card::Asked { tab } if tab == id) {
+        } else if !matches!(&p.card, Card::Waiting { tab, .. } | Card::Asked { tab } | Card::Resting { tab } if tab == id) {
             // A draft has no session, so it never takes the card (`!props.session`).
-            p.card = Card::Waiting { tab: id.to_owned(), at: now + open_delay(&p.state) };
+            let draft = self.tabs.iter().any(|t| t.id == id && t.is_draft());
+            p.card = if draft { Card::Resting { tab: id.to_owned() } } else { Card::Waiting { tab: id.to_owned(), at: now + open_delay(&p.state) } };
         }
         self.settle_preview(now, tx);
         if self.previewed() == shown.as_deref() {
@@ -190,12 +196,14 @@ impl App {
                 // The card asks to open; a blocked tab refuses, and the card doesn't ask again
                 // until the pointer comes back (`if (value && previewBlocked()) return`).
                 let tab = tab.clone();
-                self.tab_preview.card = if self.preview_blocked(&tab) { Card::Idle } else { Card::Asked { tab } };
+                self.tab_preview.card = if self.preview_blocked(&tab) { Card::Resting { tab } } else { Card::Asked { tab } };
             }
         }
         // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
-        if matches!(&self.tab_preview.card, Card::Asked { tab } if self.menus.on.as_ref().is_some_and(|t| t.id == *tab)) {
-            self.tab_preview.card = Card::Idle;
+        if let Card::Asked { tab } = &self.tab_preview.card
+            && self.menus.on.as_ref().is_some_and(|t| t.id == *tab)
+        {
+            self.tab_preview.card = Card::Resting { tab: tab.clone() };
         }
         let open = match &self.tab_preview.card {
             Card::Asked { tab } if self.preview_open(tab) => Some(tab.clone()),
