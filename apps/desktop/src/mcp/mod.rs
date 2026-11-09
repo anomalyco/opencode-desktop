@@ -19,13 +19,14 @@ use crate::keymap::Bind;
 /// How long one connect, disconnect or sign-in may run before it gives up.
 const TOGGLE_TIMEOUT_S: f64 = 60.0;
 
-/// The dialog's error view of one failed server.
+/// The dialog's error view of one failed server (`McpDetailState`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Detail {
     Closed,
     /// Opened on a server before the list loaded.
     Opening { attempt: u32, name: String },
-    /// `copied` is the error text last copied.
+    /// `error` is the server's latest failure, kept while a retry runs; `copied` is the error
+    /// text last copied.
     Open { attempt: u32, name: String, error: String, copied: Option<String> },
 }
 
@@ -37,24 +38,182 @@ pub struct Dialog {
     pub detail: Detail,
 }
 
+/// One server's connect, disconnect or sign-in in flight (`McpToggle`), in a folder.
+#[derive(Clone, Debug, PartialEq)]
+struct Toggle {
+    dir: String,
+    name: String,
+    attempt: u32,
+}
+
+/// The MCP servers and their machine (Desktop's `McpState`, `mcp-machine.ts`): the toggles in
+/// flight and the dialog's error view. Toggles and error views take attempts from `issued`, so
+/// a result whose attempt the state no longer holds is stale.
 #[derive(Default)]
 pub struct Mcp {
     pub open: Option<Dialog>,
     /// Servers by folder ("" for the server's default location).
     servers: HashMap<String, Vec<McpServer>>,
-    /// Toggles in flight: (folder, server, attempt).
-    toggles: Vec<(String, String, u32)>,
+    toggles: Vec<Toggle>,
     issued: u32,
     /// The sign-in that also takes a pasted redirect URL.
     pub sign_in: Option<sign_in::SignIn>,
 }
 
-/// What a toggle came to.
-enum Settled {
-    Succeeded,
-    /// `server` when the refreshed status failed, else a request threw.
-    Failed { error: String, server: bool },
-    TimedOut,
+/// `McpEvent`, less the mounts, which only tell Desktop when to drop the state.
+enum Event<'a> {
+    /// A row's switch or sign-in button, or the error view's Disable or Try again.
+    ToggleRequested { dir: &'a str, name: &'a str, enabled: bool, status: Option<&'a McpStatus> },
+    /// The server started a browser sign-in; the toggle goes on to refresh the list.
+    ToggleAuthorizing { toggle: &'a Toggle, integration: String, auth: Authorization },
+    ToggleSucceeded { toggle: &'a Toggle },
+    /// `server`: the refreshed status failed, else a request threw.
+    ToggleFailed { toggle: &'a Toggle, error: String, server: bool },
+    ToggleTimedOut { toggle: &'a Toggle },
+    /// `focus`: opened from the list, so the view takes the keys from the search.
+    DetailOpened { name: &'a str, loaded: bool, status: Option<&'a McpStatus>, focus: bool },
+    /// Back or Escape in the error view.
+    DetailDismissed,
+    DetailCopied { error: String },
+    /// The open dialog's server list changed.
+    ServerSynced { loaded: bool, status: Option<&'a McpStatus> },
+}
+
+enum Effect {
+    RunToggle(Toggle, bool),
+    OpenExternal(String),
+    OpenSignIn { dir: String, name: String, integration: String, auth: Authorization },
+    /// The keys move to the error view, or back to the search.
+    Focus { search: bool },
+    ToastFailed(String),
+    ToastTimedOut(String),
+}
+
+/// `transitionMcp`.
+fn step(mcp: &mut Mcp, event: Event<'_>) -> Vec<Effect> {
+    // A result whose toggle the state no longer holds is stale.
+    if let Event::ToggleAuthorizing { toggle, .. } | Event::ToggleSucceeded { toggle } | Event::ToggleFailed { toggle, .. } | Event::ToggleTimedOut { toggle } = &event
+        && !mcp.toggles.contains(toggle)
+    {
+        return vec![];
+    }
+    match event {
+        Event::ToggleRequested { dir, name, enabled, status } => {
+            // One toggle per server at a time, from its row and its error view alike.
+            if mcp.toggles.iter().any(|t| t.dir == dir && t.name == name) || status == Some(&McpStatus::Pending) {
+                return vec![];
+            }
+            mcp.issued += 1;
+            let toggle = Toggle { dir: dir.to_owned(), name: name.to_owned(), attempt: mcp.issued };
+            mcp.toggles.push(toggle.clone());
+            vec![Effect::RunToggle(toggle, enabled)]
+        }
+        Event::ToggleAuthorizing { toggle, integration, auth } => {
+            // The browser takes over from the error view; the toggle still refreshes the list.
+            let mut effects = close_shown(mcp, toggle);
+            effects.push(Effect::OpenExternal(auth.url.clone()));
+            if auth.paste {
+                effects.push(Effect::OpenSignIn { dir: toggle.dir.clone(), name: toggle.name.clone(), integration, auth });
+            }
+            effects
+        }
+        Event::ToggleSucceeded { toggle } => {
+            mcp.toggles.retain(|t| t != toggle);
+            close_shown(mcp, toggle)
+        }
+        Event::ToggleTimedOut { toggle } => {
+            mcp.toggles.retain(|t| t != toggle);
+            vec![Effect::ToastTimedOut(toggle.name.clone())]
+        }
+        Event::ToggleFailed { toggle, error, server } => {
+            mcp.toggles.retain(|t| t != toggle);
+            // The open error view shows the server's new failure itself.
+            if server && let Some(Detail::Open { name, error: shown, .. }) = detail_mut(mcp, &toggle.dir)
+                && *name == toggle.name
+            {
+                *shown = error;
+                return vec![];
+            }
+            vec![Effect::ToastFailed(if server { format!("{}: {error}", toggle.name) } else { error })]
+        }
+        Event::DetailOpened { name, loaded, status, focus } => {
+            let Some(open) = mcp.open.as_mut() else { return vec![] };
+            if !loaded {
+                mcp.issued += 1;
+                open.detail = Detail::Opening { attempt: mcp.issued, name: name.to_owned() };
+                return vec![];
+            }
+            // Only a failed server has an error to show.
+            let Some(McpStatus::Failed(error)) = status else {
+                open.detail = Detail::Closed;
+                return vec![];
+            };
+            mcp.issued += 1;
+            open.detail = Detail::Open { attempt: mcp.issued, name: name.to_owned(), error: error.clone(), copied: None };
+            if focus { vec![Effect::Focus { search: false }] } else { vec![] }
+        }
+        Event::DetailDismissed => {
+            let Some(open) = mcp.open.as_mut().filter(|o| matches!(o.detail, Detail::Open { .. })) else { return vec![] };
+            open.detail = Detail::Closed;
+            vec![Effect::Focus { search: true }]
+        }
+        Event::DetailCopied { error } => {
+            if let Some(Dialog { detail: Detail::Open { copied, .. }, .. }) = mcp.open.as_mut() {
+                *copied = Some(error);
+            }
+            vec![]
+        }
+        Event::ServerSynced { loaded, status } => {
+            let Some(open) = mcp.open.as_mut() else { return vec![] };
+            if !loaded {
+                return vec![];
+            }
+            match (&mut open.detail, status) {
+                (Detail::Closed, _) => vec![],
+                (Detail::Opening { attempt, name }, Some(McpStatus::Failed(error))) => {
+                    open.detail = Detail::Open { attempt: *attempt, name: std::mem::take(name), error: error.clone(), copied: None };
+                    vec![]
+                }
+                (Detail::Opening { .. }, _) => {
+                    open.detail = Detail::Closed;
+                    vec![]
+                }
+                // A reconnect, a disable or a removal, here or elsewhere, leaves nothing to show.
+                (Detail::Open { .. }, None | Some(McpStatus::Connected | McpStatus::Disabled)) => {
+                    open.detail = Detail::Closed;
+                    vec![Effect::Focus { search: true }]
+                }
+                // A retry stays open while it connects or asks to sign in, and a new failure
+                // replaces the error in place.
+                (Detail::Open { error: shown, .. }, Some(McpStatus::Failed(error))) => {
+                    shown.clone_from(error);
+                    vec![]
+                }
+                (Detail::Open { .. }, _) => vec![],
+            }
+        }
+    }
+}
+
+/// The error view of the folder `dir`'s dialog.
+fn detail_mut<'a>(mcp: &'a mut Mcp, dir: &str) -> Option<&'a mut Detail> {
+    mcp.open.as_mut().filter(|o| o.dir == dir).map(|o| &mut o.detail)
+}
+
+/// The error view of `toggle`'s server closes, and the keys go back to the search.
+fn close_shown(mcp: &mut Mcp, toggle: &Toggle) -> Vec<Effect> {
+    let Some(d) = detail_mut(mcp, &toggle.dir) else { return vec![] };
+    if !matches!(&*d, Detail::Open { name, .. } if *name == toggle.name) {
+        return vec![];
+    }
+    *d = Detail::Closed;
+    vec![Effect::Focus { search: true }]
+}
+
+/// How one toggle's request came out.
+enum Outcome {
+    Listed { list: Vec<McpServer>, started: Option<(String, Authorization)> },
+    Threw(String),
 }
 
 impl App {
@@ -71,8 +230,7 @@ impl App {
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 if let Ok(list) = list {
                     tx.instant();
-                    s.mcp.servers.insert(dir.clone(), list);
-                    s.mcp_synced(&dir, tx);
+                    s.mcp_listed(&dir, list, tx);
                 }
             }) as Apply
         });
@@ -80,7 +238,7 @@ impl App {
 
     /// A row's toggle is running, or the server is connecting: it takes no new toggle.
     pub(crate) fn mcp_busy(&self, dir: &str, name: &str) -> bool {
-        self.mcp.toggles.iter().any(|(d, n, _)| d == dir && n == name)
+        self.mcp.toggles.iter().any(|t| t.dir == dir && t.name == name)
     }
 
     /// Opens the MCPs dialog on the open session's or draft's folder, or closes it.
@@ -107,90 +265,105 @@ impl App {
         self.sync_mcp(&dir);
         self.mcp.open = Some(Dialog { dir, search, active: None, detail: Detail::Closed });
         if let Some(name) = server {
-            self.open_mcp_detail(name);
+            self.mcp_detail(name, false);
         }
     }
 
     pub fn close_mcp_dialog(&mut self, tx: &mut Tx) {
         tx.instant();
+        // Its error view goes with it (`detail.closed`).
         self.mcp.open = None;
         self.composer.focused = self.has_composer() && !self.settings.open;
     }
 
-    /// The error view of `name`, while it has failed.
+    /// The error view of `name`, opened from the list, while it has failed.
     pub(crate) fn open_mcp_detail(&mut self, name: &str) {
+        self.mcp_detail(name, true);
+    }
+
+    fn mcp_detail(&mut self, name: &str, focus: bool) {
         let Some(open) = &self.mcp.open else { return };
-        let status = self.mcp_servers(&open.dir).map(|l| l.iter().find(|s| s.name == name).map(|s| s.status.clone()));
-        self.mcp.issued += 1;
-        let attempt = self.mcp.issued;
-        let detail = match status {
-            None => Detail::Opening { attempt, name: name.to_owned() },
-            Some(Some(McpStatus::Failed(error))) => Detail::Open { attempt, name: name.to_owned(), error, copied: None },
-            Some(_) => Detail::Closed,
-        };
-        let open = self.mcp.open.as_mut().expect("open");
-        open.detail = detail;
-        open.search.focused = matches!(open.detail, Detail::Closed);
+        let list = self.mcp.servers.get(&open.dir);
+        let status = list.and_then(|l| l.iter().find(|s| s.name == name)).map(|s| s.status.clone());
+        let event = Event::DetailOpened { name, loaded: list.is_some(), status: status.as_ref(), focus };
+        let effects = step(&mut self.mcp, event);
+        self.mcp_effects(effects, &mut Tx::default());
     }
 
+    /// Back or Escape in the error view.
     pub(crate) fn close_mcp_detail(&mut self) {
-        if let Some(open) = self.mcp.open.as_mut() {
-            open.detail = Detail::Closed;
-            open.search.focused = true;
-        }
+        let effects = step(&mut self.mcp, Event::DetailDismissed);
+        self.mcp_effects(effects, &mut Tx::default());
     }
 
-    /// The error view follows its server: a reconnect, a disable or a removal returns to the
-    /// list, and a new failure replaces the error in place.
-    fn mcp_synced(&mut self, dir: &str, _tx: &mut Tx) {
+    /// The error view's Copy error.
+    pub(crate) fn mcp_copied(&mut self, error: String) {
+        step(&mut self.mcp, Event::DetailCopied { error });
+    }
+
+    /// `dir`'s servers as the server listed them; the error view follows its server.
+    fn mcp_listed(&mut self, dir: &str, list: Vec<McpServer>, tx: &mut Tx) {
+        self.mcp.servers.insert(dir.to_owned(), list);
         let Some(open) = self.mcp.open.as_ref().filter(|o| o.dir == dir) else { return };
-        let (attempt, name) = match &open.detail {
+        let name = match &open.detail {
             Detail::Closed => return,
-            Detail::Opening { attempt, name } | Detail::Open { attempt, name, .. } => (*attempt, name.clone()),
+            Detail::Opening { name, .. } | Detail::Open { name, .. } => name.clone(),
         };
-        let status = self.mcp_servers(dir).and_then(|l| l.iter().find(|s| s.name == name)).map(|s| s.status.clone());
-        let busy = self.mcp_busy(dir, &name);
-        let open = self.mcp.open.as_mut().expect("open");
-        match (&open.detail, status) {
-            (Detail::Opening { .. }, Some(McpStatus::Failed(error))) => open.detail = Detail::Open { attempt, name, error, copied: None },
-            (Detail::Opening { .. }, _) => open.detail = Detail::Closed,
-            (_, None | Some(McpStatus::Connected | McpStatus::Disabled)) if !busy => {
-                open.detail = Detail::Closed;
-                open.search.focused = true;
-            }
-            (Detail::Open { error: old, copied, .. }, Some(McpStatus::Failed(error))) if *old != error => {
-                open.detail = Detail::Open { attempt, name, error, copied: copied.clone() };
-            }
-            _ => {}
-        }
+        let status = self.mcp.servers.get(dir).and_then(|l| l.iter().find(|s| s.name == name)).map(|s| s.status.clone());
+        let effects = step(&mut self.mcp, Event::ServerSynced { loaded: true, status: status.as_ref() });
+        self.mcp_effects(effects, tx);
     }
 
     /// Connects (`enabled`) or disconnects a server, or starts its sign-in when it needs one
     /// (`mcp.tsx` `toggle`). One toggle per server at a time; a connecting server takes none.
     pub(crate) fn toggle_mcp(&mut self, dir: &str, name: &str, enabled: bool) {
         let status = self.mcp_servers(dir).and_then(|l| l.iter().find(|s| s.name == name)).map(|s| s.status.clone());
-        if self.mcp_busy(dir, name) || status == Some(McpStatus::Pending) {
-            return;
+        let effects = step(&mut self.mcp, Event::ToggleRequested { dir, name, enabled, status: status.as_ref() });
+        self.mcp_effects(effects, &mut Tx::default());
+    }
+
+    fn mcp_effects(&mut self, effects: Vec<Effect>, tx: &mut Tx) {
+        for effect in effects {
+            match effect {
+                Effect::RunToggle(toggle, enabled) => self.run_mcp_toggle(toggle, enabled),
+                Effect::OpenExternal(url) => {
+                    if !crate::headless() {
+                        let _ = tx.open_url(&url);
+                    }
+                }
+                Effect::OpenSignIn { dir, name, integration, auth } => self.open_mcp_sign_in(dir, name, integration, auth),
+                Effect::Focus { search } => {
+                    if let Some(open) = self.mcp.open.as_mut() {
+                        open.search.focused = search;
+                    }
+                }
+                Effect::ToastFailed(message) => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), message),
+                Effect::ToastTimedOut(name) => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), format!("{name} took too long to respond")),
+            }
         }
-        self.mcp.issued += 1;
-        let attempt = self.mcp.issued;
-        self.mcp.toggles.push((dir.to_owned(), name.to_owned(), attempt));
-        let (dir, name) = (dir.to_owned(), name.to_owned());
+    }
+
+    /// `run-toggle`: the request, with its 60 s timeout.
+    fn run_mcp_toggle(&mut self, toggle: Toggle, enabled: bool) {
         if !self.can_write() {
             let error = read_only().to_owned();
-            return self.later(Box::new(move |s: &mut App, tx: &mut Tx| s.mcp_settled(&dir, &name, attempt, Settled::Failed { error, server: false }, tx)));
+            return self.later(Box::new(move |s: &mut App, tx: &mut Tx| s.mcp_settled(&toggle, Outcome::Threw(error), tx)));
         }
-        let (d, n) = (dir.clone(), name.clone());
+        let late = toggle.clone();
         self.job_after(Duration::from_secs_f64(TOGGLE_TIMEOUT_S), move |_| {
-            Box::new(move |s: &mut App, tx: &mut Tx| s.mcp_settled(&d, &n, attempt, Settled::TimedOut, tx)) as Apply
+            Box::new(move |s: &mut App, tx: &mut Tx| {
+                let effects = step(&mut s.mcp, Event::ToggleTimedOut { toggle: &late });
+                s.mcp_effects(effects, tx);
+            }) as Apply
         });
         self.job(move |srv| {
-            let at = Some(dir.as_str()).filter(|d| !d.is_empty());
+            let (dir, name) = (toggle.dir.as_str(), toggle.name.as_str());
+            let at = Some(dir).filter(|d| !d.is_empty());
             let result = (|| -> Result<(Vec<McpServer>, Option<(String, Authorization)>), String> {
                 let found = srv.mcp_servers(at)?.into_iter().find(|s| s.name == name);
                 let Some(found) = found else { return Ok((srv.mcp_servers(at)?, None)) };
                 if !enabled || !matches!(found.status, McpStatus::NeedsAuth(_)) {
-                    srv.mcp_toggle(&name, at, enabled)?;
+                    srv.mcp_toggle(name, at, enabled)?;
                 }
                 let list = srv.mcp_servers(at)?;
                 let current = list.iter().find(|s| s.name == name);
@@ -206,65 +379,47 @@ impl App {
                 };
                 Ok((list, started))
             })();
-            Box::new(move |s: &mut App, tx: &mut Tx| {
-                let settled = match result {
-                    Ok((list, started)) => {
-                        let failed = list.iter().find(|x| x.name == name).and_then(|x| match &x.status {
-                            McpStatus::Failed(e) => Some(e.clone()),
-                            _ => None,
-                        });
-                        s.mcp.servers.insert(dir.clone(), list);
-                        if let Some((integration, auth)) = started {
-                            if !crate::headless() {
-                                let _ = tx.open_url(&auth.url);
-                            }
-                            // A sign-in that takes the redirect URL pasted from the browser waits in its dialog.
-                            if auth.paste {
-                                s.open_mcp_sign_in(dir.clone(), name.clone(), integration, auth);
-                            }
-                        }
-                        match failed {
-                            Some(error) => Settled::Failed { error, server: true },
-                            None => Settled::Succeeded,
-                        }
-                    }
-                    Err(error) => Settled::Failed { error, server: false },
-                };
-                s.mcp_settled(&dir, &name, attempt, settled, tx);
-            }) as Apply
+            let outcome = match result {
+                Ok((list, started)) => Outcome::Listed { list, started },
+                Err(e) => Outcome::Threw(e),
+            };
+            Box::new(move |s: &mut App, tx: &mut Tx| s.mcp_settled(&toggle, outcome, tx)) as Apply
         });
     }
 
-    fn mcp_settled(&mut self, dir: &str, name: &str, attempt: u32, settled: Settled, tx: &mut Tx) {
-        let before = self.mcp.toggles.len();
-        self.mcp.toggles.retain(|(d, n, a)| !(d == dir && n == name && *a == attempt));
-        if self.mcp.toggles.len() == before {
-            return;
-        }
+    /// What toggle `toggle` came to: a sign-in it started, then its server's refreshed status.
+    fn mcp_settled(&mut self, toggle: &Toggle, outcome: Outcome, tx: &mut Tx) {
         tx.instant();
-        let shown = self.mcp.open.as_ref().is_some_and(|o| o.dir == dir && matches!(&o.detail, Detail::Open { name: n, .. } if n == name));
-        match settled {
-            Settled::Succeeded => {
-                if shown {
-                    self.close_mcp_detail();
+        let (event, list) = match outcome {
+            Outcome::Threw(error) => (Event::ToggleFailed { toggle, error, server: false }, None),
+            Outcome::Listed { list, started } => {
+                if let Some((integration, auth)) = started {
+                    let effects = step(&mut self.mcp, Event::ToggleAuthorizing { toggle, integration, auth });
+                    self.mcp_effects(effects, tx);
                 }
+                let failed = list.iter().find(|x| x.name == toggle.name).and_then(|x| match &x.status {
+                    McpStatus::Failed(e) => Some(e.clone()),
+                    _ => None,
+                });
+                let event = match failed {
+                    Some(error) => Event::ToggleFailed { toggle, error, server: true },
+                    None => Event::ToggleSucceeded { toggle },
+                };
+                (event, Some(list))
             }
-            Settled::TimedOut => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), format!("{name} took too long to respond")),
-            // The open error view shows the server's new failure itself.
-            Settled::Failed { error, server: true } if shown => {
-                if let Some(Detail::Open { error: e, .. }) = self.mcp.open.as_mut().map(|o| &mut o.detail) {
-                    *e = error;
+        };
+        let effects = step(&mut self.mcp, event);
+        self.mcp_effects(effects, tx);
+        match list {
+            Some(list) => self.mcp_listed(&toggle.dir, list, tx),
+            None => {
+                if let Some(list) = self.mcp.servers.get(&toggle.dir).cloned() {
+                    self.mcp_listed(&toggle.dir, list, tx);
                 }
-            }
-            Settled::Failed { error, server } => {
-                let message = if server { format!("{name}: {error}") } else { error };
-                crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), message);
             }
         }
-        self.mcp_synced(dir, tx);
     }
 }
-
 /// mod+; toggles the dialog; Escape steps back from the error view, then closes.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if sign_in::key(s, ev, tx) {

@@ -35,6 +35,7 @@ pub struct SignIn {
     issued: u32,
 }
 
+/// `McpSignInState`, less `disposed`: closing the dialog drops it.
 enum State {
     /// `accepted`: the server took a pasted URL and finishes the sign-in; the poll reports it.
     Waiting { poll: u32, accepted: bool, entry: Option<Entry>, unreachable: Option<String> },
@@ -42,6 +43,7 @@ enum State {
     /// Signed in; the server list reloads before the dialog closes.
     Completing { sync: u32 },
     Failed(Failure),
+    Done,
 }
 
 enum Entry {
@@ -57,189 +59,235 @@ enum Failure {
     SyncTimedOut,
 }
 
+/// `McpSignInPollOutcome`.
+enum Outcome {
+    Pending,
+    Complete,
+    Failed(String),
+    Expired,
+    /// The status request threw; the attempt may still be open on the server until it expires.
+    Unreachable(String),
+}
+
+/// `McpSignInEvent`, less `browser.open`, which the Open browser button does itself.
+enum Event {
+    Polled { poll: u32, outcome: Outcome },
+    PasteChanged,
+    PasteSubmitted,
+    SubmitSucceeded { submit: u32 },
+    SubmitFailed { submit: u32, message: String },
+    /// The attempt's lifetime ended before the server reported an outcome.
+    WaitingTimedOut,
+    SyncSucceeded { sync: u32 },
+    SyncFailed { sync: u32, message: String },
+    SyncTimedOut { sync: u32 },
+    Retry,
+    /// Esc, the close cross or a press outside.
+    Disposed,
+}
+
+/// `McpSignInEffect`. The deadline is the attempt's lifetime, and a poll, submit or reload
+/// answers with its number, so a stale one is dropped and `*.abort`, `*.clear` have nothing to do.
+enum Effect {
+    Poll { poll: u32, delay: Duration },
+    Submit { submit: u32, code: String },
+    /// Reloads the server list, reporting back within [`SYNC_TIMEOUT`].
+    Sync { sync: u32 },
+    /// Reloads the list without reporting back, for a sign-in the server finishes after the
+    /// dialog closed.
+    Refresh,
+    /// Ends the attempt on the server, so a late browser callback can't connect the server.
+    Cancel,
+    Close,
+}
+
+/// `transitionMcpSignIn`.
+fn step(x: &mut SignIn, event: Event) -> Vec<Effect> {
+    // Like the TUI, dismissing the dialog ends an attempt still waiting; an accepted paste or a
+    // finished sign-in already saved its credential, which still has to reach the list.
+    if let Event::Disposed = event {
+        return match x.state {
+            State::Waiting { accepted: true, .. } => vec![Effect::Refresh],
+            State::Waiting { .. } | State::Submitting { .. } => vec![Effect::Cancel],
+            _ => vec![],
+        };
+    }
+    match (&mut x.state, event) {
+        (State::Completing { sync }, Event::SyncSucceeded { sync: due }) if *sync == due => {
+            x.state = State::Done;
+            vec![Effect::Close]
+        }
+        (State::Completing { sync }, Event::SyncFailed { sync: due, message }) if *sync == due => {
+            x.state = State::Failed(Failure::Sync(message));
+            vec![]
+        }
+        (State::Completing { sync }, Event::SyncTimedOut { sync: due }) if *sync == due => {
+            x.state = State::Failed(Failure::SyncTimedOut);
+            vec![]
+        }
+        (State::Failed(Failure::Sync(_) | Failure::SyncTimedOut), Event::Retry) => sync(x),
+        (State::Waiting { poll, .. } | State::Submitting { poll, .. }, Event::Polled { poll: due, outcome }) if *poll == due => polled(x, outcome),
+        (State::Waiting { unreachable, accepted, .. }, Event::WaitingTimedOut) => {
+            // An accepted paste is the server's to finish; cancelling it could drop a sign-in
+            // that is about to succeed.
+            let cancel = !*accepted;
+            x.state = State::Failed(unreachable.take().map_or(Failure::Expired, Failure::Auth));
+            if cancel { vec![Effect::Cancel] } else { vec![] }
+        }
+        (State::Submitting { unreachable, .. }, Event::WaitingTimedOut) => {
+            x.state = State::Failed(unreachable.take().map_or(Failure::Expired, Failure::Auth));
+            vec![Effect::Cancel]
+        }
+        (State::Submitting { submit, unreachable, .. }, Event::SubmitSucceeded { submit: due }) if *submit == due => {
+            // Polls at once, so the dialog moves on as soon as the server finishes.
+            let unreachable = unreachable.take();
+            x.issued += 1;
+            x.state = State::Waiting { poll: x.issued, accepted: true, entry: None, unreachable };
+            vec![Effect::Poll { poll: x.issued, delay: Duration::ZERO }]
+        }
+        (State::Submitting { poll, submit, unreachable }, Event::SubmitFailed { submit: due, message }) if *submit == due => {
+            x.state = State::Waiting { poll: *poll, accepted: false, entry: Some(Entry::Rejected(message)), unreachable: unreachable.take() };
+            vec![]
+        }
+        (State::Waiting { accepted: false, entry, .. }, Event::PasteChanged) => {
+            *entry = None;
+            vec![]
+        }
+        (State::Waiting { accepted: false, poll, entry, unreachable }, Event::PasteSubmitted) => {
+            let code = x.field.text.trim().to_owned();
+            if code.is_empty() {
+                *entry = Some(Entry::Required);
+                return vec![];
+            }
+            let (poll, unreachable) = (*poll, unreachable.take());
+            x.issued += 1;
+            x.state = State::Submitting { poll, submit: x.issued, unreachable };
+            vec![Effect::Submit { submit: x.issued, code }]
+        }
+        _ => vec![],
+    }
+}
+
+/// A status poll's answer. A failed request says nothing of the attempt, which may still be
+/// pending, so polling goes on until it expires.
+fn polled(x: &mut SignIn, outcome: Outcome) -> Vec<Effect> {
+    let failure = match outcome {
+        Outcome::Complete => return sync(x),
+        Outcome::Expired => Failure::Expired,
+        Outcome::Failed(m) => Failure::Auth(m),
+        Outcome::Pending | Outcome::Unreachable(_) => {
+            x.issued += 1;
+            let next = x.issued;
+            if let State::Waiting { poll, unreachable, .. } | State::Submitting { poll, unreachable, .. } = &mut x.state {
+                *poll = next;
+                *unreachable = match outcome {
+                    Outcome::Unreachable(m) => Some(m),
+                    _ => None,
+                };
+            }
+            return vec![Effect::Poll { poll: next, delay: POLL }];
+        }
+    };
+    x.state = State::Failed(failure);
+    vec![]
+}
+
+/// The sign-in succeeded: the server list reloads before the dialog closes.
+fn sync(x: &mut SignIn) -> Vec<Effect> {
+    x.issued += 1;
+    x.state = State::Completing { sync: x.issued };
+    vec![Effect::Sync { sync: x.issued }]
+}
+
 impl App {
-    /// Opens the sign-in for server `name` of `dir` that the browser just started.
+    /// Opens the sign-in for server `name` of `dir` that the browser just started
+    /// (`startMcpSignIn`).
     pub(super) fn open_mcp_sign_in(&mut self, dir: String, name: String, integration: String, auth: Authorization) {
         let lifetime = Duration::from_millis((auth.expires - auth.created).max(0) as u64);
         let mut field = TextEdit::new("");
         field.focused = true;
         self.mcp.sign_in = Some(SignIn { dir, name, integration, attempt: auth.attempt.clone(), url: auth.url, state: State::Waiting { poll: 1, accepted: false, entry: None, unreachable: None }, field, issued: 1 });
         let attempt = auth.attempt;
-        self.job_after(lifetime, move |_| Box::new(move |s: &mut App, tx: &mut Tx| timed_out(s, &attempt, tx)) as Apply);
-        poll(self, 1, Duration::ZERO);
+        self.job_after(lifetime, move |_| Box::new(move |s: &mut App, tx: &mut Tx| sign_in_step(s, &attempt, Event::WaitingTimedOut, tx)) as Apply);
+        run(self, vec![Effect::Poll { poll: 1, delay: Duration::ZERO }]);
     }
 }
 
-/// The open sign-in, if it's attempt `attempt`.
-fn current<'a>(s: &'a mut App, attempt: &str) -> Option<&'a mut SignIn> {
-    s.mcp.sign_in.as_mut().filter(|x| x.attempt == attempt)
+/// Feeds `event` to the open sign-in if it's attempt `attempt`, and runs what it asks for.
+fn sign_in_step(s: &mut App, attempt: &str, event: Event, tx: &mut Tx) {
+    let Some(x) = s.mcp.sign_in.as_mut().filter(|x| x.attempt == attempt) else { return };
+    tx.instant();
+    let effects = step(x, event);
+    run(s, effects);
 }
 
-fn poll(s: &App, n: u32, delay: Duration) {
+fn run(s: &mut App, effects: Vec<Effect>) {
     let Some(x) = &s.mcp.sign_in else { return };
     let (id, attempt, dir) = (x.integration.clone(), x.attempt.clone(), x.dir.clone());
-    s.job_after(delay, move |srv| {
-        let status = srv.oauth_status(&id, &attempt, Some(dir.as_str()).filter(|d| !d.is_empty()));
-        Box::new(move |s: &mut App, tx: &mut Tx| polled(s, &attempt, n, status, tx)) as Apply
-    });
-}
-
-fn polled(s: &mut App, attempt: &str, n: u32, status: Result<AttemptStatus, String>, tx: &mut Tx) {
-    let Some(x) = current(s, attempt) else { return };
-    if !matches!(&x.state, State::Waiting { poll, .. } | State::Submitting { poll, .. } if *poll == n) {
-        return;
-    }
-    tx.instant();
-    let again = match status {
-        // A failed request says nothing of the attempt, which may still be pending until it expires.
-        Ok(AttemptStatus::Pending(_)) => Some(None),
-        Err(e) => Some(Some(e)),
-        Ok(AttemptStatus::Complete) => return sync(s),
-        Ok(AttemptStatus::Failed(m)) => {
-            x.state = State::Failed(Failure::Auth(m));
-            None
+    let at = || Some(dir.clone()).filter(|d| !d.is_empty());
+    for effect in effects {
+        let (id, attempt, at) = (id.clone(), attempt.clone(), at());
+        match effect {
+            Effect::Poll { poll, delay } => s.job_after(delay, move |srv| {
+                let outcome = match srv.oauth_status(&id, &attempt, at.as_deref()) {
+                    Ok(AttemptStatus::Pending(_)) => Outcome::Pending,
+                    Ok(AttemptStatus::Complete) => Outcome::Complete,
+                    Ok(AttemptStatus::Failed(m)) => Outcome::Failed(m),
+                    Ok(AttemptStatus::Expired) => Outcome::Expired,
+                    Err(e) => Outcome::Unreachable(e),
+                };
+                Box::new(move |s: &mut App, tx: &mut Tx| sign_in_step(s, &attempt, Event::Polled { poll, outcome }, tx)) as Apply
+            }),
+            Effect::Submit { submit, code } => s.job(move |srv| {
+                let event = match srv.oauth_complete(&id, &attempt, at.as_deref(), &code) {
+                    Ok(()) => Event::SubmitSucceeded { submit },
+                    Err(message) => Event::SubmitFailed { submit, message },
+                };
+                Box::new(move |s: &mut App, tx: &mut Tx| sign_in_step(s, &attempt, event, tx)) as Apply
+            }),
+            Effect::Sync { sync } => {
+                let late = attempt.clone();
+                s.job_after(SYNC_TIMEOUT, move |_| Box::new(move |s: &mut App, tx: &mut Tx| sign_in_step(s, &late, Event::SyncTimedOut { sync }, tx)) as Apply);
+                let dir = dir.clone();
+                s.job(move |srv| {
+                    let list = srv.mcp_servers(at.as_deref());
+                    Box::new(move |s: &mut App, tx: &mut Tx| {
+                        let event = match list {
+                            Ok(list) => {
+                                s.mcp_listed(&dir, list, tx);
+                                Event::SyncSucceeded { sync }
+                            }
+                            Err(message) => Event::SyncFailed { sync, message },
+                        };
+                        sign_in_step(s, &attempt, event, tx);
+                    }) as Apply
+                });
+            }
+            Effect::Refresh => s.sync_mcp(&dir),
+            Effect::Cancel => s.job(move |srv| {
+                let _ = srv.oauth_cancel(&id, &attempt, at.as_deref());
+                Box::new(|_: &mut App, _: &mut Tx| {}) as Apply
+            }),
+            Effect::Close => s.mcp.sign_in = None,
         }
-        Ok(AttemptStatus::Expired) => {
-            x.state = State::Failed(Failure::Expired);
-            None
-        }
-    };
-    if let Some(failed) = again {
-        x.issued += 1;
-        let next = x.issued;
-        if let State::Waiting { poll, unreachable, .. } | State::Submitting { poll, unreachable, .. } = &mut x.state {
-            *poll = next;
-            *unreachable = failed;
-        }
-        poll(s, next, POLL);
     }
-}
-
-
-
-/// The attempt's lifetime ended before the server said how it went. An accepted paste is the
-/// server's to finish, so only an attempt without one is ended.
-fn timed_out(s: &mut App, attempt: &str, tx: &mut Tx) {
-    let Some(x) = current(s, attempt) else { return };
-    let (unreachable, accepted) = match &x.state {
-        State::Waiting { unreachable, accepted, .. } => (unreachable.clone(), *accepted),
-        State::Submitting { unreachable, .. } => (unreachable.clone(), false),
-        _ => return,
-    };
-    tx.instant();
-    x.state = State::Failed(unreachable.map_or(Failure::Expired, Failure::Auth));
-    if !accepted {
-        cancel(s);
-    }
-}
-
-/// Continue: sends the pasted URL, or asks for one.
-fn submit(s: &mut App, tx: &mut Tx) {
-    let Some(x) = s.mcp.sign_in.as_mut() else { return };
-    let (polling, unreachable) = match &x.state {
-        State::Waiting { poll, accepted: false, unreachable, .. } => (*poll, unreachable.clone()),
-        _ => return,
-    };
-    tx.instant();
-    let code = x.field.text.trim().to_owned();
-    if code.is_empty() {
-        if let State::Waiting { entry, .. } = &mut x.state {
-            *entry = Some(Entry::Required);
-        }
-        return;
-    }
-    x.issued += 1;
-    let n = x.issued;
-    x.state = State::Submitting { poll: polling, submit: n, unreachable };
-    let (id, attempt, dir) = (x.integration.clone(), x.attempt.clone(), x.dir.clone());
-    s.job(move |srv| {
-        let sent = srv.oauth_complete(&id, &attempt, Some(dir.as_str()).filter(|d| !d.is_empty()), &code);
-        Box::new(move |s: &mut App, tx: &mut Tx| submitted(s, &attempt, n, sent, tx)) as Apply
-    });
-}
-
-fn submitted(s: &mut App, attempt: &str, n: u32, sent: Result<(), String>, tx: &mut Tx) {
-    let Some(x) = current(s, attempt) else { return };
-    let (polling, unreachable) = match &x.state {
-        State::Submitting { poll, submit, unreachable } if *submit == n => (*poll, unreachable.clone()),
-        _ => return,
-    };
-    tx.instant();
-    match sent {
-        // Polls at once, so the dialog moves on as soon as the server finishes.
-        Ok(()) => {
-            x.issued += 1;
-            let next = x.issued;
-            x.state = State::Waiting { poll: next, accepted: true, entry: None, unreachable };
-            poll(s, next, Duration::ZERO);
-        }
-        Err(m) => x.state = State::Waiting { poll: polling, accepted: false, entry: Some(Entry::Rejected(m)), unreachable },
-    }
-}
-
-/// Reloads the location's server list, giving up after a while.
-fn sync(s: &mut App) {
-    let Some(x) = s.mcp.sign_in.as_mut() else { return };
-    x.issued += 1;
-    let n = x.issued;
-    x.state = State::Completing { sync: n };
-    let (attempt, dir) = (x.attempt.clone(), x.dir.clone());
-    let late = attempt.clone();
-    s.job_after(SYNC_TIMEOUT, move |_| {
-        Box::new(move |s: &mut App, tx: &mut Tx| synced(s, &late, n, Err(None), tx)) as Apply
-    });
-    s.job(move |srv| {
-        let list = srv.mcp_servers(Some(dir.as_str()).filter(|d| !d.is_empty()));
-        Box::new(move |s: &mut App, tx: &mut Tx| {
-            let done = match list {
-                Ok(list) => {
-                    s.mcp.servers.insert(dir.clone(), list);
-                    s.mcp_synced(&dir, tx);
-                    Ok(())
-                }
-                Err(e) => Err(Some(e)),
-            };
-            synced(s, &attempt, n, done, tx);
-        }) as Apply
-    });
-}
-
-/// The reload `n` ended: done closes the dialog; a failure, or `None` for too slow, offers a retry.
-fn synced(s: &mut App, attempt: &str, n: u32, done: Result<(), Option<String>>, tx: &mut Tx) {
-    let Some(x) = current(s, attempt) else { return };
-    if !matches!(x.state, State::Completing { sync } if sync == n) {
-        return;
-    }
-    tx.instant();
-    match done {
-        Ok(()) => s.mcp.sign_in = None,
-        Err(Some(m)) => x.state = State::Failed(Failure::Sync(m)),
-        Err(None) => x.state = State::Failed(Failure::SyncTimedOut),
-    }
-}
-
-/// Ends the attempt on the server, so a late browser callback can't connect the server.
-fn cancel(s: &App) {
-    let Some(x) = &s.mcp.sign_in else { return };
-    let (id, attempt, dir) = (x.integration.clone(), x.attempt.clone(), x.dir.clone());
-    s.job(move |srv| {
-        let _ = srv.oauth_cancel(&id, &attempt, Some(dir.as_str()).filter(|d| !d.is_empty()));
-        Box::new(|_: &mut App, _: &mut Tx| {}) as Apply
-    });
 }
 
 /// Esc, the close cross or a press outside: an attempt still waiting ends, and an accepted
 /// paste or a finished sign-in still reaches the list.
 fn close(s: &mut App, tx: &mut Tx) {
-    let Some(x) = &s.mcp.sign_in else { return };
+    let Some(x) = s.mcp.sign_in.as_mut() else { return };
     tx.instant();
-    match x.state {
-        State::Waiting { accepted: true, .. } => s.sync_mcp(&x.dir.clone()),
-        State::Waiting { .. } | State::Submitting { .. } => cancel(s),
-        _ => {}
-    }
+    let effects = step(x, Event::Disposed);
+    run(s, effects);
     s.mcp.sign_in = None;
     s.composer.focused = s.has_composer() && !s.settings.open && s.mcp.open.is_none();
+}
+
+/// Continue: sends the pasted URL, or asks for one.
+fn submit(s: &mut App, tx: &mut Tx) {
+    let Some(attempt) = s.mcp.sign_in.as_ref().map(|x| x.attempt.clone()) else { return };
+    sign_in_step(s, &attempt, Event::PasteSubmitted, tx);
 }
 
 /// Esc closes it.
@@ -253,7 +301,6 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     false
 }
-
 fn failure_text(name: &str, f: &Failure) -> String {
     match f {
         Failure::Expired => t!("provider.connect.status.failed", error = t!("provider.connect.oauth.expired")),
@@ -304,8 +351,8 @@ pub fn layer(s: &App, p: &Pal) -> Vec<El> {
         }
         if can_retry {
             actions = actions.child(button(t!("common.retry"), ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                sync(s);
+                let Some(attempt) = s.mcp.sign_in.as_ref().map(|x| x.attempt.clone()) else { return };
+                sign_in_step(s, &attempt, Event::Retry, tx);
             }).build(kit(p)).key("mcp-sign-in-retry"));
         }
         body = body.child(actions);
@@ -327,8 +374,8 @@ pub fn layer(s: &App, p: &Pal) -> Vec<El> {
             field = field
                 .on_edit(|s: &mut App| &mut s.mcp.sign_in.as_mut().expect("signing in").field)
                 .on_change(|s: &mut App, _: &mut Tx| {
-                    if let Some(State::Waiting { entry, .. }) = s.mcp.sign_in.as_mut().map(|x| &mut x.state) {
-                        *entry = None;
+                    if let Some(x) = s.mcp.sign_in.as_mut() {
+                        step(x, Event::PasteChanged);
                     }
                 })
                 .on_submit(submit);

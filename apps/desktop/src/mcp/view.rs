@@ -211,9 +211,7 @@ fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) ->
         .child(button(if copied { opencode_i18n::t!("common.copied") } else { opencode_i18n::t!("dialog.mcp.error.copy") }, ButtonVariant::GhostMuted).icon(if copied { &ic::CHECK } else { &ic::COPY })
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.copy(details.clone());
-                if let Some(Detail::Open { copied, .. }) = s.mcp.open.as_mut().map(|o| &mut o.detail) {
-                    *copied = Some(error_text.clone());
-                }
+                s.mcp_copied(error_text.clone());
             }).build(kit(p)))
         .child(spacer())
         .child(button(opencode_i18n::t!("dialog.mcp.error.disable"), ButtonVariant::Ghost).disabled(busy).on_press_tx(move |s: &mut App, tx: &mut Tx| {
