@@ -118,6 +118,12 @@ impl ComposerHost for App {
         self.attach.add(a);
         true
     }
+    fn composer_paste_files(&mut self, files: &[std::path::PathBuf]) -> bool {
+        for path in files {
+            self.attach_path(path);
+        }
+        true
+    }
     fn composer_pick_attachment(&mut self, tx: &mut Tx) {
         self.pick_attachment(tx);
     }

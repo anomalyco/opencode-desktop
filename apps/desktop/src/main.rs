@@ -251,6 +251,8 @@ mod tool_open_stories;
 mod tool_open_tests;
 mod turn_diffs;
 mod turn_errors_stories;
+#[path = "commands/type_to_compose.rs"]
+mod type_to_compose;
 mod updater;
 mod usage;
 mod view;

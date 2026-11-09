@@ -58,6 +58,6 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             }
             _ => false,
         },
-        _ => false,
+        _ => crate::type_to_compose::key(s, ev, tx),
     }
 }

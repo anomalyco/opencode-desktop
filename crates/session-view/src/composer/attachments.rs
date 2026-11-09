@@ -96,8 +96,11 @@ pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
         .collect()
 }
 
-/// Pastes an image from the clipboard into the host's composer attachments.
+/// Pastes files or an image from the clipboard into the host's composer attachments.
 pub fn paste<S: ComposerHost>(s: &mut S, content: &ClipboardContent, _: &mut Tx) -> bool {
+    if !content.files().is_empty() && s.composer_paste_files(content.files()) {
+        return true;
+    }
     let Some(img) = content.image() else { return false };
     let n = s.composer_attachments().len() + 1;
     s.composer_paste_attachment(Attachment {

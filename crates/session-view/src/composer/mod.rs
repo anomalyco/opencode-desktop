@@ -215,6 +215,10 @@ pub trait ComposerHost: TimelineHost {
     fn composer_paste_attachment(&mut self, _attachment: Attachment) -> bool {
         false
     }
+    /// Files pasted from the clipboard (Finder's ⌘C); true when the host attached them.
+    fn composer_paste_files(&mut self, _files: &[std::path::PathBuf]) -> bool {
+        false
+    }
     fn composer_pick_attachment(&mut self, _tx: &mut Tx) {}
 
     fn composer_path_attachments(&self) -> &[PathAttachment] {
