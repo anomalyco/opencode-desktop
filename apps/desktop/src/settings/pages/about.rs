@@ -204,7 +204,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 
 /// The wordmark spelling `letters`, `k` points a unit of its 234 by 42 grid, each letter 30 on.
 fn wordmark(letters: &[u8; 8], k: f32, stem: rune::Color, weak: rune::Color) -> El {
-    let mut logo = el().size(234.0 * k, 42.0 * k);
+    // A picture: right to left doesn't mirror it.
+    let mut logo = el().size(234.0 * k, 42.0 * k).dir(rune::Direction::Ltr);
     for (i, &letter) in letters.iter().enumerate() {
         for &(x, y, w, h, shadow) in LETTERS[usize::from(letter) % LETTERS.len()] {
             logo = logo.child(el().key(format!("l{i}-{x}-{y}-{w}-{h}")).absolute((x + i as f32 * 30.0) * k, y * k).size(w * k, h * k).fill(if shadow { weak } else { stem }));

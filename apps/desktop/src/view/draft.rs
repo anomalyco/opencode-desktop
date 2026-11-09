@@ -58,7 +58,8 @@ pub(crate) fn logo_at(k: f32, stem: rune::Color, weak: rune::Color) -> El {
         (180., 6., 18., 6., false), (198., 0., 6., 36., false), (180., 12., 6., 24., false), (186., 30., 12., 6., false), (186., 18., 12., 12., true),
         (210., 6., 24., 6., false), (210., 12., 6., 24., false), (228., 12., 6., 12., false), (216., 18., 12., 6., false), (216., 30., 18., 6., false), (216., 24., 18., 6., true),
     ];
-    let mut logo = el().size(78.0 * 3.0 * k, 14.0 * 3.0 * k);
+    // A picture, as Desktop's SVG and canvas are: right to left doesn't mirror it.
+    let mut logo = el().size(78.0 * 3.0 * k, 14.0 * 3.0 * k).dir(rune::Direction::Ltr);
     for (x, y, w, h, counter) in RECTS {
         logo = logo.child(el().absolute(x * k, y * k).size(w * k, h * k).fill(if counter { weak } else { stem }));
     }

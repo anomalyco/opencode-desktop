@@ -111,11 +111,22 @@ fn branch_label(p: &Pal, branch: &str) -> El {
 }
 
 /// The folder at the row's end, as the server names it (`view.tsx:420-460`): it keeps at
-/// least half the row or its shortest cut, and shows as much of its start as fits.
+/// least half the row or its shortest cut, and shows as much of its start as fits. The path
+/// reads left to right in every language, at the end of its own left-to-right box (`dir="ltr"`,
+/// `view.tsx:443-454`).
 fn folder(p: &Pal, dir: &str) -> El {
     let room = rune::memo::layout_with("location-path", |r| r[2] - 6.0).unwrap_or(0.0);
     let row_w = rune::memo::layout_with("location", |r| r[2]).unwrap_or(f32::INFINITY);
     let (shown, minimum) = fit_path(dir, room.max(0.0));
+    let path = row()
+        .key("location-path-ltr")
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .justify_end()
+        .center_y()
+        .dir(rune::Direction::Ltr)
+        .child(text(shown).font(UI).color(p.faint).truncate_head());
     row()
         .key("location-path")
         .grow(1.0)
@@ -124,7 +135,7 @@ fn folder(p: &Pal, dir: &str) -> El {
         .pr(6.0)
         .justify_end()
         .center_y()
-        .child(text(shown).font(UI).color(p.faint).truncate_head())
+        .child(path)
 }
 
 /// Desktop's `fitPath` (`view.tsx:251-272`): as many leading segments as fit, then `…`, then
