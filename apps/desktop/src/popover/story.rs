@@ -17,13 +17,14 @@ const KEYS: &[Trigger] = &[
     Trigger { key: 't', label: "Toggle quickly", run: quick },
 ];
 
-/// The third sets the knobs to the Grow and shrink preset, to see a close that moves too.
+/// The third sets the knobs to the Grow and shrink preset, to see a close that moves too, on the
+/// agent menu: the model list is a dialog now (`pickers::dialog`), which the knobs don't move.
 const VARIANTS: &[(&str, usize)] = &[("Model list", 0), ("Agent menu", 1), ("Grow and shrink", 2)];
 
 const KNOBS: &[Group] = &[super::motion::GROUP];
 
 fn kind(s: &App) -> Kind {
-    if s.variant == 1 { Kind::Agent } else { Kind::Model }
+    if s.variant == 0 { Kind::Model } else { Kind::Agent }
 }
 
 /// Opens or closes the story's popover with the motion its trigger and Esc use.

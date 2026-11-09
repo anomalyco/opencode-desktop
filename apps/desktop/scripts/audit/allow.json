@@ -1,4 +1,12 @@
 [
+  {"trace": "typing-loading", "element": "session/header/", "kind": "invisible-work",
+   "reason": "the opening story's initial stage reveal hides the header's first entrance frames, as it does the toolbar's: the header and its project icon's light fade in under a stage still at opacity 0"},
+  {"trace": "queue", "element": "bubble", "kind": "reversal",
+   "reason": "the steer's bubble flies from the composer into its row as one monotonic glide on screen (x 288 to 773, y 720 to 591); the pinned list scrolls up under it as the reply grows, so against the list its path turns once as it lands (Tx::launch)"},
+  {"element": "picker-model-scrim", "kind": ["pop-in", "pop-out"],
+   "reason": "the model picker is Desktop's DialogSelectModel, which opens and closes with its scrim at once (ui overlays/dialog/dialog.css and shell/commands/dialog.css have no animation or transition)"},
+  {"trace": "popover-motion", "element": "composer/toolbar/", "kind": ["pop-in", "sibling-jump"],
+   "reason": "the story turns the agent button on as it starts (popover::story::start), so the toolbar takes its final row in its first frame"},
   {"trace": "subagents", "element": "submit/send-glyph", "kind": "cut-exit",
    "reason": "opening the subagent's page swaps the composer at once, as opening any session does (see the switch row); the outgoing send glyph was still fading"},
   {"trace": "paste-queue", "kind": "never-settles",
