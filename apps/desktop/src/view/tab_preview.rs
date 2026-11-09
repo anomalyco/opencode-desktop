@@ -107,29 +107,32 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     let project = s.project_for_session(info).or_else(|| s.project_at(dir));
     let vertical = s.tab_layout().has_sidebar();
     let side = if vertical { Side::Right } else { Side::Bottom };
+    let (project, title) = (project_or_dir(project, dir), title_of(info));
+    // Paths break after their separators, not inside a folder's name (`<wbr>`).
+    let detail = breakable(&s.tilde(dir));
+    let card_h = vertical.then(|| card_height(&project, &title, &detail));
     let mut card = col()
         .key("tab-preview")
         .a11y_hidden()
         .anchored(format!("t-{id}"), side, Align::Start, 6.0)
         .w(W)
-        .padding(12.0)
-        .gap(4.0)
+        .padding(PAD)
+        .gap(GAP)
         .radius(6.0)
         .fill(p.bg_base)
         .elevate(p.floating)
         .transition(rune::Transition::none())
         .motion(Spring::NONE)
         .child(
-            col().key("header").w_full().gap(4.0)
-                .child(text(project_or_dir(project, dir)).key("project").font(PROJECT).color(p.muted))
-                .child(text(title_of(info)).key("title").font(TITLE).color(p.text).wrap()),
+            col().key("header").w_full().gap(GAP)
+                .child(text(project).key("project").font(PROJECT).color(p.muted))
+                .child(text(title).key("title").font(TITLE).color(p.text).wrap()),
         )
-        // Paths break after their separators, not inside a folder's name (`<wbr>`).
-        .child(row().key("row").w_full().child(text(breakable(&s.tilde(dir))).key("detail").font(PROJECT).color(p.muted).wrap()));
-    if let (true, Some((y, top))) = (vertical, s.tab_preview.pointer) {
+        .child(row().key("row").w_full().child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap()));
+    if let (Some(card_h), Some((y, top))) = (card_h, s.tab_preview.pointer) {
         // The pointer stays level with the middle of a row-sized slot, clamped to the strip
         // (`cursorOffset`), in window points; the offset is the card's own.
-        let (row_h, card_h, z) = (28.0 * s.zoom, card_height(s, info, dir) * s.zoom, s.zoom);
+        let (row_h, card_h, z) = (28.0 * s.zoom, card_h * s.zoom, s.zoom);
         let (lo, hi) = s.window.strip.map_or((f32::MIN, f32::MAX), |r| (r[1], r[1] + r[3]));
         let clamped = (y - row_h / 2.0).min(hi - card_h).max(lo);
         card = card.offset(0.0, (clamped - top) / z).offset_motion(Spring::NONE);
@@ -137,11 +140,16 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     Some(card)
 }
 
-/// About how tall the card is: its padding, the project line, and the title and folder at
-/// roughly 36 characters a line.
-fn card_height(s: &App, info: &SessionInfo, dir: &str) -> f32 {
-    let lines = |t: &str| (t.chars().count() as f32 / 36.0).ceil().max(1.0);
-    24.0 + 8.0 + 19.5 * (1.0 + lines(&title_of(info)) + lines(&s.tilde(dir)))
+/// The card's padding and the gap between its lines.
+const PAD: f32 = 12.0;
+const GAP: f32 = 4.0;
+
+/// How tall the card lays out, measured as the runtime sets its lines at the card's inner width
+/// (Desktop's `card.offsetHeight`), so the clamp to the strip is exact from its first frame.
+fn card_height(project: &str, title: &str, detail: &str) -> f32 {
+    let inner = W - 2.0 * PAD;
+    let height = |t: &str, style, wrap: bool| rune::text::measure(t, &[], style, wrap.then_some(inner)).1;
+    2.0 * PAD + height(project, PROJECT, false) + GAP + height(title, TITLE, true) + GAP + height(detail, PROJECT, true)
 }
 
 /// `path` with a break allowed after each separator.
