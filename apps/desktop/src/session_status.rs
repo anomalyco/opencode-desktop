@@ -149,8 +149,10 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.read_requests(id);
     }
     // The Inbox and Home's rows: a root that works, or whose run hasn't ended, may be waiting on
-    // a person, whose avatar then shows the unread dot.
-    if layout == TabLayout::Inbox || s.route == Route::Home {
+    // a person, whose avatar then shows the unread dot. Settings, where the layout switches to
+    // the Inbox, reads them ahead, so the Inbox's first load has settled when it shows and the
+    // active tab flies into its card rather than the Inbox showing its loader.
+    if layout == TabLayout::Inbox || s.route == Route::Home || s.settings.open {
         let working: Vec<String> = s
             .sessions
             .iter()
