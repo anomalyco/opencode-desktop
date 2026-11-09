@@ -60,7 +60,7 @@ fn offline(s:&mut App) {
     let Route::Session(session)=s.route.clone() else { return };
     let body="Run the tests before you merge.";
     let mut sent=Sent::new(&session,FIRST,Entry::of(&TextEdit::new(body)),vec![],vec![],false);
-    sent.state=super::State::Waiting; sent.durable=true; sent.why="waiting for connection".into();
+    sent.phase=super::Phase::Waiting { why: "waiting for connection".into() }; sent.journaled=true;
     s.unsent.note(sent); s.show_outbox();
 }
 

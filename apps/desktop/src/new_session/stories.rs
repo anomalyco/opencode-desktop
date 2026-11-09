@@ -4,7 +4,6 @@
 use opencode_kit::model::Message;
 use rune::{El, Play, Tx};
 
-use super::Start;
 use crate::palette::Pal;
 use crate::stories::{Story, Trigger, frame, replay, stage};
 use crate::{App, Route};
@@ -31,7 +30,8 @@ fn fail(s: &mut App, tx: &mut Tx) {
     let Route::Session(id) = s.route.clone() else { return };
     let Some(Message::User { id: prompt, text }) = s.transcripts.get(&id).and_then(|t| t.messages.iter().find(|m| matches!(m, Message::User { .. }))).cloned() else { return };
     s.playback.retain(|e| e.2["sessionID"] != id.as_str());
-    s.starts.0.push(Start { session: id.clone(), directory: s.draft_dir().to_owned(), draft: None });
+    let directory = s.draft_dir().to_owned();
+    s.starts.step(&id, super::Event::Begin { directory, draft: None });
     s.unsent.note(crate::send_failed::Sent::new(&id, &prompt, crate::prompt_history::Entry::of(&rune::TextEdit::new(&text)), vec![], vec![], false));
     s.start_failed(&id, &prompt, "POST /api/session: Connection refused", tx);
 }

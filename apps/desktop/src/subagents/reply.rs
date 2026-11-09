@@ -4,26 +4,20 @@
 //!
 //! A reply goes to the subagent's session as its own agent and model. A builder whose worktree
 //! was removed still hears it: the server moves the session to its project's checkout first
-//! (`Server::send_moving_home`). A reply that fails comes back out of the timeline into the
-//! composer, with a toast.
-
-use std::collections::HashMap;
+//! (`Server::send_moving_home`). A reply is an outbox prompt like any other
+//! (`send_failed::Phase`, `Operation::MovingHome`): kept across a lost connection or a restart,
+//! and one the server refuses comes back out of the timeline into the composer.
 
 use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use serde_json::Value;
 
 use opencode_kit::client::{Prompt, Write};
-use opencode_kit::model::{Message, SessionInfo};
+use opencode_kit::model::SessionInfo;
 
 use super::run_time;
 use crate::palette::Pal;
 use crate::view::{INSTANT, activity_ring_sized};
 use crate::{App, Route};
-
-/// Replies on their way, by session: the prompt's id and the words typed.
-#[derive(Default)]
-pub struct Sent(pub(crate) HashMap<String, (String, String)>);
 
 impl App {
     /// The open page's session when it's a subagent's.
@@ -33,13 +27,11 @@ impl App {
     }
 
     /// The write that sends `prompt` to `session`. A subagent's moves home first when its
-    /// folder is gone, and is remembered until the server takes it.
-    pub fn send_write(&mut self, session: &str, prompt: Prompt) -> Write {
+    /// folder is gone.
+    pub fn send_write(&self, session: &str, prompt: Prompt) -> Write {
         if !self.session(session).is_some_and(|i| i.parent.is_some()) {
             return Write::Send { session: session.to_owned(), prompt };
         }
-        let words = prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone());
-        self.subagent_replies.0.insert(session.to_owned(), (prompt.id.clone().unwrap_or_default(), words));
         Write::SendMovingHome { session: session.to_owned(), prompt }
     }
 }
@@ -53,39 +45,6 @@ pub fn composer_empty(s: &App) -> bool {
 pub fn esc(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let m = ev.mods;
     ev.key == Key::Escape && !m.cmd && !m.ctrl && !m.alt && !m.shift && composer_empty(s) && s.open_parent(tx)
-}
-
-/// `session.inbox.enqueued`: the server has the reply, so a later failure isn't its.
-pub fn event(s: &mut App, ty: &str, data: &Value, sid: &str) {
-    if ty == "session.inbox.enqueued" && s.subagent_replies.0.get(sid).is_some_and(|(id, _)| data["inboxID"] == id.as_str()) {
-        s.subagent_replies.0.remove(sid);
-    }
-}
-
-/// A failed write from the server's worker. When it's a reply to a subagent, the reply leaves
-/// the timeline and its words go back into that subagent's composer. The caller shows the toast.
-pub fn failed(s: &mut App, e: &str) {
-    let Some(rest) = e.strip_prefix("POST /api/session/") else { return };
-    let Some((sid, rest)) = rest.split_once('/') else { return };
-    let call = rest.split([':', ' ', '?']).next().unwrap_or("");
-    if !matches!(call, "prompt" | "agent" | "model" | "move" | "command") {
-        return;
-    }
-    let Some((id, words)) = s.subagent_replies.0.remove(sid) else { return };
-    if let Some(t) = s.transcripts.get_mut(sid) {
-        t.messages.retain(|m| !matches!(m, Message::User { id: m, .. } if *m == id));
-    }
-    if let Some(inbox) = s.inboxes.get_mut(sid) {
-        inbox.remove(&id);
-    }
-    s.attach.echoes.retain(|e| e.1 != id);
-    if s.route == Route::Session(sid.to_owned()) {
-        if s.composer.text.trim().is_empty() {
-            s.composer.replace_text(words);
-        }
-    } else {
-        s.restore.drafts.entry(sid.to_owned()).or_insert(words);
-    }
 }
 
 /// The bar's words (`subagent-bar.tsx`): 12 on 16 at 440, tabular, faint.

@@ -29,8 +29,31 @@ pub enum Incoming {
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
-    /// A session forked from `from` before `before` (`Write::Fork`, `POST /api/session/:id/fork`).
-    Forked { from: String, before: Option<String>, session: SessionInfo },
+    /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
+    /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
+    Settled { ticket: Ticket, result: Result<Option<SessionInfo>, String> },
+}
+
+/// Which machine asked for a tracked write, for which session, at which attempt: the write's
+/// `Incoming::Settled` comes back with it, so a result for an attempt that is no longer current
+/// is dropped by the machine rather than parsed out of an error string.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ticket {
+    pub kind: TicketKind,
+    pub session: String,
+    pub attempt: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TicketKind {
+    /// `Write::Interrupt` from Stop.
+    Stop,
+    /// A rewind, undo or redo (`RevertStage`, `RevertClear`).
+    Revert,
+    /// `Write::Fork`.
+    Fork,
+    /// A queued or pending prompt's steer, move, removal or undo (`Deliver`, `Cancel`).
+    Inbox,
 }
 
 pub enum Request {
@@ -75,6 +98,8 @@ pub enum Write {
     Permission { session: String, request: String, decision: String },
     Form { session: String, form: String, answer: Value },
     CancelForm { session: String, form: String },
+    /// Stop: interrupts the session's run, which goes on with the steers waiting
+    /// (`Server::stop`). `Incoming::Event` `session.interrupt.acknowledged` follows.
     Interrupt(String),
     /// A new session in `directory`, then `text` as its first prompt.
     Create { directory: String, text: String },
@@ -131,8 +156,12 @@ pub enum Write {
     /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
     /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
     SendFromRevert { session: String, prompt: Prompt },
-    /// Forks `session` before `before` (`POST /api/session/:id/fork`), replying `Incoming::Forked`.
+    /// Forks `session` before `before` (`POST /api/session/:id/fork`); tracked, it settles with
+    /// the session it made.
     Fork { session: String, before: Option<String> },
+    /// `write`, whose outcome comes back as `Incoming::Settled` under `ticket`, success or not
+    /// (no `Incoming::Status` for its failure).
+    Tracked { ticket: Ticket, write: Box<Write> },
     /// `StartAs` in a new worktree of `project` (Desktop's `createWorktree`): `POST /api/worktree`
     /// from the checkout `from`, on `branch` or its current one, then the session in the
     /// worktree it made. `Incoming::Event` `worktree.updated` follows the worktree, then

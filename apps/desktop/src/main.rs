@@ -240,6 +240,7 @@ mod line_grow_story;
 #[path = "stream/line_grow_tests.rs"]
 mod line_grow_tests;
 mod subagents;
+mod submit;
 mod suggestions;
 mod switcher;
 mod tab_actions;
@@ -361,6 +362,10 @@ pub struct App {
     pub pending: Vec<Pending>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
     pub inboxes: HashMap<String, Inbox>,
+    /// Each session's queue changes this window asked for (`queue::machine`).
+    pub queue_ops: HashMap<String, queue::machine::Queue>,
+    /// A send held while a session opens (`submit.rs`).
+    pub submit: submit::Submit,
     /// This window's place in its server's peer (`windows::peer`).
     pub store: windows::peer::Link,
     /// The question dock's place and in-progress answers for the forms it shows.
@@ -427,8 +432,6 @@ pub struct App {
     pub restore: restore::Restore,
     /// Background shells, and the running-work list above the composer (`subagents::activity`).
     pub shells: subagents::shells::Shells,
-    /// Replies to subagents still on their way, to take back if the send fails.
-    pub subagent_replies: subagents::reply::Sent,
     /// Permission replies still on their way, to bring back if the server refuses one.
     pub permission_sent: permission::Sent,
     /// The plan's list over the todo pill is open (`todos.rs`).
@@ -785,7 +788,7 @@ impl session_view::TimelineHost for App {
         if let Some(s) = self.unsent.durable(id) {
             use std::hash::{DefaultHasher, Hash, Hasher};
             let mut version = DefaultHasher::new();
-            (s.state, s.after_check, &s.why).hash(&mut version);
+            (s.state(), s.then(), s.why()).hash(&mut version);
             return version.finish() | 8;
         }
         match self.unsent.state(id) {
@@ -1195,6 +1198,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         arrivals.land(s, now, tx);
     }
     changed |= stop::poll(s, now, tx);
+    changed |= s.revert_timeouts(tx);
+    changed |= fork::poll(s, tx);
+    s.queue_timers(tx);
+    changed |= submit::poll(s, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx);

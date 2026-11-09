@@ -7,8 +7,12 @@
 use rune::{El, Icon, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
-use opencode_kit::client::{Prompt, Write};
+use opencode_kit::client::{Prompt, Ticket, TicketKind, Write};
 use opencode_kit::model::{self, Delivery, Inbox, InboxChange, InboxItem, Message};
+use rune::machine::Attempt;
+
+pub mod machine;
+use machine::{Effect, Event, Operation, Queue, State as QueueState};
 
 use crate::odometer::odometer;
 use crate::palette::Pal;
@@ -64,47 +68,119 @@ impl App {
 
     /// Steers a queued prompt (sends it now when the turn has stopped).
     pub fn steer_queued(&mut self, session: &str, id: &str) {
-        self.redeliver(session, id, Delivery::Steer);
+        self.queue_op(session, Operation::Steer { id: id.to_owned() });
     }
 
-    /// Moves a pending steer back to the queue.
+    /// Moves a pending steer back to the queue (its menu's Move to queue).
     pub fn queue_pending(&mut self, session: &str, id: &str) {
-        self.redeliver(session, id, Delivery::Queue);
+        self.queue_op(session, Operation::Requeue { id: id.to_owned() });
     }
 
-    fn redeliver(&mut self, session: &str, id: &str, delivery: Delivery) {
-        let w = Write::Deliver { session: session.to_owned(), item: id.to_owned(), delivery };
-        if self.inbox_write(w) {
-            self.inboxes.entry(session.to_owned()).or_default().set_delivery(id, delivery);
-            if delivery == Delivery::Steer {
-                self.steered(session, id);
-            }
-        }
+    /// Removes a queued prompt.
+    pub fn withdraw(&mut self, session: &str, id: &str) {
+        let queued = self.inboxes.get(session).is_some_and(|i| i.queued().any(|i| i.id == id));
+        let id = id.to_owned();
+        self.queue_op(session, if queued { Operation::Remove { id } } else { Operation::Delete { id } });
     }
 
-    pub fn withdraw(&mut self, session: &str, id: &str) -> Option<InboxItem> {
-        if !self.inbox_write(Write::Cancel { session: session.to_owned(), item: id.to_owned() }) {
-            return None;
-        }
-        self.inboxes.get_mut(session)?.remove(id)
-    }
-
-    /// Withdraws a queued prompt into the composer, after anything already typed there.
+    /// Withdraws a queued prompt into the composer, after anything already typed there, once the
+    /// server lets it go; until then its row shows it pending.
     pub fn undo_queued(&mut self, session: &str, id: &str) {
-        let Some(item) = self.withdraw(session, id) else { return };
-        let draft = self.composer.text.trim_end();
-        let merged = if draft.is_empty() { item.text } else { format!("{draft}\n\n{}", item.text) };
-        self.composer.replace_text(merged);
-        self.composer.focused = true;
+        let Some(item) = self.inboxes.get(session).and_then(|i| i.items.iter().find(|i| i.id == id)).cloned() else { return };
         // An item listed by the server has its files only on the item.
         let files = model::user_files(&item.id);
-        self.attach.files.extend(if files.is_empty() { item.files } else { files.to_vec() });
-        model::set_user_files(&item.id, Vec::new());
+        let files = if files.is_empty() { item.files } else { files.to_vec() };
+        self.queue_op(session, Operation::Undo { id: item.id, text: item.text, files });
     }
 
     /// Fixture runs act locally, as if the server agreed.
     fn inbox_write(&mut self, w: Write) -> bool {
         matches!(self.source, Source::Fixture) || self.write(w)
+    }
+
+    /// Asks `session`'s queue machine for `operation`.
+    fn queue_op(&mut self, session: &str, operation: Operation) {
+        let now = self.clock;
+        self.step_queue(session, Event::Requested { operation, now });
+    }
+
+    fn step_queue(&mut self, session: &str, event: Event) {
+        let effects = self.queue_ops.entry(session.to_owned()).or_default().step(event);
+        for effect in effects {
+            match effect {
+                Effect::Run { attempt, operation } => self.run_queue_op(session, attempt, operation),
+                Effect::Merge { text, files } => {
+                    let draft = self.composer.text.trim_end();
+                    let merged = if draft.is_empty() { text } else { format!("{draft}\n\n{text}") };
+                    self.composer.replace_text(merged);
+                    self.composer.focused = true;
+                    self.attach.files.extend(files);
+                }
+                Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), ""),
+            }
+        }
+    }
+
+    fn run_queue_op(&mut self, session: &str, attempt: Attempt, operation: Operation) {
+        let (s, id) = (session.to_owned(), operation.id().to_owned());
+        let write = match &operation {
+            Operation::Steer { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Steer },
+            Operation::Requeue { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Queue },
+            Operation::Remove { .. } | Operation::Undo { .. } | Operation::Delete { .. } => Write::Cancel { session: s, item: id },
+        };
+        // Fixture runs act locally, as if the server agreed at once.
+        if matches!(self.source, Source::Fixture) {
+            return self.queue_settled(session, attempt.0, true);
+        }
+        let ticket = Ticket { kind: TicketKind::Inbox, session: session.to_owned(), attempt: attempt.0 };
+        if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
+            self.queue_settled(session, attempt.0, false);
+        }
+    }
+
+    /// `Incoming::Settled` for a queue change of `session`. A change the server took shows at
+    /// once, as its event will say.
+    pub(crate) fn queue_settled(&mut self, session: &str, attempt: u32, ok: bool) {
+        let (attempt, now) = (Attempt(attempt), self.clock);
+        let Some(QueueState::Mutating { attempt: a, active, .. }) = self.queue_ops.get(session).map(|q| q.state.clone()) else { return };
+        if a != attempt {
+            return;
+        }
+        if ok {
+            let inbox = self.inboxes.entry(session.to_owned()).or_default();
+            match &active {
+                Operation::Steer { id } => {
+                    inbox.set_delivery(id, Delivery::Steer);
+                }
+                Operation::Requeue { id } => {
+                    inbox.set_delivery(id, Delivery::Queue);
+                }
+                Operation::Remove { id } | Operation::Undo { id, .. } | Operation::Delete { id } => {
+                    inbox.remove(id);
+                }
+            }
+            if let Operation::Undo { id, .. } = &active {
+                model::set_user_files(id, Vec::new());
+            }
+            if let Operation::Steer { id } = &active {
+                self.steered(session, id);
+            }
+            crate::windows::peer::touch(self);
+            return self.step_queue(session, Event::Succeeded { attempt, now });
+        }
+        self.step_queue(session, Event::Failed { attempt, now });
+    }
+
+    /// Each frame: confirmed rows' hiding expires and an undo past its bound fails.
+    pub(crate) fn queue_timers(&mut self, tx: &mut Tx) {
+        let now = self.clock;
+        let due: Vec<String> = self.queue_ops.iter().filter(|(_, q)| q.due().is_some_and(|d| now + 1e-9 >= d)).map(|(s, _)| s.clone()).collect();
+        for session in due {
+            self.step_queue(&session, Event::Tick { now });
+        }
+        if let Some(next) = self.queue_ops.values().filter_map(Queue::due).reduce(f64::min) {
+            tx.wake_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
+        }
     }
 
     /// `session.inbox.*` in the server's copy (`App::apply_shared`): a delivered prompt joins
@@ -170,6 +246,9 @@ impl App {
                 admitted = true;
             }
             let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
+            if let Some(queue) = self.queue_ops.get_mut(sid) {
+                queue.step(Event::Synced { ids: ids.clone() });
+            }
             admitted |= self.judge_sends_by_inbox(sid, &ids);
             self.check_sends();
         }
@@ -240,7 +319,7 @@ const SINK: f32 = 6.0;
 /// A question or permission in the composer's place closes it, as Desktop hides its queue while
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
-    let queued: Vec<&InboxItem> = if s.dock_shown() { Vec::new() } else { s.inbox_for(session).map(|i| i.queued().collect()).unwrap_or_default() };
+    let queued = shown_rows(s, session);
     let shadow = if queued.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
     let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
     let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).box_shadow(Pal::ring_in(p.ring));
@@ -252,11 +331,13 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
         return shell.h(0.0).child(clip.h(0.0).child(face.mt(SINK).h(1.0))).child(tuck.h(0.0));
     }
     let n = queued.len();
+    let ops = s.queue_ops.get(session);
     let mut list = col().key("queue-list").w_full();
     for (k, item) in queued.iter().enumerate() {
         // While the turn is stopped the queue is parked: the first prompt shows its actions,
         // labelled Send, which is how the queue resumes.
-        list = list.child(queue_row(p, session, item, busy, !busy && k == 0));
+        let row = Row { busy, parked: !busy && k == 0, undoing: ops.is_some_and(|q| q.undoing(&item.id)), changing: ops.is_some_and(Queue::busy) };
+        list = list.child(queue_row(p, session, item, row));
     }
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
     // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
@@ -274,10 +355,30 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
 
 /// Whether the open session has prompts in the queue, which squares the composer's top corners.
 pub fn docked(s: &App) -> bool {
-    !s.dock_shown() && matches!(&s.route, crate::Route::Session(id) if s.inbox_for(id).is_some_and(|i| i.queued().next().is_some()))
+    matches!(&s.route, crate::Route::Session(id) if !shown_rows(s, id).is_empty())
 }
 
-fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool) -> El {
+/// The queue's rows: the session's queued prompts, less those a change took out of the strip
+/// (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
+fn shown_rows<'a>(s: &'a App, session: &str) -> Vec<&'a InboxItem> {
+    if s.dock_shown() {
+        return Vec::new();
+    }
+    let ops = s.queue_ops.get(session);
+    s.inbox_for(session).map(|i| i.queued().filter(|i| !ops.is_some_and(|q| q.hidden(&i.id))).collect()).unwrap_or_default()
+}
+
+/// How a row stands: the turn running (`busy`), the queue parked on it, its undo on its way
+/// (`undoing`: it shows pending), or any change on its way (`changing`: the actions wait).
+struct Row {
+    busy: bool,
+    parked: bool,
+    undoing: bool,
+    changing: bool,
+}
+
+fn queue_row(p: &Pal, session: &str, item: &InboxItem, st: Row) -> El {
+    let (busy, parked) = (st.busy, st.parked);
     let files = model::user_files(&item.id).len().max(item.files.len());
     let label = if item.text.trim().is_empty() { attachments_label(files) } else { item.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned() };
     let (ss, is) = (session.to_owned(), item.id.clone());
@@ -301,10 +402,22 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         })
         .child(icon(&ic::ARROW_UP, 14.0).color(p.icon_faint))
         .child(text(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") }).font(UI_MED).color(p.faint));
-    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(p.text).truncate_fade());
+    // An undo on its way: the words go faint and a loader takes the actions' place
+    // (`queue-panel.tsx:221-252`).
+    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(if st.undoing { p.faint } else { p.text }).truncate_fade());
     if files > 0 && !item.text.trim().is_empty() {
         left = left.child(text(attachments_label(files)).font(UI).color(p.muted));
     }
+    let actions = if st.undoing {
+        row().key("actions").gap(6.0).center_y().child(session_view::style::activity_ring_sized(p, 14.0))
+    } else {
+        // While another change runs, the actions wait (`pointer-events-none`, `disabled`).
+        let actions = reveal(row().key("actions").gap(6.0).center_y())
+            .child(steer)
+            .child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
+            .child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| s.withdraw(&sr, &ir)));
+        if st.changing { actions.inert() } else { actions }
+    };
     row()
         .key(format!("queued-{}", item.id))
         .role("listitem")
@@ -319,14 +432,7 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, busy: bool, parked: bool)
         // It leaves at once, and the queue closes up on its height spring.
         .transition(rune::Transition::opacity().springs(rune::SpringPair::NONE))
         .child(left)
-        .child(
-            reveal(row().key("actions").gap(6.0).center_y())
-                .child(steer)
-                .child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
-                .child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| {
-                    s.withdraw(&sr, &ir);
-                })),
-        )
+        .child(actions)
 }
 
 /// "Queue ⌘⏎" (or "Steer ⌘⏎") beside the submit button while a turn runs and the composer holds

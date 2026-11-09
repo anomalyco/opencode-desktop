@@ -1,25 +1,31 @@
 //! Rewinding a session to a user message, undoing that rewind from its toast, and `/undo` +
 //! `/redo`, matching OpenCode Desktop (`packages/app/src/session/revert.ts`,
 //! `packages/session-ui/src/message/message-content.tsx`, `packages/app/src/composer/submit.ts`).
+//! Each session's operations are `machine::SessionRevert` (`session/revert-machine.ts`).
 //!
 //! Acting updates the timeline and composer on the press: messages from the boundary onward
 //! leave on the timeline's growth spring, the rewound prompt returns to the composer, and the
-//! `"Reverted"` toast offers `"Undo"`. If the server refuses, the timeline, running state and
-//! composer draft roll back and [`crate::status_toast::fail`] reports why.
+//! `"Reverted"` toast offers `"Undo"`. If the server refuses, or doesn't answer in 30 s, the
+//! timeline, running state and composer draft roll back and [`crate::status_toast::fail`] reports
+//! why. An undelivered prompt is withdrawn instead, its words back in the composer once the
+//! server lets it go.
 
 use std::collections::HashMap;
 use std::ops::Range;
 
-use opencode_kit::client::{PathAttachment, Write};
+use opencode_kit::client::{PathAttachment, Ticket, TicketKind, Write};
 use opencode_kit::mention::{self, MentionKind};
 use opencode_kit::model::{self, Attachment, Message, Quote};
+use rune::machine::Attempt;
 use rune::{Align, El, LocalTime, Mark, MarkRange, Tx, icon};
 use rune_theme_opencode::icons as ic;
-use serde_json::Value;
 
 use crate::palette::Pal;
 use crate::prompt_history::Entry;
 use crate::{App, Route, Source};
+
+mod machine;
+use machine::{Effect, Event, Operation, Rollback, SessionRevert, State};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SavedDraft {
@@ -36,36 +42,27 @@ impl SavedDraft {
     }
 }
 
+/// The Rewound toast's Undo: the session and the rewind (`attempt`) it undoes.
 #[derive(Clone, Debug)]
 pub struct UndoRewind {
     pub session: String,
-    pub prior_revert: Option<String>,
-    pub draft: SavedDraft,
-}
-
-#[derive(Clone, Debug)]
-struct PendingRevert {
-    target: Option<String>,
-    prior_revert: Option<String>,
-    stopped_running: Vec<String>,
-    rollback_draft: Option<SavedDraft>,
-    toast_id: Option<u64>,
+    pub attempt: Attempt,
 }
 
 #[derive(Default)]
 pub struct RewindState {
     /// The message whose menu is open: `(session_id, message_id)`.
     pub menu: Option<(String, String)>,
-    /// Optimistic revert writes waiting on the server, by session id.
-    pending: HashMap<String, PendingRevert>,
+    /// Each session's rewinds, undos and redos (`machine.rs`).
+    sessions: HashMap<String, SessionRevert>,
     /// Per-session composer drafts (including pills, attachments and quotes) across tab switches.
     pub(crate) drafts: HashMap<String, SavedDraft>,
 }
 
 impl RewindState {
-    /// This window asked to revert `session` (an Undo or Redo still on its way).
-    pub(crate) fn asked(&self, session: &str) -> bool {
-        self.pending.contains_key(session)
+    /// A rewind, undo or redo of `session` is on its way: another waits for it.
+    pub(crate) fn busy(&self, session: &str) -> bool {
+        self.sessions.get(session).is_some_and(SessionRevert::running)
     }
 
     pub fn menu_is(&self, session: &str, message_id: &str) -> bool {
@@ -97,16 +94,29 @@ impl App {
             .collect()
     }
 
+    /// What `/undo` rewinds to (`revert-machine.ts` `undo.requested`): the newest user message
+    /// before the session's boundary, an undelivered one in the inbox included (which Undo
+    /// withdraws).
+    fn undo_target(&self, session: &str) -> Option<String> {
+        let boundary = self.session(session).and_then(|i| i.revert.as_deref());
+        let sent = self.transcripts.get(session).into_iter().flat_map(|t| &t.messages).filter_map(|m| match m {
+            Message::User { id, .. } => Some(id.as_str()),
+            _ => None,
+        });
+        let waiting = self.inboxes.get(session).into_iter().flat_map(|i| i.items.iter().map(|i| i.id.as_str()));
+        sent.chain(waiting).filter(|id| boundary.is_none_or(|b| *id < b)).max().map(str::to_owned)
+    }
+
     /// Whether `/undo` and `⌘K → Undo` are enabled on the open session.
     pub fn can_undo_session(&self) -> bool {
         let Route::Session(id) = &self.route else { return false };
-        self.can_rewind_session(id) && !self.visible_user_ids(id).is_empty()
+        self.can_rewind_session(id) && !self.rewind.busy(id) && self.undo_target(id).is_some()
     }
 
     /// Whether `/redo` and `⌘K → Redo` are enabled on the open session.
     pub fn can_redo_session(&self) -> bool {
         let Route::Session(id) = &self.route else { return false };
-        self.can_rewind_session(id) && self.session(id).and_then(|i| i.revert.as_ref()).is_some()
+        self.can_rewind_session(id) && !self.rewind.busy(id) && self.session(id).and_then(|i| i.revert.as_ref()).is_some()
     }
 
     /// Captures `session`'s current composer draft, attachments and quotes.
@@ -211,15 +221,21 @@ impl App {
         }
     }
 
-    /// Rewinds `session` to user message `message_id` (the message menu's Undo or Revert to here).
+    /// Rewinds `session` to user message `message_id` (the message menu's Undo or Revert to here),
+    /// or withdraws it when it's still in the inbox.
     pub fn rewind_to(&mut self, session: &str, message_id: &str, _tx: &mut Tx) {
         self.close_message_menu();
-        if !self.can_rewind_session(session) {
+        if !self.can_rewind_session(session) || self.rewind.busy(session) {
             return;
         }
         // An undelivered inbox prompt has no history to rewind: withdraw it into the composer.
-        if self.inboxes.get(session).is_some_and(|i| i.items.iter().any(|x| x.id == message_id)) {
-            self.undo_queued(session, message_id);
+        if let Some(item) = self.inboxes.get(session).and_then(|i| i.items.iter().find(|x| x.id == message_id)).cloned() {
+            let mut draft = self.draft_from_message(&item.id, &item.text);
+            if draft.files.is_empty() {
+                draft.files = item.files;
+            }
+            let operation = Operation::Withdraw { message: message_id.to_owned(), draft };
+            self.step_revert(session, Event::Requested { operation, now: self.clock });
             return;
         }
         let Some(body) = self.transcripts.get(session).and_then(|t| {
@@ -231,55 +247,38 @@ impl App {
             return;
         };
 
-        let prior_revert = self.session(session).and_then(|i| i.revert.clone());
+        let prior = self.session(session).and_then(|i| i.revert.clone());
         let prior_draft = self.capture_draft(session);
         let restored = self.draft_from_message(message_id, &body);
-
-        let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        if !fixture && !self.write(Write::RevertStage { session: session.to_owned(), message: message_id.to_owned(), settle: true }) {
-            let why = self.status.clone();
-            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
-            return;
-        }
-
         let root = self.root_of(session).to_owned();
-        let stopped_running: Vec<String> = self.running.iter().filter(|s| self.root_of(s) == root).cloned().collect();
-        for sid in &stopped_running {
+        let stopped: Vec<String> = self.running.iter().filter(|s| self.root_of(s) == root).cloned().collect();
+        let attempt = self.rewind.sessions.entry(session.to_owned()).or_default().next_attempt();
+
+        // Shown on the press: the rows leave, the prompt comes back, the toast offers Undo.
+        for sid in &stopped {
             self.running.remove(sid);
         }
-        if fixture {
+        if self.stage.is_some() || matches!(self.source, Source::Fixture) {
             self.playback.retain(|(_, _, d)| d["sessionID"].as_str() != Some(session));
         }
         self.set_session_revert(session, Some(message_id.to_owned()));
         self.exit_shell();
         self.apply_draft(session, restored);
+        let toast = crate::status_toast::rewound(self, UndoRewind { session: session.to_owned(), attempt });
 
-        let toast_id = crate::status_toast::rewound(
-            self,
-            UndoRewind {
-                session: session.to_owned(),
-                prior_revert: prior_revert.clone(),
-                draft: prior_draft.clone(),
-            },
-        );
-        if !fixture {
-            self.rewind.pending.insert(
-                session.to_owned(),
-                PendingRevert {
-                    target: Some(message_id.to_owned()),
-                    prior_revert,
-                    stopped_running,
-                    rollback_draft: Some(prior_draft),
-                    toast_id: Some(toast_id),
-                },
-            );
-        }
+        let rollback = Rollback { revert: prior.clone(), stopped, draft: Some(prior_draft.clone()), toast: Some(toast) };
+        let operation = Operation::Rewind { message: message_id.to_owned(), prior, draft: prior_draft, rollback };
+        self.step_revert(session, Event::Requested { operation, now: self.clock });
     }
 
-    /// `/undo` and `⌘K → Undo`: rewinds to the last visible user message before any current boundary.
+    /// `/undo` and `⌘K → Undo`: rewinds to the newest user message before the session's boundary,
+    /// or withdraws it when it's still undelivered (`revert-machine.ts` `undo.requested`).
     pub fn undo_last(&mut self, tx: &mut Tx) -> bool {
         let Route::Session(session) = self.route.clone() else { return false };
-        let Some(last) = self.visible_user_ids(&session).pop() else { return false };
+        if self.rewind.busy(&session) {
+            return false;
+        }
+        let Some(last) = self.undo_target(&session) else { return false };
         self.rewind_to(&session, &last, tx);
         true
     }
@@ -292,36 +291,15 @@ impl App {
     /// `/redo` and `⌘K → Redo`: restores every reverted message at once and leaves the composer alone.
     pub fn redo_revert(&mut self, _tx: &mut Tx) -> bool {
         let Route::Session(session) = self.route.clone() else { return false };
-        if !self.can_rewind_session(&session) {
+        if !self.can_rewind_session(&session) || self.rewind.busy(&session) {
             return false;
         }
-        let Some(prior_revert) = self.session(&session).and_then(|i| i.revert.clone()) else {
+        let Some(prior) = self.session(&session).and_then(|i| i.revert.clone()) else {
             return false;
         };
-        let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        if !fixture && !self.write(Write::RevertClear(session.clone())) {
-            let why = self.status.clone();
-            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
-            return false;
-        }
         self.set_session_revert(&session, None);
-        if let Some(e) = &self.toast.current
-            && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
-        {
-            crate::status_toast::dismiss(self);
-        }
-        if !fixture {
-            self.rewind.pending.insert(
-                session,
-                PendingRevert {
-                    target: None,
-                    prior_revert: Some(prior_revert),
-                    stopped_running: Vec::new(),
-                    rollback_draft: None,
-                    toast_id: None,
-                },
-            );
-        }
+        let rollback = Rollback { revert: Some(prior), ..Rollback::default() };
+        self.step_revert(&session, Event::Requested { operation: Operation::Redo { rollback }, now: self.clock });
         true
     }
 
@@ -330,37 +308,105 @@ impl App {
         self.redo_revert(tx)
     }
 
-    /// `Undo` on the `"Reverted"` toast: bound to `undo.session` and `undo.prior_revert`, even
-    /// after switching tabs, and puts back the unsent draft that was in the composer.
+    /// `Undo` on the `"Reverted"` toast: bound to its session and rewind, even after switching
+    /// tabs, and puts back the unsent draft that was in the composer. An older toast's Undo, or
+    /// one whose rewind another boundary replaced, does nothing.
     pub fn undo_rewind(&mut self, undo: UndoRewind, _tx: &mut Tx) {
-        let current_revert = self.session(&undo.session).and_then(|i| i.revert.clone());
-        let current_draft = self.capture_draft(&undo.session);
-        let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        if !fixture {
-            let w = match &undo.prior_revert {
-                Some(prior) => Write::RevertStage { session: undo.session.clone(), message: prior.clone(), settle: false },
-                None => Write::RevertClear(undo.session.clone()),
-            };
-            if !self.write(w) {
-                let why = self.status.clone();
+        let (attempt, prior) = match self.rewind.sessions.get(&undo.session).map(|r| r.state.clone()) {
+            Some(State::Restored { attempt, prior, .. }) if attempt == undo.attempt => (attempt, prior),
+            Some(State::Running { attempt, operation: Operation::Rewind { prior, .. }, .. }) if attempt == undo.attempt => (attempt, prior),
+            _ => return,
+        };
+        let rollback = Rollback { revert: self.session(&undo.session).and_then(|i| i.revert.clone()), draft: Some(self.capture_draft(&undo.session)), ..Rollback::default() };
+        self.set_session_revert(&undo.session, prior);
+        self.step_revert(&undo.session, Event::ToastUndo { attempt, now: self.clock, rollback });
+    }
+
+    /// Steps `session`'s revert machine and carries out what it says.
+    fn step_revert(&mut self, session: &str, event: Event) {
+        let effects = self.rewind.sessions.entry(session.to_owned()).or_default().step(event);
+        for effect in effects {
+            self.revert_effect(session, effect);
+        }
+        crate::windows::peer::touch(self);
+    }
+
+    fn revert_effect(&mut self, session: &str, effect: Effect) {
+        match effect {
+            Effect::Run { attempt, operation } => {
+                let write = match &operation {
+                    Operation::Withdraw { message, .. } => Write::Cancel { session: session.to_owned(), item: message.clone() },
+                    Operation::Rewind { message, .. } => Write::RevertStage { session: session.to_owned(), message: message.clone(), settle: true },
+                    Operation::Redo { .. } | Operation::UndoRewind { prior: None, .. } => Write::RevertClear(session.to_owned()),
+                    Operation::UndoRewind { prior: Some(prior), .. } => Write::RevertStage { session: session.to_owned(), message: prior.clone(), settle: false },
+                };
+                // The fixture and the storybook act as if the server agreed at once.
+                if self.stage.is_some() || matches!(self.source, Source::Fixture) {
+                    return self.step_revert(session, Event::Succeeded { attempt });
+                }
+                let ticket = Ticket { kind: TicketKind::Revert, session: session.to_owned(), attempt: attempt.0 };
+                if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
+                    let why = self.status.clone();
+                    self.step_revert(session, Event::Failed { attempt, why });
+                }
+            }
+            Effect::Undo { rollback, why } => {
+                if let Some(rollback) = rollback {
+                    self.set_session_revert(session, rollback.revert);
+                    for r in rollback.stopped {
+                        self.running.insert(r);
+                    }
+                    if let Some(id) = rollback.toast {
+                        crate::status_toast::dismiss_id(self, id);
+                    }
+                    if let Some(draft) = rollback.draft {
+                        self.apply_draft(session, draft);
+                    }
+                }
+                let why = why.split_once(": ").map_or(why.as_str(), |(_, why)| why).to_owned();
                 crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
-                return;
+            }
+            // `revert.ts` `restore`: the withdrawn prompt replaces the draft.
+            Effect::RestoreMessage { message, draft } => {
+                if let Some(inbox) = self.inboxes.get_mut(session) {
+                    inbox.remove(&message);
+                }
+                model::set_user_files(&message, Vec::new());
+                self.exit_shell();
+                self.apply_draft(session, draft);
+            }
+            Effect::RestoreDraft { draft } => self.apply_draft(session, draft),
+            Effect::DismissToast => {
+                if let Some(e) = &self.toast.current
+                    && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
+                {
+                    crate::status_toast::dismiss(self);
+                }
             }
         }
-        self.set_session_revert(&undo.session, undo.prior_revert.clone());
-        self.apply_draft(&undo.session, undo.draft);
-        if !fixture {
-            self.rewind.pending.insert(
-                undo.session,
-                PendingRevert {
-                    target: undo.prior_revert,
-                    prior_revert: current_revert,
-                    stopped_running: Vec::new(),
-                    rollback_draft: Some(current_draft),
-                    toast_id: None,
-                },
-            );
+    }
+
+    /// `Incoming::Settled` for a revert ticket.
+    pub(crate) fn revert_settled(&mut self, session: &str, attempt: u32, result: Result<(), String>) {
+        let attempt = Attempt(attempt);
+        let event = match result {
+            Ok(()) => Event::Succeeded { attempt },
+            Err(why) => Event::Failed { attempt, why },
+        };
+        self.step_revert(session, event);
+    }
+
+    /// Each frame: an operation past its 30 s bound fails as it got. True when one did.
+    pub(crate) fn revert_timeouts(&mut self, tx: &mut Tx) -> bool {
+        let now = self.clock;
+        let due: Vec<String> = self.rewind.sessions.iter().filter(|(_, r)| r.due().is_some_and(|d| now + 1e-9 >= d)).map(|(id, _)| id.clone()).collect();
+        for session in &due {
+            self.step_revert(session, Event::Due { now });
         }
+        if let Some(next) = self.rewind.sessions.values().filter_map(SessionRevert::due).reduce(f64::min) {
+            tx.wake_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
+        }
+        !due.is_empty()
     }
 
     pub(crate) fn set_session_revert(&mut self, session: &str, revert: Option<String>) {
@@ -376,7 +422,7 @@ impl App {
             return false;
         };
         self.set_session_revert(session, None);
-        self.rewind.pending.remove(session);
+        self.step_revert(session, Event::Committed);
         if let Some(inbox) = self.inboxes.get_mut(session) {
             inbox.items.retain(|i| i.id < boundary);
         }
@@ -419,66 +465,27 @@ impl App {
     }
 }
 
-/// Reconciles `session.revert.*` SSE events with any in-flight optimistic write.
-pub fn resolve_event(s: &mut App, ty: &str, data: &Value, sid: &str) -> Option<Option<String>> {
-    let incoming = match ty {
-        "session.revert.staged" => data["revert"]["messageID"].as_str().map(str::to_owned),
-        "session.revert.cleared" | "session.revert.committed" => None,
-        _ => return None,
-    };
-    if let Some(op) = s.rewind.pending.get(sid) {
-        if ty == "session.revert.committed" || op.target == incoming {
-            s.rewind.pending.remove(sid);
-            return Some(incoming);
-        }
-        // A stale SSE from an earlier write landed while a newer Undo/Redo is in flight.
-        return Some(op.target.clone());
+/// What a `session.revert.*` event says of the session's boundary: `Some(Some(id))` staged at
+/// `id`, `Some(None)` cleared or committed.
+pub fn reported(ty: &str, data: &serde_json::Value) -> Option<Option<String>> {
+    match ty {
+        "session.revert.staged" => Some(data["revert"]["messageID"].as_str().map(str::to_owned)),
+        "session.revert.cleared" | "session.revert.committed" => Some(None),
+        _ => None,
     }
-    Some(incoming)
 }
 
-/// Handles write failures from revert or fork routes: rolls back optimistic state and shows
-/// [`crate::status_toast::fail`]. Returns `true` when `error` belonged to revert or fork.
-pub fn failed(s: &mut App, error: &str) -> bool {
-    let (head, why) = error.split_once(": ").unwrap_or((error, ""));
-    let revert_sid = head
-        .strip_prefix("POST /api/session/")
-        .and_then(|p| {
-            p.strip_suffix("/revert/stage")
-                .or_else(|| p.strip_suffix("/revert/commit"))
-                .or_else(|| p.strip_suffix("/interrupt").filter(|sid| s.rewind.pending.contains_key(*sid)))
-        })
-        .or_else(|| {
-            head.strip_prefix("POST /api/experimental/session/")
-                .and_then(|p| p.strip_suffix("/wait"))
-                .filter(|sid| s.rewind.pending.contains_key(*sid))
-        })
-        .or_else(|| head.strip_prefix("DELETE /api/session/").and_then(|p| p.strip_suffix("/revert")));
-
-    if let Some(sid) = revert_sid {
-        let sid = sid.to_owned();
-        if let Some(op) = s.rewind.pending.remove(&sid) {
-            s.set_session_revert(&sid, op.prior_revert);
-            for r in op.stopped_running {
-                s.running.insert(r);
-            }
-            if let Some(tid) = op.toast_id {
-                crate::status_toast::dismiss_id(s, tid);
-            }
-            if let Some(draft) = op.rollback_draft {
-                s.apply_draft(&sid, draft);
-            }
-        }
-        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
-        return true;
+/// A `session.revert.*` event in this window: its machine takes the echo of its own request, or
+/// a change from elsewhere. While its later requests are still out, the boundary it shows is
+/// the last one's, which a stale echo mustn't overwrite: that boundary is returned.
+pub fn landed(s: &mut App, ty: &str, data: &serde_json::Value, sid: &str) -> Option<Option<String>> {
+    let reported = reported(ty, data)?;
+    if !s.rewind.sessions.contains_key(sid) {
+        return None;
     }
-
-    if let Some(sid) = head.strip_prefix("POST /api/session/").and_then(|p| p.strip_suffix("/fork")) {
-        s.fork.clear_session(sid);
-        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
-        return true;
-    }
-    false
+    let event = if ty == "session.revert.committed" { Event::Committed } else { Event::Reported(reported) };
+    s.step_revert(sid, event);
+    s.rewind.sessions.get(sid)?.expected().cloned()
 }
 
 /// The key of message `id`'s corner chevron, which its menu opens from.

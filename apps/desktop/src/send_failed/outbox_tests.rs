@@ -10,8 +10,7 @@ use std::{
 fn fresh(path: &std::path::Path) -> (App, Receiver<Write>) {
     let mut app = App::fixture_session();
     let writer = app.fake_writes();
-    app.unsent.path = Some(path.into());
-    app.read_outbox();
+    app.read_outbox(path.into(), path.with_extension("legacy"));
     (app, writer)
 }
 fn path() -> std::path::PathBuf {

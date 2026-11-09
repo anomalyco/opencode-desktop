@@ -17,7 +17,8 @@ impl App {
     }
 
     fn send_prompt(&mut self, alternate: bool, tx: &mut Tx) {
-        if self.opening.is_some() { return; }
+        // Held, not dropped, while the session still opens (`submit.rs`).
+        if self.hold_submit(alternate) { return; }
         if crate::dictation::submit(self, alternate) { return; }
         if self.add.shell() {
             return self.submit_shell(alternate, tx);

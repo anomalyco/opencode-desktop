@@ -1,23 +1,21 @@
-use super::State;
+use super::{AfterCheck, Phase, State};
 use crate::{App, palette::Pal, view::UI_SMALL};
 use rune::{El, Tx, row, text};
 
 pub fn footer(s: &App, p: &Pal, id: &str) -> Option<El> {
     let state = s.unsent.state(id)?;
     if let Some(sent) = s.unsent.durable(id) {
-        let label = match sent.after_check {
-            Some(super::AfterCheck::Edit) => "Checking delivery before editing".into(),
-            Some(super::AfterCheck::Delete) => "Checking delivery before deleting".into(),
-            None => match state {
-                State::Sending => "Sending…".into(),
-                State::Waiting if sent.why == "waiting for connection" => "Not sent · waiting for connection".into(),
-                State::Waiting if !sent.why.is_empty() => format!("Not sent · {} · retrying", sent.why),
-                State::Waiting => "Not sent · waiting to send".to_string(),
-                State::Unconfirmed if sent.why.is_empty() => "Checking delivery…".into(),
-                State::Unconfirmed => format!("Checking delivery · {}", sent.why),
-                State::Failed => format!("Not sent · {}", sent.why),
-                State::Accepted => return None,
-            },
+        let label = match &sent.phase {
+            Phase::Sending { then: Some(AfterCheck::Edit), .. } | Phase::Unconfirmed { then: Some(AfterCheck::Edit), .. } => "Checking delivery before editing".into(),
+            Phase::Sending { then: Some(AfterCheck::Delete), .. } | Phase::Unconfirmed { then: Some(AfterCheck::Delete), .. } => "Checking delivery before deleting".into(),
+            Phase::Sending { then: None, .. } => "Sending…".into(),
+            Phase::Waiting { why } if why == "waiting for connection" => "Not sent · waiting for connection".into(),
+            Phase::Waiting { why } if !why.is_empty() => format!("Not sent · {why} · retrying"),
+            Phase::Waiting { .. } => "Not sent · waiting to send".to_string(),
+            Phase::Unconfirmed { why, .. } if why.is_empty() => "Checking delivery…".into(),
+            Phase::Unconfirmed { why, .. } => format!("Checking delivery · {why}"),
+            Phase::Failed { why, .. } => format!("Not sent · {why}"),
+            Phase::Accepted => return None,
         };
         let mut line = row().key("send-status").h(20.0).gap(8.0).center_y().child(text(label).font(UI_SMALL).color(p.faint));
         if state == State::Failed {

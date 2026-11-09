@@ -33,7 +33,7 @@ pub fn menu(s: &App, at: &MenuAt) -> Option<Menu> {
     if let (Some(session), Some(message)) = (at.session.as_deref(), at.message.as_deref()) {
         if let Some(sent) = s.unsent.durable(message) {
             use crate::send_failed::State;
-            return Some(menu.item(Item::new("outbox-retry","Retry now").enabled(sent.state != State::Sending))
+            return Some(menu.item(Item::new("outbox-retry","Retry now").enabled(sent.state() != State::Sending))
                 .item(Item::new("outbox-edit","Edit in composer"))
                 .item(Item::new("outbox-delete","Delete")));
         }

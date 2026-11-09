@@ -42,6 +42,8 @@ pub struct ServerData {
     requests: HashSet<(String, String)>,
     pending: Vec<Pending>,
     inboxes: HashMap<String, Inbox>,
+    /// The prompts on their way to the server, from any of its windows (`send_failed`).
+    unsent: crate::send_failed::Log,
 }
 
 impl ServerData {
@@ -55,6 +57,7 @@ impl ServerData {
         std::mem::swap(&mut self.requests, &mut s.requests);
         std::mem::swap(&mut self.pending, &mut s.pending);
         std::mem::swap(&mut self.inboxes, &mut s.inboxes);
+        std::mem::swap(&mut self.unsent, &mut s.unsent);
     }
 
     /// The window's fields, which it no longer holds.
@@ -88,6 +91,7 @@ impl ServerData {
         for (id, inbox) in from.inboxes {
             self.inboxes.entry(id).or_insert(inbox);
         }
+        self.unsent.absorb(from.unsent);
     }
 }
 
@@ -248,7 +252,11 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
 pub fn leave_server(s: &mut App) {
     let Some(peer) = s.store.peer.take() else { return };
     let token = s.store.token;
-    let data = ServerData::take(s);
+    let mut data = ServerData::take(s);
+    // Its writes still out answer no window now: a receipt check settles them.
+    if data.unsent.release(token) {
+        s.store.edit = Edit::Dirty;
+    }
     let mut vault = peer.vault.borrow_mut();
     if matches!(*vault, Vault::Out { token: t } if t == token) {
         *vault = Vault::Home(data);
@@ -285,6 +293,12 @@ pub fn set_waker(s: &App, wake: rune::Waker) {
     let mut wakers = peer.wakers.lock().unwrap_or_else(|e| e.into_inner());
     wakers.retain(|(t, _)| *t != token);
     wakers.push((token, wake));
+}
+
+/// This window among its server's windows (0 before it joins one): whose writer a prompt went
+/// out through (`send_failed::Phase::Sending`).
+pub fn token(s: &App) -> u64 {
+    s.store.token
 }
 
 /// Whether the window holds a peer (it joined, or was adopted into one).

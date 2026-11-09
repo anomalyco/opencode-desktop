@@ -41,6 +41,19 @@ fn live() -> Live {
     l
 }
 
+/// A write as the server sees it, its ticket set aside.
+fn untracked(w: Write) -> Write {
+    match w {
+        Write::Tracked { write, .. } => *write,
+        w => w,
+    }
+}
+
+/// The ticket of the session's first stop.
+fn stop_ticket(l: &Live) -> opencode_kit::client::Ticket {
+    opencode_kit::client::Ticket { kind: opencode_kit::client::TicketKind::Stop, session: l.sid.clone(), attempt: 1 }
+}
+
 fn submit(l: &Live) -> String {
     l.rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("submit")).and_then(|e| e.label).expect("the submit button")
 }
@@ -122,7 +135,7 @@ fn a_stop_shows_in_the_frame_of_the_press_while_the_server_takes_its_time() {
     let mut l = live();
     esc(&mut l);
     stopped(&l);
-    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(s)) if s == l.sid), "the interrupt went out");
+    assert!(matches!(l.writes.try_recv().map(untracked), Ok(Write::Interrupt(s)) if s == l.sid), "the interrupt went out");
 
     // Words already on their way still land, and Working stays gone.
     let reply = match l.rt.state.transcripts[&l.sid].messages.last() {
@@ -159,7 +172,7 @@ fn the_composer_stop_button_lands_on_the_press_too() {
     tap(&mut l, "submit");
     l.rt.frame(DT);
     stopped(&l);
-    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(_))));
+    assert!(matches!(l.writes.try_recv().map(untracked), Ok(Write::Interrupt(_))));
     tap(&mut l, "submit");
     l.rt.frame(DT);
     assert!(l.writes.try_recv().is_err(), "a second press sends nothing");
@@ -172,7 +185,7 @@ fn an_interrupt_that_fails_puts_the_run_back_and_says_so() {
     esc(&mut l);
     stopped(&l);
     let error = format!("POST /api/session/{}/interrupt: http status: 500", l.sid);
-    l.server.send(Incoming::Status(error)).unwrap();
+    l.server.send(Incoming::Settled { ticket: stop_ticket(&l), result: Err(error) }).unwrap();
     l.rt.frame(DT);
     running(&l);
     assert_eq!(l.rt.state.status, "Couldn't stop the session: http status: 500");
@@ -216,7 +229,7 @@ fn a_prompt_sent_while_the_stop_settles_shows_working_for_itself() {
         s.send(tx);
     });
     l.rt.frame(DT);
-    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(_))));
+    assert!(matches!(l.writes.try_recv().map(untracked), Ok(Write::Interrupt(_))));
     assert!(matches!(l.writes.try_recv(), Ok(Write::Send { .. })), "sent as a new prompt");
     assert!(working(&l) > 0.999, "the new prompt's Working shows");
 }
@@ -245,14 +258,6 @@ fn the_fixture_ends_its_stream_as_a_server_would() {
     let Some(opencode_kit::model::Message::Assistant(a)) = rt.state.transcripts[&sid].messages.last() else { panic!() };
     assert_eq!(a.error.as_deref(), Some("Step interrupted"));
     assert!(a.failure.as_ref().is_some_and(|f| crate::view::interrupted(&f.kind)), "its tail says Interrupted rather than an error");
-}
-
-#[test]
-fn other_writes_failing_are_not_a_stop() {
-    let mut app = App::empty();
-    assert!(!failed(&mut app, "POST /api/session/ses_a/background: http status: 500"));
-    assert!(!failed(&mut app, "POST /api/session/ses_a/prompt: timed out"));
-    assert!(failed(&mut app, "POST /api/session/ses_a/interrupt: timed out"));
 }
 
 #[test]
@@ -290,7 +295,7 @@ fn stop_interrupts_only_the_open_session_as_desktop_does() {
     let child = crate::fixture_ids::CHILD;
     l.rt.update(|s, _| { s.running.insert(child.into()); });
     esc(&mut l);
-    let interrupts: Vec<_> = l.writes.try_iter().filter_map(|w| match w { Write::Interrupt(id) => Some(id), _ => None }).collect();
+    let interrupts: Vec<_> = l.writes.try_iter().filter_map(|w| match untracked(w) { Write::Interrupt(id) => Some(id), _ => None }).collect();
     assert_eq!(interrupts, vec![l.sid.clone()]);
     assert!(l.rt.state.running.contains(child));
     assert_eq!(submit(&l), "Send");
@@ -314,7 +319,7 @@ fn an_accepted_interrupt_waits_for_execution_end_and_ignores_late_write_failure(
     event(&mut l, "session.interrupt.acknowledged", json!({ "interrupted": true }));
     assert!(l.rt.state.stops.pending(&l.sid));
     event(&mut l, "session.execution.interrupted", json!({ "reason": "user" }));
-    l.server.send(Incoming::Status(format!("POST /api/session/{}/interrupt: timed out", l.sid))).unwrap();
+    l.server.send(Incoming::Settled { ticket: stop_ticket(&l), result: Err(format!("POST /api/session/{}/interrupt: timed out", l.sid)) }).unwrap();
     l.rt.frame(DT);
     assert!(!l.rt.state.status.contains("stop"));
     assert_eq!(submit(&l), "Send");
@@ -329,7 +334,7 @@ fn stop_on_a_child_interrupts_that_child_not_its_parent() {
         s.running.insert(child.into());
         s.stop();
     });
-    assert!(matches!(l.writes.try_recv(), Ok(Write::Interrupt(id)) if id == child));
+    assert!(matches!(l.writes.try_recv().map(untracked), Ok(Write::Interrupt(id)) if id == child));
     assert!(l.writes.try_recv().is_err());
     assert!(l.rt.state.running.contains(&l.sid));
 }
@@ -353,7 +358,7 @@ fn enter(l: &mut Live, cmd: bool, repeat: bool) {
 }
 
 fn interrupts(l: &Live) -> Vec<String> {
-    l.writes.try_iter().filter_map(|w| match w { Write::Interrupt(id) => Some(id), _ => None }).collect()
+    l.writes.try_iter().filter_map(|w| match untracked(w) { Write::Interrupt(id) => Some(id), _ => None }).collect()
 }
 
 #[test]
@@ -395,7 +400,7 @@ fn enter_with_words_still_steers_and_its_repeats_never_stop() {
     assert!(l.rt.state.busy(&l.sid));
     enter(&mut l, false, true);
     assert!(l.rt.state.busy(&l.sid), "the held key's repeats don't stop the run it steered");
-    let writes: Vec<_> = l.writes.try_iter().collect();
+    let writes: Vec<_> = l.writes.try_iter().map(untracked).collect();
     assert!(writes.iter().any(|w| !matches!(w, Write::Interrupt(_))), "the steer went out");
     assert!(!writes.iter().any(|w| matches!(w, Write::Interrupt(_))));
 }

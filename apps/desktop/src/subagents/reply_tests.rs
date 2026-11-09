@@ -15,7 +15,8 @@ const DT: f64 = 1.0 / 60.0;
 struct Live {
     rt: Runtime<App>,
     writes: Receiver<Write>,
-    server: Sender<Incoming>,
+    /// Kept open: the app's inbox is its other end.
+    _server: Sender<Incoming>,
 }
 
 /// The fixture's finished reviewer open on a live source whose writes land in a channel.
@@ -27,7 +28,7 @@ fn live() -> Live {
     app.inbox = Some(inbox);
     let mut rt = app.into_runtime();
     rt.frame(0.0);
-    Live { rt, writes, server }
+    Live { rt, writes, _server: server }
 }
 
 fn send(l: &mut Live, text: &str) -> (String, Prompt) {
@@ -78,32 +79,6 @@ fn the_pickers_show_the_subagents_choice_not_the_main_sessions() {
     let info = l.rt.state.session(CHILD).unwrap();
     let picked = l.rt.state.selection();
     assert_eq!((picked.agent.as_str(), picked.model.id.as_str()), (info.agent.as_str(), info.model.id.as_str()));
-}
-
-#[test]
-fn a_reply_that_fails_comes_back_to_the_composer_with_a_toast() {
-    let mut l = live();
-    send(&mut l, "try again");
-    let e = format!("POST /api/session/{CHILD}/prompt: http status: 500");
-    l.server.send(Incoming::Status(e)).unwrap();
-    l.rt.frame(DT);
-    assert!(!echoed(&l, "try again"), "the reply leaves the timeline");
-    assert_eq!(l.rt.state.composer.text, "try again");
-    assert!(!l.rt.state.status.is_empty(), "and a toast says so");
-}
-
-#[test]
-fn a_reply_the_server_took_stays_when_a_later_write_fails() {
-    let mut l = live();
-    let (_, prompt) = send(&mut l, "noted");
-    let id = prompt.id.unwrap();
-    l.rt.update(|s, _| {
-        s.apply_event("session.inbox.enqueued", &serde_json::json!({ "sessionID": CHILD, "inboxID": id }));
-    });
-    l.server.send(Incoming::Status(format!("POST /api/session/{CHILD}/prompt: http status: 500"))).unwrap();
-    l.rt.frame(DT);
-    assert!(l.rt.state.subagent_replies.0.is_empty());
-    assert!(l.rt.state.composer.text.is_empty());
 }
 
 /// The words under the element keyed `key`.

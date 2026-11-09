@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use opencode_kit::client::{Incoming, Write};
+use opencode_kit::client::{Incoming, Ticket, TicketKind, Write};
 use opencode_kit::model::{Message, SessionInfo};
 use rune::{Key, KeyEvent, Mods, Runtime, TextEdit};
 use serde_json::json;
@@ -31,6 +31,19 @@ fn harness() -> Harness {
         rt.frame(DT);
     }
     Harness { rt, sid, writes, server }
+}
+
+/// A write as the server sees it, its ticket set aside.
+fn untracked(w: Write) -> Write {
+    match w {
+        Write::Tracked { write, .. } => *write,
+        w => w,
+    }
+}
+
+/// The ticket of a session's first write of `kind`.
+fn ticket(kind: TicketKind, session: &str) -> Ticket {
+    Ticket { kind, session: session.into(), attempt: 1 }
 }
 
 fn shows_text(rt: &Runtime<App>, needle: &str) -> bool {
@@ -79,7 +92,7 @@ fn rewind_updates_timeline_immediately_restores_prompt_and_offers_toast_undo() {
     assert!(!shows_text(&h.rt, &last_body) || h.rt.elements().into_iter().all(|e| e.exiting || !e.path.contains(&format!("u-{last_id}"))));
     assert!(shows_text(&h.rt, "Reverted"));
     assert!(matches!(
-        h.writes.try_recv(),
+        h.writes.try_recv().map(untracked),
         Ok(Write::RevertStage { session, message, settle: true }) if session == h.sid && message == last_id
     ));
 
@@ -88,7 +101,7 @@ fn rewind_updates_timeline_immediately_restores_prompt_and_offers_toast_undo() {
     tap_in(&mut h.rt, "status-toast", "toast-undo");
     assert!(h.rt.state.session(&h.sid).unwrap().revert.is_none());
     assert_eq!(h.rt.state.composer.text, "Unsent draft");
-    assert!(matches!(h.writes.try_recv(), Ok(Write::RevertClear(s)) if s == h.sid));
+    assert!(matches!(h.writes.try_recv().map(untracked), Ok(Write::RevertClear(s)) if s == h.sid));
 
     h.server
         .send(Incoming::Event {
@@ -135,7 +148,7 @@ fn undo_after_switching_tabs_restages_prior_revert_and_restores_source_draft() {
     tap_in(&mut h.rt, "status-toast", "toast-undo");
     assert_eq!(h.rt.state.session(&h.sid).unwrap().revert.as_deref(), Some(second.as_str()));
     assert!(matches!(
-        h.writes.try_recv(),
+        h.writes.try_recv().map(untracked),
         Ok(Write::RevertStage { session, message, settle: false }) if session == h.sid && message == second
     ));
 
@@ -168,7 +181,7 @@ fn undo_steps_back_and_redo_restores_all_without_touching_composer() {
     h.rt.update(|s, tx| {
         assert!(s.redo_revert(tx));
     });
-    assert!(matches!(h.writes.try_recv(), Ok(Write::RevertClear(s)) if s == h.sid));
+    assert!(matches!(h.writes.try_recv().map(untracked), Ok(Write::RevertClear(s)) if s == h.sid));
     assert_eq!(h.rt.state.visible_user_ids(&h.sid).len(), n);
     assert_eq!(h.rt.state.composer.text, "keep my edited prompt");
 }
@@ -190,7 +203,7 @@ fn server_refusal_rolls_back_timeline_running_state_and_draft_with_fail_toast() 
     assert!(!h.rt.state.running.contains(&h.sid));
 
     h.server
-        .send(Incoming::Status(format!("POST /api/session/{}/revert/stage: Snapshot failed", h.sid)))
+        .send(Incoming::Settled { ticket: ticket(TicketKind::Revert, &h.sid), result: Err(format!("POST /api/session/{}/revert/stage: Snapshot failed", h.sid)) })
         .unwrap();
     h.rt.frame(DT);
 
@@ -214,7 +227,7 @@ fn sending_from_staged_revert_commits_and_keeps_new_message_visible() {
     });
     h.rt.frame(DT);
 
-    assert!(matches!(h.writes.try_recv(), Ok(Write::SendFromRevert { session, prompt }) if session == h.sid && prompt.text == "Try a cleaner approach"));
+    assert!(matches!(h.writes.try_recv().map(untracked), Ok(Write::SendFromRevert { session, prompt }) if session == h.sid && prompt.text == "Try a cleaner approach"));
     assert!(h.rt.state.session(&h.sid).unwrap().revert.is_none());
     assert!(shows_text(&h.rt, "Try a cleaner approach"));
 }
@@ -260,7 +273,7 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
     tap_in(&mut h.rt, "popup-menu", "popup-item-fork");
 
     assert!(matches!(
-        h.writes.try_recv(),
+        h.writes.try_recv().map(untracked),
         Ok(Write::Fork { session, before: Some(before) }) if session == h.sid && before == target_id
     ));
 
@@ -275,7 +288,7 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
         ..Default::default()
     };
     h.server
-        .send(Incoming::Forked { from: h.sid.clone(), before: Some(target_id.clone()), session: forked })
+        .send(Incoming::Settled { ticket: ticket(TicketKind::Fork, &h.sid), result: Ok(Some(forked)) })
         .unwrap();
     h.rt.frame(DT);
 
@@ -291,11 +304,11 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
     assert!(shows_text(&h.rt, "Choose a message to fork from"));
     h.rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
     h.rt.frame(DT);
-    assert!(matches!(h.writes.try_recv(), Ok(Write::Fork { .. })));
+    assert!(matches!(h.writes.try_recv().map(untracked), Ok(Write::Fork { .. })));
 
     // A fork failure shows Request failed via status_toast::fail.
     h.server
-        .send(Incoming::Status(format!("POST /api/session/{}/fork: Cannot fork empty session", h.sid)))
+        .send(Incoming::Settled { ticket: Ticket { attempt: 2, ..ticket(TicketKind::Fork, &h.sid) }, result: Err(format!("POST /api/session/{}/fork: Cannot fork empty session", h.sid)) })
         .unwrap();
     h.rt.frame(DT);
     assert!(shows_text(&h.rt, "Request failed") && shows_text(&h.rt, "Cannot fork empty session"));

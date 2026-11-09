@@ -216,7 +216,9 @@ impl App {
     /// (for each window's glows) the messages it hid. The transcript's own rows go in
     /// `Transcript::apply`.
     fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> (bool, Vec<String>) {
-        let Some(next) = crate::rewind::resolve_event(self, ty, data, sid) else {
+        // The stream's truth: the window that asked keeps its own mark over a stale echo
+        // (`revert_landed`).
+        let Some(next) = crate::rewind::reported(ty, data) else {
             return (false, vec![]);
         };
         let mut changed = false;
@@ -263,7 +265,6 @@ impl App {
         crate::sounds::event(self, e, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.inbox_landed(ty, data, &sid, &done.inbox);
-            crate::subagents::reply::event(self, ty, data, &sid);
             crate::background::admitted(self, ty, data, &sid);
         }
         if ty.starts_with("shell.") {
@@ -354,8 +355,7 @@ impl App {
     /// stale event's, and the glows of the messages a commit dropped go.
     fn revert_landed(&mut self, ty: &str, data: &Value, sid: &str, reverted: &[String]) -> bool {
         let mut changed = false;
-        if self.rewind.asked(sid)
-            && let Some(next) = crate::rewind::resolve_event(self, ty, data, sid)
+        if let Some(next) = crate::rewind::landed(self, ty, data, sid)
             && let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid)
             && info.revert != next
         {

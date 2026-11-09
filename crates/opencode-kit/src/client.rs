@@ -29,7 +29,7 @@ pub use ids::{message_id, session_id};
 pub use upload::UploadError;
 #[cfg(test)]
 use ids::{id_at, message_id_at};
-pub use wire::{Incoming, Request, Write};
+pub use wire::{Incoming, Request, Ticket, TicketKind, Write};
 pub use worker::{connect, connect_with_idle};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
@@ -405,6 +405,13 @@ impl Server {
     /// already stopping; `None` is an older server that doesn't return an acknowledgement.
     pub fn interrupt_ack(&self, session: &str) -> Result<Option<bool>, String> {
         self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|v| v["interrupted"].as_bool())
+    }
+
+    /// Stop, as Desktop's composer asks it (`session/composer/adapter.ts:56-60`): `interrupt_ack`
+    /// with `resume=true`, so the server goes on with the steers already waiting (and manual
+    /// compactions and moves) while queued prompts stay parked.
+    pub fn stop(&self, session: &str) -> Result<Option<bool>, String> {
+        self.write("POST", &format!("/api/session/{session}/interrupt?resume=true"), None).map(|v| v["interrupted"].as_bool())
     }
 
     /// `session.background`: moves the session's running shells and subagents that block its run

@@ -180,7 +180,11 @@ impl Link {
     }
 
     pub fn write(&mut self, w: Write) {
-        if matches!(w, Write::Interrupt(_)) {
+        let inner = match &w {
+            Write::Tracked { write, .. } => write.as_ref(),
+            w => w,
+        };
+        if matches!(inner, Write::Interrupt(_)) {
             self.interrupts += 1;
         }
         self.writes.0.push_back(Job::Write(w));
@@ -464,6 +468,7 @@ impl Link {
                     self.queue_out(at, Out::App(Incoming::SendFailed { session, id: prompt.id.unwrap_or_default(), error: e }));
                 }
                 Write::Background { quiet: true, .. } => {}
+                Write::Tracked { ticket, .. } => self.queue_out(at, Out::App(Incoming::Settled { ticket, result: Err(e) })),
                 _ => self.queue_out(at, Out::App(Incoming::Status(e))),
             },
             // As `client.rs`: a failed pending or config read answers empty; others report.
@@ -493,15 +498,7 @@ impl Link {
 /// `METHOD /path`, as the client's errors start.
 fn call(job: &Job) -> String {
     match job {
-        Job::Write(w) => match w {
-            Write::Send { session, .. } | Write::SendMovingHome { session, .. } | Write::Prompt { session, .. } => format!("POST /api/session/{session}/prompt"),
-            Write::Interrupt(session) => format!("POST /api/session/{session}/interrupt"),
-            Write::Background { session, .. } => format!("POST /api/session/{session}/background"),
-            Write::Cancel { session, item } => format!("DELETE /api/session/{session}/inbox/{item}"),
-            Write::Deliver { session, item, .. } => format!("PATCH /api/session/{session}/inbox/{item}"),
-            Write::View { session, .. } => format!("POST /api/session/{session}/view"),
-            _ => "POST /api/other".into(),
-        },
+        Job::Write(w) => write_call(w),
         Job::Read(r) => match r {
             Request::Session(id) => format!("GET /api/session/{id}/message?limit=80&order=desc"),
             Request::Sessions => "GET /api/session?limit=120".into(),
@@ -521,10 +518,40 @@ fn call(job: &Job) -> String {
     }
 }
 
+/// The writes a session's machines track that this server answers.
+fn clone_write(w: &Write) -> Option<Write> {
+    Some(match w {
+        Write::Interrupt(session) => Write::Interrupt(session.clone()),
+        Write::Cancel { session, item } => Write::Cancel { session: session.clone(), item: item.clone() },
+        Write::Deliver { session, item, delivery } => Write::Deliver { session: session.clone(), item: item.clone(), delivery: *delivery },
+        _ => return None,
+    })
+}
+
+fn write_call(w: &Write) -> String {
+    match w {
+        Write::Send { session, .. } | Write::SendMovingHome { session, .. } | Write::Prompt { session, .. } => format!("POST /api/session/{session}/prompt"),
+        Write::Interrupt(session) => format!("POST /api/session/{session}/interrupt"),
+        Write::Background { session, .. } => format!("POST /api/session/{session}/background"),
+        Write::Cancel { session, item } => format!("DELETE /api/session/{session}/inbox/{item}"),
+        Write::Deliver { session, item, .. } => format!("PATCH /api/session/{session}/inbox/{item}"),
+        Write::View { session, .. } => format!("POST /api/session/{session}/view"),
+        Write::Tracked { write, .. } => write_call(write),
+        _ => "POST /api/other".into(),
+    }
+}
+
 /// The server takes `job`; returns what it answers.
 fn apply(job: &Job, sim: &mut Sim, log: &mut Vec<String>) -> Option<Out> {
     let t = sim.t;
     match job {
+        // As the client's writer: a tracked write answers with its ticket alone.
+        Job::Write(Write::Tracked { ticket, write }) => {
+            if let Some(inner) = clone_write(write) {
+                apply(&Job::Write(inner), sim, log);
+            }
+            Some(Out::App(Incoming::Settled { ticket: ticket.clone(), result: Ok(None) }))
+        }
         Job::Write(w) => match w {
             Write::Send { session, prompt } | Write::SendMovingHome { session, prompt } if *session == sim.sid => {
                 let id = prompt.id.clone().unwrap_or_default();

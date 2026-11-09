@@ -399,8 +399,11 @@ fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
         "payload": {"text": "again", "files": [{"uri": format!("media:{hash}"), "mime": "image/png", "name": "again.png", "bytes": 3}]}}]});
     app.apply_event("session.inbox.listed", &listed);
     app.undo_queued("ses_q", "msg_queued");
-    let Ok(Write::Cancel { item, .. }) = writes.try_recv() else { panic!("no cancel") };
+    let Ok(Write::Tracked { write, .. }) = writes.try_recv() else { panic!("no cancel") };
+    let Write::Cancel { item, .. } = *write else { panic!("no cancel") };
     assert_eq!(item, "msg_queued");
+    // The prompt comes back once the server lets it go.
+    app.queue_settled("ses_q", 1, true);
     assert_eq!(app.attach.files, [media(&hash, "again.png")]);
     app.composer = rune::TextEdit::new("again");
     app.send(&mut Tx::default());

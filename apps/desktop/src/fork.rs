@@ -4,10 +4,11 @@
 //!
 //! `POST /api/session/:id/fork` with `{"before": messageID}` creates a new root session holding
 //! the settled history strictly before `messageID`. Once created, it opens as a tab with that
-//! prompt back in its composer ready to edit and send.
+//! prompt back in its composer ready to edit and send. One fork runs at a time (`machine.rs`).
 
 use crate::pickers::PickerHost as _;
-use opencode_kit::client::Write;
+use opencode_kit::client::{Ticket, TicketKind, Write};
+use rune::machine::Attempt;
 use opencode_kit::mention;
 use opencode_kit::model::{Message, SessionInfo, Transcript};
 use rune::{
@@ -18,7 +19,6 @@ use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::cycle;
 use crate::palette::{Elevate as _, Pal};
-use crate::rewind::SavedDraft;
 use crate::view::{INSTANT, UI};
 use crate::{App, Route, Source};
 
@@ -29,19 +29,25 @@ pub struct ForkableMessage {
     pub time: String,
 }
 
+mod machine;
+use machine::{Effect, Event, Surface};
+
 #[derive(Default)]
 pub struct ForkState {
     pub open: bool,
     pub search: TextEdit,
     pub active: Option<String>,
     restore_composer: bool,
-    pending: Vec<(String, Option<String>, SavedDraft)>,
-    seq: u32,
+    /// The fork on its way (`machine.rs`, `session/fork-machine.ts`).
+    machine: machine::Fork,
+    /// Fixture forks made so far, for their ids.
+    made: u32,
 }
 
 impl ForkState {
-    pub fn clear_session(&mut self, session: &str) {
-        self.pending.retain(|(from, _, _)| from != session);
+    /// The prompt a fork is on its way from: the picker holds still and shows it pending.
+    pub fn pending(&self) -> Option<&str> {
+        self.machine.pending()
     }
 }
 
@@ -59,11 +65,13 @@ pub fn fork_title(title: &str) -> String {
 impl App {
     /// Whether `/fork` and `⌘K → Fork from message` are enabled on the open session.
     pub fn can_fork_session(&self) -> bool {
-        self.can_undo_session()
+        let Route::Session(id) = &self.route else { return false };
+        self.can_rewind_session(id) && !self.visible_user_ids(id).is_empty()
     }
 
     /// Forks `session` before user message `message_id`, opens the new session, and puts the
-    /// message's prompt back into its composer (`useSessionFork`).
+    /// message's prompt back into its composer (`useSessionFork`). One fork at a time: another
+    /// press waits for it. False when none started.
     pub fn fork_from(&mut self, session: &str, message_id: &str, tx: &mut Tx) -> bool {
         if !self.can_rewind_session(session) {
             return false;
@@ -76,30 +84,49 @@ impl App {
         }) else {
             return false;
         };
+        let draft = self.draft_from_message(message_id, &body);
+        let surface = if self.fork.open { Surface::Dialog } else { Surface::Inline };
+        let event = Event::Requested { surface, session: session.to_owned(), message: message_id.to_owned(), draft, now: self.clock };
+        self.step_fork(event, tx)
+    }
 
-        let restored = self.draft_from_message(message_id, &body);
-        let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        if fixture {
-            self.close_fork_dialog(false);
-            let forked_id = self.create_fixture_fork(session, message_id);
-            self.open(&forked_id, tx);
-            self.apply_draft(&forked_id, restored);
-            return true;
+    /// Steps the fork machine and carries out what it says. True when it changed anything.
+    fn step_fork(&mut self, event: Event, tx: &mut Tx) -> bool {
+        let effects = self.fork.machine.step(event);
+        let changed = !effects.is_empty();
+        for effect in effects {
+            match effect {
+                Effect::Start { attempt, session, message } => {
+                    // The fixture and the storybook fork at once, as a server would.
+                    if self.stage.is_some() || matches!(self.source, Source::Fixture) {
+                        let forked = self.create_fixture_fork(&session, &message);
+                        self.step_fork(Event::Succeeded { attempt, forked }, tx);
+                        continue;
+                    }
+                    let ticket = Ticket { kind: TicketKind::Fork, session: session.clone(), attempt: attempt.0 };
+                    let write = Write::Fork { session, before: Some(message) };
+                    if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
+                        let why = self.status.clone();
+                        self.step_fork(Event::Failed { attempt, why }, tx);
+                    }
+                }
+                Effect::Open { forked, draft } => {
+                    self.open(&forked, tx);
+                    self.apply_draft(&forked, draft);
+                }
+                Effect::CloseDialog => self.close_fork_dialog(false),
+                Effect::Fail { why } => {
+                    let why = why.split_once(": ").map_or(why.as_str(), |(_, why)| why).to_owned();
+                    crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
+                }
+            }
         }
-
-        if !self.write(Write::Fork { session: session.to_owned(), before: Some(message_id.to_owned()) }) {
-            let why = self.status.clone();
-            crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), why);
-            return false;
-        }
-        self.fork.pending.push((session.to_owned(), Some(message_id.to_owned()), restored));
-        self.close_fork_dialog(false);
-        true
+        changed
     }
 
     fn create_fixture_fork(&mut self, session: &str, before_message: &str) -> String {
-        self.fork.seq += 1;
-        let forked_id = format!("ses_fx_fork_{:04}", self.fork.seq);
+        self.fork.made += 1;
+        let forked_id = format!("ses_fx_fork_{:04}", self.fork.made);
         let now = self.now_ms;
         let info = match self.session(session).cloned() {
             Some(parent) => SessionInfo {
@@ -168,6 +195,10 @@ impl App {
         if !self.fork.open {
             return;
         }
+        // The picker's fork goes with it (`fork-machine.ts` `disposed`).
+        if matches!(self.fork.machine.state, machine::State::Forking { surface: Surface::Dialog, .. }) {
+            self.fork.machine.step(Event::Left);
+        }
         self.fork.open = false;
         self.fork.search.focused = false;
         self.fork.search.cancel_composition();
@@ -220,6 +251,8 @@ impl App {
                 self.close_fork_dialog(true);
                 true
             }
+            // While a fork runs the list holds still (`fork-dialog.tsx:97-103`).
+            Key::Down | Key::Up | Key::Enter if self.fork.pending().is_some() => true,
             Key::Down | Key::Up if !ev.mods.shift && !ev.mods.ctrl && !ev.mods.cmd && !ev.mods.alt => {
                 tx.instant();
                 if !list.is_empty() {
@@ -255,21 +288,38 @@ impl App {
     }
 }
 
-/// Applies `Incoming::Forked`: remembers the new session, opens it, and puts the forked prompt in
-/// its composer.
-pub fn applied(s: &mut App, from: String, before: Option<String>, forked: SessionInfo, tx: &mut Tx) {
-    let forked_id = forked.id.clone();
-    match s.sessions.iter_mut().find(|x| x.id == forked_id) {
-        Some(slot) => *slot = forked,
-        None => s.sessions.insert(0, forked),
+/// A fork's `Incoming::Settled`: the session it made is remembered, and opens with the forked
+/// prompt in its composer when this fork is still the one on its way.
+pub fn settled(s: &mut App, attempt: u32, result: Result<Option<SessionInfo>, String>, tx: &mut Tx) {
+    let attempt = Attempt(attempt);
+    let event = match result {
+        Ok(Some(forked)) => {
+            let id = forked.id.clone();
+            match s.sessions.iter_mut().find(|x| x.id == id) {
+                Some(slot) => *slot = forked,
+                None => s.sessions.insert(0, forked),
+            }
+            Event::Succeeded { attempt, forked: id }
+        }
+        Ok(None) => Event::Failed { attempt, why: String::new() },
+        Err(why) => Event::Failed { attempt, why },
+    };
+    s.step_fork(event, tx);
+}
+
+/// Each frame: a fork past its 30 s bound fails, and one whose session isn't open any more is
+/// dropped. True when either happened.
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let machine::State::Forking { session, due, .. } = &s.fork.machine.state else { return false };
+    if s.route != Route::Session(session.clone()) {
+        return s.step_fork(Event::Left, tx);
     }
-    let idx = s.fork.pending.iter().position(|(f, b, _)| *f == from && *b == before);
-    let draft = idx.map(|i| s.fork.pending.remove(i).2);
-    s.close_fork_dialog(false);
-    s.open(&forked_id, tx);
-    if let Some(draft) = draft {
-        s.apply_draft(&forked_id, draft);
+    let (now, due) = (s.clock, *due);
+    if now + 1e-9 >= due {
+        return s.step_fork(Event::Due { now }, tx);
     }
+    tx.wake_after(std::time::Duration::from_secs_f64(due - now));
+    false
 }
 
 /// When a prompt was sent, as `toLocaleTimeString(undefined, { timeStyle: "short" })` reads it:
@@ -367,9 +417,17 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         list = col().key("fork-results").w_full().child(col().key("fork-empty").w_full().h(EMPTY_H).center().child(text(empty).font(UI).color(p.muted)));
         EMPTY_H
     } else {
+        // While a fork runs the rows hold still, and its row shows a loader for its time
+        // (`fork-dialog.tsx:164-189`, `Loader class="size-3"`).
+        let pending = s.fork.pending();
         for item in &filtered {
             let is_active = active == Some(&item.id);
             let (sid, mid, hover_id) = (session.clone(), item.id.clone(), item.id.clone());
+            let trailing = if pending == Some(item.id.as_str()) {
+                Some(session_view::style::activity_ring_sized(p, 12.0))
+            } else {
+                (!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(UI.features("\"tnum\"")).color(p.muted))
+            };
             // `search-list-row`: 8 in, 12 between the text and the time, 6 pt corners, the hover
             // overlay while lit; the text 13 at 440 in `text-base`, the time in `text-muted`.
             let r = row()
@@ -386,6 +444,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .transition(Transition::none())
                 .motion(Spring::NONE)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                    if s.fork.pending().is_some() {
+                        return;
+                    }
                     tx.instant();
                     s.fork.active = inside.then(|| hover_id.clone());
                 })
@@ -394,7 +455,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                     s.fork_from(&sid, &mid, tx);
                 })
                 .child(text(item.text.clone()).key("text").font(UI).color(p.text).truncate().grow(1.0).shrink().min_w(0.0));
-            list = list.child(r.children((!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(UI.features("\"tnum\"")).color(p.muted))));
+            list = list.child(r.children(trailing));
         }
         filtered.len() as f32 * (ROW_H + ROW_GAP) - ROW_GAP + 6.0
     };

@@ -3,6 +3,8 @@
 //! in the background (`Write::StartAs`). The id is chosen here, as Desktop does, so nothing
 //! swaps when the server's copy lands. A start that fails goes back to the new-session page
 //! with the words in the composer.
+use std::collections::HashMap;
+
 use crate::pickers::PickerHost as _;
 use opencode_kit::client::Request;
 use opencode_kit::model::SessionInfo;
@@ -11,25 +13,57 @@ use rune::Tx;
 use crate::send_failed::Sent;
 use crate::{App, Route, Source};
 
-/// A session on screen that the server may not have yet: the folder it started in, and the
-/// draft tab it took the place of, to put back if the start fails.
-struct Start {
-    session: String,
-    directory: String,
-    draft: Option<String>,
+/// A session on screen that the server may not have yet, after Desktop's
+/// `new-session/machine.ts` (`NewSessionStartState`): it shows while the server creates it
+/// (`session`), and either lands (`started`: it takes the server's details) or rolls back
+/// (`tab.rollback`: the draft tab comes back with the words). Desktop also prepares MCPs and its
+/// own worktree as phases with time limits; Rune's start is one journaled write
+/// (`send_failed`'s outbox, `Write::StartAs`), which waits out a lost connection rather than
+/// timing out.
+#[derive(Clone, Debug, PartialEq)]
+enum Start {
+    /// Being created in `directory`, in place of draft tab `draft`.
+    Creating { directory: String, draft: Option<String> },
+}
+
+enum Event {
+    Begin { directory: String, draft: Option<String> },
+    Created,
+    Failed,
+}
+
+#[derive(Debug, PartialEq)]
+enum Effect {
+    /// The server has it: read what opening it would.
+    Promote,
+    /// Back to the draft tab it replaced, in `directory`.
+    Rollback { directory: String, draft: Option<String> },
 }
 
 #[derive(Default)]
-pub struct Starts(Vec<Start>);
+pub struct Starts(HashMap<String, Start>);
 
 impl Starts {
     pub fn has(&self, session: &str) -> bool {
-        self.0.iter().any(|s| s.session == session)
+        self.0.contains_key(session)
     }
 
-    fn take(&mut self, session: &str) -> Option<Start> {
-        let at = self.0.iter().position(|s| s.session == session)?;
-        Some(self.0.remove(at))
+    fn step(&mut self, session: &str, event: Event) -> Option<Effect> {
+        match (self.0.get(session), event) {
+            (None, Event::Begin { directory, draft }) => {
+                self.0.insert(session.to_owned(), Start::Creating { directory, draft });
+                None
+            }
+            (Some(Start::Creating { .. }), Event::Created) => {
+                self.0.remove(session);
+                Some(Effect::Promote)
+            }
+            (Some(Start::Creating { .. }), Event::Failed) => {
+                let Start::Creating { directory, draft } = self.0.remove(session)?;
+                Some(Effect::Rollback { directory, draft })
+            }
+            _ => None,
+        }
     }
 }
 
@@ -71,7 +105,7 @@ impl App {
         // The draft's tab becomes the session's, where it stands.
         let draft = self.promote_draft(id, &directory);
         if self.live() {
-            self.starts.0.push(Start { session: id.into(), directory, draft });
+            self.starts.step(id, Event::Begin { directory, draft });
         }
         self.open_now(id, tx);
     }
@@ -79,7 +113,9 @@ impl App {
     /// `Incoming::Created` for a start: the server has the session and its prompt. It takes the
     /// server's details and reads what opening it would have.
     pub(crate) fn started(&mut self, mut info: SessionInfo, tx: &mut Tx) {
-        self.starts.take(&info.id);
+        if self.starts.step(&info.id, Event::Created) != Some(Effect::Promote) {
+            return;
+        }
         let id = info.id.clone();
         if let Some(old) = self.sessions.iter_mut().find(|s| s.id == id) {
             info.viewed = info.viewed.max(old.viewed);
@@ -97,14 +133,14 @@ impl App {
     /// made), and the new-session page comes back with the prompt in its composer. False when
     /// `session` isn't starting.
     pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &str, tx: &mut Tx) -> bool {
-        let Some(start) = self.starts.take(session) else { return false };
+        let Some(Effect::Rollback { directory, draft }) = self.starts.step(session, Event::Failed) else { return false };
         let sent = self.unsent.take(prompt);
         self.sessions.retain(|s| s.id != session);
         self.transcripts.remove(session);
         self.inboxes.remove(session);
         self.running.remove(session);
-        let draft = start.draft.unwrap_or_else(crate::tabs::draft_id);
-        self.demote_session(session, &draft, &start.directory);
+        let draft = draft.unwrap_or_else(crate::tabs::draft_id);
+        self.demote_session(session, &draft, &directory);
         self.forget_history(|_, id| id == session);
         if self.route == Route::Session(session.into()) {
             self.route = Route::Draft(draft);

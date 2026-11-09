@@ -372,7 +372,7 @@ impl Desk for RealWorld {
 
     fn flush(&mut self) {
         while let Ok(w) = self.writes.try_recv() {
-            if matches!(w, Write::Interrupt(_)) {
+            if matches!(&w, Write::Interrupt(_)) || matches!(&w, Write::Tracked { write, .. } if matches!(**write, Write::Interrupt(_))) {
                 self.interrupts += 1;
             }
             let _ = self.wire.send(w);

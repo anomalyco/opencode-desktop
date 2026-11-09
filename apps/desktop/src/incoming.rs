@@ -2,11 +2,11 @@
 //! its server's stream events, which the server's copy took once and each window reacts to
 //! (`windows::peer`, `events`).
 
-use opencode_kit::client::Incoming;
+use opencode_kit::client::{Incoming, Ticket, TicketKind};
 use opencode_kit::model::{SessionInfo, Transcript};
 use rune::Tx;
 
-use crate::{App, Route, arrivals, attachments, fork, permission, reconnect, rewind, status_toast, stop, subagents, windows};
+use crate::{App, Route, arrivals, attachments, fork, permission, reconnect, status_toast, stop, windows};
 
 /// Takes what came in since the last poll. True when the view changed; `arrivals` is set when
 /// prompts may have arrived (its snapshot from before any of it).
@@ -59,9 +59,23 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
 }
 
 fn status(s: &mut App, e: String, tx: &mut Tx) {
-    if !reconnect::dropped(s, &e, tx) && !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
-        subagents::reply::failed(s, &e);
+    if !reconnect::dropped(s, &e, tx) && !permission::failed(s, &e) {
         status_toast::from_server(s, e);
+    }
+}
+
+/// A tracked write's outcome, for the machine that asked under the attempt it asked with.
+fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, String>, tx: &mut Tx) {
+    let (session, attempt) = (ticket.session.as_str(), ticket.attempt);
+    match ticket.kind {
+        TicketKind::Stop => {
+            if let Err(why) = result {
+                stop::failed(s, session, attempt, &why);
+            }
+        }
+        TicketKind::Revert => s.revert_settled(session, attempt, result.map(|_| ())),
+        TicketKind::Fork => fork::settled(s, attempt, result, tx),
+        TicketKind::Inbox => s.queue_settled(session, attempt, result.is_ok()),
     }
 }
 
@@ -164,9 +178,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
         Incoming::ProjectOpened { location, projects, session } => {
             s.apply_project_opened(location, projects, session, tx);
         }
-        Incoming::Forked { from, before, session } => {
-            fork::applied(s, from, before, session, tx);
-        }
+        Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
         Incoming::Created(info) if s.starts.has(&info.id) => {
             s.started(info, tx);
         }

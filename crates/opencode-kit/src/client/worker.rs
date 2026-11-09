@@ -81,6 +81,11 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
             .name("opencode-write".into())
             .spawn(move || {
                 for w in write_rx {
+                    let (ticket, w) = match w {
+                        Write::Tracked { ticket, write } => (Some(ticket), *write),
+                        w => (None, w),
+                    };
+                    let mut forked = None;
                     let prompt_id = match &w {
                         Write::Send { session, prompt }
                         | Write::SendMovingHome { session, prompt }
@@ -102,7 +107,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
                         Write::Form { session, form, answer } => server.reply_form(&session, &form, answer),
                         Write::CancelForm { session, form } => server.cancel_form(&session, &form),
-                        Write::Interrupt(session) => server.interrupt_ack(&session).map(|interrupted| {
+                        Write::Interrupt(session) => server.stop(&session).map(|interrupted| {
                             if let Some(interrupted) = interrupted {
                                 let _ = inbox_tx.send(Incoming::Event {
                                     ty: "session.interrupt.acknowledged".into(),
@@ -170,10 +175,16 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::RevertClear(session) => server.revert_clear(&session),
                         Write::RevertCommit(session) => server.revert_commit(&session),
                         Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
-                        Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|forked| {
-                            let _ = inbox_tx.send(Incoming::Forked { from: session, before, session: forked });
-                        }),
+                        Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|session| forked = Some(session)),
+                        Write::Tracked { .. } => Err("a tracked write can't track another".into()),
                     };
+                    if let Some(ticket) = ticket {
+                        if inbox_tx.send(Incoming::Settled { ticket, result: result.map(|()| forked) }).is_err() {
+                            return;
+                        }
+                        wake();
+                        continue;
+                    }
                     if result.is_ok() && let Some(id) = &request_id {
                         let _ = inbox_tx.send(Incoming::Event { ty: "client.request.replied".into(), data: serde_json::json!({ "requestID": id }) });
                     }
