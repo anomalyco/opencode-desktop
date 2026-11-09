@@ -107,19 +107,14 @@ impl App {
         matches!(self.source, Source::Fixture) || self.write(w)
     }
 
-    /// `session.inbox.*`: a delivered prompt joins the end of the transcript, where the server
-    /// puts it.
-    pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
-        let id = data["inboxID"].as_str().unwrap_or("");
-        let mut admitted = match ty {
-            "session.inbox.enqueued" => self.admitted_send(id),
-            "session.inbox.delivered" => self.accept_send(id),
-            _ => false,
-        };
+    /// `session.inbox.*` in the server's copy (`App::apply_shared`): a delivered prompt joins
+    /// the end of the transcript, where the server puts it. What a listing dropped goes with the
+    /// event, so each window keeps the steers it sent that the server hasn't confirmed.
+    pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> crate::events::InboxDone {
         let inbox = self.inboxes.entry(sid.to_owned()).or_default();
         let old = if ty == "session.inbox.listed" { inbox.items.clone() } else { vec![] };
         let change = inbox.apply(ty, data);
-        self.unsent.preserve_inbox(sid, inbox, old);
+        let dropped = old.into_iter().filter(|o| !inbox.items.iter().any(|i| i.id == o.id)).collect();
         // The server admits every prompt to its inbox, a send to an idle session too. That one
         // already shows as its prompt, which is where it stays, so it never waits as a steer.
         if let Some(t) = self.transcripts.get(sid) {
@@ -127,11 +122,6 @@ impl App {
             inbox.settle_notices(|id| t.messages.iter().any(|m| m.id() == id));
         }
         let delivered = inbox.take_notice_effects();
-        if ty == "session.inbox.listed" {
-            let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
-            admitted |= self.judge_sends_by_inbox(sid, &ids);
-            self.check_sends();
-        }
         // A background shell or subagent's notice the server delivered keeps its row as a message.
         let notices = !delivered.is_empty();
         for model::NoticeEffect::ToTranscript(n) in delivered {
@@ -141,8 +131,8 @@ impl App {
                 t.messages.push(Message::Notice(n));
             }
         }
-        match change {
-            InboxChange::None => admitted || notices,
+        let changed = match change {
+            InboxChange::None => notices,
             InboxChange::Changed => true,
             InboxChange::Delivered(item) => {
                 if !item.files.is_empty() {
@@ -155,8 +145,35 @@ impl App {
                 }
                 true
             }
+        };
+        crate::events::InboxDone { changed, dropped }
+    }
 
+    /// After `apply_inbox`, in each window: its own sends the event admits or delivers, and its
+    /// unconfirmed steers a listing dropped, which come back.
+    pub fn inbox_landed(&mut self, ty: &str, data: &serde_json::Value, sid: &str, done: &crate::events::InboxDone) -> bool {
+        let id = data["inboxID"].as_str().unwrap_or("");
+        let mut admitted = match ty {
+            "session.inbox.enqueued" => self.admitted_send(id),
+            "session.inbox.delivered" => self.accept_send(id),
+            _ => false,
+        };
+        if ty == "session.inbox.listed" {
+            let inbox = self.inboxes.entry(sid.to_owned()).or_default();
+            let before = inbox.items.len();
+            self.unsent.preserve_inbox(sid, inbox, done.dropped.clone());
+            if let Some(t) = self.transcripts.get(sid) {
+                inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
+            }
+            if inbox.items.len() != before {
+                crate::windows::peer::touch(self);
+                admitted = true;
+            }
+            let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
+            admitted |= self.judge_sends_by_inbox(sid, &ids);
+            self.check_sends();
         }
+        admitted || done.changed
     }
 
     /// A fetched page that already has a prompt means its delivery event was missed.

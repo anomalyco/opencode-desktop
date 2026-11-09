@@ -239,8 +239,10 @@ fn request(ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, Str
     }
 }
 
-/// Posts the notification `ty` calls for, if any (from `App::apply_event`).
-pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
+/// Posts the notification event `e` calls for, if any (from `App::react`): each window with
+/// the session's tab decides, and the first to decide posts it, once for the event.
+pub fn event(app: &mut App, e: &crate::events::StreamEvent, sid: &str) {
+    let (ty, data) = (e.ty.as_str(), &e.data);
     if app.notify.sink.is_none() {
         return;
     }
@@ -255,11 +257,11 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
         }
         app.notify.asked.push_back(id);
     }
-    let Some((kind, title, session, body)) = decide(app, ty, data, sid) else { return };
-    // Each window with the session's tab decides; one notification goes out for the event.
-    if !crate::windows::shared::first_notice(app, data) {
+    let decided = decide(app, ty, data, sid);
+    if !crate::events::StreamEvent::take(&e.notice, decided.is_some()) {
         return;
     }
+    let Some((kind, title, session, body)) = decided else { return };
     let server = app.server_base().to_owned();
     app.notify.post(kind, title, &session, body, &server);
 }

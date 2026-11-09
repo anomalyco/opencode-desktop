@@ -593,6 +593,8 @@ impl super::App {
     }
 
     fn merge_page(&mut self, page: &Page, tx: &mut rune::Tx) {
+        // A page this window read goes into the server's copy, for its other windows too.
+        crate::windows::peer::touch(self);
         if let Some(o) = &mut self.opening && o.id == page.key.id && !page.history { o.received = true; }
         self.attach.adopt(&page.images);
         let id = &page.key.id;

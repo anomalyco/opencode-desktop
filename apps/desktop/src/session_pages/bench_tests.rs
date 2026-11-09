@@ -28,7 +28,7 @@ fn sample(delay: u64, total: usize, child: bool, hover: bool, reopen: bool) -> f
     let mut app = App::empty();
     app.zoom = 1.6;
     app.route = Route::Session(PARENT.into());
-    *app.sessions = vec![model::SessionInfo { id: PARENT.into(), title: "Parent session".into(), ..Default::default() },
+    app.sessions = vec![model::SessionInfo { id: PARENT.into(), title: "Parent session".into(), ..Default::default() },
         model::SessionInfo { id: TARGET.into(), title: "Review the change".into(), parent: child.then(|| PARENT.into()), ..Default::default() }];
     let parent_messages = if child { model::parse_messages(&json!({"data":[{
         "id":"msg_parent", "type":"assistant", "time":{"created":1,"completed":2},

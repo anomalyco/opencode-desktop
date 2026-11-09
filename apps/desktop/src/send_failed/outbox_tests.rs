@@ -139,7 +139,7 @@ fn accepted_busy_followup_returns_to_pending_until_delivery() {
     app.admitted_send(&id);
     assert_eq!(app.inboxes[&session].items.iter().filter(|i| i.id == id).count(), 1);
     assert!(!app.transcripts[&session].messages.iter().any(|m| m.id() == id));
-    app.apply_inbox("session.inbox.delivered", &json!({"sessionID":session,"inboxID":id}), &session);
+    app.apply_event("session.inbox.delivered", &json!({"sessionID":session,"inboxID":id}));
     app.admitted_send(&id); // A late HTTP response cannot undo delivery.
     assert!(app.inboxes[&session].items.is_empty());
     assert_eq!(app.transcripts[&session].messages.iter().filter(|m| m.id() == id).count(), 1);

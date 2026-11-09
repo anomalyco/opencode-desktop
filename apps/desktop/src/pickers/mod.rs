@@ -76,8 +76,8 @@ impl PickerHost for App {
 }
 
 impl App {
-    /// `session.agent.selected` and `session.model.selected`: what the session runs with now.
-    /// A pick it now runs with is forgotten, so the session follows changes made elsewhere.
+    /// `session.agent.selected` and `session.model.selected`: what the session runs with now,
+    /// in the server's copy (`App::apply_shared`).
     pub fn apply_selected(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         if !matches!(ty, "session.agent.selected" | "session.model.selected") { return false; }
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == sid) else { return false };
@@ -88,9 +88,15 @@ impl App {
             let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
             info.model = ModelRef { id: s(&m["id"]), provider: s(&m["providerID"]), variant: s(&m["variant"]) };
         }
+        true
+    }
+
+    /// After `apply_selected`, in each window: a pick it now runs with is forgotten, so the
+    /// session follows changes made elsewhere.
+    pub fn selected_landed(&mut self, sid: &str) {
+        let Some(info) = self.sessions.iter().find(|s| s.id == sid) else { return };
         let now = Selection { model: info.model.clone(), agent: info.agent.clone() };
         if self.pickers.selections.get(sid) == Some(&now) { self.pickers.selections.remove(sid); }
-        true
     }
 
     /// The fixture's server: a prompt that switches the session says so in its stream, before

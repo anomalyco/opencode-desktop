@@ -397,7 +397,7 @@ fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
     // As an opted-in `session.inbox.list` returns a queued prompt with a ref.
     let listed = serde_json::json!({"sessionID": "ses_q", "items": [{"id": "msg_queued", "type": "user", "delivery": "queue",
         "payload": {"text": "again", "files": [{"uri": format!("media:{hash}"), "mime": "image/png", "name": "again.png", "bytes": 3}]}}]});
-    app.apply_inbox("session.inbox.listed", &listed, "ses_q");
+    app.apply_event("session.inbox.listed", &listed);
     app.undo_queued("ses_q", "msg_queued");
     let Ok(Write::Cancel { item, .. }) = writes.try_recv() else { panic!("no cancel") };
     assert_eq!(item, "msg_queued");

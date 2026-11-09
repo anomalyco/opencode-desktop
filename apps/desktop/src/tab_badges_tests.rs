@@ -52,18 +52,18 @@ fn badges_are_the_server_image_or_the_letter_tile_never_a_file_found_in_the_fold
 #[test]
 fn of_two_projects_at_one_folder_the_sessions_own_wins() {
     let mut s = App::fixture_session();
-    *s.projects = parse_projects(&json!([
+    s.projects = parse_projects(&json!([
         { "id": "a", "canonical": "/x/wraith", "sandboxes": [] },
         { "id": "b", "canonical": "/x/wraith", "sandboxes": [] },
     ]));
-    *s.sessions = vec![parse_session(&json!({ "id": "ses_w", "projectID": "b", "location": { "directory": "/x/wraith" } }))];
+    s.sessions = vec![parse_session(&json!({ "id": "ses_w", "projectID": "b", "location": { "directory": "/x/wraith" } }))];
     assert_eq!(project_of(&s, "ses_w"), "b");
 }
 
 #[test]
 fn a_global_folder_resolves_by_directory() {
     let mut s = App::fixture_session();
-    *s.projects = parse_projects(&json!([{ "id": "scratch", "canonical": "/x/scratch", "sandboxes": [] }]));
-    *s.sessions = vec![parse_session(&json!({ "id": "ses_g", "projectID": "global", "location": { "directory": "/x/scratch" } }))];
+    s.projects = parse_projects(&json!([{ "id": "scratch", "canonical": "/x/scratch", "sandboxes": [] }]));
+    s.sessions = vec![parse_session(&json!({ "id": "ses_g", "projectID": "global", "location": { "directory": "/x/scratch" } }))];
     assert_eq!(project_of(&s, "ses_g"), "scratch");
 }

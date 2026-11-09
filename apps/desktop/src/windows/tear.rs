@@ -89,7 +89,8 @@ impl App {
 
     /// The button came up with the tab off the strip.
     pub(crate) fn tear_release(&mut self, t: TabTearOut, tx: &mut Tx) {
-        let Some(point) = t.screen_point else { return };
+        // Where it let go is unknown: the tab stays here, and a window following it goes.
+        let Some(point) = t.screen_point else { return self.tear_back() };
         let out = match std::mem::take(&mut self.window.tear) {
             Tear::Out(out) => out,
             // No window followed the pointer: open one where it let go.
@@ -116,6 +117,7 @@ impl App {
             }
             None => {
                 close_gap(out.over);
+                super::life(&out.id, super::life::LifeEvent::Kept);
                 out.handle.show();
                 out.handle.focus();
                 self.tab_moved_out(&out.tab.id, tx);
@@ -132,7 +134,7 @@ impl App {
     }
 
     /// The tab is back on the strip: its window goes, and a gap it opened in another closes.
-    fn tear_back(&mut self) {
+    pub(crate) fn tear_back(&mut self) {
         if let Tear::Out(out) = std::mem::take(&mut self.window.tear) {
             out.handle.close();
             close_gap(out.over);
@@ -148,7 +150,8 @@ impl App {
         let Some(tab) = self.tabs.iter().find(|t| t.id == m.id).cloned() else { return };
         let Some((frame, offset)) = self.torn_frame(point, m.grab) else { return };
         let seed = Seed::from(self, vec![tab.clone()], tab.route());
-        let w = seeded(seed);
+        let mut w = seeded(seed);
+        w.life = super::life::Life::Torn;
         let id = w.id.clone();
         let Some(handle) = open(self, w, Some(frame), true) else { return };
         self.tab_drag.hand_off();

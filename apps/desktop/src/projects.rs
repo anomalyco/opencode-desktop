@@ -316,7 +316,7 @@ impl App {
         tx: &mut Tx,
     ) {
         tx.instant();
-        *self.projects = projects;
+        self.projects = projects;
         let dir = clean_dir(if location.directory.is_empty() { &location.project_directory } else { &location.directory });
         let root = clean_dir(if location.canonical.is_empty() { &dir } else { &location.canonical });
         let project_id = if !location.project_id.is_empty()

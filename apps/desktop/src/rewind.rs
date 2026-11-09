@@ -63,6 +63,11 @@ pub struct RewindState {
 }
 
 impl RewindState {
+    /// This window asked to revert `session` (an Undo or Redo still on its way).
+    pub(crate) fn asked(&self, session: &str) -> bool {
+        self.pending.contains_key(session)
+    }
+
     pub fn menu_is(&self, session: &str, message_id: &str) -> bool {
         self.menu.as_ref().is_some_and(|(s, m)| s == session && m == message_id)
     }

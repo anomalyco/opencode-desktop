@@ -43,6 +43,7 @@ impl App {
         for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
+        crate::windows::peer::touch(self);
         if !self.tabs.iter().any(|t| t.id == root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();
             self.tabs.push(Tab::session(root.clone(), title, directory));
@@ -71,34 +72,36 @@ impl App {
         }
     }
 
-    /// The event stream came back: re-reads what a gap may have made stale (what's running, the
-    /// session list, pending requests and the open session's latest page), like the first load.
-    pub(crate) fn resync(&mut self) {
+    /// The event stream came back: re-reads what a gap may have made stale in the server's copy
+    /// (what's running, the session list and projects, pending requests), like the first load,
+    /// once for all its windows (`App::apply_shared`).
+    pub(crate) fn resync_shared(&mut self) {
         let Source::Live { requests: Some(r), .. } = &self.source else { return };
         let _ = r.send(Request::Active);
         let _ = r.send(Request::Sessions);
         let _ = r.send(Request::Projects);
-        let open = match &self.route {
-            Route::Session(id) => Some(id.clone()),
-            _ => None,
-        };
-        if let Some(id) = &open {
-            let _ = r.send(Request::Inbox(id.clone()));
-        }
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();
-        crate::subagents::shells::forget_lists(self);
-        if let Some(dir) = open.as_deref().and_then(|id| self.session(id)).map(|i| i.directory.clone()) {
-            crate::subagents::shells::list(self, &dir);
-        }
         let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
         asked.sort();
         asked.dedup();
         for id in asked {
             self.read_requests(&id);
         }
-        if let Some(id) = open {
+    }
+
+    /// The event stream came back, in each window: the open session's inbox, requests, shells
+    /// and latest page, and its subagents' pages.
+    pub(crate) fn resync_view(&mut self) {
+        crate::subagents::shells::forget_lists(self);
+        let dir = match &self.route { Route::Session(id) => self.session(id).map(|i| i.directory.clone()), _ => None };
+        if let Some(dir) = dir {
+            crate::subagents::shells::list(self, &dir);
+        }
+        let Source::Live { requests: Some(r), .. } = &self.source else { return };
+        if let Route::Session(id) = self.route.clone() {
+            let _ = r.send(Request::Inbox(id.clone()));
             self.read_open_requests(&id);
             self.reload_session(&id);
         }

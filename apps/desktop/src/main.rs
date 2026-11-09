@@ -126,6 +126,7 @@ mod home_search;
 mod home_search_tests;
 mod icons;
 mod inbox_model;
+mod incoming;
 #[cfg(windows)]
 mod install;
 #[cfg(test)]
@@ -273,7 +274,6 @@ use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInf
 use keys::on_key;
 pub(crate) use scenes::open_scene;
 use tabs::Tab;
-use windows::shared::Shared;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
 
@@ -311,13 +311,15 @@ pub struct App {
     pages: session_pages::State,
     opening: Option<session_pages::Opening>,
     open_demo: Option<open_story::Demo>,
-    /// The server's projects and sessions, shared with the server's other windows (windows::shared).
-    pub projects: Shared<Vec<Project>>,
-    pub sessions: Shared<Vec<SessionInfo>>,
+    /// The server's projects and sessions. This and the other server data (transcripts, running,
+    /// stops, requests, pending, inboxes) are the server's copy, which every window of the server
+    /// holds in turn (`windows::peer`).
+    pub projects: Vec<Project>,
+    pub sessions: Vec<SessionInfo>,
     pub route: Route,
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: history::History,
-    pub transcripts: Shared<HashMap<String, Transcript>>,
+    pub transcripts: HashMap<String, Transcript>,
     pub expanded: HashSet<String>,
     /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
     pub shutting: HashMap<String, f64>,
@@ -346,19 +348,19 @@ pub struct App {
     /// Changed files' diffs (`turn_diffs.rs`).
     pub turn_diffs: turn_diffs::TurnDiffs,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
-    pub running: Shared<HashSet<String>>,
+    pub running: HashSet<String>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
     pub stops: stop::Stops,
     /// Pending permission and form requests: (session, request id).
-    pub requests: Shared<HashSet<(String, String)>>,
+    pub requests: HashSet<(String, String)>,
     /// Which sessions' requests this connection has read (`session_status.rs`).
     pub request_reads: session_status::RequestReads,
     /// The open permission requests and forms we know the details of.
-    pub pending: Shared<Vec<Pending>>,
+    pub pending: Vec<Pending>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
-    pub inboxes: Shared<HashMap<String, Inbox>>,
-    /// This window's place in the shared session data.
-    pub store: windows::shared::Link,
+    pub inboxes: HashMap<String, Inbox>,
+    /// This window's place in its server's peer (`windows::peer`).
+    pub store: windows::peer::Link,
     /// The question dock's place and in-progress answers for the forms it shows.
     pub question: question::Dock,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
@@ -886,8 +888,8 @@ impl App {
         self.add.slash.commands = slash::commands(&v["commands"]);
         self.base_ms = v["now"].as_i64().unwrap_or(0);
         self.now_ms = self.base_ms;
-        *self.projects = opencode_kit::model::parse_projects(&v["projects"]);
-        *self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
+        self.projects = opencode_kit::model::parse_projects(&v["projects"]);
+        self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
         if let Some(map) = v["messages"].as_object() {
             for (id, list) in map {
                 let msgs = opencode_kit::model::parse_messages(&serde_json::json!({ "data": list }));
@@ -896,7 +898,7 @@ impl App {
         }
         let ids: Vec<String> = v["tabs"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         self.tabs = ids.iter().map(|id| Tab::session(id.clone(), "", "")).collect();
-        *self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+        self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         for r in v["requests"].as_array().into_iter().flatten() {
             if let (Some(s), Some(id)) = (r["sessionID"].as_str(), r["id"].as_str()) {
                 self.requests.insert((s.to_owned(), id.to_owned()));
@@ -974,9 +976,9 @@ impl App {
             m
         });
         let key = |p: &Project| latest.get(p.id.as_str()).copied().unwrap_or(0).max(p.active);
-        let mut ps = std::mem::take(&mut *self.projects);
+        let mut ps = std::mem::take(&mut self.projects);
         ps.sort_by_key(|p| std::cmp::Reverse(key(p)));
-        *self.projects = ps;
+        self.projects = ps;
     }
 
     pub fn set_zoom(&mut self, dir: i32) {
@@ -1116,7 +1118,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.composer.focused = false;
     }
     // Another window changed the session data this one shows.
-    let mut changed = windows::shared::behind(s);
+    let mut changed = windows::peer::behind(s);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);
@@ -1138,149 +1140,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_jobs(tx);
     let mut arrivals = None;
     let asked = s.dock_face();
-    if let Some(inbox) = s.inbox.take() {
-        if let Ok(first_in) = inbox.try_recv() {
-            arrivals = Some(arrivals::Arrivals::before(s));
-            let mut replies = false;
-            for m in std::iter::once(first_in).chain(inbox.try_iter()) {
-                // Every window hears the stream's events; a reply reaches only the window that asked.
-                replies |= !matches!(&m, Incoming::Event { data, .. } if data.get(opencode_kit::client::HUB_SEQ).is_some());
-                if !matches!(m, Incoming::Status(_) | Incoming::SendFailed { .. }) {
-                    changed |= reconnect::heard(s);
-                }
-                match m {
-                    Incoming::Sessions(mut list) => {
-                        s.switcher.invalidate_sessions();
-                        for n in &mut list {
-                            if let Some(old) = s.session(&n.id) {
-                                n.viewed = n.viewed.max(old.viewed);
-                            }
-                        }
-                        // Sessions past the page (a tab's, a subagent's parent) stay known.
-                        let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
-                        list.extend(rest);
-                        *s.sessions = list;
-                        s.sidebar_inbox.heard_sessions();
-                        s.sort_projects();
-                    }
-                    Incoming::Info(mut info) => {
-                        s.switcher.invalidate_sessions();
-                        let parent = info.parent.clone();
-                        match s.sessions.iter_mut().find(|x| x.id == info.id) {
-                            Some(old) => {
-                                info.viewed = info.viewed.max(old.viewed);
-                                *old = info;
-                            }
-                            None => s.sessions.push(info),
-                        }
-                        if let Some(missing) = parent.and_then(|p| s.missing_ancestor(&p)) {
-                            s.fetch_info(&missing);
-                        }
-                    }
-                    Incoming::Messages { session, messages } => {
-                        s.judge_sends_by_page(&session, &messages);
-                        s.check_sends();
-                        let cold = s.launch.cold_transcript.as_deref() == Some(session.as_str());
-                        if cold {
-                            s.launch.cold_transcript = None;
-                        }
-                        let first = !s.transcripts.contains_key(&session);
-                        let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
-                        attachments::reconcile(&mut s.attach.echoes, t, &messages);
-                        let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
-                        t.merge(messages);
-                        reconnect::page_in(s, &session);
-                        s.settle_inbox(&session, &delivered);
-                        if (first || cold) && s.route == Route::Session(session) {
-                            // Guarantee 8: the first load of the open session lands, nothing grows in.
-                            tx.settle();
-                        }
-                        if cold {
-                            arrivals = None;
-                        }
-                    }
-                    // Most events are other sessions' streams: they redraw only what they change.
-                    Incoming::Event { ty, data } => {
-                        if ty == "client.prompt.accepted" {
-                            changed |= s.admitted_send(data["id"].as_str().unwrap_or(""));
-                            s.pump_outbox();
-                            continue;
-                        }
-                        s.motion_events.note(&ty);
-                        changed |= s.apply_event(&ty, &data);
-                        continue;
-                    }
-                    Incoming::Status(e) => {
-                        if !reconnect::dropped(s, &e, tx) && !rewind::failed(s, &e) && !stop::failed(s, &e) && !permission::failed(s, &e) {
-                            subagents::reply::failed(s, &e);
-                            status_toast::from_server(s, e);
-                        }
-                    }
-                    Incoming::SendFailed { session, id, error } => {
-                        if s.unsent.journaled(&id) { s.send_failed(&id,&error); }
-                        else if !s.start_failed(&session, &id, &error, tx) && !s.send_failed(&id, &error) {
-                            status_toast::from_server(s, error);
-                        }
-                    }
-                    Incoming::Pending { session, items } => {
-                        s.sidebar_inbox.heard_pending(&session);
-                        s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
-                        for p in items {
-                            s.add_pending(p);
-                        }
-                    }
-                    Incoming::Reconnected => {
-                        tx.instant();
-                        s.sidebar_inbox.branches.reconnected();
-                        reconnect::back(s);
-                        s.pump_outbox();
-                        s.stream_back();
-                        s.check_sends();
-                        s.resync();
-                    }
-                    Incoming::Active(ids) => {
-                        tx.instant();
-                        s.stops.reconcile(&ids);
-                        reconnect::active(s, &ids);
-                        // A stop the server hasn't confirmed yet stays stopped.
-                        *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
-                    }
-                    Incoming::Projects(projects) => {
-                        s.switcher.invalidate_sessions();
-                        tx.instant();
-                        *s.projects = projects;
-                        s.sort_projects();
-                        s.list_unlisted_worktrees();
-                    }
-                    Incoming::ProjectOpened { location, projects, session } => {
-                        s.apply_project_opened(location, projects, session, tx);
-                    }
-                    Incoming::Forked { from, before, session } => {
-                        fork::applied(s, from, before, session, tx);
-                    }
-                    Incoming::Created(info) if s.starts.has(&info.id) => {
-                        s.started(info, tx);
-                    }
-                    Incoming::Created(info) => {
-                        let id = info.id.clone();
-                        // A command sent from a draft started it: the draft's tab becomes its tab.
-                        s.promote_draft(&id, &info.directory);
-                        if s.session(&id).is_none() {
-                            s.sessions.insert(0, info);
-                        }
-                        s.status = s.live_status();
-                        s.open(&id, tx);
-                    }
-                }
-                changed = true;
-            }
-            // A reply only this window heard changed the session data its server's windows share.
-            if replies {
-                windows::shared::changed(s);
-            }
-        }
-        s.inbox = Some(inbox);
-    }
+    changed |= incoming::poll(s, tx, &mut arrivals);
     if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
         arrivals.get_or_insert_with(|| arrivals::Arrivals::before(s));
         while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
@@ -1373,6 +1233,7 @@ fn desktop_icons() -> project_icon::Icons {
 
 fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
+    windows::peer::set_waker(s, waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
     s.mentions.set_waker(waker.clone());
@@ -1428,6 +1289,8 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
             .on_open_url(deep_links::open)
+            // The server's copy of the session data moves into the window whose turn it is.
+            .turn_scope(windows::peer::enter, windows::peer::leave)
             .on_modifiers(view::home_modifiers)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {

@@ -1,8 +1,7 @@
 //! One event stream for several windows of one app: each window has its own fetch and write
-//! threads, answering only it, while `/api/event` is read once and every event, reconnect and
-//! stream error reaches every window that subscribed.
+//! threads, answering only it (`connect_workers`), while `/api/event` is read once per server
+//! and every event, reconnect and stream error reaches whoever subscribed to its hub.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -12,21 +11,30 @@ use rune::Waker;
 use super::worker::{read_events, spawn_workers};
 use super::{Incoming, Request, Server, Write};
 
-/// The shared event stream of one server. Its thread runs until the process ends.
+/// The shared event stream of one server. Its threads run until it drops and the stream next
+/// speaks (the server's heartbeat comes every 15 s).
 pub struct EventHub {
     base: String,
-    subscribers: Arc<Mutex<Vec<(Sender<Incoming>, Waker)>>>,
+    fan: Arc<Mutex<Fan>>,
+}
+
+/// Where a hub's stream goes.
+enum Fan {
+    /// To these subscribers, each woken once per batch.
+    Open(Vec<(Sender<Incoming>, Waker)>),
+    /// Nowhere: the hub dropped, and its threads end.
+    Closed,
 }
 
 impl EventHub {
     /// Opens `server`'s event stream, dropped and reopened after `idle` of silence.
-    pub fn start(server: Server, idle: Duration) -> Arc<EventHub> {
-        let subscribers: Arc<Mutex<Vec<(Sender<Incoming>, Waker)>>> = Arc::default();
+    pub fn start(server: Server, idle: Duration) -> EventHub {
+        let fan = Arc::new(Mutex::new(Fan::Open(Vec::new())));
         let (events, inbox) = channel();
-        let fan = subscribers.clone();
+        let to = fan.clone();
         std::thread::Builder::new()
             .name("opencode-events-fan".into())
-            .spawn(move || fan_out(&inbox, &fan))
+            .spawn(move || fan_out(&inbox, &to))
             .expect("spawn event fan-out thread");
         let base = server.base.clone();
         let wake: Waker = Arc::new(|| {});
@@ -34,7 +42,7 @@ impl EventHub {
             .name("opencode-events".into())
             .spawn(move || read_events(&server, idle, &events, &wake))
             .expect("spawn event thread");
-        Arc::new(EventHub { base, subscribers })
+        EventHub { base, fan }
     }
 
     /// The server whose stream this is.
@@ -42,19 +50,21 @@ impl EventHub {
         &self.base
     }
 
-    fn subscribe(&self, inbox: Sender<Incoming>, wake: Waker) {
-        self.subscribers.lock().unwrap().push((inbox, wake));
+    /// Everything the stream says from now on, with `wake` called once per batch.
+    pub fn subscribe(&self, wake: Waker) -> Receiver<Incoming> {
+        let (tx, rx) = channel();
+        if let Fan::Open(subs) = &mut *self.fan.lock().unwrap_or_else(|e| e.into_inner()) {
+            subs.push((tx, wake));
+        }
+        rx
     }
 }
 
-/// Numbers the stream's events across every hub of the process, so windows sharing one copy of
-/// the session data apply each event to it once.
-static SEQ: AtomicU64 = AtomicU64::new(0);
-
-/// The key a stream event's data carries its number under: windows that share their session data
-/// apply an event to it only the first time one of them sees the number, and each window still
-/// reacts to every event in its own view.
-pub const HUB_SEQ: &str = "hubSeq";
+impl Drop for EventHub {
+    fn drop(&mut self) {
+        *self.fan.lock().unwrap_or_else(|e| e.into_inner()) = Fan::Closed;
+    }
+}
 
 /// The key a stream event's data carries the time the hub heard it under, in microseconds from
 /// the process's first hub (`heard_at` reads it back), for timing an event to the frame that
@@ -68,8 +78,9 @@ pub fn heard_at(data: &serde_json::Value) -> Option<Instant> {
     Some(*EPOCH.get()? + Duration::from_micros(data[HUB_AT].as_u64()?))
 }
 
-/// Every stream message to every window still listening, each woken once per batch.
-fn fan_out(inbox: &Receiver<Incoming>, subscribers: &Mutex<Vec<(Sender<Incoming>, Waker)>>) {
+/// Every stream message to every subscriber still listening, each woken once per batch, until
+/// the hub closes; then the stream thread's next send fails and it ends too.
+fn fan_out(inbox: &Receiver<Incoming>, fan: &Mutex<Fan>) {
     let epoch = *EPOCH.get_or_init(Instant::now);
     while let Ok(first) = inbox.recv() {
         let heard = epoch.elapsed().as_micros() as u64;
@@ -78,11 +89,10 @@ fn fan_out(inbox: &Receiver<Incoming>, subscribers: &Mutex<Vec<(Sender<Incoming>
             if let Incoming::Event { data, .. } = m
                 && let Some(map) = data.as_object_mut()
             {
-                map.insert(HUB_SEQ.into(), (SEQ.fetch_add(1, Ordering::Relaxed) + 1).into());
                 map.insert(HUB_AT.into(), heard.into());
             }
         }
-        let mut subs = subscribers.lock().unwrap();
+        let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return };
         subs.retain(|(tx, wake)| {
             let alive = batch.iter().all(|m| tx.send(m.clone()).is_ok());
             if alive {
@@ -94,10 +104,9 @@ fn fan_out(inbox: &Receiver<Incoming>, subscribers: &Mutex<Vec<(Sender<Incoming>
 }
 
 /// [`super::connect_with_idle`] for one window of several: its own fetch and write threads,
-/// and `hub`'s event stream in place of one of its own.
-pub fn connect_shared(server: Server, wake: Waker, hub: &EventHub) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
+/// answering into the receiver; the event stream comes from its server's [`EventHub`].
+pub fn connect_workers(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
     let (inbox_tx, inbox) = channel();
     let (req_tx, write_tx) = spawn_workers(&server, &inbox_tx, &wake);
-    hub.subscribe(inbox_tx, wake);
     (req_tx, write_tx, inbox)
 }

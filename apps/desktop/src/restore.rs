@@ -205,13 +205,15 @@ impl App {
 
     /// When the window closes: the newest draft goes out, and every write waits to land.
     pub fn save_on_close(&mut self) {
+        // A tab on its way out takes its window back, and a gap it opened in another closes.
+        self.tear_back();
         self.close_rune_mcp();
         if self.persists() {
             self.poll_restore();
             self.queue_terminal_save();
         }
         self.window_closed();
-        crate::windows::shared::leave(self);
+        crate::windows::peer::leave_server(self);
         crate::disk::flush();
     }
 

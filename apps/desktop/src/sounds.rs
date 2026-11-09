@@ -4,7 +4,6 @@
 //! a preview when picked. The clips ship as 22 kHz mono WAV (`assets/sounds`, converted from
 //! Desktop's MP3s). Only a window with a person at it plays (`App::persists`).
 
-use serde_json::Value;
 
 use crate::App;
 
@@ -32,8 +31,10 @@ pub fn play(id: &str) {
     }
 }
 
-/// The sound event `ty` calls for, when its event's sound is on (from `App::apply_event`).
-pub fn event(app: &App, ty: &str, data: &Value, sid: &str) {
+/// The sound event `e` calls for, when its event's sound is on (from `App::react`): each
+/// window with the session's tab decides, and the sound plays once for the event.
+pub fn event(app: &App, e: &crate::events::StreamEvent, sid: &str) {
+    let (ty, data) = (e.ty.as_str(), &e.data);
     if !app.persists() {
         return;
     }
@@ -47,8 +48,7 @@ pub fn event(app: &App, ty: &str, data: &Value, sid: &str) {
         "form.created" if has_tab(app.root_of(data["sessionID"].as_str().unwrap_or(sid))) => sounds.questions.as_deref(),
         _ => None,
     };
-    // Each window with the session's tab decides; the sound plays once for the event.
-    if let Some(id) = id.filter(|_| crate::windows::shared::first_sound(app, data)) {
+    if let Some(id) = id.filter(|_| crate::events::StreamEvent::take(&e.sound, true)) {
         play(id);
     }
 }

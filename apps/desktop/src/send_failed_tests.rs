@@ -98,7 +98,7 @@ fn timeout_reconciliation_finishes_when_inbox_answers_before_page() {
         else { Err(format!("GET {path}: http status: 404")) }
     }));
     timeout(&mut app);
-    app.apply_inbox("session.inbox.listed", &json!({"sessionID": SES, "items": []}), SES);
+    app.apply_event("session.inbox.listed", &json!({"sessionID": SES, "items": []}));
     // Missing from an inbox read mustn't erase the local prompt while its receipt is unknown.
     assert!(app.inboxes[SES].items.iter().any(|i| i.id == ID));
     app.judge_sends_by_page(SES, &[]);
@@ -150,9 +150,9 @@ fn a_server_page_clears_timeout_without_an_earlier_reconnect() {
 fn an_identical_inbox_listing_still_redraws_a_changed_receipt() {
     let mut app = app_with_echo(true);
     timeout(&mut app);
-    assert!(app.apply_inbox("session.inbox.listed", &json!({"sessionID": SES, "items": [
+    assert!(app.apply_event("session.inbox.listed", &json!({"sessionID": SES, "items": [
         {"id": ID, "type": "user", "delivery": "steer", "payload": {"text": "hey"}}
-    ]}), SES));
+    ]})));
     assert_eq!(app.unsent.state(ID), Some(State::Accepted));
 }
 

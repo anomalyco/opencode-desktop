@@ -356,7 +356,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     tx.instant();
     let Some(result) = ready.first else {
         s.launch.cold_transcript = None;
-        crate::windows::shared::leave(s);
+        crate::windows::peer::leave_server(s);
         s.transcripts.clear();
         s.tabs.clear();
         s.route = Route::Home;
@@ -398,7 +398,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             }
             s.launch.cold_transcript = None;
             // The other windows keep what they show while this one waits for the server.
-            crate::windows::shared::leave(s);
+            crate::windows::peer::leave_server(s);
             s.transcripts.clear();
             if s.launch.held_tabs.is_empty() {
                 s.launch.held_tabs = std::mem::take(&mut s.tabs);
@@ -434,7 +434,7 @@ impl App {
         self.route = Route::Home;
         self.tabs = crate::tabs::load(&self.window, &server.base).unwrap_or_default();
         // Its windows keep the old server's data; this one starts empty for the new server.
-        crate::windows::shared::leave(self);
+        crate::windows::peer::leave_server(self);
         self.sessions.clear();
         self.transcripts.clear();
         self.projects.clear();
@@ -478,13 +478,24 @@ impl App {
     }
 
     pub(crate) fn apply_first(&mut self, f: First) {
-        *self.projects = opencode_kit::model::parse_projects(&f.projects);
+        // A window that started in its opener's copy (a torn-out tab's) reads only what it
+        // lacks: the copy is live, and newer than these reads.
+        let joined = crate::windows::peer::joined(self);
+        if !joined || self.projects.is_empty() {
+            self.projects = opencode_kit::model::parse_projects(&f.projects);
+        }
         if let Some(sessions) = &f.sessions {
-            // Sessions past the page (another window's tab, a subagent's parent) stay known.
+            // Sessions past the page (another window's tab, a subagent's parent) stay known,
+            // and a session read since keeps what it was marked read up to.
             let mut list = opencode_kit::model::parse_sessions(sessions);
+            for n in &mut list {
+                if let Some(old) = self.sessions.iter().find(|o| o.id == n.id) {
+                    n.viewed = n.viewed.max(old.viewed);
+                }
+            }
             let rest: Vec<_> = self.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
             list.extend(rest);
-            *self.sessions = list;
+            self.sessions = list;
             self.sidebar_inbox.heard_sessions();
         }
         if let Some(p) = &f.providers {
@@ -496,10 +507,11 @@ impl App {
         if let Some((m, agents)) = &f.models {
             self.pickers.load_live(m.get("data").unwrap_or(m), agents.get("data").unwrap_or(agents));
         }
-        if let Some(a) = &f.active {
+        if let Some(a) = f.active.as_ref().filter(|_| !joined) {
             let map = a.get("data").unwrap_or(a);
-            *self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect();
+            self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).filter(|id| !self.stops.pending(id)).collect();
         }
+        crate::windows::peer::touch(self);
         // A fresh profile has used no projects yet: Home lists none, as Desktop's
         // `usedProjectIDs` starts empty.
         let saved_projects = match &self.source {
@@ -529,7 +541,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut s.source, s.waker.clone()) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
-        let (r, w, inbox) = crate::windows::connect(server, inbox_wake);
+        let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
         *writes = Some(w);
         // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
         for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {
@@ -540,7 +552,9 @@ fn connect(s: &mut App, tx: &mut Tx) {
         }
         *requests = Some(r);
         s.inbox = Some(inbox);
-        crate::windows::shared::join(s);
+        crate::windows::peer::join(s, Some(inbox_wake.clone()));
+        // A window that started in its opener's copy was woken plainly until now.
+        crate::windows::peer::set_waker(s, inbox_wake);
         s.list_unlisted_worktrees();
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session(id) = s.route.clone() {

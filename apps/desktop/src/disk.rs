@@ -3,6 +3,7 @@
 //! pending write, and slots run in the order they were first asked for. `flush` waits for the
 //! queue to empty, when the window closes and after `run` returns.
 
+use std::borrow::Cow;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -10,7 +11,7 @@ type Job = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
 struct Queue {
-    pending: Vec<(&'static str, Job)>,
+    pending: Vec<(Cow<'static, str>, Job)>,
     busy: bool,
 }
 
@@ -45,7 +46,8 @@ fn run(q: &Shared) {
 }
 
 /// Runs `job` off the UI thread, replacing `slot`'s write if one is still waiting.
-pub fn later(slot: &'static str, job: impl FnOnce() + Send + 'static) {
+pub fn later(slot: impl Into<Cow<'static, str>>, job: impl FnOnce() + Send + 'static) {
+    let slot = slot.into();
     let (lock, cv) = &**queue();
     let mut queue = lock.lock().unwrap();
     match queue.pending.iter_mut().find(|(s, _)| *s == slot) {

@@ -198,7 +198,13 @@ impl App {
         }
         match &self.source {
             Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
-            Source::Live { writes: Some(tx), .. } => return tx.send(w).is_ok(),
+            Source::Live { writes: Some(tx), .. } => {
+                // What a write asks the server for, the window has shown already: the server's
+                // other windows draw it too.
+                let sent = tx.send(w).is_ok();
+                crate::windows::peer::touch(self);
+                return sent;
+            }
             _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
         }
         false

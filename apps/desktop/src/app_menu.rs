@@ -235,7 +235,10 @@ fn run(s: &mut App, act: Act, tx: &mut Tx) {
             s.toggle_sidebar(tx);
         }
         Act::ToggleTerminal => s.toggle_terminal(tx),
-        Act::Reload => s.resync(),
+        Act::Reload => {
+            s.resync_shared();
+            s.resync_view();
+        }
         Act::DevTools => {
             tx.instant();
             s.knobs.toggle();

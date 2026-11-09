@@ -19,15 +19,22 @@ pub const FIXTURE_SECS: f64 = 1.2;
 /// How much of the fixture's stream was already on its way when the stop went out.
 const ON_THE_WAY_SECS: f64 = 0.3;
 
+/// The sessions being stopped, in the server's copy (`windows::peer`): a stop one window
+/// pressed holds in all of them.
 #[derive(Default)]
 pub struct Stops {
-    /// Sessions stopped and when (app clock), until the server confirms and their last step closes.
+    /// Sessions stopped, until the server confirms and their last step closes.
     by: HashMap<String, Stop>,
 }
 
-struct Stop {
-    at: f64,
-    confirmed: bool,
+/// One session's stop.
+#[derive(Clone, Copy, PartialEq)]
+enum Stop {
+    /// Asked at `at` (wall milliseconds, `App::now_ms`, the same in every window), until the
+    /// server confirms within `CONFIRM_SECS`.
+    Asked { at: i64 },
+    /// The server confirmed; it holds while the run's last step is still open.
+    Confirmed,
 }
 
 impl Stops {
@@ -38,7 +45,7 @@ impl Stops {
 
     /// Stopped and not confirmed yet: a resync mustn't bring it back.
     pub fn pending(&self, sid: &str) -> bool {
-        self.by.get(sid).is_some_and(|s| !s.confirmed)
+        matches!(self.by.get(sid), Some(Stop::Asked { .. }))
     }
 
     /// A run started in `sid`, or a prompt went to it: it's no longer being stopped.
@@ -50,7 +57,7 @@ impl Stops {
     pub fn reconcile(&mut self, active: &[String]) {
         for (id, stop) in &mut self.by {
             if !active.contains(id) {
-                stop.confirmed = true;
+                *stop = Stop::Confirmed;
             }
         }
     }
@@ -74,7 +81,7 @@ impl App {
         };
         if asked {
             self.running.remove(&sid);
-            self.stops.by.insert(sid, Stop { at: self.clock, confirmed: false });
+            self.stops.by.insert(sid, Stop::Asked { at: self.now_ms });
         }
         if fixture {
             self.wake_at_playback();
@@ -135,7 +142,7 @@ pub fn press(s: &mut App, _tx: &mut rune::Tx) {
 /// The server ended `sid`'s run.
 pub fn confirmed(s: &mut App, sid: &str) {
     if let Some(st) = s.stops.by.get_mut(sid) {
-        st.confirmed = true;
+        *st = Stop::Confirmed;
     }
 }
 
@@ -154,11 +161,13 @@ pub fn failed(s: &mut App, error: &str) -> bool {
 
 /// Each frame: a stop the server hasn't confirmed in time shows the run again and re-reads
 /// what's running; a confirmed one ends once its last step closes. True when a run came back.
-pub fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
+pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
     if s.stops.by.is_empty() {
         return false;
     }
-    let late: Vec<String> = s.stops.by.iter().filter(|(_, st)| !st.confirmed && now - st.at >= CONFIRM_SECS).map(|(id, _)| id.clone()).collect();
+    let now = s.now_ms;
+    let left = |st: &Stop| match *st { Stop::Asked { at } => Some((at - now) as f64 / 1000.0 + CONFIRM_SECS), Stop::Confirmed => None };
+    let late: Vec<String> = s.stops.by.iter().filter(|(_, st)| left(st).is_some_and(|l| l <= 0.0)).map(|(id, _)| id.clone()).collect();
     for sid in &late {
         s.stops.by.remove(sid);
         s.running.insert(sid.clone());
@@ -170,9 +179,12 @@ pub fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     {
         let _ = r.send(Request::Active);
     }
+    if !late.is_empty() {
+        crate::windows::peer::touch(s);
+    }
     let App { stops, transcripts, .. } = s;
-    stops.by.retain(|id, st| !st.confirmed || transcripts.get(id).is_some_and(|t| t.busy()));
-    if let Some(next) = stops.by.values().filter(|st| !st.confirmed).map(|st| st.at + CONFIRM_SECS - now).reduce(f64::min) {
+    stops.by.retain(|id, st| *st != Stop::Confirmed || transcripts.get(id).is_some_and(|t| t.busy()));
+    if let Some(next) = stops.by.values().filter_map(left).reduce(f64::min) {
         tx.wake_after(std::time::Duration::from_secs_f64(next.max(0.0)));
     }
     !late.is_empty()

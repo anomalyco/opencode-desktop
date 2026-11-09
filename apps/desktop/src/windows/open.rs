@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use rune::{AppSpec, Display, WindowHandle, WindowSpec};
 
-use super::shared;
+use super::peer;
 use super::store::{self, Frame};
 use super::{Window, register};
 use crate::tabs::Tab;
@@ -20,7 +20,7 @@ pub struct Seed {
     pub tabs: Vec<Tab>,
     pub route: Route,
     pub drafts: HashMap<String, String>,
-    share: Option<shared::Share>,
+    peer: peer::Link,
     default_dir: String,
 }
 
@@ -32,7 +32,7 @@ impl Seed {
             drafts: tabs.iter().filter_map(|t| Some((t.id.clone(), s.draft_text(&t.id)?))).collect(),
             tabs,
             route,
-            share: shared::share(s),
+            peer: peer::link_of(s),
             default_dir: s.default_dir.clone(),
         }
     }
@@ -50,16 +50,17 @@ impl App {
     }
 
     fn plant(&mut self, seed: Seed) {
-        if let Some(share) = seed.share {
-            shared::adopt(self, share);
-        }
+        peer::adopt(self, &seed.peer);
         self.default_dir = seed.default_dir;
         self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);
         self.route = seed.route;
-        self.set_media_fetch();
-        self.show_draft();
-        self.save_tabs();
+        // Before the window's first turn: the copy comes in for this, and goes back.
+        peer::in_turn(self, |s| {
+            s.set_media_fetch();
+            s.show_draft();
+            s.save_tabs();
+        });
     }
 
     /// The composer words kept for tab `id`, the open one's from the composer.
@@ -100,16 +101,19 @@ pub(super) fn open(s: &App, w: Window, frame: Option<Frame>, inactive: bool) -> 
     if !s.persists() || s.window.id.is_empty() {
         return None;
     }
-    let mut ids: Vec<String> = super::OPEN.with(|o| o.borrow().iter().map(|w| w.id.clone()).collect());
-    ids.push(w.id.clone());
-    store::save_ids(ids);
+    // A torn-out tab's window joins the saved list only if it stays (`life`).
+    if w.life.saved() {
+        let mut ids = super::saved_ids();
+        ids.push(w.id.clone());
+        store::save_ids(ids);
+    }
     let spec = window(w, frame, &s.diagnostics);
     Some(rune::open_window(if inactive { spec.inactive() } else { spec }))
 }
 
 /// Window `w`'s spec: the app, at `frame` when it has one.
 fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Diagnostics) -> WindowSpec<App> {
-    let id = w.id.clone();
+    let (id, life) = (w.id.clone(), w.life);
     let diagnostics = diagnostics.clone();
     let app_diagnostics = diagnostics.clone();
     let app = crate::rune_app(AppSpec { families: crate::appearance::launch_families(), ..crate::spec(App::new) }).init(move || {
@@ -122,7 +126,15 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
     let mut motion_log = crate::motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
     let app = app
-        .on_ready(move |_| ready.update_if(|s, tx| { crate::launch::ready(s, tx); false }))
+        .on_ready(move |_| {
+            // Stream batches wake the window for a quiet poll, which draws only what they change.
+            let wake = crate::launch::inbox_waker(ready.clone());
+            ready.update_if(move |s, tx| {
+                s.launch.inbox_wake = Some(wake);
+                crate::launch::ready(s, tx);
+                false
+            })
+        })
         .on_frame_encoded(move |f| {
             encoded.encoded(f);
             crate::telemetry::encoded(f);
@@ -146,7 +158,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
         spec.options.physical_size = Some((f.width, f.height));
         spec = spec.maximized(f.maximized || f.full_screen);
     }
-    spec.on_created(move |native| register(&id, native, handle))
+    spec.on_created(move |native| register(&id, native, handle, life))
 }
 
 /// `f`, while it still fits on one of the displays (Desktop's `resolveWindowState`); a
