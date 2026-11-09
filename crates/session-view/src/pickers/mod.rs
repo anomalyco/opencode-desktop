@@ -99,6 +99,13 @@ pub struct Model {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection { pub model: ModelRef, pub agent: String }
 
+/// What a model reads natively besides text (`AttachmentDestination.input`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AttachmentInput {
+    pub image: bool,
+    pub pdf: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct Item {
     pub key: String,
@@ -301,6 +308,14 @@ impl Pickers {
     /// (`models.tsx:128-140`).
     pub fn visible(&self, m: &Model) -> bool {
         self.prefs.visibility(&m.key).unwrap_or(!m.hidden)
+    }
+
+    /// Whether the model reads images and PDFs itself (`capabilities.input`), as Desktop's composer
+    /// asks the selected model (`destination.ts:25`, `session/composer/controller.ts:79`); neither
+    /// for a model the server doesn't list.
+    pub fn attachment_input(&self, m: &ModelRef) -> AttachmentInput {
+        let has = |kind: &str| self.models.iter().any(|x| x.id == m.id && x.provider == m.provider && x.inputs.iter().any(|i| i == kind));
+        AttachmentInput { image: has("image"), pdf: has("pdf") }
     }
 
     pub fn model_name(&self, m: &ModelRef) -> String {
