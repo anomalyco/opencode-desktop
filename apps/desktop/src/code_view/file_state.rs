@@ -40,6 +40,8 @@ pub struct CodeDocState {
     pub binary: bool,
     pub size_bytes: usize,
     wrap: bool,
+    /// The text ends with a newline: the empty line after it shows numbered.
+    trailing: bool,
     digits: u32,
     selection: Option<FileLineSelection>,
     selecting: bool,
@@ -84,6 +86,7 @@ impl CodeDocState {
             binary: false,
             size_bytes: 0,
             wrap: false,
+            trailing: false,
             digits: 3,
             selection: None,
             selecting: false,
@@ -121,7 +124,9 @@ impl CodeDocState {
         } else {
             SourceLines::new(content)
         };
-        self.digits = (self.source.len().max(1).ilog10() + 1).max(3);
+        // Pierre numbers the empty line after a file's last newline too.
+        self.trailing = !self.binary && content.ends_with('\n');
+        self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
         self.recompute_matches();
         self.bump_keys();
@@ -133,6 +138,7 @@ impl CodeDocState {
         self.missing = false;
         self.ready = true;
         self.source = SourceLines::default();
+        self.trailing = false;
         self.bump_keys();
     }
 
@@ -141,6 +147,7 @@ impl CodeDocState {
         self.binary = false;
         self.ready = true;
         self.source = SourceLines::default();
+        self.trailing = false;
         self.bump_keys();
     }
 
@@ -160,11 +167,15 @@ impl CodeDocState {
     }
 
     pub fn line_count(&self) -> usize {
-        self.source.len() as usize
+        self.lines() as usize
+    }
+
+    fn lines(&self) -> u32 {
+        self.source.len() + u32::from(self.trailing)
     }
 
     pub fn line(&self, n: u32) -> Option<&str> {
-        self.source.line(n)
+        self.source.line(n).or((self.trailing && n == self.lines()).then_some(""))
     }
 
     pub fn digits(&self) -> u32 {
@@ -224,7 +235,7 @@ impl CodeDocState {
             return;
         }
         let delta = (dy / LINE_H).round() as i64;
-        let target = (start_line as i64 + delta).clamp(1, self.source.len() as i64) as u32;
+        let target = (start_line as i64 + delta).clamp(1, self.lines() as i64) as u32;
         if let Some(s) = self.selection
             && s.end != target
         {
@@ -256,7 +267,7 @@ impl CodeDocState {
         if self.source.is_empty() {
             return;
         }
-        let clamped = line.clamp(1, self.source.len());
+        let clamped = line.clamp(1, self.lines());
         if select {
             self.selection = Some(FileLineSelection { start: clamped, end: clamped });
             self.rev += 1;
@@ -269,8 +280,9 @@ impl CodeDocState {
     /// [`Self::scroll_to_line`] at `start`, selecting `start..=end`.
     pub fn scroll_to_lines(&mut self, scroll_key: &str, start: u32, end: u32, tx: &mut Tx) {
         self.scroll_to_line(scroll_key, start, true, tx);
+        let lines = self.lines();
         if let Some(sel) = self.selection.as_mut() {
-            sel.end = end.clamp(sel.start, self.source.len().max(sel.start));
+            sel.end = end.clamp(sel.start, lines.max(sel.start));
         }
     }
 

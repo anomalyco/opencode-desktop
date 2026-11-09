@@ -9,7 +9,7 @@ use rune::{
 };
 
 use super::file_state::CodeDocState;
-use super::{CODE_PAD, CodeLook, EDGE_FADE, LINE_H, expand_tabs, lang_for_path};
+use super::{CodeLook, EDGE_FADE, LINE_H, expand_tabs, lang_for_path};
 use crate::palette::Pal;
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -48,7 +48,7 @@ impl<S: 'static> CodeViewer<S> {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .fill(look.bg)
+                .fill(p.bg_base)
                 .center()
                 .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted));
         }
@@ -59,7 +59,7 @@ impl<S: 'static> CodeViewer<S> {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .fill(look.bg)
+                .fill(p.bg_base)
                 .center()
                 .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted));
         }
@@ -69,7 +69,7 @@ impl<S: 'static> CodeViewer<S> {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .fill(look.bg)
+                .fill(p.bg_base)
                 .center()
                 .child(
                     text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes))
@@ -85,10 +85,13 @@ impl<S: 'static> CodeViewer<S> {
 
         let count = st.line_count();
         let inner = Rc::new(Inner { look, v: self });
+        // Pierre's file starts at its first line (`--diffs-gap-block: 0`, session-ui
+        // `pierre/index.ts:329`), and Desktop's file tab leaves 160 px of the panel under the last
+        // (`gui-plugins/src/file/view.tsx:480`, `pb-40`).
         let mut list = col()
             .key("rows")
             .w_full()
-            .py(4.0)
+            .pb(160.0)
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
@@ -114,12 +117,13 @@ impl<S: 'static> CodeViewer<S> {
             .scroll(ScrollSpec { stick_bottom: false });
         let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list);
 
+        // The rows on `background-stronger`, the panel's own background under them.
         col()
             .key(root_key)
             .w_full()
             .grow(1.0)
             .min_h(0.0)
-            .fill(inner.look.bg)
+            .fill(p.bg_base)
             .child(scroll)
     }
 }
@@ -131,10 +135,7 @@ struct Inner<S> {
 
 impl<S: 'static> Inner<S> {
     fn content_width(&self, st: &CodeDocState) -> f32 {
-        self.look.number_w(st.digits())
-            + st.columns() as f32 * self.look.adv
-            + CODE_PAD.0
-            + CODE_PAD.1
+        self.look.number_w(st.digits()) + (st.columns() + 2) as f32 * self.look.adv
     }
 
     fn row(&self, s: &S, i: usize) -> El {
@@ -153,18 +154,18 @@ impl<S: 'static> Inner<S> {
     fn line_row(&self, st: &CodeDocState, n: u32, selected: bool) -> El {
         let l = &self.look;
         let fill = if selected { l.selected } else { l.bg };
-        let gutter_fill = if selected { l.selected_gutter } else { l.bg };
-        let num_color = if selected { l.text } else { l.faint };
+        let num_color = if selected { l.selected_number } else { l.faint };
         let get_mut = self.v.get_mut.clone();
+        // Pierre's number cell, as a diff's: 2ch in, at least 3ch, 1ch after
+        // (`--opencode-diffs-number-inset`, session-ui `pierre/index.ts:270-272`).
         let mut gutter = row()
             .key("gutter")
             .w(l.number_w(st.digits()))
             .min_h(LINE_H)
             .self_stretch()
-            .px(8.0)
+            .pr(l.adv)
             .justify_end()
             .items_start()
-            .fill(gutter_fill)
             .cursor(Cursor::Pointer)
             .on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
                 tx.instant();
@@ -182,8 +183,9 @@ impl<S: 'static> Inner<S> {
                 }
             })
             .child(text(n.to_string()).font(l.mono).color(num_color));
+        // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
         if !st.wrap() {
-            gutter = gutter.sticky_left(0.0);
+            gutter = gutter.fill(fill).sticky_left(0.0);
         }
 
         let raw = st.line(n).unwrap_or("");
@@ -195,7 +197,7 @@ impl<S: 'static> Inner<S> {
                 (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
             })
             .collect();
-        let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs);
+        let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs, None);
         let (shown, spans) = expand_tabs(raw, spans);
         let mut code_txt = rich(shown, spans)
             .font(l.mono)
@@ -203,17 +205,20 @@ impl<S: 'static> Inner<S> {
             .selectable(true)
             .selection_color(l.selection)
             .key("text");
-        code_txt = if st.wrap() { code_txt.w_full() } else { code_txt.single_line() };
+        code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
 
-        row()
+        let line = row()
             .w_full()
             .min_h(LINE_H)
             .items_start()
             .fill(fill)
-            .hover(l.hover)
-            .hover_motion(INSTANT, INSTANT)
             .role("listitem")
             .child(gutter)
-            .child(col().grow(1.0).min_w(0.0).pl(CODE_PAD.0).pr(CODE_PAD.1).child(code_txt))
+            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt));
+        // A selected line keeps its fill under the pointer, as session-ui sets it outright.
+        if selected {
+            return line;
+        }
+        line.hover(l.hover).hover_motion(INSTANT, INSTANT)
     }
 }

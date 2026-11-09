@@ -63,7 +63,8 @@ pub fn is_prose(path: &str) -> bool {
     }
 }
 
-/// Wrap per kind of file: prose wraps and code doesn't, until Kit flips one (kept across launches).
+/// Wrap per kind of file: every file wraps, as Desktop's file tab does (Pierre's `overflow:
+/// "wrap"`, session-ui `pierre/index.ts:307`), until Kit flips one (kept across launches).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WrapPrefs {
     pub prose: Option<bool>,
@@ -72,7 +73,7 @@ pub struct WrapPrefs {
 
 impl WrapPrefs {
     pub fn wraps(&self, path: &str) -> bool {
-        if is_prose(path) { self.prose.unwrap_or(true) } else { self.code.unwrap_or(false) }
+        if is_prose(path) { self.prose.unwrap_or(true) } else { self.code.unwrap_or(true) }
     }
 
     /// A document for `path`, wrapped as its kind is.

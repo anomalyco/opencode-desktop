@@ -31,25 +31,34 @@ pub use file_state::{CodeDocState, FileLineSelection};
 pub use file_view::CodeViewer;
 pub use fold::{ExpandMode, Fold, FoldEffect, FoldEvent, Reveal};
 
-pub const LINE_H: f32 = 20.0;
+/// Desktop's code row: Pierre's line at session-ui's `--diffs-line-height: 24px`
+/// (`session-ui/src/pierre/index.ts:325`), in its 13 px mono (`--font-size-small`, `:324`).
+pub const LINE_H: f32 = 24.0;
 pub const HEADER_H: f32 = 38.0;
 /// Desktop's fold separator row (session-ui `[data-separator] { height: 24px }`).
 pub const GAP_H: f32 = 24.0;
 pub const NOTE_H: f32 = 36.0;
-pub const BAR_W: f32 = 3.0;
-pub const CODE_PAD: (f32, f32) = (10.0, 20.0);
+/// A changed line's bar, over the left edge of its number cell (session-ui's
+/// `[data-indicators='bars'] [data-column-number]::before { width: 2px }`, `index.ts:119-122`).
+pub const BAR_W: f32 = 2.0;
+/// Pierre's tab stops (`--diffs-tab-size: 2`, `index.ts:326`).
+pub const TAB: u32 = 2;
+/// How far in, in mono columns, a line's number starts (`padding-left: 2ch`).
+const NUMBER_INSET: f32 = 2.0;
 /// Width of the fade where long lines run under the no-wrap viewers' edges.
 pub const EDGE_FADE: f32 = 24.0;
 pub const CHUNK_LINES: u32 = 128;
 
+/// A changed line's colours (`session-ui/src/pierre/index.ts:39-65,119-157`).
 #[derive(Clone, Copy)]
 pub struct DiffTints {
+    /// The row and its number cell, laid over the diff's background.
     pub line: Color,
-    pub gutter: Color,
+    /// A changed word's fill and text.
     pub word: Color,
+    pub word_text: Color,
     pub number: Color,
     pub bar: Color,
-    pub count: Color,
 }
 
 #[derive(Clone)]
@@ -70,13 +79,15 @@ pub struct CodeLook {
     pub faint: Color,
     pub border: Color,
     pub border_muted: Color,
+    /// An unchanged row under the pointer (Pierre's `lineHoverHighlight: "both"`).
     pub hover: Color,
     pub add: DiffTints,
     pub del: DiffTints,
-    pub gap_bg: Color,
     pub empty_bg: Color,
+    /// A selected row and its number cell, and the number's colour.
     pub selected: Color,
-    pub selected_gutter: Color,
+    pub selected_number: Color,
+    /// Selected text.
     pub selection: Color,
     pub match_bg: Color,
     pub active_match_bg: Color,
@@ -93,17 +104,13 @@ fn tint(base: Color, hue: Color, t: f32) -> Color {
 impl CodeLook {
     pub fn new(p: &Pal) -> Self {
         let kit = crate::palette::kit(p);
-        let bg = p.bg_base;
+        // Desktop draws code on `background-stronger` (session-ui's `--diffs-bg`, `index.ts:33`).
+        let bg = p.code_bg;
         let dark = p.dark;
-        let mk_tints = |hue: Color| DiffTints {
-            line: tint(bg, hue, if dark { 0.13 } else { 0.095 }),
-            gutter: tint(bg, hue, if dark { 0.20 } else { 0.16 }),
-            word: tint(bg, hue, if dark { 0.32 } else { 0.26 }),
-            number: tint(p.muted, hue, 0.7),
-            bar: hue,
-            count: hue,
-        };
-        let mono = TextStyle::new(12.5, 400.0).mono().lh(LINE_H);
+        let d = &p.diff;
+        // Pierre's number cell is the computed weight 440 of the page; IBM Plex Mono's Text cut
+        // draws every weight below 600 (`app/src/index.css`).
+        let mono = TextStyle::new(13.0, 440.0).mono().lh(LINE_H);
         let mono_small = TextStyle::new(11.5, 400.0).mono().lh(16.0);
         let label = TextStyle::new(12.5, 450.0).lh(18.0).tracking(-0.04);
         let label_med = TextStyle::new(12.5, 530.0).lh(18.0).tracking(-0.04);
@@ -130,14 +137,14 @@ impl CodeLook {
             faint: p.faint,
             border: p.border,
             border_muted: p.border_muted,
-            hover: p.hover,
-            add: mk_tints(p.diff_add),
-            del: mk_tints(p.diff_del),
-            gap_bg: tint(bg, p.info, if dark { 0.09 } else { 0.055 }),
-            empty_bg: tint(bg, p.text, if dark { 0.03 } else { 0.025 }),
-            selected: tint(bg, p.info, if dark { 0.20 } else { 0.14 }),
-            selected_gutter: tint(bg, p.info, if dark { 0.32 } else { 0.25 }),
-            selection: p.selection,
+            hover: d.hover,
+            add: DiffTints { line: d.add_row, word: d.add_word, word_text: d.add_word_text, number: d.add_bar, bar: d.add_bar },
+            del: DiffTints { line: d.del_row, word: d.del_word, word_text: d.del_word_text, number: d.del_bar, bar: d.del_bar },
+            empty_bg: d.empty,
+            selected: d.selected,
+            selected_number: p.accent,
+            // `[data-diff]::selection`: `--timeline-quote-background` (session-ui `pierre/index.ts:76-79`).
+            selection: p.timeline_selection,
             match_bg: tint(bg, p.warning, if dark { 0.28 } else { 0.22 }),
             active_match_bg: tint(bg, p.warning, if dark { 0.48 } else { 0.38 }),
             accent: p.info,
@@ -148,8 +155,11 @@ impl CodeLook {
         }
     }
 
+    /// A line-number cell: Pierre's `[data-column-number]`, 2ch in (`padding-left: 2ch`, room for
+    /// the bar), the number right-aligned in at least 3ch (session-ui's
+    /// `--diffs-min-number-column-width: 3ch`, `index.ts:331`), then 1ch (`padding-inline: 1ch`).
     pub fn number_w(&self, digits: u32) -> f32 {
-        (digits.max(3) as f32 * self.adv + 14.0).ceil()
+        (NUMBER_INSET + digits.max(3) as f32 + 1.0) * self.adv
     }
 }
 
@@ -165,13 +175,20 @@ impl CodeLook {
     }
 
     /// `highlights` coloured, with `bgs` (word changes, find matches) under them: a Markdown
-    /// heading in Desktop's bold mono (its highlight theme's `title`, weight 700).
-    pub fn spans(&self, len: usize, highlights: &[(Range<usize>, Paint)], bgs: &[(Range<usize>, Color)]) -> Vec<Span> {
+    /// heading in Desktop's bold mono (its highlight theme's `title`, weight 700). A changed
+    /// word (`word`, its fill and text colour) takes that colour over its syntax colour, as
+    /// session-ui's `[data-diff-span] { color: … !important }` does (`index.ts:148-157`).
+    pub fn spans(&self, len: usize, highlights: &[(Range<usize>, Paint)], bgs: &[(Range<usize>, Color)], word: Option<(Color, Color)>) -> Vec<Span> {
         let syntax: Vec<(Range<usize>, Color)> = highlights.iter().map(|(r, p)| (r.clone(), self.syntax.paint(*p))).collect();
         let mut spans = layer_spans(len, &syntax, bgs);
         for (r, _) in highlights.iter().filter(|(_, p)| *p == Paint::Kind(Syntax::Heading)) {
             for sp in spans.iter_mut().filter(|sp| r.start <= sp.start as usize && sp.end as usize <= r.end) {
                 sp.weight = Some(700.0);
+            }
+        }
+        if let Some((fill, ink)) = word {
+            for sp in spans.iter_mut().filter(|sp| sp.bg == Some(fill)) {
+                sp.color = Some(ink);
             }
         }
         spans
@@ -264,7 +281,7 @@ pub fn visual_columns(line: &str) -> u32 {
     let mut col = 0u32;
     for ch in line.chars() {
         if ch == '\t' {
-            col += 4 - (col % 4);
+            col += TAB - (col % TAB);
         } else {
             col += 1;
         }
@@ -361,7 +378,7 @@ pub fn layer_spans(
     out
 }
 
-/// Expands `\t` into 1..=4 spaces and shifts `spans` accordingly.
+/// Expands `\t` to the next [`TAB`] stop and shifts `spans` accordingly.
 pub fn expand_tabs(line: &str, spans: Vec<Span>) -> (String, Vec<Span>) {
     if !line.contains('\t') {
         return (line.to_owned(), spans);
@@ -369,10 +386,11 @@ pub fn expand_tabs(line: &str, spans: Vec<Span>) -> (String, Vec<Span>) {
     let mut out = String::with_capacity(line.len() + 8);
     let mut map = vec![0usize; line.len() + 1];
     let mut col = 0usize;
+    let tab = TAB as usize;
     for (byte_i, ch) in line.char_indices() {
         map[byte_i] = out.len();
         if ch == '\t' {
-            let n = 4 - (col % 4);
+            let n = tab - (col % tab);
             for _ in 0..n {
                 out.push(' ');
             }

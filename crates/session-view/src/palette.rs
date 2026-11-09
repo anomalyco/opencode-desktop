@@ -154,12 +154,21 @@ pub struct V2 {
 /// A diff's colours (`session-ui/src/pierre/index.ts`, `diff-changes.css`).
 #[derive(Clone, Copy, Debug)]
 pub struct DiffInk {
-    /// `--text-diff-add-base` and `-delete-base`: a file row's `+N -M`, Created and Deleted.
+    /// `--text-diff-add-base` and `-delete-base`: a count's `+N -M` and a file's status letter.
+    /// At run time they resolve to `state-fg-success` and `state-fg-danger`.
     pub add_text: Color,
     pub del_text: Color,
+    /// `--icon-diff-add-base` and `-delete-base`: a file row's Created and Deleted
+    /// (`message-part.css`, `[data-slot="apply-patch-change"]`), as they resolve at run time.
+    pub add_icon: Color,
+    pub del_icon: Color,
     /// A changed line's fill, its number cell's too.
     pub add_line: Color,
     pub del_line: Color,
+    /// [`Self::add_line`] and [`Self::del_line`] laid over the diff's background, opaque, for a
+    /// row drawn on a surface of another colour.
+    pub add_row: Color,
+    pub del_row: Color,
     /// A changed word's fill, over its line's.
     pub add_word: Color,
     pub del_word: Color,
@@ -171,6 +180,16 @@ pub struct DiffInk {
     pub del_bar: Color,
     /// The quiet row between hunks.
     pub separator: Color,
+    /// An unchanged line under the pointer (Pierre's `lineHoverHighlight`: the diff's
+    /// background mixed 3% toward black, 9% toward white in dark, in Lab). A changed line keeps
+    /// its fill, which Pierre mixes toward itself.
+    pub hover: Color,
+    /// A selected line and its number (`--diffs-bg-selection`: `bg-accent` at 20%, over the
+    /// diff's background), its number in `text-accent` (`--diffs-selection-number-fg`).
+    pub selected: Color,
+    /// The empty side of a split row (`--diffs-bg-context-gutter`, which session-ui puts on
+    /// `[data-content-buffer]` in place of Pierre's hatching).
+    pub empty: Color,
 }
 
 /// `menu-v2`'s standard look: Desktop's v1 tokens, as each theme resolves them.
@@ -490,11 +509,16 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
     let fill = if dark { 0.1 } else { 0.05 };
     let word = if dark { 0.4 } else { 0.2 };
     let mixer = if dark { Color::WHITE } else { Color::BLACK };
+    let add_fill = if dark { ramp("green-800", add) } else { green };
     DiffInk {
-        add_text: if dark { hex("#9bcd97", add) } else { hex("#3a8437", add) },
-        del_text: if dark { hex("#fc533a", del) } else { hex("#ed4831", del) },
-        add_line: t.alpha(if dark { ramp("green-800", add) } else { green }, fill),
+        add_text: add,
+        del_text: del,
+        add_icon: if dark { hex("#c4ffc0", add) } else { hex("#167517", add) },
+        del_icon: if dark { hex("#ec2f14", del) } else { hex("#fa3012", del) },
+        add_line: t.alpha(add_fill, fill),
         del_line: t.alpha(red, fill),
+        add_row: over(bg, add_fill, fill),
+        del_row: over(bg, red, fill),
         add_word: t.alpha(green, word),
         del_word: t.alpha(red, word),
         add_word_text: if dark { text } else { ramp("green-1200", text) },
@@ -502,7 +526,20 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
         add_bar: if dark { ramp("green-400", add) } else { ramp("green-900", add) },
         del_bar: if dark { ramp("red-500", del) } else { ramp("red-800", del) },
         separator: mix_lab(bg, mixer, if dark { 0.05 } else { 0.02 }),
+        hover: mix_lab(bg, mixer, if dark { 0.09 } else { 0.03 }),
+        selected: over(bg, t.color("background-bg-accent"), 0.2),
+        // `--diffs-bg-context` (the background 1.5% toward the mixer, 7.5% in dark) mixed 90%
+        // (45% in dark) into the background, in Lab.
+        empty: mix_lab(bg, mixer, if dark { 0.075 * 0.45 } else { 0.015 * 0.9 }),
     }
+}
+
+/// `c` at opacity `a` laid over the opaque `bg` as CSS composites it, in sRGB: opaque, so it
+/// paints alike in either blend mode.
+fn over(bg: Color, c: Color, a: f32) -> Color {
+    use rune::color::{srgb_decode, srgb_encode};
+    let m = |b: f32, f: f32| srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));
+    Color { r: m(bg.r, c.r), g: m(bg.g, c.g), b: m(bg.b, c.b), a: 1.0 }
 }
 
 /// `t` of the way from `a` to `b` in CIE Lab, as CSS `color-mix(in lab, a, b t)` mixes:

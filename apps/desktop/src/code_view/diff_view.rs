@@ -15,7 +15,7 @@ use rune_kit::diff::{
 use super::diff_state::{DiffDocState, DiffRow};
 use super::fold::{FoldEffect, Reveal};
 use super::{
-    BAR_W, CODE_PAD, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
+    BAR_W, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
     lang_for_path,
 };
 use crate::palette::Pal;
@@ -54,6 +54,7 @@ pub struct DiffViewer<S> {
     get: Get<S>,
     get_mut: GetMut<S>,
     sticky_headers: bool,
+    whole: bool,
     on_visible_file: Option<Rc<dyn Fn(&mut S, usize)>>,
     on_fetch_text: Option<Rc<dyn Fn(&mut S, usize)>>,
     header_actions: Option<Rc<dyn Fn(&S, usize) -> El>>,
@@ -70,6 +71,7 @@ impl<S: 'static> DiffViewer<S> {
             get: Rc::new(get),
             get_mut: Rc::new(get_mut),
             sticky_headers: true,
+            whole: false,
             on_visible_file: None,
             on_fetch_text: None,
             header_actions: None,
@@ -78,6 +80,13 @@ impl<S: 'static> DiffViewer<S> {
 
     pub fn sticky_headers(mut self, enabled: bool) -> Self {
         self.sticky_headers = enabled;
+        self
+    }
+
+    /// Every row built at its own height, the diff as tall as they come and not scrolling
+    /// itself: a wrapping diff shown whole inside another scroll.
+    pub fn whole(mut self, whole: bool) -> Self {
+        self.whole = whole;
         self
     }
 
@@ -100,25 +109,23 @@ impl<S: 'static> DiffViewer<S> {
 
     pub fn build(self, s: &S, p: &Pal) -> El {
         let st = (self.get)(s);
-        let mut look = CodeLook::new(p);
         // Desktop draws a diff's rows on `background-stronger` (session-ui's `--diffs-bg`), the
         // panel's own background showing past the last of them.
-        look.bg = p.code_bg;
+        let look = CodeLook::new(p);
         let wrap = st.wraps();
         let root_key = self.key.clone();
         if !wrap && let Some(r) = rune::memo::layout(&format!("{root_key}/scroll")) {
             st.set_viewport(r);
         }
         let sticky_on = self.sticky_headers;
+        let whole = self.whole && wrap;
         let inner = Rc::new(Inner { look, pal: *p, d: self });
         let count = st.rows.len();
-        let mut list = col()
-            .key("rows")
-            .w_full()
-            .growth(GrowthSpec::default())
-            .selection_group(true)
-            .role("list")
-            .label(opencode_i18n::t!("rune.diff.label"));
+        let list = col().key("rows").w_full().selection_group(true).role("list").label(opencode_i18n::t!("rune.diff.label"));
+        if whole {
+            return col().key(root_key).w_full().fill(p.bg_base).child(list.children((0..count).map(|i| inner.row(s, i))));
+        }
+        let mut list = list.growth(GrowthSpec::default());
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
@@ -205,21 +212,28 @@ impl<S: 'static> Inner<S> {
         }
     }
 
-    fn gutter_fill(&self, kind: LineKind, selected: bool) -> Color {
+    /// A row's fill, its number cell's too: Pierre draws the cell in the line's colour.
+    fn fill(&self, kind: LineKind, selected: bool) -> Color {
         match (selected, self.tints(kind)) {
-            (true, _) => self.look.selected_gutter,
-            (false, Some(t)) => t.gutter,
+            (true, _) => self.look.selected,
+            (false, Some(t)) => t.line,
             (false, None) => self.look.bg,
         }
     }
 
+    /// Only an unchanged, unselected row lights under the pointer: Pierre mixes a changed one's
+    /// fill toward itself, and session-ui sets a selected one's outright (`index.ts:210-216`).
+    fn hover(&self, row: El, kind: LineKind, selected: bool) -> El {
+        if selected || kind != LineKind::Context {
+            return row;
+        }
+        row.hover(self.look.hover).hover_motion(INSTANT, INSTANT)
+    }
+
+    /// One unwrapped line's width: its number cell, then its code 1ch in from each side.
     fn content_width(&self, st: &DiffDocState) -> f32 {
         let digits = (0..st.files().len()).map(|f| st.digits(f)).max().unwrap_or(3);
-        BAR_W
-            + 2.0 * self.look.number_w(digits)
-            + st.columns() as f32 * self.look.adv
-            + CODE_PAD.0
-            + CODE_PAD.1
+        self.look.number_w(digits) + (st.columns() + 2) as f32 * self.look.adv
     }
 
     fn view_w(&self, st: &DiffDocState) -> Option<f32> {
@@ -227,9 +241,9 @@ impl<S: 'static> Inner<S> {
         (w > 0.0 && !st.wraps()).then_some(w)
     }
 
+    /// Pierre's gutter: one number column, in unified mode as in each half of a split row.
     fn gutter_w(&self, st: &DiffDocState, f: usize) -> f32 {
-        let n = self.look.number_w(st.digits(f));
-        BAR_W + if st.mode() == DiffMode::Unified { 2.0 * n } else { n }
+        self.look.number_w(st.digits(f))
     }
 
     fn row(&self, s: &S, i: usize) -> El {
@@ -318,42 +332,35 @@ impl<S: 'static> Inner<S> {
         }
     }
 
+    /// A unified row: Pierre's one number column, a removed line's old number and any other's
+    /// new one, then the code.
     fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>) -> El {
-        let l = &self.look;
         let selected = st.row_selected(i, None);
-        let fill = if selected {
-            l.selected
-        } else {
-            self.tints(c.kind).map_or(l.bg, |t| t.line)
-        };
         let digits = st.digits(f);
         let copy = match c.kind {
             LineKind::Context => true,
             LineKind::Added => st.copy_side() == Side::New,
             LineKind::Removed => st.copy_side() == Side::Old,
         };
-        let hover_side = if c.kind == LineKind::Removed { Side::Old } else { Side::New };
+        let (side, n) = if c.kind == LineKind::Removed { (Side::Old, c.old) } else { (Side::New, c.new) };
         let mut gutter = row()
             .key("gutter")
             .self_stretch()
             .items_stretch()
-            .fill(self.gutter_fill(c.kind, selected))
-            .child(self.bar(c.kind))
-            .child(self.number_cell(st, i, f, c.old, Side::Old, c.kind, selected, digits).key("no"))
-            .child(self.number_cell(st, i, f, c.new, Side::New, c.kind, selected, digits).key("nn"));
+            .child(self.number_cell(st, i, f, n, side, c.kind, selected, digits).key("nn"));
+        // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
         if !st.wraps() {
-            gutter = gutter.sticky_left(0.0);
+            gutter = gutter.fill(self.fill(c.kind, selected)).sticky_left(0.0);
         }
-        row()
+        let line = row()
             .w_full()
             .min_h(LINE_H)
             .items_start()
-            .fill(fill)
-            .hover(l.hover)
-            .hover_motion(INSTANT, INSTANT)
+            .fill(self.fill(c.kind, selected))
             .role("listitem")
             .child(gutter)
-            .child(self.code_cell(st, f, &c, copy, hover_side).key("code"))
+            .child(self.code_cell(st, f, &c, copy, side).key("code"));
+        self.hover(line, c.kind, selected)
     }
 
     fn split_line<'a>(
@@ -376,49 +383,40 @@ impl<S: 'static> Inner<S> {
                 .min_h(LINE_H)
                 .items_start()
                 .self_stretch();
+            // Session-ui's `--diffs-bg-context-gutter` where a side has no line
+            // (`[data-content-buffer]`, `index.ts:175-178`).
             let Some(mut cell) = c else {
                 return h.fill(l.empty_bg);
             };
             let kind = cell.kind;
             let selected = st.row_selected(i, Some(side));
-            let fill = if selected {
-                l.selected
-            } else {
-                self.tints(kind).map_or(l.bg, |t| t.line)
-            };
             let n = if side == Side::Old { cell.old } else { cell.new };
             if kind == LineKind::Context {
                 cell.text = st.side_line(f, side, n.unwrap_or(1)).unwrap_or(cell.text);
             }
             let copy = st.copy_side() == side;
             h = h
-                .fill(fill)
-                .hover(l.hover)
-                .hover_motion(INSTANT, INSTANT)
+                .fill(self.fill(kind, selected))
                 .role("listitem")
-                .child(self.bar(kind))
                 .child(self.number_cell(st, i, f, n, side, kind, selected, digits).key("n"))
                 .child(self.code_cell(st, f, &cell, copy, side).key("code"));
-            h
+            self.hover(h, kind, selected)
         };
+        // Two halves side by side, nothing between: session-ui takes away the 1 px of diff
+        // background Pierre puts between them (`index.ts:167-173`). Desktop's review draws an
+        // added or deleted file's one side as a single column.
         let line = row().w_full().min_h(LINE_H).items_stretch();
-        // Desktop's review draws an added or deleted file's one side as a single column.
         match single {
             Some(Side::Old) => line.child(half(Side::Old, old)),
             Some(Side::New) => line.child(half(Side::New, new)),
-            None => {
-                let divider = col().key("divider").w(0.5).self_stretch().fill(self.look.border_muted);
-                line.child(half(Side::Old, old)).child(divider).child(half(Side::New, new))
-            }
+            None => line.child(half(Side::Old, old)).child(half(Side::New, new)),
         }
     }
 
-    fn bar(&self, kind: LineKind) -> El {
-        let b = col().key("bar").w(BAR_W).self_stretch();
-        match self.tints(kind) {
-            Some(t) => b.fill(t.bar),
-            None => b,
-        }
+    /// A changed line's bar over its number cell's left edge, the row's full height.
+    fn bar(&self, kind: LineKind) -> Option<El> {
+        let t = self.tints(kind)?;
+        Some(el().key("bar").absolute(0.0, 0.0).w(BAR_W).h_full().fill(t.bar))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -435,19 +433,19 @@ impl<S: 'static> Inner<S> {
     ) -> El {
         let l = &self.look;
         let unified = st.mode() == DiffMode::Unified;
+        // Pierre's `[data-column-number]`: 2ch in, the number right-aligned, 1ch after it; a
+        // wrapped line's number on its first row.
         let mut c = row()
             .w(l.number_w(digits))
             .min_h(LINE_H)
             .self_stretch()
-            .px(6.0)
+            .pr(l.adv)
             .justify_end()
-            .items_start();
-        if !unified {
-            c = c.fill(self.gutter_fill(kind, selected));
-        }
+            .items_start()
+            .children(self.bar(kind));
         if let Some(n) = n {
             let color = if selected {
-                l.text
+                l.selected_number
             } else {
                 self.tints(kind).map_or(l.faint, |t| t.number)
             };
@@ -502,24 +500,27 @@ impl<S: 'static> Inner<S> {
     ) -> El {
         let l = &self.look;
         let (src_side, n) = c.source();
-        let word_bgs: Vec<(Range<usize>, Color)> = match self.tints(c.kind) {
+        let tints = self.tints(c.kind);
+        let word_bgs: Vec<(Range<usize>, Color)> = match tints {
             Some(t) => c.changes.iter().cloned().map(|r| (r, t.word)).collect(),
             None => Vec::new(),
         };
-        let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs);
+        let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, tints.map(|t| (t.word, t.word_text)));
         let (shown, spans) = expand_tabs(c.text, spans);
         let ink = l.ink(lang_for_path(st.files()[f].path()));
         let mut t = rich(shown, spans).font(l.mono).color(ink).key("text");
-        t = if st.wraps() { t.w_full() } else { t.single_line() };
+        // Pierre's `[data-overflow='wrap'] [data-line] { white-space: pre-wrap; word-break:
+        // break-word }`: at spaces, inside a word only when it alone overflows.
+        t = if st.wraps() { t.w_full().wrap_anywhere() } else { t.single_line() };
         if copy {
             t = t.selectable(true).selection_color(l.selection);
         }
         let get_mut = self.d.get_mut.clone();
+        // `[data-line] { padding-inline: 1ch }`.
         let mut code = col()
             .grow(1.0)
             .min_w(0.0)
-            .pl(CODE_PAD.0)
-            .pr(CODE_PAD.1)
+            .px(l.adv)
             .child(t)
             .on_hover_change(move |s: &mut S, inside, tx| {
                 let st = get_mut(s);
@@ -529,15 +530,10 @@ impl<S: 'static> Inner<S> {
                     tx.live_only();
                 }
             });
+        // Pierre's `[data-no-newline]` row under the line, in its colour: the code's face and
+        // `--diffs-fg` at 60% (`[data-no-newline] span { opacity: .6 }`).
         if c.no_newline {
-            code = code.child(
-                text(opencode_i18n::t!("rune.diff.noNewline"))
-                    .font(l.mono_small)
-                    .color(l.muted)
-                    .opacity(0.6)
-                    .key("eof")
-                    .pb(2.0),
-            );
+            code = code.child(text(opencode_i18n::t!("rune.diff.noNewline")).font(l.mono).color(l.plain).opacity(0.6).key("eof"));
         }
         code
     }
@@ -623,7 +619,7 @@ impl<S: 'static> Inner<S> {
                 row()
                     .key("content")
                     .h(GAP_H)
-                    .px(CODE_PAD.0)
+                    .px(self.look.adv)
                     .center_y()
                     .hover_group()
                     .hover_motion(INSTANT, INSTANT)
@@ -659,7 +655,7 @@ impl<S: 'static> Inner<S> {
             .key("inner")
             .h(NOTE_H)
             .center_y()
-            .pl(self.gutter_w(st, f) + CODE_PAD.0)
+            .pl(self.gutter_w(st, f) + l.adv)
             .child(text(msg).font(l.mono_small).color(l.muted));
         if let Some(w) = self.view_w(st) {
             inner = inner.max_w(w).sticky_left(0.0);

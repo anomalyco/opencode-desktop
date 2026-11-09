@@ -305,9 +305,11 @@ fn summary(p: &Pal, m: &super::data::ReviewFileMeta) -> El {
 /// The file's unified diff, on `layer-01` (`accordion-content`).
 fn diff(s: &App, p: &Pal, id: &str, path: &str, last: bool) -> El {
     let (get_sid, get_path, mut_sid, mut_path) = (id.to_owned(), path.to_owned(), id.to_owned(), path.to_owned());
-    let height = s.review.sessions.get(id).and_then(|sr| sr.narrow.diff(path)).map(DiffDocState::rows_height);
-    let body = height.map(|h| {
-        DiffViewer::new(
+    // Wrapped (Settings › Wrap lines), the diff is as tall as its rows come out; unwrapped, it
+    // scrolls sideways at the height of its rows one under another.
+    let doc = s.review.sessions.get(id).and_then(|sr| sr.narrow.diff(path));
+    let body = doc.map(|d| {
+        let view = DiffViewer::new(
             format!("narrow-review-diff-{}", path.replace(['/', '\\', ':'], "_")),
             move |s: &App| s.review.sessions.get(&get_sid).and_then(|sr| sr.narrow.diff(&get_path)).unwrap_or(&s.review.empty_diffs),
             move |s: &mut App| match s.review.sessions.get_mut(&mut_sid).and_then(|sr| sr.narrow.diff_mut(&mut_path)) {
@@ -316,8 +318,9 @@ fn diff(s: &App, p: &Pal, id: &str, path: &str, last: bool) -> El {
             },
         )
         .sticky_headers(false)
-        .build(s, p)
-        .h(h)
+        .whole(true)
+        .build(s, p);
+        if d.wraps() { view } else { view.h(d.rows_height()) }
     });
     col()
         .key("content")

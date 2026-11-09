@@ -13,7 +13,7 @@ use rune_kit::diff::{FileDiff, Hunk, LineKind};
 use rune_kit::syntax::{Highlight, SyntaxTheme};
 
 use crate::palette::Pal;
-use crate::style::{CODE, readable};
+use crate::style::{CODE, INSTANT, readable};
 
 /// Pierre's row height (`--diffs-line-height`).
 const ROW: f32 = 24.0;
@@ -61,9 +61,12 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
                         .child(text(number.map(|n| n.to_string()).unwrap_or_default()).font(font).color(ink)),
                 )
                 .child(readable(p, text(shown).font(font).color(plain_ink(p, lang.as_deref())).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch));
-            if let Some(f) = fill {
-                line = line.fill(f);
-            }
+            // Pierre lights an unchanged line under the pointer (`lineHoverHighlight: "both"`); a
+            // changed one it mixes toward its own fill, which leaves it as it is.
+            line = match fill {
+                Some(f) => line.fill(f),
+                None => line.hover(p.diff.hover).hover_motion(INSTANT, INSTANT),
+            };
             if let Some(b) = bar {
                 line = line.child(el().key("bar").absolute(0.0, 0.0).w(2.0).h_full().fill(b));
             }
@@ -173,6 +176,8 @@ pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize) -> El {
         let (shown, spans) = expand_tabs(l, spans);
         out = out.child(
             row().key(format!("l-{n}")).w_full().min_h(ROW).items_start()
+                .hover(p.diff.hover)
+                .hover_motion(INSTANT, INSTANT)
                 .child(row().key("n").w(numbers).h(ROW).justify_end().center_y().child(text((n + 1).to_string()).font(font).color(p.faint)))
                 .child(readable(p, text(shown).font(font).color(plain_ink(p, lang)).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch)),
         );

@@ -156,7 +156,8 @@ impl Default for Settings {
             pinch_zoom: false,
             spellcheck: true,
             spellcheck_languages: Vec::new(),
-            mobile_diff_wrap: false,
+            // The Review plugin's store starts wrapping (`gui-plugins/src/review/index.ts:46-48`).
+            mobile_diff_wrap: true,
             mobile_titlebar: TitlebarPosition::default(),
             chatgpt_welcome_seen: false,
             new_icons: false,

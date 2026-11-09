@@ -232,6 +232,7 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
+    (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),
     (Page::Experimental, "settings-new-icons", key!("settings.experimental.row.newIcons.title"), None, Some(key!("settings.experimental.row.newIcons.description")), "icons iconography glyphs redesign"),
     (Page::Experimental, "settings-fold-user-messages", key!("settings.experimental.row.foldUserMessages.title"), None, Some(key!("settings.experimental.row.foldUserMessages.description")), "fold collapse long messages prompts read more"),
     (Page::Experimental, "settings-new-question-ui", key!("settings.experimental.row.newQuestionUI.title"), None, Some(key!("settings.experimental.row.newQuestionUI.description")), "question answers keyboard dock redesign"),

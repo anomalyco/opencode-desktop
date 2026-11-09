@@ -309,8 +309,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
 fn change(p: &Pal, item: &Item) -> Option<El> {
     let word = |w: &'static str, c| Some(text(w).key("change").font(UI_MED.lh(19.5)).color(c));
     match item.kind() {
-        Kind::Add => word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_text),
-        Kind::Delete => word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_text),
+        Kind::Add => word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_icon),
+        Kind::Delete => word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_icon),
         Kind::Update => {
             let (a, d) = item.counts();
             (a + d > 0).then(|| {

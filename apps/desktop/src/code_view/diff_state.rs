@@ -138,7 +138,9 @@ impl DiffDocState {
             ui: Vec::new(),
             mode: DiffMode::Unified,
             expand_mode: ExpandMode::Collapse,
-            wrap: false,
+            // Desktop's review wraps long lines (`overflow={props.overflow ?? "wrap"}`,
+            // session-ui `session-review.tsx:691`); only the narrow review lets them scroll.
+            wrap: true,
             hide_file_headers: false,
             selection: None,
             selecting: false,
