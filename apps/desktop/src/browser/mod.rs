@@ -62,16 +62,9 @@ rune_register::register!(crate::panels::PANELS: PanelRegistration = [
         .on_ime(ime_panel),
 ]);
 
+/// The `+` menu's and New tab's Browser row (order 15), its keys and no detail, as Desktop's.
 fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
-    Some(PanelLauncherDesc {
-        id: "open",
-        title: opencode_i18n::t!("plugin.browser.tab.title").into(),
-        description: Some(opencode_i18n::t!("rune.browser.launcher.description").into()),
-        icon: &ic::GLOBE,
-        shortcut: &[Bind::BrowserOpen],
-        order: 15,
-        opened: false,
-    })
+    Some(PanelLauncherDesc::new("open", opencode_i18n::t!("plugin.browser.tab.title"), &ic::GLOBE, 15).shortcut(&[Bind::BrowserOpen]))
 }
 
 fn open_from_launcher(s: &mut App, pane: SessionPane, _tx: &mut Tx) {

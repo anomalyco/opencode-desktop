@@ -51,7 +51,7 @@ impl App {
     /// Whether a side panel asks for the wider minimum (`region.wide`): any of them, shown or not,
     /// as the review does while its diffs are split.
     pub fn side_wide(&self) -> bool {
-        self.all_panels().iter().any(|p| (p.wide)(self))
+        self.all_panels().iter().any(|p| p.is_wide(self))
     }
 
     /// The chat panel's width beside an open side region (`resizedWidth`).

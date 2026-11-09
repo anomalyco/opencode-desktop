@@ -182,9 +182,10 @@ impl ResolvedRegion {
 }
 
 impl App {
+    /// The panel providers: the app's own, and each running Luau plugin that adds panels.
     pub fn all_panels(&self) -> Vec<PanelRegistration> {
-        #[allow(unused_mut)]
         let mut out = registered_panels().to_vec();
+        out.extend(crate::plugin_host::luau::panels::providers(self));
         #[cfg(test)]
         if !self.side.extra_panels.is_empty() {
             out.retain(|p| !self.side.extra_panels.iter().any(|e| e.plugin == p.plugin));
@@ -192,6 +193,11 @@ impl App {
         }
         out.sort_by_key(|p| (p.order, p.plugin));
         out
+    }
+
+    /// The provider of namespace `plugin`.
+    pub fn find_panel(&self, plugin: &str) -> Option<PanelRegistration> {
+        self.all_panels().into_iter().find(|p| p.plugin == plugin)
     }
 
     pub fn active_session_id(&self) -> Option<&str> {
@@ -272,22 +278,13 @@ impl App {
                 .filter_map(|k| k.strip_prefix(&prefix).map(str::to_owned))
                 .collect();
             let ctx = PanelSessionCtx {
+                plugin: p.plugin,
                 session_id: &session_id,
                 directory: &directory,
                 project_id: &project_id,
                 open_ids: &open_ids,
             };
-            if let Some(launcher_fn) = p.launcher
-                && let Some(open_fn) = p.open_launcher
-                && let Some(desc) = launcher_fn(self, &ctx)
-            {
-                launchers.push((p.plugin, desc, super::Launch::Pane(open_fn)));
-            }
-            if let Some(list) = p.launchers
-                && let Some(open) = p.open_entry
-            {
-                launchers.extend(list(self, &ctx).into_iter().map(|desc| (p.plugin, desc, super::Launch::Entry(open))));
-            }
+            launchers.extend(p.launcher_entries(self, &ctx).into_iter().map(|(desc, launch)| (p.plugin, desc, launch)));
             for tab in (p.list)(self, &ctx) {
                 let key = panel_key(p.plugin, &tab.id);
                 let pane = if tab.pinned {
@@ -463,9 +460,8 @@ impl App {
         } else if let Some(r) = reg
             && let Some(act_key) = &r.active
             && let Some(entry) = r.entry(act_key)
-            && let Some(on_enter) = entry.provider.on_enter
         {
-            on_enter(self, &sid, &entry.tab.id);
+            entry.provider.enter(self, &sid, &entry.tab.id);
         }
     }
 
@@ -526,12 +522,30 @@ impl App {
         self.side.active_pane_focus = actual_pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)
-            && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
-            && let Some(on_focus) = prov.on_focus_tab
+            && let Some(prov) = self.find_panel(plugin)
         {
-            on_focus(self, session_id, tab_id, false);
+            prov.focus(self, session_id, tab_id, false);
         }
         self.place_narrow(session_id, key, was);
+    }
+
+    /// Where tab `key` is in `session`: 0 not in the strip, 1 listed, 2 its pane's shown tab
+    /// with the pane hidden, 3 on screen (Desktop's `layout.state`).
+    pub fn tab_state(&self, session: &str, key: &str) -> u64 {
+        let Some(st) = self.side.sessions.get(session) else { return 0 };
+        let tabs = &st.tab_state.tabs;
+        if !tabs.all.iter().any(|k| k == key) {
+            return 0;
+        }
+        let pane = session_tab_pane(tabs, key);
+        if session_pane_tab(tabs, pane) != Some(key) {
+            return 1;
+        }
+        let shown = match pane {
+            SessionPane::Bottom => st.bottom_open,
+            SessionPane::Side | SessionPane::Split => st.open,
+        };
+        if shown { 3 } else { 2 }
     }
 
     /// The tab pane `pane` of the routed session shows, if any.
@@ -592,10 +606,9 @@ impl App {
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
         if let Some((plugin, tab_id)) = split_panel_key(key)
-            && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
-            && let Some(on_focus) = prov.on_focus_tab
+            && let Some(prov) = self.find_panel(plugin)
         {
-            on_focus(self, session_id, tab_id, false);
+            prov.focus(self, session_id, tab_id, false);
         }
         self.place_narrow(session_id, key, was);
     }
@@ -638,10 +651,9 @@ impl App {
         self.side.active_pane_focus = pane;
 
         if let Some((plugin, tab_id)) = split_panel_key(key)
-            && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
-            && let Some(on_focus) = prov.on_focus_tab
+            && let Some(prov) = self.find_panel(plugin)
         {
-            on_focus(self, &sid, tab_id, false);
+            prov.focus(self, &sid, tab_id, false);
         }
     }
 
@@ -677,10 +689,7 @@ impl App {
 
         // Capture ClosedSideTab before removing the tab so the provider can still read its URL/state.
         let closed_record = entry.as_ref().and_then(|e| {
-            let info = e
-                .provider
-                .closed_tab
-                .map_or(ClosedTabInfo::Default, |f| f(self, &sid, &e.tab));
+            let info = e.provider.closed_info(self, &sid, &e.tab);
             match info {
                 ClosedTabInfo::Deny => None,
                 ClosedTabInfo::Default if e.provider.transient || e.tab.transient => None,
@@ -715,10 +724,8 @@ impl App {
             p
         };
 
-        if let Some(e) = &entry
-            && let Some(on_close) = e.provider.on_close_tab
-        {
-            on_close(self, &sid, &e.tab.id, tx);
+        if let Some(e) = &entry {
+            e.provider.close(self, &sid, &e.tab.id, tx);
         }
 
         // Check whether the side/split region or bottom dock is now completely empty.
@@ -756,10 +763,9 @@ impl App {
                 if let Some(r) = &next_reg
                     && let Some(act_key) = &r.active
                     && let Some((pl, tid)) = split_panel_key(act_key)
-                    && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == pl)
-                    && let Some(on_focus) = prov.on_focus_tab
+                    && let Some(prov) = self.find_panel(pl)
                 {
-                    on_focus(self, &sid, tid, false);
+                    prov.focus(self, &sid, tid, false);
                 }
             }
         }
@@ -776,10 +782,9 @@ impl App {
             tx.instant();
         }
         if let Some((plugin, tab_id)) = split_panel_key(&closed.key)
-            && let Some(prov) = self.all_panels().into_iter().find(|p| p.plugin == plugin)
-            && let Some(restore) = prov.on_restore_tab
+            && let Some(prov) = self.find_panel(plugin)
+            && prov.restore(self, &sid, tab_id, closed.data.as_deref(), tx)
         {
-            restore(self, &sid, tab_id, closed.data.as_deref(), tx);
             return true;
         }
         self.open_side_tab_for_session(&sid, &closed.key, None, false, false);

@@ -50,8 +50,9 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
             })
             .child(left);
         // Its shortcut as Desktop's neutral `Keybind` chips.
-        if let Some(&bind) = desc.shortcut.iter().find(|b| !b.keycaps().is_empty()) {
-            card = card.child(keymap::keycaps(p, bind));
+        let caps = desc.keycaps(s);
+        if !caps.is_empty() {
+            card = card.child(keymap::chips(p, caps));
         }
         list = list.child(card);
     }
@@ -199,7 +200,11 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
         for &(_pl, ref desc, launch) in &reg.launchers {
             let key = format!("side-add-menu-{}", desc.id);
             let id = desc.id;
-            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &keymap::first_label(desc.shortcut), true, move |s: &mut App, tx: &mut Tx| {
+            let hint = match keymap::first_label(desc.shortcut) {
+                l if l.is_empty() => desc.command.and_then(|c| keymap::command_chord(s, c)).map(keymap::label).unwrap_or_default(),
+                l => l,
+            };
+            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &hint, true, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.add_menu = None;
                 launch.run(s, id, pane, tx);

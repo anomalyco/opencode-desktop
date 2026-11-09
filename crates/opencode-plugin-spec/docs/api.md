@@ -507,6 +507,8 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.codeView(props: UiCodeViewProps) -> UiNode` | native | [`UiCodeViewProps`](#uicodeviewprops) | A highlighted file. |
 | `ui.diffView(props: UiDiffViewProps) -> UiNode` | native | [`UiDiffViewProps`](#uidiffviewprops) | Changes, split or unified. |
 | `ui.fileTree(props: UiFileTreeProps) -> UiNode` | native | [`UiFileTreeProps`](#uifiletreeprops) | A folder's file tree. |
+| `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start, its children stacked in it. |
+| `ui.openInButton(props: UiOpenInButtonProps) -> UiNode` | native | [`UiOpenInButtonProps`](#uiopeninbuttonprops) | The app's Open in split button for a path. |
 | `ui.genUi(props: UiGenUiProps) -> UiNode` | native | [`UiGenUiProps`](#uigenuiprops) | An interactive UI outline, from a ```` ```ui ```` code block. |
 
 ### Native nodes
@@ -522,6 +524,8 @@ Heavy engines stay native in the host. Luau composes them as opaque nodes and dr
 | `ui.codeView` | Code view with an asynchronous highlighter | Highlighting, the line buffer, the virtualized gutter, selection, find in file | Tab routing, breadcrumb header, line links, viewer choice, MCP tools |
 | `ui.diffView` | Diff engine and code view | Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors | Source switcher, totals, split and unified toggle, contracts, MCP tools |
 | `ui.fileTree` | Tree model | Tree flattening, file icons, keyboard navigation | Folder loading, filter input, expanded state, open and context menus |
+| `ui.panelSidebar` | Pointer capture | The resize drag and the width it leaves | Whether it shows and what it holds |
+| `ui.openInButton` | The system's app registry | Finding installed apps and their marks, launching them, the remembered choice | Which path it opens |
 | `ui.genUi` | UI outline renderer | Outline parsing, widget primitives and their motion | Which blocks render, through `AddCodeBlock` |
 
 ## Semantic tokens
@@ -924,6 +928,46 @@ What a diff compares.
 | `"git"` | The working tree against HEAD. |
 | `"branch"` | The branch against its merge base. |
 | `"turn"` | One session turn's changes. |
+
+### DiffStatus
+
+How a diff's read went.
+
+| Value | Meaning |
+|---|---|
+| `"loading"` | Not read yet, or a newer read is in flight. |
+| `"ready"` | Read. `Files` holds the changes. |
+| `"no-vcs"` | The folder is not under version control. |
+| `"offline"` | The server can't be reached. |
+| `"error"` | The read failed. `Retry` reads again. |
+
+### ChangeKind
+
+How a file or folder changed.
+
+| Value | Meaning |
+|---|---|
+| `"add"` | Added. |
+| `"del"` | Deleted. |
+| `"mix"` | Modified, or a folder whose files changed in more than one way. |
+
+### PanelPane
+
+A pane of the session's side region.
+
+| Value | Meaning |
+|---|---|
+| `"side"` | The side pane. The default. |
+| `"bottom"` | The bottom pane, under the conversation and the side pane. |
+
+### FieldVariant
+
+A text field's look.
+
+| Value | Meaning |
+|---|---|
+| `"default"` | The app's bordered field. |
+| `"filter"` | A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text. |
 
 ### ImageFit
 
@@ -1467,6 +1511,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `secure` | `boolean?` | Hides the text, for a password. |
 | `disabled` | `boolean?` | Takes no typing. |
 | `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
+| `variant` | `FieldVariant?` | The look. Defaults to `default`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
 ### UiLoaderProps
@@ -1619,21 +1664,47 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `diff` | `DiffDocument` | The changes, from `Diff:Open`. |
 | `mode` | `DiffMode` | Split or unified. |
 | `expand` | `boolean?` | Shows unchanged lines in full. |
-| `file` | `string?` | Shows only this file's changes. |
+| `file` | `string?` | Shows only this file's changes, under its header. |
+| `revealLine` | `number?` | Scrolls to this line of the new side, from 1, once it shows. |
 
 ### UiFileTreeProps
 
-`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host.
+`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host. A secondary click on a row offers the apps that open it.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
 | `tree` | `FileTreeModel` | The tree, from `Workspace:OpenTree`. |
+| `allowed` | `{ string }?` | Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing. |
+| `kinds` | `{ [string]: ChangeKind }?` | A change letter at the end of these paths' rows: `A`, `D` or `M`. |
 | `selectedPath` | `string?` | The selected row. |
 | `highlightedPath` | `string?` | A row to highlight, such as the open file. |
 | `onSelect` | `UiHandler?` | Runs as the user picks a file, with `event.path`. |
-| `onContextMenu` | `UiHandler?` | Runs on a secondary click, with `event.path`. |
+| `onContextMenu` | `UiHandler?` | Runs on a secondary click, with `event.path`, instead of the host's menu. |
+
+### UiPanelSidebarProps
+
+`ui.panelSidebar` props: a sidebar at a panel's start that the user resizes by its end edge. The host keeps its width per `id`; a double click on the edge resets it.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Whose width it keeps, such as the panel's id. |
+| `width` | `number?` | Its width until the user drags it. Defaults to 240. |
+| `minWidth` | `number?` | The narrowest it gets. Defaults to 200. |
+| `maxWidth` | `number?` | The widest it gets, also at most 60% of the panel. Defaults to 480. |
+
+### UiOpenInButtonProps
+
+`ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | `string` | A workspace path, or empty for the workspace folder. |
 
 ### UiGenUiProps
 
@@ -2098,6 +2169,7 @@ A folder's tree for `ui.fileTree`.
 | `:Expand` | `(path: string) -> ()` | Expands a folder. |
 | `:Collapse` | `(path: string) -> ()` | Collapses a folder. |
 | `:SetFilter` | `(query: string) -> ()` | Shows only paths that match a fuzzy query. An empty query shows all. |
+| `:Reveal` | `(path: string) -> ()` | Expands the folders above a path and scrolls its row into view. |
 | `:Refresh` | `() -> ()` | Reads the folder again. |
 | `:Version` | `() -> number` | Changes when the tree does. |
 | `:Close` | `() -> ()` | Releases it. |
@@ -2143,6 +2215,10 @@ A set of changes for `ui.diffView`.
 | `:Totals` | `() -> DiffTotals` | Its size. |
 | `:Files` | `() -> { DiffFile }` | Its files. |
 | `:SetSource` | `(source: DiffSource, messageId: string?) -> ()` | Compares something else. |
+| `:Source` | `() -> DiffSource` | What it compares. |
+| `:Sources` | `() -> { DiffSource }` | What it can compare in this folder: `branch` only on a branch other than the default one. |
+| `:Status` | `() -> DiffStatus` | How the read went. |
+| `:Retry` | `() -> ()` | Reads again after a failure. |
 | `:Loading` | `() -> boolean` | A read is in flight. |
 | `:Version` | `() -> number` | Changes when the changes do. |
 | `:Close` | `() -> ()` | Releases it. |
@@ -2350,6 +2426,19 @@ One tab an instance panel lists.
 | `pinned` | `boolean?` | Listed before every other tab, never closed or dragged. |
 | `missing` | `boolean?` | Struck through, such as a deleted file. |
 | `file` | `string?` | The workspace file the tab shows. |
+| `icon` | `IconName?` | Its icon, instead of the panel's. A tab showing `file` defaults to the file's type icon. |
+| `transient` | `boolean?` | A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed. |
+| `draggable` | `boolean?` | Drags between panes. Defaults to true. |
+| `fallback` | `boolean?` | Selected when the selected tab closes. |
+
+### ClosedTab
+
+What Recently closed lists for a panel's closed tab.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string?` | Its title, instead of the tab's. |
+| `icon` | `IconName?` | Its icon. |
 
 ### PanelMobileView
 
@@ -2381,7 +2470,10 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `first` | `boolean?` | Its tab sits at the front of the strip. |
 | `fallback` | `boolean?` | Its tab is selected when the selected tab closes. |
 | `mobile` | `PanelMobileView?` | Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it. |
-| `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. |
+| `pane` | `PanelPane?` | The pane a new tab opens in beside none of the plugin's others. Defaults to `side`. |
+| `closed` | `ClosedTab?` | What Recently closed lists for its closed tab. |
+| `isWide` | `(() -> boolean)?` | Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield. |
+| `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. A tab's key is `<plugin>:<instance>`; a panel without `list` has one tab, `<plugin>:<id>`. |
 | `render` | `(view: View, props: PanelProps) -> UiNode?` | Draws a tab's content. |
 | `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |
 | `onClose` | `((props: PanelProps) -> ())?` | Runs after the tab leaves the strip. |
@@ -2446,7 +2538,9 @@ An item of a host menu. Desktop's plugin API calls it `MenuItem`.
 | `keybind` | `string?` | `session.panel`: a published command id whose shortcut it shows. |
 | `description` | `string?` | `session.panel`: muted detail in launcher lists. |
 | `primary` | `boolean?` | `session.panel`: + runs this item directly. |
-| `when` | `((target: string) -> boolean)?` | `server.row`: lists it only for rows where it returns true. |
+| `when` | `((target: string) -> boolean)?` | `server.row`: lists it only for rows where it returns true. `session.panel`: lists it only where it returns true for the session id. |
+| `opened` | `((sessionId: string) -> boolean)?` | `session.panel`: what it opens is already in the session's strip, so the New tab view leaves it out. |
+| `detail` | `((sessionId: string) -> string?)?` | `session.panel`: muted detail for the session, instead of `description`. |
 | `enabled` | `((target: string) -> boolean)?` | `server.row`: shows it disabled while it returns false. |
 | `run` | `(target: string?) -> ()` | Runs it. `server.row` passes the row's server key. |
 

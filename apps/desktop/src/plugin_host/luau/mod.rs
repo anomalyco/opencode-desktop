@@ -27,6 +27,7 @@ pub mod cx;
 mod editors;
 mod hot;
 mod nodes;
+pub mod panels;
 mod plugin;
 pub mod requests;
 mod servers;

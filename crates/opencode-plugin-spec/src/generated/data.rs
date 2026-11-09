@@ -742,8 +742,16 @@ pub struct PanelTab {
     pub missing: Option<bool>,
     /// The workspace file the tab shows.
     pub file: Option<String>,
+    /// Its icon, instead of the panel's. A tab showing `file` defaults to the file's type icon.
+    pub icon: Option<String>,
+    /// A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed.
+    pub transient: Option<bool>,
+    /// Drags between panes. Defaults to true.
+    pub draggable: Option<bool>,
+    /// Selected when the selected tab closes.
+    pub fallback: Option<bool>,
 }
-impl_record!(PanelTab, ["instance", "title", "pinned", "missing", "file"], [], []);
+impl_record!(PanelTab, ["instance", "title", "pinned", "missing", "file", "icon", "transient", "draggable", "fallback"], [], []);
 
 /// What a titlebar item shows.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

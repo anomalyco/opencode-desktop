@@ -14,7 +14,6 @@ use super::plugin::Contrib;
 use super::services::map;
 use crate::App;
 use crate::palette::Pal;
-use crate::panels::{PanelLauncherDesc, PanelSessionCtx, PanelTabDesc, PanelViewCtx};
 
 thread_local! {
     /// A render logged an error since [`render`] cleared it.
@@ -96,126 +95,6 @@ fn each<'a, S: 'a, R>(app: &'a App, pick: impl Fn(&super::plugin::Contribs) -> V
 /// What a render needs from a contribution: its key, a function and its spec's fields.
 fn take<S: Clone>(list: &[Contrib<S>], f: &str) -> Vec<(&'static str, S, Option<Function>)> {
     list.iter().map(|c| (c.key, c.spec.clone(), c.f(f).cloned())).collect()
-}
-
-// ---- Panels ----------------------------------------------------------------------------------
-
-/// The panel tabs Luau plugins offer the session: one per panel, the instance panels' open tabs
-/// as `list` names them, and the console when it has opened.
-pub fn panel_tabs(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
-    let mut out = Vec::new();
-    for (i, (key, spec, list)) in each::<(), _>(app, |c| take(&c.panels, "list")) {
-        let icon = crate::plugin_host::icons::resolve("", spec.icon.as_deref().unwrap_or("window-analytics"));
-        let Some(list) = list else {
-            let mut tab = PanelTabDesc::new(key, spec.title.clone()).icon(icon);
-            if spec.transient == Some(true) {
-                tab = tab.transient();
-            }
-            if spec.first == Some(true) {
-                tab = tab.first();
-            }
-            if spec.fallback == Some(true) {
-                tab = tab.fallback();
-            }
-            out.push(tab);
-            continue;
-        };
-        let prefix = format!("{key}/");
-        let open: Vec<String> = ctx.open_ids.iter().filter_map(|id| id.strip_prefix(&prefix).map(str::to_owned)).collect();
-        if open.is_empty() {
-            continue;
-        }
-        let script = app.plugins.luau.plugins[i].script();
-        let tabs: Option<Vec<opencode_plugin_spec::PanelTab>> =
-            script.and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(&list, (ctx.session_id.to_owned(), open.clone())).ok())).and_then(|d| d.decode().ok());
-        for t in tabs.unwrap_or_default() {
-            out.push(PanelTabDesc::new(format!("{prefix}{}", t.instance), t.title).icon(icon).transient());
-        }
-    }
-    if ctx.open_ids.iter().any(|id| id == super::console::TAB) {
-        out.push(PanelTabDesc::new(super::console::TAB, "Plugin console").icon(crate::plugin_host::icons::resolve("", "console")).transient());
-    }
-    out
-}
-
-/// A launcher card per Luau panel that wants one.
-pub fn panel_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
-    each::<(), _>(app, |c| take(&c.panels, "list"))
-        .into_iter()
-        .filter(|(_, (_, spec, list))| list.is_none() && spec.launcher != Some(false))
-        .map(|(i, (key, spec, _))| {
-            let description = spec.description.clone().or_else(|| app.plugins.luau.plugins[i].manifest.description.clone());
-            PanelLauncherDesc {
-                id: key,
-                title: spec.title.clone(),
-                description,
-                icon: crate::plugin_host::icons::resolve("", spec.icon.as_deref().unwrap_or("window-analytics")),
-                shortcut: &[],
-                order: spec.order.unwrap_or(0) as i32,
-                opened: ctx.open_ids.iter().any(|o| o == key),
-            }
-        })
-        .collect()
-}
-
-/// The narrow-window views Luau panels offer (`PanelSpec.mobile`), each with its tab's key in
-/// the host's `plugin` panel.
-pub fn narrow_views(app: &App) -> Vec<(String, opencode_plugin_spec::PanelMobileView)> {
-    each::<(), _>(app, |c| c.panels.iter().filter_map(|c| Some((c.key, c.spec.mobile.clone()?))).collect())
-        .into_iter()
-        .map(|(_, (key, view))| (crate::panels::panel_key(crate::plugin_host::view::PANEL, key), view))
-        .collect()
-}
-
-/// Splits `<plugin>.<panel>[/<instance>]` into the plugin index, the panel's render and label.
-fn panel_of<'a>(app: &'a App, tab: &'a str) -> Option<(usize, opencode_plugin_spec::PanelSpec, Option<Function>, Option<Function>, &'a str)> {
-    let (base, instance) = tab.split_once('/').unwrap_or((tab, ""));
-    app.plugins.luau.running().find_map(|(i, p)| {
-        let c = p.half.contribs.borrow();
-        let c = c.panels.iter().find(|c| c.key == base)?;
-        Some((i, c.spec.clone(), c.f("render").cloned(), c.f("label").cloned(), instance))
-    })
-}
-
-/// Whether tab `tab` is a Luau panel's (or the console).
-pub fn owns_tab(app: &App, tab: &str) -> bool {
-    tab == super::console::TAB || panel_of(app, tab).is_some()
-}
-
-/// A Luau panel's content.
-pub fn panel(app: &App, p: &Pal, ctx: &PanelViewCtx) -> Option<El> {
-    if ctx.tab.id == super::console::TAB {
-        return Some(super::console::view(app, p));
-    }
-    let (i, spec, f, _, instance) = panel_of(app, &ctx.tab.id)?;
-    let f = f?;
-    let props = map([
-        ("sessionId", Data::String(ctx.session_id.to_owned())),
-        ("directory", Data::String(ctx.directory.to_owned())),
-        ("instance", if instance.is_empty() { Data::Nil } else { Data::String(instance.to_owned()) }),
-        ("active", Data::Bool(ctx.visible)),
-        ("placement", Data::String(if ctx.mobile { "mobile" } else { "side" }.into())),
-        ("width", Data::Integer(ctx.pane_size.0.round() as i64)),
-        ("height", Data::Integer(ctx.pane_size.1.round() as i64)),
-    ]);
-    let placement = if ctx.mobile { ":mobile" } else { "" };
-    let body = render(app, p, i, &format!("panel:{}:{}:{instance}{placement}", spec.id, ctx.session_id), &f, props);
-    let plugin = &app.plugins.luau.plugins[i].manifest.id;
-    Some(col().key(format!("plugin-{plugin}-{}{}", spec.id, if instance.is_empty() { String::new() } else { format!("-{instance}") })).w_full().h_full().child(body))
-}
-
-/// A Luau panel's own tab label (`PanelSpec.label`).
-pub fn tab_lead(app: &App, p: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
-    let (i, spec, _, label, instance) = panel_of(app, &tab.id)?;
-    let label = label?;
-    let session = app.active_session_id().unwrap_or_default();
-    let props = map([
-        ("sessionId", Data::String(session.to_owned())),
-        ("instance", if instance.is_empty() { Data::Nil } else { Data::String(instance.to_owned()) }),
-        ("active", Data::Bool(selected)),
-        ("preview", Data::Bool(false)),
-    ]);
-    Some(render(app, p, i, &format!("label:{}:{session}:{instance}", spec.id), &label, props))
 }
 
 // ---- Slots, titlebar, composer -----------------------------------------------------------------

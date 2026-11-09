@@ -61,7 +61,7 @@ pub struct NarrowView {
 pub fn views(s: &App) -> Vec<NarrowView> {
     use opencode_plugin_spec::PanelMobileKind;
     let own = VIEWS.iter().map(|v| NarrowView { id: v.plugin.to_owned(), title: (v.title)().to_owned(), order: f64::from(v.order), kind: v.kind, icon: v.icon });
-    let plugins = crate::plugin_host::luau::surfaces::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
+    let plugins = crate::plugin_host::luau::panels::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
         id,
         title: v.title,
         order: v.order,
@@ -79,10 +79,12 @@ pub fn views(s: &App) -> Vec<NarrowView> {
 
 /// The narrow view tab `key` (`<plugin>:<tab>`) opens: its plugin panel's, else its app panel's.
 pub fn view_for_tab(s: &App, key: &str) -> Option<String> {
-    let plugin = crate::panels::split_panel_key(key).map(|(plugin, _)| plugin);
-    // An instance panel's tab (`plugin:<plugin>.<panel>/<instance>`) shows its panel's view.
-    let panel = key.split_once('/').map_or(key, |(panel, _)| panel);
-    views(s).into_iter().find(|v| v.id == panel || Some(v.id.as_str()) == plugin).map(|v| v.id)
+    let plugin = crate::panels::split_panel_key(key).map(|(plugin, _)| plugin)?;
+    let views = views(s);
+    // A Luau panel's own tab shows its view; an instance tab (`<plugin>:<instance>`) its plugin's.
+    let own = views.iter().find(|v| v.id == key);
+    let same = || views.iter().find(|v| v.id == plugin || crate::panels::split_panel_key(&v.id).is_some_and(|(p, _)| p == plugin));
+    own.or_else(same).map(|v| v.id.clone())
 }
 
 /// The page: the switcher, then the conversation (`conversation`, built by the caller) under
@@ -219,15 +221,16 @@ fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
             match active.as_deref().and_then(|k| reg.entry(k)).or_else(|| reg.entries.iter().find(|e| e.plugin == view && !e.tab.hidden)) {
                 Some(e) => (e.provider, &e.tab),
                 None => {
-                    let Some(provider) = crate::panels::find_panel(view) else { return el() };
+                    let Some(provider) = s.find_panel(view) else { return el() };
                     fallback = PanelTabDesc::new(if view == "file" { crate::files::data::OPEN_TAB_ID } else { "" }, "");
-                    (*provider, &fallback)
+                    (provider, &fallback)
                 }
             }
         }
     };
     let w = s.layout.narrow.width() - 2.0;
     let ctx = PanelViewCtx {
+        plugin: provider.plugin,
         session_id: &reg.session_id,
         directory: &reg.directory,
         project_id: &reg.project_id,
@@ -242,12 +245,13 @@ fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
     (provider.render)(s, p, &ctx)
 }
 
-/// A plugin panel's narrow view: the provider its tab belongs to, and the tab, titled as the view
-/// (Desktop hands the render a tab with the panel's id and the view's title).
+/// A Luau plugin panel's narrow view (`<plugin>:<panel>`): its plugin's provider, and the tab,
+/// titled as the view (Desktop hands the render a tab with the panel's id and the view's title).
 fn plugin_tab(s: &App, view: &str) -> Option<(crate::panels::PanelRegistration, PanelTabDesc)> {
-    let (provider, tab) = crate::panels::split_panel_key(view)?;
-    let v = views(s).into_iter().find(|v| v.id == view && provider == crate::plugin_host::view::PANEL)?;
-    Some((*crate::panels::find_panel(provider)?, PanelTabDesc::new(tab, v.title)))
+    let (plugin, tab) = crate::panels::split_panel_key(view)?;
+    let v = views(s).into_iter().find(|v| v.id == view)?;
+    let provider = s.find_panel(plugin).filter(|p| p.luau)?;
+    Some((provider, PanelTabDesc::new(tab, v.title)))
 }
 
 /// The More drawer's contents (`session-mobile-view-options`): a raised card of rows, 44 tall,

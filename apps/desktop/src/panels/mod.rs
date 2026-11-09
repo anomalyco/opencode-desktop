@@ -240,6 +240,42 @@ pub struct PanelLauncherDesc {
     pub order: i32,
     /// Singleton tab is already open: omitted from `"New tab"` launcher cards, kept in `+` menu.
     pub opened: bool,
+    /// A published command whose chord the entry shows when `shortcut` has none (a plugin's).
+    pub command: Option<&'static str>,
+}
+
+impl PanelLauncherDesc {
+    pub fn new(id: &'static str, title: impl Into<String>, icon: &'static Icon, order: i32) -> Self {
+        Self { id, title: title.into(), description: None, icon, shortcut: &[], order, opened: false, command: None }
+    }
+
+    pub fn description(mut self, description: Option<String>) -> Self {
+        self.description = description;
+        self
+    }
+
+    pub fn shortcut(mut self, shortcut: &'static [Bind]) -> Self {
+        self.shortcut = shortcut;
+        self
+    }
+
+    pub fn command(mut self, command: Option<&'static str>) -> Self {
+        self.command = command;
+        self
+    }
+
+    pub fn opened(mut self, opened: bool) -> Self {
+        self.opened = opened;
+        self
+    }
+
+    /// The keycaps its row shows: its shortcut's, else its command's.
+    pub fn keycaps(&self, s: &App) -> Vec<String> {
+        if let Some(&bind) = self.shortcut.iter().find(|b| !b.keycaps().is_empty()) {
+            return bind.keycaps();
+        }
+        self.command.and_then(|id| crate::keymap::command_chord(s, id)).map_or_else(Vec::new, crate::keymap::caps)
+    }
 }
 
 /// How a launcher entry opens: its panel's one launcher, or a provider's shared opener given
@@ -248,6 +284,8 @@ pub struct PanelLauncherDesc {
 pub enum Launch {
     Pane(fn(&mut App, SessionPane, &mut Tx)),
     Entry(fn(&mut App, &str, SessionPane, &mut Tx)),
+    /// A Luau plugin's entry: its panel, or its `session.panel` menu item.
+    Luau(&'static str),
 }
 
 impl Launch {
@@ -255,6 +293,7 @@ impl Launch {
         match self {
             Self::Pane(open) => open(s, pane, tx),
             Self::Entry(open) => open(s, id, pane, tx),
+            Self::Luau(plugin) => crate::plugin_host::luau::panels::open_entry(s, plugin, id, pane, tx),
         }
     }
 }
@@ -280,6 +319,8 @@ pub enum ClosedTabInfo {
 
 /// Read-only session context passed to `list` and `launcher`.
 pub struct PanelSessionCtx<'a> {
+    /// The provider's namespace ([`PanelRegistration::plugin`]).
+    pub plugin: &'static str,
     pub session_id: &'a str,
     pub directory: &'a str,
     pub project_id: &'a str,
@@ -289,6 +330,8 @@ pub struct PanelSessionCtx<'a> {
 
 /// Read-only context passed to `PanelRegistration::render`.
 pub struct PanelViewCtx<'a> {
+    /// The provider's namespace ([`PanelRegistration::plugin`]).
+    pub plugin: &'static str,
     pub session_id: &'a str,
     pub directory: &'a str,
     pub project_id: &'a str,
@@ -367,6 +410,9 @@ pub struct PanelRegistration {
     /// A tab's own label in the strip in place of its icon and title (`PanelTab.label`), given
     /// whether the tab is selected; `None` keeps the icon and title.
     pub tab_lead: Option<fn(&App, &Pal, &PanelTabDesc, bool) -> Option<El>>,
+    /// The panels of the Luau plugin `plugin`: the callbacks above stay unset, and the dispatch
+    /// methods below ask the plugin (`plugin_host::luau::panels`).
+    pub luau: bool,
 }
 
 impl PanelRegistration {
@@ -404,7 +450,90 @@ impl PanelRegistration {
             on_key: None,
             on_ime: None,
             tab_lead: None,
+            luau: false,
         }
+    }
+
+    /// Luau plugin `plugin`'s panels, under its own namespace (`<plugin>:<tab>`, as Desktop keys
+    /// a plugin's tabs).
+    pub fn luau(plugin: &'static str, order: i32, default_pane: SessionPane) -> Self {
+        use crate::plugin_host::luau::panels as lp;
+        Self { order, default_pane, luau: true, ..Self::new(plugin, lp::list, lp::render) }
+    }
+
+    /// Whether this panel asks for the wider session minimum now.
+    pub fn is_wide(&self, s: &App) -> bool {
+        if self.luau {
+            return crate::plugin_host::luau::panels::wide(s, self.plugin);
+        }
+        (self.wide)(s)
+    }
+
+    /// Every `+` / New tab entry this provider offers, with how each opens.
+    pub fn launcher_entries(&self, s: &App, ctx: &PanelSessionCtx) -> Vec<(PanelLauncherDesc, Launch)> {
+        if self.luau {
+            return crate::plugin_host::luau::panels::launchers(s, ctx).into_iter().map(|d| (d, Launch::Luau(self.plugin))).collect();
+        }
+        let one = self.launcher.zip(self.open_launcher).and_then(|(desc, open)| Some((desc(s, ctx)?, Launch::Pane(open))));
+        let many = self.launchers.zip(self.open_entry).map(|(list, open)| list(s, ctx).into_iter().map(move |d| (d, Launch::Entry(open))));
+        one.into_iter().chain(many.into_iter().flatten()).collect()
+    }
+
+    /// Runs as `tab` of `session` becomes selected.
+    pub fn focus(&self, s: &mut App, session: &str, tab: &str, restored: bool) {
+        if self.luau {
+            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab);
+        }
+        if let Some(f) = self.on_focus_tab {
+            f(s, session, tab, restored);
+        }
+    }
+
+    /// Runs as the side region opens onto `tab` of `session`.
+    pub fn enter(&self, s: &mut App, session: &str, tab: &str) {
+        if self.luau {
+            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab);
+        }
+        if let Some(f) = self.on_enter {
+            f(s, session, tab);
+        }
+    }
+
+    /// Runs after `tab` left `session`'s strip.
+    pub fn close(&self, s: &mut App, session: &str, tab: &str, tx: &mut Tx) {
+        if self.luau {
+            return crate::plugin_host::luau::panels::closed(s, self.plugin, session, tab, tx);
+        }
+        if let Some(f) = self.on_close_tab {
+            f(s, session, tab, tx);
+        }
+    }
+
+    /// What Recently closed keeps of `tab` as it closes.
+    pub fn closed_info(&self, s: &App, session: &str, tab: &PanelTabDesc) -> ClosedTabInfo {
+        if self.luau {
+            return crate::plugin_host::luau::panels::closed_info(s, self.plugin, session, tab);
+        }
+        self.closed_tab.map_or(ClosedTabInfo::Default, |f| f(s, session, tab))
+    }
+
+    /// Restores a closed tab; false when the provider leaves it to the default reopen.
+    pub fn restore(&self, s: &mut App, session: &str, tab: &str, data: Option<&str>, tx: &mut Tx) -> bool {
+        match self.on_restore_tab {
+            Some(f) if !self.luau => {
+                f(s, session, tab, data, tx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A tab's own strip label, if it draws one.
+    pub fn lead(&self, s: &App, p: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
+        if self.luau {
+            return crate::plugin_host::luau::panels::tab_lead(s, p, self.plugin, tab, selected);
+        }
+        self.tab_lead.and_then(|lead| lead(s, p, tab, selected))
     }
 
     pub const fn tab_lead(mut self, f: fn(&App, &Pal, &PanelTabDesc, bool) -> Option<El>) -> Self {
@@ -429,6 +558,9 @@ impl PanelRegistration {
 
     /// The pane a new tab of this panel opens in beside none of its others.
     pub fn home_pane(&self, s: &App) -> SessionPane {
+        if self.luau {
+            return crate::plugin_host::luau::panels::home_pane(s, self.plugin).unwrap_or(self.default_pane);
+        }
         self.placed.map_or(self.default_pane, |f| f(s))
     }
 

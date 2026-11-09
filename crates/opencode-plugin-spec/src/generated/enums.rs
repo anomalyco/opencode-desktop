@@ -456,6 +456,54 @@ string_enum! {
 }
 
 string_enum! {
+    /// How a diff's read went.
+    pub enum DiffStatus {
+        /// Not read yet, or a newer read is in flight.
+        Loading = "loading",
+        /// Read. `Files` holds the changes.
+        Ready = "ready",
+        /// The folder is not under version control.
+        NoVcs = "no-vcs",
+        /// The server can't be reached.
+        Offline = "offline",
+        /// The read failed. `Retry` reads again.
+        Error = "error",
+    }
+}
+
+string_enum! {
+    /// How a file or folder changed.
+    pub enum ChangeKind {
+        /// Added.
+        Add = "add",
+        /// Deleted.
+        Del = "del",
+        /// Modified, or a folder whose files changed in more than one way.
+        Mix = "mix",
+    }
+}
+
+string_enum! {
+    /// A pane of the session's side region.
+    pub enum PanelPane {
+        /// The side pane. The default.
+        Side = "side",
+        /// The bottom pane, under the conversation and the side pane.
+        Bottom = "bottom",
+    }
+}
+
+string_enum! {
+    /// A text field's look.
+    pub enum FieldVariant {
+        /// The app's bordered field.
+        Default = "default",
+        /// A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text.
+        Filter = "filter",
+    }
+}
+
+string_enum! {
     /// How an image fills its box.
     pub enum ImageFit {
         /// Whole, aspect kept. The default.

@@ -186,15 +186,12 @@ fn launcher(s: &App, ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLaunch
         return None;
     }
     let count = change_count(s, ctx.session_id);
-    Some(crate::panels::PanelLauncherDesc {
-        id: "open",
-        title: opencode_i18n::t!("plugin.review.tab.title").into(),
-        description: (count > 0).then(|| opencode_i18n::plural!("plugin.review.menu.count", count)),
-        icon: &ic::REVIEW,
-        shortcut: &[Bind::ReviewOpen],
-        order: 10,
-        opened: !ctx.open_ids.is_empty(),
-    })
+    Some(
+        crate::panels::PanelLauncherDesc::new("open", opencode_i18n::t!("plugin.review.tab.title"), &ic::REVIEW, 10)
+            .description((count > 0).then(|| opencode_i18n::plural!("plugin.review.menu.count", count)))
+            .shortcut(&[Bind::ReviewOpen])
+            .opened(!ctx.open_ids.is_empty()),
+    )
 }
 
 /// Closed, the tab lists as "Review" rather than its change count.

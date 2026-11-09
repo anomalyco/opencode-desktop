@@ -401,6 +401,13 @@ impl Bind {
 
 pub use session_view::keymap::{caps, label};
 
+/// The chord published command `id` answers to here: the user's own, else its default.
+pub fn command_chord(app: &crate::App, id: &str) -> Option<Chord> {
+    overrides::command(id)
+        .and_then(|k| k.chords().first().copied())
+        .or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.keys.and_then(Bind::chord).or(c.chord)))
+}
+
 /// A Ctrl-letter that arrives as its control character (⌃R as U+0012), as the letter.
 fn control_char(ev: &KeyEvent) -> Option<KeyEvent> {
     let Key::Text(t) = &ev.key else { return None };

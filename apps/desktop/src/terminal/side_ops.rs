@@ -30,17 +30,10 @@ pub(super) fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     }
 }
 
-/// The `+` menu's and New tab's Terminal row (order 20): it opens a new terminal.
-pub(super) fn launcher_desc(s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
-    s.live_terminals().is_none_or(|(_, observer)| !observer).then(|| PanelLauncherDesc {
-        id: "new",
-        title: opencode_i18n::t!("plugin.terminal.tab.title").into(),
-        description: None,
-        icon: &grid::TERMINAL_ICON,
-        shortcut: &[Bind::TerminalNew],
-        order: 20,
-        opened: false,
-    })
+/// The `+` menu's and New tab's Terminal row (order 20): it opens a new terminal. A read-only
+/// window offers none.
+pub(super) fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
+    (!crate::flag("--read-only")).then(|| PanelLauncherDesc::new("new", opencode_i18n::t!("plugin.terminal.tab.title"), &grid::TERMINAL_ICON, 20).shortcut(&[Bind::TerminalNew]))
 }
 
 /// The pane a new terminal opens in beside no other: Settings' terminal placement.

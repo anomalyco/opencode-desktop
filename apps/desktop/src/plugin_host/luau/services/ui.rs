@@ -178,7 +178,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
 
 /// Where a plugin's panel is in a session: 0 closed, 1 listed, 2 selected, 3 on screen.
 pub fn panel_state(app: &App, plugin: &str, panel: &str, session: &str) -> u64 {
-    crate::plugin_host::vtable::panel_state(app, plugin, panel, session).min(3)
+    app.tab_state(session, &crate::plugin_host::luau::panels::tab_key(plugin, panel, None))
 }
 
 /// Whether the window's session header is narrow.

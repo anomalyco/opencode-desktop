@@ -64,6 +64,10 @@ string_enum! {
         DiffView = "diffView",
         /// A folder's file tree.
         FileTree = "fileTree",
+        /// A resizable sidebar at a panel's start, its children stacked in it.
+        PanelSidebar = "panelSidebar",
+        /// The app's Open in split button for a path.
+        OpenInButton = "openInButton",
         /// An interactive UI outline, from a ```` ```ui ```` code block.
         GenUi = "genUi",
     }
@@ -89,7 +93,7 @@ impl NodeKind {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
-            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::GenUi => NodeCategory::Native,
+            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
         }
     }
 
@@ -127,6 +131,8 @@ impl NodeKind {
             Self::CodeView => &UI_CODE_VIEW_PROPS,
             Self::DiffView => &UI_DIFF_VIEW_PROPS,
             Self::FileTree => &UI_FILE_TREE_PROPS,
+            Self::PanelSidebar => &UI_PANEL_SIDEBAR_PROPS,
+            Self::OpenInButton => &UI_OPEN_IN_BUTTON_PROPS,
             Self::GenUi => &UI_GEN_UI_PROPS,
         }
     }
@@ -194,6 +200,7 @@ pub static UI_DIFF_VIEW_PROPS: PropsSpec = PropsSpec::new("UiDiffViewProps", Som
     PropSpec::new("mode", PropType::Enum("DiffMode"), true),
     PropSpec::new("expand", PropType::Bool, false),
     PropSpec::new("file", PropType::String, false),
+    PropSpec::new("revealLine", PropType::Integer, false),
 ]);
 
 /// `UiDividerProps`.
@@ -211,12 +218,15 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("secure", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
+    PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
 ]);
 
 /// `UiFileTreeProps`.
 pub static UI_FILE_TREE_PROPS: PropsSpec = PropsSpec::new("UiFileTreeProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("tree", PropType::Handle("FileTreeModel"), true),
+    PropSpec::new("allowed", PropType::List("string"), false),
+    PropSpec::new("kinds", PropType::Map, false),
     PropSpec::new("selectedPath", PropType::String, false),
     PropSpec::new("highlightedPath", PropType::String, false),
     PropSpec::new("onSelect", PropType::Handler, false),
@@ -329,6 +339,19 @@ pub static UI_METRIC_PROPS: PropsSpec = PropsSpec::new("UiMetricProps", Some(&UI
     PropSpec::new("lineHeight", PropType::Number, false),
     PropSpec::new("tracking", PropType::Number, false),
     PropSpec::new("color", PropType::Color, false),
+]);
+
+/// `UiOpenInButtonProps`.
+pub static UI_OPEN_IN_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiOpenInButtonProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("path", PropType::String, true),
+]);
+
+/// `UiPanelSidebarProps`.
+pub static UI_PANEL_SIDEBAR_PROPS: PropsSpec = PropsSpec::new("UiPanelSidebarProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("id", PropType::String, true),
+    PropSpec::new("width", PropType::Number, false),
+    PropSpec::new("minWidth", PropType::Number, false),
+    PropSpec::new("maxWidth", PropType::Number, false),
 ]);
 
 /// `UiPillProps`.

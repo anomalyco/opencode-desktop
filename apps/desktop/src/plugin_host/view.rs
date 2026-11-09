@@ -38,8 +38,8 @@ fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         if p.flags & PANEL_FALLBACK != 0 { tab.fallback() } else { tab }
     });
     let failed = host.slots.iter().filter(|s| s.state == PluginState::Failed).flat_map(|s| &s.tabs);
-    let luau = super::luau::surfaces::panel_tabs(app, ctx);
-    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).chain(luau).collect()
+    let console = ctx.open_ids.iter().any(|id| id == super::luau::console::TAB).then(super::luau::console::tab);
+    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).chain(console).collect()
 }
 
 /// The tabs of instance panel `p` the session has open (`<plugin>.<panel>/<instance>`), as the
@@ -90,47 +90,27 @@ pub fn open_instance(app: &mut App, i: usize, panel: &str, instance: &str, tx: &
     app.open_side_tab(&key, None, false, false, tx);
 }
 
-/// A launcher card per plugin panel, and one per `session.panel` menu item.
+/// A launcher card per native plugin panel, and one per its `session.panel` menu items.
 fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     let host = &app.plugins;
     let panels = panels(host).filter(|(_, p)| p.flags & (PANEL_NO_LAUNCHER | PANEL_INSTANCES) == 0).map(|(i, p)| {
         let slot = &host.slots[i];
         let description = if p.description.is_empty() { slot.manifest.description.clone() } else { p.description.clone() };
-        PanelLauncherDesc {
-            id: p.tab,
-            title: p.title.clone(),
-            description: (!description.is_empty()).then_some(description),
-            icon: resolve(&slot.manifest.id, &p.icon),
-            shortcut: &[],
-            order: p.order,
-            opened: ctx.open_ids.iter().any(|o| o == p.tab),
-        }
+        PanelLauncherDesc::new(p.tab, p.title.clone(), resolve(&slot.manifest.id, &p.icon), p.order)
+            .description((!description.is_empty()).then_some(description))
+            .opened(ctx.open_ids.iter().any(|o| o == p.tab))
     });
-    let items = super::contrib::active(host, kinds::MENU_ITEM).filter(|(_, c)| c.target == "session.panel").map(|(i, c)| PanelLauncherDesc {
-        id: intern(&format!("menu:{}", c.key)),
-        title: c.title.clone(),
-        description: (!c.description.is_empty()).then(|| c.description.clone()),
-        icon: resolve(&host.slots[i].manifest.id, &c.icon),
-        shortcut: &[],
-        order: c.order,
-        opened: false,
+    let items = super::contrib::active(host, kinds::MENU_ITEM).filter(|(_, c)| c.target == "session.panel").map(|(i, c)| {
+        PanelLauncherDesc::new(intern(&format!("menu:{}", c.key)), c.title.clone(), resolve(&host.slots[i].manifest.id, &c.icon), c.order)
+            .description((!c.description.is_empty()).then(|| c.description.clone()))
     });
-    let luau_items = super::luau::commands::menu_items(app, "session.panel").into_iter().map(|(key, title, description, icon, order)| PanelLauncherDesc {
-        id: intern(&format!("menu:{key}")),
-        title,
-        description,
-        icon: resolve("", icon.as_deref().unwrap_or("plus")),
-        shortcut: &[],
-        order: order as i32,
-        opened: false,
-    });
-    panels.chain(items).chain(super::luau::surfaces::panel_launchers(app, ctx)).chain(luau_items).collect()
+    panels.chain(items).collect()
 }
 
 /// A plugin panel's own tab label (`PanelSpec` `label`), drawn for the routed session.
 fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
     let host = &app.plugins;
-    let Some((i, rec, instance)) = panel_of(host, &tab.id) else { return super::luau::surfaces::tab_lead(app, pal, tab, selected) };
+    let (i, rec, instance) = panel_of(host, &tab.id)?;
     let label = rec.label.as_ref()?;
     let session = app.active_session_id().unwrap_or_default();
     let directory = app.session(session).map_or("", |s| s.directory.as_str());
@@ -141,18 +121,14 @@ fn tab_lead(app: &App, pal: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<
 
 fn open_entry(app: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {
     match id.strip_prefix("menu:") {
-        Some(key) => {
-            if !super::luau::commands::run_menu_item(app, key, "", tx) {
-                super::contrib::run_menu_item(app, key, "", tx);
-            }
-        }
+        Some(key) => super::contrib::run_menu_item(app, key, "", tx),
         None => app.open_side_tab(&panel_key(PANEL, id), Some(pane), false, false, tx),
     }
 }
 
 fn render(app: &App, pal: &Pal, ctx: &PanelViewCtx) -> El {
-    if let Some(el) = super::luau::surfaces::owns_tab(app, &ctx.tab.id).then(|| super::luau::surfaces::panel(app, pal, ctx)).flatten() {
-        return el;
+    if ctx.tab.id == super::luau::console::TAB {
+        return super::luau::console::view(app, pal);
     }
     let host = &app.plugins;
     let (base, instance) = ctx.tab.id.split_once('/').unwrap_or((&ctx.tab.id, ""));

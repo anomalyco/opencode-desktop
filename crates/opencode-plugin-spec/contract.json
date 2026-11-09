@@ -242,6 +242,26 @@
       { "value": "branch", "doc": "The branch against its merge base." },
       { "value": "turn", "doc": "One session turn's changes." }
     ] },
+    { "name": "DiffStatus", "rust": true, "doc": "How a diff's read went.", "values": [
+      { "value": "loading", "doc": "Not read yet, or a newer read is in flight." },
+      { "value": "ready", "doc": "Read. `Files` holds the changes." },
+      { "value": "no-vcs", "doc": "The folder is not under version control." },
+      { "value": "offline", "doc": "The server can't be reached." },
+      { "value": "error", "doc": "The read failed. `Retry` reads again." }
+    ] },
+    { "name": "ChangeKind", "rust": true, "doc": "How a file or folder changed.", "values": [
+      { "value": "add", "doc": "Added." },
+      { "value": "del", "doc": "Deleted." },
+      { "value": "mix", "doc": "Modified, or a folder whose files changed in more than one way." }
+    ] },
+    { "name": "PanelPane", "rust": true, "doc": "A pane of the session's side region.", "values": [
+      { "value": "side", "doc": "The side pane. The default." },
+      { "value": "bottom", "doc": "The bottom pane, under the conversation and the side pane." }
+    ] },
+    { "name": "FieldVariant", "rust": true, "doc": "A text field's look.", "values": [
+      { "value": "default", "doc": "The app's bordered field." },
+      { "value": "filter", "doc": "A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text." }
+    ] },
     { "name": "ImageFit", "rust": true, "doc": "How an image fills its box.", "values": [
       { "value": "contain", "doc": "Whole, aspect kept. The default." },
       { "value": "cover", "doc": "Fills the box, aspect kept, cropped." },
@@ -540,6 +560,7 @@
       { "name": "secure", "type": "boolean?", "doc": "Hides the text, for a password." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no typing." },
       { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
+      { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
     ] },
     { "name": "UiLoaderProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.loader` props: the app's spinner.", "fields": [
@@ -608,14 +629,26 @@
       { "name": "diff", "type": "DiffDocument", "doc": "The changes, from `Diff:Open`." },
       { "name": "mode", "type": "DiffMode", "doc": "Split or unified." },
       { "name": "expand", "type": "boolean?", "doc": "Shows unchanged lines in full." },
-      { "name": "file", "type": "string?", "doc": "Shows only this file's changes." }
+      { "name": "file", "type": "string?", "doc": "Shows only this file's changes, under its header." },
+      { "name": "revealLine", "type": "integer?", "doc": "Scrolls to this line of the new side, from 1, once it shows." }
     ] },
-    { "name": "UiFileTreeProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host.", "fields": [
+    { "name": "UiFileTreeProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host. A secondary click on a row offers the apps that open it.", "fields": [
       { "name": "tree", "type": "FileTreeModel", "doc": "The tree, from `Workspace:OpenTree`." },
+      { "name": "allowed", "type": "{ string }?", "doc": "Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing." },
+      { "name": "kinds", "type": "{ [string]: ChangeKind }?", "doc": "A change letter at the end of these paths' rows: `A`, `D` or `M`." },
       { "name": "selectedPath", "type": "string?", "doc": "The selected row." },
       { "name": "highlightedPath", "type": "string?", "doc": "A row to highlight, such as the open file." },
       { "name": "onSelect", "type": "UiHandler?", "doc": "Runs as the user picks a file, with `event.path`." },
-      { "name": "onContextMenu", "type": "UiHandler?", "doc": "Runs on a secondary click, with `event.path`." }
+      { "name": "onContextMenu", "type": "UiHandler?", "doc": "Runs on a secondary click, with `event.path`, instead of the host's menu." }
+    ] },
+    { "name": "UiPanelSidebarProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.panelSidebar` props: a sidebar at a panel's start that the user resizes by its end edge. The host keeps its width per `id`; a double click on the edge resets it.", "fields": [
+      { "name": "id", "type": "string", "doc": "Whose width it keeps, such as the panel's id." },
+      { "name": "width", "type": "number?", "doc": "Its width until the user drags it. Defaults to 240." },
+      { "name": "minWidth", "type": "number?", "doc": "The narrowest it gets. Defaults to 200." },
+      { "name": "maxWidth", "type": "number?", "doc": "The widest it gets, also at most 60% of the panel. Defaults to 480." }
+    ] },
+    { "name": "UiOpenInButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.", "fields": [
+      { "name": "path", "type": "string", "doc": "A workspace path, or empty for the workspace folder." }
     ] },
     { "name": "UiGenUiProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The ```` ```ui ```` outline source." },
@@ -887,6 +920,7 @@
       { "name": "Expand", "kind": "method", "sig": "(path: string) -> ()", "doc": "Expands a folder." },
       { "name": "Collapse", "kind": "method", "sig": "(path: string) -> ()", "doc": "Collapses a folder." },
       { "name": "SetFilter", "kind": "method", "sig": "(query: string) -> ()", "doc": "Shows only paths that match a fuzzy query. An empty query shows all." },
+      { "name": "Reveal", "kind": "method", "sig": "(path: string) -> ()", "doc": "Expands the folders above a path and scrolls its row into view." },
       { "name": "Refresh", "kind": "method", "sig": "() -> ()", "doc": "Reads the folder again." },
       { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes when the tree does." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." },
@@ -912,6 +946,10 @@
       { "name": "Totals", "kind": "method", "sig": "() -> DiffTotals", "doc": "Its size." },
       { "name": "Files", "kind": "method", "sig": "() -> { DiffFile }", "doc": "Its files." },
       { "name": "SetSource", "kind": "method", "sig": "(source: DiffSource, messageId: string?) -> ()", "doc": "Compares something else." },
+      { "name": "Source", "kind": "method", "sig": "() -> DiffSource", "doc": "What it compares." },
+      { "name": "Sources", "kind": "method", "sig": "() -> { DiffSource }", "doc": "What it can compare in this folder: `branch` only on a branch other than the default one." },
+      { "name": "Status", "kind": "method", "sig": "() -> DiffStatus", "doc": "How the read went." },
+      { "name": "Retry", "kind": "method", "sig": "() -> ()", "doc": "Reads again after a failure." },
       { "name": "Loading", "kind": "method", "sig": "() -> boolean", "doc": "A read is in flight." },
       { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes when the changes do." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." },
@@ -1039,7 +1077,15 @@
       { "name": "title", "type": "string", "doc": "The accessible name, and the label without a `label` render." },
       { "name": "pinned", "type": "boolean?", "doc": "Listed before every other tab, never closed or dragged." },
       { "name": "missing", "type": "boolean?", "doc": "Struck through, such as a deleted file." },
-      { "name": "file", "type": "string?", "doc": "The workspace file the tab shows." }
+      { "name": "file", "type": "string?", "doc": "The workspace file the tab shows." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon, instead of the panel's. A tab showing `file` defaults to the file's type icon." },
+      { "name": "transient", "type": "boolean?", "doc": "A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed." },
+      { "name": "draggable", "type": "boolean?", "doc": "Drags between panes. Defaults to true." },
+      { "name": "fallback", "type": "boolean?", "doc": "Selected when the selected tab closes." }
+    ] },
+    { "name": "ClosedTab", "kind": "record", "rust": true, "doc": "What Recently closed lists for a panel's closed tab.", "fields": [
+      { "name": "title", "type": "string?", "doc": "Its title, instead of the tab's." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon." }
     ] },
     { "name": "PanelMobileView", "kind": "record", "rust": true, "official": "MobileView", "doc": "A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `\"mobile\"`.", "fields": [
       { "name": "title", "type": "string", "doc": "Its label in the switcher or the More drawer." },
@@ -1061,7 +1107,10 @@
       { "name": "first", "type": "boolean?", "doc": "Its tab sits at the front of the strip." },
       { "name": "fallback", "type": "boolean?", "doc": "Its tab is selected when the selected tab closes." },
       { "name": "mobile", "type": "PanelMobileView?", "doc": "Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it." },
-      { "name": "list", "type": "((sessionId: string, open: { string }) -> { PanelTab })?", "doc": "Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`." },
+      { "name": "pane", "type": "PanelPane?", "doc": "The pane a new tab opens in beside none of the plugin's others. Defaults to `side`." },
+      { "name": "closed", "type": "ClosedTab?", "doc": "What Recently closed lists for its closed tab." },
+      { "name": "isWide", "type": "(() -> boolean)?", "doc": "Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield." },
+      { "name": "list", "type": "((sessionId: string, open: { string }) -> { PanelTab })?", "doc": "Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. A tab's key is `<plugin>:<instance>`; a panel without `list` has one tab, `<plugin>:<id>`." },
       { "name": "render", "type": "(view: View, props: PanelProps) -> UiNode?", "doc": "Draws a tab's content." },
       { "name": "label", "type": "((view: View, props: PanelTabLabelProps) -> UiNode?)?", "doc": "Draws the tab's label in the strip, instead of its icon and title." },
       { "name": "onClose", "type": "((props: PanelProps) -> ())?", "doc": "Runs after the tab leaves the strip." },
@@ -1101,7 +1150,9 @@
       { "name": "keybind", "type": "string?", "doc": "`session.panel`: a published command id whose shortcut it shows." },
       { "name": "description", "type": "string?", "doc": "`session.panel`: muted detail in launcher lists." },
       { "name": "primary", "type": "boolean?", "doc": "`session.panel`: + runs this item directly." },
-      { "name": "when", "type": "((target: string) -> boolean)?", "doc": "`server.row`: lists it only for rows where it returns true." },
+      { "name": "when", "type": "((target: string) -> boolean)?", "doc": "`server.row`: lists it only for rows where it returns true. `session.panel`: lists it only where it returns true for the session id." },
+      { "name": "opened", "type": "((sessionId: string) -> boolean)?", "doc": "`session.panel`: what it opens is already in the session's strip, so the New tab view leaves it out." },
+      { "name": "detail", "type": "((sessionId: string) -> string?)?", "doc": "`session.panel`: muted detail for the session, instead of `description`." },
       { "name": "enabled", "type": "((target: string) -> boolean)?", "doc": "`server.row`: shows it disabled while it returns false." },
       { "name": "run", "type": "(target: string?) -> ()", "doc": "Runs it. `server.row` passes the row's server key." }
     ] },
@@ -1512,6 +1563,8 @@
     { "name": "codeView", "category": "native", "sig": "(props: UiCodeViewProps) -> UiNode", "props": "UiCodeViewProps", "doc": "A highlighted file.", "native": { "engine": "Code view with an asynchronous highlighter", "native": "Highlighting, the line buffer, the virtualized gutter, selection, find in file", "luau": "Tab routing, breadcrumb header, line links, viewer choice, MCP tools" } },
     { "name": "diffView", "category": "native", "sig": "(props: UiDiffViewProps) -> UiNode", "props": "UiDiffViewProps", "doc": "Changes, split or unified.", "native": { "engine": "Diff engine and code view", "native": "Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors", "luau": "Source switcher, totals, split and unified toggle, contracts, MCP tools" } },
     { "name": "fileTree", "category": "native", "sig": "(props: UiFileTreeProps) -> UiNode", "props": "UiFileTreeProps", "doc": "A folder's file tree.", "native": { "engine": "Tree model", "native": "Tree flattening, file icons, keyboard navigation", "luau": "Folder loading, filter input, expanded state, open and context menus" } },
+    { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
+    { "name": "openInButton", "category": "native", "sig": "(props: UiOpenInButtonProps) -> UiNode", "props": "UiOpenInButtonProps", "doc": "The app's Open in split button for a path.", "native": { "engine": "The system's app registry", "native": "Finding installed apps and their marks, launching them, the remembered choice", "luau": "Which path it opens" } },
     { "name": "genUi", "category": "native", "sig": "(props: UiGenUiProps) -> UiNode", "props": "UiGenUiProps", "doc": "An interactive UI outline, from a ```` ```ui ```` code block.", "native": { "engine": "UI outline renderer", "native": "Outline parsing, widget primitives and their motion", "luau": "Which blocks render, through `AddCodeBlock`" } }
   ],
   "uiExtras": [

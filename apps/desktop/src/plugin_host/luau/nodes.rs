@@ -36,6 +36,8 @@ pub fn all() -> Vec<HostNode> {
         pending("codeView", "LU-6"),
         pending("diffView", "LU-6"),
         pending("fileTree", "LU-6"),
+        pending("panelSidebar", "LU-6"),
+        pending("openInButton", "LU-6"),
         pending("genUi", "LU-3"),
     ]
 }

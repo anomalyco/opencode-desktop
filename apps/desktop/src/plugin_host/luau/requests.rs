@@ -8,9 +8,8 @@ use rune_luau::Data;
 
 use super::cx::{self, Request};
 use super::{OpenDialog, Overlay};
+use super::panels::tab_key;
 use crate::App;
-use crate::panels::panel_key;
-use crate::plugin_host::view::PANEL;
 
 pub fn carry_out(app: &mut App, tx: &mut Tx) {
     let asked = cx::take_asked();
@@ -21,13 +20,6 @@ pub fn carry_out(app: &mut App, tx: &mut Tx) {
         apply(app, &plugin, request, tx);
     }
     super::bump();
-}
-
-fn tab_key(plugin: &str, panel: &str, instance: Option<&str>) -> String {
-    match instance {
-        Some(i) if !i.is_empty() => panel_key(PANEL, &format!("{plugin}.{panel}/{i}")),
-        _ => panel_key(PANEL, &format!("{plugin}.{panel}")),
-    }
 }
 
 fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx) {

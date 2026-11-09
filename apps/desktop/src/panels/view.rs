@@ -269,6 +269,7 @@ pub(super) fn pane_box(
         };
         let bar_h = 48.5;
         let vctx = PanelViewCtx {
+            plugin: selected.plugin,
             session_id: &reg.session_id,
             directory: &reg.directory,
             project_id: &reg.project_id,
@@ -498,7 +499,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
     }
 
     // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
-    if let Some(label) = entry.provider.tab_lead.and_then(|lead| lead(s, p, &entry.tab, active)) {
+    if let Some(label) = entry.provider.lead(s, p, &entry.tab, active) {
         pill = pill.child(label.shrink().min_w(0.0));
     } else {
         match entry.tab.icon {

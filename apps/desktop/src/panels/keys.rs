@@ -94,6 +94,9 @@ impl App {
                             }
                         }
                     }
+                    if prov.luau {
+                        changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
+                    }
                 }
             }
             if panels.iter().any(|p| p.transient)
@@ -302,4 +305,24 @@ impl App {
 
         false
     }
+}
+
+/// Moves Luau plugin `plugin`'s tabs stored under the host's old `plugin` panel
+/// (`plugin:<plugin>.<panel>`, `plugin:<plugin>.<panel>/<instance>`) to its own namespace.
+fn rekey_luau(tabs: &mut SessionTabs, plugin: &str) -> bool {
+    let old = format!("{}:{plugin}.", crate::plugin_host::view::PANEL);
+    let new_key = |k: &str| -> Option<String> {
+        let rest = k.strip_prefix(&old)?;
+        Some(panel_key(plugin, rest.split_once('/').map_or(rest, |(_, instance)| instance)))
+    };
+    if !tabs.all.iter().any(|k| k.starts_with(&old)) {
+        return false;
+    }
+    for k in tabs.all.iter_mut().chain(tabs.active.iter_mut()).chain(tabs.selected.values_mut()) {
+        if let Some(n) = new_key(k) {
+            *k = n;
+        }
+    }
+    tabs.panes = std::mem::take(&mut tabs.panes).into_iter().map(|(k, p)| (new_key(&k).unwrap_or(k), p)).collect();
+    true
 }

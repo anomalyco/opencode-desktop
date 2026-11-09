@@ -170,15 +170,7 @@ fn launcher_desc(_s: &App, ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
     if ctx.project_id.is_empty() {
         return None;
     }
-    Some(PanelLauncherDesc {
-        id: OPEN_TAB_ID,
-        title: opencode_i18n::t!("plugin.file.command.open").into(),
-        description: Some(opencode_i18n::t!("rune.files.launcher.description").into()),
-        icon: &ic::FILE_TREE,
-        shortcut: &[Bind::FileBrowse, Bind::FileOpen],
-        order: 10,
-        opened: false,
-    })
+    Some(PanelLauncherDesc::new(OPEN_TAB_ID, opencode_i18n::t!("plugin.file.command.open"), &ic::FILE_TREE, 30).shortcut(&[Bind::FileBrowse, Bind::FileOpen]))
 }
 
 /// Desktop's `file.browse`: the Files tab, as its launcher card opens it.

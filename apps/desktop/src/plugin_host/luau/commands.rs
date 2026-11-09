@@ -125,6 +125,30 @@ pub fn menu_items(app: &App, menu: &str) -> Vec<(&'static str, String, Option<St
         .collect()
 }
 
+/// Plugin `i`'s `session.panel` items for session `session`: those whose `when` takes it, each
+/// `opened` and with its `detail` as that session answers them.
+pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels::PanelLauncherDesc> {
+    let p = &app.plugins.luau.plugins[i];
+    let Some(script) = p.script() else { return Vec::new() };
+    let items: Vec<_> = p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu == opencode_plugin_spec::MenuName::SessionPanel).map(|c| (c.key, c.spec.clone(), c.f("when").cloned(), c.f("opened").cloned(), c.f("detail").cloned())).collect();
+    let ask = |f: &Function| cx::with_app(app, || script.eval_fn::<Data>(f, session.to_owned()).ok());
+    items
+        .into_iter()
+        .filter(|(_, _, when, _, _)| when.as_ref().is_none_or(|f| ask(f) == Some(Data::Bool(true))))
+        .map(|(key, s, _, opened, detail)| {
+            let detail = match detail.as_ref().and_then(|f| ask(f)) {
+                Some(Data::String(d)) => Some(d),
+                _ => s.description.clone(),
+            };
+            let icon = crate::plugin_host::icons::resolve("", s.icon.as_deref().unwrap_or("plus"));
+            crate::panels::PanelLauncherDesc::new(intern(&format!("menu:{key}")), s.title, icon, s.order.unwrap_or(0) as i32)
+                .description(detail)
+                .command(s.keybind.as_deref().map(intern))
+                .opened(opened.as_ref().and_then(|f| ask(f)) == Some(Data::Bool(true)))
+        })
+        .collect()
+}
+
 /// Runs Luau menu item `key` for `target`; false when it isn't one.
 pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) -> bool {
     let found = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().menu_items.iter().find(|c| c.key == key)?.f("run")?.clone())));

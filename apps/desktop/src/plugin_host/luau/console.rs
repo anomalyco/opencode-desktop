@@ -66,6 +66,11 @@ fn location(message: &str) -> Option<(String, u32)> {
     Some((message[start..at + 5].to_owned(), digits.parse().ok()?))
 }
 
+/// The console's tab in the strip.
+pub fn tab() -> crate::panels::PanelTabDesc {
+    crate::panels::PanelTabDesc::new(TAB, "Plugin console").icon(crate::plugin_host::icons::resolve("", "console")).transient()
+}
+
 /// The console tab.
 pub fn view(app: &App, p: &Pal) -> El {
     rune::memo::memo_with_hash("luau-console", VERSION.get() ^ u64::from(p.dark) ^ (p.generation << 1), || {

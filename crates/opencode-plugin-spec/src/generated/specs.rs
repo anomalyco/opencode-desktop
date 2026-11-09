@@ -61,6 +61,18 @@ pub struct CommandSpec {
 }
 impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["run"], []);
 
+/// What Recently closed lists for a panel's closed tab.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ClosedTab {
+    /// Its title, instead of the tab's.
+    pub title: Option<String>,
+    /// Its icon.
+    pub icon: Option<String>,
+}
+impl_record!(ClosedTab, ["title", "icon"], [], []);
+
 /// A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,8 +120,12 @@ pub struct PanelSpec {
     pub fallback: Option<bool>,
     /// Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
     pub mobile: Option<PanelMobileView>,
+    /// The pane a new tab opens in beside none of the plugin's others. Defaults to `side`.
+    pub pane: Option<PanelPane>,
+    /// What Recently closed lists for its closed tab.
+    pub closed: Option<ClosedTab>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile"], ["list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "pane", "closed"], ["isWide", "list", "render", "label", "onClose", "onFocus"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -185,7 +201,7 @@ pub struct MenuItemSpec {
     /// `session.panel`: + runs this item directly.
     pub primary: Option<bool>,
 }
-impl_record!(MenuItemSpec, ["menu", "id", "title", "order", "icon", "keybind", "description", "primary"], ["when", "enabled", "run"], []);
+impl_record!(MenuItemSpec, ["menu", "id", "title", "order", "icon", "keybind", "description", "primary"], ["when", "opened", "detail", "enabled", "run"], []);
 
 /// An item of the app menu bar.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

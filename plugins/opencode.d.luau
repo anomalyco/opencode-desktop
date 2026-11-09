@@ -142,6 +142,18 @@ export type DiffMode = "split" | "unified"
 --- What a diff compares.
 export type DiffSource = "git" | "branch" | "turn"
 
+--- How a diff's read went.
+export type DiffStatus = "loading" | "ready" | "no-vcs" | "offline" | "error"
+
+--- How a file or folder changed.
+export type ChangeKind = "add" | "del" | "mix"
+
+--- A pane of the session's side region.
+export type PanelPane = "side" | "bottom"
+
+--- A text field's look.
+export type FieldVariant = "default" | "filter"
+
 --- How an image fills its box.
 export type ImageFit = "contain" | "cover" | "fill"
 
@@ -1313,6 +1325,8 @@ export type UiFieldProps = {
     disabled: boolean?,
     --- Grows to more lines. Enter inserts a line break; Mod+Enter submits.
     multiline: boolean?,
+    --- The look. Defaults to `default`.
+    variant: FieldVariant?,
     --- Runs on Enter with the text in `event.text`.
     onSubmit: UiHandler?,
 }
@@ -2145,11 +2159,13 @@ export type UiDiffViewProps = {
     mode: DiffMode,
     --- Shows unchanged lines in full.
     expand: boolean?,
-    --- Shows only this file's changes.
+    --- Shows only this file's changes, under its header.
     file: string?,
+    --- Scrolls to this line of the new side, from 1, once it shows.
+    revealLine: number?,
 }
 
---- `ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host.
+--- `ui.fileTree` props. Native: tree flattening, file icons and keyboard navigation stay in the host. A secondary click on a row offers the apps that open it.
 export type UiFileTreeProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -2211,14 +2227,152 @@ export type UiFileTreeProps = {
     helpSide: Side?,
     --- The tree, from `Workspace:OpenTree`.
     tree: FileTreeModel,
+    --- Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing.
+    allowed: { string }?,
+    --- A change letter at the end of these paths' rows: `A`, `D` or `M`.
+    kinds: { [string]: ChangeKind }?,
     --- The selected row.
     selectedPath: string?,
     --- A row to highlight, such as the open file.
     highlightedPath: string?,
     --- Runs as the user picks a file, with `event.path`.
     onSelect: UiHandler?,
-    --- Runs on a secondary click, with `event.path`.
+    --- Runs on a secondary click, with `event.path`, instead of the host's menu.
     onContextMenu: UiHandler?,
+}
+
+--- `ui.panelSidebar` props: a sidebar at a panel's start that the user resizes by its end edge. The host keeps its width per `id`; a double click on the edge resets it.
+export type UiPanelSidebarProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Whose width it keeps, such as the panel's id.
+    id: string,
+    --- Its width until the user drags it. Defaults to 240.
+    width: number?,
+    --- The narrowest it gets. Defaults to 200.
+    minWidth: number?,
+    --- The widest it gets, also at most 60% of the panel. Defaults to 480.
+    maxWidth: number?,
+}
+
+--- `ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.
+export type UiOpenInButtonProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- A workspace path, or empty for the workspace folder.
+    path: string,
 }
 
 --- `ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.
@@ -2875,6 +3029,8 @@ export type FileTreeModel = {
     Collapse: (self: FileTreeModel, path: string) -> (),
     --- Shows only paths that match a fuzzy query. An empty query shows all.
     SetFilter: (self: FileTreeModel, query: string) -> (),
+    --- Expands the folders above a path and scrolls its row into view.
+    Reveal: (self: FileTreeModel, path: string) -> (),
     --- Reads the folder again.
     Refresh: (self: FileTreeModel) -> (),
     --- Changes when the tree does.
@@ -2925,6 +3081,14 @@ export type DiffDocument = {
     Files: (self: DiffDocument) -> { DiffFile },
     --- Compares something else.
     SetSource: (self: DiffDocument, source: DiffSource, messageId: string?) -> (),
+    --- What it compares.
+    Source: (self: DiffDocument) -> DiffSource,
+    --- What it can compare in this folder: `branch` only on a branch other than the default one.
+    Sources: (self: DiffDocument) -> { DiffSource },
+    --- How the read went.
+    Status: (self: DiffDocument) -> DiffStatus,
+    --- Reads again after a failure.
+    Retry: (self: DiffDocument) -> (),
     --- A read is in flight.
     Loading: (self: DiffDocument) -> boolean,
     --- Changes when the changes do.
@@ -3179,6 +3343,22 @@ export type PanelTab = {
     missing: boolean?,
     --- The workspace file the tab shows.
     file: string?,
+    --- Its icon, instead of the panel's. A tab showing `file` defaults to the file's type icon.
+    icon: IconName?,
+    --- A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed.
+    transient: boolean?,
+    --- Drags between panes. Defaults to true.
+    draggable: boolean?,
+    --- Selected when the selected tab closes.
+    fallback: boolean?,
+}
+
+--- What Recently closed lists for a panel's closed tab.
+export type ClosedTab = {
+    --- Its title, instead of the tab's.
+    title: string?,
+    --- Its icon.
+    icon: IconName?,
 }
 
 --- A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`. Desktop's plugin API calls it `MobileView`.
@@ -3221,7 +3401,13 @@ export type PanelSpec = {
     fallback: boolean?,
     --- Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
     mobile: PanelMobileView?,
-    --- Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`.
+    --- The pane a new tab opens in beside none of the plugin's others. Defaults to `side`.
+    pane: PanelPane?,
+    --- What Recently closed lists for its closed tab.
+    closed: ClosedTab?,
+    --- Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield.
+    isWide: (() -> boolean)?,
+    --- Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. A tab's key is `<plugin>:<instance>`; a panel without `list` has one tab, `<plugin>:<id>`.
     list: ((sessionId: string, open: { string }) -> { PanelTab })?,
     --- Draws a tab's content.
     render: (view: View, props: PanelProps) -> UiNode?,
@@ -3301,8 +3487,12 @@ export type MenuItemSpec = {
     description: string?,
     --- `session.panel`: + runs this item directly.
     primary: boolean?,
-    --- `server.row`: lists it only for rows where it returns true.
+    --- `server.row`: lists it only for rows where it returns true. `session.panel`: lists it only where it returns true for the session id.
     when: ((target: string) -> boolean)?,
+    --- `session.panel`: what it opens is already in the session's strip, so the New tab view leaves it out.
+    opened: ((sessionId: string) -> boolean)?,
+    --- `session.panel`: muted detail for the session, instead of `description`.
+    detail: ((sessionId: string) -> string?)?,
     --- `server.row`: shows it disabled while it returns false.
     enabled: ((target: string) -> boolean)?,
     --- Runs it. `server.row` passes the row's server key.
@@ -4245,6 +4435,10 @@ export type UiLibrary = {
     diffView: (props: UiDiffViewProps) -> UiNode,
     --- A folder's file tree. Native: the host renders it.
     fileTree: (props: UiFileTreeProps) -> UiNode,
+    --- A resizable sidebar at a panel's start, its children stacked in it. Native: the host renders it.
+    panelSidebar: (props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode,
+    --- The app's Open in split button for a path. Native: the host renders it.
+    openInButton: (props: UiOpenInButtonProps) -> UiNode,
     --- An interactive UI outline, from a ```` ```ui ```` code block. Native: the host renders it.
     genUi: (props: UiGenUiProps) -> UiNode,
     --- A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme.
