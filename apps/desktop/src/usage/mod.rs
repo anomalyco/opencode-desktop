@@ -1,7 +1,7 @@
 //! View usage (`composer/commands.tsx:90-130`, `usage/dialog.tsx`, `usage/machine.ts`): the
 //! location's OpenCode Go allowance and Console budgets, read from the server each time the
 //! dialog opens. Limits read before show while the new read runs; a read that fails, or takes
-//! longer than the client's 15 s, offers Try again; a server not signed in to Console says so.
+//! longer than 15 s, offers Try again; a server not signed in to Console says so.
 
 use std::collections::HashMap;
 
@@ -33,20 +33,72 @@ pub struct Open {
     /// The last request was refused because the workspace is out of credits.
     credits: bool,
     pub load: Load,
-    attempt: u32,
+    /// The last load's attempt: a load whose attempt `load` no longer holds is stale.
+    issued: u32,
 }
 
-/// `UsageDialogState`, less what the client's timeout and the app's thread already give.
+/// `UsageDialogState` (`usage/machine.ts:16-28`) for the open dialog's location. `Refreshing`
+/// shows limits read before while the dialog's own load runs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Load {
-    Loading,
-    /// Limits read before, while the dialog's own read runs.
-    Refreshing(Info),
+    Loading { attempt: u32 },
+    Refreshing { attempt: u32, info: Info },
     Ready(Info),
     SignedOut,
     Failed,
 }
 
+/// `UsageDialogEvent`, less `location.changed` and `cache.synced`: the dialog keeps the location
+/// it opened on, and nothing else refreshes the cache while it shows.
+#[derive(Clone, Debug, PartialEq)]
+enum Event {
+    /// `None`: the server isn't signed in to Console.
+    Loaded { attempt: u32, info: Option<Info> },
+    Failed { attempt: u32 },
+    TimedOut { attempt: u32 },
+    Retry,
+}
+
+/// `UsageDialogEffect`: `sync` with its `timer.start`. The attempt fences the timer, so
+/// `timer.stop` has nothing to do.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Sync {
+    attempt: u32,
+}
+
+/// `USAGE_LOAD_TIMEOUT_MS`.
+const TIMEOUT_S: f64 = 15.0;
+
+/// `load`: a fresh attempt, showing `cached` while it runs.
+fn load(open: &mut Open, cached: Option<Info>) -> Sync {
+    open.issued += 1;
+    let attempt = open.issued;
+    open.load = match cached {
+        Some(info) => Load::Refreshing { attempt, info },
+        None => Load::Loading { attempt },
+    };
+    Sync { attempt }
+}
+
+/// `transitionUsageDialog`.
+fn step(open: &mut Open, event: Event) -> Option<Sync> {
+    let waiting = match &open.load {
+        Load::Loading { attempt } | Load::Refreshing { attempt, .. } => Some(*attempt),
+        _ => None,
+    };
+    match event {
+        Event::Retry if open.load == Load::Failed => Some(load(open, None)),
+        Event::Loaded { attempt, info } if waiting == Some(attempt) => {
+            open.load = info.map_or(Load::SignedOut, Load::Ready);
+            None
+        }
+        Event::Failed { attempt } | Event::TimedOut { attempt } if waiting == Some(attempt) => {
+            open.load = Load::Failed;
+            None
+        }
+        _ => None,
+    }
+}
 impl App {
     /// `usage.view`: opens the dialog over the composer's location and reads its limits.
     pub fn open_usage(&mut self, tx: &mut Tx) {
@@ -58,7 +110,7 @@ impl App {
             model: m.id.clone(),
             name: m.name.clone(),
         });
-        let load = self.usage.cache.get(&directory).cloned().map_or(Load::Loading, Load::Refreshing);
+        let cached = self.usage.cache.get(&directory).cloned();
         // Console refuses with 402 only when the workspace can't pay, which the dialog explains:
         // the open session's last reply, whatever came after it (`viewUsage`).
         let last = self.active_session_id().and_then(|id| self.transcripts.get(id)).and_then(|t| {
@@ -68,24 +120,29 @@ impl App {
             })
         });
         let credits = last.and_then(|a| a.failure.as_ref()).is_some_and(|e| e.status == Some(402));
-        self.usage.open = Some(Open { directory, model, credits, load, attempt: 0 });
-        self.load_usage();
+        let mut open = Open { directory, model, credits, load: Load::Failed, issued: 0 };
+        let sync = load(&mut open, cached);
+        self.usage.open = Some(open);
+        self.sync_usage(sync);
     }
 
     pub fn close_usage(&mut self) {
         self.usage.open = None;
     }
 
-    /// Reads the open dialog's limits again (`usage.limits` through `data.location.usage.sync`).
-    fn load_usage(&mut self) {
-        let Some(open) = self.usage.open.as_mut() else { return };
-        open.attempt += 1;
-        let (attempt, directory) = (open.attempt, open.directory.clone());
+    /// Reads the open dialog's limits (`usage.limits` through `data.location.usage.sync`), giving
+    /// up after the timeout.
+    fn sync_usage(&mut self, sync: Sync) {
+        let Some(open) = self.usage.open.as_ref() else { return };
+        let (attempt, directory) = (sync.attempt, open.directory.clone());
         if let Source::Fixture = self.source {
             // No server, no Console: a fixture's own `usage_limits`, else signed out.
             let answer = Ok(serde_json::json!({ "data": self.fixture.get("usage_limits").cloned().unwrap_or(Value::Null) }));
             return loaded(self, attempt, &directory, answer);
         }
+        self.job_after(std::time::Duration::from_secs_f64(TIMEOUT_S), move |_| {
+            Box::new(move |s: &mut App, tx: &mut Tx| usage_step(s, Event::TimedOut { attempt }, tx)) as crate::jobs::Apply
+        });
         self.job(move |srv| {
             let path = format!("/api/experimental/usage/limits?location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
             let answer = srv.get(&path);
@@ -98,27 +155,39 @@ impl App {
 
     /// Try again, after a failed read.
     fn retry_usage(&mut self) {
-        let Some(open) = self.usage.open.as_mut().filter(|o| o.load == Load::Failed) else { return };
-        open.load = Load::Loading;
-        self.load_usage();
+        usage_step(self, Event::Retry, &mut Tx::default());
     }
 }
 
-/// A read's answer: limits, signed out (`null`), or a failure. One the dialog no longer waits
-/// for is dropped.
+fn usage_step(s: &mut App, event: Event, tx: &mut Tx) {
+    let Some(open) = s.usage.open.as_mut() else { return };
+    let before = open.load.clone();
+    let sync = step(open, event);
+    if open.load != before {
+        tx.instant();
+    }
+    if let Some(sync) = sync {
+        s.sync_usage(sync);
+    }
+}
+
+/// A read's answer: limits, signed out (`null`), or a failure. It fills the location's cache
+/// either way; the dialog takes it only while it waits for that attempt at that location.
 fn loaded(s: &mut App, attempt: u32, directory: &str, answer: Result<Value, String>) {
     let info = answer.as_ref().ok().map(|v| v.get("data").unwrap_or(v));
     if let Some(info) = info.and_then(Info::parse) {
         s.usage.cache.insert(directory.to_owned(), info);
     }
-    let Some(open) = s.usage.open.as_mut().filter(|o| o.attempt == attempt && o.directory == directory) else { return };
-    open.load = match info {
-        Some(Value::Null) => Load::SignedOut,
-        Some(v) => Info::parse(v).map_or(Load::Failed, Load::Ready),
-        None => Load::Failed,
+    if s.usage.open.as_ref().is_none_or(|o| o.directory != directory) {
+        return;
+    }
+    let event = match info {
+        Some(Value::Null) => Event::Loaded { attempt, info: None },
+        Some(v) => Info::parse(v).map_or(Event::Failed { attempt }, |info| Event::Loaded { attempt, info: Some(info) }),
+        None => Event::Failed { attempt },
     };
+    usage_step(s, event, &mut Tx::default());
 }
-
 rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
     crate::commands::Cmd::new("usage.view", opencode_i18n::key!("command.usage.view"), |s, tx| s.open_usage(tx))
         .describe(opencode_i18n::key!("command.usage.view.description"))

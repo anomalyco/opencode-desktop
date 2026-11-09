@@ -65,7 +65,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
         6 => (Load::SignedOut, None, false),
         _ => (Load::Ready(info(vec![anthropic(123.14), pool(394.57)], true)), None, false),
     };
-    s.usage.open = Some(Open { directory: s.composer_directory(), model, credits, load, attempt: 0 });
+    s.usage.open = Some(Open { directory: s.composer_directory(), model, credits, load, issued: 0 });
 }
 
 /// The dialog alone, centred on the stage over the app's scrim.

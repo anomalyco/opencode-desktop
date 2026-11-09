@@ -37,7 +37,7 @@ pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
     let open = s.usage.open.as_ref()?;
     let width = (win_w - 32.0).min(512.0);
     let (body, footer) = match &open.load {
-        Load::Ready(info) | Load::Refreshing(info) => {
+        Load::Ready(info) | Load::Refreshing { info, .. } => {
             let v = limits::view(info, open.model.as_ref(), open.credits);
             (content(s, p, &v), Some(footer(p, &v, &info.workspace.usage_url)))
         }
