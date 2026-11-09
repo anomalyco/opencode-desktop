@@ -6,6 +6,7 @@
 //! `PanelLauncherDesc`, `ClosedPanelTab`) so a future sandboxed WASM `Surface` lane can feed the
 //! exact same region state without changing built-ins or `view.rs`.
 
+pub mod closing;
 pub mod dock;
 pub mod drag;
 pub mod keys;

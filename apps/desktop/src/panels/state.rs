@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use rune::Tx;
 
+use super::closing::Event;
 use super::tabs::{
     ClosedSideTab, SessionTabState, SessionTabs, close_session_tab, move_session_tab,
     open_session_tab, panel_key, preview_session_tab, push_closed_tab, session_pane_tab,
@@ -84,6 +85,8 @@ pub struct SideState {
     pub active_pane_focus: SessionPane,
     /// Blocks an extra `⌘W` right after closing the side region's last tab from closing the session.
     pub emptied_guard: bool,
+    /// The side region's last tab, still drawn while closing it slides the region shut.
+    pub closing: super::closing::State,
     /// Right-click context menu on a side tab: `(tab_key, x, y)`.
     pub tab_menu: Option<(String, f32, f32)>,
     /// `+` launcher dropdown menu anchor `(pane, x, y)`.
@@ -109,6 +112,7 @@ impl Default for SideState {
             focused: false,
             active_pane_focus: SessionPane::Side,
             emptied_guard: false,
+            closing: Default::default(),
             tab_menu: None,
             add_menu: None,
             sessions: HashMap::new(),
@@ -721,9 +725,15 @@ impl App {
                 .iter()
                 .any(|n| n.session_id == sid && n.pane != SessionPane::Bottom);
             if !any_side && !any_new {
-                // Closing the last tab collapses the side region smoothly on its spring.
+                // Closing the last tab collapses the side region smoothly on its spring, its
+                // contents staying on screen until it lands.
                 self.session_side_mut(&sid).open = false;
                 self.side.focused = false;
+                if let Some(entry) = entry {
+                    let at = self.clock;
+                    let effects = self.side.closing.step(Event::LastTabClosed { session_id: sid, entry, at });
+                    self.run_closing(effects, tx);
+                }
             } else {
                 // Remaining tabs close the gap at once (docs/kit-design.md: immediate).
                 tx.instant();

@@ -6,6 +6,8 @@ use rune::{Ime, Key, KeyEvent, Tx};
 
 use crate::keymap::Bind;
 
+use super::closing::{Effect, Event};
+use super::state::{ResolvedEntry, ResolvedRegion};
 use super::tabs::{SessionTabs, panel_key};
 use super::SessionPane;
 use crate::App;
@@ -32,8 +34,48 @@ impl App {
         false
     }
 
+    /// The last tab a close is sliding shut, which `pane` draws until the region lands, so the
+    /// flight shows what it closes rather than an empty pane.
+    /// Input runs after the frame's poll, so a tab shown since then already hides it.
+    pub fn closing_side_entry(&self, reg: &ResolvedRegion, pane: SessionPane) -> Option<&ResolvedEntry> {
+        let held = self.side.closing.held(&reg.session_id, pane)?;
+        self.side_region_shut(&reg.session_id, Some(reg)).then_some(held)
+    }
+
+    /// `sid`'s side region is shut with nothing in it: no side tab, and no New tab on its way.
+    fn side_region_shut(&self, sid: &str, reg: Option<&ResolvedRegion>) -> bool {
+        let resolved;
+        let reg = match reg {
+            Some(r) => Some(r),
+            None => {
+                resolved = self.resolve_side_region();
+                resolved.as_ref()
+            }
+        };
+        self.active_session_id() == Some(sid)
+            && !self.side_open()
+            && reg.is_none_or(|r| r.strip.iter().all(|e| e.pane == SessionPane::Bottom))
+            && !self.side.adding.iter().any(|n| n.session_id == sid && n.pane != SessionPane::Bottom)
+    }
+
+    pub(super) fn run_closing(&mut self, effects: Vec<Effect>, tx: &mut Tx) -> bool {
+        let mut changed = false;
+        for effect in effects {
+            match effect {
+                Effect::WakeAfter(after) => tx.wake_after(after),
+                Effect::Redraw => changed = true,
+            }
+        }
+        changed
+    }
+
     pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
         let mut changed = false;
+        if let Some(sid) = self.side.closing.session().map(str::to_owned) {
+            let shut = self.side_region_shut(&sid, None);
+            let effects = self.side.closing.step(Event::Frame { clock: self.clock, shut });
+            changed |= self.run_closing(effects, tx);
+        }
         let has_stored_tabs = self
             .active_session_id()
             .and_then(|sid| self.side.sessions.get(sid))

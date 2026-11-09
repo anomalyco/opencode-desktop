@@ -57,6 +57,10 @@ pub fn review(r: &mut Run) {
     r.play(0.6);
     r.act("reopen review", |rt| Run::tap(rt, "side-toggle"));
     r.loaded();
+    r.play(0.6);
+    // Closing the last tab slides the region shut with Changes still drawn, as the toggle does.
+    r.act("close last tab", |rt| Run::tap(rt, "side-tab-close-review-changes"));
+    r.loaded();
     r.play_out(0.8);
 }
 pub fn files(r: &mut Run) {
