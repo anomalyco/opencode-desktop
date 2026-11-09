@@ -246,6 +246,7 @@ const ROWS: &[Row] = &[
     (Page::Appearance, "settings-terminal-font", key!("settings.general.row.terminalFont.title"), None, None, "terminal typeface"),
     (Page::Appearance, "settings-zoom", key!("settings.appearance.row.zoom.title"), None, None, "scale size text font larger bigger accessibility"),
     (Page::Appearance, "settings-reduce-motion", key!("settings.appearance.row.reduceMotion.title"), None, None, "animation accessibility"),
+    (Page::Appearance, "settings-text-renderer", key!("rune.textRendering.title"), None, Some(key!("rune.textRendering.description")), "font antialiasing smoothing windfoil directwrite cleartype retina"),
     (Page::Notifications, "settings-notifications-agent", key!("settings.general.notifications.agent.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.agent.description")), "desktop notifications agent"),
     (Page::Notifications, "settings-notifications-permissions", key!("settings.general.notifications.permissions.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.permissions.description")), "desktop notifications permissions"),
     (Page::Notifications, "settings-notifications-questions", key!("settings.general.notifications.questions.title"), NOTIFICATIONS, Some(key!("settings.general.notifications.questions.description")), "desktop notifications questions mcp elicitation input"),

@@ -1,13 +1,13 @@
 //! Settings › Appearance (`settings/appearance/appearance.tsx`): Color scheme, Theme (with Learn
 //! more), the UI, Code and Terminal fonts as 220 pt fields in their own faces, Zoom and Reduce
-//! motion. A font field takes a family name; the names Rune can load (the faces the app bundles,
-//! and SF Mono) apply as typed, an empty field is the default.
+//! motion, and this app's Text rendering. A font field takes a family name; the names Rune
+//! can load (the faces the app bundles, and SF Mono) apply as typed, an empty field is the default.
 
 use rune::{Family, TextEdit, TextStyle, Tx, El, row};
 
 use super::{header, page, select, text_field};
 use crate::App;
-use crate::appearance::{CODE_FONTS, ReduceMotion, TERMINAL_FONTS, UI_FONTS};
+use crate::appearance::{CODE_FONTS, ReduceMotion, TERMINAL_FONTS, TextRenderer, UI_FONTS};
 use crate::palette::Pal;
 use crate::settings::{self, Scheme, about, link, setting, setting_with};
 
@@ -114,6 +114,9 @@ pub fn view(s: &App, p: &Pal) -> El {
             }))),
         ("settings-reduce-motion", setting(p, "settings-reduce-motion", t!("settings.appearance.row.reduceMotion.title"), t!("settings.appearance.row.reduceMotion.description"),
             select(s, p, "settings-reduce-motion-select", t!("settings.appearance.row.reduceMotion.title"), [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off].iter().map(|m| (m.name().to_owned(), m.label().to_owned())).collect(), st.reduce_motion.name(), |s, id, _| s.set_reduce_motion(ReduceMotion::parse(Some(id)))))),
+        // This app's own row: Rune's text rasteriser, switched live.
+        ("settings-text-renderer", setting(p, "settings-text-renderer", t!("rune.textRendering.title"), t!("rune.textRendering.description"),
+            select(s, p, "settings-text-renderer-select", t!("rune.textRendering.title"), TextRenderer::ALL.iter().map(|r| (r.name().to_owned(), r.label().to_owned())).collect(), st.text_renderer.name(), |s, id, _| s.set_text_renderer(TextRenderer::parse(Some(id)))))),
     ];
     let list = settings::list(p, "appearance-list", super::rows(s, p, 20.0, rows));
     page(p, "settings-appearance-page", header(p, t!("settings.general.section.appearance"), t!("settings.appearance.description")), list)

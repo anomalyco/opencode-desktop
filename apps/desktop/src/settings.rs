@@ -65,6 +65,8 @@ pub struct Settings {
     /// Desktop's colour theme id (`themes.rs`); `oc-2` is OpenCode's own.
     pub theme: String,
     pub reduce_motion: crate::appearance::ReduceMotion,
+    /// Appearance › Text rendering: how Rune rasterises text (`appearance::TextRenderer`).
+    pub text_renderer: crate::appearance::TextRenderer,
     /// The terminal's font, an index into the Terminal font knob's choices.
     pub terminal_font: usize,
     /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
@@ -139,6 +141,7 @@ impl Default for Settings {
             project_auto_accept: BTreeMap::new(),
             theme: crate::themes::DEFAULT.into(),
             reduce_motion: Default::default(),
+            text_renderer: Default::default(),
             terminal_font: 3,
             ui_font: 0,
             code_font: 0,
@@ -184,6 +187,7 @@ impl Settings {
             "permissions": { "autoApprove": self.auto_accept, "projects": self.project_auto_accept },
             "theme": self.theme,
             "reduceMotion": self.reduce_motion.name(),
+            "textRenderer": self.text_renderer.name(),
             "terminalFont": self.terminal_font,
             "uiFont": if self.ui_font_name.is_empty() { crate::appearance::UI_FONTS[self.ui_font.min(crate::appearance::UI_FONTS.len() - 1)].name } else { self.ui_font_name.as_str() },
             "codeFont": if self.code_font_name.is_empty() { crate::appearance::CODE_FONTS[self.code_font.min(crate::appearance::CODE_FONTS.len() - 1)].name } else { self.code_font_name.as_str() },
@@ -226,6 +230,7 @@ impl Settings {
             project_auto_accept: v["permissions"]["projects"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_bool()?))).collect()).unwrap_or_default(),
             theme: theme_id(v["theme"].as_str().unwrap_or_default()),
             reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
+            text_renderer: crate::appearance::TextRenderer::parse(v["textRenderer"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),

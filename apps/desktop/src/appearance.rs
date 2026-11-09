@@ -39,6 +39,54 @@ impl ReduceMotion {
     }
 }
 
+/// Appearance › Text rendering: how Rune rasterises text, switched live in every window.
+/// `Default` is Rune's default for the system (Windfoil everywhere but macOS, which keeps its
+/// CoreText look); `Classic` is the system's own text from before Windfoil (DirectWrite on
+/// Windows). The palette's Cycle text rendering steps through the ones that draw differently.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextRenderer {
+    #[default]
+    Default,
+    Windfoil,
+    Classic,
+}
+
+impl TextRenderer {
+    pub const ALL: [TextRenderer; 3] = [TextRenderer::Default, TextRenderer::Windfoil, TextRenderer::Classic];
+
+    pub fn name(self) -> &'static str {
+        match self { Self::Default => "default", Self::Windfoil => "windfoil", Self::Classic => "classic" }
+    }
+
+    pub fn parse(s: Option<&str>) -> TextRenderer {
+        Self::ALL.into_iter().find(|r| Some(r.name()) == s).unwrap_or_default()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default if cfg!(target_os = "macos") => opencode_i18n::t!("rune.textRendering.default.mac"),
+            Self::Default => opencode_i18n::t!("rune.textRendering.default"),
+            Self::Windfoil => opencode_i18n::t!("rune.textRendering.windfoil"),
+            Self::Classic if cfg!(target_os = "windows") => opencode_i18n::t!("rune.textRendering.classic.windows"),
+            Self::Classic => opencode_i18n::t!("rune.textRendering.classic"),
+        }
+    }
+
+    pub fn smoothing(self) -> rune::FontSmoothing {
+        match self {
+            Self::Default => rune::FontSmoothing::default(),
+            Self::Windfoil => rune::FontSmoothing::Windfoil,
+            Self::Classic => rune::FontSmoothing::classic(),
+        }
+    }
+
+    /// The next renderer that draws differently from this one, for the palette.
+    pub fn cycle(self) -> TextRenderer {
+        let at = Self::ALL.iter().position(|r| *r == self).unwrap_or(0);
+        (1..Self::ALL.len()).map(|i| Self::ALL[(at + i) % Self::ALL.len()]).find(|r| r.smoothing() != self.smoothing()).unwrap_or(self)
+    }
+}
+
 /// Where `App::reduced_motion` comes from: `--reduced-motion`, the setting and macOS's
 /// Reduce motion, which only the view can read (`note_system`).
 #[derive(Debug, Default)]
@@ -150,7 +198,8 @@ fn apply_font_args(settings: &mut crate::settings::Settings) {
 }
 
 /// `--color-theme <id>` paints a run in one of Desktop's themes (`themes::all`), `--scheme
-/// light|dark|system` in one of its modes; `--ui-font` and `--code-font` pick its fonts.
+/// light|dark|system` in one of its modes; `--ui-font` and `--code-font` pick its fonts;
+/// `--text-renderer default|windfoil|classic` sets Text rendering.
 pub fn apply_args(app: &mut App) {
     let args = rune::extra_args();
     let value = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
@@ -160,7 +209,20 @@ pub fn apply_args(app: &mut App) {
     if let Some(name) = value("--scheme") {
         app.settings.scheme = crate::settings::Scheme::parse(name);
     }
+    if let Some(name) = value("--text-renderer") {
+        app.settings.text_renderer = TextRenderer::parse(Some(name));
+    }
     apply_font_args(&mut app.settings);
+}
+
+// Flips Text rendering from the palette, to compare renderers on the same screen.
+rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
+    crate::commands::Cmd::new("text-rendering.cycle", opencode_i18n::key!("rune.textRendering.cycle"), |s, _| s.set_text_renderer(s.settings.text_renderer.cycle())),
+]);
+
+/// Draws this window's text as Appearance › Text rendering says: Rune redraws only when it changes.
+pub fn poll_text(s: &App, tx: &mut Tx) {
+    tx.set_font_smoothing(s.settings.text_renderer.smoothing());
 }
 
 /// Picks up a change in macOS's Reduce motion.
@@ -244,6 +306,13 @@ impl App {
         let changed = on != self.reduced_motion;
         self.reduced_motion = on;
         changed
+    }
+
+    /// Saves Text rendering and says which it is in a toast, so a screenshot names its renderer;
+    /// `poll_text` redraws with it.
+    pub fn set_text_renderer(&mut self, r: TextRenderer) {
+        self.change_settings(|s| s.text_renderer = r);
+        crate::status_toast::say(self, opencode_i18n::t!("rune.textRendering.toast", name = r.label()), "");
     }
 
     pub fn set_reduce_motion(&mut self, m: ReduceMotion) {

@@ -1145,6 +1145,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= updater::poll(s, tx);
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
+    appearance::poll_text(s, tx);
     changed |= language::poll(s, tx);
     changed |= settings::search::poll(s, tx);
     changed |= notifications::poll(s, tx);
