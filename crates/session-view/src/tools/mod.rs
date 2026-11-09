@@ -141,6 +141,9 @@ pub fn sub_key(id: &str, part: impl std::fmt::Display) -> String {
 /// when what it shows changes. A shimmering title isn't cached, so its sweep keeps the run's
 /// rhythm.
 pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
+    // A shell command run from the composer runs whether or not its session does: its title
+    // shimmers while the command runs (`SessionShellMessage` passes its own status).
+    let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
     let build = || {
         if *c.status == ToolStatus::Error && c.name != "execute" {
             return error::card(s, p, cx.session, c);

@@ -139,13 +139,14 @@ fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
 
 /// Another running label in the Working label's light (Desktop's `TextShimmer`, as a running
 /// tool's title has it), its rhythm counted from `since` on the app clock. Still when motion
-/// is reduced.
+/// is reduced, in the label's own ink, as Desktop's `data-motion="reduce"` shows the text it
+/// shimmers (`text-shimmer.css`: the base layer whole, the shimmer layer `color: inherit`).
 pub fn shimmer<S: TimelineHost>(s: &S, p: &Pal, words: &str, font: TextStyle, since: f64) -> El {
     let (weak, strong) = colors(p);
-    let base = text(words.to_owned()).key("label").font(font).color(weak);
     if s.reduced_motion() {
-        return rune::row().child(base);
+        return rune::row().child(text(words.to_owned()).key("label").font(font).color(p.text));
     }
+    let base = text(words.to_owned()).key("label").font(font).color(weak);
     let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));
     let w = rune::text::measure(words, &[], font, None).0;
     sweep(Run { since, now: s.clock() }, words, font, base, lit, band(s, w))
