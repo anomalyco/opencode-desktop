@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rune_kit::diff::{DiffMode, Expand, FileDiff, Hunk, LineKind, LineRange, Side};
+use rune_kit::diff::{DiffMode, Expand, FileDiff, Hunk, LineKind, LineRange, Side, SplitRow};
 use rune_kit::syntax::Paint;
 
 use super::fold::{ExpandMode, Fold, FoldEffect, FoldEvent, GapFacts, Reveal};
@@ -577,35 +577,14 @@ impl DiffDocState {
                 let Some(h) = file.hunks.get(gap) else { break };
                 self.hunk_rows.push(first_row);
                 let hu = gap as u32;
-                let lines = &h.lines;
-                let mut i = 0;
-                while i < lines.len() {
-                    if self.mode == DiffMode::Split && lines[i].kind == LineKind::Removed {
-                        let del = i;
-                        while i < lines.len() && lines[i].kind == LineKind::Removed {
-                            i += 1;
-                        }
-                        let add = i;
-                        while i < lines.len() && lines[i].kind == LineKind::Added {
-                            i += 1;
-                        }
-                        let (nd, na) = (add - del, i - add);
-                        for k in 0..nd.max(na) {
-                            rows.push(match (k < nd, k < na) {
-                                (true, true) => DiffRow::Pair {
-                                    f: fu,
-                                    h: hu,
-                                    del: (del + k) as u32,
-                                    add: (add + k) as u32,
-                                },
-                                (true, false) => DiffRow::Line { f: fu, h: hu, i: (del + k) as u32 },
-                                _ => DiffRow::Line { f: fu, h: hu, i: (add + k) as u32 },
-                            });
-                        }
-                        continue;
-                    }
-                    rows.push(DiffRow::Line { f: fu, h: hu, i: i as u32 });
-                    i += 1;
+                // Split rows pair lines as Pierre does, by similarity in an uneven run
+                // (`realignChangeContent.js`), from rune-kit's `Line::pair`.
+                match self.mode {
+                    DiffMode::Split => rows.extend(h.split_rows().map(|r| match r {
+                        SplitRow::Pair { del, add } => DiffRow::Pair { f: fu, h: hu, del: del as u32, add: add as u32 },
+                        SplitRow::Line(i) => DiffRow::Line { f: fu, h: hu, i: i as u32 },
+                    })),
+                    DiffMode::Unified => rows.extend((0..h.lines.len() as u32).map(|i| DiffRow::Line { f: fu, h: hu, i })),
                 }
             }
         }
