@@ -87,6 +87,11 @@
       { "value": "terminal", "doc": "The terminal." },
       { "value": "prompt", "doc": "The composer." }
     ] },
+    { "name": "PanelMobileKind", "rust": true, "doc": "Where a panel's narrow-screen view is offered.", "values": [
+      { "value": "tab", "doc": "A tab of the narrow view switcher, beside Session. It replaces the conversation." },
+      { "value": "menu", "doc": "A row of the switcher's More drawer. It replaces the conversation." },
+      { "value": "drawer", "doc": "A row of the More drawer that opens inside the drawer, over the conversation." }
+    ] },
     { "name": "MenuName", "rust": true, "doc": "A host menu a menu item joins.", "values": [
       { "value": "session.panel", "doc": "The + menu before the side panel's tabs, and the New tab view." },
       { "value": "server.add", "doc": "The Add server menu in Settings › Servers." },
@@ -1036,6 +1041,13 @@
       { "name": "missing", "type": "boolean?", "doc": "Struck through, such as a deleted file." },
       { "name": "file", "type": "string?", "doc": "The workspace file the tab shows." }
     ] },
+    { "name": "PanelMobileView", "kind": "record", "rust": true, "official": "MobileView", "doc": "A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `\"mobile\"`.", "fields": [
+      { "name": "title", "type": "string", "doc": "Its label in the switcher or the More drawer." },
+      { "name": "order", "type": "number", "doc": "Views list in ascending order." },
+      { "name": "kind", "type": "PanelMobileKind", "doc": "Where it is offered: a switcher tab, a More row that replaces the conversation, or a More row that opens in the drawer." },
+      { "name": "icon", "type": "IconName?", "doc": "Its icon in the More drawer." },
+      { "name": "cached", "type": "boolean?", "doc": "Once shown, it stays mounted while another view shows. Defaults to false: it mounts each time it is shown." }
+    ] },
     { "name": "PanelSpec", "kind": "record", "rust": true, "official": "Panel", "doc": "A panel: tabs in a session's side region.", "fields": [
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
       { "name": "title", "type": "string", "doc": "Its tab and launcher title." },
@@ -1048,6 +1060,7 @@
       { "name": "launcher", "type": "boolean?", "doc": "Offered in the + menu and the New tab view. Defaults to true." },
       { "name": "first", "type": "boolean?", "doc": "Its tab sits at the front of the strip." },
       { "name": "fallback", "type": "boolean?", "doc": "Its tab is selected when the selected tab closes." },
+      { "name": "mobile", "type": "PanelMobileView?", "doc": "Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it." },
       { "name": "list", "type": "((sessionId: string, open: { string }) -> { PanelTab })?", "doc": "Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`." },
       { "name": "render", "type": "(view: View, props: PanelProps) -> UiNode?", "doc": "Draws a tab's content." },
       { "name": "label", "type": "((view: View, props: PanelTabLabelProps) -> UiNode?)?", "doc": "Draws the tab's label in the strip, instead of its icon and title." },

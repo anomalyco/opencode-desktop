@@ -94,6 +94,18 @@ string_enum! {
 }
 
 string_enum! {
+    /// Where a panel's narrow-screen view is offered.
+    pub enum PanelMobileKind {
+        /// A tab of the narrow view switcher, beside Session. It replaces the conversation.
+        Tab = "tab",
+        /// A row of the switcher's More drawer. It replaces the conversation.
+        Menu = "menu",
+        /// A row of the More drawer that opens inside the drawer, over the conversation.
+        Drawer = "drawer",
+    }
+}
+
+string_enum! {
     /// A host menu a menu item joins.
     pub enum MenuName {
         /// The + menu before the side panel's tabs, and the New tab view.

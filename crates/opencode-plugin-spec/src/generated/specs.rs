@@ -61,6 +61,24 @@ pub struct CommandSpec {
 }
 impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["run"], []);
 
+/// A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct PanelMobileView {
+    /// Its label in the switcher or the More drawer.
+    pub title: String,
+    /// Views list in ascending order.
+    pub order: f64,
+    /// Where it is offered: a switcher tab, a More row that replaces the conversation, or a More row that opens in the drawer.
+    pub kind: PanelMobileKind,
+    /// Its icon in the More drawer.
+    pub icon: Option<String>,
+    /// Once shown, it stays mounted while another view shows. Defaults to false: it mounts each time it is shown.
+    pub cached: Option<bool>,
+}
+impl_record!(PanelMobileView, ["title", "order", "kind", "icon", "cached"], [], []);
+
 /// A panel: tabs in a session's side region.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,8 +106,10 @@ pub struct PanelSpec {
     pub first: Option<bool>,
     /// Its tab is selected when the selected tab closes.
     pub fallback: Option<bool>,
+    /// Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
+    pub mobile: Option<PanelMobileView>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback"], ["list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile"], ["list", "render", "label", "onClose", "onFocus"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

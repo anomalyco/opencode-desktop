@@ -64,6 +64,9 @@ export type ToastVariant = "default" | "success" | "error" | "loading"
 --- The section of Settings › Shortcuts that lists a command.
 export type CommandSection = "general" | "session" | "navigation" | "model" | "terminal" | "prompt"
 
+--- Where a panel's narrow-screen view is offered.
+export type PanelMobileKind = "tab" | "menu" | "drawer"
+
 --- A host menu a menu item joins.
 export type MenuName = "session.panel" | "server.add" | "server.row"
 
@@ -3178,6 +3181,20 @@ export type PanelTab = {
     file: string?,
 }
 
+--- A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`. Desktop's plugin API calls it `MobileView`.
+export type PanelMobileView = {
+    --- Its label in the switcher or the More drawer.
+    title: string,
+    --- Views list in ascending order.
+    order: number,
+    --- Where it is offered: a switcher tab, a More row that replaces the conversation, or a More row that opens in the drawer.
+    kind: PanelMobileKind,
+    --- Its icon in the More drawer.
+    icon: IconName?,
+    --- Once shown, it stays mounted while another view shows. Defaults to false: it mounts each time it is shown.
+    cached: boolean?,
+}
+
 --- A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 export type PanelSpec = {
     --- Its id within the plugin.
@@ -3202,6 +3219,8 @@ export type PanelSpec = {
     first: boolean?,
     --- Its tab is selected when the selected tab closes.
     fallback: boolean?,
+    --- Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
+    mobile: PanelMobileView?,
     --- Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`.
     list: ((sessionId: string, open: { string }) -> { PanelTab })?,
     --- Draws a tab's content.

@@ -640,6 +640,16 @@ The section of Settings › Shortcuts that lists a command.
 | `"terminal"` | The terminal. |
 | `"prompt"` | The composer. |
 
+### PanelMobileKind
+
+Where a panel's narrow-screen view is offered.
+
+| Value | Meaning |
+|---|---|
+| `"tab"` | A tab of the narrow view switcher, beside Session. It replaces the conversation. |
+| `"menu"` | A row of the switcher's More drawer. It replaces the conversation. |
+| `"drawer"` | A row of the More drawer that opens inside the drawer, over the conversation. |
+
 ### MenuName
 
 A host menu a menu item joins.
@@ -2341,6 +2351,18 @@ One tab an instance panel lists.
 | `missing` | `boolean?` | Struck through, such as a deleted file. |
 | `file` | `string?` | The workspace file the tab shows. |
 
+### PanelMobileView
+
+A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`. Desktop's plugin API calls it `MobileView`.
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | Its label in the switcher or the More drawer. |
+| `order` | `number` | Views list in ascending order. |
+| `kind` | `PanelMobileKind` | Where it is offered: a switcher tab, a More row that replaces the conversation, or a More row that opens in the drawer. |
+| `icon` | `IconName?` | Its icon in the More drawer. |
+| `cached` | `boolean?` | Once shown, it stays mounted while another view shows. Defaults to false: it mounts each time it is shown. |
+
 ### PanelSpec
 
 A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
@@ -2358,6 +2380,7 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `launcher` | `boolean?` | Offered in the + menu and the New tab view. Defaults to true. |
 | `first` | `boolean?` | Its tab sits at the front of the strip. |
 | `fallback` | `boolean?` | Its tab is selected when the selected tab closes. |
+| `mobile` | `PanelMobileView?` | Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it. |
 | `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. |
 | `render` | `(view: View, props: PanelProps) -> UiNode?` | Draws a tab's content. |
 | `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |
