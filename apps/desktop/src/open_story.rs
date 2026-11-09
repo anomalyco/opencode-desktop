@@ -77,13 +77,30 @@ fn click(s: &mut App, tx: &mut Play<App>) {
     }
 }
 
+/// The motion gate's open, as the O trigger's: opens the session now, and returns when its page
+/// and its picture arrive after that (seconds; none when prefetched).
+pub(crate) fn open_now(s: &mut App, tx: &mut rune::Tx) -> Option<(f64, f64)> {
+    let at = s.open_demo.as_ref()?.at;
+    s.open(TARGET, tx);
+    (!matches!(at, 1 | 3)).then_some(if at == 2 { (0.25, 0.4) } else { (0.05, 0.1) })
+}
+
+/// The page arriving, then its picture: the O trigger's later steps.
+pub(crate) fn arrive(s: &mut App, picture: bool) {
+    if picture {
+        s.attach.fixture_media(MEDIA, Some(s.open_demo.as_ref().unwrap().png.clone()));
+    } else {
+        let d = s.open_demo.as_ref().unwrap();
+        let _ = d.send.send(Ok(d.page.clone()));
+    }
+}
+
 fn deliver(s: &mut App, _: &mut Play<App>) {
-    let d = s.open_demo.as_ref().unwrap();
     // A second click's page finds the first's receiver gone.
-    let _ = d.send.send(Ok(d.page.clone()));
+    arrive(s, false);
 }
 fn pixels(s: &mut App, _: &mut Play<App>) {
-    s.attach.fixture_media(MEDIA, Some(s.open_demo.as_ref().unwrap().png.clone()));
+    arrive(s, true);
 }
 
 pub fn view(s: &App, p: &Pal) -> El {

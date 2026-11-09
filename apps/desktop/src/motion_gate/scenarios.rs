@@ -979,10 +979,21 @@ fn open_runs() -> Vec<(String, Run)> {
 }
 
 fn open(r: &mut Run) {
-    let state = |s: &App| (s.route.clone(), s.opening.is_some(), s.transcripts.get("ses_open_story").map(|t| t.messages.len()));
+    // What the page shows: the session, held or loading, and how much of its transcript.
+    let state = |s: &App| (s.route.clone(), s.opening.as_ref().map(|o| o.loading), s.transcripts.get("ses_open_story").map(|t| t.messages.len()));
     let mut seen = state(&r.rt.state);
-    // A prefetched session swaps in on the frame of the keypress itself.
-    r.act("open", |rt| rt.key(KeyEvent { key: Key::Text("o".into()), mods: Mods::default() }));
+    // The story's O trigger (the storybook routes it; this runtime has no playground, where an
+    // O key would be typed into the composer, as Desktop types a stray key there). A prefetched
+    // session swaps in on that frame; the others' page, then picture, arrive after it.
+    let mut arrivals = None;
+    r.act("open", |rt| rt.update(|s, tx| arrivals = crate::open_story::open_now(s, tx)));
+    // Opening swaps the page in on its frame, as a load does.
+    if state(&r.rt.state) != seen {
+        r.loaded();
+        seen = state(&r.rt.state);
+    }
+    let start = r.rt.state.clock;
+    let mut due: Vec<(f64, bool)> = arrivals.map_or(Vec::new(), |(page, picture)| vec![(start + page, false), (start + picture, true)]);
     // Input remains live while the transcript is held, loading, and mounting.
     if let Some((x, y)) = r.rt.find("prompt") {
         r.act("focus during load", |rt| { rt.pointer_down(x, y); rt.pointer_up(x, y); });
@@ -992,6 +1003,10 @@ fn open(r: &mut Run) {
     for i in 0..=(1.5 / DT) as usize {
         if i > 0 {
             r.step_n(1);
+        }
+        while due.first().is_some_and(|d| r.rt.state.clock >= d.0) {
+            let picture = due.remove(0).1;
+            r.rt.update(|s, _| crate::open_story::arrive(s, picture));
         }
         let now = state(&r.rt.state);
         if now != seen {
