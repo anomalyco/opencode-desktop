@@ -1,0 +1,9 @@
+{
+  "working": "Darbojas",
+  "requestFailed": "Pieprasījums neizdevās",
+  "copied": "Nokopēts",
+  "copyMessage": "Kopēt ziņu",
+  "duration.seconds": "{{count}} s",
+  "duration.minutesSeconds": "{{minutes}} m {{seconds}} s",
+  "category.session": "Sesija"
+}

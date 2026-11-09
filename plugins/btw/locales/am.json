@@ -1,0 +1,9 @@
+{
+  "working": "በመስራት ላይ",
+  "requestFailed": "ጥያቄው አልተሳካም",
+  "copied": "የተገለበጠ",
+  "copyMessage": "መልዕክት ቅዳ",
+  "duration.seconds": "{{count}} ሰ",
+  "duration.minutesSeconds": "{{minutes}} ደ {{seconds}} ሰ",
+  "category.session": "ክፍለ ጊዜ"
+}

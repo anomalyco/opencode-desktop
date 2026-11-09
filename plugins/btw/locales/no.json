@@ -1,0 +1,9 @@
+{
+  "working": "Arbeider",
+  "requestFailed": "Forespørsel mislyktes",
+  "copied": "Kopiert!",
+  "copyMessage": "Kopier melding",
+  "duration.seconds": "{{count}} s",
+  "duration.minutesSeconds": "{{minutes}} min {{seconds}} s",
+  "category.session": "Sesjon"
+}

@@ -1,0 +1,9 @@
+{
+  "working": "Работи",
+  "requestFailed": "Барањето не успеа",
+  "copied": "Копирано",
+  "copyMessage": "Копирај порака",
+  "duration.seconds": "{{count}}с",
+  "duration.minutesSeconds": "{{minutes}} мин. {{seconds}} сек.",
+  "category.session": "Сесија"
+}

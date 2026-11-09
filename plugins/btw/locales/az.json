@@ -1,0 +1,9 @@
+{
+  "working": "İşləyir",
+  "requestFailed": "Sorğu uğursuz oldu",
+  "copied": "Kopyalandı",
+  "copyMessage": "Mesajı kopyala",
+  "duration.seconds": "{{count}} san",
+  "duration.minutesSeconds": "{{minutes}} dəq {{seconds}} san",
+  "category.session": "Sessiya"
+}

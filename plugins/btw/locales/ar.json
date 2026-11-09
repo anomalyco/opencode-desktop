@@ -1,0 +1,9 @@
+{
+  "working": "جارٍ العمل",
+  "requestFailed": "فشل الطلب",
+  "copied": "تم النسخ!",
+  "copyMessage": "نسخ الرسالة",
+  "duration.seconds": "{{count}}ث",
+  "duration.minutesSeconds": "{{minutes}}د {{seconds}}ث",
+  "category.session": "جلسة"
+}

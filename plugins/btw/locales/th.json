@@ -1,0 +1,9 @@
+{
+  "working": "การทำงาน",
+  "requestFailed": "คำขอล้มเหลว",
+  "copied": "คัดลอกแล้ว!",
+  "copyMessage": "คัดลอกข้อความ",
+  "duration.seconds": "{{count}} วินาที",
+  "duration.minutesSeconds": "{{minutes}} นาที {{seconds}} วินาที",
+  "category.session": "เซสชัน"
+}

@@ -1,0 +1,9 @@
+{
+  "working": "Pracuje",
+  "requestFailed": "Požadavek se nezdařil",
+  "copied": "Zkopírováno",
+  "copyMessage": "Zkopírujte zprávu",
+  "duration.seconds": "{{count}} s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Relace"
+}

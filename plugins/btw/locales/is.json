@@ -1,0 +1,9 @@
+{
+  "working": "Að vinna",
+  "requestFailed": "Beiðni mistókst",
+  "copied": "Afritað",
+  "copyMessage": "Afritaðu skilaboð",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Seta"
+}

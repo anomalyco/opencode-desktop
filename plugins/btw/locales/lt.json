@@ -1,0 +1,9 @@
+{
+  "working": "Darbas",
+  "requestFailed": "Užklausa nepavyko",
+  "copied": "Nukopijuota",
+  "copyMessage": "Nukopijuokite pranešimą",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Seansas"
+}

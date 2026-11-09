@@ -1,0 +1,9 @@
+{
+  "working": "Trabalhando",
+  "requestFailed": "Requisição falhou",
+  "copied": "Copiado!",
+  "copyMessage": "Copiar mensagem",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sessão"
+}

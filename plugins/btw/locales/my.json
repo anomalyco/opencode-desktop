@@ -1,0 +1,9 @@
+{
+  "working": "အလုပ်လုပ်တယ်။",
+  "requestFailed": "တောင်းဆိုမှု မအောင်မြင်ပါ။",
+  "copied": "ကူးယူထားသည်။",
+  "copyMessage": "မက်ဆေ့ဂျ်ကို ကူးယူပါ။",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "အပိုင်း"
+}

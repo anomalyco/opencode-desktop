@@ -1,0 +1,9 @@
+{
+  "working": "工作中",
+  "requestFailed": "请求失败",
+  "copied": "已复制！",
+  "copyMessage": "复制消息",
+  "duration.seconds": "{{count}} 秒",
+  "duration.minutesSeconds": "{{minutes}} 分钟 {{seconds}} 秒",
+  "category.session": "会话"
+}

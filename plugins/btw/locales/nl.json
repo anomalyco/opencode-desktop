@@ -1,0 +1,9 @@
+{
+  "working": "Bezig",
+  "requestFailed": "Verzoek mislukt",
+  "copied": "Gekopieerd",
+  "copyMessage": "Bericht kopiëren",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sessie"
+}

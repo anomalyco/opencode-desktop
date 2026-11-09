@@ -1,0 +1,9 @@
+{
+  "working": "Աշխատում է",
+  "requestFailed": "Հարցումը ձախողվեց",
+  "copied": "Պատճենված",
+  "copyMessage": "Պատճենել հաղորդագրությունը",
+  "duration.seconds": "{{count}} վ",
+  "duration.minutesSeconds": "{{minutes}}ր {{seconds}}վ",
+  "category.session": "Նիստ"
+}

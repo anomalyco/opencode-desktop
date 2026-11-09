@@ -1,0 +1,9 @@
+{
+  "working": "Bajarilmoqda",
+  "requestFailed": "Soʻrov bajarilmadi",
+  "copied": "Koʻchirildi",
+  "copyMessage": "Xabarni nusxalash",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sessiya"
+}

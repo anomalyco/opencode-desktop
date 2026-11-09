@@ -1,0 +1,9 @@
+{
+  "working": "Duke punuar",
+  "requestFailed": "Kërkesa dështoi",
+  "copied": "E kopjuar",
+  "copyMessage": "Kopjo mesazhin",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sesioni"
+}

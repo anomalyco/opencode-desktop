@@ -1,0 +1,9 @@
+{
+  "working": "در حال کار",
+  "requestFailed": "درخواست ناموفق بود",
+  "copied": "کپی شد",
+  "copyMessage": "کپی پیام",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "جلسه"
+}

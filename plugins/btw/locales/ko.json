@@ -1,0 +1,9 @@
+{
+  "working": "일하고 있는",
+  "requestFailed": "요청 실패",
+  "copied": "복사됨!",
+  "copyMessage": "메시지 복사",
+  "duration.seconds": "{{count}}초",
+  "duration.minutesSeconds": "{{minutes}}분 {{seconds}}초",
+  "category.session": "세션"
+}

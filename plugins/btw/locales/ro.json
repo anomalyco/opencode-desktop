@@ -1,0 +1,9 @@
+{
+  "working": "De lucru",
+  "requestFailed": "Solicitarea a eșuat",
+  "copied": "Copiat",
+  "copyMessage": "Copiază mesajul",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sesiune"
+}

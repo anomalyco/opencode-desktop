@@ -1,0 +1,9 @@
+{
+  "working": "Arbeiða",
+  "requestFailed": "Umbønin miseydnaðist",
+  "copied": "Avritað",
+  "copyMessage": "Avrita boð",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Seta"
+}

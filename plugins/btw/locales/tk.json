@@ -1,0 +1,9 @@
+{
+  "working": "Işleýär",
+  "requestFailed": "Talap başa barmady",
+  "copied": "Göçürildi",
+  "copyMessage": "Habary göçüriň",
+  "duration.seconds": "{{count}}",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sessiýa"
+}

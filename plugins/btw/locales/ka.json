@@ -1,0 +1,9 @@
+{
+  "working": "მუშაობს",
+  "requestFailed": "მოთხოვნა ვერ მოხერხდა",
+  "copied": "კოპირებულია",
+  "copyMessage": "წერილის კოპირება",
+  "duration.seconds": "{{count}} წმ",
+  "duration.minutesSeconds": "{{minutes}} წთ {{seconds}}წმ",
+  "category.session": "სესია"
+}

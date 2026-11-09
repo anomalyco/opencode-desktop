@@ -1,0 +1,9 @@
+{
+  "working": "Работает",
+  "requestFailed": "Запрос не выполнен",
+  "copied": "Скопировано!",
+  "copyMessage": "Копировать сообщение",
+  "duration.seconds": "{{count}} с",
+  "duration.minutesSeconds": "{{minutes}} мин {{seconds}} с",
+  "category.session": "Сессия"
+}

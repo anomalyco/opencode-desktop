@@ -1,0 +1,9 @@
+{
+  "working": "ເຮັດວຽກ",
+  "requestFailed": "ການຮ້ອງຂໍລົ້ມເຫລວ",
+  "copied": "ສຳເນົາແລ້ວ",
+  "copyMessage": "ສຳເນົາຂໍ້ຄວາມ",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "ເຊດຊັນ"
+}

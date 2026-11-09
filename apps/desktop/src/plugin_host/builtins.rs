@@ -12,9 +12,8 @@ use opencode_plugin::abi::PluginEntryFn;
 /// Each linked built-in: its `plugin.toml` and its entry point.
 #[cfg(any(test, feature = "static-builtins"))]
 pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
-    let mut all: Vec<(&'static str, PluginEntryFn)> = vec![
-        (include_str!("../../../../plugins/details/plugin.toml"), opencode_plugin_details_impl::__opencode_plugin_entry),
-    ];
+    #[allow(unused_mut)]
+    let mut all: Vec<(&'static str, PluginEntryFn)> = Vec::new();
     // Hello is the host's test plugin: the app's tests load it; no build a person runs lists it.
     #[cfg(test)]
     all.push((include_str!("../../../../plugins/hello/plugin.toml"), opencode_plugin_hello_impl::__opencode_plugin_entry));
@@ -23,11 +22,7 @@ pub fn all() -> Vec<(&'static str, PluginEntryFn)> {
     all.extend([
         (include_str!("../../../../plugins/ssh/plugin.toml"), opencode_plugin_ssh_impl::__opencode_plugin_entry as PluginEntryFn),
         (include_str!("../../../../plugins/wsl/plugin.toml"), opencode_plugin_wsl_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/debug/plugin.toml"), opencode_plugin_debug_impl::__opencode_plugin_entry),
         (include_str!("../../../../plugins/pairing/plugin.toml"), opencode_plugin_pairing_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/sources/plugin.toml"), opencode_plugin_sources_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/goal/plugin.toml"), opencode_plugin_goal_impl::__opencode_plugin_entry),
-        (include_str!("../../../../plugins/btw/plugin.toml"), opencode_plugin_btw_impl::__opencode_plugin_entry),
     ]);
     all
 }

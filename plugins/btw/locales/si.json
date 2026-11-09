@@ -1,0 +1,9 @@
+{
+  "working": "ක්‍රියා කරමින්",
+  "requestFailed": "ඉල්ලීම අසාර්ථක විය",
+  "copied": "පිටපත් කර ඇත",
+  "copyMessage": "පණිවිඩය පිටපත් කරන්න",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}මි {{seconds}}ත",
+  "category.session": "සැසිය"
+}

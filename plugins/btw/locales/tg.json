@@ -1,0 +1,9 @@
+{
+  "working": "Кор карда истодааст",
+  "requestFailed": "Дархост иҷро нашуд",
+  "copied": "Нусхабардорӣ",
+  "copyMessage": "Паёмро нусхабардорӣ кунед",
+  "duration.seconds": "{{count}}с",
+  "duration.minutesSeconds": "{{minutes}}м {{seconds}}с",
+  "category.session": "Сессия"
+}

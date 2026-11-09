@@ -1,0 +1,9 @@
+{
+  "working": "Εργασία",
+  "requestFailed": "Το αίτημα απέτυχε",
+  "copied": "Αντιγράφηκε",
+  "copyMessage": "Αντιγραφή μηνύματος",
+  "duration.seconds": "{{count}}δ",
+  "duration.minutesSeconds": "{{minutes}}λ {{seconds}}δ",
+  "category.session": "Συνεδρία"
+}

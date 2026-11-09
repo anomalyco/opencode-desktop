@@ -1,9 +1,9 @@
+#:schema ../plugin.schema.json
 id = "btw"
 name = "BTW"
-version = "0.1.0"
+version = "0.2.0"
+contract = "1.0"
 description = "Side questions: /btw asks the session's model a one-shot question in a tab of its own, without adding to the conversation"
-api = "0.1-experimental"
-library = "opencode_plugin_btw"
 
 [[stores]]
 name = "chats"

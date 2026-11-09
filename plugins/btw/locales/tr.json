@@ -1,0 +1,9 @@
+{
+  "working": "Çalışma",
+  "requestFailed": "İstek başarısız",
+  "copied": "Kopyalandı",
+  "copyMessage": "Mesajı kopyala",
+  "duration.seconds": "{{count}} sn",
+  "duration.minutesSeconds": "{{minutes}} dk {{seconds}} sn",
+  "category.session": "Oturum"
+}

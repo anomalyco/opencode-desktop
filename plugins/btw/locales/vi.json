@@ -1,0 +1,9 @@
+{
+  "working": "Đang làm việc",
+  "requestFailed": "Không thực hiện được yêu cầu",
+  "copied": "Đã sao chép",
+  "copyMessage": "Sao chép tin nhắn",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Phiên"
+}

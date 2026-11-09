@@ -1,0 +1,9 @@
+{
+  "working": "Arbetar",
+  "requestFailed": "Begäran misslyckades",
+  "copied": "Kopierad",
+  "copyMessage": "Kopiera meddelandet",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Session"
+}

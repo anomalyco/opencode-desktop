@@ -1,0 +1,9 @@
+{
+  "working": "作業中",
+  "requestFailed": "リクエストに失敗しました",
+  "copied": "コピーしました！",
+  "copyMessage": "メッセージをコピー",
+  "duration.seconds": "{{count}}秒",
+  "duration.minutesSeconds": "{{minutes}}分 {{seconds}}秒",
+  "category.session": "セッション"
+}

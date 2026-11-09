@@ -1,0 +1,9 @@
+{
+  "working": "Deluje",
+  "requestFailed": "Zahteva ni uspela",
+  "copied": "Kopirano",
+  "copyMessage": "Kopiraj sporočilo",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Seja"
+}

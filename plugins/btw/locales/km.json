@@ -1,0 +1,9 @@
+{
+  "working": "ធ្វើការ",
+  "requestFailed": "សំណើបានបរាជ័យ",
+  "copied": "ចម្លង",
+  "copyMessage": "ចម្លងសារ",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "សម័យ"
+}

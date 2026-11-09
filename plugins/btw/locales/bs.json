@@ -1,0 +1,9 @@
+{
+  "working": "U tijeku",
+  "requestFailed": "Zahtjev nije uspio",
+  "copied": "Kopirano!",
+  "copyMessage": "Kopiraj poruku",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sesija"
+}

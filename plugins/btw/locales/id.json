@@ -1,0 +1,9 @@
+{
+  "working": "Bekerja",
+  "requestFailed": "Permintaan gagal",
+  "copied": "Tersalin",
+  "copyMessage": "Salin pesan",
+  "duration.seconds": "{{count}}dtk",
+  "duration.minutesSeconds": "{{minutes}}mnt {{seconds}}dtk",
+  "category.session": "Sesi"
+}

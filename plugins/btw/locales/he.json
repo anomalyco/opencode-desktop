@@ -1,0 +1,9 @@
+{
+  "working": "עובד",
+  "requestFailed": "הבקשה נכשלה",
+  "copied": "הועתק",
+  "copyMessage": "העתק הודעה",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "הפעלה"
+}

@@ -1,0 +1,9 @@
+{
+  "working": "कार्य जारी है",
+  "requestFailed": "अनुरोध विफल रहा",
+  "copied": "कॉपी किया गया",
+  "copyMessage": "संदेश कॉपी करें",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "सेशन"
+}

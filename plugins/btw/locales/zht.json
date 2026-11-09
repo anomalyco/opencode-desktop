@@ -1,0 +1,9 @@
+{
+  "working": "工作中",
+  "requestFailed": "要求失敗",
+  "copied": "已複製！",
+  "copyMessage": "複製訊息",
+  "duration.seconds": "{{count}}秒",
+  "duration.minutesSeconds": "{{minutes}}分 {{seconds}}秒",
+  "category.session": "工作階段"
+}

@@ -1,0 +1,9 @@
+{
+  "working": "މަސައްކަތް ކުރަމުން",
+  "requestFailed": "ރިކުއެސްޓް ފެއިލްވިއެވެ",
+  "copied": "ކޮޕީކޮށްފައި",
+  "copyMessage": "މެސެޖް ކޮޕީ ކުރާށެވެ",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "ސެޝަން"
+}

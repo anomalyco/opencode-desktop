@@ -1,0 +1,9 @@
+{
+  "working": "Töötab",
+  "requestFailed": "Taotlus ebaõnnestus",
+  "copied": "Kopeeritud",
+  "copyMessage": "Kopeeri sõnum",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}} min {{seconds}} s",
+  "category.session": "Seanss"
+}

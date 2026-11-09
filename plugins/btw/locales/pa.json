@@ -1,0 +1,9 @@
+{
+  "working": "کم ہو رہیا اے",
+  "requestFailed": "درخواست ناکام ہو گئی",
+  "copied": "کاپی کیتا گیا",
+  "copyMessage": "پیغام کاپی کرو",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "سیشن"
+}

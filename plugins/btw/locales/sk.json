@@ -1,0 +1,9 @@
+{
+  "working": "Pracuje",
+  "requestFailed": "Požiadavka zlyhala",
+  "copied": "Skopírované",
+  "copyMessage": "Kopírovať správu",
+  "duration.seconds": "{{count}} s",
+  "duration.minutesSeconds": "{{minutes}} m {{seconds}} s",
+  "category.session": "Relácia"
+}

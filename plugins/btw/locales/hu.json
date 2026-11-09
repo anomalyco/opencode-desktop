@@ -1,0 +1,9 @@
+{
+  "working": "Dolgozik",
+  "requestFailed": "A kérés sikertelen",
+  "copied": "Másolva",
+  "copyMessage": "Üzenet másolása",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Munkamenet"
+}

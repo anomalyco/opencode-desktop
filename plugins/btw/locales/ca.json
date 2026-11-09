@@ -1,0 +1,9 @@
+{
+  "working": "Treballant",
+  "requestFailed": "La sol·licitud ha fallat",
+  "copied": "Copiat",
+  "copyMessage": "Copia el missatge",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}m {{seconds}}s",
+  "category.session": "Sessió"
+}

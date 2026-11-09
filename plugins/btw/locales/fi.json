@@ -1,0 +1,9 @@
+{
+  "working": "Työskennellään",
+  "requestFailed": "Pyyntö epäonnistui",
+  "copied": "Kopioitu",
+  "copyMessage": "Kopioi viesti",
+  "duration.seconds": "{{count}} s",
+  "duration.minutesSeconds": "{{minutes}} min {{seconds}} s",
+  "category.session": "Istunto"
+}

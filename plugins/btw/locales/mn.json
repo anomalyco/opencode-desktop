@@ -1,0 +1,9 @@
+{
+  "working": "Ажиллаж байна",
+  "requestFailed": "Хүсэлт амжилтгүй боллоо",
+  "copied": "Хуулсан",
+  "copyMessage": "Зурвас хуулах",
+  "duration.seconds": "{{count}}сек",
+  "duration.minutesSeconds": "{{minutes}}м {{seconds}}сек",
+  "category.session": "Сесс"
+}

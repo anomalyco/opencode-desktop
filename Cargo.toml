@@ -15,10 +15,6 @@ members = [
     "crates/session-view",
     "crates/terminal",
     "crates/win-install",
-    "plugins/context",
-    "plugins/context/impl",
-    "plugins/details",
-    "plugins/details/impl",
     "plugins/echo",
     "plugins/hello",
     "plugins/hello/api",
@@ -27,16 +23,8 @@ members = [
     "plugins/ssh/impl",
     "plugins/wsl",
     "plugins/wsl/impl",
-    "plugins/debug",
-    "plugins/debug/impl",
     "plugins/pairing",
     "plugins/pairing/impl",
-    "plugins/sources",
-    "plugins/sources/impl",
-    "plugins/goal",
-    "plugins/goal/impl",
-    "plugins/btw",
-    "plugins/btw/impl",
 ]
 exclude = ["apps/browser-engine"]
 
@@ -95,24 +83,6 @@ codegen-units = 1
 opt-level = "s"
 strip = "symbols"
 
-[profile.release.package.opencode-plugin-context]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-context-impl]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-details]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-details-impl]
-codegen-units = 1
-opt-level = "s"
-
 [profile.release.package.opencode-plugin-wsl]
 codegen-units = 1
 opt-level = "s"
@@ -135,48 +105,12 @@ opt-level = "s"
 codegen-units = 1
 opt-level = "s"
 
-[profile.release.package.opencode-plugin-btw]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-btw-impl]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-goal]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-goal-impl]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-sources]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-sources-impl]
-codegen-units = 1
-opt-level = "s"
-
 [profile.release.package.opencode-plugin-pairing]
 codegen-units = 1
 opt-level = "s"
 strip = "symbols"
 
 [profile.release.package.opencode-plugin-pairing-impl]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-debug]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-debug-impl]
 codegen-units = 1
 opt-level = "s"
 

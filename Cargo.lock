@@ -2566,13 +2566,8 @@ dependencies = [
  "opencode-i18n",
  "opencode-kit",
  "opencode-plugin",
- "opencode-plugin-btw-impl",
- "opencode-plugin-debug-impl",
- "opencode-plugin-details-impl",
- "opencode-plugin-goal-impl",
  "opencode-plugin-hello-impl",
  "opencode-plugin-pairing-impl",
- "opencode-plugin-sources-impl",
  "opencode-plugin-spec",
  "opencode-plugin-ssh-impl",
  "opencode-plugin-wsl-impl",
@@ -2625,91 +2620,11 @@ name = "opencode-plugin"
 version = "0.1.0-experimental"
 
 [[package]]
-name = "opencode-plugin-btw"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-btw-impl",
-]
-
-[[package]]
-name = "opencode-plugin-btw-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-context"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-context-impl",
-]
-
-[[package]]
-name = "opencode-plugin-context-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-debug"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-debug-impl",
-]
-
-[[package]]
-name = "opencode-plugin-debug-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-details"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-details-impl",
-]
-
-[[package]]
-name = "opencode-plugin-details-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
-]
-
-[[package]]
 name = "opencode-plugin-echo"
 version = "0.1.0"
 dependencies = [
  "opencode-plugin",
  "opencode-plugin-hello-api",
-]
-
-[[package]]
-name = "opencode-plugin-goal"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-goal-impl",
-]
-
-[[package]]
-name = "opencode-plugin-goal-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "serde_json",
 ]
 
 [[package]]
@@ -2749,22 +2664,6 @@ version = "0.1.0"
 dependencies = [
  "opencode-plugin",
  "qrcode",
- "serde_json",
-]
-
-[[package]]
-name = "opencode-plugin-sources"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-sources-impl",
-]
-
-[[package]]
-name = "opencode-plugin-sources-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
  "serde_json",
 ]
 

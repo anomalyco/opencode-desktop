@@ -1,0 +1,9 @@
+{
+  "title": "Sources",
+  "searched": "Searched web",
+  "searchFailed": "Search failed",
+  "noResults": "No results",
+  "opened": "Opened page",
+  "openFailed": "Couldn’t open page",
+  "tab.count": "Sources · {{count}}"
+}

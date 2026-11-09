@@ -1,0 +1,9 @@
+{
+  "working": "কাজ চলছে",
+  "requestFailed": "অনুরোধ ব্যর্থ হয়েছে",
+  "copied": "কপি করা হয়েছে",
+  "copyMessage": "বার্তা কপি করুন",
+  "duration.seconds": "{{count}}s",
+  "duration.minutesSeconds": "{{minutes}}মি {{seconds}}সেকেন্ড",
+  "category.session": "সেশন"
+}
