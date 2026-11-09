@@ -348,11 +348,15 @@ impl Icons {
             img
         });
         let radius = size_pt * styles::RADIUS;
+        let lifted = look.style == Style::Desktop && finish.lit();
         let mut tile = if img.is_ready() {
             el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill)
         } else {
             let (bg, border) = pal.avatars[variant];
-            el().size(size_pt, size_pt).radius(radius).fill(bg).box_shadow(ring(border))
+            let tile = el().size(size_pt, size_pt).radius(radius).fill(bg);
+            // A lifted tile keeps the drop shadows it has once its image is ready, in their places,
+            // so they don't morph from the placeholder's ring when it arrives.
+            if lifted { tile } else { tile.box_shadow(ring(border)) }
         };
         if look.style.lettered() {
             // Desktop: the first character of the name (an unnamed project's folder), upper-cased;
@@ -378,7 +382,7 @@ impl Icons {
             };
             tile = tile.child(layer(off * 0.5, shadow)).child(layer(-off * 0.5, ink));
         }
-        if look.style == Style::Desktop && finish.lit() {
+        if lifted {
             // The light goes over the letter, as iOS's does.
             tile = tile.child(self.top(size_pt, false, Color::TRANSPARENT));
             return self.lift(pal, tile, size_pt);
