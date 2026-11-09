@@ -5,6 +5,8 @@ use rune::{Env, Runtime};
 
 #[path = "perf/sidebar_tests.rs"]
 mod sidebar_tests;
+#[path = "perf/send_tests.rs"]
+mod send_tests;
 
 pub fn fixture() -> App {
     let mut app = App::empty();
