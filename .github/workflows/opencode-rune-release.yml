@@ -159,6 +159,11 @@ jobs:
         with:
           key: windows-${{ matrix.arch }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The terminal's libghostty-vt, and the Zig that builds it, live outside target/.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/seer/ghostty-vt
+          key: ghostty-vt-windows-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
       - name: Build the setup and the update zip
         shell: pwsh
         run: apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/windows" -Arch ${{ matrix.arch }}
