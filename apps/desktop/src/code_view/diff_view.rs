@@ -507,7 +507,8 @@ impl<S: 'static> Inner<S> {
         let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, tints.map(|t| (t.word, t.word_text)));
         let (shown, spans) = expand_tabs(c.text, spans);
         let ink = l.plain;
-        let mut t = rich(shown, spans).font(l.mono).color(ink).key("text");
+        // Pierre's `[data-diff-span] { border-radius: 3px }` (`@pierre/diffs` `dist/style.js`).
+        let mut t = rich(shown, spans).font(l.mono).color(ink).span_radius(3.0).key("text");
         // Pierre's `[data-overflow='wrap'] [data-line] { white-space: pre-wrap; word-break:
         // break-word }`: at spaces, inside a word only when it alone overflows.
         t = if st.wraps() { t.w_full().wrap_anywhere() } else { t.single_line() };

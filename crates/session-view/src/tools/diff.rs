@@ -60,7 +60,8 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
                     row().key("n").w(numbers).h(ROW).justify_end().center_y()
                         .child(text(number.map(|n| n.to_string()).unwrap_or_default()).font(font).color(ink)),
                 )
-                .child(readable(p, text(shown).font(font).color(p.syntax.parameter).spans(spans).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch));
+                // Changed words round at Pierre's 3 px (`[data-diff-span] { border-radius: 3px }`).
+                .child(readable(p, text(shown).font(font).color(p.syntax.parameter).spans(spans).span_radius(3.0).wrap_anywhere()).grow(1.0).min_w(0.0).pl(2.0 * ch).pr(ch));
             // Pierre lights an unchanged line under the pointer (`lineHoverHighlight: "both"`); a
             // changed one it mixes toward its own fill, which leaves it as it is.
             line = match fill {
