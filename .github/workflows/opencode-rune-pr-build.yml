@@ -1,9 +1,9 @@
 name: OpenCode (Rune) PR Build
 
 # Builds every open PR touching apps/desktop (or its path crates) as a side-by-side
-# macOS app ("OpenCode (Rune) · <branch>.app", anomaly.opencode-rune.pr.<N>, badged icon),
-# posts/updates one download comment on the PR, and retires the hosted build when the PR
-# closes or merges.
+# macOS app ("OpenCode (Rune) · <branch>.app", anomaly.opencode-rune.pr.<N>, badged icon)
+# and unsigned Windows setups (x64, arm64) under the same name and id, posts/updates one
+# download comment on the PR, and retires the hosted build when the PR closes or merges.
 
 on:
   pull_request:
@@ -11,14 +11,20 @@ on:
     branches: [main]
     paths:
       - "apps/desktop/**"
+      - "apps/installer/**"
       - "crates/browser-pane/**"
       - "crates/hex-client/**"
+      - "crates/opencode-i18n/**"
       - "crates/opencode-kit/**"
+      - "crates/opencode-plugin/**"
+      - "crates/opencode-plugin-spec/**"
       - "crates/otlp-lite/**"
       - "crates/project-icon/**"
       - "crates/rune-parts/**"
       - "crates/session-view/**"
       - "crates/terminal/**"
+      - "crates/win-install/**"
+      - "plugins/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -120,6 +126,51 @@ jobs:
           name: build-opencode-rune-pr-macos-arm64
           path: ${{ runner.temp }}/macos
           retention-days: "7"
+
+  build-windows:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.channel }}
+      OPENCODE_RUNE_WINDOW_TITLE: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      OPENCODE_RUNE_URL_SCHEME: ${{ needs.plan.outputs.url-scheme }}
+    # One output per arch: a matrix job's outputs are shared by its legs.
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head-sha }}
+          persist-credentials: false
+      # rust-toolchain.toml picks the toolchain; arm64 cross-builds on the x64 runner.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          [ "${{ matrix.arch }}" = x64 ] || rustup target add aarch64-pc-windows-msvc
+      # Reads main's cache (opencode-rune-release.yml saves it); PRs don't save their own.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-${{ matrix.arch }}
+          save-if: false
+      - name: Build side-by-side PR setup
+        shell: pwsh
+        run: apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/windows" -Arch ${{ matrix.arch }}
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-opencode-rune-pr-windows-${{ matrix.arch }}
+          path: ${{ runner.temp }}/windows
+          retention-days: "7"
+      - id: digest
+        run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   # ---- Sign: release environment; checks out ONLY main's .github/release/ -----
 
@@ -233,7 +284,7 @@ jobs:
   # ---- Publish PR pre-release + sticky PR comment ----------------------------
 
   publish-pr-build:
-    needs: [plan, build-macos, sign-macos, verify-macos]
+    needs: [plan, build-macos, build-windows, sign-macos, verify-macos]
     if: >-
       ${{ !cancelled()
       && needs.build-macos.result == 'success'
@@ -275,6 +326,16 @@ jobs:
         with:
           pattern: build-opencode-rune-pr-macos-arm64
           digests: build-opencode-rune-pr-macos-arm64=${{ needs.build-macos.outputs.digest }}
+      # Unsigned until sign-windows lands in opencode-rune-release.yml.
+      - name: Download PR Windows setups
+        if: needs.build-windows.outputs.digest-x64 != '' || needs.build-windows.outputs.digest-arm64 != ''
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-pr-windows-*
+          folder: in-windows
+          digests: >-
+            build-opencode-rune-pr-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
+            build-opencode-rune-pr-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
       - name: Upload PR DMG and update sticky PR comment
         run: |
           mkdir -p "$RUNNER_TEMP/publish"
@@ -286,16 +347,23 @@ jobs:
             cp "$RUNNER_TEMP/in/build-opencode-rune-pr-macos-arm64/$FILE_STEM-unsigned-macos-arm64.dmg" "$dmg"
           fi
           sha=$(sha256sum "$dmg" | awk '{ print $1 }')
+          windows=
+          for arch in x64 arm64; do
+            setup="$RUNNER_TEMP/in-windows/build-opencode-rune-pr-windows-$arch/OpenCode-Rune-$VERSION-windows-$arch-setup.exe"
+            [ -f "$setup" ] || continue
+            cp "$setup" "$RUNNER_TEMP/publish/$FILE_STEM-windows-$arch-setup.exe"
+            windows="$windows [\`$arch\`](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$FILE_STEM-windows-$arch-setup.exe)"
+          done
           notes="Side-by-side test build for #$PR_NUMBER (@ $SHORT_SHA). Retired automatically when the PR closes."
 
           if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
               -f sha="$HEAD_SHA" -f force=true >/dev/null || true
-            gh release upload "$RELEASE_TAG" "$dmg" --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease \
               --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
           else
-            gh release create "$RELEASE_TAG" "$dmg" -R "$GITHUB_REPOSITORY" \
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* -R "$GITHUB_REPOSITORY" \
               --target "$HEAD_SHA" --prerelease \
               --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
           fi
@@ -315,6 +383,7 @@ jobs:
           - **Commit:** \`$SHORT_SHA\` (\`$VERSION\`, sha256 \`${sha:0:12}…\`)
           - **Side-by-side:** installs alongside \`OpenCode (Rune).app\` without replacing your \`main\` build; retired automatically when this PR closes.
           - **Signing:** $trust_line
+          - **Windows:**${windows:- not built} — unsigned setup (\`$APP_NAME\`, installs side by side). SmartScreen asks once: More info, then Run anyway.
           EOF
           sed -i -E 's/^          //' "$RUNNER_TEMP/comment.md"
 

@@ -1,9 +1,12 @@
 # Builds OpenCode (Rune)'s Windows artifacts into -Out:
 #
-#   OpenCode-Rune-<version>-windows-x64.zip        the install folder, the updater's windows-x64 target
-#   OpenCode-Rune-<version>-windows-x64-setup.exe  the setup, with that zip inside
+#   OpenCode-Rune-<version>-windows-<arch>.zip        the install folder, the updater's windows-<arch> target
+#   OpenCode-Rune-<version>-windows-<arch>-setup.exe  the setup, with that zip inside
 #
-#   pwsh apps/installer/scripts/package.ps1 -Out <folder> [-Profile release|dev] [-Cargo <command>]
+#   pwsh apps/installer/scripts/package.ps1 -Out <folder> [-Profile release|dev] [-Arch x64|arm64] [-Cargo <command>]
+#
+# -Arch defaults to this machine's. Another arch cross-builds (`--target`), and the app's
+# `--version` check is skipped, because this machine can't run it.
 #
 # Environment, as the macOS build reads it (every artifact of a build gets the same):
 #   OPENCODE_RUNE_VERSION, OPENCODE_RUNE_BUILD_CHANNEL   required; `opencode-desktop --version` must report them
@@ -13,11 +16,12 @@
 #
 # -Cargo runs cargo another way, such as a build throttle ("pwsh tools/cargo.ps1 +1.99.1").
 #
-# TODO(IMPORTANT before release): add a build-windows job to .github/workflows/opencode-rune-release.yml (windows-latest, x64 and arm64) that runs this script, signs the artifacts (below), uploads the zip as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json with its size and SHA-256, and publishes the setup as the Windows download.
+# TODO(IMPORTANT before release): .github/workflows/opencode-rune-release.yml runs this script (build-windows, x64 and arm64) and publishes the unsigned setups as a GitHub pre-release; once sign-windows signs them (below), upload the zip as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json with its size and SHA-256, and publish the setup as the Windows download.
 # TODO(IMPORTANT before release): Authenticode-sign opencode-desktop.exe before it's zipped and the setup after it's built (signtool sign /fd sha256 /tr <timestamp> ...), with the certificate the owner picks; the updater refuses unsigned builds (updater::windows::EXPECTED_PUBLISHER).
 param(
     [Parameter(Mandatory)] [string] $Out,
     [ValidateSet('release', 'dev')] [string] $Profile = 'release',
+    [ValidateSet('', 'x64', 'arm64')] [string] $Arch = '',
     [string] $Cargo = 'cargo'
 )
 $ErrorActionPreference = 'Stop'
@@ -27,9 +31,14 @@ $channel = $env:OPENCODE_RUNE_BUILD_CHANNEL
 if (-not $version -or -not $channel) { throw 'Set OPENCODE_RUNE_VERSION and OPENCODE_RUNE_BUILD_CHANNEL.' }
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
+$hostArch = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+if (-not $Arch) { $Arch = $hostArch }
+$cross = $Arch -ne $hostArch
+$triple = @{ x64 = 'x86_64-pc-windows-msvc'; arm64 = 'aarch64-pc-windows-msvc' }[$Arch]
+if ($cross) { $target = Join-Path $target $triple }
 $bin = Join-Path $target ($(if ($Profile -eq 'release') { 'release' } else { 'debug' }))
-$release = if ($Profile -eq 'release') { @('--release') } else { @() }
-$stem = "OpenCode-Rune-$version-windows-x64"
+$flags = @(if ($Profile -eq 'release') { '--release' }) + @(if ($cross) { '--target', $triple })
+$stem = "OpenCode-Rune-$version-windows-$Arch"
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
 
@@ -39,10 +48,12 @@ function Invoke-Cargo([string[]] $Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "cargo $($Arguments -join ' ') failed" }
 }
 
-Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $release)
+Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
 $exe = Join-Path $bin 'opencode-desktop.exe'
-$reported = (& $exe --version | Out-String).Trim()
-if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
+if (-not $cross) {
+    $reported = (& $exe --version | Out-String).Trim()
+    if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
+}
 
 # The install folder: the app alone. The browser engine downloads in the background.
 $stage = Join-Path $Out 'stage'
@@ -56,7 +67,7 @@ Remove-Item -Recurse -Force $stage
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip
 try {
-    Invoke-Cargo (@('build', '-p', 'opencode-rune-setup') + $release)
+    Invoke-Cargo (@('build', '-p', 'opencode-rune-setup') + $flags)
 } finally {
     Remove-Item Env:OPENCODE_RUNE_SETUP_PAYLOAD
 }

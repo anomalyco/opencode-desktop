@@ -25,14 +25,20 @@ on:
     tags: ["opencode-rune-v*", "browser-engine-*"]
     paths:
       - "apps/desktop/**"
+      - "apps/installer/**"
       - "crates/browser-pane/**"
       - "crates/hex-client/**"
+      - "crates/opencode-i18n/**"
       - "crates/opencode-kit/**"
+      - "crates/opencode-plugin/**"
+      - "crates/opencode-plugin-spec/**"
       - "crates/otlp-lite/**"
       - "crates/project-icon/**"
       - "crates/rune-parts/**"
       - "crates/session-view/**"
       - "crates/terminal/**"
+      - "crates/win-install/**"
+      - "plugins/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -123,9 +129,84 @@ jobs:
           path: ${{ runner.temp }}/macos
           retention-days: "7"
 
-  # TODO(IMPORTANT before release): build-windows: run apps/installer/scripts/package.ps1 on windows-latest (x64 and arm64), Authenticode-sign opencode-desktop.exe and the setup in a sign-windows job (owner decision: the certificate), and publish the zip as target windows-x64 / windows-arm64 in the feed and the setup as the Windows download.
+  build-windows:
+    needs: plan
+    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    # One output per arch: a matrix job's outputs are shared by its legs.
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      # rust-toolchain.toml picks the toolchain; arm64 cross-builds on the x64 runner.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          [ "${{ matrix.arch }}" = x64 ] || rustup target add aarch64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the setup and the update zip
+        shell: pwsh
+        run: apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/windows" -Arch ${{ matrix.arch }}
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-opencode-rune-windows-${{ matrix.arch }}
+          path: ${{ runner.temp }}/windows
+          retention-days: "7"
+      - id: digest
+        run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   # ---- Sign: release environment; only .github/release/ is checked out -------
+
+  # TODO(IMPORTANT before release): Authenticode-sign opencode-desktop.exe before it's zipped and the setup after it's built (owner decision: the certificate, and win_install::PUBLISHER / updater::windows::EXPECTED_PUBLISHER to match it), verify the signatures, then publish the zip as target windows-x64 / windows-arm64 in the feed and the setup as the Windows download. Until then this job only reports the missing certificate, and publish-windows-dev publishes the unsigned setups.
+  sign-windows:
+    needs: [plan, build-windows]
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.build-desktop == 'true'
+      && needs.plan.outputs.channel != 'pr-check'
+      && needs.build-windows.outputs.digest-x64 != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    env:
+      CHANNEL: ${{ needs.plan.outputs.channel }}
+    outputs:
+      signed: ${{ steps.credentials.outputs.available }}
+    steps:
+      - id: credentials
+        name: Require the Authenticode certificate
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          missing=
+          [ -n "$CERTIFICATE" ] || missing="$missing WINDOWS_SIGNING_CERTIFICATE"
+          [ -n "$PASSWORD" ] || missing="$missing WINDOWS_SIGNING_CERTIFICATE_PASSWORD"
+          if [ -n "$missing" ] && [ "$CHANNEL" = stable ]; then
+            echo "::error::Stable releases require an Authenticode certificate; missing:$missing."
+            exit 1
+          elif [ -n "$missing" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Authenticode signing: release environment lacks:$missing. The Windows setup is unsigned." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::The Authenticode certificate is set, but signing isn't implemented yet (see the TODO above sign-windows)."
+            exit 1
+          fi
 
   sign-macos:
     needs: [plan, build-macos]
@@ -287,6 +368,61 @@ jobs:
             --out "$RUNNER_TEMP/manifest.json" \
             --verify-downloads
           { echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
+  # Every main build replaces the setups on opencode-rune-windows-dev, under names that stay the
+  # same, so the download links never change. The feed gets Windows after sign-windows signs.
+
+  publish-windows-dev:
+    needs: [plan, build-windows]
+    if: >-
+      ${{ !cancelled()
+      && needs.plan.outputs.channel == 'dev'
+      && needs.build-windows.outputs.digest-x64 != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      VERSION: ${{ needs.plan.outputs.release-version }}
+      RELEASE_TAG: opencode-rune-windows-dev
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-windows-*
+          digests: >-
+            build-opencode-rune-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
+            build-opencode-rune-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
+      - name: Replace the setups on the rolling pre-release
+        run: |
+          mkdir -p "$RUNNER_TEMP/publish"
+          for arch in x64 arm64; do
+            setup="$RUNNER_TEMP/in/build-opencode-rune-windows-$arch/OpenCode-Rune-$VERSION-windows-$arch-setup.exe"
+            if [ -f "$setup" ]; then cp "$setup" "$RUNNER_TEMP/publish/OpenCode-Rune-windows-$arch-setup.exe"; fi
+          done
+          (cd "$RUNNER_TEMP/publish" && sha256sum -- *.exe > SHA256SUMS)
+          title="OpenCode (Rune) for Windows, dev ($VERSION)"
+          notes="Unsigned Windows setup built from main @ ${SHA:0:9} ($VERSION). Replaced on every push to main. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
+
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true >/dev/null
+            # An arch that didn't build this time loses its old setup rather than keep a stale one.
+            gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+              [ -f "$RUNNER_TEMP/publish/$name" ] || gh release delete-asset "$RELEASE_TAG" "$name" --yes -R "$GITHUB_REPOSITORY"
+            done
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
+          else
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* -R "$GITHUB_REPOSITORY" \
+              --target "$SHA" --prerelease --title "$title" --notes "$notes"
+          fi
+
+          for file in "$RUNNER_TEMP"/publish/*.exe; do
+            echo "Published https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$(basename "$file")" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   # ---- Publish Browser Engine: public download on https://anoma.ly/release ---
   # TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
