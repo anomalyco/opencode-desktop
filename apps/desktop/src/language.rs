@@ -23,16 +23,48 @@ pub fn apply(s: &mut App) {
         None => opencode_i18n::detect(),
     };
     opencode_i18n::set_locale(id);
+    rune::set_labels(label);
+    rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
 }
 
-/// Settings' Language row: saves `id` and switches to it.
+/// Settings' Language row: saves `id` and switches to it, the macOS menu bar included.
 pub fn set(s: &mut App, id: &str) {
     if opencode_i18n::locales().iter().all(|l| l.id() != id) {
         return;
     }
     let id = id.to_owned();
     opencode_i18n::set_locale(&id);
+    rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
+    crate::menubar::refresh();
     s.change_settings(|x| x.language = Some(id));
+}
+
+/// Rune's own words in the chosen language, as Desktop translates them: the text menu's Cut,
+/// Copy, Paste and Select All (`desktop.menu.*`, environment.ts), its Spellcheck items
+/// (`desktop.contextMenu.*`, spellcheck.ts) and the macOS menu bar's Edit items and menu titles
+/// (native/menu.ts), and the dictionaries by Chromium's names for them (`nativeLanguageOptions`),
+/// which Rune sorts in `intl.names.locale`. Learn Spelling, No Guesses Found and the app and
+/// Window menus' role items stay in English, as Electron's are.
+fn label(label: rune::Label<'_>) -> Option<String> {
+    let key = match label {
+        rune::Label::Language(tag) => return Some(opencode_i18n::names::language_name(tag)),
+        rune::Label::Cut => opencode_i18n::key!("desktop.menu.cut"),
+        rune::Label::Copy => opencode_i18n::key!("desktop.menu.copy"),
+        rune::Label::Paste => opencode_i18n::key!("desktop.menu.paste"),
+        rune::Label::SelectAll => opencode_i18n::key!("desktop.menu.selectAll"),
+        rune::Label::Undo => opencode_i18n::key!("desktop.menu.undo"),
+        rune::Label::Redo => opencode_i18n::key!("desktop.menu.redo"),
+        rune::Label::Spellcheck => opencode_i18n::key!("desktop.contextMenu.spellcheck"),
+        rune::Label::SpellcheckLanguages => opencode_i18n::key!("desktop.contextMenu.spellcheckLanguages"),
+        rune::Label::Menu("File") => opencode_i18n::key!("desktop.menu.file"),
+        rune::Label::Menu("Edit") => opencode_i18n::key!("desktop.menu.edit"),
+        rune::Label::Menu("View") => opencode_i18n::key!("desktop.menu.view"),
+        rune::Label::Menu("Go") => opencode_i18n::key!("desktop.menu.go"),
+        rune::Label::Menu("Window") => opencode_i18n::key!("desktop.menu.window"),
+        rune::Label::Menu("Help") => opencode_i18n::key!("desktop.menu.help"),
+        _ => return None,
+    };
+    Some(opencode_i18n::I18N.text(key).to_owned())
 }
 
 /// A switch made in any window: rebuilds this window's memoized subtrees, which keep the strings

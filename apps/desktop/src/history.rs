@@ -179,11 +179,11 @@ impl App {
 pub fn menu_items() -> Vec<MenuItem<App>> {
     use crate::menubar::keyed;
     vec![
-        keyed(MenuItem::new("Back", |s: &mut App, tx: &mut Tx| {
+        keyed(MenuItem::new(opencode_i18n::t!("desktop.menu.back"), |s: &mut App, tx: &mut Tx| {
             s.navigate(false, tx);
         }).id("Go/Back").menu("Go"), Bind::GoBack)
         .keys_first(),
-        keyed(MenuItem::new("Forward", |s: &mut App, tx: &mut Tx| {
+        keyed(MenuItem::new(opencode_i18n::t!("desktop.menu.forward"), |s: &mut App, tx: &mut Tx| {
             s.navigate(true, tx);
         }).id("Go/Forward").menu("Go"), Bind::GoForward)
         .keys_first(),

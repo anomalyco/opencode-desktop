@@ -55,6 +55,8 @@ for (const id of ids) {
 // Number and date patterns as Desktop's Intl calls show them. They come from Desktop's own
 // Electron, in a hidden window, since Chromium's ICU data is cut down: a locale it lacks
 // (Icelandic, Armenian) formats as en-US there, and some (Uzbek, Azerbaijani) with root patterns.
+// The tags Windows has locales for, whose names intl.names.* carry (see languageNames).
+const spellcheckTags = (await Bun.file(path.join(import.meta.dir, "spellcheck-tags.txt")).text()).split("\n").filter(Boolean)
 const intl = path.join(out, "intl")
 const generated = await inElectron(ids.map((id) => native.DESKTOP_NATIVE_LOCALE_TAGS[id]))
 for (const [index, id] of ids.entries()) {
@@ -85,10 +87,12 @@ async function inElectron(tags: string[]): Promise<Record<string, string>[]> {
   const main = `
     const { app, BrowserWindow } = require("electron")
     app.setPath("userData", ${JSON.stringify(path.join(dir, "user"))})
+    // A failure in the page rejects; say what it was and end rather than wait forever.
+    process.on("unhandledRejection", (error) => { console.error(String(error)); app.exit(1) })
     app.whenReady().then(async () => {
       const window = new BrowserWindow({ show: false })
       await window.loadURL("about:blank")
-      const out = await window.webContents.executeJavaScript(${JSON.stringify(`(${JSON.stringify(tags)}).map(${intlMessages})`)})
+      const out = await window.webContents.executeJavaScript(${JSON.stringify(`(${JSON.stringify(tags)}).map((tag) => (${intlMessages})(tag, ${JSON.stringify(spellcheckTags)}))`)})
       require("fs").writeFileSync(${JSON.stringify(result)}, JSON.stringify(out))
       app.exit(0)
     })`
@@ -108,7 +112,7 @@ async function inElectron(tags: string[]): Promise<Record<string, string>[]> {
 // {{K}}/{{KK}} (0–11), {{H}}/{{HH}} (0–23), {{k}}/{{kk}} (1–24), {{m}}/{{mm}}, {{dayPeriod}} and
 // {{zone}}, with the month names (`|`-separated) and the day period of each hour that pattern
 // uses. Numbers are written with ASCII digits and mapped to the locale's `intl.date.digits`.
-function intlMessages(tag: string) {
+function intlMessages(tag: string, spellcheckTags: string[]) {
   const formats: Record<string, Intl.DateTimeFormatOptions> = {
     time: { timeStyle: "short" },
     monthDay: { month: "short", day: "numeric" },
@@ -164,6 +168,10 @@ function intlMessages(tag: string) {
     "intl.date.weekdays.long": alone({ weekday: "long" }, week),
     ...numbers(),
     ...lists(),
+    ...languageNames(),
+    // The locale Desktop's spellcheck menu names and orders its dictionaries in
+    // (`nativeLanguageOptions`): `en-US` where Chromium's ICU lacks the locale.
+    "intl.names.locale": new Intl.DisplayNames(tag, { type: "language" }).resolvedOptions().locale,
     "intl.plural": pluralTable(tag),
   }
   for (const [name, options] of Object.entries(formats)) {
@@ -262,6 +270,68 @@ function intlMessages(tag: string) {
       "intl.number.grouping": primary === secondary ? `${primary}` : `${primary},${secondary}`,
       "intl.number.minGrouping": `${minGrouping}`,
       "intl.number.negative": `${text(negative.slice(0, sign))}{{value}}${text(negative.slice(sign + 1))}`,
+    }
+  }
+
+  // `Intl.DisplayNames(tag, { type: "language" })`, which names the spellcheck dictionaries in
+  // Desktop's context menu (`nativeLanguageOptions`), for every tag Windows has a locale for
+  // (spellcheck-tags.txt, the dictionaries it can offer), taken apart as CLDR builds a name: the
+  // names of the languages, scripts and regions those tags use (`code<tab>name` lines), the patterns
+  // joining a name to one or two of them (`{{0}} ({{1}})`, `{{0}} ({{1}}, {{2}})`), and whole
+  // names only where that doesn't rebuild Chromium's (`en-AU:Australian English`). A part
+  // Chromium has no name for keeps its code (`English (029)`). src/names.rs builds them back.
+  function languageNames() {
+    const display = (type: "language" | "region" | "script") => new Intl.DisplayNames(tag, { type, fallback: "none" })
+    const [languageOf, regionOf, scriptOf] = [display("language"), display("region"), display("script")]
+    const tags = spellcheckTags.map((t) => t.split("-"))
+    const isScript = (part: string) => /^[A-Z][a-z]{3}$/.test(part)
+    const isRegion = (part: string) => /^([A-Z]{2}|\d{3})$/.test(part)
+    const named = (codes: Iterable<string>, of: (code: string) => string | undefined) =>
+      Object.fromEntries([...new Set(codes)].flatMap((code) => {
+        const name = of(code)
+        return name && name !== code ? [[code, name]] : []
+      }))
+    const languages: Record<string, string> = named(tags.map((t) => t[0]), (c) => languageOf.of(c))
+    const scripts: Record<string, string> = named(tags.flatMap((t) => t.slice(1).filter(isScript)), (c) => scriptOf.of(c))
+    const regions: Record<string, string> = named(tags.flatMap((t) => t.slice(1).filter(isRegion)), (c) => regionOf.of(c))
+    // A name can change case inside a compound (Russian `латиница`); tags whose names this
+    // doesn't rebuild exactly are kept whole below.
+    const between = (whole: string | undefined, fallback: string, ...names: (string | undefined)[]) =>
+      names.reduce<string>((pattern, name, i) => {
+        const at = name ? pattern.toLowerCase().indexOf(name.toLowerCase()) : -1
+        if (at < 0) return fallback
+        return pattern.slice(0, at) + `{{${i}}}` + pattern.slice(at + name!.length)
+      }, whole ?? fallback)
+    const [de, latin, belgium] = [languageOf.of("de"), scriptOf.of("Latn"), regionOf.of("BE")]
+    const pattern = between(languageOf.of("de-BE"), "{{0}} ({{1}})", de, belgium)
+    const patternScript = between(languageOf.of("de-Latn-BE"), "{{0}} ({{1}}, {{2}})", de, latin, belgium)
+    const fill = (template: string, parts: string[]) => parts.reduce((text, part, i) => text.replace(`{{${i}}}`, part), template)
+    const dialects: Record<string, string> = {}
+    for (const parts of tags) {
+      const [language, ...rest] = parts
+      const code = parts.join("-")
+      const name = languageOf.of(code)
+      if (!name) continue
+      const base = languages[language] ?? language
+      const subs = rest.map((p) => (isScript(p) ? scripts[p] : regions[p]) ?? p)
+      const built = subs.length === 0 ? base : fill(subs.length === 1 ? pattern : patternScript, [base, ...subs])
+      if (name !== built) dialects[code] = name
+    }
+    // `code<tab>name`, one a line: names have colons (`S:t Kitts och Nevis`) and bars.
+    const list = (names: Record<string, string>) =>
+      Object.entries(names)
+        .map(([code, name]) => {
+          if (/[\t\n]/.test(name)) throw new Error(`${tag}: ${code} is named ${name}`)
+          return `${code}\t${name}`
+        })
+        .join("\n")
+    return {
+      "intl.names.languages": list(languages),
+      "intl.names.scripts": list(scripts),
+      "intl.names.regions": list(regions),
+      "intl.names.dialects": list(dialects),
+      "intl.names.pattern": pattern,
+      "intl.names.patternScript": patternScript,
     }
   }
 

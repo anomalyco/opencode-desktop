@@ -20,6 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/i18n.rs"));
 
 pub mod date;
 mod intl;
+pub mod names;
 
 use std::borrow::Cow;
 

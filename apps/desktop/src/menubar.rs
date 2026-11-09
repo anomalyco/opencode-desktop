@@ -1,7 +1,9 @@
 //! The native menu bar's own items (macOS): the app menu's Check for Updates… after About,
 //! Go's Back and Forward, and Edit's Find items. Each shows the keys its command has now, so a
 //! change in Settings > Shortcuts reaches the menu bar at once, as Desktop rebuilds its menu from
-//! the keybinds; the app's first frame puts the saved changes there too.
+//! the keybinds; the app's first frame puts the saved changes there too. A language switch
+//! rebuilds it the same way, retitling these items and, through Rune's labels
+//! (`language::label`), its menus and standard Edit items.
 
 use std::sync::OnceLock;
 
