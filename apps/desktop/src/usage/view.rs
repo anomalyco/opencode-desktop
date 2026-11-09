@@ -321,18 +321,10 @@ fn reached(p: &Pal) -> Color {
     if p.dark { p.v2.danger.fg } else { session_view::palette::token(false, "red-900").unwrap_or(p.v2.danger.fg) }
 }
 
-/// `format.money`: US dollars, cents always or (`auto`) only off a whole amount.
+/// `format.money`: US dollars in the locale's currency pattern (`$1,234.50`, `1.234,50 $`,
+/// `1 234,50 $US`), cents always or (`auto`) only off a whole amount.
 fn money(value: f64, auto: bool) -> String {
-    let cents = !(auto && value.fract() == 0.0);
-    let n = opencode_i18n::decimal(value, if cents { 2 } else { 0 });
-    let point = t!("intl.number.decimal");
-    let n = match (cents, n.split_once(point)) {
-        (false, _) => n,
-        (true, None) => format!("{n}{point}00"),
-        (true, Some((_, f))) if f.chars().count() == 1 => format!("{n}0"),
-        (true, Some(_)) => n,
-    };
-    format!("${n}")
+    opencode_i18n::usd(value, if auto && value.fract() == 0.0 { 0 } else { 2 })
 }
 
 /// `format.time`: `Nov 1 at 12:00 AM (GMT-7)`.

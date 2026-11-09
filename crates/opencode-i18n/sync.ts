@@ -167,6 +167,7 @@ function intlMessages(tag: string, spellcheckTags: string[]) {
     "intl.date.weekdays.short": alone({ weekday: "short" }, week),
     "intl.date.weekdays.long": alone({ weekday: "long" }, week),
     ...numbers(),
+    ...currency(),
     ...lists(),
     ...languageNames(),
     // The locale Desktop's spellcheck menu names and orders its dictionaries in
@@ -271,6 +272,28 @@ function intlMessages(tag: string, spellcheckTags: string[]) {
       "intl.number.minGrouping": `${minGrouping}`,
       "intl.number.negative": `${text(negative.slice(0, sign))}{{value}}${text(negative.slice(sign + 1))}`,
     }
+  }
+
+  // US dollars as the usage dialog's `format.money` writes them (`Intl.NumberFormat(tag, { style:
+  // "currency", currency: "USD" })`): the pattern around the amount (`${{value}}`, `{{value}} $`,
+  // `{{value}} US$`), with the amount itself left to the app's own decimal formatter, which this
+  // checks writes the same digits.
+  function currency() {
+    const money = (fraction: number) =>
+      new Intl.NumberFormat(tag, { style: "currency", currency: "USD", minimumFractionDigits: fraction, maximumFractionDigits: 2 })
+    const pattern = (n: number, fraction: number) => {
+      const parts = money(fraction).formatToParts(n)
+      const amount = parts.filter((p) => numeric.has(p.type)).map((p) => p.value).join("")
+      const plain = new Intl.NumberFormat(tag, { minimumFractionDigits: fraction, maximumFractionDigits: 2 }).format(n)
+      if (amount !== plain) throw new Error(`${tag}: currency amount ${amount} is not ${plain}`)
+      return parts.reduce(
+        (text, p, i) => (numeric.has(p.type) ? (i > 0 && numeric.has(parts[i - 1].type) ? text : text + "{{value}}") : text + p.value),
+        "",
+      )
+    }
+    const cents = pattern(1234.5, 2)
+    if (pattern(1234, 0) !== cents) throw new Error(`${tag}: currency patterns differ: ${cents} ${pattern(1234, 0)}`)
+    return { "intl.currency.usd": cents }
   }
 
   // `Intl.DisplayNames(tag, { type: "language" })`, which names the spellcheck dictionaries in

@@ -59,7 +59,16 @@ impl App {
             name: m.name.clone(),
         });
         let load = self.usage.cache.get(&directory).cloned().map_or(Load::Loading, Load::Refreshing);
-        self.usage.open = Some(Open { directory, model, credits: false, load, attempt: 0 });
+        // Console refuses with 402 only when the workspace can't pay, which the dialog explains:
+        // the open session's last reply, whatever came after it (`viewUsage`).
+        let last = self.active_session_id().and_then(|id| self.transcripts.get(id)).and_then(|t| {
+            t.messages.iter().rev().find_map(|m| match m {
+                opencode_kit::model::Message::Assistant(a) => Some(a),
+                _ => None,
+            })
+        });
+        let credits = last.and_then(|a| a.failure.as_ref()).is_some_and(|e| e.status == Some(402));
+        self.usage.open = Some(Open { directory, model, credits, load, attempt: 0 });
         self.load_usage();
     }
 

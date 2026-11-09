@@ -12,6 +12,9 @@ pub struct StepError {
     /// Its `type`, such as `provider.free-limit`.
     pub kind: String,
     pub message: String,
+    /// The HTTP status the provider answered with (100–599), as `status` carries it: Console's
+    /// 402 means the workspace is out of credits.
+    pub status: Option<u16>,
     /// How long the provider asked to wait, from when the failure was recorded.
     pub retry_after_ms: Option<i64>,
     /// The provider's response body.
@@ -24,6 +27,7 @@ impl StepError {
         Some(StepError {
             kind: s(&v["type"]),
             message: message.to_owned(),
+            status: v["status"].as_u64().filter(|n| (100..=599).contains(n)).map(|n| n as u16),
             retry_after_ms: v["retryAfterMs"].as_i64(),
             body: v["response"]["body"].as_str().map(str::to_owned),
         })

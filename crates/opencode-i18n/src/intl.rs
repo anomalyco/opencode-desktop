@@ -13,6 +13,12 @@ pub fn integer(n: i64) -> String {
 /// `n` rounded half away from zero to at most `max_fraction` fraction digits, trailing zeros
 /// dropped, as `Intl.NumberFormat(locale, { maximumFractionDigits })` writes it.
 pub fn decimal(n: f64, max_fraction: u8) -> String {
+    fraction_digits(n, 0, max_fraction)
+}
+
+/// `decimal` with at least `min_fraction` fraction digits, zeros added, as
+/// `Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits })` writes it.
+pub fn fraction_digits(n: f64, min_fraction: u8, max_fraction: u8) -> String {
     if !n.is_finite() {
         return n.to_string();
     }
@@ -33,7 +39,8 @@ pub fn decimal(n: f64, max_fraction: u8) -> String {
     let point = digits.len() - keep;
     let text: String = digits.iter().map(|d| char::from(b'0' + d)).collect();
     let (whole, fraction) = text.split_at(point);
-    let fraction = fraction.trim_end_matches('0');
+    let trimmed = fraction.trim_end_matches('0');
+    let fraction = format!("{trimmed:0<width$}", width = (min_fraction as usize).max(trimmed.len()));
     let body = if fraction.is_empty() {
         group(whole)
     } else {

@@ -154,3 +154,14 @@ pub fn percent(n: f64) -> String {
 pub fn decimal(n: f64, max_fraction: u8) -> String {
     intl::decimal(n, max_fraction)
 }
+
+/// `n` with `min_fraction` to `max_fraction` fraction digits in the locale's format.
+pub fn fraction_digits(n: f64, min_fraction: u8, max_fraction: u8) -> String {
+    intl::fraction_digits(n, min_fraction, max_fraction)
+}
+
+/// `n` US dollars as `Intl.NumberFormat(locale, { style: "currency", currency: "USD",
+/// minimumFractionDigits, maximumFractionDigits: 2 })` writes them: `$1,234.50`, `1.234,50 $`.
+pub fn usd(n: f64, min_fraction: u8) -> String {
+    t!("intl.currency.usd", value = fraction_digits(n, min_fraction, 2))
+}

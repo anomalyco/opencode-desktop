@@ -12,6 +12,7 @@
   "intl.number.grouping": "3",
   "intl.number.minGrouping": "1",
   "intl.number.negative": "-{{value}}",
+  "intl.currency.usd": "US$ {{value}}",
   "intl.list.pair": " e ",
   "intl.list.start": ", ",
   "intl.list.middle": ", ",
