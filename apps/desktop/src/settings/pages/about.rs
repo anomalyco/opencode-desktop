@@ -26,9 +26,11 @@ const ILLUSTRATORS: [&str; 4] = ["usrnk1", "ludvigrask_", "arvsrn", "iamdavidhil
 static LEGAL: Icon = Icon { name: "about-legal", view: 91.0, body: include_str!("../../../assets/about/legal.svg.body") };
 static BRUSH: Icon = Icon { name: "about-anomaly-brush", view: 110.0, body: include_str!("../../../assets/about/anomaly-brush.svg.body") };
 
-/// The contributors past the 16 credited, as GitHub's contributor list's last page says.
+/// The contributors past the 16 credited, as GitHub's contributor list's last page says. A
+/// window asks the first time About shows, with or without a server, as Desktop does
+/// (`loadOtherContributorCount`); headless runs and tests stay offline and show the fallback.
 fn others(s: &App) -> u32 {
-    if !crate::headless() && !cfg!(test) && s.live() {
+    if !crate::headless() && !cfg!(test) {
         ASKED.call_once(|| {
             let waker = s.waker.clone();
             std::thread::spawn(move || {
