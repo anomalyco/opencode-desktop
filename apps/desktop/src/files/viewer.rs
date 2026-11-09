@@ -74,7 +74,9 @@ pub(super) fn files_main(
 
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
-    let markdown_doc = markdown::is_markdown(path) && doc.is_some_and(|d| d.ready && !d.missing && !d.binary);
+    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready && !d.missing && !d.binary);
+    // A picture shows on its stage, which has no lines to find or wrap.
+    let picture = super::image::showing(ws, path);
     let wrap_on = doc.is_some_and(|d| d.wrap());
     let find_on = doc.is_some_and(|d| d.find_open);
     let sel_badge = doc.filter(|_| !rendered).and_then(|d| d.selection()).map(|sel| {
@@ -117,14 +119,14 @@ pub(super) fn files_main(
             let (glyph, label) = if rendered { (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource")) } else { (&READ_ICON, opencode_i18n::t!("plugin.file.view.viewPreview")) };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
-        .child(tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
+        .children(picture.is_none().then(|| tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
                 d.find_open = !d.find_open;
                 d.find_input.focused = d.find_open;
             }
-        })).help_keys(crate::keymap::Bind::Find.keycaps()))
-        .children((!rendered).then(|| {
+        })).help_keys(crate::keymap::Bind::Find.keycaps())))
+        .children((!rendered && picture.is_none()).then(|| {
             tool(p, "files-wrap-btn", &WRAP_ICON, wrap_on, opencode_i18n::t!("plugin.review.settings.wrapLines.title"), opencode_i18n::t!("plugin.review.settings.wrapLines.title"), at(|s, sid, path, tx| {
                 tx.instant();
                 let wrap = s.files.sessions.get(sid).and_then(|w| w.docs.get(path)).is_some_and(|d| d.wrap());
@@ -161,7 +163,10 @@ pub(super) fn files_main(
     if let Some(view) = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text) {
         return out.child(view);
     }
-    if rendered && let Some(d) = doc {
+    if let Some(img) = picture {
+        return out.child(super::image::stage(s, p, img));
+    }
+    if rendered && markdown::is_markdown(path) && let Some(d) = doc {
         return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path)));
     }
 

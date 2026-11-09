@@ -48,6 +48,8 @@ pub fn parse_path_and_line(raw: &str) -> (String, Option<u32>) {
 pub enum FilePayload {
     Text(String),
     Binary(usize),
+    /// A picture file's bytes (`image::is_image`).
+    Image(Vec<u8>),
     Missing,
 }
 
@@ -58,6 +60,7 @@ pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> 
         crate::switcher::encode(directory)
     );
     match server.get_bytes(&url) {
+        Ok(bytes) if super::image::is_image(path) => FilePayload::Image(bytes),
         Ok(bytes) => {
             if bytes.contains(&0) {
                 FilePayload::Binary(bytes.len())

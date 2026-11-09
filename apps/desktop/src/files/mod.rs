@@ -3,6 +3,7 @@
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
 pub mod data;
+pub mod image;
 pub mod link_tip;
 mod link_tip_stories;
 #[cfg(test)]
@@ -60,6 +61,8 @@ pub struct SessionFiles {
     /// Files a link asked for, opened once they load.
     pub link_opens: HashMap<String, LinkOpen>,
     pub md: HashMap<String, markdown::MdView>,
+    /// Picture files (and SVGs) as decoded images, with their zoom.
+    pub images: HashMap<String, image::FileImage>,
     pub ready: bool,
     /// What the narrow window's Files view shows (`narrow`).
     pub narrow: narrow::NarrowFiles,
@@ -88,6 +91,7 @@ impl Default for SessionFiles {
             pending_jump: HashMap::new(),
             link_opens: HashMap::new(),
             md: HashMap::new(),
+            images: HashMap::new(),
             ready: false,
             narrow: narrow::NarrowFiles::default(),
         }
@@ -121,6 +125,13 @@ pub struct FilesPane {
     dir_fetch: Latest<(String, String, Vec<(String, bool)>)>,
     content_fetch: Latest<(String, String, FilePayload)>,
     find_fetch: Latest<(String, String, Vec<String>)>,
+    /// Decodes picture files, once one opens.
+    images: Option<rune::ImageCache>,
+    waker: Option<Waker>,
+    /// The zoom a picture's stage acts on while no picture is open.
+    pub spare_zoom: rune_kit::StageZoom,
+    /// The open picture's stage, as last laid out.
+    pub stage_size: std::rc::Rc<std::cell::Cell<[f32; 2]>>,
 }
 
 impl Default for FilesPane {
@@ -138,6 +149,10 @@ impl Default for FilesPane {
             dir_fetch: Latest::default(),
             content_fetch: Latest::default(),
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
+            images: None,
+            waker: None,
+            spare_zoom: rune_kit::StageZoom::default(),
+            stage_size: Default::default(),
         }
     }
 }
@@ -146,7 +161,14 @@ impl FilesPane {
     pub fn set_waker(&mut self, waker: Waker) {
         self.dir_fetch.set_waker(waker.clone());
         self.content_fetch.set_waker(waker.clone());
-        self.find_fetch.set_waker(waker);
+        self.find_fetch.set_waker(waker.clone());
+        self.waker = Some(waker);
+    }
+
+    /// `bytes` decoding on the image cache's workers.
+    fn picture(&mut self, bytes: Vec<u8>, svg: bool) -> image::FileImage {
+        let waker = self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
+        image::FileImage::new(self.images.get_or_insert_with(|| rune::ImageCache::new(waker)), bytes, svg)
     }
 }
 
@@ -263,11 +285,21 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     if let Some((session_id, path, payload)) = s.files.content_fetch.take() {
         tx.instant();
         let wrap = s.files.wrap;
+        let picture = match &payload {
+            FilePayload::Image(bytes) => Some(s.files.picture(bytes.clone(), false)),
+            FilePayload::Text(text) if image::is_svg(&path) => Some(s.files.picture(text.clone().into_bytes(), true)),
+            _ => None,
+        };
         let ws = s.files.sessions.entry(session_id.clone()).or_default();
+        match picture {
+            Some(p) => { ws.images.insert(path.clone(), p); }
+            None => { ws.images.remove(&path); }
+        }
         let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
         match payload {
             FilePayload::Text(text) => doc.set_text(&text),
             FilePayload::Binary(sz) => doc.set_binary(sz),
+            FilePayload::Image(bytes) => doc.set_binary(bytes.len()),
             FilePayload::Missing => doc.set_missing(),
         }
         if let Some((start, end)) = ws.pending_jump.remove(&path) {
@@ -287,6 +319,10 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             ws.search_found = found;
             changed = true;
         }
+    }
+    // A picture's size is known once it decodes: its stage lays out again.
+    for ws in s.files.sessions.values_mut() {
+        changed |= ws.images.values_mut().fold(false, |any, i| i.landed() | any);
     }
     if s.files.dirty {
         s.files.dirty = false;

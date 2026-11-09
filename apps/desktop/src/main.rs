@@ -1210,6 +1210,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
+    changed |= session_view::images::poll(s, now, tx);
     changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= find::poll(s);

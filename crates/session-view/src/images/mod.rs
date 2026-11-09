@@ -20,7 +20,7 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 
 pub use drag::{Dragged, draggable};
-pub use viewer::{Viewing, opens, shown, view_image, viewer};
+pub use viewer::{Viewing, opens, poll, shown, view_image, viewer};
 
 /// Newest message window checked by `transcript_ready` (matches `session_pages::LATEST`).
 pub const LATEST: usize = 12;
@@ -32,6 +32,8 @@ const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 pub struct MediaStore {
     /// The image open in the viewer.
     pub viewing: Option<Viewing>,
+    /// The open image's zoom and pan.
+    pub zoom: rune_kit::ImageZoom,
     pub waker: Option<Waker>,
     cache: RefCell<Option<ImageCache>>,
     /// Decoded handles by the bytes' address, so a view doesn't re-hash megabytes each frame.
@@ -203,9 +205,14 @@ fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<Ha
     }
 }
 
-/// What the cache decodes; other types show as a named chip.
+/// What the cache decodes (the image types Desktop's `<img>` shows, `util/src/artifact.ts`);
+/// other types show as a named chip. GIF, WebP and APNG animate.
 pub fn decodable(mime: &str) -> bool {
-    matches!(mime, "image/png" | "image/jpeg" | "image/jpg")
+    matches!(
+        mime,
+        "image/png" | "image/apng" | "image/jpeg" | "image/jpg" | "image/gif" | "image/webp" | "image/avif" | "image/bmp"
+            | "image/x-icon" | "image/vnd.microsoft.icon" | "image/svg+xml"
+    )
 }
 
 impl MediaStore {
@@ -278,9 +285,11 @@ impl MediaStore {
     /// The image's own shape at most 320×240 points (2× pixels). A ref's shape is known once its
     /// bytes land; until then it holds a 160×120 box.
     pub fn thumbnail_size(&self, f: &Attachment) -> (f32, f32) {
+        // An AVIF's or SVG's header isn't read here: its decoded size stands in (an SVG
+        // rasterizes at twice its own size, as thumbnails count pixels).
         let size = match &f.media {
-            Some(hash) => self.ref_sizes.borrow().get(hash).copied(),
-            None => self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size),
+            Some(hash) => self.ref_sizes.borrow().get(hash).copied().or_else(|| self.refs.borrow().get(hash).and_then(Image::size)),
+            None => self.images.borrow().get(&(f.bytes.as_ptr() as usize, f.bytes.len())).and_then(|p| p.size.or_else(|| p.image.size())),
         };
         size.map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
     }
@@ -401,8 +410,8 @@ pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::M
             let image = f.image.clone();
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
             let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
-            img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press(move |s: &mut S| {
-                s.media_store_mut().viewing = Some(Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() });
+            img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
+                viewer::open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() }, tx);
             })
         })
 }

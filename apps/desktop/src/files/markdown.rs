@@ -104,13 +104,15 @@ impl WrapPrefs {
     }
 }
 
-/// Whether `path` shows rendered now.
+/// Whether `path` shows rendered now: Markdown as a page, an SVG as its picture (Desktop's
+/// preview, which an SVG opens in).
 pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     let Some(d) = ws.docs.get(path) else { return false };
-    if !is_markdown(path) || !d.ready || d.missing || d.binary {
+    let svg = super::image::is_svg(path);
+    if !(is_markdown(path) || svg) || !d.ready || d.missing || d.binary {
         return false;
     }
-    ws.md.get(path).and_then(|m| m.rendered).unwrap_or(d.size_bytes <= RENDER_LIMIT)
+    ws.md.get(path).and_then(|m| m.rendered).unwrap_or(svg || d.size_bytes <= RENDER_LIMIT)
 }
 
 pub fn scroll_key(sid: &str, path: &str) -> String {

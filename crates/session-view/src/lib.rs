@@ -421,6 +421,7 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
+    changed |= images::poll(s, now, tx);
     changed
 }
 
