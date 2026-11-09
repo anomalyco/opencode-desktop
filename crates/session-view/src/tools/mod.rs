@@ -192,7 +192,7 @@ fn shell_message<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     // Desktop's card stays shut until pressed (`ToolErrorCard` without `defaultOpen`); the
     // command and its card are as wide as the wider of them.
     let wide = error::shut_width(s, cx.session, &failed).min(lists::column(cx.session));
-    call.min_w(wide).child(error::card_with(s, p, cx.session, &failed, false))
+    call.min_w(wide).child(error::card_with(s, p, cx.session, &failed, false, 24.0))
 }
 
 /// `build` for `calls`, kept until one of them, the parts of them held open, their copy

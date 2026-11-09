@@ -9,13 +9,16 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
-/// The card of failed call `c` in session `session`.
+/// The card of failed call `c` in session `session`, among a turn's rows: its 24 pt trigger
+/// (`tool-error-card.css`) in a 28 pt line, the rest of the 12 pt between Desktop's tool rows
+/// over the 8 these rows keep.
 pub fn card<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call) -> El {
-    card_with(s, p, session, c, super::default_open(s, c))
+    card_with(s, p, session, c, super::default_open(s, c), 28.0)
 }
 
-/// The card of failed call `c`, open until pressed when `default_open`.
-pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, default_open: bool) -> El {
+/// The card of failed call `c`, open until pressed when `default_open`, its trigger's line
+/// `line_h` tall: 24 under a shell command, as Desktop's card sits right under its console.
+pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, default_open: bool, line_h: f32) -> El {
     let k = super::key(c.id);
     let open = crate::disclosure::is_open(s, &k, default_open);
     let raw = opencode_kit::model::tool_error(c.metadata).unwrap_or("");
@@ -55,7 +58,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .child(el().key("icon").size(16.0, 16.0).center().child(icon(&rune_theme_opencode::icons::OUTLINE_HEXAGONAL_WARNING, 16.0).color(p.danger)))
         .child(words)
         .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));
-    let mut line = row().key("line").w_full().min_h(28.0).gap(2.0).center_y().child(button);
+    let mut line = row().key("line").w_full().min_h(line_h).gap(2.0).center_y().child(button);
     if let Some(action) = s.tool_row_action(p, session, c, None) {
         line = line.child(row().key("actions").child(action));
     }
