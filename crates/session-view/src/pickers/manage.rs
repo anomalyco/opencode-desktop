@@ -76,7 +76,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .caret(p.text, p.selection)
         .on_edit(|s: &mut S| &mut s.pickers_mut().manage.as_mut().expect("open").search)
         .on_input_key(|s: &mut S, ev, tx: &mut Tx| {
-            if ev.key != Key::Escape || s.pickers().manage.as_ref().is_some_and(|m| m.search.preedit.is_some()) {
+            if ev.key != Key::Escape || s.pickers().manage.as_ref().is_some_and(|m| m.search.is_composing()) {
                 return false;
             }
             tx.instant();

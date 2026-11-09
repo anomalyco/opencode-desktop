@@ -136,7 +136,7 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
 
     /// ↑ or ↓ on the composer: `true` when it recalled or restored a prompt.
     pub fn step(&mut self, composer: &mut TextEdit, scope: &Scope, shell: bool, up: bool) -> bool {
-        if composer.anchor != composer.focus || composer.preedit.is_some() {
+        if composer.anchor != composer.focus || composer.is_composing() {
             return false;
         }
         if self.walk.as_ref().is_some_and(|w| {

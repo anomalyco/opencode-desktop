@@ -483,7 +483,7 @@ impl App {
         self.switcher.open = false;
         self.switcher.invalidate_sessions();
         self.switcher.search.focused = false;
-        self.switcher.search.preedit = None;
+        self.switcher.search.cancel_composition();
         self.switcher.fetch.cancel();
         self.switcher.files_fetch.cancel();
         self.composer.focused = restore && self.switcher.restore_composer;
@@ -567,7 +567,7 @@ impl App {
 
     /// The search field's keys: moves, Enter picks, Escape closes.
     pub fn switcher_nav(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.switcher.search.preedit.is_some() {
+        if self.switcher.search.is_composing() {
             return false;
         }
         if let Some(mv) = move_for(ev) {

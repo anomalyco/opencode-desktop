@@ -170,7 +170,7 @@ impl App {
         }
         self.fork.open = false;
         self.fork.search.focused = false;
-        self.fork.search.preedit = None;
+        self.fork.search.cancel_composition();
         if restore_focus {
             self.composer.focused = self.fork.restore_composer;
         }
@@ -210,7 +210,7 @@ impl App {
         if !self.fork.open {
             return false;
         }
-        if self.fork.search.preedit.is_some() {
+        if self.fork.search.is_composing() {
             return false;
         }
         let list = self.fork_filtered();

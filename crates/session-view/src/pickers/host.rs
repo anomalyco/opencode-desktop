@@ -201,7 +201,7 @@ pub trait PickerHost: ComposerHost {
         pk.open = None;
         pk.hover = hover::Hover::fresh();
         pk.search.focused = false;
-        pk.search.preedit = None;
+        pk.search.cancel_composition();
         pk.search.break_history_group();
         self.composer_edit_mut().focused = restore;
     }
@@ -344,7 +344,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 if let Some(kind) = kind { tx.focus(kind.key(), true); }
             }
             Some(Nav::Step(step)) => {
-                if s.pickers().search.preedit.is_some() { return false; }
+                if s.pickers().search.is_composing() { return false; }
                 let items = s.picker_items();
                 if !items.is_empty() {
                     let active = s.picker_active();
@@ -357,7 +357,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 }
             }
             Some(Nav::Choose) => {
-                if s.pickers().search.preedit.is_none() && let Some(key) = s.picker_active() { s.choose_picker_tx(&key, tx); }
+                if s.pickers().search.preedit().is_none() && let Some(key) = s.picker_active() { s.choose_picker_tx(&key, tx); }
             }
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
                 if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }

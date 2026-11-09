@@ -188,7 +188,7 @@ impl App {
             }
             return false;
         }
-        if plain && ev.key == Key::Text("!".into()) && self.composer.text.is_empty() && self.composer.preedit.is_none() {
+        if plain && ev.key == Key::Text("!".into()) && self.composer.text.is_empty() && self.composer.preedit().is_none() {
             tx.instant();
             self.enter_shell();
             return true;

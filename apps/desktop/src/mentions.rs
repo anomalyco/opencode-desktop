@@ -417,7 +417,7 @@ impl App {
                 self.close_mentions();
                 true
             }
-            Key::Tab | Key::Enter if self.composer.preedit.is_none() => {
+            Key::Tab | Key::Enter if self.composer.preedit().is_none() => {
                 let items = self.mention_items();
                 if let Some(key) = self.mention_active(&items) {
                     self.pick_mention(&key);

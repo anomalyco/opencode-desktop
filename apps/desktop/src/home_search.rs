@@ -80,7 +80,7 @@ impl App {
 
     pub fn clear_home_search(&mut self, keep_focus: bool, tx: &mut Tx) {
         self.search.clear();
-        self.search.preedit = None;
+        self.search.cancel_composition();
         self.search.focused = keep_focus;
         self.home_search.active.clear();
         self.home_search.searched.clear();
@@ -129,7 +129,7 @@ impl App {
     }
 
     pub fn home_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.search.preedit.is_some() {
+        if self.search.is_composing() {
             return false;
         }
         if ev.key == Key::Escape {

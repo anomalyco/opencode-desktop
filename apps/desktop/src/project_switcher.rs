@@ -209,7 +209,7 @@ impl App {
         }
         self.project_switcher.open = false;
         self.project_switcher.search.focused = false;
-        self.project_switcher.search.preedit = None;
+        self.project_switcher.search.cancel_composition();
         self.project_switcher.mode = StepMode::Projects;
         self.project_switcher.back = None;
         if restore && self.project_switcher.restore_composer && self.stage.is_none() {
@@ -306,7 +306,7 @@ impl App {
         if !self.project_switcher.open {
             return false;
         }
-        if self.project_switcher.search.preedit.is_some() {
+        if self.project_switcher.search.is_composing() {
             return false;
         }
         let text_len = self.project_switcher.search.text.len();

@@ -259,7 +259,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if s.menus.rename.is_some() {
-        if s.menus.edit.preedit.is_some() {
+        if s.menus.edit.is_composing() {
             return false;
         }
         match ev.key {

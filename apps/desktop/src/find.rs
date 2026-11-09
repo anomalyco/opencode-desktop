@@ -226,7 +226,7 @@ impl App {
         self.find.open = false;
         self.find.input.clear();
         self.find.input.focused = false;
-        self.find.input.preedit = None;
+        self.find.input.cancel_composition();
         self.find.active = 0;
         self.find.restore_composer = false;
         self.find.matches.clear();
@@ -528,7 +528,7 @@ pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.find.input.preedit.is_some() {
+    if s.find.input.is_composing() {
         return false;
     }
     if ev.key == Key::Escape {

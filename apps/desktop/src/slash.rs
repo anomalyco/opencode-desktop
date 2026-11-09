@@ -214,7 +214,7 @@ impl App {
                 self.add.slash.closed = Some(self.composer.text.clone());
                 true
             }
-            Key::Tab | Key::Enter if self.composer.preedit.is_none() && !ev.mods.cmd => match self.slash_active() {
+            Key::Tab | Key::Enter if self.composer.preedit().is_none() && !ev.mods.cmd => match self.slash_active() {
                 Some(name) => {
                     tx.instant();
                     self.pick_command(&name, tx);
