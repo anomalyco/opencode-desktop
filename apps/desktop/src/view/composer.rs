@@ -116,9 +116,11 @@ impl ComposerHost for App {
     }
     fn composer_remove_attachment(&mut self, id: &str) {
         self.attach.files.retain(|f| crate::attachments::identity(f) != id);
+        self.suggest_edited();
     }
     fn composer_paste_attachment(&mut self, a: Attachment) -> bool {
         self.attach.add(a);
+        self.suggest_edited();
         true
     }
     fn composer_paste_files(&mut self, files: &[std::path::PathBuf]) -> bool {
@@ -135,9 +137,13 @@ impl ComposerHost for App {
     }
     fn composer_remove_path_attachment(&mut self, path: &str) {
         self.attach.paths.retain(|f| f.path != path);
+        self.suggest_edited();
     }
-    fn composer_uploading(&self) -> &[String] {
-        &self.attach.uploading
+    fn composer_uploading(&self) -> Vec<(String, String)> {
+        self.attach.uploads.list().iter().map(|u| (u.id.clone(), u.name.clone())).collect()
+    }
+    fn composer_cancel_upload(&mut self, id: &str) {
+        self.cancel_upload(id);
     }
     fn composer_quote_chips(&self, p: &Pal) -> Vec<El> {
         crate::quote_cards::chips(self, p).into_iter().chain(crate::add_selection::chips(self, p)).collect()
@@ -184,6 +190,9 @@ impl ComposerHost for App {
     fn composer_below_toolbar(&self, p: &Pal) -> Option<El> {
         crate::dictation::status(self, p)
     }
+    fn composer_held_height(&self) -> Option<f32> {
+        self.suggest.state.held_height()
+    }
     fn composer_on_change(&mut self, tx: &mut Tx) {
         if self.composer_typed() {
             // The + button and the pickers fade out over 200 ms (`editor.tsx:178-182`).
@@ -191,13 +200,12 @@ impl ComposerHost for App {
             return;
         }
         crate::quote::typed(self, tx);
-        self.mentions_changed(tx);
-        self.slash_changed(tx);
+        self.suggest_input(tx);
     }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if crate::popup::key(self, ev, tx)
             || self.fork_key(ev, tx)
-            || self.mention_key(ev, tx)
+            || self.suggest_key(ev, tx)
             || self.add_key(ev, tx)
             || crate::subagents::reply::esc(self, ev, tx)
             || crate::stop::key(self, ev, tx)

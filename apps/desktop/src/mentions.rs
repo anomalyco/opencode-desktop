@@ -2,20 +2,20 @@
 //! `suggestions/machine.ts`, `composer/model.ts`). Typing `@` after a space or at the start
 //! opens a list of skills, subagents, sessions and the server's file search; picking one puts
 //! an atomic pill in the text, and sending turns the pills into the prompt's `agents`, `skills`
-//! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`).
+//! and `files` and session tokens (`composer/request.ts`, `prompt-parts.ts`). Whether the list
+//! is open, and its query and highlight, are the suggestion machine's (`crate::suggestions`);
+//! the server's searches for it are [`search`]'s.
 
-use std::time::Duration;
-
-use rune::{Cx, El, Key, KeyEvent, Latest, Tx, Waker, icon};
+use rune::machine::{Attempt, Seq};
+use rune::{Cx, El, Latest, Tx, Waker, icon};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
-use opencode_kit::client::Server;
 use opencode_kit::model::{self, SessionInfo};
 
 use crate::palette::Pal;
 use crate::{App, Route, Source};
-use list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key, upsert_sessions};
+use list::{Row, Spec, data_list, popup, upsert_sessions};
 
 pub mod badge;
 pub mod fuzzy;
@@ -23,6 +23,7 @@ mod index;
 mod chip_stories;
 pub mod list;
 pub mod refs;
+pub mod search;
 mod wire;
 
 pub use wire::{Wire, context_input, wire};
@@ -34,10 +35,6 @@ use wire::{absolute, encode_path, filename};
 
 /// Session rows: Desktop shows at most 5 (`composer/model.ts:405`).
 const SESSIONS: usize = 5;
-/// Desktop waits this long after the last keystroke before searching files.
-const FILE_DEBOUNCE: Duration = Duration::from_millis(150);
-/// And before searching sessions.
-const SESSION_DEBOUNCE: Duration = Duration::from_millis(100);
 /// The server's default `limit` for `/api/fs/find`.
 const FILE_LIMIT: usize = 50;
 
@@ -69,31 +66,22 @@ pub struct Skill {
 }
 
 /// A directory's subagents and skills, each `None` when its read failed.
-type Catalog = (String, Option<Vec<(String, String)>>, Option<Vec<Skill>>);
+type Catalog = (Attempt, Option<Vec<(String, String)>>, Option<Vec<Skill>>);
 
 pub struct Mentions {
-    /// The popover is open; its query is the text between the `@` and the caret.
-    pub open: bool,
-    /// The composer's text and caret when last looked at.
-    seen: (String, usize),
-    /// The highlighted row and the query it was picked under.
-    active: Highlight,
     /// Subagents (`mode != primary`, not hidden) by name, with their descriptions.
     pub agents: Vec<(String, String)>,
     pub skills: Vec<Skill>,
-    /// The directory `agents` and `skills` belong to, once asked for.
-    catalog: Option<String>,
-    /// A read of the catalog failed: the popover's next opening asks again.
-    catalog_stale: bool,
+    /// Whose `agents` and `skills` these are.
+    catalog: search::Catalog,
     catalog_fetch: Latest<Catalog>,
+    /// The open list's file and session searches.
+    pub search: search::Search,
+    pub(crate) seq: Seq,
     /// Sessions the server found for a query's first word.
     found: Vec<SessionInfo>,
-    searched: Option<String>,
-    sessions_fetch: Latest<Vec<SessionInfo>>,
-    /// The last file search's query and paths, and the query asked for since.
-    files: (String, Vec<String>),
-    files_asked: Option<String>,
-    files_fetch: Latest<(String, Vec<String>)>,
+    files_fetch: Latest<(Attempt, Option<Vec<String>>)>,
+    sessions_fetch: Latest<(Attempt, Option<Vec<SessionInfo>>)>,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
     /// What the rows are matched against, kept until what they come from changes.
@@ -103,20 +91,15 @@ pub struct Mentions {
 impl Default for Mentions {
     fn default() -> Self {
         Mentions {
-            open: false,
-            seen: (String::new(), 0),
-            active: Highlight::default(),
             agents: Vec::new(),
             skills: Vec::new(),
-            catalog: None,
-            catalog_stale: false,
+            catalog: search::Catalog::default(),
             catalog_fetch: Latest::default(),
+            search: search::Search::default(),
+            seq: Seq::default(),
             found: Vec::new(),
-            searched: None,
-            sessions_fetch: Latest::default().debounce(SESSION_DEBOUNCE),
-            files: (String::new(), Vec::new()),
-            files_asked: None,
-            files_fetch: Latest::default().debounce(FILE_DEBOUNCE),
+            files_fetch: Latest::default(),
+            sessions_fetch: Latest::default(),
             file_index: Vec::new(),
             cache: Default::default(),
         }
@@ -140,105 +123,6 @@ impl Mentions {
         self.agents = subagents(&fixture["agent_list"]);
         self.skills = skills(&fixture["skills"]);
         self.file_index = found_paths(&fixture["files"]);
-    }
-
-    /// Takes in what the fetch workers returned; whether any changed state.
-    fn drain(&mut self) -> bool {
-        let mut changed = false;
-        if let Some((directory, agents, skills)) = self.catalog_fetch.take()
-            && self.catalog.as_deref() == Some(directory.as_str())
-        {
-            // A failed read keeps what was there, as Desktop's location data does, rather than
-            // settling on an empty list.
-            self.catalog_stale = agents.is_none() || skills.is_none();
-            if let Some(agents) = agents {
-                self.agents = agents;
-            }
-            if let Some(skills) = skills {
-                self.skills = skills;
-            }
-            changed = true;
-        }
-        if let Some((query, paths)) = self.files_fetch.take()
-            && self.files_asked.as_deref() == Some(query.as_str())
-        {
-            self.files = (query, paths);
-            changed = true;
-        }
-        if let Some(list) = self.sessions_fetch.take() {
-            upsert_sessions(&mut self.found, list);
-            changed = true;
-        }
-        changed
-    }
-
-    /// The directory's subagents and skills, once, and again on an opening after a failed read.
-    /// `/api/skill` answers 503 until the server's plugins load, which `get_ready` waits out.
-    fn ask_catalog(&mut self, server: &Server, directory: String, opened: bool) {
-        let same = self.catalog.as_deref() == Some(directory.as_str());
-        if same && !(opened && self.catalog_stale) {
-            return;
-        }
-        if !same {
-            self.files = (String::new(), Vec::new());
-            self.files_asked = None;
-            self.files_fetch.cancel();
-        }
-        self.catalog = Some(directory.clone());
-        self.catalog_stale = false;
-        let server = server.clone();
-        self.catalog_fetch.request(directory, move |directory| {
-            let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-            let agents = server.get(&format!("/api/agent?{at}")).ok().map(|v| subagents(&v));
-            let skills = server.get_ready(&format!("/api/skill?{at}")).ok().map(|v| skills(&v));
-            (directory, agents, skills)
-        });
-    }
-
-    /// Files for a query, spaces left out, after a pause for more typing.
-    fn ask_files(&mut self, server: &Server, directory: String, query: &str) {
-        let query: String = query.split_whitespace().collect();
-        let query = query.as_str();
-        if query.is_empty() {
-            if self.files_asked.take().is_some() {
-                self.files_fetch.cancel();
-            }
-            return;
-        }
-        if self.files_asked.as_deref() == Some(query) {
-            return;
-        }
-        self.files_asked = Some(query.to_owned());
-        let server = server.clone();
-        self.files_fetch.request((directory, query.to_owned()), move |(directory, query)| {
-            let path = format!(
-                "/api/fs/find?location%5Bdirectory%5D={}&query={}",
-                crate::switcher::encode(&directory),
-                crate::switcher::encode(&query)
-            );
-            let paths = server.get(&path).map(|v| found_paths(&v)).unwrap_or_default();
-            (query, paths)
-        });
-    }
-
-    /// Sessions matching the query's first word, after a pause for more typing.
-    fn ask_sessions(&mut self, server: &Server, query: &str) {
-        let word = query.split(' ').next().unwrap_or("");
-        if word.is_empty() {
-            if self.searched.take().is_some() {
-                self.sessions_fetch.cancel();
-            }
-            return;
-        }
-        if self.searched.as_deref() == Some(word) {
-            return;
-        }
-        self.searched = Some(word.to_owned());
-        let server = server.clone();
-        self.sessions_fetch.request_opt(word.to_owned(), move |word| {
-            let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
-            server.get(&path).ok().map(|v| model::parse_sessions(&v))
-        });
     }
 }
 
@@ -306,49 +190,14 @@ impl App {
         self.composer.focus.min(self.composer.text.len())
     }
 
-    /// Re-reads the composer after an edit: a new `@` opens the popover, and one the text or
-    /// caret has left closes it. Escape stays closed until the text changes again.
-    pub fn sync_mentions(&mut self) {
-        let caret = self.caret();
-        if self.mentions.seen.0 == self.composer.text && self.mentions.seen.1 == caret {
-            if !self.composer.focused {
-                self.mentions.open = false;
-            }
-            return;
-        }
-        let edited = self.mentions.seen.0 != self.composer.text;
-        self.mentions.seen = (self.composer.text.clone(), caret);
-        if !self.composer.focused || (!edited && !self.mentions.open) {
-            self.mentions.open = false;
-            return;
-        }
-        let open = self.mentions.open;
-        self.mentions.open = self.mention_trigger(open).is_some();
+    /// There's a server to search; the fixture's files and sessions are searched here.
+    pub(crate) fn mention_server(&self) -> bool {
+        matches!(self.source, Source::Live { .. })
     }
 
-    /// After the composer's text changes: the popover opens, closes and refilters with this frame.
-    pub fn mentions_changed(&mut self, tx: &mut Tx) {
-        let was = self.mentions.open;
-        self.sync_mentions();
-        if was || self.mentions.open {
-            tx.instant();
-        }
-    }
-
-    /// The `@`'s byte offset and the query, when the text before the caret has one that isn't
-    /// already a pill's.
-    fn mention_trigger(&self, open: bool) -> Option<(usize, String)> {
-        if self.add.shell() {
-            return None;
-        }
-        let text = self.composer.text.get(..self.caret())?;
-        let (at, query) = trigger(text, open)?;
-        let in_pill = self.composer.pills().any(|(r, _)| r.start <= at && at < r.end);
-        (!in_pill).then(|| (at, query.to_owned()))
-    }
-
+    /// The open `@` list's query.
     pub fn mention_query(&self) -> Option<String> {
-        self.mentions.open.then(|| self.mention_trigger(true).map(|(_, q)| q)).flatten()
+        self.suggest.state.context().map(|l| l.query.clone())
     }
 
     /// Sessions a mention can name: loaded roots and what the server found, newest first, not
@@ -364,100 +213,127 @@ impl App {
             .collect()
     }
 
-    /// The highlighted row: the one picked under this query, else the first.
-    pub fn mention_active(&self, items: &[Item]) -> Option<String> {
-        self.mentions.active.resolve(&self.mention_query().unwrap_or_default(), items.iter().map(|i| i.key.as_str()))
+    /// The highlighted row.
+    pub fn mention_active(&self) -> Option<String> {
+        self.suggest.state.context().and_then(|l| l.active.id()).map(str::to_owned)
     }
 
-    pub fn mention_activate(&mut self, key: String) {
-        let query = self.mention_query().unwrap_or_default();
-        self.mentions.active.set(key, query);
-    }
-
-    /// Replaces the `@query` with the item's pill and a space, caret after it.
+    /// The row's pill replaces the `@query` before the caret, with a space after it
+    /// (`addMention`): from the last `@` before the caret that isn't a pill's, or at the caret
+    /// when there's none.
     pub fn pick_mention(&mut self, key: &str) {
-        let items = self.mention_items();
-        let Some(item) = items.iter().find(|i| i.key == key) else { return };
-        let Some((at, _)) = self.mention_trigger(true) else { return };
+        let Some(item) = self.mention_items().into_iter().find(|i| i.key == key) else { return };
         let caret = self.caret();
+        let pills: Vec<_> = self.composer.pills().map(|(r, _)| r).collect();
+        let at = self.composer.text[..caret].rmatch_indices('@').map(|(i, _)| i).find(|i| !pills.iter().any(|r| r.start <= *i && *i < r.end)).unwrap_or(caret);
         self.composer.replace_with_pill(at..caret, item.key.clone(), &item.content);
         self.composer.insert(" ");
-        self.mentions_settle();
     }
 
-    /// After the app sets the composer's text itself (a recalled prompt): not an edit, so no popover.
-    pub fn mentions_settle(&mut self) {
-        self.close_mentions();
-        self.mentions.seen = (self.composer.text.clone(), self.caret());
-    }
-
-    pub fn close_mentions(&mut self) {
-        self.mentions.open = false;
-        self.mentions.active.clear();
-    }
-
-    /// The composer's keys while the popover is open: arrows and Ctrl-N/P move and wrap, Tab
-    /// and Enter pick, Escape closes.
-    pub fn mention_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        self.sync_mentions();
-        if !self.mentions.open {
-            return false;
-        }
-        if let Some(step) = nav_step(ev, false) {
-            let items = self.mention_items();
-            let active = self.mention_active(&items);
-            let keys = items.iter().map(|i| i.key.as_str());
-            if let Some(key) = step_key(keys, active.as_deref(), step, tx, "mentions-scroll", "mention-") {
-                self.mention_activate(key);
-            }
-            return true;
-        }
-        match ev.key {
-            Key::Escape => {
-                self.close_mentions();
-                true
-            }
-            Key::Tab | Key::Enter if self.composer.preedit().is_none() => {
-                let items = self.mention_items();
-                if let Some(key) = self.mention_active(&items) {
-                    self.pick_mention(&key);
-                }
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Takes in fetched lists, and asks the server for what the open popover needs: the
-    /// directory's agents and skills once, and sessions by the query's first word.
-    /// Fetched rows land with this frame: no fading in or sliding.
-    pub fn poll_mentions(&mut self, tx: &mut Tx) -> bool {
-        let was = self.mentions.open;
-        let changed = self.take_mentions();
-        if changed && (was || self.mentions.open) {
-            tx.instant();
-        }
-        changed
-    }
-
-    fn take_mentions(&mut self) -> bool {
-        let mut changed = self.mentions.drain();
-        let was = self.mentions.open;
-        self.sync_mentions();
-        changed |= was != self.mentions.open;
-        let Some(query) = self.mention_query() else {
-            self.mentions.searched = None;
-            self.mentions.files_asked = None;
-            self.mentions.sessions_fetch.cancel();
-            self.mentions.files_fetch.cancel();
-            return changed;
+    /// The open list's searches follow its query (`context.changed`, `context.closed`), and the
+    /// directory's catalog is read once it opens.
+    pub(crate) fn sync_mention_search(&mut self, tx: &mut Tx) {
+        let now = tx.clock();
+        let server = self.mention_server();
+        let m = &mut self.mentions;
+        let effects = match self.suggest.state.context() {
+            Some(list) => search::step(&mut m.seq, &mut m.search, search::Event::Changed { query: &list.query, server, now }),
+            None => search::step(&mut m.seq, &mut m.search, search::Event::Closed),
         };
-        let Source::Live { server, .. } = &self.source else { return changed };
+        self.run_mention_search(effects, tx);
+        let Source::Live { server, .. } = &self.source else { return };
+        if self.suggest.state.context().is_none() {
+            return;
+        }
+        let (server, directory) = (server.clone(), self.composer_directory());
+        let opened = matches!(self.mentions.catalog, search::Catalog::Unread | search::Catalog::Failed { .. });
+        let m = &mut self.mentions;
+        let Some((attempt, directory)) = search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Wanted { directory: &directory, opened }) else { return };
+        // `/api/skill` answers 503 until the server's plugins load, which `get_ready` waits out.
+        m.catalog_fetch.request(directory, move |directory| {
+            let at = format!("location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
+            let agents = server.get(&format!("/api/agent?{at}")).ok().map(|v| subagents(&v));
+            let skills = server.get_ready(&format!("/api/skill?{at}")).ok().map(|v| skills(&v));
+            (attempt, agents, skills)
+        });
+    }
+
+    fn run_mention_search(&mut self, effects: impl IntoIterator<Item = search::Effect>, tx: &mut Tx) {
+        let Source::Live { server, .. } = &self.source else {
+            for effect in effects {
+                if let search::Effect::WakeAt(due) = effect {
+                    tx.wake_at(due);
+                }
+            }
+            return;
+        };
         let server = server.clone();
         let directory = self.composer_directory();
-        self.mentions.ask_catalog(&server, directory.clone(), !was);
-        self.mentions.ask_files(&server, directory, &query);
-        self.mentions.ask_sessions(&server, &query);
+        for effect in effects {
+            match effect {
+                search::Effect::WakeAt(due) => tx.wake_at(due),
+                search::Effect::SearchFiles { attempt, query } => {
+                    let (server, directory) = (server.clone(), directory.clone());
+                    self.mentions.files_fetch.request(query, move |query| {
+                        let path = format!(
+                            "/api/fs/find?location%5Bdirectory%5D={}&query={}",
+                            crate::switcher::encode(&directory),
+                            crate::switcher::encode(&query)
+                        );
+                        (attempt, server.get(&path).ok().map(|v| found_paths(&v)))
+                    });
+                }
+                search::Effect::SearchSessions { attempt, word } => {
+                    let server = server.clone();
+                    self.mentions.sessions_fetch.request(word, move |word| {
+                        let path = format!("/api/session?parentID=null&archived=false&limit=50&search={}", crate::switcher::encode(&word));
+                        (attempt, server.get(&path).ok().map(|v| model::parse_sessions(&v)))
+                    });
+                }
+            }
+        }
+    }
+
+    /// Takes in what the searches answered and the timers that came due; the open list's rows
+    /// land with this frame, without fading in or sliding.
+    pub fn poll_mentions(&mut self, tx: &mut Tx) -> bool {
+        let now = tx.clock();
+        let m = &mut self.mentions;
+        let mut changed = false;
+        if let Some((attempt, agents, skills)) = m.catalog_fetch.take() {
+            // A failed read keeps what was there, as Desktop's location data does, rather than
+            // settling on an empty list.
+            let failed = agents.is_none() || skills.is_none();
+            if matches!(&m.catalog, search::Catalog::Reading { attempt: a, .. } if *a == attempt) {
+                m.agents = agents.unwrap_or(std::mem::take(&mut m.agents));
+                m.skills = skills.unwrap_or(std::mem::take(&mut m.skills));
+                changed = true;
+            }
+            search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Answered { attempt, failed });
+        }
+        let mut effects = Vec::new();
+        if let Some((attempt, paths)) = m.files_fetch.take() {
+            let before = m.search.clone();
+            effects.extend(search::step(&mut m.seq, &mut m.search, search::Event::Files { attempt, paths }));
+            changed |= m.search != before;
+        }
+        if let Some((attempt, list)) = m.sessions_fetch.take() {
+            if let Some(list) = list {
+                upsert_sessions(&mut m.found, list);
+                changed = true;
+            }
+            effects.extend(search::step(&mut m.seq, &mut m.search, search::Event::Sessions { attempt }));
+        }
+        if m.search.next_due().is_some_and(|due| now + 1e-9 >= due) {
+            let before = m.search.clone();
+            effects.extend(search::step(&mut m.seq, &mut m.search, search::Event::Due { now }));
+            changed |= m.search != before;
+        }
+        self.run_mention_search(effects, tx);
+        if changed && self.suggest.state.context().is_some() {
+            tx.instant();
+            self.refresh_suggestions(tx);
+        }
         changed
     }
 
@@ -467,6 +343,7 @@ impl App {
         wire(&self.composer.text, &pills, &self.composer_directory(), |id| self.mentions.skills.iter().find(|s| s.id == id).map_or_else(|| id.to_owned(), |s| s.name.clone()))
     }
 }
+
 
 // ---------------------------------------------------------------------------------------------
 // View
@@ -490,18 +367,16 @@ fn row_icon(p: &Pal, kind: Kind, label: &str) -> El {
 /// The popover over the composer, full width, 8 points up: rows of icon, label and a muted
 /// description. It appears and goes at once.
 pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
-    if !s.mentions.open || s.mention_query().is_none() {
-        return None;
-    }
+    s.suggest.state.context()?;
     let width = cx.layout_size("composer").map_or(0.0, |[w, _]| w);
     let items = s.mention_items();
-    let active = s.mention_active(&items);
+    let active = s.mention_active();
     let rows = items
         .iter()
         .map(|i| Row { id: i.key.clone(), key: format!("mention-{}", i.key), label: i.label.clone(), lead: Some(row_icon(p, i.kind, &i.label)), description: i.description.clone(), trail: None })
         .collect();
-    let spec = Spec { key: "mentions", label: opencode_i18n::t!("rune.composer.mentions"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: list::boundary(cx) };
-    Some(popup(p, spec, rows, active.as_deref(), |s, key| s.mention_activate(key.to_owned()), |s, key, _| s.pick_mention(key)))
+    let spec = Spec { key: "mentions", label: opencode_i18n::t!("rune.composer.mentions"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: list::boundary(cx), search: None };
+    Some(popup(p, spec, rows, active.as_deref(), |s, key, tx| s.suggest_pointed(key, tx), |s, key, tx| s.suggest_pick(key, tx)))
 }
 
 #[cfg(test)]

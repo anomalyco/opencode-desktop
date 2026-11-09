@@ -123,6 +123,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     inner = inner.children(crate::mentions::view(s, p, cx));
     inner = inner.children(crate::slash::commands_view(s, p, cx));
+    inner = inner.children(crate::suggestions::history::view(s, p, cx));
     inner = inner.children(crate::add_menu::menu(s, p));
     inner = inner.children(crate::new_worktree::picker(s, p).into_iter().flatten());
     if let Some(pop) = home::home_projects_popover(s, p) {
@@ -203,7 +204,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.over;
+    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.shown();
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {

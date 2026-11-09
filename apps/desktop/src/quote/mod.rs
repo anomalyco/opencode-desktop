@@ -4,8 +4,6 @@
 //! in `metadata.comments` (`opencode_kit::quote`).
 
 use std::collections::HashSet;
-use std::ops::Range;
-use std::time::Duration;
 
 use rune::{Cx, El, SelectionChange, TextEdit, TextStyle, Transition, Tx, icon, row, text};
 
@@ -14,8 +12,6 @@ use opencode_kit::model::Quote;
 use crate::palette::Pal;
 use crate::{App, Route};
 
-/// A selection waits this long to settle before the button offers it.
-const SETTLE: f64 = 0.15;
 /// About 5k tokens: a longer selection says so and can't be quoted.
 pub const MAX_LEN: usize = 20_000;
 /// A selection under this many lines (and a half) is short: the button goes above it.
@@ -27,27 +23,27 @@ const TOO_LONG: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 pub use session_view::user_parts::OUTLINE_QUOTE;
 
-/// The quotes waiting in the composer, the comment editor, and the button's offer.
+pub mod machine;
+use machine::Ident;
+
+/// The quotes waiting in the composer, the comment editor, and the toolbar's machine.
+#[derive(Default)]
 pub struct Quotes {
     /// Waiting in the composer for the next send, in the order they were added.
     pub items: Vec<Pending>,
     next: u64,
     /// The quote whose comment editor is open, and the comment being written.
-    pub editing: Option<u64>,
-    pub draft: TextEdit,
-    offer: Option<Offer>,
-    heard: Option<Heard>,
-    settle: Settle,
-    /// The selection Escape dismissed, which stays dismissed until it changes or clears.
-    dismissed: Option<Ident>,
+    pub comment: machine::Comment,
+    pub toolbar: machine::Toolbar,
+    seq: rune::machine::Seq,
+    /// The timeline's selection as it last changed, which the toolbar reads once it settles
+    /// and a right-click there copies or quotes.
+    selection: Option<Heard>,
     /// Sent prompts whose quote cards were opened past the first five.
     pub more: HashSet<String>,
-}
-
-impl Default for Quotes {
-    fn default() -> Self {
-        Quotes { items: Vec::new(), next: 0, editing: None, draft: TextEdit::new(""), offer: None, heard: None, settle: Settle::Idle, dismissed: None, more: HashSet::new() }
-    }
+    /// Takes an edit that lands after the comment editor closed: the field's `on_edit` needs
+    /// somewhere to write.
+    pub(crate) spare: TextEdit,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,10 +52,7 @@ pub struct Pending {
     pub quote: Quote,
 }
 
-/// Which texts a selection covers and where, to tell one selection from another.
-type Ident = Vec<(String, Range<usize>)>;
-
-/// A settled selection in the timeline, read once it has rested `SETTLE`.
+/// A timeline selection as heard.
 #[derive(Clone)]
 struct Heard {
     session: String,
@@ -68,33 +61,26 @@ struct Heard {
     ident: Ident,
 }
 
-/// What the button offers to quote.
-struct Offer {
-    session: String,
-    text: String,
-    truncated: bool,
-    backward: bool,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Settle {
-    Idle,
-    /// Heard since the last poll, which starts the wait.
-    Heard,
-    At(f64),
-}
-
 impl Quotes {
-    /// The button is showing (or about to, once measured).
+    /// The toolbar is showing (or about to, once measured).
     pub fn offered(&self) -> bool {
-        self.offer.is_some()
+        self.offer().is_some()
     }
 
-    fn close(&mut self) {
-        self.offer = None;
-        self.heard = None;
-        self.settle = Settle::Idle;
-        self.dismissed = None;
+    fn offer(&self) -> Option<&machine::Offer> {
+        match &self.toolbar.phase {
+            machine::Phase::Shown(offer) => Some(offer),
+            _ => None,
+        }
+    }
+
+    fn step(&mut self, event: machine::Event<'_>, tx: &mut Tx) {
+        for effect in machine::step(&mut self.seq, &mut self.toolbar, event) {
+            match effect {
+                machine::Effect::WakeAt(due) => tx.wake_at(due),
+                machine::Effect::Read => {}
+            }
+        }
     }
 
     /// Adds a quote to the composer; its key.
@@ -106,14 +92,15 @@ impl Quotes {
 
     pub fn remove(&mut self, key: u64) {
         self.items.retain(|q| q.key != key);
-        if self.editing == Some(key) {
-            self.editing = None;
+        // An editor whose quote is gone closes (`retained`).
+        if self.comment.key() == Some(key) {
+            self.comment = machine::Comment::Closed;
         }
     }
 
     /// The quotes to send, leaving the composer without them.
     pub fn take(&mut self) -> Vec<Quote> {
-        self.editing = None;
+        self.comment = machine::Comment::Closed;
         std::mem::take(&mut self.items).into_iter().map(|q| q.quote).collect()
     }
 
@@ -136,67 +123,59 @@ fn available(s: &App) -> Option<&str> {
 }
 
 /// The timeline's `on_selection_change`: a new selection waits to settle; a cleared one closes
-/// the button at once, and so does a press making one.
+/// the toolbar at once, and so does a press making one.
 pub fn selection_changed(s: &mut App, change: &SelectionChange, tx: &mut Tx) {
+    let now = tx.clock();
     let q = &mut s.quote;
+    let idle = q.toolbar == machine::Toolbar::default();
     let Some(sel) = change.selection() else {
-        if q.offer.is_none() && q.heard.is_none() && q.dismissed.is_none() { tx.live_only(); }
-        q.close();
-        return;
+        if idle && q.selection.is_none() { tx.live_only(); }
+        q.selection = None;
+        return q.step(machine::Event::Changed { cleared: true, dragging: false, now }, tx);
     };
     if change.dragging() {
-        if q.offer.is_none() && q.dismissed.is_none() { tx.live_only(); }
-        q.offer = None;
-        q.heard = None;
-        q.settle = Settle::Idle;
-        // A new drag ends a dismissal, even one that selects the dismissed text again
-        // (`quote-machine.ts:159-168`).
-        q.dismissed = None;
-        return;
+        if !q.offered() && !matches!(q.toolbar.phase, machine::Phase::Dismissed(_)) { tx.live_only(); }
+        q.selection = None;
+        return q.step(machine::Event::Changed { cleared: false, dragging: true, now }, tx);
     }
-    let Some(session) = available(s).map(str::to_owned) else { return s.quote.close() };
+    let Some(session) = available(s).map(str::to_owned) else {
+        s.quote.selection = None;
+        return s.quote.step(machine::Event::Reset, tx);
+    };
     let ident = sel.texts().iter().filter(|t| t.is_selected()).map(|t| (t.path().to_owned(), t.range())).collect();
-    s.quote.heard = Some(Heard { session, text: sel.text().to_owned(), backward: sel.backward(), ident });
-    s.quote.settle = Settle::Heard;
-    tx.wake_after(Duration::from_secs_f64(SETTLE));
+    s.quote.selection = Some(Heard { session, text: sel.text().to_owned(), backward: sel.backward(), ident });
+    s.quote.step(machine::Event::Changed { cleared: false, dragging: false, now }, tx);
 }
 
-/// The app's poll: offers a selection once it has settled, and closes what the route or a lost
+/// The app's poll: reads a selection once it has settled, and closes what the route or a lost
 /// focus leaves behind.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
-    let session = available(s);
-    if s.quote.offer.as_ref().is_some_and(|o| Some(o.session.as_str()) != session) {
-        s.quote.close();
+    let session = available(s).map(str::to_owned);
+    if s.quote.offer().is_some_and(|o| Some(&o.session) != session.as_ref()) {
+        s.quote.step(machine::Event::Reset, tx);
         changed = true;
     }
     changed |= crate::quote_cards::poll(s);
-    match s.quote.settle {
-        Settle::Heard => {
-            s.quote.settle = Settle::At(now + SETTLE);
-            tx.wake_after(Duration::from_secs_f64(SETTLE));
-        }
-        Settle::At(at) if now >= at - 1e-3 => {
-            s.quote.settle = Settle::Idle;
-            read(s);
+    if s.quote.toolbar.settle.is_some_and(|w| now + 1e-3 >= w.due) {
+        let read = machine::step(&mut s.quote.seq, &mut s.quote.toolbar, machine::Event::Due { now });
+        if read.into_iter().any(|e| e == machine::Effect::Read) {
+            read_selection(s, session.as_deref(), tx);
             changed = true;
         }
-        _ => {}
     }
     changed
 }
 
-fn read(s: &mut App) {
-    let Some(heard) = s.quote.heard.clone() else { return };
-    if s.quote.dismissed.as_ref() == Some(&heard.ident) {
-        return;
-    }
-    s.quote.dismissed = None;
+/// The settled selection becomes what the toolbar offers (`quote.read`, then `quote.measured`).
+fn read_selection(s: &mut App, session: Option<&str>, tx: &mut Tx) {
+    let Some(heard) = s.quote.selection.clone() else {
+        return s.quote.step(machine::Event::Read { offer: None, ident: &Vec::new() }, tx);
+    };
     let (text, truncated) = quote_text(&heard.text);
-    if available(s) != Some(heard.session.as_str()) || text.is_empty() {
-        return s.quote.close();
-    }
-    s.quote.offer = Some(Offer { session: heard.session, text, truncated, backward: heard.backward });
+    let offer = (session == Some(heard.session.as_str()) && !text.is_empty())
+        .then(|| machine::Offer { session: heard.session.clone(), text, truncated, backward: heard.backward });
+    s.quote.step(machine::Event::Read { offer, ident: &heard.ident }, tx);
 }
 
 /// The selection as a quote (Desktop's `quoteText`): lines without trailing spaces, no more than
@@ -215,30 +194,30 @@ pub fn quote_text(selected: &str) -> (String, bool) {
     (out.trim().to_owned(), truncated)
 }
 
-/// Escape: hides the button, and the same selection stays dismissed until it changes.
-pub fn dismiss(s: &mut App) -> bool {
-    if s.quote.offer.is_none() {
+/// Escape: hides the toolbar, and the same selection stays dismissed until it changes.
+pub fn dismiss(s: &mut App, tx: &mut Tx) -> bool {
+    if !s.quote.offered() {
         return false;
     }
-    let ident = s.quote.heard.as_ref().map(|h| h.ident.clone());
-    s.quote.close();
-    s.quote.dismissed = ident;
+    let ident = s.quote.selection.as_ref().map(|h| h.ident.clone());
+    s.quote.step(machine::Event::Escape { ident }, tx);
     true
 }
 
 /// Typing in the composer leaves the timeline's selection behind, as a page's selection moves
 /// into the field typed in.
 pub fn typed(s: &mut App, tx: &mut Tx) {
-    if s.quote.offer.is_some() || s.quote.heard.is_some() {
-        s.quote.close();
+    if s.quote.offered() || s.quote.selection.is_some() {
+        s.quote.selection = None;
+        s.quote.step(machine::Event::Reset, tx);
         tx.clear_text_selection();
     }
 }
 
-/// The button's click: the selection becomes a quote in the composer. With Alt held its comment
+/// The toolbar's click: the selection becomes a quote in the composer. With Alt held its comment
 /// editor opens; otherwise the prompt takes focus.
 pub fn add(s: &mut App, comment: bool, tx: &mut Tx) {
-    let Some(offer) = s.quote.offer.as_ref().filter(|o| !o.truncated) else { return };
+    let Some(offer) = s.quote.offer().filter(|o| !o.truncated) else { return };
     let text = offer.text.clone();
     add_text(s, text, comment, tx);
 }
@@ -246,7 +225,7 @@ pub fn add(s: &mut App, comment: bool, tx: &mut Tx) {
 /// The timeline's selection when it lies in message `message` (a selected text's path names
 /// it), for a right-click there to copy or quote.
 pub fn selected_in(s: &App, message: &str) -> Option<String> {
-    let heard = s.quote.heard.as_ref()?;
+    let heard = s.quote.selection.as_ref()?;
     heard.ident.iter().any(|(path, _)| path.contains(message)).then(|| heard.text.clone()).filter(|t| !t.trim().is_empty())
 }
 
@@ -270,7 +249,8 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
     tx.clear_text_selection();
     // The card lands in the click, with nothing moving, as in Desktop.
     tx.instant();
-    s.quote.close();
+    s.quote.selection = None;
+    s.quote.step(machine::Event::Reset, tx);
     let key = s.quote.push(quote);
     if comment {
         crate::quote_cards::open_editor(s, key);
@@ -282,7 +262,7 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
 /// The floating Quote button, over the settled selection: above a short or backward one, else
 /// under it, whichever fits in the timeline's viewport, centred on its visible lines.
 pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
-    let offer = s.quote.offer.as_ref()?;
+    let offer = s.quote.offer()?;
     // Rune reads rects in layout points, before the zoomed shell's `El::scale`, and the shell
     // sits centred in the window-sized root: take off its corner to get the shell's points.
     let [ox, oy] = cx.layout_with("zoomed", |r| [r[0], r[1]]).unwrap_or([0.0, 0.0]);

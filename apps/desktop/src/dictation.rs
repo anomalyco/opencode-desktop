@@ -19,9 +19,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use hex_client::{Cmd, Fix, Heard, Presence, Problem};
+use rune::machine::{Attempt, Seq};
 use rune::{El, Icon, Key, KeyEvent, Tx, el, icon, row, text};
 
 use crate::App;
@@ -74,18 +74,24 @@ impl Backend {
     }
 }
 
-/// Where a dictation is. A press goes `Idle` (or `Failed`) → `Starting` → `Listening` →
-/// `Finishing` → `Idle` with the words at the caret; Esc goes back to `Idle` from any of the
-/// three, and Hex or the microphone refusing goes to `Failed`.
+/// Where a dictation is, the machine every press, key and word from Hex goes through ([`step`]).
+/// A press goes `Idle` (or `Failed`) → `Starting` → `Listening` → `Finishing` → `Idle` with the
+/// words at the caret; Esc goes back to `Idle` from any of the three, and Hex or the microphone
+/// refusing goes to `Failed`. Desktop has no dictation of its own; the phases are the iOS
+/// app's, and each carries only what it needs: a recording's attempt fences what an earlier
+/// one's thread still says, and a held shortcut's press time lives only while the microphone
+/// is open.
 enum Phase {
     Idle,
     /// Pressed: Hex is starting, or taking the microphone. `slow` once that has taken
     /// `PREPARING_AFTER`, so "Preparing dictation…" shows.
-    Starting { rec: Rec, slow: bool },
-    /// Hex is listening; `heard` is the words so far, when its model sends them.
-    Listening { rec: Rec, heard: Option<Words> },
-    /// Stopped; the words are coming. The words so far stay until they land.
-    Finishing { rec: Rec, heard: Option<Words> },
+    Starting { rec: Rec, slow: bool, hold: Option<f64> },
+    /// Hex is listening; `heard` is the words so far, when its model sends them. `hold`: when
+    /// the shortcut that started it went down, while it is still held.
+    Listening { rec: Rec, heard: Option<Words>, hold: Option<f64> },
+    /// Stopped at `stopped`; the words are coming, and go out with a send when Send or ⏎ (`Some`,
+    /// true for ⌘⏎) finished it. The words so far stay until they land.
+    Finishing { rec: Rec, heard: Option<Words>, stopped: f64, send: Option<bool> },
     /// What went wrong, until the next press or send (as iOS keeps it).
     Failed(Problem),
 }
@@ -97,36 +103,23 @@ struct Words {
     tentative: String,
 }
 
+/// One recording: its attempt, when the press started it, and how to reach its Hex thread
+/// (`None` with the fake).
 struct Rec {
-    round: u64,
-    /// When the press started it.
+    attempt: Attempt,
     since: f64,
-    /// Send or ⏎ finished it: the words are sent when they land (true for ⌘⏎).
-    send_after: Option<bool>,
-    /// Tells the real Hex's thread to stop or cancel; None with the fake.
     cmd: Option<Sender<Cmd>>,
-    /// The fake's words are due at this time.
-    due: Option<f64>,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Hold {
-    None,
-    /// The shortcut went down and started a recording; the next poll stamps the time.
-    Pressed,
-    Since(f64),
 }
 
 pub struct Dictation {
     backend: Backend,
-    /// Where Hex was at the last look.
+    /// Where Hex was at the last look, and when that was.
     presence: Presence,
-    looked: Option<f64>,
+    looked: f64,
     phase: Phase,
     /// What Hex's threads heard, tagged with their recording.
-    heard: Arc<Mutex<Vec<(u64, Heard)>>>,
-    round: u64,
-    hold: Hold,
+    heard: Arc<Mutex<Vec<(Attempt, Heard)>>>,
+    seq: Seq,
     /// Seconds the fake takes to start.
     prepare: f64,
 }
@@ -140,7 +133,7 @@ impl Default for Dictation {
 impl Dictation {
     fn with(backend: Backend) -> Dictation {
         let presence = backend.presence();
-        Dictation { backend, presence, looked: None, phase: Phase::Idle, heard: Arc::default(), round: 0, hold: Hold::None, prepare: 0.0 }
+        Dictation { backend, presence, looked: f64::NEG_INFINITY, phase: Phase::Idle, heard: Arc::default(), seq: Seq::default(), prepare: 0.0 }
     }
 
     /// The storybook's Hex, whatever the app runs on.
@@ -195,101 +188,193 @@ impl Dictation {
     }
 
     fn fail(&mut self, why: Problem) {
+        self.cancel_thread();
         self.phase = Phase::Failed(why);
-        self.hold = Hold::None;
+    }
+
+    fn cancel_thread(&self) {
+        if let Some(cmd) = self.rec().and_then(|r| r.cmd.as_ref()) {
+            let _ = cmd.send(Cmd::Cancel);
+        }
     }
 }
 
-pub fn start(s: &mut App) {
-    let now = s.clock;
-    let d = &mut s.dictation;
-    if d.active() {
-        return;
-    }
-    d.presence = d.backend.presence();
-    if d.presence == Presence::Missing {
-        let why = if hex_client::MIC_WITHOUT_HEX { Problem::not_installed() } else { Problem::of(hex_client::NOT_RUNNING) };
-        d.fail(why);
-        return;
-    }
-    d.round += 1;
-    let round = d.round;
-    let cmd = match &d.backend {
-        Backend::Fake => None,
-        Backend::Hex { file, support } => {
-            let (tx, rx) = mpsc::channel();
-            let (file, support, heard) = (file.clone(), support.clone(), d.heard.clone());
-            std::thread::spawn(move || {
-                hex_client::dictate(&file, &support, SOURCE, &rx, &mut |h| heard.lock().unwrap_or_else(|e| e.into_inner()).push((round, h)));
-            });
-            Some(tx)
+/// What reaches the machine.
+enum Event {
+    /// The mic or the shortcut: starts, or finishes the recording that listens. `held`: the
+    /// shortcut went down, so a long hold is push-to-talk.
+    Toggle { now: f64, held: bool },
+    /// The shortcut came up.
+    Release { now: f64 },
+    /// Send or ⏎ (`alternate` for ⌘⏎).
+    Submit { now: f64, alternate: bool },
+    Escape,
+    /// Hex's thread (or the fake) heard something for `attempt`.
+    Heard { attempt: Attempt, heard: Heard },
+}
+
+/// What the caller does about it.
+enum Effect {
+    /// Start a recording: the Hex thread for `attempt`, or the fake.
+    Start(Attempt),
+    /// Tell the recording's Hex thread to stop (finish) and hand over the words.
+    Stop,
+    /// Put the words at the caret, then send them when `Some` (true for ⌘⏎).
+    Words { words: String, send: Option<bool> },
+}
+
+/// Whether the machine took the event.
+fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
+    match (std::mem::replace(&mut d.phase, Phase::Idle), event) {
+        (Phase::Idle | Phase::Failed(_), Event::Toggle { now, held }) => {
+            d.presence = d.backend.presence();
+            if d.presence == Presence::Missing {
+                d.phase = Phase::Failed(if hex_client::MIC_WITHOUT_HEX { Problem::not_installed() } else { Problem::of(hex_client::NOT_RUNNING) });
+                return (true, None);
+            }
+            let attempt = d.seq.next();
+            let rec = Rec { attempt, since: now, cmd: None };
+            let hold = held.then_some(now);
+            let fake_ready = matches!(d.backend, Backend::Fake) && d.prepare <= 0.0;
+            d.phase = if fake_ready { Phase::Listening { rec, heard: None, hold } } else { Phase::Starting { rec, slow: false, hold } };
+            (true, Some(Effect::Start(attempt)))
         }
+        (Phase::Starting { rec, .. }, Event::Toggle { now, .. }) => finish(d, rec, None, now, None),
+        (Phase::Listening { rec, heard, .. }, Event::Toggle { now, .. }) => finish(d, rec, heard, now, None),
+        (Phase::Starting { rec, .. }, Event::Submit { now, alternate }) => finish(d, rec, None, now, Some(alternate)),
+        (Phase::Listening { rec, heard, .. }, Event::Submit { now, alternate }) => finish(d, rec, heard, now, Some(alternate)),
+        // A hold past `HOLD` was push-to-talk, so the recording finishes as the key comes up.
+        (Phase::Starting { rec, hold: Some(at), .. }, Event::Release { now }) if now - at >= HOLD => finish(d, rec, None, now, None),
+        (Phase::Listening { rec, heard, hold: Some(at) }, Event::Release { now }) if now - at >= HOLD => finish(d, rec, heard, now, None),
+        (Phase::Starting { rec, slow, hold: Some(_) }, Event::Release { .. }) => {
+            d.phase = Phase::Starting { rec, slow, hold: None };
+            (true, None)
+        }
+        (Phase::Listening { rec, heard, hold: Some(_) }, Event::Release { .. }) => {
+            d.phase = Phase::Listening { rec, heard, hold: None };
+            (true, None)
+        }
+        // While the words come, the mic and Send wait for them.
+        (phase @ Phase::Finishing { .. }, Event::Toggle { .. } | Event::Submit { .. }) => {
+            d.phase = phase;
+            (true, None)
+        }
+        // A send clears what went wrong, as iOS's does, and goes ahead.
+        (Phase::Failed(_), Event::Submit { .. }) => (false, None),
+        (phase @ (Phase::Starting { .. } | Phase::Listening { .. } | Phase::Finishing { .. }), Event::Escape) => {
+            d.phase = phase;
+            d.cancel_thread();
+            d.phase = Phase::Idle;
+            (true, None)
+        }
+        (phase, Event::Heard { attempt, heard }) => {
+            if d_attempt(&phase) != Some(attempt) {
+                d.phase = phase;
+                return (false, None);
+            }
+            hear(d, phase, heard)
+        }
+        (phase, _) => {
+            d.phase = phase;
+            (false, None)
+        }
+    }
+}
+
+/// Into `Finishing`: the microphone stops and the words are coming.
+fn finish(d: &mut Dictation, rec: Rec, heard: Option<Words>, now: f64, send: Option<bool>) -> (bool, Option<Effect>) {
+    d.phase = Phase::Finishing { rec, heard, stopped: now, send };
+    (true, Some(Effect::Stop))
+}
+
+fn d_attempt(phase: &Phase) -> Option<Attempt> {
+    match phase {
+        Phase::Starting { rec, .. } | Phase::Listening { rec, .. } | Phase::Finishing { rec, .. } => Some(rec.attempt),
+        Phase::Idle | Phase::Failed(_) => None,
+    }
+}
+
+/// One thing the recording's thread heard, moving the phase on.
+fn hear(d: &mut Dictation, phase: Phase, h: Heard) -> (bool, Option<Effect>) {
+    d.phase = match (phase, h) {
+        (Phase::Starting { rec, hold, .. }, Heard::Ready) => Phase::Listening { rec, heard: None, hold },
+        (Phase::Listening { rec, hold, .. }, Heard::Partial { stable, tentative }) => Phase::Listening { rec, heard: Some(Words { stable, tentative }), hold },
+        (Phase::Finishing { rec, stopped, send, .. }, Heard::Partial { stable, tentative }) => Phase::Finishing { rec, heard: Some(Words { stable, tentative }), stopped, send },
+        (phase, Heard::Words(words)) => {
+            let send = match phase {
+                Phase::Finishing { send, .. } => send,
+                _ => None,
+            };
+            return (true, Some(Effect::Words { words, send }));
+        }
+        (_, Heard::Failed(why)) => Phase::Failed(why),
+        (phase, _) => phase,
     };
-    let rec = Rec { round, since: now, send_after: None, cmd, due: None };
-    d.phase = if rec.cmd.is_none() && d.prepare <= 0.0 { Phase::Listening { rec, heard: None } } else { Phase::Starting { rec, slow: false } };
+    (true, None)
+}
+
+pub fn start(s: &mut App) {
+    if s.dictation.active() {
+        return;
+    }
+    let now = s.clock;
+    run(s, Event::Toggle { now, held: false }, None);
 }
 
 /// Stops the microphone; the words land at the caret when Hex has them.
 pub fn stop(s: &mut App) {
-    let now = s.clock;
-    let d = &mut s.dictation;
-    d.hold = Hold::None;
-    let (rec, heard) = match std::mem::replace(&mut d.phase, Phase::Idle) {
-        Phase::Starting { rec, .. } => (rec, None),
-        Phase::Listening { rec, heard } => (rec, heard),
-        other => {
-            d.phase = other;
-            return;
-        }
-    };
-    let mut rec = rec;
-    match &rec.cmd {
-        Some(cmd) => {
-            let _ = cmd.send(Cmd::Stop);
-        }
-        None => rec.due = Some(now + FAKE_TRANSCRIBE),
+    if s.dictation.recording() {
+        let now = s.clock;
+        run(s, Event::Toggle { now, held: false }, None);
     }
-    d.phase = Phase::Finishing { rec, heard };
 }
 
 pub fn cancel(s: &mut App) {
-    let d = &mut s.dictation;
-    d.hold = Hold::None;
-    if !d.active() {
-        return;
-    }
-    if let Some(cmd) = d.rec().and_then(|r| r.cmd.as_ref()) {
-        let _ = cmd.send(Cmd::Cancel);
-    }
-    d.phase = Phase::Idle;
+    run(s, Event::Escape, None);
 }
 
-/// The mic or the shortcut: starts, or finishes the recording that's listening.
-fn toggle(s: &mut App) {
-    match &s.dictation.phase {
-        Phase::Idle | Phase::Failed(_) => start(s),
-        Phase::Starting { .. } | Phase::Listening { .. } => stop(s),
-        Phase::Finishing { .. } => {}
+/// Steps the machine and carries out its effect; whether it took the event.
+fn run(s: &mut App, event: Event, tx: Option<&mut Tx>) -> bool {
+    let (took, effect) = step(&mut s.dictation, event);
+    match effect {
+        Some(Effect::Start(attempt)) => {
+            let d = &mut s.dictation;
+            if let Backend::Hex { file, support } = &d.backend {
+                let (cmd, rx) = mpsc::channel();
+                let (file, support, heard) = (file.clone(), support.clone(), d.heard.clone());
+                std::thread::spawn(move || {
+                    hex_client::dictate(&file, &support, SOURCE, &rx, &mut |h| heard.lock().unwrap_or_else(|e| e.into_inner()).push((attempt, h)));
+                });
+                if let Phase::Starting { rec, .. } | Phase::Listening { rec, .. } = &mut d.phase {
+                    rec.cmd = Some(cmd);
+                }
+            }
+        }
+        Some(Effect::Stop) => {
+            if let Some(cmd) = s.dictation.rec().and_then(|r| r.cmd.as_ref()) {
+                let _ = cmd.send(Cmd::Stop);
+            }
+        }
+        Some(Effect::Words { words, send }) => {
+            insert(s, &words);
+            if let (Some(alternate), Some(tx)) = (send, tx) {
+                s.submit(alternate, tx);
+            }
+        }
+        None => {}
     }
+    took
 }
 
 /// Send or ⏎ (`alternate` for ⌘⏎): while it listens, finishes and sends with the words, as the
 /// iOS app's Send does; while the words come, waits for them. True when dictation took it.
 pub fn submit(s: &mut App, alternate: bool) -> bool {
-    let d = &mut s.dictation;
-    match &mut d.phase {
-        Phase::Idle => false,
-        Phase::Failed(_) => {
-            d.phase = Phase::Idle;
-            false
-        }
-        Phase::Finishing { .. } => true,
-        Phase::Starting { rec, .. } | Phase::Listening { rec, .. } => {
-            rec.send_after = Some(alternate);
-            stop(s);
-            true
-        }
+    let now = s.clock;
+    if let Phase::Failed(_) = s.dictation.phase {
+        s.dictation.phase = Phase::Idle;
+        return false;
     }
+    run(s, Event::Submit { now, alternate }, None)
 }
 
 fn shortcut(ev: &KeyEvent) -> bool {
@@ -301,11 +386,8 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if shortcut(ev) {
         if !tx.key_repeat() {
             tx.instant();
-            let starting = !s.dictation.active();
-            toggle(s);
-            if starting && s.dictation.active() {
-                s.dictation.hold = Hold::Pressed;
-            }
+            let now = tx.clock();
+            run(s, Event::Toggle { now, held: true }, Some(tx));
         }
         return true;
     }
@@ -321,16 +403,16 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// push-to-talk, so the recording finishes.
 pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let m = matches!(&ev.key, Key::Command('m')) || matches!(&ev.key, Key::Text(t) if t.eq_ignore_ascii_case("m"));
-    if !m || s.dictation.hold == Hold::None {
+    let held = matches!(s.dictation.phase, Phase::Starting { hold: Some(_), .. } | Phase::Listening { hold: Some(_), .. });
+    if !m || !held {
         return false;
     }
-    if let Hold::Since(at) = s.dictation.hold
-        && s.clock - at >= HOLD
-    {
+    let now = tx.clock();
+    let was = s.dictation.recording();
+    run(s, Event::Release { now }, Some(tx));
+    if was && !s.dictation.recording() {
         tx.instant();
-        stop(s);
     }
-    s.dictation.hold = Hold::None;
     true
 }
 
@@ -338,38 +420,41 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let d = &mut s.dictation;
     let mut changed = false;
-    if !d.active() && d.looked.is_none_or(|t| now - t >= LOOK_SECS) {
-        d.looked = Some(now);
+    if !d.active() && now - d.looked >= LOOK_SECS {
+        d.looked = now;
         let presence = d.backend.presence();
         changed |= presence != d.presence;
         d.presence = presence;
     }
     let Some(rec) = d.rec() else { return changed };
-    let (round, since, fake, due) = (rec.round, rec.since, rec.cmd.is_none(), rec.due);
-    if d.hold == Hold::Pressed {
-        d.hold = Hold::Since(now);
-    }
-    let mut heard: Vec<Heard> = d.heard.lock().unwrap_or_else(|e| e.into_inner()).drain(..).filter(|(r, _)| *r == round).map(|(_, h)| h).collect();
+    let (attempt, since, fake) = (rec.attempt, rec.since, rec.cmd.is_none());
+    let mut heard: Vec<Heard> = d.heard.lock().unwrap_or_else(|e| e.into_inner()).drain(..).filter(|(a, _)| *a == attempt).map(|(_, h)| h).collect();
     let starting = matches!(d.phase, Phase::Starting { .. });
+    // The fake answers on its own clock: ready after `prepare`, words `FAKE_TRANSCRIBE` after
+    // the stop.
+    let words_due = match &d.phase {
+        Phase::Finishing { stopped, .. } if fake => Some(stopped + FAKE_TRANSCRIBE),
+        _ => None,
+    };
     if fake && starting && now - since >= d.prepare {
         heard.push(Heard::Ready);
     }
-    if due.is_some_and(|t| now >= t) {
+    if words_due.is_some_and(|t| now >= t) {
         heard.push(Heard::Words(std::env::var("SEER_FAKE_WORDS").unwrap_or_else(|_| FAKE_WORDS.into())));
     }
     // Hex's thread can't wake the app, so look again soon; and on time for the slow-start line
     // and the fake's next step.
-    let mut next = 0.1_f64;
+    let mut next = now + 0.1;
     if starting {
-        next = next.min(since + PREPARING_AFTER - now);
+        next = next.min(since + PREPARING_AFTER);
         if fake {
-            next = next.min(since + d.prepare - now);
+            next = next.min(since + d.prepare);
         }
     }
-    if let Some(t) = due {
-        next = next.min(t - now);
+    if let Some(t) = words_due {
+        next = next.min(t);
     }
-    tx.wake_after(Duration::from_secs_f64(next.max(0.001)));
+    tx.wake_at(next.max(now + 0.001));
     if let Phase::Starting { slow, .. } = &mut d.phase
         && !*slow
         && now - since >= PREPARING_AFTER
@@ -379,37 +464,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     for h in heard {
         changed = true;
-        hear(s, h, tx);
+        run(s, Event::Heard { attempt, heard: h }, Some(tx));
     }
     changed
-}
-
-/// One thing Hex's thread (or the fake) heard, moving the phase on.
-fn hear(s: &mut App, h: Heard, tx: &mut Tx) {
-    let d = &mut s.dictation;
-    match h {
-        Heard::Ready => {
-            if let Phase::Starting { .. } = d.phase
-                && let Phase::Starting { rec, .. } = std::mem::replace(&mut d.phase, Phase::Idle)
-            {
-                d.phase = Phase::Listening { rec, heard: None };
-            }
-        }
-        Heard::Partial { stable, tentative } => {
-            if let Phase::Listening { heard, .. } | Phase::Finishing { heard, .. } = &mut d.phase {
-                *heard = Some(Words { stable, tentative });
-            }
-        }
-        Heard::Words(words) => {
-            let send = d.rec().and_then(|r| r.send_after);
-            d.phase = Phase::Idle;
-            insert(s, &words);
-            if let Some(alternate) = send {
-                s.submit(alternate, tx);
-            }
-        }
-        Heard::Failed(why) => d.fail(why),
-    }
 }
 
 /// The words at the caret, replacing a selection, with a space from the text either side.
@@ -465,7 +522,8 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
     if !finishing {
         b = b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
-            toggle(s);
+            let now = tx.clock();
+            run(s, Event::Toggle { now, held: false }, Some(tx));
         });
     }
     // Its slot rides the composer's edge on the panel's spring; the button's own swap lands at once.
@@ -547,10 +605,10 @@ pub const STORY_KEYS: &[crate::stories::Trigger] = &[
             s.dictation.prepare = 0.0;
             start(s);
         }
-        let round = s.dictation.round;
+        let attempt = s.dictation.seq.current();
         s.dictation.heard.lock().unwrap_or_else(|e| e.into_inner()).extend([
-            (round, Heard::Ready),
-            (round, Heard::Partial { stable: "keep the retry budget as it is".into(), tentative: " and add a".into() }),
+            (attempt, Heard::Ready),
+            (attempt, Heard::Partial { stable: "keep the retry budget as it is".into(), tentative: " and add a".into() }),
         ]);
     } },
     crate::stories::Trigger { key: 'f', label: "Finish", run: |s, tx| {

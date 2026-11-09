@@ -61,12 +61,62 @@ impl Item {
     }
 }
 
-/// The + menu: shut, or open with the item hovered or moved to, if any.
+/// The + menu, as Desktop's dropdown menu machine runs it (`ui/src/navigation/menu/machine.ts`):
+/// shut, or open with the item hovered or moved to, if any, and whether the keys opened it
+/// (`MenuOpenModality`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Menu {
     #[default]
     Closed,
-    Open { active: Option<Item> },
+    Open { active: Option<Item>, keyboard: bool },
+}
+
+/// Why the menu closed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Close {
+    /// Escape: focus goes back to the +, its ring only for a menu the keys opened
+    /// (`selectMenuRestoreTriggerWithoutRing`, `pointerFocusReturn` in `editor.tsx`).
+    Keys,
+    /// A press outside: focus stays where it landed.
+    Outside,
+    /// A pick: what the item does decides focus.
+    Picked,
+}
+
+pub enum MenuEvent {
+    Opened { keyboard: bool },
+    Lit(Item),
+    Step(i64),
+    Closed(Close),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MenuEffect {
+    FocusTrigger { ring: bool },
+}
+
+pub fn step_menu(menu: &mut Menu, event: MenuEvent) -> Option<MenuEffect> {
+    match (*menu, event) {
+        (Menu::Closed, MenuEvent::Opened { keyboard }) => {
+            *menu = Menu::Open { active: None, keyboard };
+            None
+        }
+        (Menu::Open { keyboard, .. }, MenuEvent::Lit(item)) => {
+            *menu = Menu::Open { active: Some(item), keyboard };
+            None
+        }
+        (Menu::Open { active, keyboard }, MenuEvent::Step(d)) => {
+            let n = Item::ALL.len() as i64;
+            let at = active.and_then(|i| Item::ALL.iter().position(|x| *x == i)).map_or(if d > 0 { -1 } else { 0 }, |p| p as i64);
+            *menu = Menu::Open { active: Some(Item::ALL[(at + d).rem_euclid(n) as usize]), keyboard };
+            None
+        }
+        (Menu::Open { keyboard, .. }, MenuEvent::Closed(why)) => {
+            *menu = Menu::Closed;
+            (why == Close::Keys).then_some(MenuEffect::FocusTrigger { ring: keyboard })
+        }
+        _ => None,
+    }
 }
 
 #[derive(Default)]
@@ -86,7 +136,7 @@ impl AddMenu {
 
     fn active(&self) -> Option<Item> {
         match self.menu {
-            Menu::Open { active } => active,
+            Menu::Open { active, .. } => active,
             Menu::Closed => None,
         }
     }
@@ -94,6 +144,16 @@ impl AddMenu {
     /// The composer sends shell commands instead of prompts.
     pub fn shell(&self) -> bool {
         self.mode == Mode::Shell
+    }
+
+    /// Draft `key`'s mode, kept while another draft shows (or come back from the last run).
+    pub fn parked(&self) -> impl Iterator<Item = (&str, Mode)> {
+        self.parked.iter().map(|(k, m)| (k.as_str(), *m))
+    }
+
+    /// Draft `key` keeps `mode` until it shows: the saved drafts at launch.
+    pub fn park(&mut self, key: String, mode: Mode) {
+        if mode == Mode::Shell { self.parked.insert(key, mode); } else { self.parked.remove(&key); }
     }
 
     /// The composer moves from draft `from` to draft `to`: each keeps its own mode.
@@ -116,36 +176,32 @@ impl App {
         }
     }
 
-    pub fn open_add_menu(&mut self) {
+    pub fn add_menu(&mut self, event: MenuEvent, tx: &mut Tx) {
+        if let Some(MenuEffect::FocusTrigger { ring }) = step_menu(&mut self.add.menu, event) {
+            self.composer.focused = false;
+            tx.focus("add", ring);
+        }
+    }
+
+    pub fn open_add_menu(&mut self, tx: &mut Tx) {
         if self.add.shell() {
             return;
         }
-        self.close_mentions();
-        self.add.menu = Menu::Open { active: None };
+        let keyboard = tx.focus_visible();
+        self.add_menu(MenuEvent::Opened { keyboard }, tx);
     }
 
-    pub fn close_add_menu(&mut self) {
-        self.add.menu = Menu::Closed;
+    pub fn close_add_menu(&mut self, why: Close, tx: &mut Tx) {
+        self.add_menu(MenuEvent::Closed(why), tx);
     }
 
     pub fn choose_add(&mut self, item: Item, tx: &mut Tx) {
         tx.instant();
-        self.close_add_menu();
+        self.close_add_menu(Close::Picked, tx);
         match item {
             Item::Attach => self.pick_attachment(tx),
-            Item::Commands => {
-                self.composer.focused = true;
-                if self.composer.text.trim().is_empty() {
-                    self.composer.clear();
-                }
-                self.add.slash.closed = None;
-                self.insert_trigger("/");
-            }
-            Item::Context => {
-                self.composer.focused = true;
-                self.insert_trigger("@");
-                self.sync_mentions();
-            }
+            Item::Commands => self.open_commands(tx),
+            Item::Context => self.open_context(tx),
             Item::Shell => {
                 tx.animated();
                 self.enter_shell();
@@ -153,27 +209,17 @@ impl App {
         }
     }
 
-    /// Puts `trigger` at the caret, after a space unless it starts the text or a word.
-    fn insert_trigger(&mut self, trigger: &str) {
-        let caret = self.composer.range().1;
-        let before = self.composer.text[..caret].chars().next_back();
-        let space = before.is_some_and(|c| !c.is_whitespace());
-        self.composer.set_caret(caret);
-        self.composer.insert(&format!("{}{trigger}", if space { " " } else { "" }));
-    }
-
     /// Steps the composer's mode and runs what it asks; true when it took the key.
     pub fn composer_mode(&mut self, event: Event) -> bool {
         let step = mode::step(&mut self.add.mode, event);
         for effect in step.effects {
             match effect {
-                Effect::ClosePopovers => {
-                    self.close_mentions();
-                    self.close_add_menu();
-                }
+                Effect::ClosePopovers => self.add.menu = Menu::Closed,
                 Effect::ClearDraft => self.composer.clear(),
             }
         }
+        // The suggestion lists hear the mode (`mode.shell`, `mode.normal`).
+        self.suggest_mode();
         step.handled
     }
 
@@ -195,20 +241,14 @@ impl App {
     /// Keys for the + menu, ⌘U, shell mode and the command popover. The composer's handler
     /// and the window's both call it.
     pub fn add_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if let Menu::Open { active } = self.add.menu {
-            let step = |i: Option<Item>, d: i64| {
-                let n = Item::ALL.len() as i64;
-                let at = i.and_then(|i| Item::ALL.iter().position(|x| *x == i)).map_or(if d > 0 { -1 } else { 0 }, |p| p as i64);
-                Item::ALL[(at + d).rem_euclid(n) as usize]
-            };
+        if let Menu::Open { active, .. } = self.add.menu {
             match ev.key {
                 Key::Escape => {
                     tx.instant();
-                    self.close_add_menu();
-                    self.composer.focused = true;
+                    self.close_add_menu(Close::Keys, tx);
                 }
-                Key::Down => self.add.menu = Menu::Open { active: Some(step(active, 1)) },
-                Key::Up => self.add.menu = Menu::Open { active: Some(step(active, -1)) },
+                Key::Down => self.add_menu(MenuEvent::Step(1), tx),
+                Key::Up => self.add_menu(MenuEvent::Step(-1), tx),
                 Key::Enter => {
                     if let Some(item) = active {
                         self.choose_add(item, tx);
@@ -220,7 +260,6 @@ impl App {
         }
         if crate::keymap::Bind::Attach.matches_tx(ev, tx) && self.has_composer() {
             if !self.add.shell() {
-                self.close_mentions();
                 self.pick_attachment(tx);
             }
             return true;
@@ -228,16 +267,13 @@ impl App {
         if !self.composer.focused {
             return false;
         }
-        if self.slash_key(ev, tx) {
-            return true;
-        }
         // With no list open, Escape and Backspace reach the machine, which leaves shell mode.
         let event = match ev.key {
             Key::Escape => Event::Escape,
             Key::Backspace => Event::Backspace { empty: self.composer.text.is_empty() },
             _ => return false,
         };
-        if self.composer.preedit().is_some() || self.mentions.open || !self.composer_mode(event) {
+        if self.composer.preedit().is_some() || self.suggest.state.is_open() || !self.composer_mode(event) {
             return false;
         }
         // The + button and the pickers fade back in (`editor.tsx:178-182`).
@@ -334,7 +370,7 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            if s.add.open() { s.close_add_menu() } else { s.open_add_menu() }
+            if s.add.open() { s.close_add_menu(Close::Outside, tx) } else { s.open_add_menu(tx) }
             crate::popover::motion::toggled(&s.knobs, tx, s.add.open());
         });
     if open {
@@ -426,7 +462,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
                     if inside && s.add.open() {
                         tx.instant();
-                        s.add.menu = Menu::Open { active: Some(item) };
+                        s.add_menu(MenuEvent::Lit(item), tx);
                     }
                 })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_add(item, tx))
@@ -443,7 +479,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
             .h_full()
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                s.close_add_menu();
+                s.close_add_menu(Close::Outside, tx);
             })
             .child(menu),
     )
@@ -589,7 +625,7 @@ mod tests {
         assert!(!rt.state.add.open(), "the + is off in shell mode");
         tap(&mut rt, "prompt");
         typed(&mut rt, "l@");
-        assert!(!rt.state.mentions.open, "no @ popover in shell mode");
+        assert!(rt.state.suggest.state.context().is_some(), "the @ list opens in shell mode too, as Desktop's does");
         key(&mut rt, Key::Backspace);
         key(&mut rt, Key::Backspace);
         assert!(rt.state.add.shell());

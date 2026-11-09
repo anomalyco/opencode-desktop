@@ -291,7 +291,7 @@ impl App {
             // recency order of unrelated sessions. Still keep their metadata current.
             let shows_age = !matches!(self.route, Route::Session(_)) || self.shows_transcript(&sid)
                 || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
-                || self.mentions.open || self.side_open() || self.settings.open;
+                || self.suggest.state.context().is_some() || self.side_open() || self.settings.open;
             if done.touched || done.renamed {
                 self.switcher.invalidate_sessions();
             }

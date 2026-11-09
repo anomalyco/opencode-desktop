@@ -19,42 +19,84 @@ pub fn fade() -> Curve {
     Curve::tween(0.2, Easing::cubic(0.215, 0.61, 0.355, 1.0))
 }
 
-/// A file drag is over the page, or has left it.
-#[derive(Default)]
-pub struct Dropzone {
-    pub over: bool,
-    /// Files just landed: the overlay fades out on the next frame, after the instant commit
-    /// that attaches them.
-    landed: bool,
+/// The page's file drag, Desktop's `drag` half of the composer machine (`ComposerInteractionState`
+/// `drag: "idle" | "active"`, `suggestions/machine.ts`), with the drop's own beat: files that
+/// just landed keep the overlay up through the instant commit that attaches them, and it fades
+/// from the next frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dropzone {
+    #[default]
+    Idle,
+    /// A file drag is over the page (`drag.enter`).
+    Over,
+    Landed,
+}
+
+impl Dropzone {
+    /// The overlay shows.
+    pub fn shown(self) -> bool {
+        self != Dropzone::Idle
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// The drag came over the page or left it (`drag.enter`, `drag.leave`).
+    Hover(bool),
+    Dropped,
+    /// The frame after a drop (`drag.leave`).
+    Settled,
+}
+
+/// What the overlay's change asks of the frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// The overlay fades in or out.
+    Fade,
+    /// The chips land at once, the overlay held over them.
+    Instant,
+}
+
+pub fn step(state: &mut Dropzone, event: Event) -> Option<Effect> {
+    let (next, effect) = match (*state, event) {
+        (Dropzone::Idle, Event::Hover(true)) => (Dropzone::Over, Effect::Fade),
+        (Dropzone::Over, Event::Hover(false)) => (Dropzone::Idle, Effect::Fade),
+        (_, Event::Dropped) => (Dropzone::Landed, Effect::Instant),
+        (Dropzone::Landed, Event::Settled) => (Dropzone::Idle, Effect::Fade),
+        _ => return None,
+    };
+    *state = next;
+    Some(effect)
+}
+
+fn apply(effect: Option<Effect>, tx: &mut Tx) -> bool {
+    match effect {
+        Some(Effect::Fade) => tx.animated(),
+        Some(Effect::Instant) => tx.instant(),
+        None => return false,
+    }
+    true
 }
 
 pub fn hover(s: &mut App, over: bool, tx: &mut Tx) {
-    tx.animated();
-    s.attach.drop.over = over;
+    apply(step(&mut s.attach.drop, Event::Hover(over)), tx);
 }
 
 /// The drop's hover ends in the same commit, which lands the chips at once; the overlay keeps
 /// showing through it and fades from `poll`.
 pub fn drop(s: &mut App, paths: &[std::path::PathBuf], tx: &mut Tx) {
-    tx.instant();
-    s.attach.drop.over = true;
-    s.attach.drop.landed = true;
+    apply(step(&mut s.attach.drop, Event::Dropped), tx);
     for p in paths {
         s.attach_path(p);
     }
 }
 
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    if !std::mem::take(&mut s.attach.drop.landed) {
-        return false;
-    }
-    tx.animated();
-    s.attach.drop.over = false;
-    true
+    apply(step(&mut s.attach.drop, Event::Settled), tx)
 }
 
 pub fn overlay(s: &App, p: &Pal, size: (f32, f32)) -> El {
-    layer(p, size, s.attach.drop.over, s.reduced_motion)
+    layer(p, size, s.attach.drop.shown(), s.reduced_motion)
 }
 
 /// The overlay's layer over a `w`×`h` page: always there, inert, and empty while hidden; its

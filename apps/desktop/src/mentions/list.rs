@@ -22,6 +22,8 @@ const PEEK: f32 = 18.0;
 const RESERVE: f32 = 80.0;
 /// The empty state's line (`editor.tsx:1376`: `px-2 py-1` on a 24 pt line).
 const EMPTY_H: f32 = 32.0;
+/// `COMPOSER_SUGGESTION_SEARCH_HEIGHT`.
+const SEARCH_H: f32 = 28.0;
 
 /// The timeline's height over the composer, which the popover keeps some of in view
 /// (`editor.tsx:1271-1279`); none without one.
@@ -30,13 +32,29 @@ pub fn boundary(cx: &mut Cx<App>) -> Option<f32> {
 }
 
 /// `composerSuggestionMaxHeight` (`editor.tsx:1412-1423`): whole rows and a peek of the next,
-/// under the top padding, inside what the timeline (`boundary` tall) can spare.
-fn max_height(boundary: f32) -> f32 {
+/// under the top padding and a `search` field, inside what the timeline (`boundary` tall) can
+/// spare. The history list pads both edges and shows only whole rows.
+pub fn max_height(boundary: f32, search: bool, history: bool) -> f32 {
     let limit = MAX_H.min(boundary - RESERVE.min(boundary / 4.0));
-    if limit < PAD + ROW_H + PEEK {
+    let chrome = PAD * if history { 2.0 } else { 1.0 } + if search { SEARCH_H } else { 0.0 };
+    let peek = if history { 0.0 } else { PEEK };
+    if limit < chrome + ROW_H + peek {
         return limit;
     }
-    PAD + ((limit - PAD - PEEK) / ROW_H).floor() * ROW_H + PEEK
+    chrome + ((limit - chrome - peek) / ROW_H).floor() * ROW_H + peek
+}
+
+/// The search field over the commands menu and the history list (`editor.tsx:1293, 1360`):
+/// `px-2 py-1` round a 13/20 line in `text-base`, its placeholder `text-faint`, no border.
+pub fn suggest_search(p: &Pal, edit: &rune::TextEdit, label: &str, placeholder: &str) -> El {
+    row().key("suggest-search").h(SEARCH_H).w_full().px(8.0).center_y().child(
+        crate::popover::search_field(p, "suggest-search-input", edit, placeholder)
+            .label(label.to_owned())
+            .spellcheck(false)
+            .on_edit(|s: &mut App| &mut s.suggest.search)
+            .on_input_change(|s: &mut App, tx: &mut Tx| s.suggest_query(tx))
+            .on_input_key(|s: &mut App, ev, tx| s.suggest_key(ev, tx)),
+    )
 }
 
 /// The array under a response's `data`, or the value itself when it is one (the fixture's).
@@ -55,20 +73,7 @@ pub fn upsert_sessions(into: &mut Vec<SessionInfo>, incoming: Vec<SessionInfo>) 
     }
 }
 
-pub use crate::popover::{Highlight, cycle, nav_step};
-
-/// Moves the highlight `step` rows from `active`, scrolling to it; returns the new key.
-pub fn step_key<'a>(keys: impl Iterator<Item = &'a str> + Clone, active: Option<&str>, step: i64, tx: &mut Tx, scroll: &str, row_prefix: &str) -> Option<String> {
-    let len = keys.clone().count();
-    if len == 0 {
-        return None;
-    }
-    let at = keys.clone().position(|k| Some(k) == active);
-    let key = keys.clone().nth(cycle(len, at, step))?.to_owned();
-    tx.instant();
-    tx.scroll_into_view_in(scroll, format!("{row_prefix}{key}"));
-    Some(key)
-}
+pub use crate::popover::{Highlight, cycle};
 
 /// One popover's keys and wording.
 pub struct Spec {
@@ -80,6 +85,8 @@ pub struct Spec {
     /// The timeline's height above the composer, which the popover leaves some of in view;
     /// none where there is no timeline (a new session).
     pub boundary: Option<f32>,
+    /// The commands menu's own search field, over its rows and scrolling with them.
+    pub search: Option<El>,
 }
 
 pub struct Row {
@@ -101,13 +108,14 @@ pub fn popup(
     spec: Spec,
     rows: Vec<Row>,
     active: Option<&str>,
-    hover: impl Fn(&mut App, &str) + 'static,
+    hover: impl Fn(&mut App, &str, &mut Tx) + 'static,
     pick: impl Fn(&mut App, &str, &mut Tx) + 'static,
 ) -> El {
     let (hover, pick) = (Rc::new(hover), Rc::new(pick));
     let empty = rows.is_empty();
     let count = rows.len();
-    let mut list = col().key(format!("{}-list", spec.key)).w_full().padding(PAD);
+    let searching = spec.search.is_some();
+    let mut list = col().key(format!("{}-list", spec.key)).w_full().padding(PAD).children(spec.search);
     for r in rows {
         let (id, id_hover, id_press) = (r.id.clone(), r.id.clone(), r.id.clone());
         let (hover, pick, press) = (hover.clone(), pick.clone(), pick.clone());
@@ -129,13 +137,10 @@ pub fn popup(
                 .center_y()
                 .radius(6.0)
                 .fill(if active == Some(id.as_str()) { p.hover } else { Color::TRANSPARENT })
-                // Not `on_hover`: its commit would animate the highlight's fill from row to row.
-                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-                    if inside {
-                        tx.instant();
-                        hover(s, &id_hover);
-                    }
-                })
+                // The pointer moving over a row highlights it (`onPointerMove` with movement), so
+                // a list opening under a resting pointer keeps its first row lit. Not `on_hover`:
+                // its commit would animate the highlight's fill from row to row.
+                .on_pointer_move_local(move |s: &mut App, _, tx: &mut Tx| hover(s, &id_hover, tx))
                 // A row picks on the press, as a menu does: by the release the pick has landed.
                 .on_drag(move |s: &mut App, d, tx: &mut Tx| {
                     if d.phase == rune::Phase::Down {
@@ -154,12 +159,12 @@ pub fn popup(
     }
     let scroll = format!("{}-scroll", spec.key);
     let body = if empty {
-        col().key(scroll).w_full().padding(PAD)
-            .child(row().key("empty").h(EMPTY_H).px(8.0).center_y().child(text(spec.empty).font(UI).color(p.muted)))
+        list.child(row().key("empty").h(EMPTY_H).px(8.0).center_y().child(text(spec.empty).font(UI).color(p.muted))).key(scroll)
     } else {
         // Rows scroll under the padding with no fade and no bar (`no-scrollbar`), cut where the
         // height ends as Desktop's are.
-        let h = (count as f32 * ROW_H + 2.0 * PAD).min(max_height(spec.boundary.unwrap_or(2.0 * MAX_H)));
+        let search = if searching { SEARCH_H } else { 0.0 };
+        let h = (search + count as f32 * ROW_H + 2.0 * PAD).min(max_height(spec.boundary.unwrap_or(2.0 * MAX_H), searching, false));
         col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_margin(PAD).child(list)
     };
     // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`: 10 pt

@@ -1,6 +1,6 @@
 use super::*;
 use opencode_kit::model::SessionInfo;
-use rune::Runtime;
+use rune::{Key, KeyEvent, Runtime};
 
 #[test]
 fn the_trigger_follows_desktops_patterns() {
@@ -98,7 +98,7 @@ fn at_lists_skills_agents_and_sessions_and_filters() {
     // The open session and its subagent aren't offered; this project's other three are.
     assert_eq!(all.iter().filter(|k| k.starts_with("session:")).count(), 3);
     assert!(!all.contains(&"session:ses_fx0001aaaaaaaaaaaaaaaaaa".to_owned()));
-    assert_eq!(rt.state.mention_active(&rt.state.mention_items()).as_deref(), Some("skill:opencode"));
+    assert_eq!(rt.state.mention_active().as_deref(), Some("skill:opencode"));
 
     typed(&mut rt, "exp");
     let found = keys(&rt);
@@ -261,7 +261,7 @@ fn multi_word_queries_list_sessions_only() {
     // Closed, a space ends the mention.
     key(&mut rt, Key::Escape);
     typed(&mut rt, " ");
-    assert!(!rt.state.mentions.open);
+    assert!(rt.state.suggest.state.context().is_none());
 }
 
 #[test]
@@ -271,21 +271,21 @@ fn keys_move_wrap_and_pick_into_a_pill() {
     typed(&mut rt, "hi @");
     let all = keys(&rt);
     key(&mut rt, Key::Up);
-    assert_eq!(rt.state.mention_active(&rt.state.mention_items()).as_deref(), Some(all.last().unwrap().as_str()), "up wraps");
+    assert_eq!(rt.state.mention_active().as_deref(), Some(all.last().unwrap().as_str()), "up wraps");
     key(&mut rt, Key::Down);
     rt.key(KeyEvent { key: Key::Text("n".into()), mods: rune::Mods { ctrl: true, ..Default::default() } });
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.mention_active(&rt.state.mention_items()).as_deref(), Some("agent:general"));
+    assert_eq!(rt.state.mention_active().as_deref(), Some("agent:general"));
     key(&mut rt, Key::Tab);
     assert_eq!(rt.state.composer.text, "hi @general ");
-    assert!(!rt.state.mentions.open);
+    assert!(rt.state.suggest.state.context().is_none());
     assert_eq!(rt.state.composer.pills().map(|(r, id)| (r, id.to_owned())).collect::<Vec<_>>(), [(3..11, "agent:general".to_owned())]);
     assert_eq!(rt.state.composer.focus, 12);
     assert!(rt.state.composer.focused, "Tab picked instead of moving to the toolbar");
 
     // Backspace takes the space, then the whole pill, and never reopens the popover on it.
     key(&mut rt, Key::Backspace);
-    assert!(!rt.state.mentions.open);
+    assert!(rt.state.suggest.state.context().is_none());
     key(&mut rt, Key::Backspace);
     assert_eq!(rt.state.composer.text, "hi ");
 

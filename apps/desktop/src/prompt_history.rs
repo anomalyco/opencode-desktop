@@ -1,13 +1,13 @@
-//! ↑ and ↓ in the composer recall the prompts you sent, backed by
+//! The prompts you sent, which ↑ and ↓ and Shift+↑ in the composer recall (the suggestion
+//! machine's browsing and history list, `crate::suggestions`), backed by
 //! [`session_view::composer::history`] and persisted to `prompt-history.json`.
 
 use std::path::PathBuf;
 
-use rune::{KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 
 pub use session_view::composer::history::Entry;
-use session_view::composer::history::{PromptHistory as Inner, arrow_up};
+use session_view::composer::history::PromptHistory as Inner;
 
 use crate::{App, Route};
 
@@ -33,11 +33,18 @@ impl PromptHistory {
         PromptHistory { inner: Inner::from_json(&v), path }
     }
 
+    /// ↑ or ↓ through the shared store's own walk, for its tests; the app walks in its
+    /// suggestion machine.
+    #[cfg(test)]
+    pub fn step(&mut self, composer: &mut rune::TextEdit, route: &Route, shell: bool, up: bool) -> bool {
+        self.inner.step(composer, route, shell, up)
+    }
+
     pub fn entries(&self, shell: bool) -> &[Entry] {
         self.inner.entries(shell)
     }
 
-    /// Records a sent prompt and ends any walk.
+    /// Records a sent prompt.
     pub fn add(&mut self, entry: Entry, shell: bool) {
         if self.inner.add(entry, shell) {
             self.save();
@@ -51,39 +58,9 @@ impl PromptHistory {
             crate::disk::replace(&path, body.as_bytes());
         });
     }
-
-    /// ↑ or ↓ on the composer: whether it recalled (or restored) a prompt.
-    pub fn step(&mut self, composer: &mut TextEdit, route: &Route, shell: bool, up: bool) -> bool {
-        self.inner.step(composer, route, shell, up)
-    }
 }
 
 impl App {
-    /// The composer's ↑ and ↓. The `@` and `/` popovers, the menus and the pickers use the
-    /// arrows themselves while open, so they win.
-    pub fn history_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        let Some(up) = arrow_up(ev) else { return false };
-        if !self.composer.focused || !self.has_composer() {
-            return false;
-        }
-        if self.mentions.open
-            || self.add.open()
-            || self.slash_query().is_some()
-            || self.pickers.open.is_some()
-            || self.switcher.open
-            || self.settings.open
-        {
-            return false;
-        }
-        let (route, shell) = (self.route.clone(), self.add.shell());
-        if !self.prompts.step(&mut self.composer, &route, shell, up) {
-            return false;
-        }
-        self.mentions_settle();
-        tx.instant();
-        true
-    }
-
     /// Runs `send`, and records the prompt in the composer if that sent it (the composer is
     /// empty afterwards). A send that failed or waits leaves the text, and records nothing.
     pub fn record_sent(&mut self, send: impl FnOnce(&mut App)) {

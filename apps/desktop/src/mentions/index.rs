@@ -111,14 +111,14 @@ impl App {
     /// The fixture's files, or the server's latest answer, which stays until the next arrives.
     fn files_key(&self) -> FilesKey {
         match &self.source {
-            Source::Live { .. } => FilesKey { answer: self.mentions.files.0.clone(), count: self.mentions.files.1.len() },
+            Source::Live { .. } => FilesKey { answer: self.mentions.search.files_query().to_owned(), count: self.mentions.search.files().len() },
             _ => FilesKey { answer: String::new(), count: self.mentions.file_index.len() },
         }
     }
 
     fn build_files(&self, key: FilesKey) -> Files {
         let paths = match &self.source {
-            Source::Live { .. } => &self.mentions.files.1,
+            Source::Live { .. } => self.mentions.search.files(),
             _ => &self.mentions.file_index,
         };
         let rows = paths
@@ -173,7 +173,15 @@ impl App {
         });
         let cache = &mut *cache;
         let sessions = cache.sessions.as_mut().expect("built above");
-        let items: Vec<Item> = if needle.is_empty() {
+        // Only session titles hold spaces: matches elsewhere would keep the list over prose
+        // (`interaction.ts` `contextList`).
+        let words = query.chars().any(char::is_whitespace);
+        let items: Vec<Item> = if words {
+            let rows = &sessions.rows;
+            let mut found = sessions.narrowed.find(&needle, |i| &rows[i].name, rows.len());
+            found.sort_by(|(a, x), (b, y)| y.tier.cmp(&x.tier).then(rows[*b].local.cmp(&rows[*a].local)).then(y.quality.cmp(&x.quality)).then(rows[*b].open.cmp(&rows[*a].open)));
+            found.into_iter().take(SESSIONS).map(|(i, _)| session_item(&rows[i])).collect()
+        } else if needle.is_empty() {
             let local = sessions.rows.iter().filter(|s| s.local).take(SESSIONS).map(session_item);
             skills.chain(agents).chain(local).collect()
         } else {

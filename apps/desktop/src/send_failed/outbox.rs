@@ -227,7 +227,7 @@ impl App {
             && self.attach.files == s.files
             && self.attach.paths == s.paths
             && self.attach.context.is_empty()
-            && self.attach.uploading.is_empty()
+            && self.attach.uploads.is_empty()
             && s.prompt.as_ref().is_some_and(|p| p.quotes == self.quote.quotes())
     }
 

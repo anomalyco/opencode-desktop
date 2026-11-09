@@ -173,12 +173,12 @@ fn the_composer_recalls_with_the_arrows() {
 #[test]
 fn an_open_popover_keeps_the_arrows() {
     let mut rt = rt();
-    rt.state.mentions.open = true;
+    rt.state.suggest.state = crate::suggestions::machine::Popover::Context(Default::default());
     assert!(!press(&mut rt, Key::Up, Mods::default()));
-    rt.state.mentions.open = false;
-    rt.state.open_add_menu();
+    rt.state.suggest.state = Default::default();
+    rt.state.add.menu = crate::add_menu::Menu::Open { active: None, keyboard: false };
     assert!(!press(&mut rt, Key::Up, Mods::default()));
-    rt.state.close_add_menu();
+    rt.state.add.menu = crate::add_menu::Menu::Closed;
     rt.state.composer.insert("/");
     assert!(!press(&mut rt, Key::Up, Mods::default()), "the / popover is showing");
     assert_eq!(rt.state.composer.text, "/");

@@ -3,11 +3,11 @@
 //! then the app's own (`commands.rs`, those with a `/name`), filtered by the draft's first word.
 //! Picking an app command runs it at once; a server command fills in `/name `.
 
-use rune::{Cx, El, Key, KeyEvent, Latest, Tx, Waker};
+use rune::{Cx, El, Latest, Tx, Waker};
 use serde_json::Value;
 
 use crate::palette::Pal;
-use crate::mentions::list::{Highlight, Row, Spec, data_list, nav_step, popup, step_key};
+use crate::mentions::list::{Row, Spec, data_list, popup, suggest_search};
 use crate::{App, Source};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,12 +42,6 @@ pub struct Slash {
     /// `/api/command` for `dir`.
     pub commands: Vec<Command>,
     dir: Option<String>,
-    /// The highlighted command and the query it was picked under.
-    active: Highlight,
-    /// The composer's text when Escape closed the popover.
-    pub(crate) closed: Option<String>,
-    /// Whether the popover showed after the last edit.
-    shown: bool,
     fetch: Latest<(String, Vec<Command>)>,
 }
 
@@ -74,26 +68,10 @@ pub fn parse_slash(text: &str) -> Option<(&str, &str)> {
 }
 
 impl App {
-    /// The `/query` the command popover filters by: the whole draft is `/` and a word, the
-    /// caret at its end.
+    /// The query the open commands list filters by: the word after a draft's `/`, or what the
+    /// commands menu's search field holds.
     pub fn slash_query(&self) -> Option<String> {
-        if self.add.shell() || !self.composer.focused || self.add.slash.closed.as_deref() == Some(self.composer.text.as_str()) {
-            return None;
-        }
-        let text = &self.composer.text;
-        let query = text.strip_prefix('/')?;
-        let caret = self.composer.range();
-        (caret.0 == caret.1 && caret.1 == text.len() && !query.contains(char::is_whitespace)).then(|| query.to_owned())
-    }
-
-    /// After the composer's text changes: the command popover opens, closes and refilters with
-    /// this frame.
-    pub fn slash_changed(&mut self, tx: &mut Tx) {
-        let shown = self.slash_query().is_some();
-        if shown || std::mem::replace(&mut self.add.slash.shown, shown) {
-            tx.instant();
-        }
-        self.add.slash.shown = shown;
+        self.suggest.state.commands().map(|l| l.query.clone())
     }
 
     /// Every `/` command, as Desktop lists them (`composer/model.ts:261-291`): the server's, then
@@ -142,33 +120,30 @@ impl App {
     }
 
     pub fn slash_active(&self) -> Option<String> {
-        let items = self.slash_items();
-        self.add.slash.active.resolve(&self.slash_query().unwrap_or_default(), items.iter().map(|c| c.id.as_str()))
+        self.suggest.state.commands().and_then(|l| l.active.id()).map(str::to_owned)
     }
 
-    fn slash_activate(&mut self, name: String) {
-        let query = self.slash_query().unwrap_or_default();
-        self.add.slash.active.set(name, query);
-    }
-
-    /// A server command replaces the draft with `/name ` (`replaceTrigger`); an app command
-    /// clears it and runs (`command.trigger(id, "slash")`).
-    pub fn pick_command(&mut self, id: &str, tx: &mut Tx) {
+    /// A picked command (`onSuggestionSelect`, then `draft.setText`): an app command that takes
+    /// no words clears the draft, unless it came from the commands menu, and runs; any other
+    /// fills in `/name `, before the draft's words when the menu picked it.
+    pub fn pick_command(&mut self, id: &str, menu: bool, tx: &mut Tx) {
         let Some(item) = self.slash_list().into_iter().find(|c| c.id == id) else { return };
+        if let Some(command) = item.builtin.filter(|_| !item.args) {
+            if !menu {
+                let len = self.composer.text.len();
+                self.composer.set_selection(0, len);
+                self.composer.insert("");
+            }
+            if !crate::plugin_host::run_command(self, command, tx) {
+                self.run_command(command, tx);
+            }
+            return;
+        }
+        let draft = self.composer.text.trim().to_owned();
+        let text = if menu && !draft.is_empty() { format!("/{} {draft}", item.name) } else { format!("/{} ", item.name) };
         let len = self.composer.text.len();
         self.composer.set_selection(0, len);
-        self.add.slash.active.clear();
-        match item.builtin {
-            // A command that takes words waits for them (`onSuggestionSelect` declines it).
-            Some(_) if item.args => self.composer.insert(&format!("/{} ", item.name)),
-            Some(command) => {
-                self.composer.insert("");
-                if !crate::plugin_host::run_command(self, command, tx) {
-                    self.run_command(command, tx);
-                }
-            }
-            None => self.composer.insert(&format!("/{} ", item.name)),
-        }
+        self.composer.insert(&text);
     }
 
     /// A sent `/name` naming an app command and no server one runs it, and the draft clears; a
@@ -190,50 +165,22 @@ impl App {
         if !words.is_empty() {
             return false;
         }
-        self.pick_command(&item.id, tx);
+        self.pick_command(&item.id, false, tx);
         true
     }
 
-    pub(crate) fn slash_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.slash_query().is_none() {
-            return false;
-        }
-        if let Some(step) = nav_step(ev, true) {
-            if let Some(active) = self.slash_active() {
-                let items = self.slash_items();
-                let keys = items.iter().map(|c| c.id.as_str());
-                if let Some(name) = step_key(keys, Some(&active), step, tx, "commands-scroll", "command-") {
-                    self.slash_activate(name);
-                }
-            }
-            return true;
-        }
-        match ev.key {
-            Key::Escape => {
-                tx.instant();
-                self.add.slash.closed = Some(self.composer.text.clone());
-                true
-            }
-            Key::Tab | Key::Enter if self.composer.preedit().is_none() && !ev.mods.cmd => match self.slash_active() {
-                Some(name) => {
-                    tx.instant();
-                    self.pick_command(&name, tx);
-                    true
-                }
-                None => false,
-            },
-            _ => false,
-        }
-    }
-
     /// Takes in fetched commands, and asks for the composer directory's when a `/` needs them.
-    pub fn poll_commands(&mut self) -> bool {
+    pub fn poll_commands(&mut self, tx: &mut Tx) -> bool {
         let mut changed = false;
         if let Some((directory, list)) = self.add.slash.fetch.take()
             && self.add.slash.dir.as_deref() == Some(directory.as_str())
         {
             self.add.slash.commands = list;
             changed = true;
+            if self.suggest.state.commands().is_some() {
+                tx.instant();
+                self.refresh_suggestions(tx);
+            }
         }
         if self.slash_query().is_none() {
             return changed;
@@ -278,6 +225,9 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             trail: c.keys.filter(|b| b.chord().is_some()).map(|b| b.keycaps().join("+")),
         })
         .collect();
-    let spec = Spec { key: "commands", label: opencode_i18n::t!("ui.promptInput.commands"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: crate::mentions::list::boundary(cx) };
-    Some(popup(p, spec, rows, active.as_deref(), |s, name| s.slash_activate(name.to_owned()), |s, name, tx| s.pick_command(name, tx)))
+    // The commands menu searches in a field of its own, its placeholder the slash (`editor.tsx:201-211`).
+    let label = opencode_i18n::t!("ui.promptInput.commands");
+    let search = matches!(s.suggest.state, crate::suggestions::machine::Popover::CommandMenu(_)).then(|| suggest_search(p, &s.suggest.search, label, "/"));
+    let spec = Spec { key: "commands", label, empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: crate::mentions::list::boundary(cx), search };
+    Some(popup(p, spec, rows, active.as_deref(), |s, id, tx| s.suggest_pointed(id, tx), |s, id, tx| s.suggest_pick(id, tx)))
 }

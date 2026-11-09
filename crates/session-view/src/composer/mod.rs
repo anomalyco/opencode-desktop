@@ -230,9 +230,12 @@ pub trait ComposerHost: TimelineHost {
         &[]
     }
     fn composer_remove_path_attachment(&mut self, _path: &str) {}
-    fn composer_uploading(&self) -> &[String] {
-        &[]
+    /// Uploads still copying, by id and file name.
+    fn composer_uploading(&self) -> Vec<(String, String)> {
+        Vec::new()
     }
+    /// The upload card's cancel.
+    fn composer_cancel_upload(&mut self, _id: &str) {}
     fn composer_quote_chips(&self, _p: &Pal) -> Vec<El> {
         Vec::new()
     }
@@ -275,6 +278,11 @@ pub trait ComposerHost: TimelineHost {
         ]
     }
     fn composer_below_toolbar(&self, _p: &Pal) -> Option<El> {
+        None
+    }
+    /// The height the composer holds while previews of other sizes replace its draft (Desktop's
+    /// history list keeps the height it opened over, `editor.tsx:249`).
+    fn composer_held_height(&self) -> Option<f32> {
         None
     }
     fn composer_on_change(&mut self, _tx: &mut Tx) {}
@@ -400,6 +408,11 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     } else {
         box_el.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
     };
+    let held = s.composer_held_height();
+    let box_el = match held {
+        Some(h) => box_el.h(h),
+        None => box_el,
+    };
     match face {
         Some(face) => box_el.children(face),
         None => box_el
@@ -411,6 +424,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .transition(s.composer_face_transition())
                     .w_full()
                     .shrink()
+                    .grow(if held.is_some() { 1.0 } else { 0.0 })
                     .pb(8.0)
                     .child(
                         col()

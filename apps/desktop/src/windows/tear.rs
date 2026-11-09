@@ -230,6 +230,7 @@ impl App {
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
         self.tabs.remove(i);
         self.restore.drafts.remove(id);
+        self.add.park(id.to_owned(), session_view::composer::mode::Mode::Normal);
         if shown {
             self.restore.shown = None;
             self.composer = rune::TextEdit::new("");

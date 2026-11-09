@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use session_view::composer::mode::Mode;
+
 use rune::{AppSpec, Display, WindowHandle, WindowSpec};
 
 use super::peer;
@@ -20,6 +22,8 @@ pub struct Seed {
     pub tabs: Vec<Tab>,
     pub route: Route,
     pub drafts: HashMap<String, String>,
+    /// The moving drafts in shell mode, which they keep.
+    shell: Vec<String>,
     peer: peer::Link,
     default_dir: String,
 }
@@ -30,6 +34,7 @@ impl Seed {
     pub fn from(s: &App, tabs: Vec<Tab>, route: Route) -> Seed {
         Seed {
             drafts: tabs.iter().filter_map(|t| Some((t.id.clone(), s.draft_text(&t.id)?))).collect(),
+            shell: tabs.iter().filter(|t| s.draft_mode(&t.id) == Mode::Shell).map(|t| t.id.clone()).collect(),
             tabs,
             route,
             peer: peer::link_of(s),
@@ -54,6 +59,9 @@ impl App {
         self.default_dir = seed.default_dir;
         self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);
+        for id in seed.shell {
+            self.add.park(id, Mode::Shell);
+        }
         self.route = seed.route;
         // Before the window's first turn: the copy comes in for this, and goes back.
         peer::in_turn(self, |s| {
@@ -61,6 +69,14 @@ impl App {
             s.show_draft();
             s.save_tabs();
         });
+    }
+
+    /// Draft `id`'s mode, the open one's from the composer.
+    pub(crate) fn draft_mode(&self, id: &str) -> Mode {
+        if self.restore.shown.as_deref() == Some(id) {
+            return self.add.mode;
+        }
+        self.add.parked().find(|(k, _)| *k == id).map_or(Mode::Normal, |(_, m)| m)
     }
 
     /// The composer words kept for tab `id`, the open one's from the composer.

@@ -63,14 +63,37 @@ impl Entry {
     }
 }
 
+/// Where ↑ and ↓ are in the sent prompts, as Desktop's composer machine keeps it
+/// (`composer/suggestions/machine.ts`, its `browsing` popover). A host without events of its
+/// own sees the walk end when the shown text, the scope or the mode changed under it.
 #[derive(Clone, Debug)]
-struct Walk<Scope> {
-    index: usize,
-    draft: Entry,
-    caret: usize,
-    shown: String,
-    scope: Scope,
-    shell: bool,
+enum Recall<Scope> {
+    Idle,
+    Browsing {
+        index: usize,
+        draft: Entry,
+        caret: usize,
+        shown: String,
+        scope: Scope,
+        shell: bool,
+    },
+}
+
+impl<Scope> Default for Recall<Scope> {
+    fn default() -> Self {
+        Recall::Idle
+    }
+}
+
+/// Whether ↑ (`up`) or ↓ steps through history with the caret at `caret` in `len` bytes
+/// (`canNavigateHistory`): while browsing, at either end; otherwise ↑ only on an empty draft,
+/// and ↓ at its end.
+pub fn can_step(up: bool, len: usize, caret: usize, browsing: bool) -> bool {
+    let at = caret.min(len);
+    if browsing {
+        return at == 0 || at == len;
+    }
+    if up { at == 0 && len == 0 } else { at == len }
 }
 
 /// Shared prompt-recall store parameterized by page/session scope (`String` by default).
@@ -78,7 +101,7 @@ struct Walk<Scope> {
 pub struct PromptHistory<Scope = String> {
     normal: Vec<Entry>,
     shell: Vec<Entry>,
-    walk: Option<Walk<Scope>>,
+    recall: Recall<Scope>,
 }
 
 impl<Scope> Default for PromptHistory<Scope> {
@@ -86,7 +109,7 @@ impl<Scope> Default for PromptHistory<Scope> {
         Self {
             normal: Vec::new(),
             shell: Vec::new(),
-            walk: None,
+            recall: Recall::Idle,
         }
     }
 }
@@ -104,7 +127,7 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
         Self {
             normal: list("normal"),
             shell: list("shell"),
-            walk: None,
+            recall: Recall::Idle,
         }
     }
 
@@ -121,7 +144,7 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
 
     /// Records a sent prompt and ends any active walk. Returns `true` when the stored list changed.
     pub fn add(&mut self, entry: Entry, shell: bool) -> bool {
-        self.walk = None;
+        self.recall = Recall::Idle;
         if entry.text.trim().is_empty() {
             return false;
         }
@@ -134,56 +157,45 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
         true
     }
 
-    /// ↑ or ↓ on the composer: `true` when it recalled or restored a prompt.
+    /// ↑ or ↓ on the composer: `true` when it recalled or restored a prompt. OpenCode (Rune)
+    /// runs this walk in its composer machine; this is for hosts with no machine of their own.
     pub fn step(&mut self, composer: &mut TextEdit, scope: &Scope, shell: bool, up: bool) -> bool {
         if composer.anchor != composer.focus || composer.is_composing() {
             return false;
         }
-        if self.walk.as_ref().is_some_and(|w| {
-            w.shown != composer.text || w.shell != shell || &w.scope != scope
-        }) {
-            self.walk = None;
+        if let Recall::Browsing { shown, scope: s, shell: sh, .. } = &self.recall
+            && (*shown != composer.text || *sh != shell || s != scope)
+        {
+            self.recall = Recall::Idle;
         }
         let at = composer.focus.min(composer.text.len());
-        let ok = match (&self.walk, up) {
-            (Some(_), _) => at == 0 || at == composer.text.len(),
-            (None, true) => at == 0 && composer.text.is_empty(),
-            (None, false) => at == composer.text.len(),
+        let browsing = match &self.recall {
+            Recall::Browsing { index, .. } => Some(*index),
+            Recall::Idle => None,
         };
-        let list = if shell { &self.shell } else { &self.normal };
-        if !ok {
+        if !can_step(up, composer.text.len(), at, browsing.is_some()) {
             return false;
         }
+        let list = if shell { &self.shell } else { &self.normal };
         if up {
-            let next = self.walk.as_ref().map_or(0, |w| w.index + 1);
-            let Some(entry) = list.get(next) else { return false };
-            let (draft, caret) = match self.walk.take() {
-                Some(w) => (w.draft, w.caret),
-                None => (Entry::of(composer), at),
+            let index = browsing.map_or(0, |i| i + 1);
+            let Some(entry) = list.get(index) else { return false };
+            let (draft, caret) = match std::mem::take(&mut self.recall) {
+                Recall::Browsing { draft, caret, .. } => (draft, caret),
+                Recall::Idle => (Entry::of(composer), at),
             };
             entry.put(composer, 0);
-            self.walk = Some(Walk {
-                index: next,
-                draft,
-                caret,
-                shown: composer.text.clone(),
-                scope: scope.clone(),
-                shell,
-            });
+            self.recall = Recall::Browsing { index, draft, caret, shown: composer.text.clone(), scope: scope.clone(), shell };
             return true;
         }
-        let Some(w) = self.walk.take() else { return false };
-        match w.index.checked_sub(1) {
+        let Recall::Browsing { index, draft, caret, .. } = std::mem::take(&mut self.recall) else { return false };
+        match index.checked_sub(1) {
             Some(newer) => {
                 let entry = &list[newer];
                 entry.put(composer, entry.text.len());
-                self.walk = Some(Walk {
-                    index: newer,
-                    shown: composer.text.clone(),
-                    ..w
-                });
+                self.recall = Recall::Browsing { index: newer, draft, caret, shown: composer.text.clone(), scope: scope.clone(), shell };
             }
-            None => w.draft.put(composer, w.caret),
+            None => draft.put(composer, caret),
         }
         true
     }

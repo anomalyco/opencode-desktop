@@ -27,11 +27,11 @@ impl App {
         if wire.text.is_empty() && !self.attach.any() && !self.quote.any() {
             return;
         }
-        if !self.attach.uploading.is_empty() {
+        if !self.attach.uploads.is_empty() {
             crate::status_toast::say(self, opencode_i18n::t!("rune.send.uploading.title"), opencode_i18n::t!("rune.send.uploading.description"));
             return;
         }
-        self.close_mentions();
+        self.suggest(crate::suggestions::machine::Event::Close, tx);
         if self.run_slash(&wire.text, tx) {
             return;
         }

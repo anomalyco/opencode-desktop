@@ -87,7 +87,7 @@ fn apply(s: &mut App, effect: Effect, ev: &KeyEvent, tx: &mut Tx) {
         Layer::Peek => s.queue_peek(crate::layout_state::PeekEvent::Escape, tx),
         Layer::Quote => {
             tx.instant();
-            crate::quote::dismiss(s);
+            crate::quote::dismiss(s, tx);
         }
         Layer::Opening => s.cancel_open(tx),
         Layer::Run => {

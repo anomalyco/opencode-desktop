@@ -6,6 +6,7 @@ use rune::{Align, Cx, El, Key, Side, TextEdit, TextStyle, Transition, Tx, col, e
 use crate::App;
 use crate::attachments::remove_button;
 use crate::palette::Pal;
+use crate::quote::machine::Comment;
 use crate::quote::{OUTLINE_QUOTE, Pending};
 pub use session_view::user_parts::{quote_card as card, quote_preview as preview};
 
@@ -22,13 +23,13 @@ pub fn chips(s: &App, p: &Pal) -> Vec<El> {
 
 fn chip(s: &App, p: &Pal, item: &Pending) -> El {
     let key = item.key;
-    let active = s.quote.editing == Some(key);
+    let active = s.quote.comment.key() == Some(key);
     let body = card(p, &item.quote, true, active, false)
         .role("button")
         .label(opencode_i18n::t!("session.quote.add"))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            if s.quote.editing == Some(key) { close_editor(s) } else { open_editor(s, key) }
+            if s.quote.comment.key() == Some(key) { close_editor(s) } else { open_editor(s, key) }
         });
     let remove = remove_button(p, "quote", 160.0, move |s| s.quote.remove(key));
     el().key(chip_key(key)).hover_group().child(body).child(remove)
@@ -42,39 +43,37 @@ pub fn open_editor(s: &mut App, key: u64) {
     let Some(item) = s.quote.items.iter().find(|q| q.key == key) else { return };
     let mut draft = TextEdit::new(item.quote.comment.as_deref().unwrap_or(""));
     draft.focused = true;
-    s.quote.draft = draft;
-    s.quote.editing = Some(key);
+    s.quote.comment = Comment::Open { key, draft };
     s.composer.focused = false;
 }
 
 fn close_editor(s: &mut App) {
-    s.quote.editing = None;
-    s.quote.draft.focused = false;
+    s.quote.comment = Comment::Closed;
     s.composer.focused = true;
 }
 
 /// Enter or Comment: the comment, even an empty one, goes on the quote.
 fn submit(s: &mut App) {
-    let Some(key) = s.quote.editing else { return };
-    let comment = s.quote.draft.text.clone();
+    let Comment::Open { key, draft } = &s.quote.comment else { return };
+    let (key, comment) = (*key, draft.text.clone());
     if let Some(item) = s.quote.items.iter_mut().find(|q| q.key == key) {
         item.quote.comment = Some(comment);
     }
     close_editor(s);
 }
 
-/// Whether the draft still says what the quote's comment does.
-fn unchanged(s: &App, key: u64) -> bool {
+/// Whether the draft still says what the quote's comment does (`canDismissOutside`).
+fn unchanged(s: &App, key: u64, draft: &TextEdit) -> bool {
     let was = s.quote.items.iter().find(|q| q.key == key).and_then(|q| q.quote.comment.as_deref()).unwrap_or("");
-    s.quote.draft.text.trim() == was.trim()
+    draft.text.trim() == was.trim()
 }
 
 /// A press outside the editor takes the field's focus, which closes an unchanged editor; one
 /// with a new comment stays open.
 pub fn poll(s: &mut App) -> bool {
-    let Some(key) = s.quote.editing else { return false };
-    if !s.quote.items.iter().any(|q| q.key == key) || (!s.quote.draft.focused && unchanged(s, key)) {
-        s.quote.editing = None;
+    let Comment::Open { key, draft } = &s.quote.comment else { return false };
+    if !s.quote.items.iter().any(|q| q.key == *key) || (!draft.focused && unchanged(s, *key, draft)) {
+        s.quote.comment = Comment::Closed;
         return true;
     }
     false
@@ -82,7 +81,8 @@ pub fn poll(s: &mut App) -> bool {
 
 /// The open quote's comment editor, above its card (below when there's no room above).
 pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
-    let key = s.quote.editing?;
+    let Comment::Open { key, draft } = &s.quote.comment else { return None };
+    let key = *key;
     let item = s.quote.items.iter().find(|q| q.key == key)?;
     let window = cx.layout_size("zoom").map_or(f32::INFINITY, |[w, _]| w / s.zoom.max(1e-3));
     let small = |key: &str, label: &str| {
@@ -98,7 +98,7 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .hover(p.contrast.mix(p.text, 0.08))
         .on_press_tx(|s: &mut App, tx: &mut Tx| { tx.instant(); submit(s) })
         .child(text(opencode_i18n::t!("ui.lineComment.submit")).font(BUTTON).color(p.q.contrast_text));
-    let field = text_input(&s.quote.draft, FIELD)
+    let field = text_input(draft, FIELD)
         .key("quote-comment-field")
         .color(p.text)
         .w_full()
@@ -106,7 +106,11 @@ pub fn editor(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .placeholder(opencode_i18n::t!("session.quote.commentPlaceholder"), p.faint)
         .caret(p.text, p.selection).selection_style(p.field_selection)
         .spellcheck(s.settings.spellcheck)
-        .on_edit(|s: &mut App| &mut s.quote.draft)
+        .on_edit(|s: &mut App| match &mut s.quote.comment {
+            Comment::Open { draft, .. } => draft,
+            // The field shows only while open; an edit after a close lands nowhere.
+            Comment::Closed => &mut s.quote.spare,
+        })
         .on_input_key(|s: &mut App, ev, tx| {
             if ev.key == Key::Escape {
                 tx.instant();

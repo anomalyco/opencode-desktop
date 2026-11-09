@@ -130,15 +130,15 @@ fn alt_click_opens_the_comment_editor_and_enter_keeps_the_comment() {
     click(&mut rt, centre(&button));
     rt.physical_input(PhysicalInput::Modifiers(Mods::default()));
     settle(&mut rt);
-    assert_eq!(rt.state.quote.editing, Some(1));
-    assert!(!rt.state.composer.focused && rt.state.quote.draft.focused);
+    assert_eq!(rt.state.quote.comment.key(), Some(1));
+    assert!(!rt.state.composer.focused && matches!(&rt.state.quote.comment, crate::quote::machine::Comment::Open { draft, .. } if draft.focused));
     let editor = shown(&rt, "quote-comment").expect("the editor");
     let card = shown(&rt, "quote-chip-1").unwrap();
     assert!(editor.rect[1] + editor.rect[3] <= card.rect[1] - 7.0, "above its card: {:?} {:?}", editor.rect, card.rect);
-    rt.update(|s, _| s.quote.draft.text = "why this?".into());
+    rt.update(|s, _| if let crate::quote::machine::Comment::Open { draft, .. } = &mut s.quote.comment { draft.text = "why this?".into() });
     rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
     settle(&mut rt);
-    assert_eq!(rt.state.quote.editing, None);
+    assert_eq!(rt.state.quote.comment.key(), None);
     assert_eq!(rt.state.quote.items[0].quote.comment.as_deref(), Some("why this?"));
     assert!(rt.state.composer.focused);
 }

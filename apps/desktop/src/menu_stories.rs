@@ -36,8 +36,8 @@ fn is_open(s: &App) -> bool {
 /// Opens or closes the variant's menu, with the motion its control uses.
 fn set(s: &mut App, open: bool, tx: &mut Play<App>) {
     match s.variant {
-        0 if open => s.open_add_menu(),
-        0 => s.close_add_menu(),
+        0 if open => s.open_add_menu(tx),
+        0 => s.close_add_menu(crate::add_menu::Close::Outside, tx),
         1 if open => {
             if let Some(mid) = last_prompt(s) {
                 s.toggle_message_menu(&sid(s), &mid, tx);
@@ -62,7 +62,7 @@ fn right_click(s: &mut App, tx: &mut Play<App>) {
 
 fn start(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.close_add_menu();
+    s.close_add_menu(crate::add_menu::Close::Outside, tx);
     s.close_message_menu();
     crate::subagents::shells::set_open(s, false);
     s.todo_open = false;

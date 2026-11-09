@@ -31,7 +31,7 @@ fn show(s: &mut App, variant: usize, tx: &mut Tx) {
         0 => {
             s.composer.focused = true;
             s.composer.insert("/");
-            s.add.slash.closed = None;
+            s.suggest_input(tx);
         }
         1 => s.open_command_search(tx),
         _ => {

@@ -187,6 +187,7 @@ impl App {
             TabKind::Draft => {
                 self.forget_draft_history(id);
                 self.restore.drafts.remove(id);
+                self.add.park(id.to_owned(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.restore.shown = None;
                     let focused = self.composer.focused;

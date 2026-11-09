@@ -239,6 +239,7 @@ mod line_grow_story;
 #[path = "stream/line_grow_tests.rs"]
 mod line_grow_tests;
 mod subagents;
+mod suggestions;
 mod switcher;
 mod tab_actions;
 mod tab_badges;
@@ -399,6 +400,8 @@ pub struct App {
     pub glitch: glitch::Glitch,
     /// The + menu, the `/` command popover and shell mode.
     pub add: add_menu::AddMenu,
+    /// The composer's suggestion lists and prompt recall (`suggestions/machine.rs`).
+    pub suggest: suggestions::Suggest,
     /// Hex dictation into the composer (⇧⌘M or the mic).
     pub dictation: dictation::Dictation,
     pub switcher: switcher::Switcher,
@@ -1194,7 +1197,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_mentions(tx);
-    changed |= s.poll_commands();
+    changed |= s.poll_commands(tx);
+    changed |= s.poll_suggestions(tx);
     changed |= s.poll_rename();
     changed |= s.poll_uploads();
     changed |= s.attach.poll();

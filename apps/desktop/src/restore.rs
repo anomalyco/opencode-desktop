@@ -133,8 +133,18 @@ impl App {
         let global = &read()[server];
         let own = (!self.window.id.is_empty()).then(|| crate::windows::store::load(&self.window, server));
         let v = own.as_ref().unwrap_or(global);
-        self.restore.drafts =
-            v["drafts"].as_object().into_iter().flatten().filter_map(|(k, t)| Some((k.clone(), t.as_str()?.to_owned()))).collect();
+        // A draft is its text, or `{ text, mode }` for one in shell mode, as Desktop keeps the
+        // mode in the draft it persists (`ComposerPersistedState.mode`).
+        self.restore.drafts = HashMap::new();
+        for (k, d) in v["drafts"].as_object().into_iter().flatten() {
+            let text = d.as_str().or(d["text"].as_str()).unwrap_or_default();
+            if !text.is_empty() {
+                self.restore.drafts.insert(k.clone(), text.to_owned());
+            }
+            if d["mode"].as_str() == Some("shell") {
+                self.add.park(k.clone(), session_view::composer::mode::Mode::Shell);
+            }
+        }
         self.closed = crate::tabs::Closed::from_json(&v["closedTabs"]);
         self.restore.inbox = InboxUi::from_json(&global["inbox"]);
         self.restore_organize(&global["organize"]);
@@ -243,6 +253,8 @@ impl App {
                 self.restore.drafts.insert(old, text);
             }
         }
+        // Another draft replaces this one: no list or recalled prompt applies to it (`history.reset`).
+        self.suggest_drop();
         let text = key.as_ref().and_then(|k| self.restore.drafts.get(k).cloned()).unwrap_or_default();
         let focused = self.composer.focused;
         self.composer = rune::TextEdit::new(&text);
@@ -251,17 +263,9 @@ impl App {
     }
 
     fn ui_json(&self) -> Value {
-        let mut drafts = self.restore.drafts.clone();
-        if let Some(k) = &self.restore.shown {
-            if self.composer.text.trim().is_empty() {
-                drafts.remove(k);
-            } else {
-                drafts.insert(k.clone(), self.composer.text.clone());
-            }
-        }
         json!({
             "route": page_json(self),
-            "drafts": drafts,
+            "drafts": self.drafts_json(),
             "sidebar": self.sidebar_open,
             "sidebarWidth": self.sidebar_w,
             "side": self.side.to_json(),
@@ -271,9 +275,31 @@ impl App {
         })
     }
 
+    /// Each draft's text, and its mode when it is shell (`{ text, mode: "shell" }`), so a draft
+    /// left in shell mode comes back in it, empty or not.
+    fn drafts_json(&self) -> Value {
+        use session_view::composer::mode::Mode;
+        let mut drafts: HashMap<String, (String, Mode)> = self.restore.drafts.iter().map(|(k, t)| (k.clone(), (t.clone(), Mode::Normal))).collect();
+        for (k, mode) in self.add.parked() {
+            drafts.entry(k.to_owned()).or_default().1 = mode;
+        }
+        if let Some(k) = &self.restore.shown {
+            drafts.insert(k.clone(), (self.composer.text.clone(), self.add.mode));
+        }
+        let out: serde_json::Map<String, Value> = drafts
+            .into_iter()
+            .filter_map(|(k, (text, mode))| match mode {
+                Mode::Shell => Some((k, json!({ "text": text, "mode": "shell" }))),
+                Mode::Normal if text.trim().is_empty() => None,
+                Mode::Normal => Some((k, json!(text))),
+            })
+            .collect();
+        Value::Object(out)
+    }
+
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, &self.closed, self.restore.inbox).hash(&mut h);
+        (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
         self.settings.open.then(|| settings_tab(&self.settings_pages.page)).hash(&mut h);
         self.side.stamp_hash(&mut h);
         let st = &self.project_state;
