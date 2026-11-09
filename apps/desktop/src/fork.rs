@@ -272,13 +272,15 @@ pub fn applied(s: &mut App, from: String, before: Option<String>, forked: Sessio
     }
 }
 
-/// When a prompt was sent, as `toLocaleTimeString({ timeStyle: "short" })` reads it: "6:03 AM".
+/// When a prompt was sent, as `toLocaleTimeString(undefined, { timeStyle: "short" })` reads it:
+/// "6:03 AM" in the system's locale rather than the chosen language (fork-dialog.tsx).
 fn short_time(id: &str) -> String {
     let ms = mention::user_created(id).or_else(|| {
         let hex = id.strip_prefix("msg_")?.get(..12)?;
         u64::from_str_radix(hex, 16).ok().map(|v| (v >> 12) as i64).filter(|&v| v > 1_500_000_000_000)
     });
-    ms.map(|ms| session_view::turn_errors::short_time(rune::LocalTime::at(ms))).unwrap_or_default()
+    let moment = |ms| session_view::turn_errors::moment(rune::LocalTime::at(ms));
+    ms.map(|ms| opencode_i18n::date::format_in(opencode_i18n::system_locale(), opencode_i18n::date::Style::Time, moment(ms))).unwrap_or_default()
 }
 
 /// The search block (`.fork-dialog [data-slot="search-list-search"]`): 6 above the 28-tall

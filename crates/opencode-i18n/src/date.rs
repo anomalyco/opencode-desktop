@@ -72,10 +72,18 @@ pub enum Unit {
 
 /// `at` in `style`, as `new Intl.DateTimeFormat(locale, style).format(at)` writes it.
 pub fn format(style: Style, at: Moment) -> String {
+    format_in(I18N.locale(), style, at)
+}
+
+/// `at` in `style` in the locale at index `locale` (`crate::locales`), whatever the chosen one:
+/// `format_in(crate::system_locale(), …)` is Desktop's `toLocaleTimeString(undefined, …)`.
+pub fn format_in(locale: usize, style: Style, at: Moment) -> String {
+    let text = |key| I18N.text_in(locale, key);
     let (pattern, months, periods) = style_keys(style);
-    let (year, month, day) = calendar_date(at);
+    let (year, month, day) = calendar_date(locale, at);
+    let digits = |s: String| digits(locale, s);
     let mut out = String::new();
-    let mut rest = I18N.text(pattern);
+    let mut rest = text(pattern);
     while let Some(open) = rest.find("{{") {
         out.push_str(&rest[..open]);
         let Some(close) = rest[open..].find("}}") else { break };
@@ -83,9 +91,9 @@ pub fn format(style: Style, at: Moment) -> String {
         rest = &rest[open + close + 2..];
         let twelve = match at.hour % 12 { 0 => 12, h => h };
         match token {
-            "month" => out.push_str(months.map_or("", |k| nth(I18N.text(k), month))),
-            "dayPeriod" => out.push_str(periods.map_or("", |k| nth(I18N.text(k), at.hour + 1))),
-            "zone" => out.push_str(&zone(at.offset)),
+            "month" => out.push_str(months.map_or("", |k| nth(text(k), month))),
+            "dayPeriod" => out.push_str(periods.map_or("", |k| nth(text(k), at.hour + 1))),
+            "zone" => out.push_str(&zone_in(locale, at.offset)),
             "y" => out.push_str(&digits(year.to_string())),
             "d" => out.push_str(&digits(day.to_string())),
             "dd" => out.push_str(&digits(format!("{day:02}"))),
@@ -200,8 +208,8 @@ fn nth(list: &'static str, n: u32) -> &'static str {
 }
 
 /// `text` with its ASCII digits in the locale's own (`۱۴۰۵`, `১২`).
-fn digits(text: String) -> String {
-    let local: Vec<char> = t!("intl.date.digits").chars().collect();
+fn digits(locale: usize, text: String) -> String {
+    let local: Vec<char> = I18N.text_in(locale, key!("intl.date.digits")).chars().collect();
     if local.len() != 10 || local[0] == '0' {
         return text;
     }
@@ -210,22 +218,29 @@ fn digits(text: String) -> String {
 
 /// The `shortOffset` zone: `GMT+0`, `GMT-7`, `GMT+5:30`.
 pub fn zone(offset: i32) -> String {
+    zone_in(I18N.locale(), offset)
+}
+
+/// `zone` in the locale at index `locale`.
+fn zone_in(locale: usize, offset: i32) -> String {
+    let text = |key| I18N.text_in(locale, key);
     if offset == 0 {
-        return t!("intl.date.zone.utc").to_owned();
+        return text(key!("intl.date.zone.utc")).to_owned();
     }
-    let sign = if offset < 0 { t!("intl.date.zone.minus") } else { t!("intl.date.zone.plus") };
+    let sign = text(if offset < 0 { key!("intl.date.zone.minus") } else { key!("intl.date.zone.plus") });
     let (hours, minutes) = (offset.unsigned_abs() / 3600, offset.unsigned_abs() % 3600 / 60);
     let amount = if minutes == 0 {
         hours.to_string()
     } else {
-        format!("{hours}{}{minutes:02}", t!("intl.date.zone.separator"))
+        format!("{hours}{}{minutes:02}", text(key!("intl.date.zone.separator")))
     };
-    t!("intl.date.zone", offset = format!("{sign}{}", digits(amount)))
+    let offset = format!("{sign}{}", digits(locale, amount));
+    crate::render(text(key!("intl.date.zone")), &[("offset", &offset as &dyn std::fmt::Display)])
 }
 
 /// `at`'s year, month and day in the locale's calendar.
-fn calendar_date(at: Moment) -> (i32, u32, u32) {
-    match t!("intl.date.calendar") {
+fn calendar_date(locale: usize, at: Moment) -> (i32, u32, u32) {
+    match I18N.text_in(locale, key!("intl.date.calendar")) {
         "buddhist" => (at.year + 543, at.month, at.day),
         "persian" => persian(at.days()),
         _ => (at.year, at.month, at.day),

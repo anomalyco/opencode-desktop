@@ -107,8 +107,15 @@ pub fn set_locale(id: &str) -> bool {
 
 /// The id of the locale that best matches the system's preferred languages, else `en`.
 pub fn detect() -> &'static str {
+    locales()[system_locale()].id()
+}
+
+/// The index of the locale that best matches the system's preferred languages, else `en`'s:
+/// what Desktop's `Intl` calls without a locale (`toLocaleTimeString(undefined)`) format in,
+/// whatever language is chosen.
+pub fn system_locale() -> usize {
     let languages = rune_i18n::system_languages();
-    locales()[I18N.negotiate(languages.iter().map(String::as_str))].id()
+    I18N.negotiate(languages.iter().map(String::as_str))
 }
 
 /// Whether the current locale is an English one (Desktop compares the tag's language).
