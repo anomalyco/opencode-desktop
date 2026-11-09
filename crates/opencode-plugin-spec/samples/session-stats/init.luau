@@ -24,7 +24,8 @@ local function recentToolCalls(messages: any, directory: string): { ToolCall }
         return calls
     end
     for _, message in messages do
-        for _, part in message.parts or {} do
+        -- A message's parts: `content` in the server's v2 messages, `parts` in v1.
+        for _, part in message.content or message.parts or {} do
             if part.type == "tool" then
                 local input = if part.state then part.state.input or {} else {}
                 local file = input.filePath or input.path
@@ -34,9 +35,9 @@ local function recentToolCalls(messages: any, directory: string): { ToolCall }
                     href = if absolute then `file://{file}` else `file://{directory}/{file}`
                 end
                 table.insert(calls, {
-                    id = tostring(part.callID or part.id),
-                    tool = tostring(part.tool),
-                    target = tostring(file or input.command or input.pattern or part.tool),
+                    id = tostring(part.id or part.callID),
+                    tool = tostring(part.name or part.tool),
+                    target = tostring(file or input.command or input.pattern or part.name or part.tool),
                     href = href,
                     failed = part.state ~= nil and part.state.status == "error",
                 })
