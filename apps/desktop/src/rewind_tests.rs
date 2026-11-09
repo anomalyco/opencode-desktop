@@ -302,7 +302,7 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
 }
 
 #[test]
-fn fork_dialog_and_rewound_toast_stay_inside_viewport_and_clear_composer_at_zoom_1_6() {
+fn fork_dialog_and_rewound_toast_stay_inside_viewport_at_zoom_1_6() {
     let mut app = App::fixture_session();
     app.finish_stream();
     app.zoom = 1.6;
@@ -318,9 +318,9 @@ fn fork_dialog_and_rewound_toast_stay_inside_viewport_and_clear_composer_at_zoom
     for _ in 0..30 {
         rt.frame(DT);
     }
+    // Desktop's Sonner region sits at the window's bottom-right whatever is under it (toast.tsx).
     let toast = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("status-toast")).unwrap().rect;
-    let composer = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("composer")).unwrap().rect;
-    assert!(toast[1] + toast[3] <= composer[1], "toast {toast:?} stays above composer {composer:?}");
+    assert!(toast[0] >= 16.0 && toast[1] >= 16.0 && toast[0] + toast[2] <= 1280.0 - 16.0 && toast[1] + toast[3] <= 820.0 - 16.0, "toast inside window at 1.6x: {toast:?}");
 
     rt.update(|s, tx| {
         assert!(s.open_fork_dialog(tx));

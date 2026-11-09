@@ -109,7 +109,6 @@
   "rune.menu.edit.findPrevious": "Find Previous",
   "rune.message.quote": "Quote",
   "rune.openIn.failed": "Couldn't open",
-  "rune.picker.rail.jump": "Jump to {{group}}",
   "rune.queue.label": "Queued prompts",
   "rune.review.noGit": "Not a Git repository",
   "rune.review.scope": "Change review scope",
