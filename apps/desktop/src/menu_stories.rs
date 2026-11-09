@@ -25,7 +25,7 @@ fn last_prompt(s: &App) -> Option<String> {
 
 fn is_open(s: &App) -> bool {
     match s.variant {
-        0 => s.add.open,
+        0 => s.add.open(),
         1 => s.rewind.menu.is_some() && s.popup.is_open(),
         4 => s.popup.is_open(),
         2 => s.shells.activity.is_open(),

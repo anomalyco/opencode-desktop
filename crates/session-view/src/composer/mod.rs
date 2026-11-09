@@ -4,6 +4,7 @@
 
 pub mod attachments;
 pub mod history;
+pub mod mode;
 
 use std::cell::Cell;
 
@@ -23,7 +24,8 @@ use crate::user_parts::mention_pill_style;
 /// The editor's height cap, its padding included (Desktop's `max-h-[180px]`).
 pub const COMPOSER_MAX_H: f32 = 180.0;
 pub const PROMPT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
-pub const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
+/// Shell mode's editor (`editor.tsx:322`): the prompt's 13/20 at 440 in the mono face, -0.04 tracking.
+pub const SHELL_PROMPT: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
 
 thread_local! {
     static WHOLE: Cell<bool> = const { Cell::new(true) };
@@ -401,7 +403,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     match face {
         Some(face) => box_el.children(face),
         None => box_el
-            .children(attachments::chips(s, p))
+            // Shell mode sends no attachments, so it shows none (`editor.tsx:272`).
+            .children(if s.composer_shell_mode() { None } else { attachments::chips(s, p) })
             .child(
                 col()
                     .key("editor")

@@ -248,7 +248,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 fn toggle_shell(s: &mut App, tx: &mut Tx) {
     tx.instant();
-    if s.add.shell { s.exit_shell() } else { s.enter_shell() }
+    if s.add.shell() { s.exit_shell() } else { s.enter_shell() }
 }
 
 /// Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
@@ -427,12 +427,12 @@ rune_register::register!(COMMANDS: Cmd = [
         tx.instant();
         s.enter_shell();
     })
-    .when(|s| s.has_composer() && !s.add.shell),
+    .when(|s| s.has_composer() && !s.add.shell()),
     Cmd::new("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {
         tx.instant();
         s.exit_shell();
     })
-    .when(|s| s.has_composer() && s.add.shell),
+    .when(|s| s.has_composer() && s.add.shell()),
 ]);
 
 #[cfg(test)]

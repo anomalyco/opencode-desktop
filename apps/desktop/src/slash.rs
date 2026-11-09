@@ -77,7 +77,7 @@ impl App {
     /// The `/query` the command popover filters by: the whole draft is `/` and a word, the
     /// caret at its end.
     pub fn slash_query(&self) -> Option<String> {
-        if self.add.shell || !self.composer.focused || self.add.slash.closed.as_deref() == Some(self.composer.text.as_str()) {
+        if self.add.shell() || !self.composer.focused || self.add.slash.closed.as_deref() == Some(self.composer.text.as_str()) {
             return None;
         }
         let text = &self.composer.text;

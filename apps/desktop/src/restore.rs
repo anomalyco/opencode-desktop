@@ -234,6 +234,7 @@ impl App {
         if key == self.restore.shown {
             return;
         }
+        self.add.swap_draft(self.restore.shown.as_deref(), key.as_deref());
         if let Some(old) = self.restore.shown.take() {
             let text = std::mem::take(&mut self.composer.text);
             if text.trim().is_empty() {

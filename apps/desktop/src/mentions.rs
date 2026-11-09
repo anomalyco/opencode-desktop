@@ -338,7 +338,7 @@ impl App {
     /// The `@`'s byte offset and the query, when the text before the caret has one that isn't
     /// already a pill's.
     fn mention_trigger(&self, open: bool) -> Option<(usize, String)> {
-        if self.add.shell {
+        if self.add.shell() {
             return None;
         }
         let text = self.composer.text.get(..self.caret())?;

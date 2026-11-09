@@ -5,8 +5,11 @@
 //! A `/name` the server knows sends its arguments to `POST …/command`; shell mode sends the
 //! composer's text to `POST …/shell` and can't wait in the queue.
 
+use std::collections::HashMap;
+
 use rune::{Color, El, Key, KeyEvent, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
+use session_view::composer::mode::{self, Effect, Event, Mode};
 
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::Delivery;
@@ -58,18 +61,48 @@ impl Item {
     }
 }
 
+/// The + menu: shut, or open with the item hovered or moved to, if any.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Menu {
+    #[default]
+    Closed,
+    Open { active: Option<Item> },
+}
+
+#[derive(Default)]
 pub struct AddMenu {
-    pub open: bool,
-    /// The highlighted item, once hovered or moved to.
-    active: Option<Item>,
-    /// The composer sends shell commands instead of prompts.
-    pub shell: bool,
+    pub menu: Menu,
+    /// The open draft's mode: prompts or shell commands (see [`mode`]).
+    pub mode: Mode,
+    /// The other drafts' shell modes, by draft key: Desktop keeps the mode in each draft.
+    parked: HashMap<String, Mode>,
     pub slash: Slash,
 }
 
-impl Default for AddMenu {
-    fn default() -> Self {
-        AddMenu { open: false, active: None, shell: false, slash: Slash::default() }
+impl AddMenu {
+    pub fn open(&self) -> bool {
+        matches!(self.menu, Menu::Open { .. })
+    }
+
+    fn active(&self) -> Option<Item> {
+        match self.menu {
+            Menu::Open { active } => active,
+            Menu::Closed => None,
+        }
+    }
+
+    /// The composer sends shell commands instead of prompts.
+    pub fn shell(&self) -> bool {
+        self.mode == Mode::Shell
+    }
+
+    /// The composer moves from draft `from` to draft `to`: each keeps its own mode.
+    pub fn swap_draft(&mut self, from: Option<&str>, to: Option<&str>) {
+        if let Some(from) = from {
+            if self.shell() { self.parked.insert(from.to_owned(), Mode::Shell); } else { self.parked.remove(from); }
+        }
+        let next = to.and_then(|k| self.parked.remove(k)).unwrap_or_default();
+        mode::step(&mut self.mode, Event::Synced(next));
     }
 }
 
@@ -84,17 +117,15 @@ impl App {
     }
 
     pub fn open_add_menu(&mut self) {
-        if self.add.shell {
+        if self.add.shell() {
             return;
         }
         self.close_mentions();
-        self.add.open = true;
-        self.add.active = None;
+        self.add.menu = Menu::Open { active: None };
     }
 
     pub fn close_add_menu(&mut self) {
-        self.add.open = false;
-        self.add.active = None;
+        self.add.menu = Menu::Closed;
     }
 
     pub fn choose_add(&mut self, item: Item, tx: &mut Tx) {
@@ -128,21 +159,40 @@ impl App {
         self.composer.insert(&format!("{}{trigger}", if space { " " } else { "" }));
     }
 
+    /// Steps the composer's mode and runs what it asks; true when it took the key.
+    pub fn composer_mode(&mut self, event: Event) -> bool {
+        let step = mode::step(&mut self.add.mode, event);
+        for effect in step.effects {
+            match effect {
+                Effect::ClosePopovers => {
+                    self.close_mentions();
+                    self.close_add_menu();
+                }
+                Effect::ClearDraft => self.composer.clear(),
+            }
+        }
+        step.handled
+    }
+
     pub fn enter_shell(&mut self) {
-        self.close_mentions();
-        self.close_add_menu();
-        self.add.shell = true;
+        self.composer_mode(Event::Shell);
         self.composer.focused = true;
     }
 
     pub fn exit_shell(&mut self) {
-        self.add.shell = false;
+        self.composer_mode(Event::Normal);
+    }
+
+    /// The draft became exactly `!`: prompt mode switches to shell (`inputChanged`).
+    pub fn composer_typed(&mut self) -> bool {
+        let bang = self.composer.text == "!" && self.composer.preedit().is_none();
+        self.composer_mode(Event::Input { bang })
     }
 
     /// Keys for the + menu, ⌘U, shell mode and the command popover. The composer's handler
     /// and the window's both call it.
     pub fn add_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if self.add.open {
+        if let Menu::Open { active } = self.add.menu {
             let step = |i: Option<Item>, d: i64| {
                 let n = Item::ALL.len() as i64;
                 let at = i.and_then(|i| Item::ALL.iter().position(|x| *x == i)).map_or(if d > 0 { -1 } else { 0 }, |p| p as i64);
@@ -154,10 +204,10 @@ impl App {
                     self.close_add_menu();
                     self.composer.focused = true;
                 }
-                Key::Down => self.add.active = Some(step(self.add.active, 1)),
-                Key::Up => self.add.active = Some(step(self.add.active, -1)),
+                Key::Down => self.add.menu = Menu::Open { active: Some(step(active, 1)) },
+                Key::Up => self.add.menu = Menu::Open { active: Some(step(active, -1)) },
                 Key::Enter => {
-                    if let Some(item) = self.add.active {
+                    if let Some(item) = active {
                         self.choose_add(item, tx);
                     }
                 }
@@ -166,7 +216,7 @@ impl App {
             return true;
         }
         if crate::keymap::Bind::Attach.matches_tx(ev, tx) && self.has_composer() {
-            if !self.add.shell {
+            if !self.add.shell() {
                 self.close_mentions();
                 self.pick_attachment(tx);
             }
@@ -178,22 +228,17 @@ impl App {
         if self.slash_key(ev, tx) {
             return true;
         }
-        let plain = !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt;
-        if self.add.shell {
-            let empty = self.composer.text.is_empty();
-            if ev.key == Key::Escape || (ev.key == Key::Backspace && plain && empty) {
-                tx.instant();
-                self.exit_shell();
-                return true;
-            }
+        // With no list open, Escape and Backspace reach the machine, which leaves shell mode.
+        let event = match ev.key {
+            Key::Escape => Event::Escape,
+            Key::Backspace => Event::Backspace { empty: self.composer.text.is_empty() },
+            _ => return false,
+        };
+        if self.composer.preedit().is_some() || self.mentions.open || !self.composer_mode(event) {
             return false;
         }
-        if plain && ev.key == Key::Text("!".into()) && self.composer.text.is_empty() && self.composer.preedit().is_none() {
-            tx.instant();
-            self.enter_shell();
-            return true;
-        }
-        false
+        tx.instant();
+        true
     }
 
     /// Runs a `/command` prompt: in the open session (steered or queued while it works, by
@@ -267,10 +312,11 @@ impl App {
 
 /// The + button at the start of the toolbar: `icon-button-v2` ghost-muted at size large
 /// (`editor.tsx:977-987`, `icon-button.css:36-39,115-142`), pressed with its icon in
-/// `icon-icon-base` while the menu is open, at half strength in shell mode. The pickers start
-/// 4 after it (`ms-1`): the toolbar's 2 pt gap and its own 2.
+/// `icon-icon-base` while the menu is open. Shell mode fades it out with the pickers
+/// ([`shell_hidden`]). The pickers start 4 after it (`ms-1`): the toolbar's 2 pt gap and its
+/// own 2.
 pub fn trigger(s: &App, p: &Pal) -> El {
-    let disabled = s.add.shell;
+    let open = s.add.open();
     let mut b = el()
         .key("add")
         .role("button")
@@ -280,24 +326,59 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .mr(2.0)
         .radius(6.0)
         .center()
-        .child(icon(&ic::PLUS, 16.0).color(if s.add.open { p.icon } else { p.icon_muted }));
-    if s.add.open {
+        .child(icon(&ic::PLUS, 16.0).color(if open { p.icon } else { p.icon_muted }))
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            if s.add.open() { s.close_add_menu() } else { s.open_add_menu() }
+            crate::popover::motion::toggled(&s.knobs, tx, s.add.open());
+        });
+    if open {
         b = b.fill(p.pressed);
     }
-    if disabled {
-        b = b.opacity(0.5);
-    } else {
-        b = b.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| {
-            if s.add.open { s.close_add_menu() } else { s.open_add_menu() }
-            crate::popover::motion::toggled(&s.knobs, tx, s.add.open);
-        });
-    }
-    b
+    shell_hidden(s, b)
+}
+
+/// The + button and the pickers in shell mode: still in their places, faded out over 200 ms
+/// and out of reach of the pointer, Tab and assistive technology (`editor.tsx:178-182`,
+/// `aria-hidden` and `inert` at 426-460).
+pub fn shell_hidden(s: &App, el: El) -> El {
+    let el = el.opacity_motion(rune::Anim::new(rune::Curve::tween(0.2, rune::Easing::EASE)));
+    if s.add.shell() { el.opacity(0.0).inert().a11y_hidden() } else { el.opacity(1.0) }
+}
+
+/// "Exit Esc" before Send in shell mode (`editor.tsx:499-516`): `button-v2` ghost-faint at size
+/// small (`button.css:46-50,304-326`), 24 tall, 6 in and the word 6 from the keys, 4 pt
+/// corners, 12 before Send (`me-3`: the toolbar's 2 pt gap and 10), its ring 2 inside
+/// (`editor.css:70-73`). The keys show only in a window at least 640 wide (`hidden sm:block`).
+/// It goes back to prompts and the caret to the composer.
+pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
+    let word = text(t!("ui.promptInput.exitShell")).font(crate::view::UI_MED).color(p.faint);
+    row()
+        .key("exit-shell")
+        .role("button")
+        .label(t!("ui.promptInput.exitShell"))
+        .h(24.0)
+        .px(6.0)
+        .mr(10.0)
+        .gap(6.0)
+        .center_y()
+        .radius(4.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.exit_shell();
+            s.composer.focused = true;
+        })
+        .child(word)
+        .children(wide.then(|| crate::keymap::chips(p, vec![t!("common.key.esc").to_owned()])))
 }
 
 /// The menu over the + button, and the scrim that closes it.
 pub fn menu(s: &App, p: &Pal) -> Option<El> {
-    if !s.add.open {
+    if !s.add.open() {
         return None;
     }
     // `menu-v2-content` (`menu.css:6-21`): layer 1, a 2 pt inset, 6 pt corners and
@@ -321,7 +402,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
             // `menu-v2-separator`: edge to edge, through the menu's 2 pt inset.
             menu = menu.child(el().key("add-separator").h(1.0).mt(2.0).mb(2.0).ml(-2.0).mr(-2.0).fill(p.border_muted));
         }
-        let active = s.add.active == Some(item);
+        let active = s.add.active() == Some(item);
         menu = menu.child(
             row()
                 .key(format!("add-{}", item.key()))
@@ -337,9 +418,9 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .fill(if active { p.hover } else { Color::TRANSPARENT })
                 .press(p.pressed)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-                    if inside {
+                    if inside && s.add.open() {
                         tx.instant();
-                        s.add.active = Some(item);
+                        s.add.menu = Menu::Open { active: Some(item) };
                     }
                 })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_add(item, tx))
@@ -495,19 +576,19 @@ mod tests {
         let mut rt = runtime();
         tap(&mut rt, "prompt");
         typed(&mut rt, "!");
-        assert!(rt.state.add.shell);
+        assert!(rt.state.add.shell());
         assert_eq!(rt.state.composer.text, "");
         assert!(shown(&rt, "add").is_some_and(|b| b.label.as_deref() == Some("Add images and files")));
         tap(&mut rt, "add");
-        assert!(!rt.state.add.open, "the + is off in shell mode");
+        assert!(!rt.state.add.open(), "the + is off in shell mode");
         tap(&mut rt, "prompt");
         typed(&mut rt, "l@");
         assert!(!rt.state.mentions.open, "no @ popover in shell mode");
         key(&mut rt, Key::Backspace);
         key(&mut rt, Key::Backspace);
-        assert!(rt.state.add.shell);
+        assert!(rt.state.add.shell());
         key(&mut rt, Key::Backspace);
-        assert!(!rt.state.add.shell);
+        assert!(!rt.state.add.shell());
         typed(&mut rt, "a!");
         assert_eq!(rt.state.composer.text, "a!", "! starts shell mode only in an empty composer");
     }
@@ -517,13 +598,13 @@ mod tests {
         let mut app = App::empty();
         let writes = app.fake_writes();
         app.route = Route::Session("ses_a".into());
-        app.add.shell = true;
+        app.add.mode = Mode::Shell;
         app.composer = rune::TextEdit::new("ls -la ");
         app.send(&mut Tx::default());
         let Ok(Write::Shell { session, id, command }) = writes.try_recv() else { panic!("no shell") };
         assert_eq!((session.as_str(), command.as_str()), ("ses_a", "ls -la"));
         assert!(id.is_some_and(|i| i.starts_with("msg_")));
-        assert!(!app.add.shell, "back to prompts after sending");
+        assert!(!app.add.shell(), "back to prompts after sending");
         assert!(app.composer.text.is_empty());
     }
 

@@ -132,7 +132,7 @@ impl Quotes {
 fn available(s: &App) -> Option<&str> {
     let Route::Session(id) = &s.route else { return None };
     let child = s.session(id).is_some_and(|i| i.parent.is_some());
-    (!child && !s.add.shell && !s.settings.open).then_some(id.as_str())
+    (!child && !s.add.shell() && !s.settings.open).then_some(id.as_str())
 }
 
 /// The timeline's `on_selection_change`: a new selection waits to settle; a cleared one closes

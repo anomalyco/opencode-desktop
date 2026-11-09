@@ -67,7 +67,7 @@ impl App {
             return false;
         }
         if self.mentions.open
-            || self.add.open
+            || self.add.open()
             || self.slash_query().is_some()
             || self.pickers.open.is_some()
             || self.switcher.open
@@ -75,7 +75,7 @@ impl App {
         {
             return false;
         }
-        let (route, shell) = (self.route.clone(), self.add.shell);
+        let (route, shell) = (self.route.clone(), self.add.shell());
         if !self.prompts.step(&mut self.composer, &route, shell, up) {
             return false;
         }
@@ -87,7 +87,7 @@ impl App {
     /// Runs `send`, and records the prompt in the composer if that sent it (the composer is
     /// empty afterwards). A send that failed or waits leaves the text, and records nothing.
     pub fn record_sent(&mut self, send: impl FnOnce(&mut App)) {
-        let (entry, shell) = (Entry::of(&self.composer), self.add.shell);
+        let (entry, shell) = (Entry::of(&self.composer), self.add.shell());
         send(self);
         if self.composer.text.is_empty() && !entry.text.is_empty() {
             self.prompts.add(entry, shell);

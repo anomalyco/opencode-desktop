@@ -176,9 +176,9 @@ fn an_open_popover_keeps_the_arrows() {
     rt.state.mentions.open = true;
     assert!(!press(&mut rt, Key::Up, Mods::default()));
     rt.state.mentions.open = false;
-    rt.state.add.open = true;
+    rt.state.open_add_menu();
     assert!(!press(&mut rt, Key::Up, Mods::default()));
-    rt.state.add.open = false;
+    rt.state.close_add_menu();
     rt.state.composer.insert("/");
     assert!(!press(&mut rt, Key::Up, Mods::default()), "the / popover is showing");
     assert_eq!(rt.state.composer.text, "/");

@@ -149,7 +149,7 @@ impl ComposerHost for App {
     /// works or has prompts queued, else the question.
     fn composer_placeholder(&self) -> String {
         let queued = matches!(&self.route, Route::Session(id) if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
-        if self.add.shell {
+        if self.add.shell() {
             t!("prompt.placeholder.shell", example = "git status")
         } else if self.composer_busy() || queued {
             t!("ui.promptInput.placeholder.followUp", slash = "/", at = "@")
@@ -158,7 +158,7 @@ impl ComposerHost for App {
         }
     }
     fn composer_shell_mode(&self) -> bool {
-        self.add.shell
+        self.add.shell()
     }
     fn composer_spellcheck(&self) -> bool {
         self.settings.spellcheck
@@ -185,6 +185,10 @@ impl ComposerHost for App {
         crate::dictation::status(self, p)
     }
     fn composer_on_change(&mut self, tx: &mut Tx) {
+        if self.composer_typed() {
+            tx.instant();
+            return;
+        }
         crate::quote::typed(self, tx);
         self.mentions_changed(tx);
         self.slash_changed(tx);
@@ -257,30 +261,30 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         Agent::Icon => Some(agent_icon(s, p, &name)),
         Agent::Gone => None,
     });
+    let hidden = |el: El| crate::add_menu::shell_hidden(s, el);
     let mut out = vec![crate::add_menu::trigger(s, p)];
-    out.extend(agent);
-    out.push(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0));
+    out.extend(agent.map(hidden));
+    out.push(hidden(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0)));
     if s.has_effort() && fold.effort {
-        out.push(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons));
+        out.push(hidden(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons)));
     }
-    out.push(
-        spacer()
-            .key("room")
-            .h(28.0)
-            .min_w(0.0)
-            .justify_end()
-            .center_y()
-            .children(
-                queues
-                    .then(|| {
-                        let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                        crate::queue::alternate_hint(p, room)
-                    })
-                    .flatten(),
-            ),
-    );
+    // Shell mode has no other delivery, and its Exit stands where that hint would.
+    let actions = if s.add.shell() {
+        let w = s.layout.narrow.width();
+        let wide = w <= 0.0 || w >= 640.0;
+        Some(crate::add_menu::exit_shell_button(p, wide))
+    } else {
+        queues
+            .then(|| {
+                let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
+                crate::queue::alternate_hint(p, room)
+            })
+            .flatten()
+    };
+    out.push(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children(actions));
     out.extend(crate::auto_accept::indicator(s, p));
-    out.extend(mic.filter(|_| fold.mic || dictating));
+    // Shell mode keeps only Exit beside Send (`editor.tsx:491-528`), unless a dictation runs.
+    out.extend(mic.filter(|_| (fold.mic && !s.add.shell()) || dictating));
     out
 }
 
@@ -301,6 +305,10 @@ fn folds(
         let t = narrow::Toolbar::after(k);
         // The add button and its 2 pt margin, the room, Send, and auto-accept's mark when it's on.
         let mut items = vec![30.0, 0.0, 28.0];
+        if s.add.shell() {
+            // Exit and its keys, 6 in and 6 apart, and 10 before Send.
+            items.push(narrow::text_w(t!("ui.promptInput.exitShell"), UI_MED) + 6.0 + narrow::text_w(t!("common.key.esc"), UI_SMALL) + 8.0 + 12.0 + 10.0);
+        }
         if s.settings.auto_accept {
             items.push(28.0);
         }
