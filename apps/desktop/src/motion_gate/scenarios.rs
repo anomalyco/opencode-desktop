@@ -78,6 +78,7 @@ const ALLOW: &[Allow] = &[
     ("text-swap", "narrow-tabs-trigger/", "", "the narrow titlebar's trigger names the open tab and counts the tabs as plain text, as Desktop's mobile-tab-title does (titlebar.tsx:581-640): opening or switching a tab swaps them at once"),
     ("pop-in", "header-actions/connection-status", "reconnect/", "Reconnecting shows in the header in the frame a lost link has lasted its quiet time, at once, as a utility status (reconnect::poll; docs/kit-design.md: status changes do not animate)"),
     ("jump", "header/", "reconnect/", "the header gives Reconnecting its room in the frame it shows, at once with it (reconnect::poll)"),
+    ("jump", "crumbs/header-title", "reconnect/", "the title gives Reconnecting its room in the frame it shows, at once with it (reconnect::poll)"),
     ("fade-snap", "bubble/menu", "", "a prompt's corner chevron shows and hides with its bubble's hover at once, as Desktop's does (timeline::user_bubble)"),
     ("fade-snap", "bubble/meta", "", "a prompt's meta line shows and hides with its bubble's hover at once, together with the chevron, as Desktop's copy wrapper does (message-part.css:279-283; timeline::user_bubble)"),
     ("fade-snap", "turn-actions/#0/#0/meta", "", "a reply footer's model and time show and hide with the reply's hover at once, as Desktop's text-part-copy-wrapper does: 'Hover actions show and hide at once, without a fade' (message-part.css:584-588; timeline::turn_actions)"),

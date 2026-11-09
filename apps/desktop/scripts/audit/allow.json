@@ -1,4 +1,6 @@
 [
+  {"trace": "tool-group", "element": "steps-box/", "kind": "reversal",
+   "reason": "a long tool group shuts from its stuck header at the end as one motion: on screen its steps slide up and its clip closes monotonically (y -503 to -656 over frames 336-372); the timeline's offset clamps up by the group's height as it collapses, so against the scrolled content the path turns once (Rune #373, fold_hold)"},
   {"trace": "compacted-summary", "element": "cmp-msg_zzlongcompaction-quiet/#0/bar", "kind": "invisible-work",
    "reason": "KNOWN GAP (MOTION-GREEN-3 follow-up): the story's Compacted divider eases its colours for 10 frames while a fold scrolls it out of view; Rune's unseen check counts the whole span a scroll may cover as in view during the glide, so it doesn't land them"},
   {"trace": "sidebar", "element": "window/side-region/side-column", "kind": "invisible-work",
