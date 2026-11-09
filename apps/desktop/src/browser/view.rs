@@ -32,6 +32,11 @@ static PICKER_ICON: Icon = Icon {
     view: 16.0,
     body: r#"<circle cx="8" cy="8" r="5" stroke="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5" stroke="currentColor"/>"#,
 };
+static OPEN_OUT_ICON: Icon = Icon {
+    name: "browser-open-out",
+    view: 16.0,
+    body: r#"<path d="M7 3H3V13H13V9" stroke="currentColor" stroke-linecap="square"/><path d="M9.5 2.5H13.5V6.5M13 3L7.5 8.5" stroke="currentColor" stroke-linecap="square"/>"#,
+};
 
 pub fn render_panel(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let tab_id = ctx
@@ -182,7 +187,16 @@ fn address_bar(s: &App, p: &Pal, tab_id: Option<u64>) -> El {
     }
     bar = bar.child(inspect_btn);
 
-    bar
+    let can_open_out = tab.is_some_and(|t| super::external_url(&t.url).is_some());
+    let mut open_out_btn = icon_btn(p, "browser-open-out", opencode_i18n::t!("plugin.browser.external.menu"), &OPEN_OUT_ICON, 14.0, false, can_open_out);
+    if can_open_out {
+        open_out_btn = open_out_btn.on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            if let Some(id) = tab_id {
+                s.open_browser_tab_externally(id, tx);
+            }
+        });
+    }
+    bar.child(open_out_btn)
 }
 
 fn viewport(s: &App, p: &Pal, tab_id: Option<u64>, status: EngineStatus, env_scale: f32) -> El {
@@ -387,6 +401,7 @@ fn icon_btn(
         .key(key)
         .role("button")
         .label(label)
+        .help(label)
         .size(26.0, 26.0)
         .radius(6.0)
         .center()
