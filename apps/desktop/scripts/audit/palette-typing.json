@@ -1,0 +1,15 @@
+{
+  "scene": "session", "secs": 4.2,
+  "fixture": {
+    "find_ms": 180,
+    "find_files": ["apps/note-web/src/ios_thread.rs", "apps/desktop/src/motion_gate/scenarios.rs", "apps/ios/Sources/App.swift", "docs/ios-release.md", "apps/desktop/src/selection_stories.rs"]
+  },
+  "events": [
+    {"t": 0.3, "type": "key", "name": "k", "cmd": true, "expect": "instant"},
+    {"t": 0.6, "type": "type", "text": "ios", "every": 0.12, "expect": "instant"},
+    {"t": 1.6, "type": "key", "name": "Backspace", "expect": "instant"},
+    {"t": 1.72, "type": "key", "name": "Backspace", "expect": "instant"},
+    {"t": 1.84, "type": "key", "name": "Backspace", "expect": "instant"},
+    {"t": 2.2, "type": "type", "text": "ioeuaoe", "every": 0.12, "expect": "instant"}
+  ]
+}

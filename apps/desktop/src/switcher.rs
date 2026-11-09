@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 
-use opencode_kit::model::{self, SessionInfo};
+use opencode_kit::model::SessionInfo;
 
-use crate::files::data::{fetch_live_find, file_tab_path, parse_path_and_line};
+use crate::files::data::{file_tab_path, parse_path_and_line};
 use crate::keymap::Bind;
 use crate::mentions::list::{Highlight, cycle, upsert_sessions};
 use crate::view::title_of;
@@ -28,7 +28,10 @@ use crate::{App, Route, Source};
 
 mod view;
 mod session_index;
+mod shown;
+mod fetch;
 pub use view::{dialog, view};
+use shown::{Effect, Event, Shown};
 
 /// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
 /// recent sessions (`RECENT_LIMIT`); and a query's local session matches (`ENTRY_LIMIT * 10`).
@@ -110,6 +113,10 @@ pub struct Switcher {
     /// The file query last sent.
     files_asked: Option<String>,
     files_fetch: Latest<(String, Vec<String>)>,
+    /// The fixture's answer to the file query and when it lands (its `find_ms`, as a server's).
+    fixture_find: Option<(f64, (String, Vec<String>))>,
+    /// What the list shows while its searches run (`shown.rs`).
+    shown: Shown,
 }
 
 impl Default for Switcher {
@@ -131,6 +138,8 @@ impl Default for Switcher {
             files: (String::new(), Vec::new()),
             files_asked: None,
             files_fetch: Latest::default(),
+            fixture_find: None,
+            shown: Shown::default(),
         }
     }
 }
@@ -175,14 +184,16 @@ impl Switcher {
         self.restore_composer
     }
 
-    /// Still waiting on the server for this query: Desktop's "Loading" while nothing matches.
-    pub(crate) fn loading(&self) -> bool {
-        self.fetch.is_pending() || self.files_fetch.is_pending()
+    /// The typed query's session search failed.
+    fn failed_now(&self) -> bool {
+        self.failed.as_deref() == Some(self.query())
     }
+}
 
-    pub(crate) fn failed(&self) -> Option<&str> {
-        self.failed.as_deref()
-    }
+/// `needle`'s letters appear in `hay` in order, as the server's fuzzy file search matches them.
+fn subsequence(hay: &str, needle: &str) -> bool {
+    let mut letters = hay.chars();
+    needle.chars().all(|c| letters.any(|h| h == c))
 }
 
 /// `matchesCommandPaletteEntry`: a case-insensitive substring of the title, description, id or,
@@ -305,8 +316,43 @@ impl App {
         }
     }
 
+    /// The list: the typed query's matches; while it's searched with none yet, the rows on screen
+    /// before it (`shown.rs`).
     pub fn switcher_entries(&self) -> Vec<Entry> {
         let q = self.switcher.query();
+        let rows = self.switcher_matches(q);
+        match self.switcher.shown.held(q) {
+            Some(was) if rows.is_empty() && self.switcher_searching() => self.switcher_matches(was),
+            _ => rows,
+        }
+    }
+
+    /// What shows where the rows would be when there are none.
+    pub(crate) fn switcher_empty(&self) -> shown::Empty {
+        self.switcher.shown.empty(self.switcher.query(), self.switcher_searching(), self.switcher.failed_now())
+    }
+
+    /// A search for the typed query is still out: the server's sessions (live, after its pause)
+    /// or the folder's files.
+    pub(crate) fn switcher_searching(&self) -> bool {
+        let sw = &self.switcher;
+        let q = sw.query();
+        let archived = sw.mode == SwitcherMode::Archived;
+        let sessions = sw.mode != SwitcherMode::Commands
+            && matches!(self.source, Source::Live { .. })
+            && (!q.is_empty() || archived)
+            && (sw.searched != q || sw.fetch.is_pending() || (archived && !sw.listed_archived));
+        let files = self.switcher_files_session().is_some() && {
+            let clean = parse_path_and_line(q).0;
+            !clean.is_empty()
+                && sw.files.0 != clean
+                && (sw.files_asked.as_deref() != Some(clean.as_str()) || sw.files_fetch.is_pending() || sw.fixture_find.is_some())
+        };
+        sessions || files
+    }
+
+    /// Everything matching `q`: commands, sessions, settings and files.
+    fn switcher_matches(&self, q: &str) -> Vec<Entry> {
         let all = self.palette_commands();
         let command = |c: &crate::commands::Command| Entry {
             key: format!("command:{}", c.id),
@@ -386,8 +432,9 @@ impl App {
     }
 
     /// The server's files for the query (`file.searchFiles`). Until it answers this query, the
-    /// files it found before and the folder's known files that still match (`search.ts`'s
-    /// settled and seen items), so rows don't blink out between keystrokes.
+    /// files it found before whose letters still come in order (its search is fuzzy), in its
+    /// order, then the folder's known files that contain the query, so rows hold their places
+    /// between keystrokes.
     fn switcher_found_files(&self, q: &str) -> Vec<Entry> {
         let Some(sid) = self.switcher_files_session() else { return Vec::new() };
         let clean = parse_path_and_line(q).0;
@@ -396,10 +443,11 @@ impl App {
             return found.iter().cloned().map(file_entry).collect();
         }
         let needle = clean.to_lowercase();
-        let known = self.files.sessions.get(sid).into_iter().flat_map(|w| w.known_files.iter());
+        let found = found.iter().filter(|p| subsequence(&p.to_lowercase(), &needle));
+        let known = self.files.sessions.get(sid).into_iter().flat_map(|w| w.known_files.iter()).filter(|p| p.to_lowercase().contains(&needle));
         let mut out: Vec<String> = Vec::new();
-        for p in found.iter().chain(known) {
-            if p.to_lowercase().contains(&needle) && !out.contains(p) {
+        for p in found.chain(known) {
+            if !out.contains(p) {
                 out.push(p.clone());
             }
         }
@@ -473,6 +521,8 @@ impl App {
         self.switcher.files = (String::new(), Vec::new());
         self.switcher.files_asked = None;
         self.switcher.files_fetch.cancel();
+        self.switcher.fixture_find = None;
+        self.switcher.shown.step(Event::Opened { now: self.clock });
     }
 
     /// Closes it; `restore` gives the composer back its focus if it had it.
@@ -623,11 +673,23 @@ impl App {
             }
             changed = true;
         }
+        if let Some((at, _)) = &self.switcher.fixture_find {
+            if self.clock >= *at {
+                let (_, found) = self.switcher.fixture_find.take().unwrap();
+                if self.switcher.files_asked.as_deref() == Some(found.0.as_str()) {
+                    self.switcher.files = found;
+                }
+                changed = true;
+            } else {
+                tx.wake_after(Duration::from_secs_f64(at - self.clock));
+            }
+        }
         if !self.switcher.open {
             return changed;
         }
+        let landed = changed;
         // Results land at once: no row fades in or slides to its place.
-        if changed {
+        if landed {
             tx.instant();
             let entries = self.switcher_entries();
             let active = self.switcher_active(&entries);
@@ -638,64 +700,32 @@ impl App {
             }
         }
         changed |= self.request_switcher_files();
-        let q = self.switcher.query().to_owned();
-        let archived = self.switcher.mode == SwitcherMode::Archived;
-        if q == self.switcher.searched && !(archived && !self.switcher.listed_archived) {
-            return changed;
-        }
-        self.switcher.listed_archived |= archived;
-        self.switcher.searched = q.clone();
-        self.switcher.failed = None;
-        tx.scroll_to_y("switcher-scroll", 0.0);
-        self.switcher.fetch.cancel();
-        let Source::Live { server, .. } = &self.source else { return true };
-        // Archived sessions aren't loaded, so the archived search lists the newest with no query.
-        if q.is_empty() && !archived {
-            return true;
-        }
-        // Typed searches wait for a pause, and a newer keystroke cancels this one.
-        let server = server.clone();
-        self.switcher.fetch.request(q, move |q| {
-            let path = format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(&q));
-            let listed = server.get(&path);
-            // `looksLikeSessionID`: a pasted id finds its session even when no title matches.
-            let exact = (q.len() > 20 && q.starts_with("ses_"))
-                .then(|| server.get(&format!("/api/session/{q}")).ok())
-                .flatten()
-                .map(|v| model::parse_session(v.get("data").unwrap_or(&v)));
-            let failed = listed.is_err() && exact.is_none();
-            let mut sessions: Vec<SessionInfo> = exact.into_iter().collect();
-            if let Ok(v) = &listed {
-                sessions.extend(model::parse_sessions(v));
-            }
-            Found { query: q, sessions, failed }
-        });
-        true
+        changed |= self.request_switcher_sessions(tx);
+        changed | self.step_switcher_shown(landed, tx)
     }
 
-    /// Asks the server for the files matching a new query, in the session's folder (a typed
-    /// `:line` left out); a newer query cancels the last.
-    fn request_switcher_files(&mut self) -> bool {
-        let Some(sid) = self.switcher_files_session().map(str::to_owned) else { return false };
-        let clean = parse_path_and_line(self.switcher.query()).0;
-        if clean.is_empty() || self.switcher.files_asked.as_deref() == Some(clean.as_str()) {
-            return false;
+    /// Steps what the list shows (`shown.rs`) when the query changed, answers landed, or it waits.
+    fn step_switcher_shown(&mut self, landed: bool, tx: &mut Tx) -> bool {
+        let before = self.switcher.shown.clone();
+        let now = self.clock;
+        let q = self.switcher.query().to_owned();
+        let mut effects = vec![self.switcher.shown.step(Event::Tick { now })];
+        if landed || self.switcher.shown.query() != q || matches!(self.switcher.shown, Shown::Waiting { .. }) {
+            let rows = !self.switcher_matches(&q).is_empty();
+            let (searching, failed) = (self.switcher_searching(), self.switcher.failed_now());
+            effects.push(self.switcher.shown.step(Event::Seen { query: &q, rows, searching, failed, now }));
         }
-        self.switcher.files_asked = Some(clean.clone());
-        self.switcher.files_fetch.cancel();
-        let Source::Live { server, .. } = &self.source else {
-            // The fixture's folder is all known: its files are the answer.
-            let known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
-            let found = crate::files::data::rank_file_query(&known, &clean).into_iter().filter(|p| p.to_lowercase().contains(&clean.to_lowercase())).collect();
-            self.switcher.files = (clean, found);
-            return true;
-        };
-        let (server, dir) = (server.clone(), self.session(&sid).map(|s| s.directory.clone()).unwrap_or_default());
-        self.switcher.files_fetch.request(clean, move |q| {
-            let found = fetch_live_find(&server, &dir, &q);
-            (q, found)
-        });
-        true
+        for effect in effects {
+            if let Effect::WakeAt(at) = effect {
+                tx.wake_after(Duration::from_secs_f64((at - now).max(0.0)));
+            }
+        }
+        // "Loading" and "No results" appear in place, as rows do.
+        let changed = self.switcher.shown != before;
+        if changed {
+            tx.instant();
+        }
+        changed
     }
 }
 
@@ -726,3 +756,5 @@ pub(crate) fn encode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod typing_tests;
